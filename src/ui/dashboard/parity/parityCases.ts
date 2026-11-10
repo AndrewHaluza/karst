@@ -118,6 +118,15 @@ const baselineRows = (decision: 'pending' | 'approved' = 'pending') =>
     decision,
     reason: null,
   }));
+/** Two themes of one screenshot: a group with more than one pending entry. */
+const groupState = (): DashboardState =>
+  ({
+    ...blockedState('baseline-review', false),
+    baselineReview: ['dark', 'light'].map((theme, index) => ({
+      index, path: `shots/${theme}/a.png`, label: `${theme}/a.png`, status: 'modified',
+      oldSrc: 'https://img.test/old.png', newSrc: 'https://img.test/new.png', decision: 'pending', reason: null,
+    })),
+  }) as DashboardState;
 const baselineState = (): DashboardState =>
   ({ ...blockedState('baseline-review', false), baselineReview: baselineRows() }) as DashboardState;
 
@@ -308,6 +317,14 @@ const SANDBOX_VIEW = {
   shell: { available: true, why: null },
 };
 
+/** Idempotent: the Review button opens the baseline overlay. */
+const openBaselines = (h: RenderHandle): void => {
+  if (!h.query('#baselineView [data-region="baseline-review"]')) clickEl(h.query<HTMLElement>('[data-act="baseline-open"]')!);
+};
+const openRejectForm = (h: RenderHandle): void => {
+  openBaselines(h);
+  if (!h.query('#blreason-0')) clickEl(h.query<HTMLElement>('[data-act="baseline-reject-open"]')!);
+};
 export const act = (a: string, extra = ''): string => `[data-act="${a}"]${extra}`;
 const forRepo = (a: string): string => act(a, `[data-repo="${REPO}"]`);
 
@@ -589,34 +606,44 @@ export const COVERED: readonly ParityCase[] = [
     sel: act(`push-diverged-${k}`, '[data-stagekey="uat"]'),
     posts: [{ type: `push-diverged-${k}` }], rid: true,
   })),
+  { act: 'baseline-open', state: baselineState, sel: act('baseline-open'), posts: [], pendingSel: false, after: (h) => expect(q(h, '#baselineView [data-region="baseline-review"]')).not.toBeNull() },
   {
-    act: 'baseline-approve', variant: 'one row', state: baselineState, sel: act('baseline-approve', '[data-indices="1"]'),
-    posts: [{ type: 'baseline-approve', blockId: 'baseline-review', indices: [1] }], rid: true,
-  },
-  {
-    act: 'baseline-approve', variant: 'approve all', state: baselineState, sel: act('baseline-approve', '[data-indices="0,1"]'),
+    act: 'baseline-approve', variant: 'approve all in the banner', state: baselineState, sel: act('baseline-approve', '[data-indices="0,1"]'),
     posts: [{ type: 'baseline-approve', blockId: 'baseline-review', indices: [0, 1] }], rid: true,
   },
-  { act: 'baseline-view', state: baselineState, sel: act('baseline-view', '[data-index="0"]'), posts: [], pendingSel: false },
-  { act: 'baseline-reject-open', state: baselineState, sel: act('baseline-reject-open', '[data-index="0"]'), posts: [], pendingSel: false },
   {
-    act: 'baseline-reject-cancel', state: baselineState, prep: ensureClick(act('baseline-reject-open', '[data-index="0"]'), act('baseline-reject-cancel')),
+    act: 'baseline-approve', variant: 'one entry', state: baselineState, prep: openBaselines, sel: act('baseline-approve', '[data-role="approve"]'),
+    posts: [{ type: 'baseline-approve', blockId: 'baseline-review', indices: [0] }], rid: true,
+  },
+  {
+    act: 'baseline-approve', variant: 'every theme of one screenshot', state: groupState, prep: openBaselines,
+    sel: act('baseline-approve', ':not([data-role])[data-indices="0,1"]'),
+    posts: [{ type: 'baseline-approve', blockId: 'baseline-review', indices: [0, 1] }], rid: true,
+  },
+  { act: 'baseline-filter', state: baselineState, prep: openBaselines, sel: act('baseline-filter', '[data-filter="all"]'), posts: [], pendingSel: false, after: (h) => expect(q(h, act('baseline-filter', '[data-filter="all"]'))!.getAttribute('aria-pressed')).toBe('true') },
+  { act: 'baseline-select', state: baselineState, prep: openBaselines, sel: act('baseline-select', '[data-index="1"]'), posts: [], pendingSel: false, after: (h) => expect(q(h, '.bllist [aria-current="true"]')!.getAttribute('data-index')).toBe('1') },
+  { act: 'baseline-view', state: baselineState, prep: openBaselines, sel: act('baseline-view', '[data-view="sbs"]'), posts: [], pendingSel: false },
+  { act: 'baseline-zoom', state: baselineState, prep: openBaselines, sel: act('baseline-zoom'), posts: [], pendingSel: false, after: (h) => expect(q(h, '.blstage')!.classList.contains('zoom')).toBe(true) },
+  { act: 'baseline-next', state: baselineState, prep: openBaselines, sel: act('baseline-next'), posts: [], pendingSel: false, after: (h) => expect(q(h, '.bllist [aria-current="true"]')!.getAttribute('data-index')).toBe('1') },
+  { act: 'baseline-prev', state: baselineState, prep: (h) => { openBaselines(h); clickEl(q(h, act('baseline-next'))!); }, sel: act('baseline-prev'), posts: [], pendingSel: false },
+  { act: 'baseline-reject-open', state: baselineState, prep: openBaselines, sel: act('baseline-reject-open'), posts: [], pendingSel: false },
+  {
+    act: 'baseline-reject-cancel', state: baselineState, prep: openRejectForm,
     sel: act('baseline-reject-cancel'), posts: [], pendingSel: false,
   },
   {
-    act: 'baseline-reject', variant: 'empty reason is refused locally', state: baselineState,
-    prep: ensureClick(act('baseline-reject-open', '[data-index="0"]'), act('baseline-reject')),
-    sel: act('baseline-reject', '[data-index="0"]'), posts: [], pendingSel: false,
+    act: 'baseline-reject', variant: 'empty reason is refused locally', state: baselineState, prep: openRejectForm,
+    sel: act('baseline-reject'), posts: [], pendingSel: false,
   },
   {
     act: 'baseline-reject', variant: 'with a reason', state: baselineState,
     prep: (h) => {
-      ensureClick(act('baseline-reject-open', '[data-index="0"]'), act('baseline-reject'))(h);
-      const ta = h.query<HTMLTextAreaElement>('[data-bl-reason="0"]')!;
+      openRejectForm(h);
+      const ta = h.query<HTMLTextAreaElement>('#blreason-0')!;
       ta.value = '  button is clipped  ';
       ta.dispatchEvent(new h.window.Event('input', { bubbles: true }));
     },
-    sel: act('baseline-reject', '[data-index="0"]'),
+    sel: act('baseline-reject'),
     posts: [{ type: 'baseline-reject', blockId: 'baseline-review', index: 0, reason: 'button is clipped' }], rid: true,
   },
 

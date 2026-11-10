@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Baseline Review Mockup</title>
+<style>
+:root{--bg:#1e1e1e;--card:#252526;--surface2:#2a2d2e;--raise:#2d2d30;--line:#3c3c3c;--fg:#ccc;--muted:#9d9d9d;--faint:#7a7a7a;
+--running:#4a9eff;--passed:#4ec36a;--failed:#f14c4c;--attention:#d7a22a;--tint-wait:#3a3220;--tint-fail:#3a2323;
+--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:-apple-system,"Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 var(--sans);padding:24px 16px 48px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:40px 0 4px}
+.lead{color:var(--muted);margin:0 0 12px;max-width:85ch}
+.note{font-size:12px;color:var(--muted);margin-top:8px;max-width:85ch}.note b{color:var(--fg)}
+.tag{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.tag.before{color:var(--failed)}.tag.after{color:var(--passed)}
+.frame{border:1px dashed var(--line);border-radius:6px;padding:12px;overflow-x:auto}
+.mono{font-family:var(--mono)}
+ol.issues li{margin:4px 0;max-width:90ch}
+.glyph{position:relative;width:16px;height:16px;display:inline-grid;place-items:center;flex:none;border:1px solid currentColor;border-radius:50%;color:var(--faint)}
+.glyph.pass{color:var(--passed)}.glyph.fail{color:var(--failed)}.glyph.wait{color:var(--attention)}
+.glyph.pass:before{content:"";width:6px;height:3px;border-left:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translate(-.5px,-1px) rotate(-45deg)}
+.glyph.fail:before,.glyph.fail:after{content:"";position:absolute;width:7px;height:1.5px;background:currentColor;left:50%;top:50%}
+.glyph.fail:before{transform:translate(-50%,-50%) rotate(45deg)}.glyph.fail:after{transform:translate(-50%,-50%) rotate(-45deg)}
+.glyph.wait:before,.glyph.wait:after{content:"";position:absolute;width:1.5px;height:6px;top:4px;background:currentColor}
+.glyph.wait:before{left:5px}.glyph.wait:after{right:5px}
+.ic{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.kb{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--raise);color:var(--fg);border-radius:4px;padding:2px 9px;font-size:12px;white-space:nowrap;cursor:pointer}
+.kb.primary{background:#0e639c;border-color:#1177bb;color:#fff}.kb.danger{border-color:#7a3030;color:#f88}
+.kb.ghost{background:transparent;border-color:transparent;color:var(--muted)}.kb.icon{padding:3px 5px}
+.kbd{font:10px var(--mono);border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--faint)}
+/* current */
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;max-width:760px}
+.fault{margin:10px -10px -10px;padding:10px 14px;border-top:1px solid #6a2b2b;background:var(--tint-fail);border-radius:0 0 8px 8px}
+.ftitle{color:var(--failed);font-weight:600;font-size:14px}.freason{font:12px var(--mono);color:var(--muted)}
+.blrow{border:1px solid var(--line);border-radius:6px;padding:8px;margin-top:8px}
+.seg{display:inline-flex;margin:6px 0}.seg span{border:1px solid var(--line);padding:2px 10px;font-size:12px}.seg span.on{background:#333;color:#fff}
+.blrow img{display:block;max-width:100%}
+.fade{height:60px;background:linear-gradient(transparent,var(--tint-fail));margin-top:-60px;position:relative}
+/* new banner */
+.wbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px -10px -10px;padding:8px 14px;border-top:1px solid #5c4a1f;background:var(--tint-wait);border-radius:0 0 8px 8px}
+.wbar .t{font-weight:600;color:var(--attention)}.wbar .r{color:var(--muted);font-size:12px;flex:1;min-width:160px}
+/* overlay */
+.ov{border:1px solid var(--line);border-radius:8px;background:var(--bg);display:grid;grid-template-rows:auto auto 1fr auto;height:620px;overflow:hidden}
+.ovh{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.ovh .ttl{font-weight:600}.ovh .sp{flex:1}
+.chips{display:flex;gap:6px;padding:6px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:12px;padding:1px 9px;font-size:12px;color:var(--muted)}
+.chip.on{border-color:var(--running);color:var(--fg)}
+.chip b{font:11px var(--mono);color:var(--fg)}
+.md{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:0}
+.list{border-right:1px solid var(--line);overflow:auto;min-height:0}
+.grp{border-bottom:1px solid var(--line)}
+.gh{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 10px;font-size:12px}
+.gh .n{font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gh .c{font:10px var(--mono);color:var(--muted)}
+.th{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:8px;align-items:center;padding:3px 10px 3px 34px;font-size:12px;color:var(--muted);cursor:pointer}
+.th.sel{background:#04395e;color:#fff}.th .s{font-size:11px;color:var(--faint)}
+.viewer{display:grid;grid-template-rows:auto 1fr;min-height:0;min-width:0}
+.vbar{display:flex;align-items:center;gap:8px;padding:6px 10px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.vbar .path{font:12px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.stage{min-height:0;overflow:hidden;display:grid;place-items:center;background:#111;padding:8px}
+.stage img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.sbs{display:grid;grid-template-columns:1fr 1fr;gap:8px;height:100%;width:100%}
+.sbs figure{margin:0;display:grid;grid-template-rows:auto 1fr;min-height:0}
+.sbs figcaption{font-size:11px;color:var(--muted)}
+.sbs img{max-height:100%;margin:auto}
+.act{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--line);flex-wrap:wrap}
+.act .pos{font:12px var(--mono);color:var(--muted)}.act .sp{flex:1}
+.reject{display:flex;gap:8px;align-items:flex-start;padding:8px 12px;border-top:1px solid var(--line);background:var(--surface2)}
+.reject textarea{flex:1;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:4px;font:12px var(--sans);padding:6px;min-height:52px}
+/* narrow */
+.narrow{width:380px}
+.narrow .ov{height:600px;grid-template-rows:auto auto auto 1fr auto}
+.picker{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line)}
+.picker .sel{flex:1;min-width:0;display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:4px;padding:3px 8px;font:12px var(--mono);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+table.sum{border-collapse:collapse;margin-top:8px;max-width:1000px}table.sum td,table.sum th{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top;font-size:12px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:1100px){.pair{grid-template-columns:1fr}}
+.rev{display:inline-block;font:600 9px var(--sans);letter-spacing:.05em;text-transform:uppercase;background:#264f78;color:#fff;border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:middle}
+.revnote{border-left:3px solid #264f78;padding:4px 10px;background:#1b2733;font-size:12px;max-width:85ch;margin:8px 0}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"/><path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10"/></symbol>
+<symbol id="i-checks" viewBox="0 0 24 24"><path d="M7 12l5 5l10 -10"/><path d="M2 12l5 5m5 -5l5 -5"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></symbol>
+<symbol id="i-left" viewBox="0 0 24 24"><path d="M15 6l-6 6l6 6"/></symbol>
+<symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6l-6 6"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="M5 12l14 0"/><path d="M5 12l6 6"/><path d="M5 12l6 -6"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6l6 -6"/></symbol>
+<symbol id="i-zoom" viewBox="0 0 24 24"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path d="M21 21l-6 -6"/></symbol>
+</defs></svg>
+
+<h1>Baseline review — mockup</h1>
+<p class="lead">Surface: the "Review baselines" blocker (<span class="mono">BaselineReview.tsx</span> in <span class="mono">BlockedBanner</span>). Today it renders every changed screenshot at full size inside the red strip of the stepper card. On this machine the last tickets had 55–190 changed entries (<span class="mono">globalStorage/baseline-review</span>: 110–380 files).</p>
+
+<div class="revnote"><b>Revision 2 (after the subagent review).</b> A <span class="rev">rev</span> tag marks each change. D537 holds the same rules in its "REVIEW REVISIONS" section.</div>
+<h2>R0 · Problems now</h2>
+<ol class="issues">
+<li><b>One long page.</b> Each entry puts a full-size image, a 3-way switch and the buttons in the card. 48 entries ≈ 48 screen heights of scroll under the stepper. Inside and the shelf move far down.</li>
+<li><b>Wrong tone.</b> The review sits in the red <span class="mono">.fault</span> strip. A baseline review is a "needs you" decision (amber in the rail and sidebar, <span class="mono">@arch:BASELINE-REVIEW</span>), not a failure.</li>
+<li><b>No grouping.</b> One screenshot in 5 themes gives 5 separate rows. You read the same page 5 times.</li>
+<li><b>Text marks, not glyphs.</b> "○ Needs review", "✓ Approved" are characters, not the glyph set that Inside and the rail use.</li>
+<li><b>No navigation.</b> No filter (approved rows stay in the list), no next / previous, no keyboard keys. A reject form opens in the middle of the long list.</li>
+<li><b>The image does not fit.</b> A tall full-page screenshot is wider and taller than the card. The Difference view is black with no help to find the change.</li>
+<li><b>No visual variant.</b> <span class="mono">tests/visual/variants.ts</span> has no baseline-review state. Nobody saw this surface in a screenshot.</li>
+</ol>
+
+<div class="tag before">Before (now)</div>
+<div class="frame"><div class="card">
+  <div style="font-weight:600">T1063 · Inside cleanup <span style="color:var(--muted);font-weight:400">— stepper …</span></div>
+  <div class="fault">
+    <div class="ftitle">Review baselines</div>
+    <div class="freason">UAT gates passed; 48 changed baselines wait for your approval.</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px"><span>48 of 48 changed baselines need your approval</span><span style="flex:1"></span><span class="kb primary">Approve all</span></div>
+    <div class="blrow"><span class="mono">dark/dashboard-running.png</span> <span style="color:var(--muted);font-size:11px">modified</span> <span style="color:var(--attention)">○ Needs review</span>
+      <div class="seg"><span>Old</span><span>New</span><span class="on">Difference</span></div>
+      <img src="file:///Users/nd/Work/projects/karst/tests/visual/__baselines__/dark/dashboard-running.png" alt="">
+      <div style="margin-top:6px;display:flex;gap:6px"><span class="kb primary">Approve</span><span class="kb">Reject…</span></div></div>
+    <div class="blrow"><span class="mono">dark-grayscale/dashboard-running.png</span> … <span style="color:var(--muted)">(+46 more rows like this, each one screen tall)</span></div>
+    <div class="fade"></div>
+  </div>
+</div></div>
+
+<h2>A · Banner: one amber line, the stepper card stays short</h2>
+<p class="lead">The blocker shows the count and two actions. The review opens in a dashboard overlay (the same <span class="mono">overlayStack</span> that opens the console and the artifacts). Approve all stays one click.</p>
+<div class="tag after">After</div>
+<div class="frame"><div class="card">
+  <div style="font-weight:600">T1063 · Inside cleanup <span style="color:var(--muted);font-weight:400">— stepper …</span></div>
+  <div class="wbar"><span class="glyph wait" role="img" aria-label="needs you"></span><span class="t">Review baselines</span>
+    <span class="r">31 of 48 changed screenshots need you · 1 rejected</span>
+    <span class="kb primary"><svg class="ic"><use href="#i-eye"/></svg>Review</span>
+    <span class="kb"><svg class="ic"><use href="#i-checks"/></svg>Approve all</span></div>
+</div></div>
+<p class="note"><span class="rev">rev</span> "Need you" counts <b>pending</b> entries only. <b>Approve all</b> approves pending entries only (a change: today it also approves rejected ones); a rejected entry can still be approved one by one. It stays confirm-free. The <b>Review</b> button is the primary action, so the user looks before approving.</p>
+
+<h2>B · Review overlay: list + one viewer (≥ 700 px) <span class="rev">rev</span></h2>
+<p class="lead">A list on the left, grouped by screenshot name, with one sub-row per theme. One viewer on the right. The image fits the viewer; a click zooms to 1:1 with scroll. The page height does not change with the entry count.</p>
+<div class="frame"><div class="ov" style="max-width:1100px">
+  <div class="ovh"><span class="kb ghost"><svg class="ic"><use href="#i-back"/></svg>Back</span>
+    <span class="ttl">Review baselines</span><span style="color:var(--muted);font-size:12px">T1063 · UAT</span><span class="sp"></span>
+    <span class="kb"><svg class="ic"><use href="#i-checks"/></svg>Approve all (31)</span></div>
+  <div class="chips"><span class="chip on">Needs review <b>31</b></span><span class="chip">Rejected <b>1</b></span><span class="chip">Approved <b>16</b></span><span class="chip">All <b>48</b></span>
+    <span style="flex:1"></span><span style="font-size:11px;color:var(--faint)"><span class="kbd">J</span>/<span class="kbd">K</span> next / previous · <span class="kbd">A</span> approve · <span class="kbd">R</span> reject</span></div>
+  <div class="md">
+    <div class="list">
+      <div class="grp"><div class="gh"><span class="glyph wait"></span><span class="n">dashboard-running.png</span><span class="c">3 / 5</span></div>
+        <div class="th sel"><span class="glyph wait"></span><span>dark</span><span class="s">modified</span></div>
+        <div class="th"><span class="glyph wait"></span><span>light</span><span class="s">modified</span></div>
+        <div class="th"><span class="glyph wait"></span><span>hc</span><span class="s">modified</span></div>
+        <div class="th"><span class="glyph pass"></span><span>dark-grayscale</span><span class="s">modified</span></div>
+        <div class="th"><span class="glyph pass"></span><span>dark-reduced-motion</span><span class="s">modified</span></div></div>
+      <div class="grp"><div class="gh"><span class="glyph fail"></span><span class="n">dashboard-waiting.png</span><span class="c">1 rejected</span></div></div>
+      <div class="grp"><div class="gh"><span class="glyph wait"></span><span class="n">dashboard--inside-ship-mid.png</span><span class="c">1 new</span></div></div>
+      <div class="grp"><div class="gh"><span class="glyph wait"></span><span class="n">settings--route-autopilot.png</span><span class="c">5 / 5</span></div></div>
+      <div class="grp"><div class="gh"><span class="glyph wait"></span><span class="n">catalog/dashboard-failed.png</span><span class="c">modified</span></div></div>
+      <div class="grp"><div class="gh"><span class="glyph wait"></span><span class="n">layout-known-failures.json</span><span class="c">modified</span></div></div>
+      <div class="grp" style="color:var(--faint);padding:6px 10px;font-size:12px">+ 9 more screenshots</div>
+    </div>
+    <div class="viewer">
+      <div class="vbar"><span class="glyph wait"></span><span class="path">dark/dashboard-running.png</span>
+        <span class="seg" style="margin:0"><span>Old</span><span>New</span><span class="on">Difference</span><span>Side by side</span></span>
+        <span class="kb ghost"><svg class="ic"><use href="#i-zoom"/></svg>Zoom</span></div>
+      <div class="stage"><div class="sbs">
+        <figure><figcaption>Old · develop</figcaption><img src="file:///Users/nd/Work/projects/karst/tests/visual/__baselines__/dark/dashboard-running.png" alt="Old"></figure>
+        <figure><figcaption>New · working tree</figcaption><img src="file:///Users/nd/Work/projects/karst/tests/visual/__baselines__/dark/dashboard-waiting.png" alt="New"></figure>
+      </div></div>
+    </div>
+  </div>
+  <div class="act"><span class="kb"><svg class="ic"><use href="#i-left"/></svg>Prev</span><span class="pos">1 / 31</span><span class="kb">Next<svg class="ic"><use href="#i-right"/></svg></span>
+    <span class="sp"></span>
+    <span class="kb danger"><svg class="ic"><use href="#i-x"/></svg>Reject</span>
+    <span class="kb"><svg class="ic"><use href="#i-checks"/></svg>Approve 5 themes</span>
+    <span class="kb primary"><svg class="ic"><use href="#i-check"/></svg>Approve</span></div>
+</div></div>
+<p class="note"><span class="rev">rev</span> <b>Group key:</b> the theme folders are dark, dark-grayscale, dark-reduced-motion, light and hc. A file under one of them groups by the rest of its path. Any other file (<span class="mono">catalog/…</span>, the ledger JSON) is its own group. <b>Keys</b> J/K/A/R work only while the overlay is open, focus is inside it and not in the reason field; keys with Ctrl, Meta or Alt and repeats are ignored. <b>Escape</b> closes the reject form first, then the overlay. <b>Labels:</b> Back, Prev, Next and Zoom keep a short text label, because no k-tooltip exists until D536. <b>When the block clears</b> (the last approve, or a reject that sends the ticket to Fix), the overlay closes. The viewer shows <b>Side by side</b> here. <b>Difference</b> stays the default for a modified file and <b>New</b> for an added file (today's rule); <span class="rev">rev</span> <b>Old</b> becomes the default for a deleted file (a change: today it is Difference). <b>Approve</b> moves to the next open entry. <b>Approve 5 themes</b> approves the open entries of the group in one host message (the message already takes a list of indices). A non-image entry (the layout ledger JSON) shows the line diff text, or today's sentence "open it from Source Control".</p>
+
+<h3 style="font-size:13px;margin:16px 0 4px">B2 · Reject opens in the action bar, not in the list</h3>
+<div class="frame"><div class="ov" style="max-width:1100px;height:auto;grid-template-rows:auto">
+  <div class="reject"><textarea placeholder="Why is this wrong? The fix agent reads this."></textarea>
+    <span class="kb danger"><svg class="ic"><use href="#i-x"/></svg>Send rejection</span><span class="kb ghost">Cancel</span></div>
+  <div class="act"><span class="pos">dark/dashboard-running.png</span><span class="sp"></span><span style="font-size:12px;color:var(--failed)">A reason is required.</span></div>
+</div></div>
+
+<h2>C · Narrow (≤ 699 px) and tight (≤ 399 px) <span class="rev">rev</span></h2>
+<div class="pair">
+<div><div class="tag after">400–699 px: the list becomes a picker</div>
+<div class="frame narrow" style="width:520px"><div class="ov" style="height:560px;grid-template-rows:auto auto auto 1fr auto">
+  <div class="ovh"><span class="kb ghost"><svg class="ic"><use href="#i-back"/></svg>Back</span><span class="ttl">Review baselines</span><span class="sp"></span><span class="kb"><svg class="ic"><use href="#i-checks"/></svg>Approve all</span></div>
+  <div class="chips"><span class="chip on">Needs review <b>31</b></span><span class="chip">Rejected <b>1</b></span><span class="chip">All <b>48</b></span></div>
+  <div class="picker"><span class="glyph wait"></span><span class="sel">dashboard-running.png · dark</span><svg class="ic"><use href="#i-down"/></svg>
+    <span class="seg" style="margin:0"><span>Old</span><span>New</span><span class="on">Diff</span></span></div>
+  <div class="stage"><img src="file:///Users/nd/Work/projects/karst/tests/visual/__baselines__/dark/dashboard-waiting.png" alt=""></div>
+  <div class="act"><span class="kb"><svg class="ic"><use href="#i-left"/></svg>Prev</span><span class="pos">1 / 31</span><span class="kb">Next<svg class="ic"><use href="#i-right"/></svg></span><span class="sp"></span>
+    <span class="kb danger"><svg class="ic"><use href="#i-x"/></svg>Reject</span><span class="kb primary"><svg class="ic"><use href="#i-check"/></svg>Approve</span></div>
+</div></div></div>
+<div><div class="tag after">≤ 399 px: one column, labels stay</div>
+<div class="frame narrow" style="width:340px"><div class="ov" style="height:560px;grid-template-rows:auto auto auto 1fr auto">
+  <div class="ovh"><span class="kb ghost"><svg class="ic"><use href="#i-back"/></svg>Back</span><span class="ttl">Baselines</span><span style="font:11px var(--mono);color:var(--muted)">31 open</span></div>
+  <div class="picker"><span class="glyph wait"></span><span class="sel">dashboard-running · dark</span><svg class="ic"><use href="#i-down"/></svg></div>
+  <div class="picker"><span class="seg" style="margin:0"><span>Old</span><span>New</span><span class="on">Diff</span></span></div>
+  <div class="stage"><img src="file:///Users/nd/Work/projects/karst/tests/visual/__baselines__/dark/dashboard-running.png" alt=""></div>
+  <div class="act"><span class="kb"><svg class="ic"><use href="#i-left"/></svg>Prev</span><span class="pos">1/31</span><span class="kb">Next<svg class="ic"><use href="#i-right"/></svg></span><span class="sp"></span>
+    <span class="kb danger"><svg class="ic"><use href="#i-x"/></svg>Reject</span><span class="kb primary"><svg class="ic"><use href="#i-check"/></svg>Approve</span></div>
+</div></div></div>
+</div>
+<p class="note"><span class="rev">rev</span> Every control keeps its text label at every width. Approve and Reject must (<span class="mono">@ui:RD-NEVER</span>). Back, Prev, Next and Zoom keep theirs because there is no k-tooltip yet (<span class="mono">@ui:RD-A11Y</span>). The picker uses the shared listbox primitive (<span class="mono">@ui:UI-R07</span>).</p>
+
+<h2>Summary</h2>
+<table class="sum"><tr><th>Id</th><th>Change</th><th>Data</th></tr>
+<tr><td>A</td><td>Banner: one amber line, glyph wait, pending count, Review + Approve all (pending only). No rows in the stepper card.</td><td>existing rows (counts)</td></tr>
+<tr><td>B</td><td>Overlay (a new <span class="mono">baselines</span> field in <span class="mono">OverlayView</span>; view state in an owner that stays mounted; closes when the block clears) with list grouped by screenshot name (fixed theme-folder list), theme sub-rows with glyphs, filter chips, one fitted viewer (Old / New / Difference / Side by side, zoom 1:1), sticky action bar, Prev / Next, keys J K A R (overlay focus only), Approve group, text labels on every control.</td><td>existing rows; no host message change; @arch:BASELINE-REVIEW text updated</td></tr>
+<tr><td>B2</td><td>Reject form in the action bar, reason required (today's rule and text).</td><td>existing message</td></tr>
+<tr><td>C</td><td>≤ 699: list → picker; ≤ 399: stacked bars. Labels stay on Approve / Reject.</td><td>—</td></tr>
+<tr><td>V</td><td>Visual variants: banner + overlay with 1, 12 and 48 entries, a rejected entry, a new file, a JSON entry; wide / mid / narrow / tight.</td><td>fixture</td></tr>
+</table>
+</body></html>

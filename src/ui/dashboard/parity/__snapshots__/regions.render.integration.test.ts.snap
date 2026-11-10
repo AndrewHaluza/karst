@@ -184,20 +184,16 @@ exports[`dashboard region parity (DOM contract) > blocked #blocked · awaiting-m
 
 exports[`dashboard region parity (DOM contract) > blocked #blocked · baseline review with one pending row > blocked · baseline review with one pending row 1`] = `
 "<div#blocked.blocked.fault>
-  <div.ftitle> "Review baselines"
-  <div.freason> "1 baseline changed"
-  <div.blhead>
-    <span> "1 of 1 changed baseline needs your approval"
-    <button.bl-all.k-btn.k-btn--primary.k-btn--sm data-act="baseline-approve" data-block-id="baseline-review" data-indices="0" type="button"> "Approve all"
-  <section.blrow aria-label="Baseline home.png">
-    <div.blrow-top>
-      <span.bl-label> "home.png"
-      <span.bl-status> "modified"
-      <span.blstate.pending> "○ Needs review"
-    <div.blnote> "No preview for this file type — open it from Source Control."
-    <div.blactions>
-      <button.k-btn.k-btn--primary.k-btn--sm data-act="baseline-approve" data-block-id="baseline-review" data-indices="0" type="button"> "Approve"
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="baseline-reject-open" data-index="0" type="button"> "Reject…""
+  <div.blbanner data-region="blocked-banner">
+    <span.glyph.wait aria-label="Needs review" role="img">
+    <span.ftext>
+      <span.ftitle> "Review baselines"
+      <span.freason> "· 1 of 1 changed screenshot needs you"
+    <div.facts>
+      <button.k-btn.k-btn--primary.k-btn--sm data-act="baseline-open" type="button"> "Review"
+        <svg.k-icon aria-hidden="true">
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="baseline-approve" data-block-id="baseline-review" data-indices="0" type="button"> "Approve all"
+        <svg.k-icon aria-hidden="true">"
 `;
 
 exports[`dashboard region parity (DOM contract) > blocked #blocked · no block (hidden) > blocked · no block (hidden) 1`] = `"<div#blocked.blocked.fault.hidden>"`;

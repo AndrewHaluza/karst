@@ -95,7 +95,7 @@ function CapturedFor({ kind }: { readonly kind: string }) {
 const Detail = memo(function Detail({ a }: { readonly a: ArtifactSummary }) {
   return (
     <>
-      <DrillHeader trail={[{ label: 'Artifacts', to: { console: null, logs: false, env: false, art: 'index' } }, { label: a.title }]} />
+      <DrillHeader trail={[{ label: 'Artifacts', to: { console: null, logs: false, env: false, baselines: false, art: 'index' } }, { label: a.title }]} />
       <div className="artdetail">
         <div className="arthero">
           <span className="art-title">{a.title}</span>

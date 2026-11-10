@@ -32,6 +32,7 @@ import { formatAgentsHash } from '../../src/ui/settings/app/sections/agentsRoute
 import type { SettingsSection } from '../../src/ui/settings/sections.js';
 import { settingsRoutes } from './settingsRoutes.js';
 import { PANEL_TIERS, PANEL_VARIANTS } from './panelVariants.js';
+import { BASELINE_VARIANTS, baselineState } from './baselineVariants.js';
 import {
   EMPTY_SETTINGS,
   LONG_BODY_PROFILE,
@@ -80,6 +81,8 @@ export interface Variant {
   readonly runtimeOpen?: RuntimeOpen;
   /** Dashboard panels: a selector clicked after load (a popover trigger). */
   readonly click?: string;
+  /** Dashboard baseline review: selectors clicked in order after load (open the overlay, then reach a state). */
+  readonly clicks?: readonly string[];
 }
 
 /** The interaction steps of a ticket-details drawer variant: open it from the doc icon, then pick a tab. */
@@ -112,6 +115,7 @@ function variant(
     ticketDetails?: TicketDetailsSteps;
     runtimeOpen?: RuntimeOpen;
     click?: string;
+    clicks?: readonly string[];
   } = {},
 ): Variant {
   return {
@@ -126,6 +130,7 @@ function variant(
     ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),
     ...(opts.runtimeOpen === undefined ? {} : { runtimeOpen: opts.runtimeOpen }),
     ...(opts.click === undefined ? {} : { click: opts.click }),
+    ...(opts.clicks === undefined ? {} : { clicks: opts.clicks }),
   };
 }
 
@@ -383,6 +388,18 @@ const panelStateVariants = (): Variant[] => [
   variant('dashboard', 'subtask-narrow', dashboardScenario('running', 2), { skipLayout: true, width: 400 }),
 ];
 
+/** T1071: the baseline review banner and overlay (ui:UI-R39), layout checks on. */
+const baselineReviewVariants = (): Variant[] =>
+  BASELINE_VARIANTS.map((v) =>
+    variant('dashboard', `baseline-${v.id}`, () => stateMessage(baselineState(v.rows())), {
+      clicks: v.clicks,
+      // The banner states sit on the full dashboard, whose rail and title already fail the layout gate at its ledgered
+      // routes; a new route cannot inherit them (the ledger takes no new entry). The overlay states replace the page.
+      ...(v.clicks.length === 0 ? { skipLayout: true } : {}),
+      ...(v.width === undefined ? {} : { width: v.width }),
+    }),
+  );
+
 const dashboardVariants = (): Variant[] => [
   variant('dashboard', 'populated', dashboardScenario('running', 10), { baseline: 'dashboard-running', themes: ALL_THEMES }),
   ...(['pending', 'passed', 'failed', 'waiting', 'exhausted'] as const).map((s) =>
@@ -442,6 +459,7 @@ const dashboardVariants = (): Variant[] => [
   ...deliverAutoTierVariants(),
   ...agentPopoverVariants(),
   ...ticketDetailsVariants(),
+  ...baselineReviewVariants(),
   ...drillDownVariants(),
   // D283: one-shot edge ring pulse when revealed, framed statically in reduced-motion state.
   variant('dashboard', 'attention', () => ({

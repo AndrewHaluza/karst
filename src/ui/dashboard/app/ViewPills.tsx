@@ -45,8 +45,9 @@ export function ViewPills() {
   const console = useOverlay((s) => s.console);
   const logs = useOverlay((s) => s.logs);
   const env = useOverlay((s) => s.env);
+  const baselines = useOverlay((s) => s.baselines);
   const art = useOverlay((s) => s.art);
-  const view = { console, logs, env, art };
+  const view = { console, logs, env, baselines, art };
   const menuOpen = useOverlay((s) => s.pillMenu);
   const drill = pillOf(view) !== 'dashboard';
   const consolePill = useRef<HTMLButtonElement>(null);

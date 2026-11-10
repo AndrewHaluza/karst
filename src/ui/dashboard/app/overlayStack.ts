@@ -3,8 +3,8 @@
  *
  * The overlays are local view state, never part of `DashboardState` and never round-tripped: the ticket-data
  * drawer, the stage menu (owned by Inside, which only says whether it is open), the console, the server logs, the
- * env-override editor and the artifact view (index, stored, detail). The page's ordered Escape chain is
- * drawer, stage menu, console, logs, env, artifact view; `escape()` is the ONE owner of that order.
+ * env-override editor, the baseline review and the artifact view (index, stored, detail). The page's ordered Escape chain is
+ * drawer, stage menu, console, logs, env, baseline review, artifact view; `escape()` is the ONE owner of that order.
  *
  * Artifact navigation keeps a scroll position per surface (spec §9): saved on leaving a surface, restored on
  * returning, one entry per artifact id for details. Each navigation is handed to `persistArt` (`ViewPersistence`
@@ -46,6 +46,8 @@ export interface OverlayView {
   readonly console: ConsoleTarget | null;
   readonly logs: boolean;
   readonly env: boolean;
+  /** The baseline review (@arch:BASELINE-REVIEW): shown only while a baseline-review block exists. */
+  readonly baselines: boolean;
   readonly art: ArtView | null;
 }
 
@@ -56,6 +58,7 @@ export interface OverlaySnapshot {
   readonly console: ConsoleTarget | null;
   readonly logs: boolean;
   readonly env: boolean;
+  readonly baselines: boolean;
   readonly art: ArtView | null;
   /** A view-pill menu (console streams) is open; Escape closes it before leaving the surface. */
   readonly pillMenu: boolean;
@@ -88,9 +91,9 @@ const sameConsole = (a: ConsoleTarget | null, b: ConsoleTarget | null): boolean 
   a === b || (a !== null && b !== null && a.stage === b.stage && a.processId === b.processId);
 /** Views are equal by value: a re-opened console or artifact builds a fresh target object. */
 const sameView = (a: OverlayView, b: OverlayView): boolean =>
-  a.logs === b.logs && a.env === b.env && sameConsole(a.console, b.console) && sameArt(a.art, b.art);
+  a.logs === b.logs && a.env === b.env && a.baselines === b.baselines && sameConsole(a.console, b.console) && sameArt(a.art, b.art);
 
-export const DASHBOARD: OverlayView = { console: null, logs: false, env: false, art: null };
+export const DASHBOARD: OverlayView = { console: null, logs: false, env: false, baselines: false, art: null };
 
 /** The drawer's "As sent to agent" text: the fetched brief verbatim, else the ticket's own heading and prompt (a manual ticket has no brief). */
 export function ticketDataText(state: DashboardState): string {
@@ -114,7 +117,7 @@ function restoreView(raw: unknown): OverlayView | null {
   const v = raw.art;
   const art: ArtView | null =
     v === 'index' ? v : v === 'stored' ? 'index' : isRecord(v) && typeof v.id === 'string' && v.id ? { id: v.id, from: v.from === 'index' ? 'index' : 'ticket' } : null;
-  return { console, logs: raw.logs === true, env: raw.env === true, art };
+  return { console, logs: raw.logs === true, env: raw.env === true, baselines: raw.baselines === true, art };
 }
 
 /** The persisted artifact view and scroll memory, tolerant of a state saved by an older build (which has neither). */
@@ -140,7 +143,7 @@ export class OverlayStack {
 
   constructor(private readonly deps: OverlayDeps) {
     this.scrolls = { ...deps.restored.scrolls, detail: { ...deps.restored.scrolls.detail } };
-    this.snapshot = { drawer: null, stageMenu: false, console: null, logs: false, env: false, art: deps.restored.art, pillMenu: false, history: deps.restored.history ?? [], xterm: initialXtermState() };
+    this.snapshot = { drawer: null, stageMenu: false, console: null, logs: false, env: false, baselines: false, art: deps.restored.art, pillMenu: false, history: deps.restored.history ?? [], xterm: initialXtermState() };
   }
 
   readonly getSnapshot = (): OverlaySnapshot => this.snapshot;
@@ -216,6 +219,16 @@ export class OverlayStack {
     if (this.snapshot.env) this.back();
   };
 
+  // ---- the baseline review: closes itself (the view calls closeBaselines) when the block clears ----
+
+  readonly openBaselines = (): void => {
+    if (!this.snapshot.baselines) this.enter({ ...DASHBOARD, baselines: true });
+  };
+
+  readonly closeBaselines = (): void => {
+    if (this.snapshot.baselines) this.back();
+  };
+
   /** Opens any view (a pill, a crumb): pushes the view it leaves, like every other navigation. */
   readonly goTo = (view: OverlayView): void => this.enter(view);
 
@@ -243,8 +256,8 @@ export class OverlayStack {
   };
 
   private currentView(): OverlayView {
-    const { console, logs, env, art } = this.snapshot;
-    return { console, logs, env, art };
+    const { console, logs, env, baselines, art } = this.snapshot;
+    return { console, logs, env, baselines, art };
   }
 
   /** Every navigation pushes the view it leaves; re-entering the view already showing is a no-op. */
@@ -275,7 +288,7 @@ export class OverlayStack {
     if (s.drawer) this.closeTicketData();
     else if (s.stageMenu) return false;
     else if (s.pillMenu) this.setPillMenuOpen(false);
-    else if (s.console || s.logs || s.env || s.art) this.back();
+    else if (s.console || s.logs || s.env || s.baselines || s.art) this.back();
     else return false;
     return true;
   };

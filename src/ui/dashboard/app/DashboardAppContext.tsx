@@ -12,6 +12,7 @@ import type { DashboardHostBridge, DashboardSender } from './hostBridge.js';
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import { DashboardStore } from './dashboardStore.js';
+import { useBaselineDrafts, type BaselineDrafts } from './baselineDrafts.js';
 import { OverlayStack, type OverlaySnapshot } from './overlayStack.js';
 import { pageScroll } from './pageScroll.js';
 import { PendingOps, type OpsSnapshot } from './pendingOps.js';
@@ -24,6 +25,7 @@ const OpsContext = createContext<PendingOps | null>(null);
 const SelectionContext = createContext<StageSelection | null>(null);
 const OverlayContext = createContext<OverlayStack | null>(null);
 const PersistenceContext = createContext<ViewPersistence | null>(null);
+const BaselineDraftsContext = createContext<BaselineDrafts | null>(null);
 
 export function DashboardAppProvider({
   bridge,
@@ -51,11 +53,17 @@ export function DashboardAppProvider({
         persistArt: persistence.art,
         restored: { art: restored.art, scrolls: restored.scrolls, history: restored.history },
         // Back skips a detail whose artifact has since vanished.
-        exists: (view) =>
-          typeof view.art !== 'object' || view.art === null || (store.getSnapshot().state?.artifacts ?? []).some((x) => x.id === (view.art as { id: string }).id),
+        exists: (view) => {
+          const state = store.getSnapshot().state;
+          const artifact = typeof view.art !== 'object' || view.art === null || (state?.artifacts ?? []).some((x) => x.id === (view.art as { id: string }).id);
+          // The review is gone once its block has cleared.
+          return artifact && (!view.baselines || hasBaselineBlock(state));
+        },
       }),
   );
   const [subscribed, setSubscribed] = useState(false);
+  // The baseline review's view state lives here, always mounted, so it outlives the overlay's close and reopen.
+  const baselineDrafts = useBaselineDrafts();
 
   // The snapshot is held (and a real push written) first, so no write ever carries a stale one; then the shared
   // in-flight operations settle, and a new Ship wait selects Ship, from the same host messages every panel sees.
@@ -98,7 +106,9 @@ export function DashboardAppProvider({
         <OpsContext.Provider value={ops}>
           <SelectionContext.Provider value={selection}>
             <OverlayContext.Provider value={overlays}>
-              <PersistenceContext.Provider value={persistence}>{children}</PersistenceContext.Provider>
+              <PersistenceContext.Provider value={persistence}>
+                <BaselineDraftsContext.Provider value={baselineDrafts}>{children}</BaselineDraftsContext.Provider>
+              </PersistenceContext.Provider>
             </OverlayContext.Provider>
           </SelectionContext.Provider>
         </OpsContext.Provider>
@@ -106,6 +116,9 @@ export function DashboardAppProvider({
     </BridgeContext.Provider>
   );
 }
+
+/** True while the current stage is parked on a baseline review. */
+export const hasBaselineBlock = (state: DashboardState | null): boolean => state?.currentStage?.blocked?.kind === 'baseline-review';
 
 /** The persisted view state, tolerant of a `getState()` that throws. */
 function readFromBridge(bridge: DashboardHostBridge): PersistedView {
@@ -123,6 +136,15 @@ export function usePersistence(): ViewPersistence {
     throw new Error('usePersistence must be used within DashboardAppProvider');
   }
   return persistence;
+}
+
+/** The baseline review's view state (selection, filter, zoom, reject drafts), owned by the provider. */
+export function useBaselineDraftsState(): BaselineDrafts {
+  const drafts = useContext(BaselineDraftsContext);
+  if (!drafts) {
+    throw new Error('useBaselineDraftsState must be used within DashboardAppProvider');
+  }
+  return drafts;
 }
 
 export function useStore(): DashboardStore {

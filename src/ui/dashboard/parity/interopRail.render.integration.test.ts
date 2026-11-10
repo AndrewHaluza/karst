@@ -142,16 +142,22 @@ describe('React rail / vanilla page interop — outside clicks and Escape', () =
     expect(v.query('[data-act="send-back-to-implement"]')).toBeNull();
   });
 
-  it('Escape leaves an open baseline reject form, and its draft, alone', async () => {
+  it('Escape closes the open baseline reject form first, and keeps its draft', async () => {
     const rows = [{ index: 0, path: 'a.png', label: 'a.png', status: 'modified', oldSrc: null, newSrc: null, decision: 'pending', reason: null }];
     const v = await open(blockedAt({ kind: 'baseline-review' }, { baselineReview: rows }));
+    await click(v, '[data-act="baseline-open"]');
     await click(v, '[data-act="baseline-reject-open"]');
     const ta = v.query<HTMLTextAreaElement>('#blreason-0')!;
     ta.value = 'draft';
     ta.dispatchEvent(new v.window.Event('input', { bubbles: true }));
     await escape(v);
-    expect(v.query('#blreason-0')).toBe(ta);
-    expect(ta.value).toBe('draft');
+    expect(v.query('#blreason-0')).toBeNull();
+    expect(v.query('#baselineView [data-region="baseline-review"]')).not.toBeNull();
+    await click(v, '[data-act="baseline-reject-open"]');
+    expect(v.query<HTMLTextAreaElement>('#blreason-0')!.value).toBe('draft');
+    await escape(v);
+    await escape(v);
+    expect(v.query('#baselineView [data-region="baseline-review"]')).toBeNull();
   });
 });
 
