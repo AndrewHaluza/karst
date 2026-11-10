@@ -140,19 +140,27 @@ describe('Ledger — rows', () => {
   it('shows the Σ pill: fresh tokens with their exact title, cache reads beside it, live while running', () => {
     mountInside(
       rows('uat', [
-        proc('a', { status: 'run', tokens: { state: 'measured', total: '12.4k', exact: '12,435', cacheRead: '1.2M', cacheReadExact: '1,234,567' } }),
+        proc('a', { status: 'run', tokens: { state: 'measured', total: '12.4k', exact: '12,435', cacheRead: '1.2M', cacheReadExact: '1,234,567', live: true, title: 'Live count, read from the transcript' } }),
         proc('b', { tokens: { state: 'estimated', total: '800' } }),
       ]),
     );
     const [a, b] = all('.token-stat');
     expect(a!.classList.contains('live')).toBe(true);
-    expect(a!.title).toBe('12,435 fresh tokens');
+    expect(a!.title).toBe('Live count, read from the transcript');
     expect(a!.firstElementChild!.className).toBe('sigma');
-    expect(a!.textContent).toBe('Σ12.4k tok+1.2M cached');
+    expect(a!.textContent).toBe('Σ12.4k tok+1.2M cachedlive');
+    expect(a!.querySelector('.live-word')!.textContent).toBe('live');
     expect(a!.querySelector('.cache-read')!.getAttribute('title')).toBe('1,234,567 tokens re-read from the prompt cache');
     expect(b!.classList.contains('live')).toBe(false);
     expect(b!.textContent).toBe('Σ800 tok');
     expect(b!.hasAttribute('title')).toBe(false);
+  });
+
+  it('marks a pill live only for a count read live, never for a running row with a stored count', () => {
+    mountInside(rows('uat', [proc('a', { status: 'run', tokens: { state: 'measured', total: '9k', exact: '9,000' } })]));
+    const pill = must('.token-stat');
+    expect(pill.classList.contains('live')).toBe(false);
+    expect(pill.querySelector('.live-word')).toBeNull();
   });
 
   it('renders unavailable usage as a titled absence, never as zero', () => {

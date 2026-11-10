@@ -43,6 +43,27 @@ describe('RuntimeStrip — layout', () => {
     expect($('#agentButton .rs-sub').textContent).toBe('Model One · high');
   });
 
+  const ROUND = (roundActive: boolean) => ({ override: 'inherit' as const, projectDefault: true, effective: true, banner: null, log: [], roundActive });
+
+  it('says "running · auto-fix" while an auto-fix round runs the agent', () => {
+    strip(view(), { agentState: 'running', autopilot: ROUND(true) });
+    expect($('#agentButton .rs-state').textContent).toBe('running · auto-fix');
+    expect($('#agentButton .rs-state').className).toContain('running');
+    expect($('#agentButton .rs-dot').className).toContain('running');
+  });
+
+  it('keeps the true state with the suffix when a round is active and no agent runs', () => {
+    strip(view(), { agentState: 'idle', autopilot: ROUND(true) });
+    expect($('#agentButton .rs-state').textContent).toBe('idle · auto-fix');
+    expect($('#agentButton .rs-state').className).not.toContain('running');
+    expect($('#agentButton .rs-dot').className).not.toContain('running');
+  });
+
+  it('adds no suffix when no round is active', () => {
+    strip(view(), { agentState: 'running', autopilot: ROUND(false) });
+    expect($('#agentButton .rs-state').textContent).toBe('running');
+  });
+
   it('locks the agent dropdown during a fix recovery', () => {
     strip(view(), { agentSession: { ...headerState().agentSession, canSwitch: false } });
     expect(($('#agentButton') as HTMLButtonElement).disabled).toBe(true);

@@ -377,6 +377,23 @@ describe('Evidence — the session timeline', () => {
     expect(all('.session-segments .phase-row').map((r) => text(r.querySelector('.phase-name')))).toEqual(['Plan', 'Implement', 'Test']);
   });
 
+  it('draws a counted remainder as a text button: chevron-down + "N more", full sentence as title and name', () => {
+    const more = { status: 'note', label: 'more', detail: '+14 more', role: 'event', hidden: 14, action: link('x:more', 'open-full-evidence') };
+    withEvidence({ kind: 'timeline', rows: [...rows, more] });
+    const btn = must<HTMLButtonElement>('.session-segments + .timeline-overflow [data-act="inside-action"]');
+    expect(text(btn)).toBe('14 more');
+    expect(btn.title).toBe('Show all 14 events');
+    expect(btn.getAttribute('aria-label')).toBe('Show all 14 events');
+    expect(btn.className).not.toContain('k-btn--secondary');
+    expect(btn.querySelector('svg')).not.toBeNull();
+  });
+
+  it('puts the Σ pill last in the timeline tail, directly before the time columns (UI-R41)', () => {
+    withEvidence(timeline);
+    const tail = all('.session-segments .timeline-tail')[0]!;
+    expect(tail.lastElementChild!.classList.contains('token-stat')).toBe(true);
+  });
+
   it('draws the same rail from the fixture corpus with every host string escaped', () => {
     mountInside(renderStateFor('impl'));
     expect(all('.session-segments > .timeline-row').length).toBeGreaterThan(0);

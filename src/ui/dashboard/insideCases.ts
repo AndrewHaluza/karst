@@ -97,7 +97,9 @@ function autofixShip(
     const cell = s.currentStage ?? caseCell('ship', 'running');
     return {
       ...s,
-      autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], ...slice },
+      // An auto-fix round that runs hands the ticket to its agent, so the strip reads the true state: running.
+      ...(row?.state === 'running' ? { agentState: 'running' } : {}),
+      autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], roundActive: row?.state === 'running', ...slice },
       insideViews: { ...s.insideViews, ship: { ...v, processes } },
       currentStage: park
         ? { ...cell, blocked: { kind: 'awaiting-merge', reason: park.reason, at: t(30), resumable: false } }
@@ -473,6 +475,18 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       cells: { review: { status: 'running' } },
       gateRuns: [caseGate({ id: 1, stageKey: 'review', gateName: 'lint (web)', exitCode: 0 })],
       processRuns: [reviewRun({ status: 'running', endedAt: null })],
+    }),
+  },
+  {
+    // B9: a headless review still running, its Σ read live from the transcript (the pill gets the running border and "live").
+    stage: 'review',
+    id: 'live-tokens',
+    skipLayout: true,
+    state: fromFacts('review', {
+      cells: { review: { status: 'running' } },
+      gateRuns: [caseGate({ id: 1, stageKey: 'review', gateName: 'lint (web)', exitCode: 0 })],
+      processRuns: [reviewRun({ status: 'running', endedAt: null })],
+      tokensForRuns: () => ({ total: 8100, live: true }),
     }),
   },
   {

@@ -361,3 +361,7 @@
   color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px}
 
 #inside .findings-stall { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 8px; margin-bottom: 6px; border-left: 2px solid var(--vscode-editorWarning-foreground); }
+
+/* The timeline overflow: a text button under the rail, aligned with the rail's name column. */
+#inside .timeline-overflow{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s3) + 20px + var(--p-s1))}
+#inside .overflow-btn{display:inline-flex;align-items:center;gap:var(--p-s1);color:var(--p-running)}

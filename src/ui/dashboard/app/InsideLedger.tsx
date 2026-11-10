@@ -118,7 +118,6 @@ const ProcessRow = memo(
     const tail = (
       <span className="op-tail">
         <Identity p={p} />
-        <RowTokens stage={stageKey} id={p.id} />
         {p.aggregate ? (
           <span className="count" title={p.aggregateTitle || undefined}>
             {p.aggregate}
@@ -126,6 +125,8 @@ const ProcessRow = memo(
         ) : null}
         {p.count ? <span className="count">{p.count}</span> : null}
         {p.action ? <InsideActionButton action={p.action} /> : null}
+        {/* The Σ pill is the LAST tail item, so it sits directly before the time columns and in the timeline rows' Σ column (UI-R41). */}
+        <RowTokens stage={stageKey} id={p.id} />
       </span>
     );
     // The timing is two grid cells of the row, after the action: fixed columns, so the rows line up (UI-R41).

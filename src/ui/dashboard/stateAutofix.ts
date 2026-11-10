@@ -39,6 +39,8 @@ export interface AutopilotSlice {
   readonly effective: boolean;
   readonly banner: AutofixBannerView | null;
   readonly log: readonly string[];
+  /** An auto-fix round (conflicts or CI) is live: the runtime strip adds "· auto-fix" to the agent state. */
+  readonly roundActive: boolean;
 }
 
 export interface AutofixReading {
@@ -176,7 +178,7 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
   };
   return {
-    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), log: readLog(store, ticketId) },
+    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), log: readLog(store, ticketId), roundActive: facts.round !== null },
     row: autofixRow(facts),
   };
 }

@@ -191,7 +191,7 @@ const autofixRunningState = (): DashboardState => {
   const processes = view.processes.map((p) => (p.id === merge.id ? merge : p));
   return {
     ...s,
-    autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [] },
+    autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], roundActive: false },
     insideViews: { ...s.insideViews, ship: { ...view, processes } },
   } as unknown as DashboardState;
 };

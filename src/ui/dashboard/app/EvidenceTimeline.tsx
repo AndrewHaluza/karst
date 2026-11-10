@@ -6,15 +6,17 @@
 import type { EvidenceRow } from '../../../model/inside/types.js';
 import { RuntimeIcon } from './AgentIcon.js';
 import { TimelineTokens } from './InsideClocks.js';
+import { Icon } from './Icon.js';
 import { Overflow } from './EvidenceParts.js';
-import { InsideActionButton } from './InsideParts.js';
+import { InsideActionButton, OverflowButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
 
 function Tail({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage: string; readonly id: string; readonly index: number }) {
   return (
     <span className="timeline-tail">
-      <TimelineTokens stage={stage} id={id} index={index} />
       {r.action ? <InsideActionButton action={r.action} /> : null}
+      {/* Last in the tail, like the session row's Σ pill: one Σ column before the time columns (UI-R41). */}
+      <TimelineTokens stage={stage} id={id} index={index} />
     </span>
   );
 }
@@ -100,6 +102,19 @@ function Row({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage:
   );
 }
 
+/**
+ * The bounded remainder under the rail: the text button 'chevron-down + N more'. Its full sentence is the title and the
+ * accessible name (UI-R21/R24). A remainder without a count or without an action keeps the plain note.
+ */
+function TimelineOverflow({ o }: { readonly o: EvidenceRow | undefined }) {
+  if (!o || o.hidden === undefined || !o.action) return <Overflow o={o} />;
+  return (
+    <div className="timeline-overflow">
+      <OverflowButton action={o.action} hidden={o.hidden} />
+    </div>
+  );
+}
+
 export function EvidenceTimeline({ rows, stage, id }: { readonly rows: readonly EvidenceRow[]; readonly stage: string; readonly id: string }) {
   // The bounded remainder (`role: 'event'`) is not history: it is the control that reveals the withheld rows, drawn
   // below the rail like the other bodies' remainder, so it stays reachable where `.timeline-tail` is hidden.
@@ -114,7 +129,7 @@ export function EvidenceTimeline({ rows, stage, id }: { readonly rows: readonly 
           ),
         )}
       </div>
-      <Overflow o={more} />
+      <TimelineOverflow o={more} />
     </>
   );
 }

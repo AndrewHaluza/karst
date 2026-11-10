@@ -85,7 +85,7 @@ export const TicketIdentity = memo(function TicketIdentity() {
       <span id="idBadge" className="k-id">
         {slice?.idLabel}
       </span>
-      <span id="statusChip" className={`k-chip ticketStatus ${slice?.statusTone ?? 'info'}`} hidden={!slice}>
+      <span id="statusChip" className={`k-chip ticketStatus ${slice?.statusTone ?? 'info'}`} hidden={!slice?.statusWord}>
         {slice?.statusWord}
       </span>
       <CopyKeyButton label={slice?.key ?? ''} />

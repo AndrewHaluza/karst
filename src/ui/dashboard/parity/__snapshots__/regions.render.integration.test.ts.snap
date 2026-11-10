@@ -347,7 +347,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
   <div.ticketIdentity aria-label="T0 · (untitled)" role="group" title="T0 · (untitled)">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T0"
-    <span#statusChip.info.k-chip.ticketStatus> "Idle"
+    <span#statusChip.info.k-chip.ticketStatus hidden>
     <button#keyBtn.ticketKey aria-label="Copy ticket key" data-act="copy-ticket-key" data-copy hidden title="Copy ticket key" type="button">
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
@@ -479,7 +479,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
       <span.provicon aria-hidden="true">
         <svg aria-hidden="true">
     <span#idBadge.k-id> "T942017"
-    <span#statusChip.info.k-chip.ticketStatus> "Idle"
+    <span#statusChip.info.k-chip.ticketStatus hidden>
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label="Priority: urgent"> "urgent"
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" data-url="fixture:https://app.clickup.com/t/abc" href="#" title="Open ticket in provider">
@@ -544,7 +544,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
   <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
-    <span#statusChip.k-chip.running.ticketStatus> "Running"
+    <span#statusChip.info.k-chip.ticketStatus hidden>
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
@@ -609,7 +609,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
   <div.ticketIdentity aria-label="T0 · (untitled)" role="group" title="T0 · (untitled)">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T0"
-    <span#statusChip.info.k-chip.ticketStatus> "Idle"
+    <span#statusChip.info.k-chip.ticketStatus hidden>
     <button#keyBtn.ticketKey aria-label="Copy ticket key" data-act="copy-ticket-key" data-copy hidden title="Copy ticket key" type="button">
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
@@ -674,7 +674,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
   <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
-    <span#statusChip.info.k-chip.ticketStatus> "Idle"
+    <span#statusChip.info.k-chip.ticketStatus hidden>
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
@@ -739,7 +739,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
   <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
-    <span#statusChip.info.k-chip.ticketStatus> "Idle"
+    <span#statusChip.info.k-chip.ticketStatus hidden>
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
@@ -804,7 +804,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
   <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker">
     <span#providerMark.provicon aria-hidden="true">
     <span#idBadge.k-id> "T942017"
-    <span#statusChip.info.k-chip.ticketStatus> "Idle"
+    <span#statusChip.info.k-chip.ticketStatus hidden>
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy title="Copy ticket key" type="button"> "FEAT-142"
     <span#priorityChip.prio aria-label hidden>
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
@@ -911,7 +911,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
             <span.op-name-text> "Session"
             <span.ai-mark> "AI"
           <span.op-detail.run>
-            <span.op-detail-text> "session k-9f2e — claude-opus-4-1"
+            <span.op-detail-text> "agent session running"
           <span.op-tail>
             <span.agent-id>
               <span.agenticon aria-hidden="true">
@@ -919,9 +919,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.agent-core> "Claude Code"
               <span.agent-sep> "·"
               <span.agent-model> "Claude Opus 4.1"
-            <span.live.token-stat title="12,435 fresh tokens"> "12.4k tok"
+            <span.token-stat title="12,435 fresh tokens"> "12.4k tok"
               <span.sigma> "Σ"
-            <button.k-btn.k-btn--secondary.k-btn--sm data-act="inside-action" data-action-id="fixture:open-full-evidence:1" title="Show every recorded row" type="button"> "Show all"
           <span.op-time>
           <span.duration> "<dur> <dur>"
           <span.chev aria-hidden="true">
@@ -983,7 +982,10 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
               <span.note.phase-detail> "<clock>"
               <span.phase-tail>
               <span.phase-time.tl-time>
-              <span.phase-time.tl-dur>"
+              <span.phase-time.tl-dur>
+          <div.timeline-overflow>
+            <button.k-btn.k-btn--link.k-btn--sm.overflow-btn aria-label="Show all 14 events" data-act="inside-action" data-action-id="fixture:open-full-evidence:1" title="Show all 14 events" type="button"> "14 more"
+              <svg.k-icon aria-hidden="true">"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · implementation prototype > inside · implementation prototype 1`] = `

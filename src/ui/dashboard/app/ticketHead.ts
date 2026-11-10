@@ -12,14 +12,16 @@ export interface StatusInput {
   readonly agentState: string | null;
 }
 
-/** One word for where the ticket is: finished beats paused beats the agent's own state. */
-export function ticketStatus(t: StatusInput): TicketStatus {
+/**
+ * One word for where the ticket is: finished beats paused beats "needs you".
+ * Running and idle are the runtime strip's states (it owns the agent state), so they give no pill.
+ */
+export function ticketStatus(t: StatusInput): TicketStatus | null {
   if (t.stageCurrent === 'closed') return { word: 'Closed', tone: 'info' };
   if (t.stageCurrent === 'done') return { word: 'Done', tone: 'passed' };
   if (t.paused) return { word: 'Paused', tone: 'attention' };
   if (t.agentState === 'waiting' || t.agentState === 'not-started') return { word: 'Needs you', tone: 'attention' };
-  if (t.agentState === 'running') return { word: 'Running', tone: 'running' };
-  return { word: 'Idle', tone: 'info' };
+  return null;
 }
 
 /** `T<id> · KEY · Title`: the string every tier keeps in `title=` and the accessible name. */

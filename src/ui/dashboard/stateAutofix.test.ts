@@ -57,6 +57,14 @@ describe('readAutofix', () => {
     expect(r.row).toMatchObject({ state: 'running', message: expect.stringContaining('round 1 of 2') });
   });
 
+  it('flags roundActive while a conflict round is armed, and not otherwise', () => {
+    const { store, id } = setup();
+    expect(readAutofix(store, id, CONFIG).slice.roundActive).toBe(false);
+    takeAutopilotAttempt(store, id, 'web', 'conflicts', 'base1', 2);
+    markConflictRound(store, id, Date.now());
+    expect(readAutofix(store, id, CONFIG).slice.roundActive).toBe(true);
+  });
+
   it('keeps the stop-after request on a running round', () => {
     const { store, id } = setup();
     takeAutopilotAttempt(store, id, 'web', 'conflicts', 'base1', 2);

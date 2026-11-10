@@ -13,7 +13,7 @@ afterEach(() => {
   cleanupRail();
 });
 
-const SLICE: AutopilotSlice = { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [] };
+const SLICE: AutopilotSlice = { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], roundActive: false };
 const RUNNING: AutofixRowView = {
   state: 'running',
   message: 'Auto-fix: conflict on web #421 · round 1 of 2',
