@@ -54,7 +54,7 @@ export interface AutofixAttempt {
   readonly at: string;
 }
 
-export type AutofixRowState = 'running' | 'spent' | 'paused' | 'gh-failed' | 'unknown';
+export type AutofixRowState = 'running' | 'spent' | 'paused' | 'gh-failed' | 'unknown' | 'history';
 
 /** A finished attempt: `ran` while a later round runs, `fails` on a spent park (every attempt failed). */
 export interface AutofixAttemptRow {
@@ -187,6 +187,11 @@ export function autofixRow(f: AutofixFacts): AutofixRowView | null {
       steps: [],
       stopAfterRequested: false,
     };
+  }
+  // Earlier attempts alone still give the row: it lists them and states no result it cannot prove.
+  const earlier = finishedAttempts(f, null);
+  if (earlier.length > 0) {
+    return { state: 'history', message: `${earlier.length} earlier ${earlier.length === 1 ? 'attempt' : 'attempts'}`, attempts: earlier, steps: [], stopAfterRequested: false };
   }
   return null;
 }

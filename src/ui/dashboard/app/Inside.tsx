@@ -9,10 +9,10 @@
  * the clocks and token counts are leaves that read their own value (`InsideClocks.tsx`), so a live push renders only
  * those. What the user opened or switched lives in `InsideMemory`, above the block, so it survives every push.
  */
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useSelection } from './DashboardAppContext.js';
 import { DeliverRow } from './DeliverRow.js';
-import { AutofixOverride } from './AutofixParts.js';
+import { AutofixOverride, setStopConfirm } from './AutofixParts.js';
 import { AttemptTabs } from './InsideAttempts.js';
 import { LiveDuration, StageClock } from './InsideClocks.js';
 import { Ledger } from './InsideLedger.js';
@@ -62,6 +62,11 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
   const { selection, select } = useSelection();
   const frame = useSlice(useMemo(() => frameOf(stage), [stage]), sameIgnoringLive);
   const scope = useMemo(() => ({ memory, stageKey: stage, ticketId: frame?.ticketId ?? 0 }), [memory, stage, frame?.ticketId]);
+  const stopOffered = frame?.menu.autofixStop === true;
+  // The round ended (or the stop item is gone): a confirm opened earlier must close with it.
+  useEffect(() => {
+    if (!stopOffered) setStopConfirm(false);
+  }, [stopOffered]);
   if (!frame) return null;
   const { view, menu, deliver, back } = frame;
   const anyMenu = menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase || menu.retry !== null || menu.autofixStop;

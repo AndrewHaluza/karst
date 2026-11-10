@@ -13,6 +13,12 @@ const BASE: AutofixFacts = {
 };
 
 describe('autofixRow', () => {
+  it('gives earlier attempts alone a quiet history row', () => {
+    const row = autofixRow({ ...BASE, attempts: [{ kind: 'ci', n: 1, max: 3, at: '01:00' }] });
+    expect(row).toMatchObject({ state: 'history', message: '1 earlier attempt', steps: [] });
+    expect(row?.attempts).toHaveLength(1);
+  });
+
   it('is absent when auto-fix is off and nothing happens', () => {
     expect(autofixRow({ ...BASE, effective: false })).toBeNull();
     expect(autofixRow(BASE)).toBeNull();

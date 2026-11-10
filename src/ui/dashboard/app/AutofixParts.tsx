@@ -144,6 +144,8 @@ export function StopNowConfirm() {
   const send = useDashboardSend();
   const open = useStopConfirm();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  // The flag is module-wide: leaving the row (another ticket or stage) must not leave the confirm armed.
+  useEffect(() => () => setStopConfirm(false), []);
   useEffect(() => {
     if (open) confirmRef.current?.focus();
   }, [open]);

@@ -891,7 +891,7 @@ export function autofixProcess(autofix: AutofixRowView | null | undefined): Insi
     id: 'autofix',
     kind: 'autofix',
     label: 'Auto-fix',
-    status: autofix.state === 'running' ? 'run' : 'wait',
+    status: autofix.state === 'running' ? 'run' : autofix.state === 'history' ? 'note' : 'wait',
     detail: autofix.message,
     // The AI mark: the agent does the work. There is no recorded identity, so no `execution`.
     aiMark: true,
