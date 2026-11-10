@@ -169,7 +169,7 @@ function dashboardScenario(
 
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
 const insideCaseVariants = (): Variant[] =>
-  INSIDE_CASES.filter((c) => c.aliasOf === undefined).map((c) =>
+  INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').map((c) =>
     variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), { ...(c.skipLayout ? { skipLayout: true } : {}), ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
   );
 
@@ -178,6 +178,14 @@ const deliverAutoTierVariants = (): Variant[] =>
   INSIDE_CASES.filter((c) => c.id.startsWith('deliver-auto-')).flatMap((c) =>
     ([['mid', 800], ['narrow', 360]] as const).map(([tier, width]) =>
       variant('dashboard', `inside-${c.stage}-${c.id}-${tier}`, () => stateMessage(c.state()), { skipLayout: true, width }),
+    ),
+  );
+
+/** T1069 (B9): the live token pill at the wide, mid and narrow tiers. */
+const liveTokenVariants = (): Variant[] =>
+  INSIDE_CASES.filter((c) => c.id === 'live-tokens').flatMap((c) =>
+    ([['wide', 1100], ['mid', 800], ['narrow', 500]] as const).map(([tier, width]) =>
+      variant('dashboard', `inside-live-tokens-${tier}`, () => stateMessage(c.state()), { skipLayout: true, width }),
     ),
   );
 
@@ -457,6 +465,7 @@ const dashboardVariants = (): Variant[] => [
   }))),
   ...insideCaseVariants(),
   ...deliverAutoTierVariants(),
+  ...liveTokenVariants(),
   ...agentPopoverVariants(),
   ...ticketDetailsVariants(),
   ...baselineReviewVariants(),

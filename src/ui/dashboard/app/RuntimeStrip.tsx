@@ -232,7 +232,13 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
   if (!agent && !sandbox) return null;
   const session = agent?.session;
   const canSwitch = session ? session.canSwitch : true;
-  const running = (agent?.agentState ?? 'idle') === 'running';
+  const agentState = agent?.agentState ?? 'idle';
+  const waiting = agentState === 'waiting';
+  // A round works the agent, so it reads running; an agent that waits for the user keeps its own word.
+  const running = agentState === 'running' || (agent?.autofixRound === true && !waiting);
+  // The strip owns the agent state. During an auto-fix round it adds the round as a suffix.
+  const baseWord = running ? 'running' : waiting && agent?.autofixRound ? 'waiting' : 'idle';
+  const stateWord = agent?.autofixRound ? `${baseWord} · auto-fix` : baseWord;
   const secondary = sandbox ? secondaryText(sandbox) : null;
   const host = sandbox?.backend === 'host';
   const shell = sandbox?.shell ?? { available: false, why: 'No sandbox yet' };
@@ -258,7 +264,7 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
                 <span className={running ? 'rs-dot running' : 'rs-dot idle'} aria-hidden="true" />
               </span>
               <span className="rs-name">{agentName(session.provider)}</span>
-              <span className={running ? 'rs-state running' : 'rs-state'}>{running ? 'running' : 'idle'}</span>
+              <span className={running ? 'rs-state running' : 'rs-state'}>{stateWord}</span>
               <span className="rs-sub" title={session.modelId ?? undefined}>
                 {session.modelLabel}
                 {session.effort ? ` · ${session.effort}` : ''}

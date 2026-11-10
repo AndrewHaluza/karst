@@ -127,6 +127,7 @@
 /* T871 ticket-head width ladder (UI-R49, RD-LADDERS): the id and status chip never drop; key then title give way. */
 .dhead{container-type:inline-size;container-name:ticket-head}
 .ticketStatus{flex:none}
+.ticketStatus[hidden]{display:none}
 .ticketStatus.passed{color:var(--k-passed)}
 .ticketStatus.running{color:var(--k-running)}
 .ticketStatus.attention{color:var(--k-attention)}

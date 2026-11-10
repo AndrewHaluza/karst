@@ -353,8 +353,8 @@ function timelineEvents(
   return events;
 }
 
-/** Appended to the title of a count read while the call still runs. */
-const LIVE_TOKEN_NOTE = 'counted so far · the final count is recorded when the call ends';
+/** The title of a count read live from the transcript while the call still runs. */
+const LIVE_TOKEN_TITLE = 'Live count, read from the transcript';
 
 const PENDING_TOKEN_LABEL = 'Σ counted at end';
 const PENDING_TOKEN_TITLE =
@@ -423,7 +423,7 @@ export function tokenView(tokens: SessionTokensInput, interactiveUsage = true): 
     state: (tokens.estimatedCalls ?? 0) > 0 ? 'estimated' : 'measured',
     total: formatTokens(fresh),
     exact: formatExactTokens(fresh),
-    ...(tokens.live ? { title: `${formatExactTokens(fresh)} fresh tokens ${LIVE_TOKEN_NOTE}` } : {}),
+    ...(tokens.live ? { live: true, title: LIVE_TOKEN_TITLE } : {}),
     ...(cacheRead > 0
       ? { cacheRead: formatTokens(cacheRead), cacheReadExact: formatExactTokens(cacheRead) }
       : {}),
@@ -633,6 +633,7 @@ export function implementationSessionProcess(
           label: 'more',
           detail: `+${boundedRows.remaining} more`,
           role: 'event',
+          hidden: withheld,
           ...(fullEvidenceAction ? { action: fullEvidenceAction } : {}),
         },
       ];

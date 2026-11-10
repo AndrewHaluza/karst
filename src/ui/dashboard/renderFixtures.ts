@@ -267,12 +267,19 @@ function implView(_n: RenderRepoCount): InsideStageView {
         kind: 'session',
         label: 'Session',
         status: 'run',
-        detail: 'session k-9f2e — claude-opus-4-1',
+        // B7: the session row detail keeps only the session id (the identity cell shows the core and model).
+        detail: 'session k-9f2e',
         duration: '4m 12s',
         execution: { ...CLAUDE_EXECUTION },
         tokens: { ...MEASURED_TOKENS },
-        action: fixtureAction('open-full-evidence', 1),
-        evidence: { kind: 'timeline', rows: boundedRows(rows, TIMELINE_LIMIT) },
+        evidence: {
+          kind: 'timeline',
+          rows: [
+            ...boundedRows(rows, TIMELINE_LIMIT),
+            // The bounded remainder under the rail, like the host's `open-full-evidence` overflow row (agent.ts).
+            { status: 'note', label: 'more', detail: '+14 more', role: 'event', hidden: 14, action: fixtureAction('open-full-evidence', 1) },
+          ],
+        },
       },
     ],
     blurb: STAGE_BLURBS.impl,
@@ -1103,7 +1110,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     briefSource: { kind: 'manual' },
     rail: { main: [] },
     insideViews,
-    autopilot: { override: 'inherit', projectDefault: false, effective: false, banner: null, log: [] },
+    autopilot: { override: 'inherit', projectDefault: false, effective: false, banner: null, log: [], roundActive: false },
     presentedStage: stage,
     approach: null,
     artifacts: [],

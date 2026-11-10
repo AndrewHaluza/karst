@@ -156,7 +156,7 @@ describe('Inside CSS — the container queries', () => {
   });
 
   it('keeps the glyph and the process name leading the op grid at every width (Task 6)', () => {
-    expect(CSS).toMatch(/#inside \.op summary,#inside \.op-static\{[\s\S]*?grid-template-columns:20px minmax\(78px,110px\) minmax\(0,1fr\) auto var\(--inside-time-w\) var\(--inside-dur-w\) 16px/);
+    expect(CSS).toMatch(/#inside \.op summary,#inside \.op-static\{[\s\S]*?grid-template-columns:20px minmax\(78px,110px\) minmax\(96px,1fr\) auto var\(--inside-time-w\) var\(--inside-dur-w\) 16px/);
     expect(containerBlock('430px')).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\) minmax\(0,1fr\) auto var\(--inside-dur-w\) 16px[;}]/);
   });
 

@@ -392,11 +392,13 @@ describe('implementationSessionProcess', () => {
     expect(process.tokens).toBeUndefined();
   });
 
-  it('tokenView titles a live reading as partial, so it never reads as a final count (@arch:AC-14)', () => {
+  it('tokenView marks a live reading as live, so it never reads as a final count (@arch:AC-14)', () => {
     const view = tokenView({ total: 1_000, cacheRead: 200, live: true });
     expect(view).toMatchObject({ state: 'measured', total: '800', cacheRead: '200' });
-    expect(view.title).toMatch(/counted so far/);
-    expect(tokenView({ total: 1_000, cacheRead: 200 }).title).toBeUndefined();
+    expect(view).toMatchObject({ live: true, title: 'Live count, read from the transcript' });
+    const stored = tokenView({ total: 1_000, cacheRead: 200 });
+    expect(stored.title).toBeUndefined();
+    expect(stored).not.toHaveProperty('live');
   });
 
   it('tokenView never claims a zero for a non-interactive provider', () => {
@@ -485,6 +487,7 @@ describe('implementationSessionProcess', () => {
     // 'running'), and the two must never compete for the one slot.
     const moreRow = rows(process).find((r) => r.label === 'more');
     expect(moreRow?.action).toMatchObject({ kind: 'open-full-evidence' });
+    expect(moreRow?.hidden).toBe(7);
     expect(label).toBe('Show 7 more');
     expect(process.action).toMatchObject({ kind: 'open-session' });
   });

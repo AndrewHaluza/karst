@@ -7,6 +7,7 @@ import { memo, useCallback, type MouseEvent } from 'react';
 import type { AgentExecutionView, InsideProcessView, TokenUsageView, TypedInsideAction } from '../../../model/inside/types.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { RuntimeIcon } from './AgentIcon.js';
+import { Icon } from './Icon.js';
 import { INSIDE_ACTION_DANGER, INSIDE_ACTION_LABEL, INSIDE_ACTION_TITLE } from './insideText.js';
 import { usePendingAction } from './usePendingAction.js';
 
@@ -42,6 +43,18 @@ export const InsideActionButton = memo(function InsideActionButton({ action }: {
       onClick={onClick}
     >
       {label}
+    </button>
+  );
+});
+
+/** The timeline overflow control: a text button with a chevron-down icon and the hidden count; the full sentence is title and aria-label. */
+export const OverflowButton = memo(function OverflowButton({ action, hidden }: { readonly action: TypedInsideAction; readonly hidden: number }) {
+  const onClick = useInsideAction(action);
+  const label = `Show all ${hidden} events`;
+  return (
+    <button type="button" className="k-btn k-btn--link k-btn--sm overflow-btn" data-act="inside-action" data-action-id={action.actionId} title={label} aria-label={label} onClick={onClick}>
+      <Icon name="chevron-down" />
+      {`${hidden} more`}
     </button>
   );
 });
@@ -106,18 +119,20 @@ export function Identity({ p }: { readonly p: InsideProcessView }) {
 }
 
 /** The token claim as the prototype's Σ pill. `unavailable` is NOT zero: it renders as a titled absence marker, never "0 tokens". */
-export function TokenPill({ t, live }: { readonly t: TokenUsageView | undefined; readonly live: boolean }) {
+export function TokenPill({ t }: { readonly t: TokenUsageView | undefined }) {
   if (!t) return null;
   if (t.state === 'unavailable') return <span className="token-stat" title={t.title}>usage unavailable</span>;
   // A running row whose count arrives only when the call ends: the reason is the text, never "0 tok".
   if (t.state === 'pending') {
     return (
-      <span className={`token-stat pending${live ? ' live' : ''}`} title={t.title}>
+      <span className="token-stat pending" title={t.title}>
         {t.label}
       </span>
     );
   }
   const estimateOnly = t.state === 'estimated' && t.estimateOnly === true;
+  // Only a count read live from the transcript (`t.live`, a host fact) is marked: a running row with a stored count is not.
+  const live = t.live === true;
   return (
     <span
       className={`token-stat${live ? ' live' : ''}${estimateOnly ? ' estimate' : ''}`}
@@ -131,6 +146,7 @@ export function TokenPill({ t, live }: { readonly t: TokenUsageView | undefined;
           {`+${t.cacheRead} cached`}
         </span>
       ) : null}
+      {live ? <span className="live-word">live</span> : null}
     </span>
   );
 }

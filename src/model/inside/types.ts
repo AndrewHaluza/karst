@@ -365,7 +365,7 @@ export type InsideEvidenceTarget =
  * ordinary prompt caching. Absent `cacheRead` = nothing was served from cache.
  */
 export type TokenUsageView =
-  | { state: 'measured'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string; title?: string }
+  | { state: 'measured'; total: string; exact?: string; cacheRead?: string; cacheReadExact?: string; live?: boolean; title?: string }
   | {
       state: 'estimated';
       total: string;
@@ -374,6 +374,8 @@ export type TokenUsageView =
       cacheReadExact?: string;
       /** Every counted call was an estimate: the pill draws the `~` mark. */
       estimateOnly?: boolean;
+      /** The count is read live from the transcript while the call runs (not a stored final count): the pill says "live". */
+      live?: boolean;
       title?: string;
     }
   /** A run is going and its count arrives at the end of the call — never "0 tok". */
@@ -399,6 +401,8 @@ export interface EvidenceRow {
    * absent → the timeline renders the row as a generic `event`.
    */
   role?: 'phase' | 'identity' | 'event';
+  /** Timeline `more` row only: how many events the bounded timeline withholds. The webview draws the count, never parses `detail`. */
+  hidden?: number;
   /**
    * Timeline-only identity key for `role: 'identity'` rows: the provider
    * whose core mark the injected identity renderer (`agentIconHtml`) draws

@@ -111,15 +111,15 @@ export const rowField =
 
 export const pickTime = (p: InsideProcessView): string | undefined => p.time;
 export const pickDuration = (p: InsideProcessView): { readonly text?: string; readonly exact?: string } => ({ text: p.duration, exact: p.durationExact });
-export const pickTokens = (p: InsideProcessView): { readonly tokens?: TokenUsageView; readonly live: boolean } => ({ tokens: p.tokens, live: p.status === 'run' });
+export const pickTokens = (p: InsideProcessView): { readonly tokens?: TokenUsageView } => ({ tokens: p.tokens });
 
-/** The token claim of one timeline row of a process's evidence, and whether that row is running. */
+/** The token claim of one timeline row of a process's evidence. */
 export const timelineTokens =
   (stage: string, id: string, index: number) =>
-  (snapshot: DashboardSnapshot): { readonly tokens?: TokenUsageView; readonly live: boolean } | undefined => {
+  (snapshot: DashboardSnapshot): { readonly tokens?: TokenUsageView } | undefined => {
     const ev = processOf(snapshot, stage, id)?.evidence;
     const row = ev && 'rows' in ev ? ev.rows[index] : undefined;
-    return row ? { tokens: row.tokens, live: row.status === 'run' } : undefined;
+    return row ? { tokens: row.tokens } : undefined;
   };
 
 const evidenceOf = (snapshot: DashboardSnapshot, stage: string, id: string) => processOf(snapshot, stage, id)?.evidence;

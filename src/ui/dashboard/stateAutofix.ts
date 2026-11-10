@@ -40,6 +40,8 @@ export interface AutopilotSlice {
   readonly effective: boolean;
   readonly banner: AutofixBannerView | null;
   readonly log: readonly string[];
+  /** An auto-fix round (conflicts or CI) is live: the runtime strip adds "· auto-fix" to the agent state. */
+  readonly roundActive: boolean;
   /** An auto-fix round is running now; the PR panel's Merge all is disabled meanwhile. Absent reads as false. */
   readonly roundRunning?: boolean;
 }
@@ -198,7 +200,7 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
   };
   return {
-    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), log: readLog(store, ticketId), roundRunning: facts.round !== null },
+    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), log: readLog(store, ticketId), roundActive: facts.round !== null, roundRunning: facts.round !== null },
     row: autofixRow(facts),
     input: autofixInputOf(facts),
   };

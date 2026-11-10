@@ -45,11 +45,13 @@ export interface AgentSlice {
   readonly session: DashboardState['agentSession'];
   readonly agentState: string;
   readonly switch: DashboardState['agentSwitch'];
+  /** An auto-fix round is live (`autopilot.roundActive`): the strip names it next to the agent state. */
+  readonly autofixRound: boolean;
 }
 
 const statusFields = (s: DashboardState): { statusWord: string; statusTone: StatusTone } => {
-  const { word, tone } = ticketStatus({ stageCurrent: s.stageCurrent, paused: s.paused, agentState: s.agentState });
-  return { statusWord: word, statusTone: tone };
+  const status = ticketStatus({ stageCurrent: s.stageCurrent, paused: s.paused, agentState: s.agentState });
+  return { statusWord: status?.word ?? '', statusTone: status?.tone ?? 'info' };
 };
 
 export const selectIdentity = (snapshot: DashboardSnapshot): IdentitySlice | null => {
@@ -90,7 +92,7 @@ export const selectControls = (snapshot: DashboardSnapshot): ControlsSlice | nul
 
 export const selectAgent = (snapshot: DashboardSnapshot): AgentSlice | null => {
   const s = snapshot.state;
-  return s?.agentSession && s.agentSwitch ? { session: s.agentSession, agentState: s.agentState || 'none', switch: s.agentSwitch } : null;
+  return s?.agentSession && s.agentSwitch ? { session: s.agentSession, agentState: s.agentState || 'none', switch: s.agentSwitch, autofixRound: s.autopilot?.roundActive === true } : null;
 };
 
 export const selectBind = (snapshot: DashboardSnapshot): boolean => snapshot.bind;

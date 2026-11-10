@@ -50,13 +50,13 @@ export function RowDuration({ stage, id }: { readonly stage: string; readonly id
 /** A process row's Σ pill (live while the row runs). */
 export function RowTokens({ stage, id }: { readonly stage: string; readonly id: string }) {
   const t = useSlice(useMemo(() => rowField(stage, id, pickTokens), [stage, id]));
-  return <TokenPill t={t?.tokens} live={t?.live ?? false} />;
+  return <TokenPill t={t?.tokens} />;
 }
 
 /** The Σ pill of one session-timeline row. */
 export function TimelineTokens({ stage, id, index }: { readonly stage: string; readonly id: string; readonly index: number }) {
   const t = useSlice(useMemo(() => timelineTokens(stage, id, index), [stage, id, index]));
-  return <TokenPill t={t?.tokens} live={t?.live ?? false} />;
+  return <TokenPill t={t?.tokens} />;
 }
 
 /** The two timing cells of one evidence row (UI-R41: both always emitted, empty when absent). Only a row with a status shows them. */

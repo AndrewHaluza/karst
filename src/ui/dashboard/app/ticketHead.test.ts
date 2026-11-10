@@ -9,15 +9,17 @@ describe('ticketStatus', () => {
     [{ ...base, paused: true }, 'Paused', 'attention'],
     [{ ...base, agentState: 'waiting' }, 'Needs you', 'attention'],
     [{ ...base, agentState: 'not-started' }, 'Needs you', 'attention'],
-    [base, 'Running', 'running'],
-    [{ ...base, agentState: 'idle' }, 'Idle', 'info'],
   ])('%j → %s', (input, word, tone) => {
     expect(ticketStatus(input)).toEqual({ word, tone });
   });
 
+  it.each(['running', 'idle', null])('gives no pill for agent state %s (the runtime strip shows it)', (agentState) => {
+    expect(ticketStatus({ ...base, agentState })).toBeNull();
+  });
+
   it('paused wins over a waiting agent, and a finished ticket over both', () => {
-    expect(ticketStatus({ stageCurrent: 'impl', paused: true, agentState: 'waiting' }).word).toBe('Paused');
-    expect(ticketStatus({ stageCurrent: 'done', paused: true, agentState: 'waiting' }).word).toBe('Done');
+    expect(ticketStatus({ stageCurrent: 'impl', paused: true, agentState: 'waiting' })?.word).toBe('Paused');
+    expect(ticketStatus({ stageCurrent: 'done', paused: true, agentState: 'waiting' })?.word).toBe('Done');
   });
 });
 

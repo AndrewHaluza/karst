@@ -189,6 +189,10 @@
   border-radius:var(--k-radius-circle);background:var(--p-surface2)}
 #inside .timeline-tail{display:flex;align-items:center;justify-content:flex-end;gap:var(--p-s1);
   min-width:0;white-space:nowrap}
+/* The tail's right padding puts the timeline's Σ pill in the Session row's Σ column: the row grid's wider gaps (--p-s2) and the tail's own padding (--p-s1) are made up here (UI-R41). Wide only: below 761px the identity cell has no width to give. */
+@container (min-width: 761px){
+  #inside .timeline-tail{padding-right:calc(2 * var(--p-s2) - var(--p-s1))}
+}
 #inside .tl-time,#inside .tl-dur,#inside .commit-time,#inside .pr-time{justify-self:end;text-align:right;font-variant-numeric:tabular-nums}
 #inside .segment-window,#inside .switch-time,#inside .phase-time{color:var(--p-muted2);
   font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
@@ -361,3 +365,7 @@
   color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px}
 
 #inside .findings-stall { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 8px; margin-bottom: 6px; border-left: 2px solid var(--vscode-editorWarning-foreground); }
+
+/* The timeline overflow: a text button under the rail, aligned with the rail's name column. */
+#inside .timeline-overflow{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s3) + 20px + var(--p-s1))}
+#inside .overflow-btn{display:inline-flex;min-height:20px;align-items:center;gap:var(--p-s1);color:var(--p-running)}
