@@ -86,7 +86,13 @@ function parseBlocks(markdown: string): Block[] {
   return blocks;
 }
 
-const INLINE_RE = /`([^`]+)`|\*\*([^*]+)\*\*|\*([^*\s][^*]*)\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
+/** Longest span an inline rule scans for its closer. The bound keeps an unclosed opener linear, not quadratic. */
+const MAX_SPAN = 500;
+const MAX_URL = 2000;
+const INLINE_RE = new RegExp(
+  `\`([^\`]{1,${MAX_SPAN}})\`|\\*\\*([^*]{1,${MAX_SPAN}})\\*\\*|\\*([^*\\s][^*]{0,${MAX_SPAN}})\\*|\\[([^\\]]{1,${MAX_SPAN}})\\]\\(([^)\\s]{1,${MAX_URL}})\\)`,
+  'g',
+);
 
 /** Inline spans of one text run. Text no rule claims stays literal; React escapes it. */
 function inline(text: string): ReactNode[] {

@@ -129,4 +129,15 @@ describe('parseBriefSections', () => {
   it('handles an empty brief', () => {
     expect(parseBriefSections('').body).toBe('');
   });
+
+  it('keeps a section heading the description repeats in the body', () => {
+    const description = 'Steps:\n\n## Comments\n- not a comment\n\n## Details\n- not a detail: x';
+    const p = parseBriefSections(renderBrief(rich_with(description)));
+    expect(p.body).toContain('## Comments');
+    expect(p.body).toContain('- not a detail: x');
+    expect(p.comments.map((c) => c.author)).toEqual(['Ada', 'Bob']);
+    expect(p.details.map((d) => d.label)).toContain('Status');
+  });
 });
+
+const rich_with = (description: string): ContextBrief => ({ ...rich(), description });

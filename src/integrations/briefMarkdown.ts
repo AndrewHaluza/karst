@@ -150,6 +150,36 @@ const SECTION_HEADINGS: Readonly<Record<string, SectionKey>> = {
   '## Attachments': 'attachments',
 };
 
+const SECTION_ORDER: readonly SectionKey[] = ['details', 'people', 'relations', 'dates', 'links', 'comments', 'attachments'];
+/** Headings the scan weighs; more than this and the rest stay body text (keeps the chain search cheap). */
+const MAX_HEADINGS = 200;
+
+/**
+ * Line indexes of the real section headings. `renderBrief` emits them in a fixed order after the description, so the
+ * longest strictly increasing chain (latest start on a tie) is the real set; a heading the description repeats
+ * out of order stays body text.
+ */
+function sectionHeadingLines(lines: readonly string[]): Set<number> {
+  const found: { at: number; rank: number }[] = [];
+  lines.forEach((line, at) => {
+    const key = SECTION_HEADINGS[line.trim()];
+    if (key && found.length < MAX_HEADINGS) found.push({ at, rank: SECTION_ORDER.indexOf(key) });
+  });
+  const len = new Array<number>(found.length).fill(1);
+  for (let i = found.length - 1; i >= 0; i--) {
+    for (let j = i + 1; j < found.length; j++) if (found[j]!.rank > found[i]!.rank) len[i] = Math.max(len[i]!, 1 + len[j]!);
+  }
+  const best = Math.max(0, ...len);
+  let start = len.lastIndexOf(best);
+  const chain = new Set<number>();
+  while (start >= 0 && best > 0) {
+    chain.add(found[start]!.at);
+    const want = len[start]! - 1;
+    start = want === 0 ? -1 : found.findIndex((f, j) => j > start && f.rank > found[start]!.rank && len[j] === want);
+  }
+  return chain;
+}
+
 const unescapeInline = (text: string): string => text.replace(/\\([\\`*_[\]()<>#|~])/g, '$1');
 const SIZE_RE = /\d+(?:\.\d+)? (?:KB|MB|B)(?=[ _·]|$)/;
 const LINK_RE = /!?\[[^\]]*\]\(([^)\s]+)\)/;
@@ -217,8 +247,9 @@ export function parseBriefSections(markdown: string): ParsedBrief {
   let tags: string[] = [];
   let current: SectionKey | null = null;
   let afterBlank = false;
-  for (const line of lines) {
-    const known = SECTION_HEADINGS[line.trim()];
+  const headingLines = sectionHeadingLines(lines);
+  for (const [at, line] of lines.entries()) {
+    const known = headingLines.has(at) ? SECTION_HEADINGS[line.trim()] : undefined;
     if (known) {
       current = known;
     } else if (afterBlank && current !== 'comments' && current !== 'attachments' && line.startsWith('Tags: ')) {

@@ -71,4 +71,18 @@ describe('MarkdownView', () => {
     view(hostile);
     expect(Date.now() - start).toBeLessThan(1000);
   });
+
+  it('renders the inline spans of a closed run', () => {
+    const el = view('a `c` **b** *e* [l](https://x.test/p)');
+    expect(el.querySelector('code')?.textContent).toBe('c');
+    expect(el.querySelector('strong')?.textContent).toBe('b');
+    expect(el.querySelector('em')?.textContent).toBe('e');
+    expect(el.querySelector('a')?.getAttribute('href')).toBe('https://x.test/p');
+  });
+
+  it.each(['`', '**', '*a', '[a'])('scans an unclosed %s opener run in bounded time', (opener) => {
+    const start = Date.now();
+    view(opener.repeat(60000));
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
 });
