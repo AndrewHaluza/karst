@@ -364,4 +364,4 @@
 
 /* The timeline overflow: a text button under the rail, aligned with the rail's name column. */
 #inside .timeline-overflow{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s3) + 20px + var(--p-s1))}
-#inside .overflow-btn{display:inline-flex;align-items:center;gap:var(--p-s1);color:var(--p-running)}
+#inside .overflow-btn{display:inline-flex;min-height:20px;align-items:center;gap:var(--p-s1);color:var(--p-running)}
