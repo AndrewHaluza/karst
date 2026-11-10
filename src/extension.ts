@@ -418,6 +418,7 @@ import { shipClearedEvent, shipStepEvent } from './model/inside/progress.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
 import { advanceTicketOnShip, statusPushSkipNote } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
+import { setShipCiDebug } from './store/shipCi.js';
 import { getTicket, ticketLabel, listTickets, listArchivedTickets, setAgentState, setSessionId, updateTicketFields, clearApproachFromTickets, pauseTicket, unpauseTicket } from './store/tickets.js';
 import type { Project } from './store/projects.js';
 import { bindProject } from './project/bind.js';
@@ -641,6 +642,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(channel);
   const diagnosticLogBuffer = makeBoundedLogBuffer();
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
+  setShipCiDebug((m) => logger.debug(m));
   // @arch:AC-55: publish the machine-local agent accounts to every spawn path.
   const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, store: localStore, debug: (m) => logger.debug(m) }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
   if (accountsWiring) context.subscriptions.push({ dispose: () => accountsWiring.dispose() });

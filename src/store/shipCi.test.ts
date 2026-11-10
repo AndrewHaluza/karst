@@ -5,7 +5,7 @@ import { setStage } from './stages.js';
 import { recordShippedPr } from './prs.js';
 import { setMergeCheck } from './mergeChecks.js';
 import { setAutopilotPaused, setAutopilotStopped } from './autopilot.js';
-import { shipCiReading } from './shipCi.js';
+import { setShipCiDebug, shipCiReading } from './shipCi.js';
 import { ticketGlyph } from '../model/ticketGlyph.js';
 import { stageBadge } from '../model/stageBadge.js';
 
@@ -94,8 +94,14 @@ describe('shipCiReading', () => {
   it('a dirty PR or no PR reads null', () => {
     expect(shipCiReading([{ checks: 'pending', mergeBlock: 'dirty' }], false)).toBeNull();
     expect(shipCiReading([], false)).toBeNull();
-    expect(shipCiReading([{ checks: 'pending', mergeBlock: 'unknown' }], false)).toBe('running');
+    expect(shipCiReading([{ checks: 'pending', mergeBlock: 'blocked' }], false)).toBe('running');
   });
+  it.each(['clean', 'unstable', 'has_hooks', 'behind', 'draft', 'unknown'] as const)(
+    'pending with merge_block %s stays amber',
+    (mergeBlock) => {
+      expect(shipCiReading([{ checks: 'pending', mergeBlock }], false)).toBeNull();
+    },
+  );
 });
 
 describe('a failing read', () => {
@@ -106,7 +112,12 @@ describe('a failing read', () => {
     setStage(store, id, 'ship', { status: 'passed', blockedKind: 'awaiting-merge', blockedReason: 'x' });
     store.db.exec('DROP TABLE merge_checks');
     const seen: string[] = [];
-    expect(getTicket(store, id, (m) => seen.push(m)).shipCi).toBeNull();
+    setShipCiDebug((m) => seen.push(m));
+    try {
+      expect(getTicket(store, id).shipCi).toBeNull();
+    } finally {
+      setShipCiDebug(undefined);
+    }
     expect(seen[0]).toContain('[merge] shipCi read failed');
   });
 });

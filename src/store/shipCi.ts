@@ -19,14 +19,34 @@ export interface ShipCiPr {
 
 /**
  * Pure rule. CI "runs" when at least one PR has a pending check that GitHub
- * still counts as blocking (`merge_block` is not `clean`), and nothing already
+ * still counts as blocking (`merge_block` is `blocked`), and nothing already
  * needs the user: no failing PR, no `dirty` PR, no conflicted merge check.
  * `unknown` never counts as pending.
  */
 export function shipCiReading(prs: readonly ShipCiPr[], hasConflict: boolean): ShipCi {
   if (hasConflict || prs.length === 0) return null;
   if (prs.some((p) => p.checks === 'failing' || p.mergeBlock === 'dirty')) return null;
-  return prs.some((p) => p.checks === 'pending' && p.mergeBlock !== 'clean') ? 'running' : null;
+  return prs.some((p) => p.checks === 'pending' && p.mergeBlock === CI_BLOCKING) ? 'running' : null;
+}
+
+/**
+ * The one `merge_block` token that means "GitHub refuses the merge until the
+ * required checks end". Every other token either permits the merge now (`clean`,
+ * `unstable`, `has_hooks`) or waits on a user action (`behind`, `draft`,
+ * `dirty`), and `unknown` is a non-answer — all of them keep the ticket amber.
+ */
+const CI_BLOCKING: MergeBlock = 'blocked';
+
+let shipCiDebug: ((message: string) => void) | undefined;
+
+/** Composition-root seam: the host injects its debug sink once at activation. */
+export function setShipCiDebug(debug: ((message: string) => void) | undefined): void {
+  shipCiDebug = debug;
+}
+
+/** Log a failed read; the reading itself falls back to null (amber). */
+export function reportShipCiFailure(ticketId: number, err: unknown): void {
+  shipCiDebug?.(`[merge] shipCi read failed for ticket ${ticketId}: ${err instanceof Error ? err.message : String(err)}`);
 }
 
 interface CurrentOpenPrRow {
