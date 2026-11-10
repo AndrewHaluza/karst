@@ -55,7 +55,7 @@ const catalog = {
     { id: 'claude-sonnet-5', label: 'Sonnet 5', efforts: ['low', 'medium', 'high'], tags: ['text-only'] },
   ],
   codex: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', efforts: ['minimal', 'low', 'medium', 'high'] }],
-  antigravity: [{ id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)' }],
+  antigravity: [{ id: 'gemini-4-argon-high', label: 'Gemini 4 Argon (High)' }],
   opencode: [],
 };
 
@@ -182,7 +182,7 @@ describe('agentPickerJs', () => {
     });
 
     it('returns undefined for a model whose entry advertises none', () => {
-      expect(apEfforts(catalog, 'antigravity', 'gemini-3.6-flash-high')).toBeUndefined();
+      expect(apEfforts(catalog, 'antigravity', 'gemini-4-argon-high')).toBeUndefined();
     });
 
     it('returns undefined for an unknown model id or a blank model', () => {
@@ -200,7 +200,7 @@ describe('agentPickerJs', () => {
     });
 
     it('returns undefined for a model whose entry advertises none', () => {
-      expect(apTags(catalog, 'antigravity', 'gemini-3.6-flash-high')).toBeUndefined();
+      expect(apTags(catalog, 'antigravity', 'gemini-4-argon-high')).toBeUndefined();
     });
 
     it('returns undefined for an unknown model id or a blank model', () => {
@@ -257,7 +257,7 @@ describe('agentPickerJs', () => {
     });
 
     it('returns no options when the model advertises no efforts', () => {
-      const out = apEffortOptions(catalog, 'antigravity', 'gemini-3.6-flash-high', '');
+      const out = apEffortOptions(catalog, 'antigravity', 'gemini-4-argon-high', '');
       expect(out.html).toBe('');
       expect(out.efforts).toBeNull();
     });
@@ -392,7 +392,7 @@ describe('agentPickerJs', () => {
     });
 
     it('renders no tag-chip block for a model that advertises none', () => {
-      const out = apModelOptionsHtml(catalog, 'antigravity', 'gemini-3.6-flash-high', '');
+      const out = apModelOptionsHtml(catalog, 'antigravity', 'gemini-4-argon-high', '');
       expect(out).not.toContain('ap-model-tags');
     });
 

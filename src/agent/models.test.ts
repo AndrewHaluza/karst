@@ -35,28 +35,18 @@ describe('KNOWN_MODELS', () => {
       'gpt-5.6-luna',
       'gpt-5.5',
       'gpt-5.6-sol',
+      'gemini-4-argon-high',
+      'gemini-4-argon-medium',
+      'gemini-4-argon-low',
       'gemini-3.8-flash-high',
       'gemini-3.8-flash-medium',
       'gemini-3.8-flash-low',
-      'gemini-3.7-flash-high',
-      'gemini-3.7-flash-medium',
-      'gemini-3.7-flash-low',
-      'gemini-3.6-flash-high',
-      'gemini-3.6-flash-medium',
-      'gemini-3.6-flash-low',
-      'gemini-3.5-flash-high',
-      'gemini-3.5-flash-medium',
-      'gemini-3.5-flash-low',
-      'gemini-3.1-pro-high',
-      'gemini-3.1-pro-low',
       'claude-opus-5-5-high',
       'claude-opus-5-5-medium',
       'claude-opus-5-5-low',
       'claude-sonnet-5-5-high',
       'claude-sonnet-5-5-medium',
       'claude-sonnet-5-5-low',
-      'claude-sonnet-4-6',
-      'claude-opus-4-6-thinking',
       'gpt-oss-120b-medium',
       'opencode-go/mimo-v2.5',
       'opencode-go/space-bunny',
@@ -83,7 +73,7 @@ describe('KNOWN_MODELS', () => {
       'claude-haiku-4-5',
     ]);
     expect(modelsForProvider('antigravity').map((m) => m.id)).toContain(
-      'gemini-3.6-flash-high',
+      'gemini-4-argon-high',
     );
     expect(modelsForProvider('antigravity').map((m) => m.id)).not.toContain('claude-opus-4-8');
   });
@@ -193,8 +183,8 @@ describe('resolveModelForProvider', () => {
 
   it('skips a ticket model known to belong to another provider', () => {
     expect(
-      resolveModelForProvider('antigravity', 'claude-opus-4-8', 'gemini-3.6-flash-high'),
-    ).toBe('gemini-3.6-flash-high');
+      resolveModelForProvider('antigravity', 'claude-opus-4-8', 'gemini-4-argon-high'),
+    ).toBe('gemini-4-argon-high');
   });
 
   it('preserves unknown custom model ids', () => {
