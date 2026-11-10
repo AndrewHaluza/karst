@@ -37,6 +37,38 @@ function completed(stdout: string, exitCode = 0, stderr = ''): CommandRunner {
 }
 
 describe('parseAntigravityModels', () => {
+  it('parses two-column output with tabs and ignores leading status line', () => {
+    expect(parseAntigravityModels([
+      'Fetching available models...',
+      'gemini-4-argon-high\tGemini 4 Argon (High)',
+      'gemini-4-argon-medium\tGemini 4 Argon (Medium)',
+      'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
+    ].join('\n'))).toEqual([
+      { id: 'gemini-4-argon-high', label: 'Gemini 4 Argon (High)', providers: ['antigravity'] },
+      { id: 'gemini-4-argon-medium', label: 'Gemini 4 Argon (Medium)', providers: ['antigravity'] },
+      { id: 'claude-opus-5-5-high', label: 'Claude Opus 5.5 (High)', providers: ['antigravity'] },
+    ]);
+  });
+
+  it('parses two-column output separated by two or more spaces', () => {
+    expect(parseAntigravityModels([
+      'fetching available models...',
+      'gemini-4-argon-high  Gemini 4 Argon (High)',
+      'gemini-3.8-flash-high    Gemini 3.8 Flash (High)',
+    ].join('\n'))).toEqual([
+      { id: 'gemini-4-argon-high', label: 'Gemini 4 Argon (High)', providers: ['antigravity'] },
+      { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)', providers: ['antigravity'] },
+    ]);
+  });
+
+  it('takes column 1 as the exact model ID', () => {
+    expect(parseAntigravityModels([
+      'custom-MODEL.1\tCustom Model Label',
+    ].join('\n'))).toEqual([
+      { id: 'custom-MODEL.1', label: 'Custom Model Label', providers: ['antigravity'] },
+    ]);
+  });
+
   it('derives stable IDs while preserving model labels', () => {
     expect(parseAntigravityModels([
       'Available models:',
@@ -63,6 +95,12 @@ describe('parseAntigravityModels', () => {
     ['usage text', 'Usage: agy models [options]\n  --json  print JSON\n'],
     ['an error page', 'error: not logged in, run agy auth login\n'],
     ['nothing at all', '\n\n'],
+    ['only the status line', 'Fetching available models...\n'],
+    ['status line followed by usage text', 'Fetching available models...\nUsage: agy models [options]\n  --json  print JSON\n'],
+    ['status line followed by error', 'Fetching available models...\nerror: session expired\n'],
+    ['two-column line with empty label', 'gemini-4-argon-high\t   \n'],
+    ['single-space separated prose', 'gemini-4-argon-high Gemini 4 Argon (High)\n'],
+    ['error prefix with spaces', 'error:  server unreachable\n'],
   ])('refuses to read %s as a headingless model list', (_case, stdout) => {
     expect(parseAntigravityModels(stdout)).toBeUndefined();
   });
@@ -203,7 +241,30 @@ describe('provider discovery', () => {
 
   it('reports an empty Antigravity list as unavailable', async () => {
     await expect(discoverAntigravityModels(completed('Available models:\n')))
-      .resolves.toMatchObject({ status: 'unavailable' });
+      .resolves.toMatchObject({ status: 'unavailable', code: 'invalid-output' });
+  });
+
+  it('discovers live Antigravity models from two-column CLI output with status line', async () => {
+    const result = await discoverAntigravityModels(completed([
+      'Fetching available models...',
+      'gemini-4-argon-high\tGemini 4 Argon (High)',
+      'gemini-4-argon-medium\tGemini 4 Argon (Medium)',
+      'claude-opus-5-5-high\tClaude Opus 5.5 (High)',
+    ].join('\n')));
+
+    expect(result).toEqual({
+      status: 'available',
+      models: [
+        { id: 'gemini-4-argon-high', label: 'Gemini 4 Argon (High)', providers: ['antigravity'] },
+        { id: 'gemini-4-argon-medium', label: 'Gemini 4 Argon (Medium)', providers: ['antigravity'] },
+        { id: 'claude-opus-5-5-high', label: 'Claude Opus 5.5 (High)', providers: ['antigravity'] },
+      ],
+    });
+  });
+
+  it('reports an Antigravity list with only status line as unavailable invalid-output', async () => {
+    await expect(discoverAntigravityModels(completed('Fetching available models...\n')))
+      .resolves.toMatchObject({ status: 'unavailable', code: 'invalid-output' });
   });
 
   // The code, not the prose, is what the catalog loader classifies by: an absent

@@ -291,6 +291,7 @@ export function parseCodexModels(stdout: string): ModelOption[] | undefined {
 
 /** A bare model id as `agy models` prints it \u2014 no spaces, no punctuation prose. */
 const BARE_MODEL_LINE = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
+const AGY_STATUS_LINE = /^fetching available models/i;
 
 function antigravityModelId(label: string): string {
   return label
@@ -301,31 +302,65 @@ function antigravityModelId(label: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+/** Parse a two-column `<id>\t<label>` or `<id>  <label>` line. */
+function parseTwoColumnLine(line: string): { id: string; label: string } | undefined {
+  const match = line.match(/^([A-Za-z0-9][A-Za-z0-9._:/-]*)(?:[^\S\r\n]*\t\s*|\s{2,})(.+)$/);
+  if (!match) return undefined;
+  const id = match[1]!;
+  if (id.endsWith(':')) return undefined;
+  const label = match[2]!.trim();
+  if (label.length === 0) return undefined;
+  return { id, label };
+}
+
 /**
  * Parse `agy models` into normalized catalog rows.
  *
- * Two shapes are accepted because the CLI ships both: the documented
- * `Available models:` heading followed by human labels, and \u2014 what the current
- * `agy` actually prints \u2014 a bare newline-separated list of ids with no heading.
- * Requiring the heading made a working, installed `agy` report `invalid-output`.
+ * Three shapes are accepted:
+ * 1. Two-column `<id>\t<label>` lines (or separated by 2+ spaces), taking column 1
+ *    as the exact model ID and column 2 as the human label.
+ * 2. Legacy `Available models:` heading followed by human labels.
+ * 3. Headingless newline-separated list of bare model IDs.
  *
- * The headingless form is only accepted when EVERY line is a bare model id, so
- * usage text, an auth error, or any other prose is still refused rather than
- * silently turned into models.
+ * Leading status lines matching `/^fetching available models/i` are ignored.
+ * Non-model prose, usage text, and error messages are strictly refused.
  */
 export function parseAntigravityModels(stdout: string): ModelOption[] | undefined {
-  const lines = stdout.split(/\r?\n/);
+  const rawLines = stdout.split(/\r?\n/);
+  const lines = rawLines.filter((line) => !AGY_STATUS_LINE.test(line.trim()));
   const heading = lines.findIndex((line) => line.trim().toLowerCase() === 'available models:');
 
-  const labels = (heading < 0 ? lines : lines.slice(heading + 1))
-    .map((line) => line.trim().replace(/^(?:[-*]\s+)/, ''))
-    .filter((label) => label.length > 0);
-  if (heading < 0 && !labels.every((label) => BARE_MODEL_LINE.test(label))) return undefined;
+  const candidates = heading < 0 ? lines : lines.slice(heading + 1);
+  const models: { id: string; label: string }[] = [];
 
-  return validateModelList(
-    'antigravity',
-    labels.map((label) => ({ id: antigravityModelId(label), label })),
-  );
+  for (const rawLine of candidates) {
+    const trimmed = rawLine.trim().replace(/^(?:[-*]\s+)/, '');
+    if (trimmed.length === 0) continue;
+
+    if (/\t\s*$/.test(rawLine)) return undefined;
+
+    const twoCol = parseTwoColumnLine(trimmed);
+    if (twoCol) {
+      models.push(twoCol);
+      continue;
+    }
+
+    if (heading >= 0) {
+      models.push({ id: antigravityModelId(trimmed), label: trimmed });
+      continue;
+    }
+
+    if (BARE_MODEL_LINE.test(trimmed)) {
+      models.push({ id: antigravityModelId(trimmed), label: trimmed });
+      continue;
+    }
+
+    return undefined;
+  }
+
+  if (models.length === 0) return undefined;
+
+  return validateModelList('antigravity', models);
 }
 
 const CODEX_INITIALIZE_INPUT = `${JSON.stringify({
