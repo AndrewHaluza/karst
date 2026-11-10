@@ -152,7 +152,7 @@ const railMerge = (): DashboardState => {
 };
 const failingCi = (): DashboardState =>
   shipWith(
-    { checks: { state: 'failing', label: 'failing', title: '', detailsLabel: '1 failing', failing: [{ name: 'lint', url: '' }] } },
+    { readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'checks', state: 'bad', label: 'CI failing', detail: '', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } }] } },
     { ciFailure: { available: true, repos: [REPO] } },
   );
 const push = async (v: RenderHandle, state: DashboardState, extra: Record<string, unknown> = {}): Promise<void> => {
@@ -211,11 +211,11 @@ describe('React Pull requests island / vanilla page interop', () => {
   it('Send CI failure is one operation across the panel and the stage menu', async () => {
     const v = await openWith(failingCi());
     const before = v.posted.length;
-    await click(v, '#prs .mg-ci-failing .mgbtn');
+    await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
     expect(sentTypes(v, before)).toEqual(['send-ci-failure']);
-    expect(v.query<HTMLButtonElement>('#prs .mg-ci-failing .mgbtn')!.disabled).toBe(true);
+    expect(v.query<HTMLButtonElement>('#prs .prsn[data-kind="checks"] .mgbtn')!.disabled).toBe(true);
     await push(v, failingCi());
-    expect(v.query<HTMLButtonElement>('#prs .mg-ci-failing .mgbtn')!.disabled).toBe(false);
+    expect(v.query<HTMLButtonElement>('#prs .prsn[data-kind="checks"] .mgbtn')!.disabled).toBe(false);
   });
 
   it('open-pr from the PR panel posts once; the artifact view (vanilla) still posts it too', async () => {

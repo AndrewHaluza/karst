@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeChecks, normalizeMergeBlock } from './prChecks.js';
+import { applyRequiredChecks, normalizeChecks, normalizeMergeBlock } from './prChecks.js';
+import { parseChecks, type PrChecks } from '../model/prChecks.js';
 
 const checkRun = (over: Record<string, unknown>): Record<string, unknown> => ({
   __typename: 'CheckRun',
@@ -254,5 +255,52 @@ describe('normalizeMergeBlock', () => {
 
   it('MERGEABLE alone is not clean — the trees merge, the rules were not asked', () => {
     expect(normalizeMergeBlock('MERGEABLE', undefined)).toBe('unknown');
+  });
+});
+
+describe('applyRequiredChecks', () => {
+  const base: PrChecks = {
+    state: 'failing', total: 3, passed: 1, failed: 1, pending: 1,
+    failing: [{ name: 'lint', url: null }, { name: 'docs', url: null }], failedShown: 0,
+  };
+
+  it('is null for no rollup', () => {
+    expect(applyRequiredChecks(null, [])).toBeNull();
+  });
+
+  it('counts failed, cancelled and pending required checks and flags the failing ones', () => {
+    const raw = [
+      { name: 'lint', bucket: 'fail' }, { name: 'unit', bucket: 'cancel' }, { name: 'e2e', bucket: 'pending' },
+      { name: 'build', bucket: 'pass' }, { name: 'skip', bucket: 'skipping' }, { name: 'odd', bucket: 'zzz' },
+    ];
+    const out = applyRequiredChecks(base, raw)!;
+    expect(out.required).toEqual({ total: 6, failed: 2, pending: 2 });
+    expect(out.failing.map((f) => f.required)).toEqual([true, false]);
+    expect(base.required).toBeUndefined();
+  });
+
+  it.each([[null], ['x'], [{}], [[]], [[1]]])('leaves the split unknown for %j', (raw) => {
+    const out = applyRequiredChecks(base, raw)!;
+    expect(out.required).toBeNull();
+    expect(out.failing.every((f) => f.required === null)).toBe(true);
+  });
+});
+
+describe('parseChecks required', () => {
+  const col = (required: unknown, failing: unknown = []): string =>
+    JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing, failedShown: 0, required });
+
+  it('round-trips the required counts and the per-check flag', () => {
+    const out = parseChecks(col({ total: 2, failed: 1, pending: 0 }, [{ name: 'a', url: '', required: true }, { name: 'b', url: 'u', required: 'yes' }]))!;
+    expect(out.required).toEqual({ total: 2, failed: 1, pending: 0 });
+    expect(out.failing).toEqual([{ name: 'a', url: null, required: true }, { name: 'b', url: 'u' }]);
+  });
+
+  it.each([[null], [[]], ['x'], [{ total: 'n' }], [{ total: Infinity }]])('drops a malformed required %j', (raw) => {
+    expect('required' in parseChecks(col(raw))!).toBe(false);
+  });
+
+  it('coerces non-numeric required counts to 0', () => {
+    expect(parseChecks(col({ total: 3, failed: 'x' }))!.required).toEqual({ total: 3, failed: 0, pending: 0 });
   });
 });

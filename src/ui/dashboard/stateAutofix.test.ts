@@ -4,7 +4,8 @@ import { createTicket } from '../../store/tickets.js';
 import { setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, setAutopilotStopAfter, takeAutopilotAttempt, markConflictRound } from '../../store/autopilot.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
-import { readAutofix } from './stateAutofix.js';
+import { autofixInputOf, readAutofix } from './stateAutofix.js';
+import type { AutofixFacts } from '../../model/inside/autofix.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 
 const CONFIG: AutopilotConfig = {
@@ -167,5 +168,30 @@ describe('readAutofix', () => {
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'typecheck', url: 'https://x/run' }], failedShown: 1 }));
     takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
     expect(readAutofix(store, id, CONFIG).row).toBeNull();
+  });
+});
+
+describe('autofixInputOf', () => {
+  const facts = (over: Partial<AutofixFacts>): AutofixFacts => ({
+    override: 'inherit', projectDefault: true, effective: true, reason: null, round: null,
+    stopAfter: false, unknownCi: [], target: null, ...over,
+  });
+
+  it('reads a running round with its repo and counter; an empty repo is null', () => {
+    expect(autofixInputOf(facts({ round: { kind: 'ci', repo: 'api', used: 1, max: 3 } as AutofixFacts['round'] })).running).toEqual({ kind: 'ci', repo: 'api', round: '1/3' });
+    expect(autofixInputOf(facts({ round: { kind: 'conflicts', repo: '', used: 2, max: 2 } as AutofixFacts['round'] })).running?.repo).toBeNull();
+  });
+
+  it('reads a park by the kind its reason names, and a CI read failure as CI', () => {
+    const parked = autofixInputOf(facts({ reason: 'auto-fix paused: CI could not be read' }));
+    expect(parked.parked).toEqual({ kind: 'ci', reason: 'auto-fix paused: CI could not be read' });
+    expect(parked.running).toBeNull();
+  });
+
+  it('lets a running round win over a park, drops a park that names no kind, and flags unknown CI', () => {
+    const both = autofixInputOf(facts({ reason: 'auto-fix paused: CI x', round: { kind: 'ci', repo: 'api', used: 1, max: 3 } as AutofixFacts['round'] }));
+    expect(both.parked).toBeNull();
+    expect(autofixInputOf(facts({ reason: 'auto-fix stopped by you' })).parked).toBeNull();
+    expect(autofixInputOf(facts({ unknownCi: ['api #1'], effective: false }))).toMatchObject({ unknownCi: true, effective: false });
   });
 });

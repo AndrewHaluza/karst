@@ -179,6 +179,43 @@ describe('updatePrDetail', () => {
     expect(other.headRef).toBeNull();
   });
 
+  describe('PR facts (v114)', () => {
+    const base = { headRef: null, baseRef: null, createdAt: null, mergedAt: null, comments: null, checks: null, mergeBlock: 'unknown', mergeSha: null, changedPaths: null } as const;
+    const write = (a: number, detail: Parameters<typeof updatePrDetail>[1]['detail']): void =>
+      updatePrDetail(store, { ticketId: a, repo: 'api', url: url(12), detail });
+    const row = (a: number) => listPrsByTicket(store, a)[0]!;
+
+    it('stores the facts, then keeps them when a probe states none, but clears review state on a successful probe', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      seedPr(store, a.id, 'api', 12, 'open');
+      write(a.id, {
+        ...base, status: 'open', title: 'T', author: 'ada', additions: 5, deletions: 2, changedFiles: 3, commitCount: 2,
+        reviewDecision: 'APPROVED', approvals: 2, reviewRequests: ['bob'],
+      });
+      expect(row(a.id)).toMatchObject({
+        title: 'T', author: 'ada', additions: 5, deletions: 2, changedFiles: 3, commitCount: 2,
+        reviewDecision: 'APPROVED', approvals: 2, reviewRequests: ['bob'],
+      });
+
+      // A failed probe (status unknown) keeps everything.
+      write(a.id, { ...base, status: 'unknown', reviewDecision: null, approvals: null, reviewRequests: null });
+      expect(row(a.id)).toMatchObject({ title: 'T', reviewDecision: 'APPROVED', approvals: 2, reviewRequests: ['bob'] });
+
+      // A successful probe that states no decision and no requests clears them; the diff facts stay.
+      write(a.id, { ...base, status: 'open', reviewDecision: null, approvals: 0, reviewRequests: [] });
+      expect(row(a.id)).toMatchObject({ title: 'T', additions: 5, reviewDecision: null, approvals: 0, reviewRequests: [] });
+    });
+
+    it('reads a malformed review_requests column as none', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      seedPr(store, a.id, 'api', 12, 'open');
+      for (const bad of ['not json', '{"a":1}', '["x",1]']) {
+        store.db.prepare('UPDATE prs SET review_requests = ? WHERE ticket_id = ?').run(bad, a.id);
+        expect(row(a.id).reviewRequests).toEqual(bad === '["x",1]' ? ['x'] : []);
+      }
+    });
+  });
+
   // The whole point of the three-valued fields: a probe that saw less than last
   // time must not erase what karst already knows.
   it('keeps a stored field when the new detail states null for it', () => {

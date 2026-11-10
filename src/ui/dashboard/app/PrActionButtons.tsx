@@ -6,7 +6,7 @@
  */
 import { memo, useCallback, useEffect, useState, type MouseEvent } from 'react';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
-import { useDashboardSend, usePendingOps } from './DashboardAppContext.js';
+import { useDashboardSend, useOps, usePendingOps } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import type { PrPendingApi } from './usePrPending.js';
 import { beginPending, usePendingAction } from './usePendingAction.js';
@@ -77,12 +77,12 @@ export function CopyUrl({ url, label }: { readonly url: string; readonly label?:
 }
 
 /** Hands one repo's conflict to an agent session; settled by the host's `action-result` like any posting control. */
-export function ResolveButton({ repo }: { readonly repo: string }) {
+export function ResolveButton({ repo, label = 'Resolve conflicts' }: { readonly repo: string; readonly label?: string }) {
   const send = useDashboardSend();
   const onClick = usePendingAction(useCallback((requestId: string) => send.resolveConflicts(repo, requestId), [send, repo]));
   return (
     <button type="button" className={SECONDARY} data-act="resolve-conflicts" data-repo={repo} title="Hand this repo's conflict to an agent session" onClick={onClick}>
-      Resolve conflicts
+      {label}
     </button>
   );
 }
@@ -177,7 +177,7 @@ export const DismissButton = memo(function DismissButton({ p, api, busy }: Penda
 });
 
 /** Sends the failing CI log to the agent: host-confirmed, then a state push. One request in flight for every row. */
-export const CiButton = memo(function CiButton({ busy }: { readonly busy: boolean }) {
+export const CiButton = memo(function CiButton({ busy, label = 'Send CI failure to agent' }: { readonly busy: boolean; readonly label?: string }) {
   const send = useDashboardSend();
   // Held in the state the Inside stage menu's item shares (pendingOps.ts): one operation, one dialog.
   const ops = usePendingOps();
@@ -201,10 +201,82 @@ export const CiButton = memo(function CiButton({ busy }: { readonly busy: boolea
       title={busy ? 'Fetching the failing logs' : 'Send the failing CI log to the agent — UAT and Review will run again'}
       onClick={onClick}
     >
-      Send CI failure to agent
+      {label}
     </button>
   );
 });
+
+type SingleFlight = 'rebase' | 'prFeedback';
+
+/**
+ * Rebase on base / Address PR feedback, from a merge-readiness reason. One request per name, held in the state the
+ * Inside stage menu's item shares (pendingOps.ts), so the two controls can never open two dialogs.
+ */
+export const SingleFlightButton = memo(function SingleFlightButton({ name, act, label, title }: { readonly name: SingleFlight; readonly act: string; readonly label: string; readonly title: string }) {
+  const send = useDashboardSend();
+  const ops = usePendingOps();
+  const busy = useOps().running.has(name);
+  const onClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      if (ops.isRunning(name)) return;
+      const requestId = beginPending(e);
+      if (requestId === null) return;
+      ops.beginAction(name, requestId);
+      if (name === 'rebase') send.rebaseOnBase();
+      else send.addressPrFeedback();
+    },
+    [ops, send, name],
+  );
+  return (
+    <button type="button" className={SECONDARY} data-act={busy ? undefined : act} aria-busy={busy ? 'true' : undefined} disabled={busy} title={title} onClick={onClick}>
+      {label}
+    </button>
+  );
+});
+
+/** The Pull requests header's Merge all. Its label and enabled state are the host's reading (`mergeAllView`); the host re-checks and asks the confirmation. */
+export const MergeAllButton = memo(function MergeAllButton({ label, primary, disabledWhy }: { readonly label: string; readonly primary: boolean; readonly disabledWhy: string | null }) {
+  const send = useDashboardSend();
+  const ops = usePendingOps();
+  const busy = useOps().running.has('mergeAll');
+  const onClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      if (ops.isRunning('mergeAll')) return;
+      const requestId = beginPending(e);
+      if (requestId === null) return;
+      ops.beginAction('mergeAll', requestId);
+      send.mergeAllPrs();
+    },
+    [ops, send],
+  );
+  const off = busy || disabledWhy !== null;
+  const className = primary ? PRIMARY : SECONDARY;
+  const title = busy ? 'Merging…' : (disabledWhy ?? 'Merge every ready pull request, one after another');
+  // The act is a literal in the enabled branch so the parity guard (actsInSource) sees it; a disabled button posts nothing.
+  if (off) {
+    return (
+      <button type="button" className={className} aria-busy={busy ? 'true' : undefined} disabled title={title}>
+        {busy ? 'Merging…' : label}
+      </button>
+    );
+  }
+  return (
+    <button type="button" className={className} data-act="merge-all-prs" title={title} onClick={onClick}>
+      {label}
+    </button>
+  );
+});
+
+/** A reason's "Open on GitHub": the same `open-pr` act as the PR number link, as a small button. */
+export function OpenButton({ url, label }: { readonly url: string; readonly label: string }) {
+  const send = useDashboardSend();
+  const onClick = usePendingAction(useCallback((requestId: string) => send.openPr(url, requestId), [send, url]));
+  return (
+    <button type="button" className={SECONDARY} data-act="open-pr" data-url={url} title="Open this pull request on GitHub" onClick={onClick}>
+      {label}
+    </button>
+  );
+}
 
 /** Re-probes every PR (gh per PR, a git fetch per repo: seconds), so it shows the click landed and cannot repeat. Live even with zero PRs. */
 export const RefreshButton = memo(function RefreshButton({ api, busy }: Pendable) {

@@ -1,5 +1,10 @@
 import type { Store } from '../store/db.js';
-import { findTicketPr, updatePrDetail } from '../store/prs.js';
+import { findTicketPr, listCurrentPrsByTicket, updatePrDetail } from '../store/prs.js';
+import { listPrsByTicket } from '../store/dashboard.js';
+import { listMergeChecksByTicket } from '../store/mergeChecks.js';
+import { buildPrPanelRows } from '../model/prPanelView.js';
+import { MERGE_ALL_NONE_READY, MERGE_ALL_ROUND_RUNNING } from '../model/mergeAll.js';
+import { NO_AUTOFIX, NO_OFFERS } from '../model/prMergeReadiness.js';
 import {
   fetchPrDetail,
   mergePr,
@@ -162,4 +167,112 @@ export async function mergeTicketPr(
         ? 'gh reported the merge succeeded, but karst could not confirm it on GitHub. Check the pull request before retrying.'
         : `gh reported the merge succeeded, but the pull request still reads ${detail.status}.`,
   };
+}
+
+/** The one method Merge all uses: its modal offers a single confirm button, so the method is fixed. */
+export const MERGE_ALL_METHOD: MergeMethod = 'squash';
+
+/** One pull request in the Merge all plan. */
+export interface MergeAllItem {
+  readonly repo: string;
+  /** The label the modal shows: the manifest name, else the repo value. */
+  readonly name: string;
+  readonly number: number | null;
+  readonly baseRef: string | null;
+}
+
+/** What the confirmation shows: the PRs that merge, and the open ones left out because they are blocked. */
+export interface MergeAllPlan {
+  readonly ready: readonly MergeAllItem[];
+  readonly skipped: readonly MergeAllItem[];
+}
+
+/** Split the ticket's open PRs into the ready set and the blocked set, both in manifest repository order. */
+export function planMergeAll(
+  store: Store,
+  ticketId: number,
+  repoOrder: readonly string[],
+  repoNameFor: (repo: string) => string | undefined,
+  now: string,
+): MergeAllPlan {
+  const current = new Set(listCurrentPrsByTicket(store, ticketId).map((p) => `${p.repo}\u0000${p.url}`));
+  const views = listPrsByTicket(store, ticketId).filter((p) => p.url !== null && current.has(`${p.repo}\u0000${p.url}`));
+  const rows = buildPrPanelRows(views, now, repoNameFor, { mergeChecks: listMergeChecksByTicket(store, ticketId), offers: NO_OFFERS, autofix: NO_AUTOFIX });
+  const rank = (repo: string): number => {
+    const i = repoOrder.indexOf(repo);
+    return i === -1 ? repoOrder.length : i;
+  };
+  const open = rows
+    .filter((r) => r.status !== 'merged' && r.status !== 'closed' && !r.dismissed)
+    .sort((a, b) => rank(a.repo) - rank(b.repo));
+  const item = (r: (typeof rows)[number]): MergeAllItem => ({ repo: r.repo, name: r.repoDisplay || r.repo, number: r.number, baseRef: r.baseRef });
+  return {
+    ready: open.filter((r) => r.readiness.ready).map(item),
+    skipped: open.filter((r) => !r.readiness.ready).map(item),
+  };
+}
+
+export interface MergeAllDeps {
+  readonly ticketId: number;
+  /** The ticket's repositories in manifest order (the merge order). */
+  readonly repoOrder: readonly string[];
+  readonly repoNameFor: (repo: string) => string | undefined;
+  readonly now: () => string;
+  /** Re-probe every PR of the ticket (gh per PR) so the plan reads fresh facts. */
+  readonly refresh: () => Promise<void>;
+  /** True while an Autopilot auto-fix round runs for the ticket. */
+  readonly autofixRunning: () => boolean;
+  /** The one modal. Resolves true on confirm, false on cancel. */
+  readonly confirm: (plan: MergeAllPlan) => Promise<boolean>;
+  readonly merge?: (repo: string) => Promise<MergeTicketPrResult>;
+  readonly debug?: (message: string) => void;
+}
+
+export type MergeAllOutcome =
+  | { readonly kind: 'refused'; readonly reason: string }
+  | { readonly kind: 'cancelled' }
+  | {
+      readonly kind: 'done';
+      readonly merged: readonly MergeAllItem[];
+      /** The first failure; the PRs after it were not tried. Null when every merge succeeded. */
+      readonly failed: { readonly item: MergeAllItem; readonly reason: string } | null;
+      readonly completedTicket: boolean;
+    };
+
+/** One Merge all runs per ticket at a time. */
+const running = new Set<number>();
+
+/**
+ * Merge every ready pull request of a ticket. It re-probes first, asks ONE confirmation, then merges one after
+ * another in manifest order through `mergeTicketPr` and stops at the first failure (the failure is returned; the
+ * PRs after it stay open). The ready set is the re-probed one, never what the panel last showed.
+ */
+export async function mergeAllPrs(store: Store, deps: MergeAllDeps): Promise<MergeAllOutcome> {
+  const { ticketId } = deps;
+  if (deps.autofixRunning()) return { kind: 'refused', reason: MERGE_ALL_ROUND_RUNNING };
+  if (running.has(ticketId)) return { kind: 'refused', reason: 'Merge all is already running for this ticket.' };
+  running.add(ticketId);
+  try {
+    await deps.refresh();
+    // A round can start while the probe runs; the check is repeated before anything irreversible.
+    if (deps.autofixRunning()) return { kind: 'refused', reason: MERGE_ALL_ROUND_RUNNING };
+    const plan = planMergeAll(store, ticketId, deps.repoOrder, deps.repoNameFor, deps.now());
+    if (plan.ready.length === 0) return { kind: 'refused', reason: MERGE_ALL_NONE_READY };
+    if (!(await deps.confirm(plan))) return { kind: 'cancelled' };
+    // The modal can stay open for minutes; a round may have started meanwhile.
+    if (deps.autofixRunning()) return { kind: 'refused', reason: MERGE_ALL_ROUND_RUNNING };
+    const merge = deps.merge ?? ((repo: string) => mergeTicketPr(store, { ticketId, repo, method: MERGE_ALL_METHOD, ...(deps.debug ? { debug: deps.debug } : {}) }));
+    const merged: MergeAllItem[] = [];
+    let completedTicket = false;
+    for (const item of plan.ready) {
+      deps.debug?.(`[merge-all] merging ${item.repo}`);
+      const result = await merge(item.repo);
+      if (!result.ok) return { kind: 'done', merged, failed: { item, reason: result.reason }, completedTicket };
+      merged.push(item);
+      completedTicket = completedTicket || result.completedTicket;
+    }
+    return { kind: 'done', merged, failed: null, completedTicket };
+  } finally {
+    running.delete(ticketId);
+  }
 }

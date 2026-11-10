@@ -24,7 +24,7 @@ import type { HostMessage } from '../messages.js';
 export const SHIPPED_FLASH_MS = 2400;
 
 /** The operations whose wire message carries no request id and which settle on a state push. */
-export type ActionName = 'sendBack' | 'resetStage' | 'prFeedback' | 'ci' | 'rebase' | 'deliver' | 'previewRefresh';
+export type ActionName = 'sendBack' | 'resetStage' | 'prFeedback' | 'ci' | 'rebase' | 'deliver' | 'previewRefresh' | 'mergeAll';
 
 type State = Extract<HostMessage, { type: 'state' }>['state'];
 type Outcome = { readonly ok: boolean | null; readonly message?: string };
@@ -38,6 +38,7 @@ const OUTCOMES: Readonly<Record<ActionName, (state: State) => Outcome>> = {
   rebase: () => ({ ok: null, message: 'Rebase finished; see the notification for the result.' }),
   deliver: () => ({ ok: null, message: 'Deliver to PR finished; see the notification for the result.' }),
   previewRefresh: () => ({ ok: true }),
+  mergeAll: () => ({ ok: null, message: 'Merge all finished; see the notification for the result.' }),
 };
 
 export interface OpsSnapshot {

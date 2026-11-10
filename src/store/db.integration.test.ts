@@ -339,6 +339,32 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
+  it('migrates a pre-v114 database by adding the PR fact columns to prs, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE prs (id INTEGER PRIMARY KEY, repo TEXT, url TEXT, merge_block TEXT)');
+    legacy.exec("INSERT INTO prs (id, repo, url) VALUES (1, 'api', 'u')");
+    legacy.pragma('user_version = 113');
+    legacy.close();
+
+    const columns = (s: ReturnType<typeof openStore>): Set<string> =>
+      new Set((s.db.prepare("PRAGMA table_info('prs')").all() as { name: string }[]).map((c) => c.name));
+    const added = ['title', 'author', 'additions', 'deletions', 'changed_files', 'commit_count', 'review_decision', 'approvals', 'review_requests'];
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    for (const c of added) expect(columns(migrated).has(c)).toBe(true);
+    const row = migrated.db.prepare('SELECT title, approvals FROM prs WHERE id = 1').get() as { title: string | null; approvals: number | null };
+    expect(row).toEqual({ title: null, approvals: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    for (const c of added) expect(columns(reopened).has(c)).toBe(true);
+  });
+
   it('migrates a pre-v107 database by adding the arch_citations table, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

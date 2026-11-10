@@ -38,6 +38,9 @@ import { ALL_SERVICES, setServiceEnvOverrides } from '../store/ticketEnvOverride
 import { parseEnvText } from '../runtime/env.js';
 import { defaultGhRunnerAsync } from '../integrations/github.js';
 import { mergeTicketPr } from '../workflow/mergePr.js';
+import { mergeAllOp } from './ops/mergeAllOps.js';
+import { readAutofix } from '../ui/dashboard/stateAutofix.js';
+import { repoNameFor as manifestRepoName } from '../ui/dashboard/resolvers.js';
 import { dismissTicketPr, undismissTicketPr } from '../workflow/dismissPr.js';
 import { nowIso } from '../model/time.js';
 import { dismissDeliverFailures } from '../store/deliverRuns.js';
@@ -704,6 +707,31 @@ export function makeDashboardActions(
           afterServerChange();
         }
       })();
+    },
+    // Merge every ready PR of the ticket, after ONE modal. Irreversible, so the confirmation is host-side and the
+    // webview sends no payload. `mergeAllPrs` re-probes first and refuses while an auto-fix round runs.
+    mergeAllPrs: async () => {
+      if (!(await guardCapability('ship'))) return;
+      void mergeAllOp({
+        store,
+        ticketId,
+        repoOrder: () => Object.values(manifest()?.repositories ?? {}).map((r) => r.repoPath),
+        repoNameFor: (repo) => {
+          const m = manifest();
+          return m ? manifestRepoName(m, repo) : undefined;
+        },
+        now: nowIso,
+        refresh: refreshPrs,
+        autofixRunning: () => readAutofix(store, ticketId, manifest()?.autopilot).input.running !== null,
+        askModal: async (modal) =>
+          (await vscode.window.showWarningMessage(modal.title, { modal: true, detail: modal.detail }, modal.confirm)) === modal.confirm,
+        info: (m) => void vscode.window.showInformationMessage(m),
+        error: (m) => void vscode.window.showErrorMessage(m),
+        logError,
+        debug,
+        onTicketCompleted,
+        afterServerChange,
+      });
     },
     // Dismiss one repo's PR — "this one will never land" — from the ship stage.
     //

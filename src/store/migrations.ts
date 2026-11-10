@@ -2951,5 +2951,20 @@ function migrateLocked(db: Database): void {
     if (cols113.size > 0 && !cols113.has('priority_override')) db.exec('ALTER TABLE tickets ADD COLUMN priority_override TEXT');
   }
 
+  if (current < 114) {
+    // v114: `prs` gains the PR facts the merge-readiness list needs (title, author, diff size,
+    // review state). Current state, refreshed by every probe (arch:GH-03); additive, NULL = never
+    // stated (no backfill: the next sweep fills them).
+    const cols114 = tableColumns(db, 'prs');
+    const add114: Array<[string, string]> = [
+      ['title', 'TEXT'], ['author', 'TEXT'], ['additions', 'INTEGER'], ['deletions', 'INTEGER'],
+      ['changed_files', 'INTEGER'], ['commit_count', 'INTEGER'], ['review_decision', 'TEXT'],
+      ['approvals', 'INTEGER'], ['review_requests', 'TEXT'],
+    ];
+    for (const [name, type] of add114) {
+      if (cols114.size > 0 && !cols114.has(name)) db.exec(`ALTER TABLE prs ADD COLUMN ${name} ${type}`);
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

@@ -598,7 +598,7 @@ describe('fetchPrDetail', () => {
       'view',
       'https://github.com/o/r/pull/9',
       '--json',
-      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files',
+      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files,title,author,additions,deletions,changedFiles,commits,reviewDecision,latestReviews,reviewRequests',
     ]);
     expect(calls[0]!.cwd).toBe('/wt/a');
     expect(detail).toEqual({
@@ -612,6 +612,15 @@ describe('fetchPrDetail', () => {
       mergeBlock: 'unknown',
       mergeSha: null,
       changedPaths: null,
+      title: null,
+      author: null,
+      additions: null,
+      deletions: null,
+      changedFiles: null,
+      commitCount: null,
+      reviewDecision: null,
+      approvals: null,
+      reviewRequests: null,
     });
   });
 
@@ -663,6 +672,15 @@ describe('fetchPrDetail', () => {
       mergeBlock: 'unknown',
       mergeSha: null,
       changedPaths: null,
+      title: null,
+      author: null,
+      additions: null,
+      deletions: null,
+      changedFiles: null,
+      commitCount: null,
+      reviewDecision: null,
+      approvals: null,
+      reviewRequests: null,
     });
   });
 
@@ -754,6 +772,95 @@ describe('fetchPrDetail', () => {
     });
     const detail = await fetchPrDetail(gh, '9', '/wt');
     expect(detail.changedPaths).toHaveLength(99);
+  });
+
+  describe('PR facts and required checks', () => {
+    const facts = {
+      state: 'OPEN',
+      title: 'Add Merge all',
+      author: { login: 'ada' },
+      additions: 120,
+      deletions: 14,
+      changedFiles: 6,
+      commits: [{ oid: 'a' }, { oid: 'b' }],
+      reviewDecision: 'REVIEW_REQUIRED',
+      latestReviews: [
+        { state: 'APPROVED', author: { login: 'bob' } },
+        { state: 'CHANGES_REQUESTED', author: { login: 'cy' } },
+        { state: 'APPROVED', author: { login: 'bob' } },
+      ],
+      reviewRequests: [{ login: 'dee' }, { name: 'core-team' }],
+    };
+
+    it('reads the title, author, diff size, commits and review facts', async () => {
+      const gh: GhRunner = async () => ({ stdout: viewJson(facts), exitCode: 0 });
+      expect(await fetchPrDetail(gh, '9', '/wt')).toMatchObject({
+        title: 'Add Merge all',
+        author: 'ada',
+        additions: 120,
+        deletions: 14,
+        changedFiles: 6,
+        commitCount: 2,
+        reviewDecision: 'REVIEW_REQUIRED',
+        approvals: 1,
+        reviewRequests: ['dee', 'core-team'],
+      });
+    });
+
+    it('leaves each fact null when gh omits it, and does not invent a zero', async () => {
+      const gh: GhRunner = async () => ({ stdout: viewJson({ state: 'OPEN', title: '', author: null, commits: 'x', reviewRequests: {} }), exitCode: 0 });
+      expect(await fetchPrDetail(gh, '9', '/wt')).toMatchObject({
+        title: null,
+        author: null,
+        additions: null,
+        commitCount: null,
+        approvals: null,
+        reviewRequests: null,
+      });
+    });
+
+    const rollup = [
+      { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://x.test/1', workflowName: 'CI' },
+      { __typename: 'CheckRun', name: 'unit', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'https://x.test/2', workflowName: 'CI' },
+    ];
+    const withRequired = (required: (args: string[]) => { stdout: string; exitCode: number } | Error): GhRunner => async (args) => {
+      if (args[1] === 'checks') {
+        const r = required(args);
+        if (r instanceof Error) throw r;
+        return r;
+      }
+      return { stdout: viewJson({ state: 'OPEN', statusCheckRollup: rollup }), exitCode: 0 };
+    };
+
+    it('splits the checks by what GitHub requires, reading stdout whatever the exit code', async () => {
+      let asked: string[] = [];
+      const gh = withRequired((args) => {
+        asked = args;
+        return { stdout: JSON.stringify([{ name: 'lint', bucket: 'fail', link: '' }, { name: 'e2e', bucket: 'pending', link: '' }]), exitCode: 8 };
+      });
+      const detail = await fetchPrDetail(gh, '9', '/wt');
+      expect(asked).toEqual(['pr', 'checks', '9', '--required', '--json', 'name,bucket,link']);
+      expect(detail.checks?.required).toEqual({ total: 2, failed: 1, pending: 1 });
+      expect(detail.checks?.failing.map((f) => [f.name, f.required])).toEqual([['lint', true]]);
+    });
+
+    it('leaves required null when the required-checks call fails or prints no JSON', async () => {
+      for (const gh of [withRequired(() => new Error('gh too old')), withRequired(() => ({ stdout: 'no required checks', exitCode: 1 }))]) {
+        const detail = await fetchPrDetail(gh, '9', '/wt');
+        expect(detail.checks?.required).toBeNull();
+        expect(detail.checks?.failing[0]?.required).toBeNull();
+      }
+    });
+
+    it('does not ask for required checks when the PR has no checks at all', async () => {
+      const seen: string[] = [];
+      const gh: GhRunner = async (args) => {
+        seen.push(args[1]!);
+        return { stdout: viewJson({ state: 'OPEN', statusCheckRollup: [] }), exitCode: 0 };
+      };
+      await fetchPrDetail(gh, '9', '/wt');
+      expect(seen).toEqual(['view']);
+    });
   });
 });
 

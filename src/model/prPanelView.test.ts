@@ -18,6 +18,15 @@ const pr = (over: Partial<PrView> = {}): PrView => ({
   comments: [],
   checks: null,
   mergeBlock: 'unknown',
+  title: null,
+  author: null,
+  additions: null,
+  deletions: null,
+  changedFiles: null,
+  commitCount: null,
+  reviewDecision: null,
+  approvals: null,
+  reviewRequests: [],
   ...over,
 });
 
@@ -183,7 +192,7 @@ describe('buildPrPanelRows', () => {
   it('refuses merge when GitHub is blocking, and says why', () => {
     const row = rows({ mergeBlock: 'blocked' })[0]!;
     expect(row.canMerge).toBe(false);
-    expect(row.mergeBlockedReason).toMatch(/GitHub is blocking this merge/);
+    expect(row.mergeBlockedReason).toMatch(/Blocked by a GitHub rule/);
     expect(row.mergeBlockLabel).toBe('blocked');
   });
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
-import { failing, installRuntimeDoubles, mc, mount, one, pr, refreshBtn, REPO, settled, stateWith, URL } from './fixtures/prsPanelKit.js';
+import { blockedWith, installRuntimeDoubles, mount, one, pr, refreshBtn, REPO, settled, stateWith, URL } from './fixtures/prsPanelKit.js';
 
 installRuntimeDoubles();
 
@@ -14,6 +14,11 @@ function keepsClass(el: HTMLElement, base: string): void {
   expect(el.classList.contains('is-pending')).toBe(true);
   expect([...el.classList].filter((c) => c !== 'is-pending').join(' ')).toBe(base);
 }
+const runs = [{ text: 'build', url: 'https://x.test/run/1' }];
+const ciReason = (): ReturnType<typeof blockedWith> =>
+  blockedWith({ kind: 'checks', list: runs, disclosure: '1 failing check', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } });
+const conflictReason = (): ReturnType<typeof blockedWith> =>
+  blockedWith({ kind: 'conflicts', action: { act: 'resolve-conflicts', label: 'Resolve conflicts', repo: REPO } });
 const mergeRows = (): HTMLButtonElement[] => [...document.querySelectorAll<HTMLButtonElement>('.pacts .mgbtn:last-child')];
 const mergeOf = (): HTMLButtonElement => mergeRows()[0]!;
 
@@ -30,16 +35,10 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
   });
 
   it('a failing check run opens through the same act with its own URL', () => {
-    const h = mount(stateWith([pr({ checks: failing(['build', 'https://x.test/run/1']) })]));
-    fireEvent.click(document.querySelector('details.pcks a[data-act="open-pr"]')!);
+    const h = mount(stateWith([pr({ readiness: ciReason() })]));
+    fireEvent.click(document.querySelector('.prsn-more a[data-act="open-pr"]')!);
     expect(h.send.openPr).toHaveBeenCalledTimes(1);
     expect(h.send.openPr).toHaveBeenCalledWith('https://x.test/run/1', 'req-1');
-  });
-
-  it('the CI line lists the same run links, each posting once', () => {
-    const h = mount(stateWith([pr({ checks: failing(['build', 'https://x.test/run/1']) })]));
-    fireEvent.click(document.querySelector('.mg-ci-failing a[data-act="open-pr"]')!);
-    expect(h.send.openPr).toHaveBeenCalledTimes(1);
   });
 
   it('copy-pr-url posts once, flashes through data-copied without touching className, and reverts', () => {
@@ -62,7 +61,7 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
   });
 
   it('resolve-conflicts posts the repo with a request id exactly once and goes pending', () => {
-    const h = mount(stateWith([pr()], { mergeChecks: [mc()] }));
+    const h = mount(stateWith([pr({ readiness: conflictReason() })]));
     const b = one('resolve-conflicts');
     fireEvent.click(b);
     expect(h.send.resolveConflicts).toHaveBeenCalledTimes(1);
@@ -266,8 +265,8 @@ describe('PrsPanel — refresh-prs (pending until the next settling state push)'
 
 describe('PrsPanel — send-ci-failure (pending until the next settling state push, one flag for every row)', () => {
   const ciState = () =>
-    stateWith([pr({ checks: failing(['a', null]) }), apiPr({ checks: failing(['b', null]) })], { ci: { available: true, repos: [REPO, API] } });
-  const ciBtns = (): HTMLButtonElement[] => [...document.querySelectorAll<HTMLButtonElement>('.mg-ci-failing .mgbtn')];
+    stateWith([pr({ readiness: ciReason() }), apiPr({ readiness: ciReason() })], { ci: { available: true, repos: [REPO, API] } });
+  const ciBtns = (): HTMLButtonElement[] => [...document.querySelectorAll<HTMLButtonElement>('.prsn[data-kind="checks"] .mgbtn')];
 
   it('posts its type only and disables every row’s button, here and in the stage menu', () => {
     const h = mount(ciState());
@@ -318,8 +317,8 @@ describe('PrsPanel — every act posts exactly once', () => {
     ['undismiss-pr', 'undismissPr', stateWith([pr({ dismissed: true, status: 'closed' })])],
     ['open-pr', 'openPr', stateWith([pr()])],
     ['copy-pr-url', 'copyPrUrl', stateWith([pr()])],
-    ['resolve-conflicts', 'resolveConflicts', stateWith([pr()], { mergeChecks: [mc()] })],
-    ['send-ci-failure', 'sendCiFailure', stateWith([pr({ checks: failing(['a', null]) })], { ci: { available: true, repos: [REPO] } })],
+    ['resolve-conflicts', 'resolveConflicts', stateWith([pr({ readiness: conflictReason() })])],
+    ['send-ci-failure', 'sendCiFailure', stateWith([pr({ readiness: ciReason() })], { ci: { available: true, repos: [REPO] } })],
     ['refresh-prs', 'refreshPrs', stateWith([pr()])],
   ] as const)('%s calls %s once and no other sender', (act, fn, state) => {
     const h = mount(state);

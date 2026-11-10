@@ -56,6 +56,7 @@ function actions(): DashboardActions {
     autopilotStop: vi.fn(),
     autopilotRetry: vi.fn(),
     rebaseOnBase: vi.fn(),
+    mergeAllPrs: vi.fn(),
     deliverToPr: vi.fn(),
     dismissDeliverFailures: vi.fn(),
     rerunGate: vi.fn(),
@@ -489,6 +490,14 @@ describe('routeAction', () => {
       type: 'merge-pr',
       repo: 'api',
     });
+  });
+
+  it('dispatches merge-all-prs with no payload: the webview cannot choose which PRs merge', () => {
+    expect(parseWebviewMessage({ type: 'merge-all-prs', repo: 'api', method: 'rebase' })).toEqual({ type: 'merge-all-prs' });
+    const a = actions();
+    routeAction({ type: 'merge-all-prs' }, a);
+    expect(a.mergeAllPrs).toHaveBeenCalledTimes(1);
+    expect(a.mergeAllPrs).toHaveBeenCalledWith();
   });
 
   it('dispatches dismiss-pr and undismiss-pr with the repo they act on', () => {
