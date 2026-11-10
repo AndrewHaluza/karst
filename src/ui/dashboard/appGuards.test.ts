@@ -25,7 +25,7 @@ describe('dashboard app source guards', () => {
     const LOCAL = new Set([
       'console',
       'preview-ticket-data', 'toggle-base-form', 'toggle-pr-info', 'toggle-rebase-switch', 'artifact-findings-repo', 'toggle-graph-view',
-      'baseline-view', 'baseline-reject-open', 'baseline-reject-cancel',
+      'baseline-open', 'baseline-filter', 'baseline-select', 'baseline-view', 'baseline-zoom', 'baseline-prev', 'baseline-next', 'baseline-reject-open', 'baseline-reject-cancel',
       'server-logs-request', 'env-overrides-open', 'push-diverged-fix',
       // The Stop buttons post the `autopilot-stop` message (mode after-round | now); the confirm step is local.
       'autopilot-stop-after', 'autopilot-stop-confirm', 'autopilot-stop-now', 'autopilot-stop-cancel',

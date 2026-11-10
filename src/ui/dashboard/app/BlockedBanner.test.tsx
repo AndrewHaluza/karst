@@ -6,7 +6,7 @@ import { parkGateStage } from '../../../store/stageBlocks.js';
 import { setStage } from '../../../store/stages.js';
 import { createTicket } from '../../../store/tickets.js';
 import { buildDashboardState } from '../state.js';
-import { installRuntimeDoubles, settled } from './fixtures/prsPanelKit.js';
+import { installRuntimeDoubles } from './fixtures/prsPanelKit.js';
 import { all, blockedState, cleanupRail, must, mountRail, q, railState, TICKET } from './fixtures/railKit.js';
 
 installRuntimeDoubles();

@@ -62,6 +62,8 @@ for (const target of extraLayoutTargets()) {
     test(`${target.id} @${width}`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width, height: LAYOUT_HEIGHT });
       await gotoView(target.view, { variant: target.variant.id });
+      // A variant that opens an overlay (baseline review) is measured with it open.
+      for (const sel of target.variant.clicks ?? []) await page.locator(sel).first().click();
       // Entrance animations (toasts) shift geometry mid-flight; measure the settled page.
       await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => undefined))));
       const expectations = readExpectations(target.view);

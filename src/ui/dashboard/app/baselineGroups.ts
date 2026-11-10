@@ -19,6 +19,7 @@ export type Filter = 'pending' | 'rejected' | 'approved' | 'all';
 
 export interface Row {
   readonly index: number;
+  readonly path: string;
   readonly status: Status;
   readonly decision: Decision;
   readonly label: string;
@@ -38,6 +39,7 @@ export type Counts = Readonly<Record<Filter, number>>;
 /** Index to an integer and the enums to their allowlists, so nothing but a known word and digits reaches the ids and attributes. */
 export const normaliseRow = (r: BaselineReviewRow): Row => ({
   index: Number(r.index) | 0,
+  path: String(r.path || r.label || ''),
   status: Object.hasOwn(STATUS_WORD, r.status) ? r.status : 'modified',
   decision: Object.hasOwn(DECISION_WORD, r.decision) ? r.decision : 'pending',
   label: String(r.label || ''),
@@ -85,12 +87,28 @@ export const defaultFilter = (counts: Counts): Filter => (counts.pending > 0 ? '
 /** Difference for a modified file, New for an added one, Old for a deleted one. */
 export const defaultView = (status: Status): View => (status === 'added' ? 'new' : status === 'deleted' ? 'old' : 'diff');
 
-/** The next pending entry after `from` in list order, wrapping; null when no other entry is pending. */
-export function nextOpen(rows: readonly Row[], from: number): number | null {
+/** The next pending entry after `from` in list order, wrapping, skipping the `skip` indices; null when no other entry is pending. */
+export function nextOpen(rows: readonly Row[], from: number, skip: ReadonlySet<number> = new Set()): number | null {
   const at = rows.findIndex((r) => r.index === from);
   for (let step = 1; step <= rows.length; step++) {
     const r = rows[(at + step + rows.length) % rows.length];
-    if (r && r.decision === 'pending' && r.index !== from) return r.index;
+    if (r && r.decision === 'pending' && r.index !== from && !skip.has(r.index)) return r.index;
   }
   return null;
+}
+
+/** The chip in force: the user's pick, else the default; Needs review with nothing pending shows All. */
+export function effectiveFilter(chosen: Filter | null, counts: Counts): Filter {
+  const f = chosen ?? defaultFilter(counts);
+  return f === 'pending' && counts.pending === 0 ? 'all' : f;
+}
+
+/** The selected entry when it is in the visible list, else the first visible one. */
+export const pickSelected = (visible: readonly Row[], selected: number | null): Row | null => visible.find((r) => r.index === selected) ?? visible[0] ?? null;
+
+/** The entry `delta` places from `from` in the visible list, clamped at the ends. */
+export function stepFrom(visible: readonly Row[], from: number, delta: 1 | -1): number | null {
+  if (visible.length === 0) return null;
+  const at = Math.max(0, visible.findIndex((r) => r.index === from));
+  return visible[Math.min(visible.length - 1, Math.max(0, at + delta))]!.index;
 }

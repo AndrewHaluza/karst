@@ -18,7 +18,7 @@ describe('Dashboard App (Phase 1 Shell)', () => {
       + '<div class="panel span prpanel" data-region="prs"></div>'
       + '<div class="panel span hidden" id="artPanel"><div class="phead">Artifacts</div><div id="artifacts"></div></div>'
       + '<div id="ticketDataHost" class="tdHost"></div><div id="artView" class="artview hidden" tabindex="-1"></div>'
-      + '<div id="termView" class="termview hidden" tabindex="-1"></div><div id="envView" class="envview hidden" tabindex="-1"></div>';
+      + '<div id="termView" class="termview hidden" tabindex="-1"></div><div id="envView" class="envview hidden" tabindex="-1"></div><div id="baselineView" class="blroot hidden" tabindex="-1"></div>';
   });
   afterEach(() => {
     cleanup();

@@ -23,7 +23,10 @@ export function BaselineBanner({ entries }: { readonly entries: readonly Baselin
   const rows = normaliseRows(entries);
   const counts = countRows(rows);
   const pending = rows.filter((r) => r.decision === 'pending').map((r) => r.index);
-  const onApprove = usePendingAction(useCallback((requestId: string) => send.baselineApprove(BASELINE_BLOCK_ID, pending, requestId), [send, pending.join(',')]));
+  const pendingKey = pending.join(',');
+  // The key stands for the list: a new array with the same indices must not rebuild the callback.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const onApprove = usePendingAction(useCallback((requestId: string) => send.baselineApprove(BASELINE_BLOCK_ID, pending, requestId), [send, pendingKey]));
   const verb = plural(counts.all, 'needs', 'need');
   const noun = plural(counts.all, 'screenshot', 'screenshots');
   const rejected = counts.rejected > 0 ? ` · ${counts.rejected} rejected` : '';

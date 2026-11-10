@@ -51,7 +51,9 @@ export const CHAINS: Readonly<Record<ViewId, ViewChain>> = Object.fromEntries(
       name,
       {
         htmlPath,
-        render: (html: string): string => injectCsp(chain(html), FIXED_NONCE),
+        // The dashboard's real CSP grants img-src to the webview source (the baseline review shows images); the harness
+        // grants data: so a fixture can inline small PNGs.
+        render: (html: string): string => injectCsp(chain(html), FIXED_NONCE, name === 'dashboard' ? 'data:' : undefined),
       },
     ] as const;
   }),

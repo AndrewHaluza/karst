@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BaselineReviewRow } from '../baselineRows.js';
-import { buildGroups, countRows, defaultFilter, defaultView, filterRows, groupKey, nextOpen, normaliseRows, themeOf } from './baselineGroups.js';
+import { buildGroups, countRows, defaultFilter, defaultView, effectiveFilter, filterRows, groupKey, nextOpen, normaliseRows, pickSelected, stepFrom, themeOf } from './baselineGroups.js';
 
 const row = (over: Partial<BaselineReviewRow> & { index: number; label: string }): BaselineReviewRow => ({
   path: `tests/${over.label}`,
@@ -33,7 +33,7 @@ describe('groupKey and themeOf', () => {
 describe('normaliseRows', () => {
   it('clamps unknown enums and coerces the index', () => {
     const [r] = normaliseRows([{ ...row({ index: 3.9, label: 'a.png' }), status: 'weird' as never, decision: 'odd' as never, oldSrc: null }]);
-    expect(r).toMatchObject({ index: 3, status: 'modified', decision: 'pending', oldSrc: '', reason: '' });
+    expect(r).toMatchObject({ index: 3, path: 'tests/a.png', status: 'modified', decision: 'pending', oldSrc: '', reason: '' });
   });
 });
 
@@ -104,8 +104,43 @@ describe('nextOpen', () => {
     expect(nextOpen(rows, 7)).toBe(5);
   });
 
+  it('skips the entries that are being decided in the same click', () => {
+    expect(nextOpen(rows, 5, new Set([7]))).toBeNull();
+    expect(nextOpen(rows, 5, new Set([6]))).toBe(7);
+  });
+
   it('returns null when nothing else is pending', () => {
     expect(nextOpen(rows.filter((r) => r.index === 5), 5)).toBeNull();
     expect(nextOpen(rows.map((r) => ({ ...r, decision: 'approved' as const })), 5)).toBeNull();
+  });
+});
+
+describe('effectiveFilter', () => {
+  const none = { pending: 0, rejected: 1, approved: 1, all: 2 };
+  const some = { pending: 1, rejected: 0, approved: 1, all: 2 };
+  it('uses the default until the user picks a chip', () => {
+    expect(effectiveFilter(null, some)).toBe('pending');
+    expect(effectiveFilter(null, none)).toBe('all');
+  });
+  it('keeps the chosen chip, but never shows an empty Needs review', () => {
+    expect(effectiveFilter('rejected', some)).toBe('rejected');
+    expect(effectiveFilter('pending', none)).toBe('all');
+  });
+});
+
+describe('pickSelected and stepFrom', () => {
+  const rows = normaliseRows([row({ index: 4, label: 'a.png' }), row({ index: 9, label: 'b.png' }), row({ index: 2, label: 'c.png' })]);
+  it('keeps the selected entry when it is visible, else the first visible one, else null', () => {
+    expect(pickSelected(rows, 9)!.index).toBe(9);
+    expect(pickSelected(rows, 77)!.index).toBe(4);
+    expect(pickSelected(rows, null)!.index).toBe(4);
+    expect(pickSelected([], 4)).toBeNull();
+  });
+  it('steps to the next and previous visible entry, stopping at the ends', () => {
+    expect(stepFrom(rows, 4, 1)).toBe(9);
+    expect(stepFrom(rows, 4, -1)).toBe(4);
+    expect(stepFrom(rows, 2, 1)).toBe(2);
+    expect(stepFrom(rows, 2, -1)).toBe(9);
+    expect(stepFrom([], 2, 1)).toBeNull();
   });
 });

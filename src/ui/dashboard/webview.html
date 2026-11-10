@@ -203,7 +203,7 @@
 <div id="ticketDataHost" class="tdHost"></div>
 
 <!-- The overlay views: the SAME webview, never a second tab. While one is active it replaces the dashboard body
-     (body.art-nav / term-nav / log-nav / env-nav hide .stepper and .grid); Back and Esc return to the ticket
+     (body.art-nav / term-nav / log-nav / env-nav / baseline-nav hide .stepper and .grid); Back and Esc return to the ticket
      dashboard (spec §7-8). app/Overlays.tsx: the artifact view, the console and the env editor draw into their root
      and toggle its `hidden` class; the shared server-logs runtime draws into #logsView itself, driven by
      app/ServerLogsView.tsx. -->
@@ -211,6 +211,7 @@
 <div id="termView" class="termview hidden" tabindex="-1"></div>
 <div id="logsView" class="logsview hidden" tabindex="-1"></div>
 <div id="envView" class="envview hidden" tabindex="-1"></div>
+<div id="baselineView" class="blroot hidden" tabindex="-1"></div>
 
 <script>
   /*KARST_DS_JS*/
