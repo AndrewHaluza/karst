@@ -133,6 +133,12 @@ export type WebviewMessage =
    */
   | { type: 'merge-pr'; repo: string }
   /**
+   * Merge every ready pull request of the ticket. Carries NOTHING: the host re-probes the PRs, decides which are
+   * ready, asks the one confirmation and merges them (`mergeAllPrs`), so a crafted message cannot pick a PR,
+   * a method or skip the confirmation.
+   */
+  | { type: 'merge-all-prs' }
+  /**
    * Declare that one repo's pull request will never land, so the merge gate
    * stops waiting on it — the escape hatch for a ticket parked at `ship` behind
    * a PR closed because the changes turned out to be unneeded (a closed PR can

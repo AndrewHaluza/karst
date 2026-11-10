@@ -1,5 +1,6 @@
 import type { Store } from './db.js';
 import { parseComments, type PrComment } from '../model/prComments.js';
+import { normalizeReviewDecision, type PrReviewDecision } from '../model/prReview.js';
 import { parseChecks, readMergeBlock, type PrChecks, type MergeBlock } from '../model/prChecks.js';
 
 /** Read models for the dashboard (§14 dashboard tier) — plain, serializable. */
@@ -73,6 +74,16 @@ export interface PrView {
    * model/prChecksView.ts.
    */
   mergeBlock: MergeBlock;
+  /** PR facts from GitHub (v114); each null when never stated. */
+  title: string | null;
+  author: string | null;
+  additions: number | null;
+  deletions: number | null;
+  changedFiles: number | null;
+  commitCount: number | null;
+  reviewDecision: PrReviewDecision;
+  approvals: number | null;
+  reviewRequests: string[];
 }
 
 interface ServerRow {
@@ -192,12 +203,33 @@ interface PrRow {
   comments: string | null;
   checks: string | null;
   merge_block: string | null;
+  title: string | null;
+  author: string | null;
+  additions: number | null;
+  deletions: number | null;
+  changed_files: number | null;
+  commit_count: number | null;
+  review_decision: string | null;
+  approvals: number | null;
+  review_requests: string | null;
+}
+
+/** The `prs.review_requests` JSON column → reviewer names; malformed reads as none. */
+function parseReviewRequests(raw: string | null): string[] {
+  if (raw === null) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((n): n is string => typeof n === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
   const rows = store.db
     .prepare(
-      `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, dismissed_at, comments, checks, merge_block
+      `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, dismissed_at, comments, checks, merge_block,
+              title, author, additions, deletions, changed_files, commit_count, review_decision, approvals, review_requests
          FROM prs WHERE ticket_id = ? ORDER BY number`,
     )
     .all(ticketId) as PrRow[];
@@ -219,5 +251,14 @@ export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
     comments: parseComments(r.comments),
     checks: parseChecks(r.checks),
     mergeBlock: readMergeBlock(r.merge_block),
+    title: r.title,
+    author: r.author,
+    additions: r.additions,
+    deletions: r.deletions,
+    changedFiles: r.changed_files,
+    commitCount: r.commit_count,
+    reviewDecision: normalizeReviewDecision(r.review_decision),
+    approvals: r.approvals,
+    reviewRequests: parseReviewRequests(r.review_requests),
   }));
 }

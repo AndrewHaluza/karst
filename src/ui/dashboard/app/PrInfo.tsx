@@ -32,6 +32,31 @@ function stampFacts(p: PrPanelRow): ReadonlyArray<readonly [string, string]> {
   ];
 }
 
+const REVIEW_TEXT: Readonly<Record<string, string>> = {
+  APPROVED: 'Approved',
+  CHANGES_REQUESTED: 'Changes requested',
+  REVIEW_REQUIRED: 'Review required',
+};
+
+/** `+a −d · f files · c commits`, or '' when GitHub never stated them. */
+export function changesText(c: PrPanelRow['changes']): string {
+  if (c === null) return '';
+  const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`;
+  return `+${c.additions} −${c.deletions} · ${plural(c.files, 'file')} · ${plural(c.commits, 'commit')}`;
+}
+
+function reviewText(p: PrPanelRow): string {
+  const decision = p.review.decision === null ? '' : (REVIEW_TEXT[p.review.decision] ?? '');
+  const asked = p.review.requested.length > 0 ? `requested from ${p.review.requested.join(', ')}` : '';
+  return [decision, asked].filter((t) => t !== '').join(' · ');
+}
+
+/** `repo #n · by author`; the author is left out when GitHub never named one. */
+function byline(p: PrPanelRow): string {
+  const id = p.number != null ? `${p.repoDisplay || p.repo} #${p.number}` : p.repoDisplay || p.repo;
+  return p.author ? `${id} · by ${p.author}` : id;
+}
+
 interface PrInfoProps {
   readonly p: PrPanelRow;
   readonly open: boolean;
@@ -85,6 +110,10 @@ export function PrInfo({ p, open, onToggle }: PrInfoProps) {
       </button>
       {open ? (
         <div ref={popRef} className="pinfo-pop" role="dialog" aria-label="Pull request details">
+          {p.title ? <div className="pinfo-title">{p.title}</div> : null}
+          {p.title || p.author ? <div className="pinfo-by">{byline(p)}</div> : null}
+          <Fact label="Changes" value={changesText(p.changes)} />
+          <Fact label="Review" value={reviewText(p)} />
           <Fact label="Branches" value={p.branches} />
           {stampFacts(p).map(([label, value]) => (
             <Fact key={label} label={label} value={value} />

@@ -4,6 +4,7 @@ import { listMergeChecksByTicket, type MergeCheckRow } from '../../store/mergeCh
 import { listCurrentPrsByTicket } from '../../store/prs.js';
 import { getEnvOverrides, type TicketEnvOverrides } from '../../store/ticketEnvOverrides.js';
 import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
+import { NO_AUTOFIX, NO_OFFERS, type AutofixInput, type ReadinessOffers } from '../../model/prMergeReadiness.js';
 import { deliverFactsFor } from '../../store/deliverFacts.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
@@ -35,6 +36,8 @@ export interface DashboardRowsInput {
    * of a multi-service repository) — the scopes env overrides may be set for.
    */
   serviceKeys: readonly string[];
+  /** The actions the host offers and the Autopilot reading: the merge-readiness reasons attach them (arch:AP-00). */
+  readiness?: { offers: ReadinessOffers; autofix: AutofixInput };
 }
 
 /** The dashboard's scope rows and the mergeability facts the rail and panels share. */
@@ -74,6 +77,7 @@ export function buildDashboardRows(store: Store, input: DashboardRowsInput): Das
     baseBranchCandidatesFor,
     repoNameFor,
     serviceKeys,
+    readiness = { offers: NO_OFFERS, autofix: NO_AUTOFIX },
   } = input;
 
   const worktrees: DashboardWorktreeView[] = listWorktreesByTicket(store, ticketId).map((w) => ({
@@ -97,7 +101,7 @@ export function buildDashboardRows(store: Store, input: DashboardRowsInput): Das
   const mergeChecks = listMergeChecksByTicket(store, ticketId);
   // The dashboard's PR rows, host-worded and host-decided like every other
   // panel string. Hoisted so the rail and the panel share one mergeability read.
-  const prRows = buildPrPanelRows(prs, now, repoNameFor);
+  const prRows = buildPrPanelRows(prs, now, repoNameFor, { mergeChecks, ...readiness });
   // The repos whose CURRENT PR karst currently offers to merge. This is the rail's
   // licence to ACT on a single waiting repo, so it must be scoped exactly like the
   // Merge the rail would fire: to the repo's CURRENT PR (`listCurrentPrsByTicket`,

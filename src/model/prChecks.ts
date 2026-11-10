@@ -20,6 +20,15 @@ export interface FailingCheck {
   name: string;
   /** The run url, or null when gh named none. */
   url: string | null;
+  /** Whether the check is required; null/absent = unknown (never guessed). */
+  required?: boolean | null;
+}
+
+/** The required-check counts from `gh pr checks --required`. */
+export interface RequiredChecks {
+  total: number;
+  failed: number;
+  pending: number;
 }
 
 export interface PrChecks {
@@ -32,6 +41,11 @@ export interface PrChecks {
   failing: readonly FailingCheck[];
   /** How many failed in total, when more failed than `failing` carries. */
   failedShown: number;
+  /**
+   * The required-check split, or null/absent when karst could not ask GitHub
+   * (unknown stays unknown — the UI then shows plain counts).
+   */
+  required?: RequiredChecks | null;
 }
 
 /**
@@ -79,6 +93,13 @@ function count(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+function requiredChecks(raw: unknown): RequiredChecks | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.total !== 'number' || !Number.isFinite(o.total)) return null;
+  return { total: count(o.total), failed: count(o.failed), pending: count(o.pending) };
+}
+
 function failingChecks(raw: unknown): FailingCheck[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -87,6 +108,7 @@ function failingChecks(raw: unknown): FailingCheck[] {
     .map((c) => ({
       name: c.name as string,
       url: typeof c.url === 'string' && c.url !== '' ? c.url : null,
+      ...(typeof c.required === 'boolean' ? { required: c.required } : {}),
     }));
 }
 
@@ -106,6 +128,7 @@ export function parseChecks(raw: string | null | undefined): PrChecks | null {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
   const o = parsed as Record<string, unknown>;
   if (typeof o.state !== 'string' || !CHECK_STATES.includes(o.state as ChecksState)) return null;
+  const required = requiredChecks(o.required);
   return {
     state: o.state as ChecksState,
     total: count(o.total),
@@ -114,5 +137,6 @@ export function parseChecks(raw: string | null | undefined): PrChecks | null {
     pending: count(o.pending),
     failing: failingChecks(o.failing),
     failedShown: count(o.failedShown),
+    ...(required ? { required } : {}),
   };
 }

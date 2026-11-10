@@ -7,7 +7,8 @@
  */
 import { memo, useCallback, useState } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
-import { RefreshButton } from './PrActionButtons.js';
+import { MERGE_ALL_NONE_READY, MERGE_ALL_ROUND_RUNNING } from '../../../model/mergeAll.js';
+import { MergeAllButton, RefreshButton } from './PrActionButtons.js';
 import { PrRow } from './PrRow.js';
 import { useOps } from './DashboardAppContext.js';
 import { EmptyState } from './EmptyState.js';
@@ -22,20 +23,35 @@ import './PrsPanel.css';
 
 interface PrsSlice {
   readonly prs: DashboardState['prs'];
-  readonly mergeChecks: DashboardState['mergeChecks'];
-  /** Repos whose failing CI the host offers to send to the agent (empty when unavailable). */
-  readonly ciRepos: readonly string[];
   /** The branch every worktree shares (shown once in the Worktrees header), or null. */
   readonly headerBranch: string | null;
+  /** An auto-fix round runs now (Merge all is disabled meanwhile). */
+  readonly roundRunning: boolean;
 }
 
 /** null before the first host snapshot: the body is empty. */
 const selectPrs = (snapshot: DashboardSnapshot): PrsSlice | null => {
   const state = snapshot.state;
   if (!state) return null;
-  const ci = state.ciFailure;
-  return { prs: state.prs ?? [], mergeChecks: state.mergeChecks ?? [], ciRepos: ci && ci.available ? ci.repos : [], headerBranch: sharedBranch(state.worktrees ?? null) };
+  return { prs: state.prs ?? [], headerBranch: sharedBranch(state.worktrees ?? null), roundRunning: state.autopilot?.roundRunning === true };
 };
+
+export interface MergeAllView {
+  readonly label: string;
+  readonly primary: boolean;
+  /** Why the button is disabled, or null when it can be clicked. */
+  readonly disabledWhy: string | null;
+}
+
+/** The header's Merge all: null below two open pull requests. The host re-checks every fact before it asks. */
+export function mergeAllView(prs: DashboardState['prs'], roundRunning: boolean): MergeAllView | null {
+  const open = prs.filter((p) => p.status !== 'merged' && p.status !== 'closed' && !p.dismissed);
+  if (open.length < 2) return null;
+  const ready = open.filter((p) => p.readiness.ready).length;
+  const label = ready === open.length ? 'Merge all' : ready === 0 ? 'Merge all' : `Merge ${ready} ready`;
+  const disabledWhy = roundRunning ? MERGE_ALL_ROUND_RUNNING : ready === 0 ? MERGE_ALL_NONE_READY : null;
+  return { label, primary: ready > 0, disabledWhy };
+}
 
 /** `N ready · N blocked · N dismissed`, non-zero parts only. A merged PR counts as none of them. */
 export function prsSummary(prs: DashboardState['prs']): string {
@@ -58,9 +74,9 @@ export const PrsPanel = memo(function PrsPanel() {
   const { merging, running } = useOps();
   const [openMerge, toggleMerge] = useOpenSet();
   const [openInfo, toggleInfo] = useOpenSet();
-  const checks = new Map((slice?.mergeChecks ?? []).map((m) => [m.repo, m]));
   const prs = slice?.prs ?? [];
   const summary = prsSummary(prs);
+  const mergeAll = mergeAllView(prs, slice?.roundRunning === true);
   return (
     <RegionPortal region="prs">
       <Section
@@ -70,7 +86,12 @@ export const PrsPanel = memo(function PrsPanel() {
         summaryTitle={summary || undefined}
         bodyId="prs"
         // The refresh stays live even with zero PRs, and before the first snapshot: "none yet" is exactly the answer a user wants to re-ask right after a ship.
-        actions={<RefreshButton api={api} busy={pending.refreshing} />}
+        actions={
+          <>
+            {mergeAll ? <MergeAllButton label={mergeAll.label} primary={mergeAll.primary} disabledWhy={mergeAll.disabledWhy} /> : null}
+            <RefreshButton api={api} busy={pending.refreshing} />
+          </>
+        }
       >
         {slice === null ? null : prs.length === 0 ? (
           <EmptyState icon="git-pull-request" heading="No pull requests." sub="Ship opens one per repository with changes." />
@@ -79,9 +100,7 @@ export const PrsPanel = memo(function PrsPanel() {
             <PrRow
               key={p.repo}
               p={p}
-              m={checks.get(p.repo)}
               headerBranch={slice.headerBranch}
-              ciOffer={slice.ciRepos.includes(p.repo)}
               mergeBusy={merging.has(p.repo)}
               dismissBusy={pending.dismiss.has(p.repo)}
               ciBusy={running.has('ci')}

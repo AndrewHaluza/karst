@@ -16,6 +16,7 @@ import {
   type AutofixRowView,
   type AutofixTarget,
 } from '../../model/inside/autofix.js';
+import type { AutofixInput } from '../../model/prMergeReadiness.js';
 import { parseChecks } from '../../model/prChecks.js';
 import {
   effectiveAutopilot,
@@ -39,11 +40,32 @@ export interface AutopilotSlice {
   readonly effective: boolean;
   readonly banner: AutofixBannerView | null;
   readonly log: readonly string[];
+  /** An auto-fix round is running now; the PR panel's Merge all is disabled meanwhile. Absent reads as false. */
+  readonly roundRunning?: boolean;
 }
 
 export interface AutofixReading {
   readonly slice: AutopilotSlice;
   readonly row: AutofixRowView | null;
+  /** The same reading, shaped for the PR panel's merge-readiness reasons (`model/prMergeReadiness.ts`). */
+  readonly input: AutofixInput;
+}
+
+/** The kind a park reason names; a CI read failure names no kind in its text, so it reads as CI. */
+function parkKind(reason: string): AutofixKind | null {
+  return parkedKind(reason) ?? (/\bCI\b/.test(reason) ? 'ci' : null);
+}
+
+/** Facts → the PR panel's input. A running round wins over a park, as it does on the Merge row. */
+export function autofixInputOf(facts: AutofixFacts): AutofixInput {
+  const round = facts.round;
+  const kind = facts.reason === null ? null : parkKind(facts.reason);
+  return {
+    effective: facts.effective,
+    running: round === null ? null : { kind: round.kind, repo: round.repo === '' ? null : round.repo, round: `${round.used}/${round.max}` },
+    parked: round === null && facts.reason !== null && kind !== null ? { kind, reason: facts.reason } : null,
+    unknownCi: facts.unknownCi.length > 0,
+  };
 }
 
 interface PrRow { repo: string; number: number | null; checks: string | null }
@@ -176,7 +198,8 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
   };
   return {
-    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), log: readLog(store, ticketId) },
+    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), log: readLog(store, ticketId), roundRunning: facts.round !== null },
     row: autofixRow(facts),
+    input: autofixInputOf(facts),
   };
 }

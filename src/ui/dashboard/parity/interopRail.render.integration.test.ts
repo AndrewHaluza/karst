@@ -253,12 +253,12 @@ describe('React rail and banner — one post per click, one request per operatio
 
   it('Send CI failure is one operation with the Inside stage menu’s item: the Inside block is React now, so no seam carries it', async () => {
     const s = populatedStateFor('ship');
-    const failing = { ...s, prs: [{ ...s.prs[0]!, checks: { state: 'failing', label: 'f', title: '', detailsLabel: '1', failing: [{ name: 'lint', url: '' }] } }], ciFailure: { available: true, repos: [REPO] }, sendBack: { available: true, stage: 'ship' } } as DashboardState;
+    const failing = { ...s, prs: [{ ...s.prs[0]!, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'checks', state: 'bad', label: 'CI failing', detail: '', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } }] } }], ciFailure: { available: true, repos: [REPO] }, sendBack: { available: true, stage: 'ship' } } as DashboardState;
     const v = await open(failing);
     const heard: unknown[] = [];
     v.window.addEventListener('karst:prBegin', (e) => heard.push((e as CustomEvent).detail));
     const before = v.posted.length;
-    await click(v, '#prs .mg-ci-failing .mgbtn');
+    await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
     await click(v, '[data-stage-menu="ship"]');
     await click(v, '.stageMenu [data-act="send-ci-failure"]');
     expect(types(v, before)).toEqual(['send-ci-failure']);

@@ -123,6 +123,8 @@ export interface DashboardActions {
    * the webview cannot name an arbitrary pull request to merge.
    */
   mergePr: (repo: string) => void | Promise<void>;
+  /** Merge every ready pull request of the ticket, after one host-side confirmation (`mergeAllPrs`). */
+  mergeAllPrs: () => void | Promise<void>;
   /**
    * Dismiss one repo's PR — "this one will never land" — and re-settle the merge
    * gate. Takes the repo for the same reason `mergePr` does: the host resolves

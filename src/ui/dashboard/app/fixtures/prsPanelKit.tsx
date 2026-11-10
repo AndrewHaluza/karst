@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { Profiler } from 'react';
+import type { Reason } from '../../../../model/prMergeReadiness.js';
 import type { HostMessage } from '../../messages.js';
 import type { DashboardState } from '../../state.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
@@ -33,10 +34,31 @@ export const pr = (over: Partial<Row> = {}): Row => ({
   mergeBlockLabel: '',
   canMerge: false,
   mergeBlockedReason: 'awaiting review',
+  title: '',
+  author: '',
+  changes: null,
+  review: { decision: null, approvals: 0, required: null, requested: [] },
+  readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [] },
   dismissed: false,
   dismissedLabel: '',
   canDismiss: false,
   ...over,
+});
+
+/** A blocked readiness block: one reason per `[kind, state]` pair, each with a label and no action. */
+export const blockedBy = (...reasons: Array<[Reason['kind'], Reason['state']]>): Row['readiness'] => ({
+  ready: false,
+  headline: 'Merge blocked',
+  facts: '',
+  reasons: reasons.map(([kind, state]) => ({ kind, state, label: `${kind} label`, detail: `${kind} detail` })),
+});
+
+/** A blocked readiness block with one hand-written reason (an action, a list, ...). */
+export const blockedWith = (reason: Partial<Reason> & Pick<Reason, 'kind'>): Row['readiness'] => ({
+  ready: false,
+  headline: 'Merge blocked',
+  facts: '',
+  reasons: [{ state: 'bad', label: `${reason.kind} label`, detail: '', ...reason }],
 });
 
 export const failing = (...names: Array<[string, string | null]>): Row['checks'] => ({
@@ -62,6 +84,7 @@ export interface StateOpts {
   readonly mergeChecks?: Check[];
   readonly ci?: { available: boolean; repos: string[] };
   readonly stageCurrent?: string;
+  readonly roundRunning?: boolean;
 }
 export const stateWith = (prs: Row[], opts: StateOpts = {}): DashboardState =>
   ({
@@ -70,9 +93,10 @@ export const stateWith = (prs: Row[], opts: StateOpts = {}): DashboardState =>
     mergeChecks: opts.mergeChecks ?? [],
     ciFailure: opts.ci ?? { available: false, repos: [] },
     stageCurrent: opts.stageCurrent ?? 'ship',
+    autopilot: opts.roundRunning === undefined ? undefined : { roundRunning: opts.roundRunning },
   }) as unknown as DashboardState;
 
-type SendName = 'openPr' | 'copyPrUrl' | 'resolveConflicts' | 'mergePr' | 'dismissPr' | 'undismissPr' | 'refreshPrs' | 'sendCiFailure';
+type SendName = 'openPr' | 'copyPrUrl' | 'resolveConflicts' | 'mergePr' | 'dismissPr' | 'undismissPr' | 'refreshPrs' | 'sendCiFailure' | 'mergeAllPrs';
 
 export interface Harness {
   readonly send: Record<SendName, ReturnType<typeof vi.fn>>;
@@ -101,6 +125,7 @@ export function mount(initial: DashboardState | null, onRender?: () => void): Ha
     undismissPr: vi.fn(),
     refreshPrs: vi.fn(),
     sendCiFailure: vi.fn(),
+    mergeAllPrs: vi.fn(),
   };
   const bridge: DashboardHostBridge = {
     send: send as unknown as DashboardSender,

@@ -32,7 +32,7 @@
 .pr .pck-passing{background:var(--k-success);color:var(--k-success-fg)}
 .pr .pck-failing{background:var(--k-danger);color:var(--k-danger-fg)}
 .pr .pck-pending{background:var(--k-text-faint);color:var(--k-success-fg)}
-.pr .pblock{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);letter-spacing:.4px;background:var(--k-attention);color:var(--k-success-fg)}
+.pr .pblock{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);letter-spacing:.4px;background:var(--k-danger);color:var(--k-danger-fg)}
 /* The PR number IS the open control (UI-R09c): an underlined link-coloured
    anchor, keyboard-focusable, in the same visual language as the ship view's
    `pr-link`. With no recorded URL it degrades to plain text — a link that
@@ -117,3 +117,30 @@
    "Merge is not automatically danger-colored merely because it is
    consequential"), built in markup — no bespoke color rule left here. */
 .mgbtn{flex:none}
+/* Merge readiness (T1064): ready is one green line; blocked is a bordered list with one row per reason. State is
+   shape (icon) plus colour (UI-R28); every string is the host's (`model/prMergeReadiness.ts`). */
+.prready{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-sm);color:var(--k-text-dim)}
+.prready-icon{display:inline-flex;color:var(--k-success)}
+.prready b{color:var(--k-success);font-weight:var(--k-weight-semibold)}
+.prready-facts{min-width:0;overflow-wrap:anywhere}
+.prblock{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);font-size:var(--k-text-sm);overflow:clip}
+.prblock-head{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-2) var(--k-space-4);
+  border-bottom:var(--k-border-w) solid var(--k-border);color:var(--k-text-dim)}
+.prblock-head b{color:var(--k-text);font-weight:var(--k-weight-semibold)}
+.prblock-count{margin-left:auto;font-size:var(--k-text-xs)}
+.prblock-list{list-style:none;margin:0;padding:0}
+.prsn{padding:var(--k-space-2) var(--k-space-4)}
+.prsn + .prsn{border-top:var(--k-border-w) solid var(--k-border)}
+.prsn-line{display:flex;align-items:center;gap:var(--k-space-3)}
+.prsn-icon{display:inline-flex;flex:none}
+.prsn-bad .prsn-icon{color:var(--k-danger)}
+.prsn-warn .prsn-icon{color:var(--k-attention)}
+.prsn-run .prsn-icon{color:var(--k-warning)}
+.prsn-ok .prsn-icon{color:var(--k-success)}
+.prsn-text{flex:1;min-width:0;overflow-wrap:anywhere}
+.prsn-label{font-weight:var(--k-weight-semibold)}
+.prsn-detail{margin-left:var(--k-space-3);color:var(--k-text-dim)}
+.prsn-extra,.prsn-note{margin:var(--k-space-1) 0 0 calc(var(--k-space-6) - var(--k-space-1));color:var(--k-text-dim);font-size:var(--k-text-xs)}
+.prsn .prsn-more{margin-left:calc(var(--k-space-6) - var(--k-space-1))}
+.pinfo-title{font-weight:var(--k-weight-semibold);overflow-wrap:anywhere}
+.pinfo-by{color:var(--k-text-dim);font-size:var(--k-text-xs);padding-bottom:var(--k-space-2)}

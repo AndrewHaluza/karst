@@ -24,6 +24,19 @@ const pr = (over: Record<string, unknown>) => {
   return { ...base!, ...over };
 };
 
+/** A blocked PR whose one reason carries `action`: the merge-readiness block renders its button. */
+const blockedPr = (kind: string, action: Record<string, unknown>, over: Record<string, unknown> = {}) =>
+  pr({
+    readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind, state: 'bad', label: kind, detail: '', action }] },
+    ...over,
+  });
+
+/** Two ready PRs: the header's Merge all renders. */
+const mergeAllState = (): DashboardState => {
+  const ready = { canMerge: true, mergeBlockedReason: '', readiness: { ready: true, headline: 'Ready to merge', facts: '', reasons: [] } };
+  return st('ship', { prs: [pr(ready), pr({ ...ready, repo: '/repos/api', repoDisplay: 'api', number: 7, url: 'https://github.com/o/api/pull/7' })] });
+};
+
 /** Every server row stopped except the first, so Start (row + header) renders. */
 const withStoppedServer = (): DashboardState => {
   const s = populatedStateFor('impl');
@@ -425,18 +438,30 @@ export const COVERED: readonly ParityCase[] = [
   },
   {
     act: 'resolve-conflicts',
-    state: () => st('ship', {
-      mergeChecks: [{ repo: REPO, state: 'conflicted', headline: 'conflicted · 1 file', detailsLabel: '', files: ['a.ts'], reason: '', checkedTitle: '' }],
-    }),
+    state: () => st('ship', { prs: [blockedPr('conflicts', { act: 'resolve-conflicts', label: 'Resolve conflicts', repo: REPO })] }),
     sel: forRepo('resolve-conflicts'), posts: [{ type: 'resolve-conflicts', repo: REPO }], rid: true,
   },
   {
     act: 'send-ci-failure', variant: 'PR row',
     state: () => st('ship', {
-      prs: [pr({ checks: { state: 'failing', label: 'failing', title: '', detailsLabel: '1 failing', failing: [{ name: 'lint', url: '' }] } })],
+      prs: [blockedPr('checks', { act: 'send-ci-failure', label: 'Send CI failure to agent' })],
       ciFailure: { available: true, repos: [REPO] },
     }),
     sel: '.mgbtn' + act('send-ci-failure'), posts: [{ type: 'send-ci-failure' }], rid: false, pendingSel: '.mgbtn[aria-busy="true"]',
+  },
+  {
+    act: 'rebase-on-base', variant: 'PR row',
+    state: () => st('ship', { prs: [blockedPr('behind', { act: 'rebase-on-base', label: 'Rebase on base' })] }),
+    sel: '.prsn ' + act('rebase-on-base'), posts: [{ type: 'rebase-on-base' }], rid: false, pendingSel: '.prsn .mgbtn[aria-busy="true"]',
+  },
+  {
+    act: 'address-pr-feedback', variant: 'PR row',
+    state: () => st('ship', { prs: [blockedPr('review', { act: 'address-pr-feedback', label: 'Address feedback' })] }),
+    sel: '.prsn ' + act('address-pr-feedback'), posts: [{ type: 'address-pr-feedback' }], rid: false, pendingSel: '.prsn .mgbtn[aria-busy="true"]',
+  },
+  {
+    act: 'merge-all-prs', state: mergeAllState, sel: '.phead ' + act('merge-all-prs'),
+    posts: [{ type: 'merge-all-prs' }], rid: false, pendingSel: '.phead button[aria-busy="true"]',
   },
 
   // --- auto-fix on the ship panel (T1004) ---------------------------------

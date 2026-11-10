@@ -1715,12 +1715,27 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
         <span.k-chip.pst.pst-open> "open"
         <span.k-chip.pck.pck-passing title="3 checks passed"> "3 passed"
           <svg.k-icon aria-hidden="true">
+        <span.k-chip.pblock title> "blocked · 1 reason"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/web" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
           <button.k-btn.k-btn--primary.k-btn--sm.mgbtn data-act="merge-pr" data-repo="fixture:/repos/web" title="Merge PR #421 into main — cannot be undone" type="button"> "Merge"
       <div.krow-sub>
+        <div.prblock data-state="blocked">
+          <div.prblock-head>
+            <svg.k-icon aria-hidden="true">
+            <b> "Merge blocked"
+            <span.prblock-count> "1 reason"
+          <ul.prblock-list>
+            <li.prsn.prsn-warn data-kind="review">
+              <div.prsn-line>
+                <span.prsn-icon aria-hidden="true">
+                  <svg.k-icon aria-hidden="true">
+                <span.prsn-text>
+                  <b.prsn-label> "Awaiting review"
+                  <span.prsn-detail> "no approvals yet"
+                <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Open this pull request on GitHub" type="button"> "Open on GitHub"
         <details.pcms>
           <summary> "2 comments"
           <div.pcm>
@@ -1747,34 +1762,27 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
         <span.k-chip.pst.pst-open> "open"
         <span.k-chip.pck.pck-failing title="1 failing"> "1 failing"
           <svg.k-icon aria-hidden="true">
-        <span.k-chip.pblock title="merge conflicts"> "conflicts"
+        <span.k-chip.pblock title="merge conflicts"> "blocked · 1 reason"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/api" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
           <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="merge conflicts" type="button"> "Merge"
       <div.krow-sub>
-        <div.pwhy> "merge conflicts"
-        <details.pcks>
-          <summary> "1 failing check"
-          <div.pck-row>
-            <span> "unit"
-        <div.mg-ci.mg-ci-failing.mgwrap>
-          <div.mg>
-            <span.mgdot aria-hidden="true">
-            <span.mgtext> "CI failing — 1 check"
-          <div.pck-row>
-            <span> "unit"
-        <div.mg-conflicted.mgwrap>
-          <div.mg>
-            <span.mgdot aria-hidden="true">
-            <span.mgtext title="checked checked Aug 11, 2026, 2:05 PM"> "conflicted · 2 files · vs main"
-            <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="resolve-conflicts" data-repo="fixture:/repos/api" title="Hand this repo's conflict to an agent session" type="button"> "Resolve conflicts"
-          <details.mgd data-repo="fixture:/repos/api">
-            <summary> "2 conflicting files"
-            <div.mgdbody>
-              <div.mgfile> "src/a.ts"
-              <div.mgfile> "src/b.ts"
+        <div.prblock data-state="blocked">
+          <div.prblock-head>
+            <svg.k-icon aria-hidden="true">
+            <b> "Merge blocked"
+            <span.prblock-count> "1 reason"
+          <ul.prblock-list>
+            <li.prsn.prsn-warn data-kind="review">
+              <div.prsn-line>
+                <span.prsn-icon aria-hidden="true">
+                  <svg.k-icon aria-hidden="true">
+                <span.prsn-text>
+                  <b.prsn-label> "Awaiting review"
+                  <span.prsn-detail> "no approvals yet"
+                <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Open this pull request on GitHub" type="button"> "Open on GitHub"
   <div.dismissed.prrow>
     <div.krow.pr>
       <span.krow-lead>
@@ -1823,12 +1831,26 @@ exports[`dashboard region parity (DOM contract) > prs #prs · one open PR awaiti
         <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/web" title="Pull request details" type="button">
           <svg.k-icon aria-hidden="true">
         <span.k-chip.pst.pst-open> "open"
+        <span.k-chip.pblock title="awaiting review"> "blocked · 1 reason"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
       <div.krow-sub>
-        <div.pwhy> "awaiting review"
+        <div.prblock data-state="blocked">
+          <div.prblock-head>
+            <svg.k-icon aria-hidden="true">
+            <b> "Merge blocked"
+            <span.prblock-count> "1 reason"
+          <ul.prblock-list>
+            <li.prsn.prsn-warn data-kind="review">
+              <div.prsn-line>
+                <span.prsn-icon aria-hidden="true">
+                  <svg.k-icon aria-hidden="true">
+                <span.prsn-text>
+                  <b.prsn-label> "Awaiting review"
+                  <span.prsn-detail> "no approvals yet"
+                <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Open this pull request on GitHub" type="button"> "Open on GitHub"
         <details.pcms>
           <summary> "2 comments"
           <div.pcm>

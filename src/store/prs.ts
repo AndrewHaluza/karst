@@ -145,6 +145,7 @@ export interface UpdatePrDetailInput {
 export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
   const { detail } = input;
   const mergeBlock = detail.mergeBlock === 'unknown' ? null : detail.mergeBlock;
+  const fresh = detail.status !== 'unknown' ? 1 : 0;
   const run = store.db.transaction(() => {
     const old = store.db
       .prepare('SELECT status, merge_sha FROM prs WHERE ticket_id = ? AND repo = ? AND url = ?')
@@ -162,7 +163,16 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
            merge_sha  = COALESCE(?, merge_sha),
            comments   = COALESCE(?, comments),
            checks      = COALESCE(?, checks),
-           merge_block = CASE WHEN ? IS NULL THEN merge_block ELSE ? END
+           merge_block = CASE WHEN ? IS NULL THEN merge_block ELSE ? END,
+           title         = COALESCE(?, title),
+           author        = COALESCE(?, author),
+           additions     = COALESCE(?, additions),
+           deletions     = COALESCE(?, deletions),
+           changed_files = COALESCE(?, changed_files),
+           commit_count  = COALESCE(?, commit_count),
+           review_decision = CASE WHEN ? THEN ? ELSE review_decision END,
+           approvals       = CASE WHEN ? THEN ? ELSE approvals END,
+           review_requests = CASE WHEN ? THEN ? ELSE review_requests END
          WHERE ticket_id = ? AND repo = ? AND url = ?`,
       )
       .run(
@@ -178,6 +188,18 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
         serializeChecks(detail.checks),
         mergeBlock,
         mergeBlock,
+        detail.title ?? null,
+        detail.author ?? null,
+        detail.additions ?? null,
+        detail.deletions ?? null,
+        detail.changedFiles ?? null,
+        detail.commitCount ?? null,
+        // Review state is current state: a successful probe that states no decision
+        // CLEARS the stored one (an approval can be dismissed); a failed probe keeps it.
+        fresh, detail.reviewDecision ?? null,
+        fresh && detail.approvals != null ? 1 : 0, detail.approvals ?? null,
+        fresh && Array.isArray(detail.reviewRequests) ? 1 : 0,
+        Array.isArray(detail.reviewRequests) ? JSON.stringify(detail.reviewRequests) : null,
         input.ticketId,
         input.repo,
         input.url,

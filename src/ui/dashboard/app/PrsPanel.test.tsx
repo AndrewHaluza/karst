@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent } from '@testing-library/react';
 import type { DashboardState } from '../state.js';
-import { failing, installRuntimeDoubles, mc, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
+import { blockedBy, failing, installRuntimeDoubles, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
 
 installRuntimeDoubles();
 
@@ -106,13 +106,16 @@ describe('PrsPanel — the PR line', () => {
     expect(text('.pst')).toBe('');
   });
 
-  it('chips the CI rollup and GitHub refusal with their tooltips, only while the PR is live', () => {
-    const base = { checks: { ...failing(['lint', null]), label: '1 failing', title: 'one failed' }, mergeBlockLabel: 'conflicts', mergeBlockedReason: 'merge conflicts' };
+  it('chips the CI rollup and the blocked-reason count with their tooltips, only while the PR is live', () => {
+    const base = { checks: { ...failing(['lint', null]), label: '1 failing', title: 'one failed' }, mergeBlockedReason: 'CI failing — 1 check', readiness: blockedBy(['checks', 'bad']) };
     mount(stateWith([pr(base)]));
     expect(document.querySelector('.pck')!.className).toBe('k-chip pck pck-failing');
     expect(document.querySelector('.pck')!.getAttribute('title')).toBe('one failed');
-    expect(text('.pblock')).toBe('conflicts');
-    expect(document.querySelector('.pblock')!.getAttribute('title')).toBe('merge conflicts');
+    expect(text('.pblock')).toBe('blocked · 1 reason');
+    expect(document.querySelector('.pblock')!.getAttribute('title')).toBe('CI failing — 1 check');
+    cleanup();
+    mount(stateWith([pr({ ...base, readiness: blockedBy(['checks', 'bad'], ['conflicts', 'bad']) })]));
+    expect(text('.pblock')).toBe('blocked · 2 reasons');
     cleanup();
     mount(stateWith([pr({ ...base, status: 'merged' })]));
     expect(document.querySelector('.pck')).toBeNull();
@@ -238,154 +241,78 @@ describe('PrsPanel — metadata, checks and comments', () => {
     expect(document.querySelector('details.pcms')).toBeNull();
   });
 
-  it('opens the failing-checks disclosure with links for runs that have a URL and plain names otherwise', () => {
-    mount(stateWith([pr({ checks: failing(['build', 'https://x.test/run/1'], ['lint', null]) })]));
-    expect(text('details.pcks summary')).toBe('2 failing checks');
-    const rows = [...document.querySelectorAll('details.pcks .pck-row')];
-    expect(rows[0]!.querySelector('a')!.getAttribute('data-url')).toBe('https://x.test/run/1');
-    expect(rows[0]!.querySelector('a')!.getAttribute('title')).toBe('Open this check run');
-    expect(rows[1]!.querySelector('a')).toBeNull();
-    expect(rows[1]!.querySelector('span')!.textContent).toBe('lint');
-  });
-
-  it('suppresses the checks disclosure for a merged PR and when the host gave no label', () => {
-    mount(stateWith([pr({ status: 'merged', checks: failing(['build', null]) })]));
-    expect(document.querySelector('details.pcks')).toBeNull();
-    cleanup();
-    mount(stateWith([pr({ checks: { ...failing(['build', null]), detailsLabel: '' } })]));
-    expect(document.querySelector('details.pcks')).toBeNull();
-  });
 });
 
-describe('PrsPanel — the CI line', () => {
-  it('leaves the pending line out: the checks chip already says it', () => {
-    mount(stateWith([pr({ checks: { state: 'pending', label: '1 pending', title: '', detailsLabel: '', failing: [] } })]));
-    expect(document.querySelector('.mg-ci')).toBeNull();
-    expect(text('.pck-pending')).toBe('1 pending');
-    expect(byAct('send-ci-failure')).toHaveLength(0);
-    expect(document.querySelector('.mg-ci-failing')).toBeNull();
+describe('PrsPanel — the merge-readiness block', () => {
+  it('shows one green line for a ready PR and no list', () => {
+    mount(stateWith([pr({ canMerge: true, readiness: { ready: true, headline: 'Ready to merge', facts: 'CI passed', reasons: [] } })]));
+    expect(text('.prready b')).toBe('Ready to merge');
+    expect(text('.prready-facts')).toBe('CI passed');
+    expect(document.querySelector('.prblock')).toBeNull();
   });
 
-  it('renders nothing for passing, none or a merged PR', () => {
-    mount(stateWith([pr({ checks: { state: 'passing', label: '3 passed', title: '', detailsLabel: '', failing: [] } })]));
-    expect(document.querySelector('.mg-ci')).toBeNull();
+  it('lists one row per reason with a header count, and shows nothing for a merged PR', () => {
+    mount(stateWith([pr({ readiness: blockedBy(['checks', 'bad'], ['review', 'warn']) })]));
+    expect(text('.prblock-count')).toBe('2 reasons');
+    expect(document.querySelectorAll('li.prsn')).toHaveLength(2);
+    expect(document.querySelector('li.prsn')!.className).toBe('prsn prsn-bad');
+    expect(text('li.prsn .prsn-label')).toBe('checks label');
     cleanup();
-    mount(stateWith([pr({ status: 'merged', checks: failing(['x', null]) })]));
-    expect(document.querySelector('.mg-ci')).toBeNull();
+    mount(stateWith([pr({ status: 'merged', readiness: blockedBy(['checks', 'bad']) })]));
+    expect(document.querySelector('.prblock')).toBeNull();
+    expect(document.querySelector('.prready')).toBeNull();
   });
 
-  it('counts failures in the singular and plural and lists the check names under the line', () => {
-    mount(stateWith([pr({ checks: failing(['a', 'https://x.test/1']) })]));
-    expect(text('.mg-ci-failing .mgtext')).toBe('CI failing — 1 check');
-    expect(document.querySelectorAll('.mg-ci-failing > .pck-row')).toHaveLength(1);
-    cleanup();
-    mount(stateWith([pr({ checks: failing(['a', null], ['b', null]) })]));
-    expect(text('.mg-ci-failing .mgtext')).toBe('CI failing — 2 checks');
-  });
-
-  it('offers Send CI failure only when the host lists this repo as available', () => {
-    const failingPr = pr({ checks: failing(['a', null]) });
-    mount(stateWith([failingPr], { ci: { available: true, repos: [REPO] } }));
-    const b = one('send-ci-failure');
-    expect(b.className).toBe('k-btn k-btn--secondary k-btn--sm mgbtn');
-    expect(b.title).toBe('Send the failing CI log to the agent — UAT and Review will run again');
-    expect(b.textContent).toBe('Send CI failure to agent');
-    cleanup();
-    mount(stateWith([failingPr], { ci: { available: true, repos: ['/other'] } }));
-    expect(byAct('send-ci-failure')).toHaveLength(0);
-    expect(text('.mg-ci-failing .mgtext')).toBe('CI failing — 1 check');
-    cleanup();
-    mount(stateWith([failingPr], { ci: { available: false, repos: [REPO] } }));
-    expect(byAct('send-ci-failure')).toHaveLength(0);
-  });
-});
-
-describe('PrsPanel — the merge check line', () => {
-  it('renders no line for a repo with no check', () => {
-    mount(stateWith([pr()]));
-    expect(document.querySelector('.mgwrap')).toBeNull();
-  });
-
-  it('keys the dot and wrapper on the state and offers Resolve only for a conflict', () => {
-    mount(stateWith([pr()], { mergeChecks: [mc()] }));
-    expect(document.querySelector('.mgwrap')!.className).toBe('mgwrap mg-conflicted');
-    expect(text('.mg .mgtext')).toBe('conflicted · 2 files · vs main');
-    const r = one('resolve-conflicts');
-    expect(r.className).toBe('k-btn k-btn--secondary k-btn--sm mgbtn');
-    expect(r.dataset.repo).toBe(REPO);
-    expect(r.title).toBe("Hand this repo's conflict to an agent session");
-    expect(r.textContent).toBe('Resolve conflicts');
-    cleanup();
-    mount(stateWith([pr()], { mergeChecks: [mc({ state: 'clean', detailsLabel: '', files: [] })] }));
-    expect(document.querySelector('.mgwrap')!.className).toBe('mgwrap mg-clean');
-    expect(byAct('resolve-conflicts')).toHaveLength(0);
-  });
-
-  it('keeps the host stamp prefix verbatim in the headline tooltip (parity with the vanilla title)', () => {
-    mount(stateWith([pr()], { mergeChecks: [mc({ checkedTitle: 'Aug 11' })] }));
-    expect(document.querySelector('.mgtext')!.getAttribute('title')).toBe('checked Aug 11');
-    cleanup();
-    mount(stateWith([pr()], { mergeChecks: [mc({ checkedTitle: '' })] }));
-    expect(document.querySelector('.mgtext')!.hasAttribute('title')).toBe(false);
-  });
-
-  it('lists conflicting files, or git’s reason when it has one, behind the disclosure', () => {
-    mount(stateWith([pr()], { mergeChecks: [mc()] }));
-    expect(text('details.mgd summary')).toBe('2 conflicting files');
-    expect(document.querySelector<HTMLElement>('details.mgd')!.dataset.repo).toBe(REPO);
-    expect(texts('.mgdbody .mgfile')).toEqual(['src/a.ts', 'src/b.ts']);
-    cleanup();
-    mount(stateWith([pr()], { mergeChecks: [mc({ state: 'unknown', files: [], reason: 'git failed', detailsLabel: 'why' })] }));
-    expect(texts('.mgdbody .mgreason')).toEqual(['git failed']);
-    expect(document.querySelector('.mgfile')).toBeNull();
-    cleanup();
-    mount(stateWith([pr()], { mergeChecks: [mc({ detailsLabel: '' })] }));
-    expect(document.querySelector('details.mgd')).toBeNull();
-  });
-
-  it('matches a check to its PR by repo and ignores checks for repos with no PR', () => {
-    mount(stateWith([pr()], { mergeChecks: [mc({ repo: '/other' })] }));
-    expect(document.querySelector('.mgwrap')).toBeNull();
-  });
-});
-
-describe('PrsPanel — disclosure state', () => {
-  it('keeps the merge-check disclosure open across pushes, even if the line disappears and returns', () => {
-    const h = mount(stateWith([pr()], { mergeChecks: [mc()] }));
-    const d = document.querySelector<HTMLDetailsElement>('details.mgd')!;
+  it('keeps the conflicts disclosure open across pushes', () => {
+    const withWhy = (opened: string) =>
+      stateWith([pr({ opened, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'conflicts', state: 'bad', label: 'Conflicts', detail: '', why: 'git failed' }] } })]);
+    const h = mount(withWhy('opened 2 days ago'));
+    const d = document.querySelector<HTMLDetailsElement>('details.prsn-more')!;
     d.open = true;
     d.dispatchEvent(new Event('toggle'));
-    h.emit({ type: 'state', state: stateWith([pr({ opened: 'opened 3 days ago' })], { mergeChecks: [mc()] }) });
-    expect(document.querySelector<HTMLDetailsElement>('details.mgd')!.open).toBe(true);
-    h.emit({ type: 'state', state: stateWith([pr()]) });
-    expect(document.querySelector('details.mgd')).toBeNull();
-    h.emit({ type: 'state', state: stateWith([pr()], { mergeChecks: [mc()] }) });
-    expect(document.querySelector<HTMLDetailsElement>('details.mgd')!.open).toBe(true);
+    h.emit({ type: 'state', state: withWhy('opened 3 days ago') });
+    expect(document.querySelector<HTMLDetailsElement>('details.prsn-more')!.open).toBe(true);
+    expect(text('.mgreason')).toBe('git failed');
+  });
+});
+
+describe('PrsPanel — Merge all', () => {
+  const ready = (repo: string) => pr({ repo, canMerge: true, readiness: { ready: true, headline: 'Ready to merge', facts: '', reasons: [] } });
+  const blocked = (repo: string) => pr({ repo, readiness: blockedBy(['checks', 'bad']) });
+  const btn = () => document.querySelector<HTMLButtonElement>('.phead button.mgbtn:not(#prRefresh)')!;
+
+  it('is absent below two open PRs', () => {
+    mount(stateWith([ready('/a')]));
+    expect(document.querySelector('.phead button.mgbtn')).toBeNull();
   });
 
-  it('forgets a disclosure the user closed', () => {
-    const h = mount(stateWith([pr()], { mergeChecks: [mc()] }));
-    const d = document.querySelector<HTMLDetailsElement>('details.mgd')!;
-    d.open = true;
-    d.dispatchEvent(new Event('toggle'));
-    d.open = false;
-    d.dispatchEvent(new Event('toggle'));
-    h.emit({ type: 'state', state: stateWith([pr()], { mergeChecks: [mc({ headline: 'conflicted · 3 files' })] }) });
-    expect(document.querySelector<HTMLDetailsElement>('details.mgd')!.open).toBe(false);
+  it('is the primary "Merge all" when every PR is ready, and posts one message', () => {
+    const h = mount(stateWith([ready('/a'), ready('/b')]));
+    expect(btn().textContent).toBe('Merge all');
+    expect(btn().className).toBe('k-btn k-btn--primary k-btn--sm mgbtn');
+    fireEvent.click(one('merge-all-prs'));
+    expect(h.send.mergeAllPrs).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the comments and checks disclosures open across a push (they are the same elements)', () => {
-    const withBoth = (opened: string) =>
-      stateWith([pr({ opened, commentsLabel: '1 comment', comments: [{ author: 'a', when: '', body: 'b' }], checks: failing(['x', null]) })]);
-    const h = mount(withBoth('opened 2 days ago'));
-    const comments = document.querySelector<HTMLDetailsElement>('details.pcms')!;
-    const checks = document.querySelector<HTMLDetailsElement>('details.pcks')!;
-    comments.open = true;
-    checks.open = true;
-    h.emit({ type: 'state', state: withBoth('opened 3 days ago') });
-    expect(document.querySelector('details.pcms')).toBe(comments);
-    expect(comments.open).toBe(true);
-    expect(checks.open).toBe(true);
+  it('counts the ready PRs when some are blocked', () => {
+    mount(stateWith([ready('/a'), blocked('/b')]));
+    expect(btn().textContent).toBe('Merge 1 ready');
+    expect(btn().disabled).toBe(false);
+  });
+
+  it('is disabled and secondary when none is ready', () => {
+    mount(stateWith([blocked('/a'), blocked('/b')]));
+    expect(btn().textContent).toBe('Merge all');
+    expect(btn().disabled).toBe(true);
+    expect(btn().title).toBe('No pull request is ready to merge');
+    expect(btn().className).toBe('k-btn k-btn--secondary k-btn--sm mgbtn');
+  });
+
+  it('is disabled while an auto-fix round runs', () => {
+    mount(stateWith([ready('/a'), ready('/b')], { roundRunning: true }));
+    expect(btn().disabled).toBe(true);
+    expect(btn().title).toBe('An auto-fix round is running');
+    expect(byAct('merge-all-prs')).toHaveLength(0);
   });
 });
 
@@ -427,11 +354,6 @@ describe('PrsPanel — summary, the details popover and the blocked reason', () 
     expect(text('.phead .sec-sum')).toBe('1 ready');
   });
 
-  it('shows the host reason a Merge is disabled in the row, not only in its title', () => {
-    mount(stateWith([pr({ canMerge: false, mergeBlockedReason: 'awaiting review' })]));
-    expect(text('.pwhy')).toBe('awaiting review');
-  });
-
   it('opens a details dialog from the ⓘ toggle and closes it on Escape, returning focus', () => {
     mount(stateWith([pr({ checks: { state: 'passing', label: '3 passed', title: 'all green', detailsLabel: '', failing: [] } })]));
     const info = one('toggle-pr-info');
@@ -450,6 +372,28 @@ describe('PrsPanel — summary, the details popover and the blocked reason', () 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(document.querySelector('.pinfo-pop')).toBeNull();
     expect(document.activeElement).toBe(info);
+  });
+
+  it('adds the title, the byline, the diff size and the review facts to the details dialog', () => {
+    mount(stateWith([pr({
+      title: 'Add Merge all', author: 'ada',
+      changes: { files: 1, additions: 5, deletions: 2, commits: 2 },
+      review: { decision: 'CHANGES_REQUESTED', approvals: 0, required: null, requested: ['bob', 'core'] },
+    })]));
+    fireEvent.click(one('toggle-pr-info'));
+    const pop = document.querySelector('.pinfo-pop')!;
+    expect(pop.textContent).toContain('Add Merge all');
+    expect(pop.querySelector('.pinfo-by')!.textContent).toBe('web #42 · by ada');
+    expect(pop.textContent).toContain('+5 −2 · 1 file · 2 commits');
+    expect(pop.textContent).toContain('Changes requested · requested from bob, core');
+  });
+
+  it('leaves the author out of the byline and shows no diff size when GitHub stated neither', () => {
+    mount(stateWith([pr({ title: 'Only a title' })]));
+    fireEvent.click(one('toggle-pr-info'));
+    const pop = document.querySelector('.pinfo-pop')!;
+    expect(pop.querySelector('.pinfo-by')!.textContent).toBe('web #42');
+    expect(pop.textContent).not.toContain('+');
   });
 
   it('closes the details dialog on a click outside it', () => {

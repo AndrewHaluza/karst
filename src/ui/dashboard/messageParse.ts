@@ -159,6 +159,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // Narrowed exactly like `merge-pr`: the repo is the entire payload (typed,
     // non-empty, never trimmed — a path is not free text), and everything else
     // about the action is the host's to decide.
+    case 'merge-all-prs':
+      return { type: 'merge-all-prs' };
     case 'dismiss-pr':
       return typeof m.repo === 'string' && m.repo.length > 0
         ? { type: 'dismiss-pr', repo: m.repo }

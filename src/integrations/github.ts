@@ -3,7 +3,8 @@ import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 import { BoundedOutput, TailOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
 import { normalizeComments, type PrComment } from '../model/prComments.js';
-import { normalizeChecks, normalizeMergeBlock } from './prChecks.js';
+import { applyRequiredChecks, normalizeChecks, normalizeMergeBlock } from './prChecks.js';
+import { normalizeReviewDecision, type PrReviewDecision } from '../model/prReview.js';
 import type { PrChecks, MergeBlock } from '../model/prChecks.js';
 
 /**
@@ -419,6 +420,22 @@ export interface PrDetail {
    * matching — never a partial list dressed up as the whole diff.
    */
   changedPaths: string[] | null;
+  /** PR title (gh `title`), or null when not stated. */
+  title?: string | null;
+  /** Author login (`author.login`), or null. */
+  author?: string | null;
+  /** Diff size; each null when gh did not state it. */
+  additions?: number | null;
+  deletions?: number | null;
+  changedFiles?: number | null;
+  /** Number of commits (`commits[]` length), or null. */
+  commitCount?: number | null;
+  /** Normalized `reviewDecision`; null = no decision stated or none required. */
+  reviewDecision?: PrReviewDecision;
+  /** Distinct authors whose latest review is APPROVED, or null when not stated. */
+  approvals?: number | null;
+  /** Requested reviewers (`reviewRequests[].login|name`), or null when not stated. */
+  reviewRequests?: string[] | null;
 }
 
 /**
@@ -437,11 +454,20 @@ export const UNKNOWN_PR_DETAIL: PrDetail = {
   mergeBlock: 'unknown',
   mergeSha: null,
   changedPaths: null,
+  title: null,
+  author: null,
+  additions: null,
+  deletions: null,
+  changedFiles: null,
+  commitCount: null,
+  reviewDecision: null,
+  approvals: null,
+  reviewRequests: null,
 };
 
 /** The `--json` fields `fetchPrDetail` requests, in one round trip. */
 const PR_DETAIL_FIELDS =
-  'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files';
+  'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files,title,author,additions,deletions,changedFiles,commits,reviewDecision,latestReviews,reviewRequests';
 
 /** gh caps `--json files` at 100 entries with no paging; at the cap the list is incomplete. */
 const GH_FILES_CAP = 100;
@@ -474,6 +500,63 @@ function changedPaths(value: unknown): string[] | null {
   return paths;
 }
 
+/** A non-negative integer gh field, or null for absent/wrong-typed. */
+function count(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/** `author.login`, or null. */
+function authorLogin(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null) return null;
+  return text((value as Record<string, unknown>).login);
+}
+
+/** Distinct reviewers whose latest review is APPROVED; null when the list is absent. */
+function approvalCount(value: unknown): number | null {
+  if (!Array.isArray(value)) return null;
+  const approvers = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const review = entry as Record<string, unknown>;
+    if (review.state !== 'APPROVED') continue;
+    approvers.add(authorLogin(review.author) ?? `#${approvers.size}`);
+  }
+  return approvers.size;
+}
+
+/** Requested reviewer names (`login`, or a team's `name`); null when the list is absent. */
+function requestedReviewers(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const names: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const r = entry as Record<string, unknown>;
+    const name = text(r.login) ?? text(r.name);
+    if (name !== null) names.push(name);
+  }
+  return names;
+}
+
+/** gh's `commits` is a list of commits; only the count is kept. */
+function commitCount(value: unknown): number | null {
+  return Array.isArray(value) ? value.length : null;
+}
+
+/**
+ * The required-check split from `gh pr checks <ref> --required`. gh exits
+ * non-zero for failing or pending checks yet still prints the JSON, so the
+ * stdout is read whatever the exit code; unparseable output is `null`
+ * ("unsupported or failed") and the caller then shows no split.
+ */
+async function fetchRequiredChecks(gh: GhRunner, ref: string, cwd: string): Promise<unknown> {
+  try {
+    const r = await gh(['pr', 'checks', ref, '--required', '--json', 'name,bucket,link'], cwd);
+    return JSON.parse(r.stdout) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Current upstream state of a recorded PR PLUS the metadata the ship stage shows.
  *
@@ -502,6 +585,7 @@ export async function fetchPrDetail(
     return UNKNOWN_PR_DETAIL;
   }
 
+  const checks = normalizeChecks(view.statusCheckRollup);
   return {
     status: normalizePrState(view.state, view.isDraft),
     headRef: text(view.headRefName),
@@ -509,10 +593,22 @@ export async function fetchPrDetail(
     createdAt: text(view.createdAt),
     mergedAt: text(view.mergedAt),
     comments: normalizeComments(view.comments),
-    checks: normalizeChecks(view.statusCheckRollup),
+    checks:
+      checks === null || checks.total === 0
+        ? checks
+        : applyRequiredChecks(checks, await fetchRequiredChecks(gh, ref, cwd)),
     mergeBlock: normalizeMergeBlock(view.mergeable, view.mergeStateStatus),
     mergeSha: mergeSha(view.mergeCommit),
     changedPaths: changedPaths(view.files),
+    title: text(view.title),
+    author: authorLogin(view.author),
+    additions: count(view.additions),
+    deletions: count(view.deletions),
+    changedFiles: count(view.changedFiles),
+    commitCount: commitCount(view.commits),
+    reviewDecision: normalizeReviewDecision(view.reviewDecision),
+    approvals: approvalCount(view.latestReviews),
+    reviewRequests: requestedReviewers(view.reviewRequests),
   };
 }
 

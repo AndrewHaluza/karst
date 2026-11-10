@@ -4,7 +4,7 @@ import { createTicket, getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { listPrsByTicket } from '../store/dashboard.js';
 import type { GhRunner } from '../integrations/github.js';
-import { mergeTicketPr } from './mergePr.js';
+import { mergeAllPrs, mergeTicketPr, type MergeAllDeps, type MergeAllPlan } from './mergePr.js';
 import { resolveShipLanding } from './mergeGate.js';
 
 const PR12 = 'https://github.com/o/r/pull/12';
@@ -223,5 +223,113 @@ describe('mergeTicketPr', () => {
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('spawn failed');
     expect(listPrsByTicket(store, a.id)[0]!.status).toBe('open');
+  });
+});
+
+describe('mergeAllPrs', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const seed = (ticketId: number, repo: string, number: number, mergeBlock: string): void => {
+    store.db
+      .prepare("INSERT INTO prs (ticket_id, repo, number, url, status, base_ref, merge_block) VALUES (?, ?, ?, ?, 'open', 'main', ?)")
+      .run(ticketId, repo, number, `https://github.com/o/${repo}/pull/${number}`, mergeBlock);
+  };
+  const MERGED = { ok: true, status: 'merged', completedTicket: false, reason: '' } as const;
+
+  function setup(over: Partial<MergeAllDeps> = {}) {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    seed(t.id, 'web', 1, 'clean');
+    seed(t.id, 'api', 2, 'clean');
+    seed(t.id, 'docs', 3, 'blocked');
+    const order: string[] = [];
+    const plans: MergeAllPlan[] = [];
+    const deps: MergeAllDeps = {
+      ticketId: t.id,
+      repoOrder: ['api', 'web', 'docs'],
+      repoNameFor: () => undefined,
+      now: () => '2026-11-10T12:00:00Z',
+      refresh: async () => {
+        order.push('refresh');
+      },
+      autofixRunning: () => false,
+      confirm: async (plan) => {
+        order.push('confirm');
+        plans.push(plan);
+        return true;
+      },
+      merge: async (repo) => {
+        order.push(`merge ${repo}`);
+        return MERGED;
+      },
+      ...over,
+    };
+    return { deps, order, plans, ticketId: t.id };
+  }
+
+  it('re-probes before the modal, then merges the ready PRs in manifest order and skips the blocked one', async () => {
+    const { deps, order, plans } = setup();
+    const r = await mergeAllPrs(store, deps);
+    expect(order).toEqual(['refresh', 'confirm', 'merge api', 'merge web']);
+    expect(plans[0]!.ready.map((i) => i.repo)).toEqual(['api', 'web']);
+    expect(plans[0]!.skipped.map((i) => i.repo)).toEqual(['docs']);
+    expect(r).toMatchObject({ kind: 'done', failed: null, completedTicket: false });
+    expect(r.kind === 'done' && r.merged.map((i) => i.repo)).toEqual(['api', 'web']);
+  });
+
+  it('merges nothing when the user cancels', async () => {
+    const { deps, order } = setup({ confirm: async () => false });
+    expect(await mergeAllPrs(store, deps)).toEqual({ kind: 'cancelled' });
+    expect(order).toEqual(['refresh']);
+  });
+
+  it('stops at the first failure and leaves the later PRs untried', async () => {
+    const { deps, order } = setup({
+      merge: async (repo) => (repo === 'api' ? { ok: false, status: 'open', completedTicket: false, reason: 'checks pending' } : MERGED),
+    });
+    const r = await mergeAllPrs(store, deps);
+    expect(r).toMatchObject({ kind: 'done', merged: [], failed: { reason: 'checks pending' } });
+    expect(r.kind === 'done' && r.failed?.item.repo).toBe('api');
+    expect(order).not.toContain('merge web');
+  });
+
+  it('reports the ticket complete when a merge completes it', async () => {
+    const { deps } = setup({ merge: async () => ({ ...MERGED, completedTicket: true }) });
+    expect(await mergeAllPrs(store, deps)).toMatchObject({ kind: 'done', completedTicket: true });
+  });
+
+  it('is refused while an auto-fix round runs, before any probe', async () => {
+    const { deps, order } = setup({ autofixRunning: () => true });
+    expect(await mergeAllPrs(store, deps)).toEqual({ kind: 'refused', reason: 'An auto-fix round is running' });
+    expect(order).toEqual([]);
+  });
+
+  it('is refused when a round starts during the re-probe', async () => {
+    let calls = 0;
+    const { deps, order } = setup({ autofixRunning: () => ++calls > 1 });
+    expect(await mergeAllPrs(store, deps)).toEqual({ kind: 'refused', reason: 'An auto-fix round is running' });
+    expect(order).toEqual(['refresh']);
+  });
+
+  it('is refused when no PR is ready', async () => {
+    const t = createTicket(store, { key: 'B', title: 'b' });
+    seed(t.id, 'web', 1, 'blocked');
+    const { deps } = setup({ ticketId: t.id });
+    expect(await mergeAllPrs(store, { ...deps, ticketId: t.id })).toEqual({ kind: 'refused', reason: 'No pull request is ready to merge' });
+  });
+
+  it('runs one Merge all per ticket', async () => {
+    let release: (v: boolean) => void = () => undefined;
+    const { deps } = setup({ confirm: () => new Promise<boolean>((res) => (release = res)) });
+    const first = mergeAllPrs(store, deps);
+    await Promise.resolve();
+    await new Promise((res) => setTimeout(res, 0));
+    expect(await mergeAllPrs(store, deps)).toEqual({ kind: 'refused', reason: 'Merge all is already running for this ticket.' });
+    release(false);
+    expect(await first).toEqual({ kind: 'cancelled' });
+    // The guard is released: a later run is not refused.
+    release = () => undefined;
+    expect((await mergeAllPrs(store, { ...deps, confirm: async () => false })).kind).toBe('cancelled');
   });
 });
