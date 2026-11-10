@@ -31,6 +31,8 @@ const CATALOG_SRC = join(HERE, '..', '..', 'docs', 'ui', 'KARST-UI-CATALOG.html'
 /** Fixed nonce matching the one used in chains.ts. */
 const FIXED_NONCE = 'karstvisualnonce';
 
+const HYDRATED_CACHE = new Map<ViewId, string>();
+
 /**
  * Build a complete fixture HTML page for one view + theme.
  *
@@ -52,8 +54,12 @@ export function buildFixture(
   if (!themeData) throw new Error(`Unknown theme: ${theme}`);
 
   // Read the raw HTML and hydrate through the real injector chain + CSP.
-  const raw = readFileSync(entry.htmlPath, 'utf8');
-  const hydrated = entry.render(raw);
+  let hydrated = HYDRATED_CACHE.get(view);
+  if (!hydrated) {
+    const raw = readFileSync(entry.htmlPath, 'utf8');
+    hydrated = entry.render(raw);
+    HYDRATED_CACHE.set(view, hydrated);
+  }
 
   // Build the seed script: stubs acquireVsCodeApi and dispatches corpus messages.
   const seedScript = buildSeedScript(view, corpusMessages);
@@ -213,8 +219,9 @@ export function writeFixtures(outDir: string = OUT_DIR): void {
           }
         }
       }
-      // One page per registered variant (ui:UI-R57).
+      // One page per registered variant (ui:UI-R57), only for themes the variant declares.
       for (const v of VARIANTS[view]) {
+        if (!v.themes.includes(theme)) continue;
         const html = buildFixture(view, theme, v.corpus().messages, v.corpus().viewState);
         writeFileSync(join(themeDir, fixtureFile(view, v.id)), html, 'utf8');
       }
