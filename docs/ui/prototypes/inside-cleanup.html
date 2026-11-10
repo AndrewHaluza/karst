@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inside, runtime strip and Autopilot cleanup</title>
+<style>
+:root{
+  --bg:#1e1e1e; --card:#252526; --surface2:#2a2d2e; --raise:#2d2d30; --line:#3c3c3c; --fg:#cccccc; --muted:#9d9d9d; --faint:#7a7a7a;
+  --running:#4a9eff; --passed:#4ec36a; --failed:#f14c4c; --attention:#d7a22a; --skip:#a78bfa;
+  --tint-run:#1d2b3a; --tint-wait:#3a3220; --tint-fail:#3a2323;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace; --sans:-apple-system,"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 var(--sans);padding:24px max(16px,env(safe-area-inset-left)) 48px}
+h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:40px 0 4px}
+.lead,.why{color:var(--muted);margin:0 0 12px;max-width:80ch}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:1150px){.pair{grid-template-columns:1fr}}
+.col{min-width:0}
+.tag{font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.tag.before{color:var(--failed)} .tag.after{color:var(--passed)}
+.frame{border:1px dashed var(--line);border-radius:6px;padding:12px;overflow-x:auto}
+.narrow{max-width:400px}
+.note{font-size:12px;color:var(--muted);margin-top:8px;max-width:80ch} .note b{color:var(--fg)}
+.mono{font-family:var(--mono)}
+.mark{outline:2px solid var(--failed);outline-offset:1px;border-radius:3px}
+.good{outline:2px solid var(--passed);outline-offset:1px;border-radius:3px}
+
+/* header + runtime strip */
+.hid{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hid .title{font-weight:600;font-size:15px}
+.idp{font:11px var(--mono);color:var(--muted)}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:10px;padding:0 7px;font-size:11px}
+.strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--line);border-radius:6px;padding:7px 12px;margin-top:10px}
+.strip .st{color:var(--muted);font-size:12px} .strip .dim{color:var(--muted);font-size:12px}
+.sdot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--faint);margin-right:4px}
+.sdot.run{background:var(--running)}
+
+/* ===== Inside: copied from src/ui/dashboard/app/Inside.css ===== */
+.inside{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--bg)}
+.ihead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;font-size:12px}
+.ihead b{font-weight:600}
+.ihead .when{font:11px var(--mono);color:var(--muted)}
+.ovr{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+.ovr span.b{border:1px solid var(--line);border-radius:3px;padding:1px 7px;color:var(--fg)}
+.ovr span.on{border-color:var(--running)}
+.op{display:grid;grid-template-columns:16px 96px minmax(0,1fr) auto 70px 52px 12px;align-items:center;gap:8px;min-height:31px;padding:0 10px;border-top:1px solid var(--line);font-size:12px}
+.op.live{background:var(--tint-run)} .op.waiting{background:var(--tint-wait)} .op.open{background:var(--surface2)}
+.op .name{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+.ai{font-size:9px;border:1px solid var(--running);color:var(--running);border-radius:8px;padding:0 5px;line-height:14px}
+.detail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.detail.run{color:var(--running)} .detail.wait{color:var(--attention)} .detail.fail{color:var(--failed)}
+.tail{display:flex;align-items:center;gap:8px;justify-content:flex-end;white-space:nowrap}
+.agent{color:var(--running);font-size:11px} .agent .m{font-family:var(--mono)}
+.tok{font:10px var(--mono);border:1px solid #3e5a7a;color:#9cc4ef;border-radius:9px;padding:0 6px;white-space:nowrap}
+.tok.live{border-color:var(--running)}
+.count{font:10px var(--mono);border:1px solid var(--line);border-radius:9px;padding:0 6px;color:var(--muted)}
+.tm{font:11px var(--mono);color:var(--muted);text-align:right;white-space:nowrap}
+.chev{color:var(--muted);font-size:11px;text-align:right}
+.btn{background:var(--raise);border:1px solid var(--line);color:var(--fg);border-radius:4px;padding:1px 8px;font-size:11px;white-space:nowrap}
+.btn.raised{background:#3a3a3a;border-color:#555;color:#fff}
+.textbtn{background:none;border:0;padding:0;color:var(--running);font-size:11px}
+/* the glyph: the prototype's own drawn states */
+.glyph{position:relative;width:16px;height:16px;display:inline-grid;place-items:center;flex:none;border:1px solid currentColor;border-radius:50%;color:var(--faint);line-height:1}
+.glyph.pass{color:var(--passed)} .glyph.fail{color:var(--failed)} .glyph.pending,.glyph.note{color:var(--faint)}
+.glyph.skip{color:var(--skip)} .glyph.wait{color:var(--attention)} .glyph.run{color:var(--running)}
+.glyph.pass:before{content:"";width:6px;height:3px;border-left:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translate(-.5px,-1px) rotate(-45deg)}
+.glyph.fail:before,.glyph.fail:after{content:"";position:absolute;width:7px;height:1.5px;background:currentColor;left:50%;top:50%}
+.glyph.fail:before{transform:translate(-50%,-50%) rotate(45deg)} .glyph.fail:after{transform:translate(-50%,-50%) rotate(-45deg)}
+.glyph.pending:before,.glyph.note:before{content:"";width:4px;height:4px;border-radius:50%;background:currentColor}
+.glyph.run:before{content:"";width:8px;height:8px;border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin 1s linear infinite}
+.glyph.wait:before,.glyph.wait:after{content:"";position:absolute;width:1.5px;height:6px;top:4px;background:currentColor}
+.glyph.wait:before{left:5px} .glyph.wait:after{right:5px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.glyph.run:before{animation:none}}
+/* evidence body: the generic rows (EvidenceRows.tsx: glyph, key, detail, action, timing) */
+.body{border-top:1px solid var(--line);padding:4px 10px 6px 34px;background:var(--bg)}
+.ev{display:grid;grid-template-columns:16px 110px minmax(0,1fr) auto 70px 52px;align-items:center;gap:8px;min-height:26px;font-size:12px}
+.ev .key{font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev.active{background:var(--tint-run);margin:0 -6px;padding:0 6px;border-radius:3px}
+/* session timeline (EvidenceTimeline.tsx): rail, nodes, switch rows */
+.tl{display:grid;grid-template-columns:16px 96px minmax(0,1fr) auto 70px 52px;align-items:center;gap:8px;min-height:26px;font-size:12px}
+.node{width:7px;height:7px;border-radius:50%;border:1px solid var(--muted);justify-self:center}
+.tl.sw{background:var(--surface2);margin:0 -6px;padding:0 6px}
+.tl .sl{color:var(--muted)}
+.foot{font-size:11px;color:var(--muted);padding:8px 10px;border-top:1px solid var(--line);line-height:1.3}
+.banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;font-size:12px;background:var(--tint-fail);border:1px solid #5a2f2f;border-radius:0 0 6px 6px;margin-top:-1px}
+.banner .t{color:var(--failed)} .banner .m{font-family:var(--mono);color:var(--muted)}
+.pri{background:#0e639c;border:1px solid #0e639c;color:#fff;border-radius:4px;padding:2px 10px;font-size:12px}
+/* narrow tier */
+.n .op{grid-template-columns:16px 76px minmax(0,1fr) auto 52px 12px}
+.n .op .hide-n{display:none}
+/* settings */
+.set{font-size:12px}
+.set h3{font-size:12px;letter-spacing:.05em;margin:14px 0 2px}
+.f{display:grid;grid-template-columns:160px minmax(0,1fr);gap:4px 16px;align-items:start;padding:5px 0}
+.in{background:#313131;border:1px solid var(--line);border-radius:3px;padding:3px 8px;color:var(--fg)}
+.in.wide{width:100%} .in.num{width:9ch} .in.sel{width:100%;max-width:280px} .in.err{border-color:var(--failed)}
+.help{color:var(--muted);font-size:11px;grid-column:2} .errt{color:var(--failed);font-size:11px;grid-column:2}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{font:11px var(--mono);border:1px solid var(--line);border-radius:10px;padding:1px 8px}
+.bar{display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.bar .msg{color:var(--muted)} .bar .msg.e{color:var(--failed)} .dis{opacity:.45}
+table.sum{border-collapse:collapse;margin-top:8px;font-size:12px}
+table.sum td,table.sum th{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+/* k-btn variants as rendered today */
+.kb{display:inline-flex;align-items:center;gap:4px;border-radius:4px;padding:1px 9px;font-size:11px;white-space:nowrap;border:1px solid transparent;color:var(--fg);background:none}
+.kb.sec{background:#3a3d41;border-color:#3a3d41}
+.kb.ghost-b{border-color:var(--line);color:var(--fg)}
+.kb.ghost{color:var(--muted)}
+.kb.pri{background:#0e639c;border-color:#0e639c;color:#fff}
+.kb.dan{background:#5a1d1d;border-color:var(--failed);color:#ffb4b4}
+.ib{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:3px;color:var(--running);font:12px var(--mono)}
+.ib:hover{background:var(--surface2)}
+.deliver{padding:6px 10px;border-top:1px solid var(--line);font-size:11px;display:flex;flex-direction:column;gap:3px}
+.deliver .l1{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+table.btns{border-collapse:collapse;font-size:12px;width:100%;margin-top:8px}
+table.btns td,table.btns th{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:middle}
+table.btns th{background:var(--card);font-weight:600}
+.tw{overflow-x:auto}
+.ki{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.ib .ki{width:15px;height:15px}
+.narrowbtn .kb.ghost .kl{display:none}
+.n .kb,.narrowbtn .kb{padding:1px 5px}
+.afc{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--fg);padding:1px 6px;border-radius:3px;cursor:pointer}
+.afc:hover{background:var(--surface2)}
+.afc .st{color:var(--muted)}
+.afc .ovr-dot{width:6px;height:6px;border-radius:50%;background:var(--running)}
+.menu{position:relative;display:inline-block}
+.menu .pop{position:absolute;right:0;top:22px;z-index:2;min-width:230px;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:4px 0;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.menu .it{display:grid;grid-template-columns:16px 1fr;gap:6px;padding:4px 10px;align-items:center}
+.menu .it:hover{background:var(--surface2)}
+.menu .it .sub{grid-column:2;color:var(--muted);font-size:11px}
+.menu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.mi{display:grid;grid-template-columns:16px minmax(0,1fr);gap:2px 8px;padding:5px 10px;align-items:center}
+.mi:hover{background:var(--surface2)}
+.mi .d{grid-column:2;color:var(--muted);font-size:11px;line-height:1.3}
+.mgrp{padding:4px 10px 2px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.oldpop{position:absolute;right:0;top:22px;z-index:2;min-width:220px;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:4px 0;font-size:12px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.oldpop .mi{grid-template-columns:16px 1fr}
+.hacts{display:flex;align-items:center;gap:6px}
+.faintdots{color:var(--faint);padding:0 4px}
+.shots{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.shots figure{margin:0;max-width:380px}
+.shots img{width:100%;max-width:370px;border:1px solid var(--line);border-radius:4px}
+.shots figcaption{font-size:11px;color:var(--muted);margin-top:4px}
+.issues{font-size:12px;max-width:85ch;padding-left:18px}
+.issues li{margin:3px 0}
+.t360{width:360px;max-width:100%}
+.t360 .op{grid-template-columns:16px minmax(64px,80px) minmax(0,1fr) 44px 12px;gap:6px;padding:0 8px}
+.t360 .op .tail,.t360 .op .tmS{display:none}
+.t360 .ev{grid-template-columns:16px minmax(60px,78px) minmax(0,1fr) 44px;gap:6px}
+.t360 .ev .tmS{display:none}
+.t360 .body{padding-left:14px;padding-right:8px}
+.t360 .ihead{flex-wrap:nowrap}
+.t360 .ihead .when{display:block;font-size:10px}
+.t360 .rowmeta{grid-column:2/-1;display:flex;gap:6px;align-items:center;padding:0 0 4px;font-size:11px}
+.t360 .op.two{grid-template-rows:31px auto}
+.rail{display:flex;gap:2px;font-size:10px;margin:8px 0}
+.rail span{padding:3px 6px;border-radius:3px;background:var(--surface2);color:var(--muted)}
+.rail .cur{background:#4a2f55;color:#fff;font-weight:600}
+.rail .done{color:var(--passed)}
+.rev{display:inline-block;font:600 9px var(--sans);letter-spacing:.05em;text-transform:uppercase;background:#264f78;color:#fff;border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:middle}
+.revnote{border-left:3px solid #264f78;padding:4px 10px;background:#1b2733;font-size:12px;max-width:85ch;margin:8px 0}
+.nb{opacity:.45}
+.tipdemo{position:relative;display:inline-flex}
+.tipdemo .tip{position:absolute;bottom:120%;left:0;white-space:nowrap;background:#111;border:1px solid var(--line);color:var(--fg);font-size:11px;padding:2px 6px;border-radius:3px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-git-branch" viewBox="0 0 24 24"><path d="M7 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M7 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M17 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M7 8l0 8"/><path d="M9 18h6a2 2 0 0 0 2 -2v-5"/><path d="M14 14l3 -3l3 3"/></symbol><symbol id="i-git-merge" viewBox="0 0 24 24"><path d="M7 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M7 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M17 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M7 8l0 8"/><path d="M7 8a4 4 0 0 0 4 4h4"/></symbol><symbol id="i-player-play" viewBox="0 0 24 24"><path d="M7 4v16l13 -8l-13 -8"/></symbol><symbol id="i-player-pause" viewBox="0 0 24 24"><path d="M6 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/><path d="M14 5m0 1a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1z"/></symbol><symbol id="i-player-stop" viewBox="0 0 24 24"><path d="M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10"/></symbol><symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></symbol><symbol id="i-terminal-2" viewBox="0 0 24 24"><path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6l6 -6"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M5 12l14 0"/><path d="M5 12l6 6"/><path d="M5 12l6 -6"/></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10"/></symbol><symbol id="i-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></symbol><symbol id="i-stack-2" viewBox="0 0 24 24"><path d="M12 4l-8 4l8 4l8 -4l-8 -4"/><path d="M4 12l8 4l8 -4"/><path d="M4 16l8 4l8 -4"/></symbol><symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5l0 14"/><path d="M5 12l14 0"/></symbol><symbol id="i-arrow-back-up" viewBox="0 0 24 24"><path d="M9 14l-4 -4l4 -4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></symbol><symbol id="i-git-pull-request" viewBox="0 0 24 24"><path d="M6 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M6 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M18 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M6 8l0 8"/><path d="M11 6h5a2 2 0 0 1 2 2v8"/><path d="M14 9l-3 -3l3 -3"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><path d="M10 14l11 -11"/><path d="M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5"/></symbol><symbol id="i-brand-claude" viewBox="0 0 24 24"><path d="M12 3l2 6l6 2l-6 2l-2 6l-2 -6l-6 -2l6 -2z"/></symbol></svg>
+<h1>Inside, runtime strip and Autopilot: cleanup proposal</h1>
+<p class="lead">A mockup. Every Inside row uses the real parts of <span class="mono">Inside.css</span>: the ring glyph on each process and each sub-row, 31 px process rows, and the generic evidence rows (glyph, key, detail, timing). The "today" views copy the current baselines. A red outline marks a problem. A green outline marks the change.</p>
+<div class="revnote"><b>Revision 2 (after the subagent review).</b> A <span class="rev">rev</span> tag marks each part that changed. The drafts D532–D537 hold the same rules in their "REVIEW REVISIONS" section. Your decisions: k-tooltip is built in D536; the new gate widths run on Inside targets only; the "Stop now" confirm is danger; Auto-fix shows provable rows only. New icons (not yet in <span class="mono">tablerIcons.ts</span>, D534 adds them): <span class="mono">plus</span>, <span class="mono">arrow-back-up</span>, <span class="mono">git-pull-request</span>, <span class="mono">send</span>.</div>
+
+<!-- ============ B6 ============ -->
+<h2>B6 — The idle state shows two times</h2>
+<p class="why">The header pill and the runtime strip both say "idle". The strip owns the agent state (#1033).</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today</div><div class="frame">
+    <div class="hid"><span class="idp">T942017</span><span class="pill mark">Idle</span><span class="idp">FEAT-142</span><span class="title">Add per-repo base branch override to the worktree picker</span></div>
+    <div class="strip"><b>Claude Code</b><span class="st mark">idle</span><span class="dim">Agent default ▾</span></div>
+  </div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame">
+    <div class="hid"><span class="idp">T942017</span><span class="idp">FEAT-142</span><span class="title">Add per-repo base branch override to the worktree picker</span></div>
+    <div class="strip"><b>Claude Code</b><span class="st good"><span class="sdot"></span>idle</span><span class="dim">Agent default ▾</span></div>
+  </div></div>
+</div>
+<p class="note"><span class="rev">rev</span> The header pill keeps only the values that the strip does not show: <b>Closed, Done, Paused, Needs you</b> (<span class="mono">ticketHead.ts:16-23</span>; there is no "Blocked"). Running and Idle go away. With no pill, there is no gap.</p>
+
+<!-- ============ B7 + B8 ============ -->
+<h2>B7 + B8 — The session row</h2>
+<p class="why"><span class="rev">rev</span> The text "session k-9f2e — claude-opus-4-1" and the row-tail "Show all" come from the visual fixture (<span class="mono">renderFixtures.ts:270-276</span>), not from the host. The real detail is <span class="mono">sessionDetail</span>, for example "agent session running", and the session id is in the footer. The fixture repeats the model that the identity cell shows. The session Σ pill is not in the same column as the timeline Σ pills. "Show all" is a raised grey button.</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today (runtime-docker-wide)</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside impl</b><span class="when">started 09:12:33 · 4m 12s elapsed</span></div>
+    <div class="op live"><span class="glyph run"></span><span class="name">Session</span><span class="detail run"><span class="ai">AI</span> <span class="mark">session k-9f2e — claude-opus-4-1</span></span><span class="tail"><span class="agent">Claude Code · <span class="m">Claude Opus 4.1</span></span><span class="tok mark">Σ 12.4k tok</span><span class="btn raised mark">Show all</span></span><span class="tm"></span><span class="tm">4m 12s</span><span class="chev">⌄</span></div>
+    <div class="body">
+      <div class="tl"><span class="node"></span><span>started</span><span></span><span></span><span class="tm">09:12:33</span><span class="tm">4m 12s</span></div>
+      <div class="tl sw"><span></span><span class="sl">↳ switch</span><span class="agent">Codex · <span class="m">Codex X</span></span><span class="tok mark">Σ 22.4k tok</span><span></span><span></span></div>
+      <div class="tl sw"><span></span><span class="sl">↳ resumed</span><span class="agent">Claude Code · <span class="m">Claude Opus 4.1</span></span><span class="tok mark">Σ 17.3k tok</span><span></span><span></span></div>
+      <div class="tl"><span class="glyph pass"></span><span>research</span><span></span><span></span><span class="tm">09:41:02</span><span class="tm"></span></div>
+      <div class="tl"><span class="glyph pass"></span><span>plan</span><span></span><span></span><span class="tm">09:44:51</span><span class="tm"></span></div>
+    </div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside impl</b><span class="when">started 09:12:33 · 4m 12s elapsed</span></div>
+    <div class="op live"><span class="glyph run"></span><span class="name">Session</span><span class="detail run"><span class="ai">AI</span> <span class="good">agent session running</span></span><span class="tail"><span class="agent">Claude Code · <span class="m">Claude Opus 4.1</span></span><span class="tok good">Σ 12.4k tok</span></span><span class="tm">09:12:33</span><span class="tm">4m 12s</span><span class="chev">⌄</span></div>
+    <div class="body">
+      <div class="tl"><span class="node"></span><span>started</span><span></span><span></span><span class="tm">09:12:33</span><span class="tm">4m 12s</span></div>
+      <div class="tl sw"><span></span><span class="sl">↳ switch</span><span class="agent">Codex · <span class="m">Codex X</span></span><span class="tok good">Σ 22.4k tok</span><span class="tm">09:20:05</span><span class="tm">6m 01s</span></div>
+      <div class="tl sw"><span></span><span class="sl">↳ resumed</span><span class="agent">Claude Code · <span class="m">Claude Opus 4.1</span></span><span class="tok good">Σ 17.3k tok</span><span class="tm">09:26:06</span><span class="tm">15m 00s</span></div>
+      <div class="tl"><span class="glyph pass"></span><span>research</span><span></span><span></span><span class="tm">09:41:02</span><span class="tm"></span></div>
+      <div class="tl"><span class="glyph run"></span><span>plan</span><span></span><span></span><span class="tm">09:44:51</span><span class="tm"></span></div>
+      <div style="padding:4px 0 2px 24px"><button class="textbtn good" type="button" title="Show all 14 events" aria-label="Show all 14 events"><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg> 14 more</button></div>
+    </div>
+  </div></div></div>
+</div>
+<p class="note"><span class="rev">rev</span> The fixture now matches the host: the detail is the real <span class="mono">sessionDetail</span>, and the session id stays in the footer. The "14 more" button is the existing overflow row (<span class="mono">open-full-evidence</span>, <span class="mono">agent.ts:624-636</span>). The Σ pill sits in the same column on the session row and on each timeline row, directly before the time columns (UI-R41). "Show all" becomes the text button that the timeline overflow already uses, under the rail. The switch and resumed times in this view are example values.</p>
+
+<h2>B7 at 400 px <span class="rev">rev</span></h2>
+<div class="revnote">Not binding. D536 owns every narrow rule; see section N.</div>
+<div class="pair nb">
+  <div class="col"><div class="tag before">Today (runtime-sandbox-open-narrow)</div><div class="frame narrow"><div class="inside">
+    <div class="op live" style="grid-template-columns:16px 60px minmax(0,1fr) 52px 12px;padding-block:4px"><span class="glyph run"></span><span class="name">Session</span><span class="detail run" style="white-space:normal"><span class="ai">AI</span> <span class="mark">session k-9f2e — claude-opus-4-1</span><br><span class="agent">Claude Code</span> <span class="tok">Σ 12.4k tok</span><br><span class="btn raised mark">Show all</span></span><span class="tm">4m 12s</span><span class="chev">⌄</span></div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame narrow n"><div class="inside">
+    <div class="op live"><span class="glyph run"></span><span class="name">Session <span class="ai">AI</span></span><span class="detail run good">session k-9f2e</span><span class="tail"><span class="tok">Σ 12.4k tok</span></span><span class="tm">4m 12s</span><span class="chev">⌄</span></div>
+  </div></div></div>
+</div>
+
+
+<!-- ============ B9 ============ -->
+<h2>B9 — The live token count of a running row</h2>
+<p class="why">#1020 added a live count, but no visual variant shows it, and the pill looks the same as a finished count.</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today (no baseline)</div><div class="frame"><div class="inside">
+    <div class="op live"><span class="glyph run"></span><span class="name">Review</span><span class="detail run"><span class="ai">AI</span> headless · round 2</span><span class="tail"><span class="agent">Claude Code · <span class="m">Sonnet 5.5</span></span><span class="tok mark">Σ 8.1k tok</span></span><span class="tm">10:02:11</span><span class="tm">1m 40s</span><span class="chev">⌄</span></div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame"><div class="inside">
+    <div class="op live"><span class="glyph run"></span><span class="name">Review</span><span class="detail run"><span class="ai">AI</span> headless · round 2</span><span class="tail"><span class="agent">Claude Code · <span class="m">Sonnet 5.5</span></span><span class="tok live good" title="Live count, read from the transcript">Σ 8.1k tok · live</span></span><span class="tm">10:02:11</span><span class="tm">1m 40s</span><span class="chev">⌄</span></div>
+  </div></div></div>
+</div>
+<p class="note"><span class="rev">rev</span> Only a pill whose count is read live from the transcript (<span class="mono">tokens.live</span>, new <span class="mono">TokenUsageView.live</span>) gets the running border color and the word "live". A running row with a stored count gets no mark. The new tooltip replaces <span class="mono">LIVE_TOKEN_NOTE</span>. with the tooltip "Live count, read from the transcript". New visual variants: <span class="mono">dashboard--inside-live-tokens-{wide,mid,narrow}</span>.</p>
+
+<!-- ============ C1 ============ -->
+<h2>C1 — The agent state during an auto-fix (bug)</h2>
+<p class="why">Autopilot runs the ticket's agent to fix CI, but the header and the strip both say "idle".</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today (inside-ship-auto-ci-running)</div><div class="frame">
+    <div class="hid"><span class="idp">T942017</span><span class="pill mark">Idle</span><span class="idp">FEAT-142</span><span class="title">Add per-repo base branch override…</span></div>
+    <div class="strip"><b>Claude Code</b><span class="st mark">idle</span><span class="dim">Agent default ▾</span></div>
+  </div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame">
+    <div class="hid"><span class="idp">T942017</span><span class="idp">FEAT-142</span><span class="title">Add per-repo base branch override…</span></div>
+    <div class="strip"><b>Claude Code</b><span class="st good"><span class="sdot run"></span>running · auto-fix</span><span class="dim">Agent default ▾</span></div>
+    <div class="strip"><b>Claude Code</b><span class="st good"><span class="sdot"></span>idle · auto-fix</span><span class="dim">Agent default ▾</span></div>
+  </div></div>
+</div>
+<p class="note"><span class="rev">rev</span> First a failing test with real host state; the visual case <span class="mono">autofixShip</span> never sets <span class="mono">agentState</span>, so "idle" can be a fixture gap. "running" shows only when <span class="mono">agentState === 'running'</span> (top). While a round is active and no agent runs (a conflict round in its gate or deliver phase), the strip shows the true state with the "· auto-fix" suffix (bottom).</p>
+
+<!-- ============ C2 ============ -->
+<h2>C2 — Auto-fix is its own process row, not part of Merge</h2>
+<p class="why">Today the auto-fix state, a step chain, the Stop buttons and the history all sit in the Merge row and the card footer. T1004 chose "no new step row" on purpose. This proposal reverses that decision. Merge states only the merge facts. A new <b>Auto-fix</b> process row comes after Merge, and its sub-processes are the generic evidence rows, each with its own glyph.</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today (inside-ship-auto-ci-running)</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside ship</b><span class="ovr">Auto-fix: <span class="b">Project default (on)</span><span class="b on">On</span><span class="b">Off</span></span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Commit</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Push</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Pull request</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op live" style="padding-block:4px"><span class="glyph run"></span><span class="name">Merge</span><span class="detail run mark" style="white-space:normal">Auto-fix: CI lint failed on api #88 · attempt 2 of 3<br><span style="font-size:10px;color:var(--muted)">host fetched log (gh) → <b style="color:var(--running)">agent fixing</b> → gates → push → wait for CI</span> <span class="btn raised">Stop after this round</span> <span class="btn">Stop now…</span></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">⌄</span></div>
+    <div class="body">
+      <div class="ev"><span class="glyph wait"></span><span class="key">conflict</span><span class="detail">web #120 · resolve the merge conflict</span><span></span><span></span><span></span></div>
+      <div class="ev"><span class="glyph wait"></span><span class="key">open</span><span class="detail">api #121 · not merged yet</span><span></span><span></span><span></span></div>
+    </div>
+    <div class="foot mark">Autopilot: fixed lint on api #88<br>Autopilot: resolved conflicts on web #421<br>Autopilot never merges. Merge stays your click.</div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside ship</b><span class="afc"><span class="ovr-dot"></span>Auto-fix <b>on</b><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Commit</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Push</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Pull request</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op live open good"><span class="glyph run"></span><span class="name">Auto-fix</span><span class="detail run"><span class="ai">AI</span> CI <span class="mono">lint</span> on api #88 · attempt 2 of 3</span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">⌄</span></div>
+    <div class="body good">
+      <div class="ev"><span class="glyph pass"></span><span class="key">attempt 1</span><span class="detail">Autopilot: fixed <span class="mono">lint</span> on api #88</span><span></span><span class="tm">09:31:02</span><span class="tm"></span></div>
+      <div class="ev"><span class="glyph pass"></span><span class="key">fetch CI log</span><span class="detail">gh · lint</span><span></span><span class="tm"></span><span class="tm"></span></div>
+      <div class="ev active"><span class="glyph run"></span><span class="key">agent fix</span><span class="detail" style="color:var(--running)">attempt 2</span><span class="good"><span class="kb sec" role="button" title="Last round — stop auto-fix after this round" aria-label="Last round — stop auto-fix after this round"><svg class="ki" aria-hidden="true"><use href="#i-player-pause"/></svg><span class="kl">Last round</span></span></span><span class="tm"></span><span class="tm"></span></div>
+    </div>
+    <div class="op waiting open good"><span class="glyph wait"></span><span class="name">Merge</span><span class="detail wait">waits on 1 conflict and CI</span><span class="tail"><span class="count">0/2</span></span><span class="tm"></span><span class="tm"></span><span class="chev">⌄</span></div>
+    <div class="body">
+      <div class="ev"><span class="glyph wait"></span><span class="key">conflict</span><span class="detail">web #120 · resolve the merge conflict</span><span></span><span></span><span></span></div>
+      <div class="ev"><span class="glyph wait"></span><span class="key">open</span><span class="detail">api #121 · CI <span class="mono">lint</span> failing</span><span></span><span></span><span></span></div>
+    </div>
+  </div></div></div>
+</div>
+<p class="note"><span class="rev">rev</span> <b>Provable rows only (your decision):</b> the host hardcodes the step (<span class="mono">stateAutofix.ts:127, 151-154</span>), so there are no pending future-step rows. A CI round shows "fetch CI log" (pass) and "agent fix" (run). A conflict round shows one "agent resolving" row. An attempt row shows its number, the Autopilot note and the note time: no duration, no SHA. The Auto-fix row has no agent identity, no Σ pill and no duration, because the host keeps no round run. Its place is after Pull request and before Merge (registry id <span class="mono">autofix</span>), and it shows only when a round is active, a park exists or an attempt is in the history.</p>
+<p class="note"><b>Changes:</b> Merge keeps its own sub-rows and states only why it waits. Auto-fix is a normal AI process row (glyph, name, AI mark, detail, chevron). Its body uses the generic evidence rows. A finished attempt is one row. The provable steps of the running attempt are rows with their own glyph. "Stop after this round" sits in the action cell of the active step, and "Stop now…" goes to the stage menu. The attempt rows replace the footer history, and the line "Autopilot never merges" goes away (Settings states it). The override control does not change. Conflict rounds use the same row with one "agent resolving" step.</p>
+
+<!-- ============ C3 ============ -->
+<h2>C3 — Auto-fix stopped <span class="rev">rev</span></h2>
+<p class="why">When the budget is spent, the Auto-fix row gets the waiting status, and its attempt rows show what happened. <span class="rev">rev</span> The banner buttons get an icon and a short label (this overrides the earlier "banner does not change").</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today (inside-ship-auto-budget-spent)</div><div class="frame"><div class="inside">
+    <div class="op"><span class="glyph pass"></span><span class="name">Pull request</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op waiting"><span class="glyph wait"></span><span class="name">Merge</span><span class="detail wait mark">Auto-fix stopped: CI failed 3 of 3 attempts on api #88</span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="foot mark">Autopilot: fixed lint on api #88<br>Autopilot: resolved conflicts on web #421<br>Autopilot never merges. Merge stays your click.</div>
+  </div>
+  <div class="banner"><span class="t"><u>lint</u> failed on api #88</span><span class="m">· Auto-fix tried 3 of 3 times and the check still fails.</span><span style="flex:1"></span><span class="pri">Approve 1 more attempt</span><span class="btn">Send CI failure with a note…</span></div>
+  </div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame"><div class="inside">
+    <div class="op"><span class="glyph pass"></span><span class="name">Pull request</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op waiting"><span class="glyph wait"></span><span class="name">Merge</span><span class="detail wait">waits on CI</span><span class="tail"><span class="count">0/1</span></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op waiting open good"><span class="glyph wait"></span><span class="name">Auto-fix</span><span class="detail wait"><span class="ai">AI</span> stopped: CI <span class="mono">lint</span> on api #88 · 3 of 3 attempts</span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">⌄</span></div>
+    <div class="body good">
+      <div class="ev"><span class="glyph fail"></span><span class="key">attempt 1</span><span class="detail">CI <span class="mono">lint</span> still fails</span><span></span><span class="tm">09:31:02</span><span class="tm"></span></div>
+      <div class="ev"><span class="glyph fail"></span><span class="key">attempt 2</span><span class="detail">CI <span class="mono">lint</span> still fails</span><span></span><span class="tm">09:36:50</span><span class="tm"></span></div>
+      <div class="ev"><span class="glyph fail"></span><span class="key">attempt 3</span><span class="detail">CI <span class="mono">lint</span> still fails</span><span></span><span class="tm">09:43:00</span><span class="tm"></span></div>
+    </div>
+  </div>
+  <div class="banner"><span class="t"><u>lint</u> failed on api #88</span><span class="m">· Auto-fix tried 3 of 3 times and the check still fails.</span><span style="flex:1"></span><span class="good" style="display:inline-flex;gap:8px"><span class="kb pri" role="button" title="+1 attempt — approve 1 more auto-fix attempt" aria-label="+1 attempt — approve 1 more auto-fix attempt"><svg class="ki" aria-hidden="true"><use href="#i-plus"/></svg><span class="kl">+1 attempt</span></span><span class="kb sec" role="button" title="Send back… — send the CI failure to the agent with a note" aria-label="Send back… — send the CI failure to the agent with a note"><svg class="ki" aria-hidden="true"><use href="#i-arrow-left"/></svg><span class="kl">Send back…</span></span></span></div>
+  </div></div>
+</div>
+
+<p class="note"><span class="rev">rev</span> The conflict kind uses <b>+1 round</b> (<span class="mono">plus</span>) for "Approve 1 more round" and <b>Resolve by hand…</b> (<span class="mono">pencil</span>) for "Resolve conflicts by hand…". The "still fails" result shows only here, on a spent park. Attempt rows have no duration.</p>
+<h2>C4 — The Auto-fix switch in the Inside ship header</h2>
+<p class="why">Today: a label and three bordered buttons ("Project default (on)", "On", "Off"). They take a lot of space, and "Project default (on)" mixes the choice with its value. Proposed: one chip with the pattern of "Agent default ▾" in the runtime strip. The chip shows the value that applies. A blue dot shows that this ticket overrides the project default. A click opens a menu with the three choices.</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside ship</b><span class="ovr mark">Auto-fix: <span class="b on">Project default (on)</span><span class="b">On</span><span class="b">Off</span></span></div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed: three states, closed</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside ship</b><span class="afc good" title="Auto-fix: on (project default). Click to change for this ticket.">Auto-fix <b>on</b> <span class="st">· default</span><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></div>
+    <div class="ihead" style="border-top:1px solid var(--line)"><b>Inside ship</b><span class="afc good" title="Auto-fix: on for this ticket (project default is off)."><span class="ovr-dot"></span>Auto-fix <b>on</b><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></div>
+    <div class="ihead" style="border-top:1px solid var(--line)"><b>Inside ship</b><span class="afc good" title="Auto-fix: off for this ticket (project default is on)."><span class="ovr-dot"></span>Auto-fix <b>off</b><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></div>
+  </div></div></div>
+</div>
+<div class="pair" style="margin-top:12px">
+  <div class="col"></div>
+  <div class="col"><div class="tag after">Proposed: menu open</div><div class="frame" style="min-height:170px"><div class="inside" style="overflow:visible">
+    <div class="ihead"><b>Inside ship</b><span class="menu"><span class="afc">Auto-fix <b>on</b> <span class="st">· default</span><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg></span>
+      <span class="pop" role="menu">
+        <span class="it" role="menuitemradio" aria-checked="true"><svg class="ki" aria-hidden="true" style="color:var(--running)"><use href="#i-check"/></svg><span>Use project default</span><span class="sub">Settings › Autopilot: on</span></span>
+        <hr>
+        <span class="it" role="menuitemradio" aria-checked="false"><span></span><span>On for this ticket</span></span>
+        <span class="it" role="menuitemradio" aria-checked="false"><span></span><span>Off for this ticket</span></span>
+      </span></span></div>
+  </div></div></div>
+</div>
+<p class="note"><b>Changes:</b> one chip instead of a label and three buttons. The chip states the value that applies ("on" or "off"). "· default" shows that the value comes from the project. A blue dot shows a ticket override. The menu has the three choices of today, and the project value is under "Use project default". The chip has no border, the same as "Agent default ▾". At the narrow tier the chip stays, because its text is short.</p>
+
+<h2>F — The stage menu in the Inside header <span class="rev">rev</span></h2>
+<p class="why">Today all stage actions sit behind a faint "⋯" after the time (<span class="mono">InsideMenu.tsx</span>). Even the baseline <span class="mono">inside-review-menu-retry-send-back</span> shows only the "⋯", and no baseline shows the menu open. The menu has up to six actions. Three of them use the same <span class="mono">history</span> icon, and two use the same <span class="mono">refresh</span> icon. The items have no description, so "Reset" and "Retry" look the same.</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today: closed</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside review</b><span class="hacts"><span class="when">9:10:00 AM · 10m 0s</span><span class="faintdots mark"><svg class="ki" aria-hidden="true"><use href="#i-dots"/></svg></span></span></div>
+    <div class="op failed-source" style="background:var(--tint-fail)"><span class="glyph fail"></span><span class="name">Gates</span><span class="detail fail">failed · web / test</span><span class="tail"><span class="count">0/1</span></span><span class="tm">9:10:00</span><span class="tm">1m 0s</span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pending"></span><span class="name">Review</span><span class="detail"><span class="ai">AI</span></span><span class="tail"><span class="agent">Claude Code · <span class="m">claude-opus-4-1</span></span></span><span class="tm"></span><span class="tm"></span><span class="chev"></span></div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed: closed</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside review</b><span class="hacts"><span class="when">9:10:00 AM · 10m 0s</span><span class="good" style="display:inline-flex;gap:6px"><span class="kb sec" role="button" title="Re-run Review from scratch" aria-label="Re-run Review from scratch"><svg class="ki" aria-hidden="true"><use href="#i-refresh"/></svg><span class="kl">Retry</span></span><span class="kb ghost" role="button" title="More stage actions" aria-label="More stage actions"><svg class="ki" aria-hidden="true"><use href="#i-dots"/></svg><span class="kl">Actions</span></span></span></span></div>
+    <div class="op failed-source" style="background:var(--tint-fail)"><span class="glyph fail"></span><span class="name">Gates</span><span class="detail fail">failed · web / test</span><span class="tail"><span class="count">0/1</span></span><span class="tm">9:10:00</span><span class="tm">1m 0s</span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pending"></span><span class="name">Review</span><span class="detail"><span class="ai">AI</span></span><span class="tail"><span class="agent">Claude Code · <span class="m">claude-opus-4-1</span></span></span><span class="tm"></span><span class="tm"></span><span class="chev"></span></div>
+  </div></div></div>
+</div>
+<div class="pair" style="margin-top:12px">
+  <div class="col"><div class="tag before">Today: open (all six items, as in the code)</div><div class="frame" style="min-height:250px"><div class="inside" style="overflow:visible">
+    <div class="ihead"><b>Inside review</b><span class="hacts"><span class="when">9:10:00 AM · 10m 0s</span><span class="menu"><span class="faintdots"><svg class="ki" aria-hidden="true"><use href="#i-dots"/></svg></span><span class="oldpop">
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-refresh"/></svg><span>Retry Review</span></span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-history"/></svg><span>Reset Review</span></span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-pencil"/></svg><span>Address PR feedback</span></span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-history"/></svg><span>Send CI failure to agent</span></span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-refresh"/></svg><span>Rebase on base</span></span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-history"/></svg><span>Send back to Implement</span></span>
+</span></span></span></div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed: open</div><div class="frame" style="min-height:420px"><div class="inside" style="overflow:visible">
+    <div class="ihead"><b>Inside review</b><span class="hacts"><span class="when">9:10:00 AM · 10m 0s</span><span class="kb sec" role="button" title="Re-run Review from scratch" aria-label="Re-run Review from scratch"><svg class="ki" aria-hidden="true"><use href="#i-refresh"/></svg><span class="kl">Retry</span></span><span class="menu"><span class="kb ghost" style="background:var(--surface2)"><svg class="ki" aria-hidden="true"><use href="#i-dots"/></svg><span class="kl">Actions</span></span><span class="oldpop" style="min-width:290px">
+ <span class="mgrp">Run again</span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-arrow-back-up"/></svg><span>Reset Review</span><span class="d">Clear the failed stage and start a fresh recovery</span></span>
+ <span class="mgrp">Send to the agent</span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-pencil"/></svg><span>Address PR feedback</span><span class="d">UAT and Review run again</span></span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-send"/></svg><span>Send CI failure</span><span class="d">The failing CI log goes to the agent</span></span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-arrow-left"/></svg><span>Send back to Implement</span><span class="d">UAT and Review run again</span></span>
+ <span class="mgrp">Branch</span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-git-pull-request"/></svg><span>Rebase on base</span><span class="d">Regenerate files, push with a lease</span></span>
+ <span class="mgrp">Delivery (ship only)</span>
+ <span class="mi"><svg class="ki" aria-hidden="true"><use href="#i-x"/></svg><span>Dismiss delivery failures</span><span class="d">Hide all kept gate failures</span></span>
+ <span class="mgrp">Auto-fix (ship only)</span>
+ <span class="mi" style="color:var(--failed)"><svg class="ki" aria-hidden="true"><use href="#i-player-stop"/></svg><span>Stop auto-fix now…</span><span class="d">Ends the agent session. Karst syncs first.</span></span>
+</span></span></span></div>
+  </div></div></div>
+</div>
+<p class="note"><b>Changes:</b></p>
+<ul class="note">
+<li>The one action that fits the state now is a visible button: icon + short label, secondary. A failed UAT or Review shows <b>Retry</b>, a failing CI shows <b>Send CI failure</b>, open PR feedback shows <b>Address feedback</b>, and a conflict shows <b>Rebase</b>. The host picks it, because it already decides which items the menu shows.</li>
+<li>The "⋯" becomes a labeled ghost button, <b>⋯ Actions</b>, with the rest of the items. <span class="rev">rev</span> At the tight tier (&lt;400 px) it becomes icon-only with a k-tooltip; the visible action keeps its label.</li>
+<li><span class="rev">rev</span> The items are in groups: Run again (Retry, Reset), Send to the agent (Address feedback, Send CI failure, Send back to Implement), Branch (Rebase), Delivery (Dismiss delivery failures), Auto-fix (Stop auto-fix now…). An empty group does not show. Each item has a one-line description.</li>
+<li><span class="rev">rev</span> One icon, one meaning in the dashboard: Reset <span class="mono">arrow-back-up</span> (new; <span class="mono">history</span> means Restore), Send back <span class="mono">arrow-left</span>, Address PR feedback <span class="mono">pencil</span>, Send CI failure <span class="mono">send</span> (new; <span class="mono">terminal-2</span> means console), Rebase <span class="mono">git-pull-request</span> (new; <span class="mono">stack-2</span> means Stash &amp; update).</li>
+<li><span class="rev">rev</span> "Stop auto-fix now…" opens the existing inline confirm under the Auto-fix row; its confirm button is danger.</li>
+<li>New baselines show the menu open, at wide and narrow.</li>
+</ul>
+
+<!-- ============ N ============ -->
+<h2>N — Inside at a narrow width (all states) <span class="rev">rev</span></h2>
+<p class="why">These are the real baselines today. The design docs for narrow widths landed (#720, <span class="mono">RESPONSIVE-DENSITY.md</span>), but their backlog was not done. The gate never probes widths under 480 px (<span class="mono">LAYOUT_WIDTHS</span>). Only 8 of the 74 Inside variants have a narrow screenshot, and all 8 use <span class="mono">skipLayout</span>. Inside still uses the old breakpoints 760 / 520 / 430 / 360 / 300, not the 999 / 699 / 399 tiers of <span class="mono">@ui:RD-TIERS</span>.</p>
+<div class="shots"><figure><img src="file:///Users/nd/Work/projects/karst/tests/visual/__baselines__/dark/dashboard--inside-ship-deliver-auto-failed-narrow.png" alt="Ship, deliver failed, 360 px"><figcaption>Ship, deliver failed, 360 px · <span class="mono">dashboard--inside-ship-deliver-auto-failed-narrow.png</span></figcaption></figure><figure><img src="file:///Users/nd/Work/projects/karst/tests/visual/__baselines__/dark/dashboard--runtime-docker-narrow.png" alt="Impl session, 400 px"><figcaption>Impl session, 400 px · <span class="mono">dashboard--runtime-docker-narrow.png</span> (context only: the runtime strip is out of scope)</figcaption></figure><figure><img src="file:///Users/nd/Work/projects/karst/tests/visual/__baselines__/dark/dashboard--runtime-sandbox-open-narrow.png" alt="Impl session, sandbox open, 400 px"><figcaption>Impl session, sandbox open, 400 px · <span class="mono">dashboard--runtime-sandbox-open-narrow.png</span></figcaption></figure></div>
+<ol class="issues">
+<li><b>N1 The ticket id and title are hidden.</b> <span class="rev">rev</span> <span class="mono">Header.css:134</span> hides the ticket id at ≤699 px, and <span class="mono">Header.css:135</span> sets <span class="mono">h1.ticketTitle{display:none}</span> under 400 px. <span class="mono">@ui:RD-NEVER</span> #4 lets the title get an ellipsis, not disappear.</li>
+<li><b>N2 The Inside header overflows.</b> The Auto-fix buttons take a full line, and the time "09:40:02 · 1m 4…" spills past the card border.</li>
+<li><b>N3 The rows spill out of the card.</b> The right edge of the ledger is outside the card, and the glyphs sit on the left border.</li>
+<li><b>N4 The detail becomes a tall column.</b> At ≤430 px the detail wraps with <span class="mono">overflow-wrap:anywhere</span> in a column of about 80 px. The Merge row is 5 lines high.</li>
+<li><b>N5 The tail wraps under the row.</b> The identity, the Σ pill and "Show all" add 2–3 lines to the Session row. The session id also breaks in two ("session k-9f2e — / claude-opus-4-1").</li>
+<li><b>N6 The Deliver block stacks.</b> Each button is on its own line, and the long gate names break in the middle of a word.</li>
+<li><b>N7 The timeline identity is cut.</b> "Codex · Code" loses the model name, and there is no ellipsis.</li>
+<li><b>N8 The stage rail loses its names.</b> The finished stages become bare ✓ marks, and the next stages become "· · · ·". The spec keeps only the current stage label (<span class="mono">@ui:RD-NEVER</span> #6). This is allowed, but the dots have no accessible meaning.</li>
+<li><b>N9 No gate covers it.</b> The gate has no 400 / 399 / 320 probe, and the Inside narrow variants skip the layout checks. Each problem above can come back without a failure.</li>
+</ol>
+<div class="pair">
+  <div class="col"><div class="tag after">Proposed: Ship at 360 px (with C2, C4, E1) — row order Commit, Push, Pull request, Auto-fix, Deliver, Merge</div><div class="frame"><div class="t360">
+    <div class="hid" style="flex-wrap:nowrap;min-width:0"><span class="idp">T942017</span><span class="title" style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">Add per-repo base branch override to the worktree picker</span></div>
+    <div class="rail"><span class="done" aria-label="Scope passed">✓</span><span class="done" aria-label="Impl passed">✓</span><span class="done" aria-label="UAT passed">✓</span><span class="done" aria-label="Review passed">✓</span><span class="cur">SHIP</span><span aria-label="Done, next">·</span></div>
+    <div class="inside">
+      <div class="ihead"><span><b>Inside ship</b><span class="when">09:40:02 · 1m 40s</span></span><span class="hacts"><span class="afc"><span class="ovr-dot"></span>Auto-fix <b>on</b><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg></span><span class="kb ghost" aria-label="Actions — more stage actions"><svg class="ki" aria-hidden="true"><use href="#i-dots"/></svg></span></span></div>
+      <div class="op"><span class="glyph pass"></span><span class="name">Commit</span><span class="detail"></span><span class="tm"></span><span class="chev">›</span></div>
+      <div class="op"><span class="glyph pass"></span><span class="name">Push</span><span class="detail"></span><span class="tm"></span><span class="chev">›</span></div>
+      <div class="op"><span class="glyph pass"></span><span class="name">Pull request</span><span class="detail">2 PRs open</span><span class="tm">4s</span><span class="chev">›</span></div>
+      <div class="op live"><span class="glyph run"></span><span class="name">Auto-fix</span><span class="detail run">CI lint · 2 of 3</span><span class="tm"></span><span class="chev">›</span></div>
+      <div class="op live two"><span class="glyph run"></span><span class="name">Deliver</span><span class="detail run">2 commits · gate 4 of 5</span><span class="tm">1m 40s</span><span class="chev">⌄</span>
+        <span class="rowmeta"><span class="ib tipdemo" aria-label="View this process's console output in the dashboard"><svg class="ki" aria-hidden="true"><use href="#i-terminal-2"/></svg></span><span class="kb sec" role="button" title="Push — sync the sandbox, then push the branch onto the open pull request" aria-label="Push — sync the sandbox, then push the branch onto the open pull request"><svg class="ki" aria-hidden="true"><use href="#i-git-branch"/></svg><span class="kl">Push</span></span></span></div>
+      <div class="body">
+        <div class="ev"><span class="glyph pass"></span><span class="key">sync</span><span class="detail">2 commits</span><span class="tm"></span></div>
+        <div class="ev active"><span class="glyph run"></span><span class="key">visual</span><span class="detail" style="color:var(--running)">gate 4 of 5</span><span class="tm"></span></div>
+        <div class="ev"><span class="glyph fail"></span><span class="key">earlier head</span><span class="detail fail">visual-regression-gate failed</span><span class="tm"><span class="ib" aria-label="Dismiss this gate failure"><svg class="ki" aria-hidden="true"><use href="#i-x"/></svg></span></span></div>
+      </div>
+      <div class="op waiting"><span class="glyph wait"></span><span class="name">Merge</span><span class="detail wait">waits on 1 conflict</span><span class="tm"></span><span class="chev">›</span></div>
+    </div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed: Impl session at 360 px (with B7, B8) — the core icon shows its k-tooltip</div><div class="frame"><div class="t360">
+    <div class="inside">
+      <div class="ihead"><span><b>Inside impl</b><span class="when">started 09:12:33 · 4m 12s</span></span><span class="kb ghost" aria-label="Actions — more stage actions"><svg class="ki" aria-hidden="true"><use href="#i-dots"/></svg></span></div>
+      <div class="op live two"><span class="glyph run"></span><span class="name">Session</span><span class="detail run">agent session running</span><span class="tm">4m 12s</span><span class="chev">⌄</span>
+        <span class="rowmeta"><span class="tipdemo" aria-label="Claude Code" style="margin-top:14px"><svg class="ki" aria-hidden="true" style="color:var(--running)"><use href="#i-brand-claude"/></svg><span class="tip">Claude Code · Claude Opus 4.1</span></span><span class="tok">Σ 12.4k tok</span></span></div>
+      <div class="body">
+        <div class="tl" style="grid-template-columns:16px minmax(0,1fr) auto 44px"><span class="node"></span><span>started</span><span></span><span class="tm">4m 12s</span></div>
+        <div class="tl sw" style="grid-template-columns:16px minmax(0,1fr) auto 44px"><span></span><span class="sl" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">↳ switch · <span class="agent">Codex X</span></span><span class="tok">Σ 22.4k</span><span class="tm">6m 01s</span></div>
+        <div class="tl sw" style="grid-template-columns:16px minmax(0,1fr) auto 44px"><span></span><span class="sl" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">↳ resumed · <span class="agent">Claude Opus 4.1</span></span><span class="tok">Σ 17.3k</span><span class="tm">15m</span></div>
+        <div class="tl" style="grid-template-columns:16px minmax(0,1fr) auto 44px"><span class="glyph pass"></span><span>research</span><span></span><span class="tm"></span></div>
+        <div style="padding:4px 0 2px 22px"><button class="textbtn" type="button" title="Show all 14 events" aria-label="Show all 14 events"><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg> 14 more</button></div>
+      </div>
+    </div>
+  </div></div></div>
+</div>
+<p class="note"><b>The ladder</b> (<span class="mono">@ui:RD-VIEWS</span> rows for <span class="mono">#inside</span>, the tiers of <span class="mono">@ui:RD-TIERS</span>):</p>
+<ul class="note">
+<li><b>Row one never wraps:</b> glyph, name, detail with an ellipsis, duration, chevron. The full detail is in the open row body, not only in the title (UI-R44).</li>
+<li><b>Narrow tier (&lt;700 px):</b> the start time drops. The identity, the Σ pill and the row action move to a second line of the same row (<span class="mono">.rowmeta</span>), in this order.</li>
+<li><span class="rev">rev</span> <b>Narrow tier (400–699 px):</b> the core name stays and the model drops. <b>Tight tier (&lt;400 px):</b> the agent core is icon-only, with <span class="mono">aria-label</span> = core name and a k-tooltip "core · model" on hover and focus (<span class="mono">@ui:UI-R10c</span>; D536 builds k-tooltip). "⋯ Actions" and the console button are icon-only with a k-tooltip. The labels of the row actions stay (RD-NEVER #1).</li>
+<li><span class="rev">rev</span> <b>The header:</b> the title takes one line with an ellipsis. The id is never hidden (today <span class="mono">Header.css:134</span> hides it). The Inside head keeps the title and the controls on row one, and the time goes under the title.</li>
+<li><b>The rail:</b> the current stage keeps its name. Each other stage keeps its glyph and gets an accessible name ("UAT passed").</li>
+<li><b>No overflow:</b> the ledger, the bodies and the header stay inside the card at 320 px (UI-R43). The old 760 / 520 / 430 / 360 / 300 blocks become the 999 / 699 / 399 container tiers.</li>
+<li><span class="rev">rev</span> <b>The gate (your decision):</b> the 400 / 399 / 320 probes run on the <span class="mono">inside-*</span> dashboard targets only, through one helper <span class="mono">layoutWidthsFor</span>. Other regions follow later, so no NEW ledger entries appear outside <span class="mono">#inside</span>. Each Inside variant gets mid, narrow and tight screenshots with the layout checks on (all 16 <span class="mono">skipLayout</span> flags go).</li>
+</ul>
+
+<!-- ============ D ============ -->
+<h2>D6–D9 — Settings › Autopilot</h2>
+<p class="why">The invalid baseline shows no error, and the save bar says "All changes saved". The list of checks shows bullet dots. The number fields use the full width. The checked mode label looks disabled.</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today (autopilot-invalid)</div><div class="frame set">
+    <div class="bar"><span class="msg mark">All changes saved</span><span class="btn">Discard</span><span class="pri">Save Autopilot</span></div>
+    <h3>PROCESSING MODE</h3>
+    <div class="f"><span>Mode</span><span><input type="checkbox" checked aria-label="Auto-fix mode"> <span class="mark" style="color:var(--muted)">Auto-fix mode</span></span></div>
+    <h3>MERGE CONFLICTS</h3>
+    <div class="f"><span>When it happens</span><span class="in wide">Fix automatically</span></div>
+    <div class="f"><span>Max rounds per PR</span><span class="in wide mark">0</span><span class="help">Resets when the base branch moves.</span></div>
+    <h3>CI FAILURES</h3>
+    <div class="f"><span>Checks karst may fix</span><span><span style="color:var(--muted);font-size:11px">Add a check</span><br><span class="in" style="display:inline-block;width:70%">lint</span> <span class="btn">Add check</span></span></div>
+    <ul class="mark" style="margin:0 0 0 20px;padding:0"><li><span class="chip">lint ×</span></li><li style="margin-top:4px"><span class="chip">typecheck ×</span></li></ul>
+  </div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame set">
+    <div class="bar good"><span class="msg e">Fix 1 field to save</span><span class="btn">Discard</span><span class="pri dis">Save Autopilot</span></div>
+    <h3>PROCESSING MODE</h3>
+    <div class="f"><span>Mode</span><span class="good"><input type="checkbox" checked aria-label="Auto-fix mode"> Auto-fix mode</span></div>
+    <h3>MERGE CONFLICTS</h3>
+    <div class="f"><span>When it happens</span><span class="in sel good">Fix automatically ▾</span></div>
+    <div class="f"><span>Max rounds per PR</span><span class="in num err good">0</span><span class="errt">Enter a whole number of at least 1.</span><span class="help">Resets when the base branch moves.</span></div>
+    <h3>CI FAILURES</h3>
+    <div class="f"><span>Checks karst may fix</span><span class="chips good"><span class="chip">lint ×</span><span class="chip">typecheck ×</span><span class="in" style="width:14ch">add a check</span><span class="btn">Add</span></span></div>
+  </div></div>
+</div>
+<p class="note"><span class="rev">rev</span> <b>Cause found:</b> the visual variant puts the fault in a <span class="mono">validation</span> key that <span class="mono">SettingsState</span> does not have (<span class="mono">variants.ts:433-436</span>, hidden by <span class="mono">as never</span>), so the field never gets it. The code routes correctly. <b>Save bar (all Settings tabs):</b> "Fix 1 field to save" shows when the file is not valid, edited or not; the host reports only the first fault, so there is no plural. The field text comes from a mapping per manifest path; an unknown path shows the host text.</p>
+
+<!-- ============ E ============ -->
+<h2>E1 — Deliver to PR is its own process row <span class="rev">rev</span></h2>
+<p class="why">Today the Deliver facts are a free text block above the ledger. "Deliver to PR" floats in the middle of a line, "Gate output" is a text button with a border, and the failure lines have their own colors and a "Dismiss" button. This block has no glyph and no timing. Proposed: a <b>Deliver</b> process row in the Ship ledger, with the same parts as every other row.</p>
+<div class="pair">
+  <div class="col"><div class="tag before">Today (inside-ship-deliver-auto-failed)</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside ship</b><span class="ovr">Auto-fix: <span class="b on">Project default (off)</span><span class="b">On</span><span class="b">Off</span></span></div>
+    <div class="deliver mark">
+      <div class="l1"><span style="color:var(--muted)">2 commits not on the PR</span><span class="kb sec">Deliver to PR</span><span class="kb ghost-b">Gate output</span></div>
+      <span style="color:var(--running)">Delivering resolved merge: gate 4/5 (visual), push after the gates</span>
+      <b style="font-size:11px">On the current head a1b2c3d4e</b>
+      <span style="color:var(--attention)">Gate integration-…-visual-regression-gate failed (exit 1) on a1b2c3d4e</span>
+      <span class="mono" style="color:var(--muted)">Error: expected 3 results but received 2 while comparing …</span>
+      <span><span class="kb ghost-b">Dismiss</span></span>
+    </div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Commit</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Push</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Pull request</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op waiting"><span class="glyph wait"></span><span class="name">Merge</span><span class="detail wait">Ship is waiting: resolve the merge conflict before the ticket can be done.</span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="foot">Autopilot never merges. Merge stays your click.</div>
+  </div></div></div>
+  <div class="col"><div class="tag after">Proposed</div><div class="frame"><div class="inside">
+    <div class="ihead"><b>Inside ship</b><span class="afc">Auto-fix <b>off</b> <span class="st">· default</span><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Commit</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Push</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op"><span class="glyph pass"></span><span class="name">Pull request</span><span class="detail"></span><span class="tail"></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+    <div class="op live open good"><span class="glyph run"></span><span class="name">Deliver</span><span class="detail run">2 commits not on the PR · gate 4 of 5</span><span class="tail"><span class="ib" title="View this process's console output in the dashboard" aria-label="View this process's console output in the dashboard"><svg class="ki" aria-hidden="true"><use href="#i-terminal-2"/></svg></span><span class="kb sec" role="button" title="Push — sync the sandbox, then push the branch onto the open pull request" aria-label="Push — sync the sandbox, then push the branch onto the open pull request"><svg class="ki" aria-hidden="true"><use href="#i-git-branch"/></svg><span class="kl">Push</span></span></span><span class="tm">09:40:02</span><span class="tm">1m 40s</span><span class="chev">⌄</span></div>
+    <div class="body good">
+      <div class="ev"><span class="glyph pass"></span><span class="key">sync sandbox</span><span class="detail">2 commits</span><span></span><span class="tm"></span><span class="tm"></span></div>
+      <div class="ev active"><span class="glyph run"></span><span class="key">visual</span><span class="detail" style="color:var(--running)">gate 4 of 5</span><span></span><span class="tm"></span><span class="tm"></span></div>
+      <div class="ev"><span class="glyph pending"></span><span class="key">push</span><span class="detail">after the gates</span><span></span><span></span><span></span></div>
+      <div class="ev"><span class="glyph fail"></span><span class="key">earlier head</span><span class="detail fail">a1b2c3d4e · visual-regression-gate failed (exit 1)</span><span style="display:inline-flex;gap:6px"><button class="textbtn" type="button">Show</button><span class="ib" aria-label="Dismiss this gate failure"><svg class="ki" aria-hidden="true"><use href="#i-x"/></svg></span></span><span class="tm"></span><span class="tm"></span></div>
+    </div>
+    <div class="op waiting"><span class="glyph wait"></span><span class="name">Merge</span><span class="detail wait">waits on 1 conflict</span><span class="tail"><span class="count">0/1</span></span><span class="tm"></span><span class="tm"></span><span class="chev">›</span></div>
+  </div></div></div>
+</div>
+<p class="note"><b>Changes:</b> Deliver has a glyph, a detail, time and duration. "Deliver to PR" goes in the action cell. "Gate output" becomes the console icon button that other rows already use. The steps and the kept gate failure are evidence rows with their own glyphs, and the error text opens with "Show" (the same as other failed gate rows). "Dismiss" stays per gate: each kept failure row has its own <span class="mono">x</span>, and the stage menu adds "Dismiss delivery failures" for all of them. <span class="rev">rev</span> The host builds the row (<span class="mono">ship.ts</span>), before Merge and after Auto-fix. It shows no names of passed gates, because <span class="mono">DeliverFacts</span> records only "gate n of m" and the failures. The line "Autopilot never merges" goes away (see C2).</p>
+
+<h2>E2–E6 — Buttons: icon + short label <span class="rev">rev</span></h2>
+<p class="why">Each button gets a Tabler icon (one icon, one meaning; D534 adds the four new ones) and a label of one or two words. The full sentence moves to <span class="mono">title</span> and <span class="mono">aria-label</span> (the same string, UI-R21, UI-R24), and <span class="rev">rev</span> it starts with the visible label (WCAG 2.5.3). The short labels stay at every width (<span class="mono">@ui:RD-NEVER</span> #1: a primary action label is never icon-only). Only "⋯ Actions" (at tight width) and the console button are icon-only, with a k-tooltip. Hover a proposed button to see its full text.</p>
+<div class="tw"><table class="btns">
+<tr><th>Role</th><th>Button</th><th>Today</th><th>Proposed (wide)</th><th>Proposed (narrow)</th><th>Tooltip and accessible name</th><th>Icon</th></tr>
+<tr><td>Row action (secondary sm, action cell)</td><td>Deliver to PR</td><td><span class="kb sec mark">Deliver to PR</span></td><td><span class="kb sec" role="button" title="Push — sync the sandbox, then push the branch onto the open pull request" aria-label="Push — sync the sandbox, then push the branch onto the open pull request"><svg class="ki" aria-hidden="true"><use href="#i-git-branch"/></svg><span class="kl">Push</span></span></td><td class="narrowbtn"><span class="kb sec" role="button" title="Push — sync the sandbox, then push the branch onto the open pull request" aria-label="Push — sync the sandbox, then push the branch onto the open pull request"><svg class="ki" aria-hidden="true"><use href="#i-git-branch"/></svg><span class="kl">Push</span></span></td><td style="color:var(--muted)">Push — sync the sandbox, then push the branch onto the open pull request</td><td class="mono">git-branch</td></tr><tr><td>Row action</td><td>Unpause</td><td><span class="kb sec mark">Unpause</span></td><td><span class="kb sec" role="button" title="Resume — unpause this stage" aria-label="Resume — unpause this stage"><svg class="ki" aria-hidden="true"><use href="#i-player-play"/></svg><span class="kl">Resume</span></span></td><td class="narrowbtn"><span class="kb sec" role="button" title="Resume — unpause this stage" aria-label="Resume — unpause this stage"><svg class="ki" aria-hidden="true"><use href="#i-player-play"/></svg><span class="kl">Resume</span></span></td><td style="color:var(--muted)">Resume — unpause this stage</td><td class="mono">player-play</td></tr><tr><td>Row action</td><td>Stop after this round</td><td><span class="kb sec mark">Stop after this round</span></td><td><span class="kb sec" role="button" title="Last round — stop auto-fix after this round" aria-label="Last round — stop auto-fix after this round"><svg class="ki" aria-hidden="true"><use href="#i-player-pause"/></svg><span class="kl">Last round</span></span></td><td class="narrowbtn"><span class="kb sec" role="button" title="Last round — stop auto-fix after this round" aria-label="Last round — stop auto-fix after this round"><svg class="ki" aria-hidden="true"><use href="#i-player-pause"/></svg><span class="kl">Last round</span></span></td><td style="color:var(--muted)">Last round — stop auto-fix after this round</td><td class="mono">player-pause</td></tr><tr><td>Row action</td><td>Retry</td><td><span class="kb sec">Retry</span></td><td><span class="kb sec" role="button" title="Retry — retry the ship step of this repository" aria-label="Retry — retry the ship step of this repository"><svg class="ki" aria-hidden="true"><use href="#i-refresh"/></svg><span class="kl">Retry</span></span></td><td class="narrowbtn"><span class="kb sec" role="button" title="Retry — retry the ship step of this repository" aria-label="Retry — retry the ship step of this repository"><svg class="ki" aria-hidden="true"><use href="#i-refresh"/></svg><span class="kl">Retry</span></span></td><td style="color:var(--muted)">Retry — retry the ship step of this repository</td><td class="mono">refresh</td></tr><tr><td>Overflow (text button)</td><td>Show all</td><td><span class="kb sec mark">Show all</span></td><td><button class="textbtn" type="button"><svg class="ki" aria-hidden="true"><use href="#i-chevron-down"/></svg> 14 more</button></td><td class="narrowbtn"></td><td style="color:var(--muted)">Show all 14 events</td><td class="mono">chevron-down</td></tr><tr><td>Console (icon only)</td><td>Gate output</td><td><span class="kb ghost-b mark">Gate output</span></td><td><span class="ib"><svg class="ki" aria-hidden="true"><use href="#i-terminal-2"/></svg></span></td><td class="narrowbtn"></td><td style="color:var(--muted)">View this process's console output in the dashboard</td><td class="mono">terminal-2</td></tr><tr><td>Stage menu item</td><td>Dismiss</td><td><span class="kb ghost-b mark">Dismiss</span></td><td><svg class="ki" aria-hidden="true"><use href="#i-x"/></svg> per gate row + menu "Dismiss delivery failures"</td><td class="narrowbtn"></td><td style="color:var(--muted)">Dismiss this gate failure</td><td class="mono">x</td></tr><tr><td>Stage menu item</td><td>Stop now…</td><td><span class="kb ghost-b mark">Stop now…</span></td><td><svg class="ki" aria-hidden="true"><use href="#i-player-stop"/></svg> Stop auto-fix now…</td><td class="narrowbtn"></td><td style="color:var(--muted)">—</td><td class="mono">player-stop</td></tr><tr><td>Confirm</td><td>Stop now</td><td><span class="kb pri mark">Stop now</span></td><td><span class="kb dan" role="button" title="Stop — stop auto-fix now. Karst syncs first." aria-label="Stop — stop auto-fix now. Karst syncs first."><svg class="ki" aria-hidden="true"><use href="#i-player-stop"/></svg><span class="kl">Stop</span></span></td><td class="narrowbtn"><span class="kb dan" role="button" title="Stop — stop auto-fix now. Karst syncs first." aria-label="Stop — stop auto-fix now. Karst syncs first."><svg class="ki" aria-hidden="true"><use href="#i-player-stop"/></svg><span class="kl">Stop</span></span></td><td style="color:var(--muted)">Stop — stop auto-fix now. Karst syncs first.</td><td class="mono">player-stop</td></tr><tr><td>Banner (primary + secondary)</td><td>Approve 1 more attempt</td><td><span class="kb pri mark">Approve 1 more attempt</span></td><td><span class="kb pri" role="button" title="+1 attempt — approve 1 more auto-fix attempt" aria-label="+1 attempt — approve 1 more auto-fix attempt"><svg class="ki" aria-hidden="true"><use href="#i-plus"/></svg><span class="kl">+1 attempt</span></span></td><td class="narrowbtn"><span class="kb pri" role="button" title="+1 attempt — approve 1 more auto-fix attempt" aria-label="+1 attempt — approve 1 more auto-fix attempt"><svg class="ki" aria-hidden="true"><use href="#i-plus"/></svg><span class="kl">+1 attempt</span></span></td><td style="color:var(--muted)">+1 attempt — approve 1 more auto-fix attempt</td><td class="mono">plus (new)</td></tr><tr><td>Banner</td><td>Send CI failure with a note…</td><td><span class="kb sec mark">Send CI failure with a note…</span></td><td><span class="kb sec" role="button" title="Send back… — send the CI failure to the agent with a note" aria-label="Send back… — send the CI failure to the agent with a note"><svg class="ki" aria-hidden="true"><use href="#i-arrow-left"/></svg><span class="kl">Send back…</span></span></td><td class="narrowbtn"><span class="kb sec" role="button" title="Send back… — send the CI failure to the agent with a note" aria-label="Send back… — send the CI failure to the agent with a note"><svg class="ki" aria-hidden="true"><use href="#i-arrow-left"/></svg><span class="kl">Send back…</span></span></td><td style="color:var(--muted)">Send back… — send the CI failure to the agent with a note</td><td class="mono">arrow-left</td></tr><tr><td>Ghost (one look, no border)</td><td>Back to current stage</td><td><span class="kb ghost-b mark">Back to current stage</span></td><td><span class="kb ghost" role="button" title="Current stage — return the strip to the stage the ticket is on" aria-label="Current stage — return the strip to the stage the ticket is on"><span class="kl">Current stage</span></span></td><td class="narrowbtn"><span class="kb ghost" role="button" title="Current stage — return the strip to the stage the ticket is on" aria-label="Current stage — return the strip to the stage the ticket is on"><span class="kl">Current stage</span></span></td><td style="color:var(--muted)">Current stage — return the strip to the stage the ticket is on</td><td class="mono">— (label only)</td></tr><tr><td>PR panel (same rule)</td><td>Merge</td><td><span class="kb sec">Merge</span></td><td><span class="kb pri" role="button" title="Merge — merge pull request #421" aria-label="Merge — merge pull request #421"><svg class="ki" aria-hidden="true"><use href="#i-git-merge"/></svg><span class="kl">Merge</span></span></td><td class="narrowbtn"><span class="kb pri" role="button" title="Merge — merge pull request #421" aria-label="Merge — merge pull request #421"><svg class="ki" aria-hidden="true"><use href="#i-git-merge"/></svg><span class="kl">Merge</span></span></td><td style="color:var(--muted)">Merge — merge pull request #421</td><td class="mono">git-merge</td></tr>
+</table></div>
+<p class="note"><b>Rules:</b> a row action is secondary sm in the action cell. An overflow is a text button. A console link is the icon button. A rare action (Dismiss, Stop now…) is a stage menu item with its icon. Primary is only in the banner and for Merge. Ghost has one look, with no border. <b>Decided:</b> the "Stop" confirm is danger (<span class="mono">UI-R10b</span>).</p>
+<h2>Summary</h2>
+<table class="sum">
+<tr><th>Item</th><th>Change</th><th>Main files</th></tr>
+<tr><td>B6</td><td>Header pill only Closed / Done / Paused / Needs you</td><td class="mono">TicketIdentity.tsx, Header.css</td></tr>
+<tr><td>B7</td><td>Fixture matches the host sessionDetail; session id in the footer (narrow rules in N)</td><td class="mono">renderFixtures.ts, parity snapshot</td></tr>
+<tr><td>B8</td><td>One Σ column; "Show all N" as the overflow text button</td><td class="mono">EvidenceTimeline.tsx, InsideLedger.tsx, Inside CSS</td></tr>
+<tr><td>B9</td><td>Live pill style + visual variants</td><td class="mono">InsideParts.tsx (TokenPill), tests/visual/variants.ts</td></tr>
+<tr><td>C1</td><td>Failing test first; true agent state + "· auto-fix" suffix during a round</td><td class="mono">stateAgent.ts, RuntimeStrip.tsx</td></tr>
+<tr><td>C2</td><td>Separate Auto-fix process row (before Merge); attempt rows and provable step rows only; Merge shows only merge facts; footer history removed</td><td class="mono">model/inside/autofix.ts, ship.ts, AutofixParts.tsx</td></tr>
+<tr><td>C3</td><td>Stopped state with one failed row per attempt; banner buttons icon + short label</td><td class="mono">model/inside/autofix.ts</td></tr>
+<tr><td>C4</td><td>Auto-fix switch: one chip "Auto-fix on · default ▾" with a 3-choice menu; blue dot for a ticket override</td><td class="mono">AutofixParts.tsx (autofix-seg), Autofix.css</td></tr>
+<tr><td>F</td><td>Stage menu: main action visible; "⋯ Actions" labeled; five groups incl. Delivery and Auto-fix; one icon per meaning (4 new icons); open-menu baselines</td><td class="mono">InsideMenu.tsx, Inside.tsx, model (primary action), tests/visual/variants.ts</td></tr>
+<tr><td>N1–N9</td><td>Inside at narrow: one-line rows, meta on line two, header and rail rules, 999/699/399 container tiers, no overflow at 320; gate probes 400/399/320 on inside-* targets only; k-tooltip; icon-only cores at tight</td><td class="mono">InsideResponsive.css, Inside.css, Header.css:134-135, layoutBreakpoints.ts, tests/visual/variants.ts</td></tr>
+<tr><td>D6–D9</td><td>Fixture cause fixed; field error + "Fix 1 field to save" (all tabs); chip row; narrow inputs; normal label color</td><td class="mono">AutopilotSection.tsx, settings CSS</td></tr>
+<tr><td>E1</td><td>Host-built Deliver row; console icon; Dismiss per gate + menu item</td><td class="mono">DeliverRow.tsx, model/inside/deliver.ts, ship.ts</td></tr>
+<tr><td>E2–E6</td><td>Icon + short label on each button; one variant and one place for each role; aria-label starts with the label; icon-only only for Actions (tight) and console</td><td class="mono">InsideLedger.tsx, AutofixParts.tsx, BlockedBanner.css, shared k-btn</td></tr>
+</table>
+</body>
+</html>
