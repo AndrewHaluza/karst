@@ -335,7 +335,7 @@ One ticket each. `←` = depends on.
 | B10 | Settings: nav, general, git, services | container conversion | B1 |
 | B11 | Settings: presets + agents matrix → cards | | B10, B4 |
 | B12 | Sidebar landmarks + tight verification | | B1 |
-| B-SANDBOX | Sandbox popover width/anchor | `SandboxStrip.css` | B1 (React already) |
+| B-SANDBOX | Sandbox popover width/anchor | `RuntimeStrip.css` (replaced `SandboxStrip.css`, T1057) | B1 (React already) |
 | **D1..D6 (wait for `dashboard-sandbox-as-a-full-fu1-s1-migrate-dashboard-webview`, d83f4330818)** | | | |
 | D1 | Dashboard landmarks + `.grid` cascade fix + drawer `inert` | `webview.html` / React | migration, B1 |
 | D2 | Header, title, stage rail, core identity | | D1, B3, B4, B5 |

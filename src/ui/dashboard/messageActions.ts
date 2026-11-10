@@ -47,6 +47,9 @@ export interface DashboardActions {
   sandboxCarry: () => void | Promise<void>;
   /** Stash the sandbox's uncommitted work, then update it from the host. */
   sandboxStashUpdate: () => void | Promise<void>;
+  /** Open an integrated terminal with a shell inside the running sandbox (never the agent session). */
+  sandboxShell: () => void | Promise<void>;
+  openSettings: () => void | Promise<void>;
   showChanges: () => void | Promise<void>;
   openWorktreeTerminal: (path: string) => void | Promise<void>;
   openWorktreeFolder: (path: string) => void | Promise<void>;

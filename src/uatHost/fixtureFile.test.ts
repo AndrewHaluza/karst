@@ -176,3 +176,69 @@ describe('shipped samples', () => {
     expect(parseSteps(sample('fake-core-reformat.steps.json')).map((s) => s.type)).toContain('snapshot');
   });
 });
+
+describe('parseFixtureFile engine-state rows', () => {
+  const withRows = (rows: unknown) => ({ tickets: [{ ...ticket, rows }] });
+  const pr = { repo: 'app', number: 7, url: 'https://x/pull/7', status: 'open', baseRef: 'develop', mergeBlock: 'dirty' };
+  const check = { repo: 'app', state: 'conflicted', files: ['a.ts'], headSha: 'h1', baseSha: 'b1', baseRef: 'develop' };
+  const finding = { attempt: 1, severity: 'high', repo: 'app', file: 'src/a.ts', line: 12, title: 't', detail: 'd' };
+
+  it('parses a valid prs row', () => {
+    expect(parseFixtureFile(withRows({ prs: [pr] })).tickets[0]!.rows!.prs).toEqual([pr]);
+  });
+  it('refuses an unknown prs column', () => {
+    expect(() => parseFixtureFile(withRows({ prs: [{ ...pr, sql: 'x' }] }))).toThrow('unknown key "sql"');
+  });
+  it('parses a valid merge_checks row with null defaults', () => {
+    const rows = parseFixtureFile(withRows({ merge_checks: [check] })).tickets[0]!.rows!;
+    expect(rows.mergeChecks![0]).toEqual({ ...check, reason: null });
+  });
+  it('refuses an unknown merge_checks column', () => {
+    expect(() => parseFixtureFile(withRows({ merge_checks: [{ ...check, extra: 1 }] }))).toThrow('unknown key "extra"');
+  });
+  it('parses a valid review_findings row', () => {
+    const rows = parseFixtureFile(withRows({ review_findings: [finding] })).tickets[0]!.rows!;
+    expect(rows.reviewFindings![0]).toEqual({ ...finding, source: 'agent' });
+  });
+  it('refuses an unknown review_findings column', () => {
+    expect(() => parseFixtureFile(withRows({ review_findings: [{ ...finding, id: 1 }] }))).toThrow('unknown key "id"');
+  });
+  it('refuses a bad pr status and merge state', () => {
+    expect(() => parseFixtureFile(withRows({ prs: [{ ...pr, status: 'gone' }] }))).toThrow('status must be one of');
+    expect(() => parseFixtureFile(withRows({ merge_checks: [{ ...check, state: 'x' }] }))).toThrow('state must be one of');
+  });
+  it('parses an optional autopilot block and refuses unknown keys', () => {
+    const spec = parseFixtureFile({
+      tickets: [ticket],
+      autopilot: { enabled: true, ci: { policy: 'auto', maxAttempts: 2, checks: ['build'] }, conflicts: { maxRounds: 1 } },
+    });
+    expect(spec.autopilot).toEqual({ enabled: true, ci: { policy: 'auto', maxAttempts: 2, checks: ['build'] }, conflicts: { maxRounds: 1 } });
+    expect(() => parseFixtureFile({ tickets: [ticket], autopilot: { enabled: true, nope: 1 } })).toThrow('unknown key "nope"');
+    expect(() => parseFixtureFile({ tickets: [ticket], autopilot: { enabled: 'yes' } })).toThrow('enabled must be a boolean');
+  });
+});
+
+
+describe('ticket placement', () => {
+  const ticket = (extra: Record<string, unknown>) => ({ tickets: [{ key: 'T', title: 't', stageCurrent: 'ship', ...extra }] });
+  it('accepts host and refuses another backend', () => {
+    expect(parseFixtureFile(ticket({ placement: 'host' })).tickets[0]!.placement).toBe('host');
+    expect(() => parseFixtureFile(ticket({ placement: 'docker' }))).toThrow(/placement must be one of host/);
+  });
+});
+
+describe('worktreeRepo', () => {
+  it('accepts a string and refuses another type', () => {
+    const t = (v: unknown) => ({ tickets: [{ key: 'T', title: 't', stageCurrent: 'ship', worktree: true, worktreeRepo: v }] });
+    expect(parseFixtureFile(t('app')).tickets[0]!.worktreeRepo).toBe('app');
+    expect(() => parseFixtureFile(t(5))).toThrow(/worktreeRepo/);
+  });
+});
+
+describe('worktreeConflict', () => {
+  it('accepts a boolean and refuses another type', () => {
+    const t = (v: unknown) => ({ tickets: [{ key: 'T', title: 't', stageCurrent: 'ship', worktree: true, worktreeConflict: v }] });
+    expect(parseFixtureFile(t(true)).tickets[0]!.worktreeConflict).toBe(true);
+    expect(() => parseFixtureFile(t('yes'))).toThrow(/worktreeConflict/);
+  });
+});

@@ -21,6 +21,7 @@ import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import type { QueuedMarker } from '../../agent/bridge/markerFlow.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
+import { createShellAvailabilityCache, openSandboxShellOp, sandboxShellAvailability, type ShellTerminalSpec } from './sandboxShellOp.js';
 import { carrySandboxOp } from './sandboxCarryOp.js';
 import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js';
 import { runSandboxReconcile } from './bootSweeps.js';
@@ -70,6 +71,10 @@ export interface SandboxWiringInput {
   readonly gateRunning?: (ticketId: number) => boolean;
   /** Reopen a ticket's sandbox session (after "Carry sandbox commits" recreated the clone). */
   readonly reopen?: (ticketId: number) => Promise<void>;
+  /** Creates and shows an integrated terminal (the VS Code binding for "Open shell in sandbox"). */
+  readonly openTerminal?: (spec: ShellTerminalSpec) => void;
+  /** A shell probe changed a ticket's availability: re-push its dashboard state. */
+  readonly onShellChange?: (ticketId: number) => void;
   /** Drives the ticket on after a successful Stash & update cleared its parked `sandbox-sync` block. */
   readonly redrive?: (ticketId: number) => void;
 }
@@ -174,6 +179,14 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const projectRoot = w.projectRoot() ?? t0.worktree?.path ?? '';
     return { t: await resolved(ticketId, projectRoot), projectRoot };
   };
+  /** The dashboard's sync reader of "Open shell in sandbox" availability (a background probe, refreshed on a short TTL). */
+  const shellCache = createShellAvailabilityCache({
+    probe: async (ticketId) => {
+      const { t, projectRoot } = await manual(ticketId);
+      return sandboxShellAvailability({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), ...syncTrack }, t);
+    },
+    onChange: (ticketId) => w.onShellChange?.(ticketId),
+  });
   /**
    * A palette command has no ticket argument: choose one of THIS project's tickets that has a
    * sandbox (from the runners' listing). Never returns silently: no backend / no sandbox is said.
@@ -341,6 +354,15 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     /** Dashboard "Carry sandbox commits onto host branch": shown only while the last refused sync was a host rewrite. */
     isRewritten: (ticketId: number): boolean => rewrittenTickets.has(ticketId),
+    /** Dashboard state: whether "Open shell in sandbox" applies now (cached; a stale value refreshes in the background). */
+    shellAvailability: (ticketId: number) => shellCache.read(ticketId),
+    /** Dashboard "Open shell in sandbox": a terminal with a shell inside the RUNNING sandbox; the agent session is untouched. */
+    shell: async (ticketId: number): Promise<void> => {
+      const openTerminal = w.openTerminal;
+      if (!openTerminal) { await w.notify.error('Karst: cannot open a sandbox shell yet: no terminal is available.'); return; }
+      const { t, projectRoot } = await manual(ticketId);
+      await openSandboxShellOp({ notify: w.notify, projectRoot, openTerminal, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), ...syncTrack }, t);
+    },
     carry: async (ticketId: number): Promise<void> => {
       const { d, t } = await manualDeps(ticketId);
       if (!w.reopen) { await w.notify.error('Karst: cannot carry the sandbox commits yet: reopening is not available.'); return; }
@@ -377,12 +399,12 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       return (await sandboxRunnerFor(d, t.core, ticketId)?.oomReport?.()) ?? null;
     },
     /** Dashboard Stop: stop (keep) this ticket's sandbox. */
-    stop: stopTicket,
+    stop: async (ticketId: number): Promise<void> => { try { await stopTicket(ticketId); } finally { shellCache.invalidate(ticketId); } },
     /** Dashboard Remove: sync, then remove; unsynced commits need an explicit "Remove anyway". */
     remove: async (ticketId: number): Promise<void> => {
       if (recordedHost(ticketId)) return;
       const { d, t } = await manualDeps(ticketId);
-      await removeGuarded(d, t);
+      try { await removeGuarded(d, t); } finally { shellCache.invalidate(ticketId); }
     },
     dispose: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);

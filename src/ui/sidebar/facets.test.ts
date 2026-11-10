@@ -49,6 +49,7 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     autostartStarting: false,
     autostartClaimedAt: null,
     priority: null,
+    priorityOverride: null,
     serversOnDone: null,
     stages: [
       {

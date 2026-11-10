@@ -3,7 +3,8 @@ import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubtasks, getTicket, type TicketWithStages } from '../../store/tickets.js';
-import { asPriorityLevel, type PriorityLevel } from '../../planning/proposal.js';
+import type { PriorityLevel } from '../../planning/proposal.js';
+import { asPriorityLevel, effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel, ticketProviderPriority } from '../../model/priority.js';
 import { PRIORITY_EDITABLE_STAGE } from '../../extension/ops/ticketPriorityOps.js';
 import { readProjectQueue } from '../../store/queueItems.js';
 import { queueWhy } from '../../model/queueOrder.js';
@@ -90,8 +91,14 @@ export interface PriorityView {
 }
 
 export interface TicketRow extends TicketNode, TicketActionFlags {
-  /** The ticket's stored priority when it is one of the four levels; null (also for an unknown provider label) otherwise. */
+  /** The ticket's effective priority (your override, else the provider's) when it is one of the four levels; null otherwise. */
   priority: PriorityLevel | null;
+  /** Who set `priority`: you or the ticketing provider; null when none. */
+  prioritySource: 'you' | 'provider' | 'planner' | null;
+  /** The provider-written level (`tickets.priority`), kept beside a user override so the tooltip can name both. */
+  providerPriority: PriorityLevel | null;
+  /** The label of the system that wrote `providerPriority` (`ClickUp`). */
+  providerLabel: string;
   /** True when the row menu may set the priority: a top-level, not archived ticket at `scope`. */
   priorityEditable: boolean;
   /** The ticket's current stage key (null when stageless) — a source fact, not a label. */
@@ -231,6 +238,11 @@ export interface QueueRowView {
   whyKind: 'raised' | 'waits' | 'cycle' | 'none';
   /** The item's own level (the menu's checked entry); null when none. */
   ownLevel: PriorityLevel | null;
+  /** Who set the item's own level; null when none. */
+  prioritySource: 'you' | 'provider' | 'planner' | null;
+  /** A ticket's provider-written level and system label (null for a draft). */
+  providerPriority: PriorityLevel | null;
+  providerLabel: string | null;
 }
 
 /** The Queue pane's data: ONE computed order of the project's pending drafts and scope tickets. */
@@ -243,9 +255,9 @@ export interface QueueView {
 
 export const EMPTY_QUEUE: QueueView = { rows: [], drafts: 0, sessions: 0, tickets: 0 };
 
-function queueView(store: Store, projectId: number | undefined): QueueView {
+function queueView(store: Store, projectId: number | undefined, providerId?: string): QueueView {
   if (projectId === undefined) return EMPTY_QUEUE;
-  const q = readProjectQueue(store, projectId);
+  const q = readProjectQueue(store, projectId, providerId);
   return {
     drafts: q.drafts,
     sessions: q.sessions,
@@ -266,6 +278,9 @@ function queueView(store: Store, projectId: number | undefined): QueueView {
         why: e.cycle ? 'cycle' : e.inheritedFrom !== null ? `↑ ${e.inheritedFrom}` : e.waitsOn.length ? `waits ${e.waitsOn[0]}${e.waitsOn.length > 1 ? ` +${e.waitsOn.length - 1}` : ''}` : '',
         whyKind: e.cycle ? 'cycle' : e.inheritedFrom !== null ? 'raised' : why ? 'waits' : 'none',
         ownLevel: e.ownPriority,
+        prioritySource: e.prioritySource,
+        providerPriority: e.providerPriority,
+        providerLabel: e.providerLabel,
       };
     }),
   };
@@ -451,7 +466,10 @@ export function buildSidebarState(
       return {
         ...node,
         stageCurrent: t.stageCurrent,
-        priority: asPriorityLevel(t.priority) ?? null,
+        priority: effectiveTicketPriority(t),
+        prioritySource: ticketPrioritySource(t),
+        providerPriority: ticketProviderPriority(t),
+        providerLabel: ticketProviderLabel(opts.manifest?.ticketing?.provider),
         priorityEditable: t.stageCurrent === PRIORITY_EDITABLE_STAGE && t.subtaskParentId === null,
         // Host-derived from the dashboard's own pure rules; the open-child count is a store read (never the
         // facet-scoped `subtaskChildCount`) and only runs for sub-tasks, the only rows Detach can apply to.
@@ -500,7 +518,7 @@ export function buildSidebarState(
   };
 
   const counts = facetCounts(active, archivedKeys.length);
-  const base = { facets, filter: query, counts, unlinkedCloudSessions: unlinkedRows(cloud, query), queue: queueView(store, opts.projectId) };
+  const base = { facets, filter: query, counts, unlinkedCloudSessions: unlinkedRows(cloud, query), queue: queueView(store, opts.projectId, opts.manifest?.ticketing?.provider) };
 
   const isAll = facets.length === 1 && facets[0] === 'all';
   const isDone = facets.length === 1 && facets[0] === 'done';

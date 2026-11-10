@@ -23,6 +23,8 @@ function actions(): DashboardActions {
     restartServers: vi.fn(),
     stopServers: vi.fn(),
     sandboxSync: vi.fn(),
+    sandboxShell: vi.fn(),
+    openSettings: vi.fn(),
     sandboxDiff: vi.fn(),
     sandboxStop: vi.fn(),
     sandboxRemove: vi.fn(),
@@ -209,7 +211,7 @@ describe('routeAction', () => {
   it('parses and dispatches the sandbox actions, which carry no payload', () => {
     const a = actions();
     for (const [type, fn] of [
-      ['sandbox-sync', 'sandboxSync'], ['sandbox-diff', 'sandboxDiff'], ['sandbox-stop', 'sandboxStop'], ['sandbox-remove', 'sandboxRemove'],
+      ['sandbox-sync', 'sandboxSync'], ['sandbox-shell', 'sandboxShell'], ['open-settings', 'openSettings'], ['sandbox-diff', 'sandboxDiff'], ['sandbox-stop', 'sandboxStop'], ['sandbox-remove', 'sandboxRemove'],
       ['sandbox-carry', 'sandboxCarry'],
       ['sandbox-stash-update', 'sandboxStashUpdate'],
     ] as const) {

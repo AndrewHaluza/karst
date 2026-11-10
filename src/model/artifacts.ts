@@ -363,7 +363,7 @@ export function readPlanInput(store: Store, ticketId: number): ArtifactPlanInput
 }
 
 /** The gate_runs row that is NOT a gate: the review stage's Changes-panel mark. */
-const NON_GATE_RUNS = new Set(['changes']);
+export const NON_GATE_RUNS: ReadonlySet<string> = new Set(['changes']);
 
 /** Detail list caps: a display decision, never a verdict (see ArtifactSummary). */
 const MAX_DETAIL_COMMITS = 20;

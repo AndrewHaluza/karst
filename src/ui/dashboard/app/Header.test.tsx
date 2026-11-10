@@ -88,12 +88,10 @@ describe('Header — Detach, Close and Reopen', () => {
     expect($('#closeTicket').classList.contains('danger')).toBe(true);
   });
 
-  it('places the ⋯ menu directly after the agent picker and draws no Confirm ship button', () => {
+  it('draws no agent switch and no Confirm ship button (the runtime strip owns the agent)', () => {
     mountHeader(headerState());
-    const kids = Array.from(document.querySelector('.headerActions')!.children);
-    const agent = kids.findIndex((k) => k.querySelector('#agentButton'));
-    expect(agent).toBeGreaterThanOrEqual(0);
-    expect(kids[agent + 1]!.querySelector('#moreBtn')).toBeTruthy();
+    expect(document.querySelector('#agentButton')).toBeNull();
+    expect(document.querySelector('.headerActions #moreBtn')).toBeTruthy();
     expect(document.getElementById('confirmShip')).toBeNull();
   });
 
@@ -125,37 +123,20 @@ describe('Header — Detach, Close and Reopen', () => {
 describe('Header — popovers', () => {
   const open = (id: string): boolean => !has(id, 'hidden') && has(id, 'open');
 
-  it('opens one popover at a time and toggles on a second click of the trigger', () => {
+  it('toggles the ⋯ menu on a second click of the trigger', () => {
     mountHeader(headerState());
-    fireEvent.click($('#agentButton'));
-    expect(open('#agentPopover')).toBe(true);
-    expect($('#agentButton').getAttribute('aria-expanded')).toBe('true');
     fireEvent.click($('#moreBtn'));
-    expect(open('#agentPopover')).toBe(false);
     expect(open('#menuPopover')).toBe(true);
-    expect($('#agentButton').getAttribute('aria-expanded')).toBe('false');
     fireEvent.click($('#moreBtn'));
     expect(has('#menuPopover', 'hidden')).toBe(true);
     expect(has('#menuPopover', 'open')).toBe(false);
   });
 
-  it('closes on a click elsewhere in the header, but not inside the popover', () => {
+  it('closes on a click elsewhere in the header', () => {
     mountHeader(headerState());
-    fireEvent.click($('#agentButton'));
-    fireEvent.click($('#agentPopover .fieldHelp'));
-    expect(open('#agentPopover')).toBe(true);
+    fireEvent.click($('#moreBtn'));
     fireEvent.click($('#title'));
-    expect(open('#agentPopover')).toBe(false);
-  });
-
-  it('stays open when the click detached its own target (a picker option replaced before bubbling)', () => {
-    mountHeader(headerState());
-    fireEvent.click($('#agentButton'));
-    const option = document.createElement('div');
-    $('#agentPopover .fieldHelp').append(option);
-    option.addEventListener('click', () => option.remove());
-    fireEvent.click(option);
-    expect(open('#agentPopover')).toBe(true);
+    expect(open('#menuPopover')).toBe(false);
   });
 
   it('closes on a click anywhere outside the header (another region, an overlay, the page), and ignores Escape', () => {
@@ -167,23 +148,5 @@ describe('Header — popovers', () => {
     expect(open('#menuPopover')).toBe(true);
     fireEvent.click(outside);
     expect(open('#menuPopover')).toBe(false);
-    fireEvent.click($('#agentButton'));
-    expect(open('#agentPopover')).toBe(true);
-    fireEvent.click(document.body);
-    expect(open('#agentPopover')).toBe(false);
-  });
-
-  it('disables the agent button while a fix recovery owns the session', () => {
-    mountHeader(headerState({ agentSession: { ...headerState().agentSession, canSwitch: false } }));
-    expect(($('#agentButton') as HTMLButtonElement).disabled).toBe(true);
-    expect($('#agentButton').getAttribute('title')).toBe('Cannot switch while a fix recovery is running');
-  });
-
-  it('paints the agent badge, model and live state', () => {
-    mountHeader(headerState({ agentState: 'not-started' }));
-    expect($('#agentCore .agentname').textContent).toBe('Claude Code');
-    expect($('#agentModel').textContent).toBe('Model One');
-    expect($('#agentLiveText').textContent).toBe('not-started');
-    expect(has('#agentDot', 'not-started')).toBe(true);
   });
 });

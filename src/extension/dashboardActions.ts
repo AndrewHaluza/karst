@@ -246,6 +246,7 @@ export function makeDashboardActions(
     },
     openResources: () => void vscode.commands.executeCommand('karst.openServers'), // the ticket panel's "Manage shared services" link
     showChanges,
+    openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
     switchAgent,
     copyTicketKey: () => {
       const key = getTicket(store, ticketId).key ?? formatId('ticket', ticketId);
@@ -257,7 +258,7 @@ export function makeDashboardActions(
       await vscode.window.showTextDocument(doc);
     },
     sandboxSync: () => sandbox.life().sync(ticketId), sandboxDiff: () => sandbox.life().diff(ticketId), // AC-32 Sandbox card
-    sandboxStop: () => sandbox.life().stop(ticketId), sandboxRemove: () => sandbox.life().remove(ticketId), sandboxCarry: () => sandbox.life().carry(ticketId), sandboxStashUpdate: () => sandbox.life().stashUpdate(ticketId),
+    sandboxStop: () => sandbox.life().stop(ticketId), sandboxRemove: () => sandbox.life().remove(ticketId), sandboxCarry: () => sandbox.life().carry(ticketId), sandboxStashUpdate: () => sandbox.life().stashUpdate(ticketId), sandboxShell: () => sandbox.life().shell(ticketId),
     ...worktreeActions,
     // Launch must not be aimable: the webview names a path, and the host
     // verifies it against the ticket's registered worktrees before building

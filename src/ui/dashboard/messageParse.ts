@@ -51,7 +51,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'sandbox-remove':
     case 'sandbox-carry':
     case 'sandbox-stash-update':
+    case 'sandbox-shell':
       return { type: m.type };
+    case 'open-settings':
+      return { type: 'open-settings' };
     case 'show-changes':
       return { type: 'show-changes' };
     case 'open-worktree-terminal':

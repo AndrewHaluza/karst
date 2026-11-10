@@ -14,6 +14,13 @@ describe('repo agent profiles (@arch:PROFILE)', () => {
     expect(section).toContain('$KARST_CLI');
   });
 
+  it('uat-tester tells the probe run to use the Bash timeout parameter, in the foreground', () => {
+    const text = read('uat-tester.md');
+    expect(text).toContain("Bash tool's own `timeout` parameter");
+    expect(text).toContain('600000');
+    expect(text).toContain('seeded rows');
+  });
+
   it('uat-tester declares context: minimal', () => {
     expect(parseProfileContext(read('uat-tester.md'))).toEqual({ context: 'minimal' });
   });

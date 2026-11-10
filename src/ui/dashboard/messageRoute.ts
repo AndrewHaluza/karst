@@ -49,6 +49,10 @@ export function routeAction(
       return actions.sandboxCarry();
     case 'sandbox-stash-update':
       return actions.sandboxStashUpdate();
+    case 'sandbox-shell':
+      return actions.sandboxShell();
+    case 'open-settings':
+      return actions.openSettings();
     case 'show-changes':
       return actions.showChanges();
     case 'open-worktree-terminal':

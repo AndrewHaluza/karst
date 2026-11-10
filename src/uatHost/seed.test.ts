@@ -1,3 +1,4 @@
+import { getPlacement } from '../store/placement.js';
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../store/db.js';
 import { getTicketByKey } from '../store/tickets.js';
@@ -9,6 +10,8 @@ import { listProcessRuns } from '../store/processRuns.js';
 import { listStageRuns } from '../store/stageRuns.js';
 import { parseFixtureFile } from './fixtureFile.js';
 import { seedStore } from './seed.js';
+import { getMergeCheck } from '../store/mergeChecks.js';
+import { listFindings } from '../store/reviewFindings.js';
 
 describe('seedStore', () => {
   it('seeds nothing for empty', () => {
@@ -99,3 +102,42 @@ describe('seedStore', () => {
     expect(row).toEqual({ repo: '/ws/repo', path: '/ws/repo/.karst/worktrees/D-2', base_ref: 'main' });
   });
 });
+
+describe('seedStore engine rows', () => {
+  it('seeds a PR with its merge block, a merge check and review findings through the store APIs', () => {
+    const store = openStore(':memory:');
+    const spec = parseFixtureFile({
+      tickets: [{
+        key: 'T-G', title: 'g', stageCurrent: 'ship',
+        rows: {
+          prs: [{ repo: 'app', number: 5, url: 'https://x/pull/5', status: 'open', baseRef: 'develop', mergeBlock: 'dirty' }],
+          merge_checks: [{ repo: 'app', state: 'conflicted', files: ['a.ts'], headSha: 'h', baseSha: 'b', baseRef: 'develop' }],
+          review_findings: [{ attempt: 1, severity: 'high', repo: 'app', file: 'a.ts', line: 4, title: 't', detail: 'd' }],
+        },
+      }],
+    });
+    const [id] = seedStore(store, spec);
+    expect(store.db.prepare('SELECT number, status, base_ref, merge_block FROM prs WHERE ticket_id = ?').get(id))
+      .toEqual({ number: 5, status: 'open', base_ref: 'develop', merge_block: 'dirty' });
+    expect(getMergeCheck(store, id!, 'app')).toMatchObject({ state: 'conflicted', files: ['a.ts'], headSha: 'h', baseSha: 'b' });
+    expect(listFindings(store, id!)).toHaveLength(1);
+  });
+
+  it('names the worktree row after the manifest repo when worktreeRepo is set', () => {
+    const store = openStore(':memory:');
+    const [id] = seedStore(store, parseFixtureFile({ tickets: [{ key: 'T-W', title: 'w', stageCurrent: 'ship', worktree: true, worktreeRepo: 'app' }] }));
+    expect(store.db.prepare('SELECT repo FROM worktrees WHERE ticket_id = ?').get(id)).toEqual({ repo: 'app' });
+  });
+
+  it('records a host placement, and none when the seed names none', () => {
+    const store = openStore(':memory:');
+    const spec = parseFixtureFile({ tickets: [
+      { key: 'T-P', title: 'p', stageCurrent: 'ship', placement: 'host' },
+      { key: 'T-N', title: 'n', stageCurrent: 'ship' },
+    ] });
+    const [placed, bare] = seedStore(store, spec);
+    expect(getPlacement(store, placed!)).toEqual({ backend: 'host', core: null, sandboxName: null, reason: null });
+    expect(getPlacement(store, bare!)).toBeNull();
+  });
+});
+

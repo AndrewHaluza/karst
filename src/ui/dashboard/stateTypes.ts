@@ -85,6 +85,8 @@ export interface DashboardAgentContext {
   agentSandbox?: boolean;
   /** True while the ticket's last refused sandbox sync was a host rewrite (offers "Carry sandbox commits"). */
   sandboxRewritten?: (ticketId: number) => boolean;
+  /** Whether "Open shell in sandbox" applies now (cached host-side probe; the state builder is sync). */
+  sandboxShell?: (ticketId: number) => { available: boolean; why: string | null };
   /** What the open PRs still lack, measured on the PR refresh ("Deliver to PR"); undefined = nothing. */
   undelivered?: (ticketId: number) => { hostAhead: number; sandboxAhead: number } | undefined;
   /**

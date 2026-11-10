@@ -532,6 +532,10 @@
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
   ],
+  "src/model/priority.ts#effectiveTicketPriority": [
+    "arch:PLANNING-PRIORITY",
+    "arch:QUEUE-ORDER"
+  ],
   "src/model/queueOrder.ts": [
     "arch:QUEUE-ORDER"
   ],
@@ -882,6 +886,9 @@
   "src/uatHost/probe/steps.ts#parseSteps": [
     "arch:UATHOST-00",
     "arch:UATHOST-02"
+  ],
+  "src/uatHost/probe/storeEvidence.ts#readTickets": [
+    "arch:UATHOST-07"
   ],
   "src/uatHost/probe/uiClient.ts": [
     "arch:UATHOST-06"

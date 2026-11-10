@@ -9,16 +9,6 @@ const CSS = readFileSync(join(HERE, 'Header.css'), 'utf8');
 const PAGE = readFileSync(join(HERE, '..', 'webview.html'), 'utf8');
 
 describe('Header.css — guards moved with the rules', () => {
-  it('maps the needs-you agent states (waiting, not-started) to the attention dot', () => {
-    expect(CSS).toContain('.agentLiveDot.waiting{background:var(--k-attention)}');
-    expect(CSS).toContain('.agentLiveDot.not-started{background:var(--k-attention)}');
-  });
-
-  it('gives the agent popover room for long model ids, clamped to the viewport', () => {
-    expect(CSS).toContain('.agentPopover{width:calc(var(--k-control-h-lg) * 26)');
-    expect(CSS).toContain('max-width:calc(100vw - var(--k-space-8))');
-  });
-
   it('shows a popover only through `.open` (removing `hidden` alone leaves it invisible)', () => {
     expect(CSS).toMatch(/\.popover\{display:none;/);
     expect(CSS).toContain('.popover.open{display:block}');

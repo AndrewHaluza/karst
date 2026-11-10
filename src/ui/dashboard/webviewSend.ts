@@ -73,6 +73,8 @@ export function createSender(api: WebviewApi) {
     sandboxRemove: (requestId?: string) => send({ type: 'sandbox-remove' }, requestId),
     sandboxCarry: (requestId?: string) => send({ type: 'sandbox-carry' }, requestId),
     sandboxStashUpdate: (requestId?: string) => send({ type: 'sandbox-stash-update' }, requestId),
+    sandboxShell: (requestId?: string) => send({ type: 'sandbox-shell' }, requestId),
+    openSettings: (requestId?: string) => send({ type: 'open-settings' }, requestId),
     showChanges: (requestId?: string) => send({ type: 'show-changes' }, requestId),
     openWorktreeTerminal: (path: Msg<'open-worktree-terminal'>['path'], requestId?: string) =>
       send({ type: 'open-worktree-terminal', path }, requestId),

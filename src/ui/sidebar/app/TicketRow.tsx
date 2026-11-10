@@ -120,7 +120,7 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
         </span>
       )}
       <span className="k-id" title={`Ticket ${row.idLabel}`}>{row.idLabel}</span>
-      {row.priorityEditable ? <PriorityChip level={row.priority} source="ticket" /> : null}
+      {row.priorityEditable ? <PriorityChip level={row.priority} source={row.prioritySource} provider={{ label: row.providerLabel, level: row.providerPriority }} /> : null}
       <span className="name">{row.label}</span>
       {blockedBy.map((refView, i) => (
         <TicketRefChip

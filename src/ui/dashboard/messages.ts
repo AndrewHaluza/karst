@@ -27,6 +27,9 @@ export type WebviewMessage =
   | { type: 'sandbox-remove' }
   | { type: 'sandbox-carry' }
   | { type: 'sandbox-stash-update' }
+  | { type: 'sandbox-shell' }
+  /** The runtime strip's "Sandbox settings": opens Karst Settings (the backend is set per project). */
+  | { type: 'open-settings' }
   | { type: 'show-changes' }
   | { type: 'open-worktree-terminal'; path: string }
   | { type: 'open-worktree-folder'; path: string }

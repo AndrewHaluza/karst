@@ -453,6 +453,39 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
   });
 
+  it('migrates a pre-v113 database by adding tickets.priority_override, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT NOT NULL, priority TEXT)');
+    legacy.exec("INSERT INTO tickets (id, key, title, priority) VALUES (1,'A-1','t','high')");
+    legacy.pragma('user_version = 112');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('priority_override');
+    expect(
+      (migrated.db.prepare('SELECT priority_override AS d FROM tickets WHERE id = 1').get() as { d: string | null }).d,
+    ).toBeNull();
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'priority_override')).toHaveLength(1);
+  });
+
+  it('a fresh database rejects a tickets.priority_override outside the four levels', () => {
+    const fresh = openStore(':memory:');
+    cleanups.push(() => fresh.close());
+    fresh.db.prepare("INSERT INTO tickets (id, key, title) VALUES (1,'A-1','t')").run();
+    expect(() => fresh.db.prepare("UPDATE tickets SET priority_override = 'bogus' WHERE id = 1").run()).toThrow();
+    fresh.db.prepare("UPDATE tickets SET priority_override = 'urgent' WHERE id = 1").run();
+  });
+
   it('migrates a pre-v63 tickets table by adding the sub-task columns and index, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

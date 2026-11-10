@@ -268,3 +268,34 @@ describe('createDockerSessionRunner.probeSandbox (arch:AC-39)', () => {
     await expect(mk({ code: 1, stderr: 'Cannot connect' }).hasSandbox!()).resolves.toBe(false);
   });
 });
+
+describe('createDockerSessionRunner.shellCommand', () => {
+  const make = (answers: Parameters<typeof fakeDockerProcess>[0]) =>
+    createDockerSessionRunner({ proc: fakeDockerProcess(answers), core: 'opencode', names, user: undefined });
+
+  it('execs a login shell in the running container, in the clone', async () => {
+    const runner = make({ 'docker container inspect': { stdout: 'true' } });
+    await expect(runner.shellCommand!(ticket)).resolves.toEqual({
+      ok: true,
+      cmd: 'docker',
+      args: ['exec', '--interactive', '--tty', '--workdir', '/work/repo', names.container, 'sh', '-l'],
+    });
+  });
+
+  it('says "Sandbox is stopped" when the container is not running', async () => {
+    const runner = make({ 'docker container inspect': { stdout: 'false' } });
+    await expect(runner.shellCommand!(ticket)).resolves.toEqual({ ok: false, reason: 'Sandbox is stopped' });
+  });
+
+  it('says "No sandbox yet" when the clone volume is absent', async () => {
+    const runner = make({ 'docker volume inspect': { code: 1, stderr: 'Error: No such volume' } });
+    await expect(runner.shellCommand!(ticket)).resolves.toEqual({ ok: false, reason: 'No sandbox yet' });
+  });
+
+  it('reports a docker CLI that cannot answer, never "no sandbox"', async () => {
+    const runner = make({ 'docker volume inspect': { code: 127, stderr: 'not found' } });
+    const out = await runner.shellCommand!(ticket);
+    expect(out).toMatchObject({ ok: false });
+    expect(out.ok === false && out.reason).toContain('docker');
+  });
+});

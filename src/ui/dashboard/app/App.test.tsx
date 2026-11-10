@@ -9,7 +9,7 @@ describe('Dashboard App (Phase 1 Shell)', () => {
   beforeEach(() => {
     // The page's migrated-panel containers (webview.html): RegionPortal renders into these.
     document.body.innerHTML =
-      '<div class="dhead"></div><div id="headerMeta" class="headerMeta" hidden></div>'
+      '<div class="dhead"></div><div id="headerMeta" class="headerMeta" hidden></div><div id="runtimeRoot" data-region="runtime"></div>'
       + '<div id="viewsRoot" class="viewsroot hidden" data-region="views"></div>'
       + '<div class="railwrap" id="rail"></div><div id="inside"></div><div class="fault blocked hidden" id="blocked"></div>'
       + '<div class="panel span hidden" id="subtaskPanel"><div class="phead">Sub-tasks<span id="subtaskCount"></span></div><div id="subtasks"></div></div>'
@@ -42,7 +42,7 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     expect(screen.getByTestId('dashboard-app-root').hasAttribute('data-react-owned')).toBe(true);
   });
 
-  it('renders SandboxStrip when dashboard state has a sandbox view', () => {
+  it('renders the RuntimeStrip when dashboard state has a sandbox view', () => {
     const bridge = {
       send: createSender({ postMessage: () => {} }),
       getState: () => ({
@@ -62,7 +62,7 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     };
 
     render(<App bridge={bridge} />);
-    expect(screen.getByTestId('sandbox-strip')).toBeTruthy();
+    expect(screen.getByTestId('runtime-strip')).toBeTruthy();
   });
 
   it('signals ready only once the DOM shows the first state the host pushed before the app subscribed', () => {
@@ -81,7 +81,7 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     const original = root.setAttribute.bind(root);
     const seenAtReady: boolean[] = [];
     root.setAttribute = (name: string, value: string): void => {
-      if (name === 'data-karst-ready') seenAtReady.push(screen.queryByTestId('sandbox-strip') !== null);
+      if (name === 'data-karst-ready') seenAtReady.push(screen.queryByTestId('runtime-strip') !== null);
       original(name, value);
     };
     try {

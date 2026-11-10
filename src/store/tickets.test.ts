@@ -106,6 +106,7 @@ describe('ticketLabel', () => {
     autostartStarting: false,
     autostartClaimedAt: null,
     priority: null,
+    priorityOverride: null,
     serversOnDone: null,
   };
 

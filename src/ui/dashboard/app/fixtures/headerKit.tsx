@@ -1,4 +1,5 @@
 /** Shared fixtures and harness for the header tests: a complete-enough state, the static roots, and the runtime doubles. */
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import type { HostMessage } from '../../messages.js';
@@ -8,6 +9,7 @@ import { DashboardAppProvider, useOverlays, usePendingOps } from '../DashboardAp
 import type { OverlayStack } from '../overlayStack.js';
 import type { PendingOps } from '../pendingOps.js';
 import { Header } from '../Header.js';
+import { RuntimeStrip } from '../RuntimeStrip.js';
 
 export const headerState = (over: Record<string, unknown> = {}): DashboardState =>
   ({
@@ -66,10 +68,21 @@ function OpsProbe({ onOps, onOverlays }: { readonly onOps: (ops: PendingOps) => 
 const SENDERS = [
   'copyTicketKey', 'copyTicketMarkdown', 'openTicketMarkdown', 'openTicketLink', 'openDependency', 'detachSubtask', 'closeTicket', 'reopenTicket', 'editTicket',
   'pauseExecution', 'unpauseExecution', 'createFollowUpTicket', 'setDisabledGates', 'toggleBind', 'switchAgent', 'shipTicket',
+  'sandboxSync', 'sandboxDiff', 'sandboxStashUpdate', 'sandboxShell', 'sandboxStop', 'sandboxRemove', 'sandboxCarry', 'openSettings',
 ] as const;
 
 export function mountHeader(initial: DashboardState | null): HeaderHarness {
   document.body.innerHTML = '<div class="dhead"></div><div id="headerMeta" class="headerMeta" hidden></div>';
+  return mountInto(initial, <Header />);
+}
+
+/** Mounts the runtime strip (it draws in place: the strip tests do not need the static roots). */
+export function mountRuntime(initial: DashboardState | null): HeaderHarness {
+  document.body.innerHTML = '';
+  return mountInto(initial, <RuntimeStrip />);
+}
+
+function mountInto(initial: DashboardState | null, ui: ReactNode): HeaderHarness {
   let listener: ((message: HostMessage) => void) | null = null;
   const send = Object.fromEntries(SENDERS.map((name) => [name, vi.fn()])) as HeaderHarness['send'];
   const bridge: DashboardHostBridge = {
@@ -88,7 +101,7 @@ export function mountHeader(initial: DashboardState | null): HeaderHarness {
   render(
     <DashboardAppProvider bridge={bridge}>
       <OpsProbe onOps={(o) => (ops = o)} onOverlays={(o) => (overlays = o)} />
-      <Header />
+      {ui}
     </DashboardAppProvider>,
   );
   return { send, ops: () => ops!, overlays: () => overlays!, emit: (message) => act(() => listener?.(message)) };

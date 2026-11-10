@@ -1,15 +1,12 @@
 /**
- * The header's agent button and its switch popover. The popover stages a draft core / model / effort and does
+ * The agent switch form inside the runtime strip's agent popover. It stages a draft core / model / effort and does
  * nothing until the picker's "Switch agent" is clicked; the draft is a suggestion, never authority (the host re-validates
  * the `switch-agent` message). The shared agent identity picker is a vanilla runtime (`mountAgentPicker`), so it
- * is wrapped in one empty container React never reconciles children into. The open state lives in `Header`.
+ * is wrapped in one empty container React never reconciles children into. The open state lives in `RuntimeStrip`.
  */
-import { memo, useLayoutEffect, useRef } from 'react';
-import { Icon } from './Icon.js';
+import { useLayoutEffect, useRef } from 'react';
 import { useDashboardSend } from './DashboardAppContext.js';
-import { agentName, RuntimeIcon } from './AgentIcon.js';
-import { selectAgent, type AgentSlice } from './headerSlices.js';
-import { useSlice } from './useSlice.js';
+import type { AgentSlice } from './headerSlices.js';
 import type { DashboardSender } from './hostBridge.js';
 
 interface PickerValue {
@@ -56,7 +53,7 @@ function pickerOptions(agent: AgentSlice, handlers: PickerHandlers): Record<stri
   };
 }
 
-function SwitchForm({ agent, open, close }: { readonly agent: AgentSlice; readonly open: boolean; readonly close: () => void }) {
+export function AgentSwitchForm({ agent, open, close }: { readonly agent: AgentSlice; readonly open: boolean; readonly close: () => void }) {
   const send: DashboardSender = useDashboardSend();
   const rootRef = useRef<HTMLDivElement>(null);
   const latest = useRef(agent);
@@ -94,55 +91,3 @@ function SwitchForm({ agent, open, close }: { readonly agent: AgentSlice; readon
     </div>
   );
 }
-
-export const AgentPopover = memo(function AgentPopover({
-  open,
-  onToggle,
-  close,
-}: {
-  readonly open: boolean;
-  readonly onToggle: () => void;
-  readonly close: () => void;
-}) {
-  const agent = useSlice(selectAgent);
-  const session = agent?.session;
-  const st = agent?.agentState ?? 'idle';
-  const canSwitch = session ? session.canSwitch : true;
-  return (
-    <div className="agentWrap">
-      <button
-        id="agentButton"
-        type="button"
-        className="agentButton"
-        aria-expanded={open ? 'true' : 'false'}
-        aria-haspopup="dialog"
-        title={canSwitch ? 'Switch the agent core and model' : 'Cannot switch while a fix recovery is running'}
-        disabled={!canSwitch}
-        onClick={onToggle}
-      >
-        <span id="agentCore" className="k-agent-core">
-          {session ? (
-            <span className="agentbadge">
-              <RuntimeIcon kind="agent" provider={session.provider} />
-              <span className="agentname">{agentName(session.provider)}</span>
-            </span>
-          ) : null}
-        </span>
-        <span aria-hidden="true" className="agentSep">
-          ·
-        </span>
-        <span id="agentModel" className="agentMeta">
-          {session?.modelLabel}
-        </span>
-        <span className="agentLive">
-          <span id="agentDot" className={`agentLiveDot ${st}`} />
-          <span id="agentLiveText">{st}</span>
-        </span>
-        <Icon name="chevron-down" />
-      </button>
-      <div id="agentPopover" className={open ? 'popover agentPopover open' : 'popover agentPopover hidden'} role="dialog" aria-label="Switch active agent">
-        {agent ? <SwitchForm agent={agent} open={open} close={close} /> : null}
-      </div>
-    </div>
-  );
-});

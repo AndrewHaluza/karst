@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
+import { WEB_SERVER_TIMEOUT_MS } from './tests/visual/serveLimits.mjs';
 
 /**
  * Playwright config for the karst visual-regression sweep.
@@ -70,7 +71,8 @@ export default defineConfig({
     command: 'node tests/visual/serve.mjs',
     url: 'http://127.0.0.1:4317/healthz',
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    // Covers the whole serve.mjs start (bundles + fixtures + listen); it must exceed the 60 s fixture limit in serve.mjs.
+    timeout: WEB_SERVER_TIMEOUT_MS,
   },
 
   forbidOnly: !!process.env.CI,

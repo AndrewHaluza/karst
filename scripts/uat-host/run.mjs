@@ -155,13 +155,21 @@ mkdirSync(launchDir, { recursive: true });
 // what actually runs. VS Code re-resolves PATH from a login shell unless it
 // believes it was launched from the CLI (VSCODE_CLI=1), which would drop the shims.
 const shimDir = join(root, 'shims');
-if (launchMode) {
-  mkdirSync(shimDir, { recursive: true });
+// The fake `gh` (ghStub.mjs) answers from the fixture file's PR rows, so a seeded PR reaches the ship and Autopilot paths.
+// Every mode but eval gets the shims: a fake core never runs the real CLI either, and the dependency preflight must pass. Eval mode keeps the real tools.
+const ghStub = !evalCore;
+if (launchMode || ghStub) mkdirSync(shimDir, { recursive: true });
+if (launchMode || ghStub) {
   for (const cli of ['claude', 'codex', 'agy', 'opencode']) {
     const shim = join(shimDir, cli);
     writeFileSync(shim, '#!/bin/sh\nexit 0\n');
     chmodSync(shim, 0o755);
   }
+}
+if (ghStub) {
+  const ghShim = join(shimDir, 'gh');
+  writeFileSync(ghShim, `#!/bin/sh\nexec "${process.execPath}" "${join(here, 'ghStub.mjs')}" "$@"\n`);
+  chmodSync(ghShim, 0o755);
 }
 let evalPreflight;
 if (evalCore) {
@@ -204,9 +212,8 @@ try {
       // The fixture file's `fakeCore` script; its path passed the containment check above and the host ignores it unless KARST_FAKE_CORE=1.
       ...(fixtureFilePath ? { KARST_FAKE_CORE_SCRIPT: fixtureFilePath } : {}),
       ...(evalCore ? evalTestsEnv({ pathValue: process.env.PATH ?? '', proxyUrl: process.env.EVAL_PROXY_URL }) : {}),
-      ...(launchMode
-        ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir, PATH: `${shimDir}:${process.env.PATH}`, VSCODE_CLI: '1' }
-        : {}),
+      ...(launchMode ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir } : {}),
+      ...(launchMode || ghStub ? { PATH: `${shimDir}:${process.env.PATH}`, VSCODE_CLI: '1' } : {}),
       UAT_EXPECT_TICKETS: String(tickets),
       UAT_DB_PATH: dbPath,
       ...probeEnv,

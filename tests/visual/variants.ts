@@ -75,12 +75,16 @@ export interface Variant {
   readonly agentPopover?: AgentPopoverSteps;
   /** Dashboard ticket details drawer: open it from the doc icon after load, then pick a tab. */
   readonly ticketDetails?: TicketDetailsSteps;
+  /** Dashboard runtime strip: open this popover after load (the sandbox details or the ⋯ menu). */
+  readonly runtimeOpen?: RuntimeOpen;
 }
 
 /** The interaction steps of a ticket-details drawer variant: open it from the doc icon, then pick a tab. */
 export interface TicketDetailsSteps {
   readonly tab?: 'desc' | 'raw';
 }
+
+export type RuntimeOpen = 'sandbox' | 'more';
 
 /** The interaction steps of an agent-popover variant. */
 export interface AgentPopoverSteps {
@@ -103,6 +107,7 @@ function variant(
     pills?: readonly string[];
     agentPopover?: AgentPopoverSteps;
     ticketDetails?: TicketDetailsSteps;
+    runtimeOpen?: RuntimeOpen;
   } = {},
 ): Variant {
   return {
@@ -115,6 +120,7 @@ function variant(
     ...(opts.pills === undefined ? {} : { pills: opts.pills }),
     ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
     ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),
+    ...(opts.runtimeOpen === undefined ? {} : { runtimeOpen: opts.runtimeOpen }),
   };
 }
 
@@ -305,6 +311,59 @@ const ticketDetailsVariants = (): Variant[] =>
     ),
   );
 
+type SandboxView = NonNullable<DashboardState['sandbox']>;
+const SBX_VIEW: SandboxView = {
+  backend: 'docker',
+  core: 'claude',
+  workspace: 'clone',
+  network: 'allowlist proxy on an internal network',
+  actions: true,
+  carry: false,
+  shell: { available: true, why: null },
+};
+const HOST_VIEW: SandboxView = {
+  backend: 'host',
+  core: 'claude',
+  workspace: 'worktree',
+  network: 'none (host)',
+  actions: false,
+  carry: false,
+  shell: { available: false, why: 'No sandbox yet' },
+};
+
+/** The runtime strip: one scenario per state. Each state shoots at wide, mid and narrow. */
+const RUNTIME_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState]> = [
+  ['docker', (s) => ({ ...s, sandbox: SBX_VIEW })],
+  ['sbx', (s) => ({ ...s, sandbox: { ...SBX_VIEW, backend: 'sbx', network: 'sbx network policy (allowlist)' } })],
+  ['carry', (s) => ({ ...s, sandbox: { ...SBX_VIEW, carry: true } })],
+  ['shell-off', (s) => ({ ...s, sandbox: { ...SBX_VIEW, shell: { available: false, why: 'Sandbox is stopped' } } })],
+  ['host-ok', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'core-native' } })],
+  ['host-warn', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'prompted' } })],
+  ['host-note', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'prompted', note: 'antigravity: sbx backend unsupported' } })],
+  ['locked', (s) => ({ ...s, sandbox: SBX_VIEW, agentSession: s.agentSession && { ...s.agentSession, canSwitch: false } })],
+  ['idle-effort', (s) => ({ ...s, agentState: 'idle', sandbox: SBX_VIEW, agentSession: s.agentSession && { ...s.agentSession, effort: 'high' } })],
+];
+const RUNTIME_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
+
+const runtimeStripVariants = (): Variant[] => [
+  ...RUNTIME_STATES.flatMap(([id, patch]) =>
+    RUNTIME_TIERS.map(([tier, width]) =>
+      variant('dashboard', `runtime-${id}-${tier}`, dashboardScenario('running', 2, patch), { skipLayout: true, width }),
+    ),
+  ),
+  ...(['sandbox', 'more'] as const).flatMap((open) =>
+    RUNTIME_TIERS.map(([tier, width]) =>
+      variant('dashboard', `runtime-${open}-open-${tier}`, dashboardScenario('running', 2, (s) => ({ ...s, sandbox: SBX_VIEW })), {
+        skipLayout: true,
+        width,
+        runtimeOpen: open,
+      }),
+    ),
+  ),
+  // The first runtime variant keeps full layout checks (the strip is new page layout).
+  variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({ ...s, sandbox: SBX_VIEW }))),
+];
+
 const dashboardVariants = (): Variant[] => [
   variant('dashboard', 'populated', dashboardScenario('running', 10), { baseline: 'dashboard-running', themes: ALL_THEMES }),
   ...(['pending', 'passed', 'failed', 'waiting', 'exhausted'] as const).map((s) =>
@@ -352,17 +411,7 @@ const dashboardVariants = (): Variant[] => [
   })), { skipLayout: true }),
   // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
   variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'], skipLayout: true }),
-  variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({
-    ...s,
-    sandbox: {
-      backend: 'docker',
-      core: 'claude',
-      workspace: 'clone',
-      network: 'allowlist proxy on an internal network',
-      actions: true,
-      carry: false,
-    },
-  }))),
+  ...runtimeStripVariants(),
   // D203: the Servers panel's read-only shared half — one running from the base
   // branch, one stopped — beside the ticket's own rows.
   variant('dashboard', 'shared-services', dashboardScenario('running', 2, (s) => ({
