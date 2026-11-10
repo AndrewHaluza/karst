@@ -21,10 +21,19 @@ interface ListItem {
   readonly children: readonly string[];
 }
 
-const HEADING_RE = /^(#{1,4}) +(.*?)\s*#*\s*$/;
+const HEADING_RE = /^(#{1,4}) +(.*)$/;
 const ITEM_RE = /^( *)([-*]|\d+\.) +(.*)$/;
 const FENCE_RE = /^ {0,3}(`{3,})/;
 const NEST_INDENT = 2;
+
+/** The heading text without its trailing spaces and closing hashes, in linear time (a regex for it backtracks). */
+function headingText(raw: string): string {
+  let end = raw.length;
+  while (end > 0 && /\s/.test(raw[end - 1]!)) end--;
+  while (end > 0 && raw[end - 1] === '#') end--;
+  while (end > 0 && /\s/.test(raw[end - 1]!)) end--;
+  return raw.slice(0, end);
+}
 
 /** Blocks of the Markdown subset; every line no rule claims ends up in a paragraph as literal text. */
 function parseBlocks(markdown: string): Block[] {
@@ -50,8 +59,9 @@ function parseBlocks(markdown: string): Block[] {
     if (heading) {
       flush();
       const level = heading[1]!.length as 1 | 2 | 3 | 4;
-      blocks.push({ kind: 'heading', level, text: heading[2]! });
-      inConstraints = `${heading[1]} ${heading[2]}` === CONSTRAINTS_HEADING;
+      const text = headingText(heading[2]!);
+      blocks.push({ kind: 'heading', level, text });
+      inConstraints = `${heading[1]} ${text}` === CONSTRAINTS_HEADING;
       continue;
     }
     const item = ITEM_RE.exec(line);

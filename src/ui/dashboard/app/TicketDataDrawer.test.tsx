@@ -51,6 +51,8 @@ describe('TicketDataDrawer', () => {
 
   it('shows Brief, As sent to agent and no Original tab when description equals the brief body', () => {
     open(state({ brief: fetched, description: 'Body' }));
+    const panel = must('[role=tabpanel]');
+    for (const t of document.querySelectorAll('[role=tab]')) expect(t.getAttribute('aria-controls')).toBe(panel.id);
     const labels = [...document.querySelectorAll('[role=tab]')].map((t) => t.textContent);
     expect(labels).toContain('Brief');
     expect(labels).toContain('As sent to agent');

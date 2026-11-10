@@ -59,4 +59,16 @@ describe('MarkdownView', () => {
   it('renders nothing for an empty text', () => {
     expect(view('').children).toHaveLength(0);
   });
+
+  it('strips closing hashes and spaces from a heading', () => {
+    expect(view('# Title ##  ').querySelector('h4')?.textContent).toBe('Title');
+    expect(view('# ##').querySelector('h4')?.textContent).toBe('');
+  });
+
+  it('parses a heading line of many spaces and hashes in linear time', () => {
+    const hostile = `# a${' #'.repeat(20000)}x${' '.repeat(20000)}y`;
+    const start = Date.now();
+    view(hostile);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
 });

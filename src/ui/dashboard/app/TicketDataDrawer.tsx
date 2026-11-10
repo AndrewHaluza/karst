@@ -96,7 +96,7 @@ function Tabs({ view, tab, onTab }: { readonly view: TicketDetailsView; readonly
     <div className="tdTabRow">
       <div className="tdTabs" role="tablist" aria-label="Ticket details" onKeyDown={onKeyDown}>
         {view.tabs.map((t) => (
-          <button key={t.id} type="button" role="tab" id={`tdTab-${t.id}`} className="tdTab" aria-selected={t.id === tab} aria-controls="ticketDataBody" tabIndex={t.id === tab ? 0 : -1} onClick={() => onTab(t.id)}>
+          <button key={t.id} type="button" role="tab" id={`tdTab-${t.id}`} className="tdTab" aria-selected={t.id === tab} aria-controls="ticketDataPanel" tabIndex={t.id === tab ? 0 : -1} onClick={() => onTab(t.id)}>
             {t.label}
           </button>
         ))}
@@ -130,7 +130,7 @@ function DrawerBody({ view, tab }: { readonly view: TicketDetailsView; readonly 
   return (
     <div className="tdLayout">
       {tab === 'raw' ? null : <Facts view={view} />}
-      <div className="tdMain" role="tabpanel" aria-labelledby={`tdTab-${tab}`}>
+      <div className="tdMain" id="ticketDataPanel" role="tabpanel" aria-labelledby={`tdTab-${tab}`}>
         <Main view={view} tab={tab} />
       </div>
     </div>
