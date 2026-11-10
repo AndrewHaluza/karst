@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { join, basename } from 'node:path';
+import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { QuotaWindow } from './types.js';
 
@@ -68,6 +70,8 @@ export interface ClaudeUsageApiDeps {
 /** The fully resolved options one request needs (config dir and clock injected). */
 export interface ClaudeUsageOptions extends ClaudeUsageApiDeps {
   configDir: string;
+  /** Home folder that decides which config dir is the default one (tests). */
+  homeDir?: string;
   now: () => Date;
 }
 
@@ -161,16 +165,16 @@ function expired(credentials: ClaudeCredentials, now: Date): boolean {
 }
 
 /**
- * The Keychain services to try, in order: the per-config-dir suffixed item
- * first when a custom `CLAUDE_CONFIG_DIR` is in play (that is the CLI's item for
- * this profile), then the default item. A lookup that misses falls through to
- * the next candidate; nothing is written.
+ * The Keychain services to try. The default folder (`~/.claude`) uses the plain
+ * item. Claude Code names the item of any other `CLAUDE_CONFIG_DIR` with the
+ * first 8 hex characters of the SHA-256 of that folder path (verified on
+ * macOS: item NAMES only). A non-default account NEVER falls back to the
+ * default item: that would report the default account's usage as its own.
  */
-export function claudeKeychainServices(configDir: string): string[] {
-  const name = basename(configDir);
-  return name === '.claude'
-    ? [CLAUDE_KEYCHAIN_SERVICE]
-    : [`${CLAUDE_KEYCHAIN_SERVICE}-${name}`, CLAUDE_KEYCHAIN_SERVICE];
+export function claudeKeychainServices(configDir: string, homeDir: string = homedir()): string[] {
+  if (configDir === join(homeDir, '.claude')) return [CLAUDE_KEYCHAIN_SERVICE];
+  const suffix = createHash('sha256').update(configDir).digest('hex').slice(0, 8);
+  return [`${CLAUDE_KEYCHAIN_SERVICE}-${suffix}`];
 }
 
 /** The real Keychain reader — async so a locked keychain never blocks the host. */
@@ -197,11 +201,12 @@ export async function readClaudeOAuthToken(options: {
   now: Date;
   platform?: NodeJS.Platform;
   runSecurity?: RunSecurity;
+  homeDir?: string;
 }): Promise<ClaudeTokenLookup> {
   const platform = options.platform ?? process.platform;
   if (platform === 'darwin') {
     const run = options.runSecurity ?? runSecurityFindGenericPassword;
-    for (const service of claudeKeychainServices(options.configDir)) {
+    for (const service of claudeKeychainServices(options.configDir, options.homeDir)) {
       const raw = await run(service);
       if (raw === null) continue;
       const credentials = parseClaudeCredentials(raw);
@@ -256,6 +261,7 @@ export async function fetchClaudeUsage(options: ClaudeUsageOptions): Promise<Cla
     now: options.now(),
     platform: options.platform,
     runSecurity: options.runSecurity,
+    homeDir: options.homeDir,
   });
   if (lookup.state === 'unknown') return lookup;
 
@@ -310,17 +316,21 @@ export async function fetchClaudeUsage(options: ClaudeUsageOptions): Promise<Cla
  */
 export class ClaudeUsageClient {
   private blockedUntil = 0;
+  private blockedDir: string | undefined;
 
   constructor(private readonly options: ClaudeUsageOptions) {}
 
-  async read(): Promise<ClaudeUsageResult> {
+  /** `configDir` overrides the constructor folder: the active account can change between reads. */
+  async read(configDir: string = this.options.configDir): Promise<ClaudeUsageResult> {
     const now = this.options.now();
-    if (now.getTime() < this.blockedUntil) {
+    // A 429 backoff belongs to the account that got it.
+    if (now.getTime() < this.blockedUntil && this.blockedDir === configDir) {
       return { state: 'unknown', reason: 'the Claude usage API is still rate limited (429)' };
     }
-    const result = await fetchClaudeUsage(this.options);
+    const result = await fetchClaudeUsage({ ...this.options, configDir });
     if (result.state === 'unknown' && result.retryAfterMs !== undefined) {
       this.blockedUntil = now.getTime() + result.retryAfterMs;
+      this.blockedDir = configDir;
     }
     if (result.state === 'unknown') {
       this.options.debug?.(`karst: Claude usage API unavailable: ${result.reason}`);

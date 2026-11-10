@@ -3,6 +3,8 @@
  * machine-local store (like `configureOpencode2`). Adapters call
  * `accountLaunchFor` at every spawn; with no config it is the default no-op.
  */
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { AccountNotFoundError, activeAccountName, resolveAccountLaunch, type AccountLaunch } from './resolve.js';
 import { DEFAULT_ACCOUNT, isAccountCore, type AccountCore, type AccountsConfig } from './types.js';
 
@@ -39,6 +41,21 @@ export function activeAccountLabel(core: string): string | undefined {
   if (!isAccountCore(core)) return undefined;
   const name = activeAccountName(config, core);
   return name === DEFAULT_ACCOUNT ? undefined : name;
+}
+
+/**
+ * Every Claude config folder karst may have written to: the default folder and
+ * the folder of each listed Claude account (the OFF restore of the global
+ * statusline walks them all). A deleted account is not listed, so its folder is
+ * out of reach; its backup stays in place.
+ */
+export function claudeAccountConfigDirs(base: NodeJS.ProcessEnv = process.env, home: string = homedir()): string[] {
+  const dirs = new Set<string>([base.CLAUDE_CONFIG_DIR || join(home, '.claude')]);
+  for (const name of Object.keys(config.claude?.list ?? {})) {
+    const dir = accountLaunchFor('claude', '', name).env.CLAUDE_CONFIG_DIR;
+    if (dir) dirs.add(dir);
+  }
+  return [...dirs];
 }
 
 const READER_CORES: readonly AccountCore[] = ['claude', 'codex', 'antigravity', 'opencode'];

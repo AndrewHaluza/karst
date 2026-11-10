@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
-import { accountReaderEnv } from '../accounts/registry.js';
+import { accountReaderEnv, activeAccountLabel } from '../accounts/registry.js';
+import { DEFAULT_ACCOUNT } from '../accounts/types.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { codexQuotaReader } from './codex.js';
 import { claudeQuotaReader } from './claude.js';
@@ -36,31 +37,80 @@ export interface QuotaServiceDeps {
   onDidChange?: (snapshots: QuotaSnapshot[]) => void;
 }
 
+/** Cache key: one snapshot per core AND account (`default` = no override, @arch:AC-48). */
+function cacheKey(core: AgentProvider, account: string | undefined): string {
+  return `${core}:${account ?? DEFAULT_ACCOUNT}`;
+}
+
 export class QuotaService {
-  private readonly byCore = new Map<AgentProvider, QuotaSnapshot>();
+  private readonly byKey = new Map<string, QuotaSnapshot>();
   private timer: ReturnType<typeof setInterval> | undefined;
+  private running: Promise<QuotaSnapshot[]> | undefined;
+  private again = false;
 
   constructor(private readonly deps: QuotaServiceDeps) {}
 
-  /** Cached snapshots, in reader order. Never reads — safe on any path. */
+  /**
+   * Cached snapshots of the ACTIVE account of each core, in reader order. Never
+   * reads — safe on any path. A core whose active account has no read yet shows
+   * `unknown`, never the snapshot of another account.
+   */
   snapshots(): QuotaSnapshot[] {
     return this.deps.readers
-      .map((reader) => this.byCore.get(reader.core))
+      .map((reader) => this.get(reader.core))
       .filter((snapshot): snapshot is QuotaSnapshot => snapshot !== undefined);
   }
 
-  /** One core's cached snapshot, or undefined before the first refresh. */
+  /** One core's cached snapshot for its active account, or undefined before the first refresh. */
   get(core: AgentProvider): QuotaSnapshot | undefined {
-    return this.byCore.get(core) ?? (core === 'opencode2' ? this.byCore.get('opencode') : undefined);
+    const target = core === 'opencode2' && !this.hasReader(core) ? 'opencode' : core;
+    const account = activeAccountLabel(target);
+    const cached = this.getFor(target, account);
+    if (cached !== undefined || account === undefined) return cached;
+    return { core: target, state: 'unknown', reason: `reading quota for account ${account}…` };
+  }
+
+  /** The cached snapshot of one named account (a launch under a recorded account). */
+  getFor(core: AgentProvider, account: string | undefined): QuotaSnapshot | undefined {
+    const target = core === 'opencode2' && !this.hasReader(core) ? 'opencode' : core;
+    return this.byKey.get(cacheKey(target, account));
+  }
+
+  private hasReader(core: AgentProvider): boolean {
+    return this.deps.readers.some((reader) => reader.core === core);
   }
 
   /**
-   * Read every core NOW and replace the cache. A reader that throws is reported
-   * as that core's `unknown` — one broken reader must not blank the others.
-   * Async: every read is async file I/O, so this never blocks the host.
+   * Read every core NOW and cache by account. Calls that arrive while a pass
+   * runs share it and queue ONE more pass. A reader that throws is reported as
+   * that core's `unknown`. A read that ended under another active account is
+   * dropped and read again. Async: never blocks the host.
    */
-  async refresh(): Promise<QuotaSnapshot[]> {
+  refresh(): Promise<QuotaSnapshot[]> {
+    if (this.running !== undefined) {
+      this.again = true;
+      return this.running;
+    }
+    this.running = this.runPasses().finally(() => {
+      this.running = undefined;
+    });
+    return this.running;
+  }
+
+  private async runPasses(): Promise<QuotaSnapshot[]> {
+    do {
+      this.again = false;
+      await this.readAll();
+    } while (this.again);
+    const snapshots = this.snapshots();
+    this.deps.onDidChange?.(snapshots);
+    return snapshots;
+  }
+
+  private async readAll(): Promise<void> {
     for (const reader of this.deps.readers) {
+      const account = activeAccountLabel(reader.core);
+      this.deps.debug?.(`karst: quota read core=${reader.core} account=${account ?? DEFAULT_ACCOUNT}`);
       let snapshot: QuotaSnapshot;
       try {
         snapshot = await reader.read();
@@ -69,11 +119,12 @@ export class QuotaService {
         snapshot = { core: reader.core, state: 'unknown', reason: `read failed: ${message}` };
         this.deps.debug?.(`karst: quota read failed for ${reader.core}: ${message}`);
       }
-      this.byCore.set(reader.core, snapshot);
+      if (activeAccountLabel(reader.core) !== account) {
+        this.again = true;
+        continue;
+      }
+      this.byKey.set(cacheKey(reader.core, account), snapshot);
     }
-    const snapshots = this.snapshots();
-    this.deps.onDidChange?.(snapshots);
-    return snapshots;
   }
 
   /** Begin polling. Idempotent. Kicks one refresh off, unawaited. */
@@ -114,6 +165,8 @@ export interface DefaultQuotaReadersDeps {
    * toggle reaches the reader without a reload.
    */
   claudeOauthUsageApi?: () => boolean;
+  /** Debug sink for the reader lines (the folder only, never a token). */
+  debug?: (message: string) => void;
   /** Test seams for the API fallback (production uses the platform defaults). */
   fetchFn?: typeof fetch;
   platform?: NodeJS.Platform;
@@ -141,6 +194,7 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
       homeDir,
       env,
       now,
+      ...(deps.debug ? { debug: deps.debug } : {}),
       usageApi: {
         enabled: () => deps.claudeOauthUsageApi?.() === true,
         fetchFn: deps.fetchFn,

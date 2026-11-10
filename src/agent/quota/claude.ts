@@ -99,6 +99,8 @@ export interface ClaudeQuotaDeps {
   usageApi?: ClaudeUsageApiDeps;
   /** Override the cache freshness window (tests). */
   cacheFreshMs?: number;
+  /** One line per read: the folder only, never a token (@arch:AC-48). */
+  debug?: (message: string) => void;
 }
 
 /** The statusline cache plus the age the freshness check needs. */
@@ -114,9 +116,9 @@ interface CacheRead {
  * read as stale — an expired window must not drive the amber badge or the
  * launch warning.
  */
-async function readStatuslineCache(deps: ClaudeQuotaDeps, now: Date): Promise<CacheRead> {
+async function readStatuslineCache(configDir: string, now: Date): Promise<CacheRead> {
   const core = 'claude' as const;
-  const cachePath = join(claudeConfigDir(deps.env, deps.homeDir ?? homedir()), RELATIVE_CACHE);
+  const cachePath = join(configDir, RELATIVE_CACHE);
   let raw: string;
   try {
     raw = await readFile(cachePath, 'utf8');
@@ -178,13 +180,19 @@ function createClaudeQuotaRead(deps: ClaudeQuotaDeps): () => Promise<QuotaSnapsh
       : new ClaudeUsageClient({
           ...usageApi,
           configDir: claudeConfigDir(deps.env, deps.homeDir ?? homedir()),
+          homeDir: deps.homeDir,
           now,
         });
-  let lastGood: QuotaKnown | undefined;
+  // Last good snapshot PER config folder: one account's numbers never answer for another.
+  const lastGoodByDir = new Map<string, QuotaKnown>();
 
   return async (): Promise<QuotaSnapshot> => {
     const at = now();
-    const cache = await readStatuslineCache(deps, at);
+    // The active account can change between reads: resolve the folder at every read.
+    const configDir = claudeConfigDir(deps.env, deps.homeDir ?? homedir());
+    deps.debug?.(`karst: Claude quota read folder=${configDir}`);
+    const lastGood = lastGoodByDir.get(configDir);
+    const cache = await readStatuslineCache(configDir, at);
     const fresh =
       cache.mtimeMs !== null &&
       at.getTime() - cache.mtimeMs <= (deps.cacheFreshMs ?? CLAUDE_CACHE_FRESH_MS);
@@ -193,20 +201,21 @@ function createClaudeQuotaRead(deps: ClaudeQuotaDeps): () => Promise<QuotaSnapsh
       usageApi?.enabled() !== true ||
       (cache.snapshot.state === 'ok' && fresh)
     ) {
-      if (cache.snapshot.state === 'ok') lastGood = cache.snapshot;
+      if (cache.snapshot.state === 'ok') lastGoodByDir.set(configDir, cache.snapshot);
       return cache.snapshot;
     }
 
-    const result = await client.read();
+    const result = await client.read(configDir);
     if (result.state === 'ok') {
-      lastGood = {
+      const known: QuotaKnown = {
         core: 'claude',
         state: 'ok',
         windows: result.windows,
         source: API_SOURCE,
         readAt: at.toISOString(),
       };
-      return lastGood;
+      lastGoodByDir.set(configDir, known);
+      return known;
     }
     // A failed call never blanks a value we already showed: the statusline
     // cache wins (it is still provider data), then the last API/cache snapshot.

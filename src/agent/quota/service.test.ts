@@ -403,3 +403,76 @@ describe('defaultQuotaReaders opencode auth path', () => {
     expect(await reason()).toContain('/acct/w/opencode/auth.json');
   });
 });
+
+describe('QuotaService per-account cache (T1076)', () => {
+  const acct = (dir: string) => ({ kind: 'subscription' as const, source: 'folder' as const, dir });
+  const twoClaude = (active: string) =>
+    configureAccounts({ claude: { active, list: { work: acct('/acct/work'), home: acct('/acct/home') } } });
+  afterEach(() => resetAccounts());
+
+  it('never shows the snapshot of another account under the active account', async () => {
+    twoClaude('work');
+    const service = new QuotaService({ readers: [okReader('claude', 90)] });
+    await service.refresh();
+    expect(service.get('claude')).toMatchObject({ state: 'ok' });
+    twoClaude('home');
+    expect(service.get('claude')).toMatchObject({ core: 'claude', state: 'unknown', reason: 'reading quota for account home…' });
+    expect(service.snapshots()).toEqual([expect.objectContaining({ state: 'unknown' })]);
+    twoClaude('work');
+    expect(service.get('claude')).toMatchObject({ state: 'ok' });
+  });
+
+  it('reads and caches the snapshot of the account the read started under', async () => {
+    twoClaude('work');
+    const service = new QuotaService({ readers: [okReader('claude', 10)] });
+    await service.refresh();
+    twoClaude('home');
+    await service.refresh();
+    expect(service.get('claude')).toMatchObject({ state: 'ok' });
+    expect(service.getFor('claude', 'work')).toMatchObject({ state: 'ok' });
+    expect(service.getFor('claude', 'other')).toBeUndefined();
+  });
+
+  it('drops a read that finished after the account changed and reads again', async () => {
+    twoClaude('work');
+    const reads: number[] = [];
+    let release: () => void = () => {};
+    const reader: QuotaReader = {
+      core: 'claude',
+      read: async () => {
+        reads.push(reads.length);
+        if (reads.length === 1) await new Promise<void>((r) => { release = r; });
+        return okSnapshot('claude', reads.length);
+      },
+    };
+    const service = new QuotaService({ readers: [reader] });
+    const first = service.refresh();
+    await vi.waitFor(() => expect(reads).toHaveLength(1));
+    twoClaude('home');
+    release();
+    await first;
+    expect(reads).toHaveLength(2);
+    expect(service.getFor('claude', 'work')).toBeUndefined();
+    expect(service.get('claude')).toMatchObject({ state: 'ok', windows: [{ usedPct: 2 }] });
+  });
+
+  it('starts one read at a time and runs one more pass for a burst of calls', async () => {
+    const reads = vi.fn(async () => okSnapshot('codex', 5));
+    const service = new QuotaService({ readers: [{ core: 'codex', read: reads }] });
+    await Promise.all([service.refresh(), service.refresh(), service.refresh()]);
+    expect(reads.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  it('keeps the opencode2 alias on the account key', async () => {
+    const service = new QuotaService({ readers: [okReader('opencode', 3)] });
+    await service.refresh();
+    expect(service.get('opencode2')).toMatchObject({ core: 'opencode', state: 'ok' });
+  });
+
+  it('logs the core and the account of a read, nothing else', async () => {
+    twoClaude('work');
+    const debug = vi.fn();
+    await new QuotaService({ readers: [okReader('claude', 3)], debug }).refresh();
+    expect(debug).toHaveBeenCalledWith('karst: quota read core=claude account=work');
+  });
+});

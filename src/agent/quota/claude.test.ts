@@ -238,3 +238,30 @@ describe('readClaudeQuota — cache-first opt-in API fallback', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('claudeQuotaReader — account switch (T1076)', () => {
+  it('reads the folder of the account that is active at EACH read, and logs the folder only', async () => {
+    const work = join(home, 'acct-work');
+    writeCache(STATUSLINE, join(home, '.claude'));
+    writeCache({ rate_limits: { five_hour: { used_percentage: 77, resets_at: 1746540000 } } }, work);
+    const env: NodeJS.ProcessEnv = {};
+    const debug = vi.fn();
+    const reader = claudeQuotaReader({ homeDir: home, env, now: () => NOW, debug });
+    const first = await reader.read();
+    env.CLAUDE_CONFIG_DIR = work;
+    const second = await reader.read();
+    expect(first.state === 'ok' && first.windows[0]!.usedPct).toBe(34);
+    expect(second.state === 'ok' && second.windows[0]!.usedPct).toBe(77);
+    expect(debug).toHaveBeenCalledWith(`karst: Claude quota read folder=${work}`);
+  });
+
+  it('never answers with the last good snapshot of another account', async () => {
+    const work = join(home, 'acct-work');
+    writeCache(STATUSLINE, join(home, '.claude'));
+    const env: NodeJS.ProcessEnv = {};
+    const reader = claudeQuotaReader({ homeDir: home, env, now: () => NOW });
+    await reader.read();
+    env.CLAUDE_CONFIG_DIR = work;
+    expect(await reader.read()).toMatchObject({ state: 'unknown' });
+  });
+});
