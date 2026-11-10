@@ -116,11 +116,11 @@ function provableSteps(round: AutofixRound): readonly AutofixStepRow[] {
 }
 
 /** The attempt row of a finished round. A spent park says every attempt failed; a running row states no result (the host has none). */
-function attemptRow(a: AutofixAttempt, failed: boolean, target: AutofixTarget | null): AutofixAttemptRow {
-  const subject = a.kind === 'ci' ? `CI ${target?.check ?? 'check'}` : 'conflict';
+function attemptRow(a: AutofixAttempt, failed: boolean): AutofixAttemptRow {
+  // The target names the check that fails NOW; an earlier attempt may have met another one, so its row names none.
   return {
     label: `${unitWord(a.kind)} ${a.n}`,
-    detail: failed ? `${subject} still ${a.kind === 'ci' ? 'fails' : 'there'}` : `${kindWord(a.kind)} ${unitWord(a.kind)} ${a.n} of ${a.max} ran`,
+    detail: failed ? `${kindWord(a.kind)} still ${a.kind === 'ci' ? 'fails' : 'there'}` : `${kindWord(a.kind)} ${unitWord(a.kind)} ${a.n} of ${a.max} ran`,
     result: failed ? 'fails' : 'ran',
     at: a.at,
   };
@@ -131,7 +131,7 @@ function finishedAttempts(f: AutofixFacts, failedKind: AutofixKind | null): read
   const all = f.attempts ?? [];
   const running = f.round?.kind ?? null;
   const skip = running === null ? -1 : all.map((a) => a.kind).lastIndexOf(running);
-  return all.flatMap((a, i) => (i === skip ? [] : [attemptRow(a, a.kind === failedKind, f.target)]));
+  return all.flatMap((a, i) => (i === skip ? [] : [attemptRow(a, a.kind === failedKind)]));
 }
 
 function runningRow(f: AutofixFacts, round: AutofixRound): AutofixRowView {

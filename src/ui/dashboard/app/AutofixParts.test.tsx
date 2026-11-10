@@ -86,6 +86,13 @@ describe('Auto-fix override chip (ship header)', () => {
     expect(document.activeElement).toBe(chip);
   });
 
+  it('leaves arrow keys to the page while the chip is closed', () => {
+    mountInside(ship(SLICE));
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+    must('[data-act="autopilot-menu"]').dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
   it('is absent from every other stage', () => {
     mountInside(insideState({ stageCurrent: 'impl', autopilot: SLICE }));
     expect(q('[data-act="autopilot-menu"]')).toBeNull();
@@ -156,6 +163,16 @@ describe('Stop auto-fix now (stage menu)', () => {
     fireEvent.click(must('[data-act="autopilot-stop-cancel"]'));
     expect(q('[role="alertdialog"]')).toBeNull();
     expect(h.send.autopilotStop).not.toHaveBeenCalled();
+  });
+
+  it('opens a collapsed Auto-fix row so the confirm is visible', () => {
+    mountInside(ship(SLICE, RUNNING));
+    const row = must<HTMLDetailsElement>('[data-proc-id="ship:autofix"]');
+    row.open = false;
+    fireEvent(row, new Event('toggle'));
+    openMenu();
+    fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
+    expect(must<HTMLDetailsElement>('[data-proc-id="ship:autofix"]').open).toBe(true);
   });
 
   it('moves focus into the confirm and sends Stop now only after it', () => {

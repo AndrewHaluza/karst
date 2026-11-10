@@ -81,6 +81,8 @@ export function AutofixOverride({ autopilot }: { readonly autopilot: AutopilotSl
     trigger.current?.focus();
   }, []);
   const onKey = (e: KeyboardEvent<HTMLElement>): void => {
+    // A closed chip leaves every key to the page (arrows, Home and End scroll or move a caret).
+    if (!open) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -144,15 +146,19 @@ export function StopNowConfirm() {
   const send = useDashboardSend();
   const open = useStopConfirm();
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   // The flag is module-wide: leaving the row (another ticket or stage) must not leave the confirm armed.
   useEffect(() => () => setStopConfirm(false), []);
   useEffect(() => {
+    // A row the user collapsed keeps this dialog hidden. The disclosure memory does not re-render, so open the native <details> itself.
+    const row = dialogRef.current?.closest('details');
+    if (open && row && !row.open) row.open = true;
     if (open) confirmRef.current?.focus();
   }, [open]);
   const now = usePendingAction(useCallback((requestId: string) => { setStopConfirm(false); send.autopilotStop('now', requestId); }, [send]));
   if (!open) return null;
   return (
-    <div className="autofix-actions" role="alertdialog" aria-label="Stop auto-fix now" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setStopConfirm(false); } }}>
+    <div className="autofix-actions" ref={dialogRef} role="alertdialog" aria-label="Stop auto-fix now" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setStopConfirm(false); } }}>
       <span className="autofix-confirm">This ends the agent session. Karst syncs first.</span>
       <button type="button" className="k-btn k-btn--danger k-btn--sm" ref={confirmRef} data-act="autopilot-stop-now" onClick={(e) => { e.preventDefault(); now(e); }}>Stop now</button>
       <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-act="autopilot-stop-cancel" onClick={(e) => { e.preventDefault(); setStopConfirm(false); }}>Cancel</button>
