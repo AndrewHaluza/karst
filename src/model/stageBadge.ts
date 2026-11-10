@@ -1,7 +1,7 @@
 import type { TicketWithStages } from '../store/tickets.js';
 import { ALL_STAGE_KEYS, type StageKey } from './types.js';
 import { isTerminal } from '../workflow/graph.js';
-import { agentWorkingOnFailedStage, currentStageStatus, needsUser, ticketGlyph } from './ticketGlyph.js';
+import { agentWorkingOnFailedStage, currentStageStatus, needsUser, shipCiRunning, ticketGlyph } from './ticketGlyph.js';
 import type { Glyph } from './glyph.js';
 
 /**
@@ -74,6 +74,7 @@ export function stageBadge(t: TicketWithStages): StageBadge {
   // Both needs-you sources (a waiting agent, a stage parked on a click) resolve
   // in `needsUser`, so this label and the amber glyph always agree.
   if (needsUser(t)) return { label: 'Needs you', glyph, stage };
+  if (shipCiRunning(t)) return { label: 'CI running', glyph, stage };
 
   const status = currentStageStatus(t);
   if (status === 'failed' && !agentWorkingOnFailedStage(t)) return { label: `${title} failed`, glyph, stage };

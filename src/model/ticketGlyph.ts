@@ -24,6 +24,11 @@ function waitingWhileShipRuns(t: TicketWithStages): boolean {
   );
 }
 
+/** Whether a shipped, awaiting-merge ticket reads "CI running" (derived at load). */
+export function shipCiRunning(t: TicketWithStages): boolean {
+  return t.shipCi === 'running' && t.stageCurrent === 'ship' && t.pausedAt == null;
+}
+
 /**
  * Whether the ticket is blocked on the user — the needs-you signal, in one place
  * so the color, the badge and the facet can never disagree about it.
@@ -81,6 +86,13 @@ export function needsUser(t: TicketWithStages): boolean {
   // RUNNING, where the ticket is moving, not parked (see `waitingWhileShipRuns`).
   if (waitingWhileShipRuns(t)) return false;
   if (((t.agentState ?? 'none') as AgentState) === 'waiting') return true;
+
+  // Mandatory CI of a shipped ticket still runs: the merge cannot be clicked
+  // yet, so nothing waits on the user. A derived reading (`shipCi`), not a
+  // BlockerKind — the awaiting-merge block stays stored (@arch:BLOCKED). Placed
+  // AFTER the agent-state branches: an agent that asks a question (`waiting`,
+  // `not-started`) still needs the user whatever CI does.
+  if (shipCiRunning(t)) return false;
 
   // `stageCurrent` is a stored string: a row from an older schema (or a stage
   // since removed from the graph) is not a StageKey and must not be treated as
@@ -149,6 +161,8 @@ export function ticketGlyph(t: TicketWithStages): Glyph {
   // A live agent working a parked (failed) stage reads in-progress; the stored
   // failure stays and the red reading returns when the session ends.
   if (agentWorkingOnFailedStage(t)) return 'blue';
+  // Ship's PR CI is running: in progress, not parked on the user.
+  if (shipCiRunning(t)) return 'blue';
   // The same running-ship exception, applied to the residual `waiting` the
   // glyph function would otherwise paint amber: pass the running state so the
   // glyph, facet, badge and attention set all read "in progress", never

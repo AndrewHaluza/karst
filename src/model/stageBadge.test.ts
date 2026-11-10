@@ -186,3 +186,28 @@ describe('failed stage with a running agent', () => {
     expect(b.label).not.toMatch(/failed/);
   });
 });
+
+describe('stageBadge CI running', () => {
+  const shipBlocked = (over: Partial<TicketWithStages> = {}): TicketWithStages => {
+    const t = ticket('ship', 'passed', over);
+    t.stages[0]!.blockedKind = 'awaiting-merge';
+    return t;
+  };
+  it('reads blue CI running while shipCi is running', () => {
+    expect(stageBadge(shipBlocked({ shipCi: 'running' }))).toMatchObject({ label: 'CI running', glyph: 'blue' });
+  });
+  it('stays amber Needs you without the reading', () => {
+    expect(stageBadge(shipBlocked({ shipCi: null }))).toMatchObject({ label: 'Needs you', glyph: 'amber' });
+  });
+  it('a paused ticket still reads Paused', () => {
+    expect(stageBadge(shipBlocked({ shipCi: 'running', pausedAt: 'x' })).label).toBe('Paused');
+  });
+});
+
+describe('stageBadge CI running vs a waiting agent', () => {
+  it('a waiting agent still reads Needs you while CI runs', () => {
+    const t = ticket('ship', 'passed', { shipCi: 'running', agentState: 'waiting' });
+    t.stages[0]!.blockedKind = 'awaiting-merge';
+    expect(stageBadge(t)).toMatchObject({ label: 'Needs you', glyph: 'amber' });
+  });
+});
