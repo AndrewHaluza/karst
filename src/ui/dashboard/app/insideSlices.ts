@@ -27,6 +27,8 @@ export interface MenuFlags {
   readonly prFeedback: boolean;
   readonly ci: boolean;
   readonly rebase: boolean;
+  /** Ship only: an auto-fix round runs, so 'Stop auto-fix now…' is offered. */
+  readonly autofixStop: boolean;
 }
 
 export interface Frame {
@@ -75,6 +77,7 @@ export const frameOf =
         prFeedback: !!(state.prFeedbackFix && state.prFeedbackFix.available && key === 'ship'),
         ci: !!(state.ciFailure && state.ciFailure.available) && key === 'ship',
         rebase: !!(state.rebase && state.rebase.available) && key === (state.rebase.stage || 'ship'),
+        autofixStop: key === 'ship' && state.autopilot?.roundRunning === true,
       },
       deliver: dv && key === 'ship' && (dv.available || dv.auto) ? { notOnPr: dv.notOnPr, inSandbox: dv.inSandbox, canDeliver: dv.available, auto: dv.auto ?? null } : null,
       autopilot: key === 'ship' ? (state.autopilot ?? null) : null,

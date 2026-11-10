@@ -347,6 +347,7 @@ export function buildDashboardState(
     findingsBlockingSeverity,
     displayBlocking,
     autofix: autofixReading.row,
+    ciOpen: autofixReading.ciOpen,
   });
 
   const draft = getProposalForTicket(store, ticket.id);

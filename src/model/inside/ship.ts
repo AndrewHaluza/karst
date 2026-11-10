@@ -95,8 +95,10 @@ export interface ShipProcessesInput {
   findings?: readonly Finding[];
   /** The manifest's `review.findings.blockingSeverity`; `'none'` disables the row entirely. */
   findingsBlockingSeverity?: Severity | 'none';
-  /** Auto-fix reading of the Merge row (T1004). Absent or null → a plain Merge row. */
+  /** Auto-fix reading (T1004, own row since T1070). Absent or null → no Auto-fix row. */
   autofix?: AutofixRowView | null;
+  /** An open PR still waits on CI: the Merge row names it among its blockers. */
+  ciOpen?: boolean;
 }
 
 /** Rank for severity comparisons — lower is worse. Kept local per-module, like `aggregate.ts` and `tester.ts`. */
@@ -835,16 +837,17 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
       : (checksByRepo.get(pr.repo)?.checkedAt ?? null);
     if (at && (latest === undefined || at > latest)) latest = at;
   }
+  const open = openBlockers(conflicted, input.ciOpen === true);
   const merge: InsideProcessView = {
     id: 'merge',
     kind: 'merge',
     label: 'Merge',
-    status: autofixStatus(input.autofix) ?? (recorded.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input)),
-    // handoff §11: a conflict is a WAIT that names what the user must do —
-    // the per-repo rows keep their factual readings; the sentence is the
-    // collapsed summary.
-    ...(conflicted > 0
-      ? { detail: 'Ship is waiting: resolve the merge conflict before the ticket can be done.' }
+    status: recorded.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input),
+    // handoff §11: a conflict is a WAIT that names what the user must do — the per-repo rows keep their factual
+    // readings; the sentence is the collapsed summary. Merge states only merge facts (T1070): the open blockers the
+    // host knows, joined with "and". Auto-fix has its own row.
+    ...(open.length > 0
+      ? { detail: `waits on ${open.join(' and ')}`, count: `${merged}/${recorded.length}` }
       : recorded.length === 0
         ? { detail: prRanPast(input) ? 'nothing to merge — no pull request opened' : noEvidenceDetail(input) }
         : rows.length === 0
@@ -856,20 +859,44 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
           : { detail: `${merged}/${recorded.length} merged` }),
     ...(latest ? { time: formatTime(latest) } : {}),
     evidence: { kind: 'rows', rows },
-    ...(input.autofix ? { autofix: input.autofix } : {}),
   };
-  return input.autofix ? { ...merge, detail: autofixDetail(merge.detail, input.autofix) } : merge;
+  return merge;
 }
 
-/** Unknown CI adds to the Merge row detail (a conflict sentence stays); every other auto-fix state replaces it. */
-function autofixDetail(base: string | undefined, autofix: AutofixRowView): string {
-  return autofix.state === 'unknown' && base ? `${base} ${autofix.message}` : autofix.message;
+/** The blockers of the Merge row the host knows: merge conflicts and an unfinished CI. */
+function openBlockers(conflicted: number, ciOpen: boolean): string[] {
+  return [...(conflicted > 0 ? [`${conflicted} conflict${conflicted === 1 ? '' : 's'}`] : []), ...(ciOpen ? ['CI'] : [])];
 }
 
-/** A running round reads `run`; every other auto-fix state is the existing needs-you amber (`wait`). */
-function autofixStatus(autofix: AutofixRowView | null | undefined): InsideStatus | undefined {
+/**
+ * The Auto-fix process (T1070): its own row between Pull request and Merge. Attempt rows come first, then the provable
+ * steps of the running attempt. The host keeps no round run, so the row has no identity, no Σ pill and no duration, and
+ * attempt rows carry the time of their Autopilot note only. Exported for the dashboard's hand-written cases.
+ */
+export function autofixProcess(autofix: AutofixRowView | null | undefined): InsideProcessView | undefined {
   if (!autofix) return undefined;
-  return autofix.state === 'running' ? 'run' : 'wait';
+  const attempts = autofix.attempts.map((a): EvidenceRow => ({
+    label: a.label,
+    detail: a.detail,
+    status: a.result === 'fails' ? 'fail' : 'pass',
+    time: formatTime(a.at),
+  }));
+  const steps = autofix.steps.map((st): EvidenceRow => ({
+    label: st.label,
+    detail: st.detail,
+    status: st.status === 'run' ? 'run' : 'pass',
+    ...(st.stopAfter ? { autofixStop: { requested: autofix.stopAfterRequested } } : {}),
+  }));
+  return {
+    id: 'autofix',
+    kind: 'autofix',
+    label: 'Auto-fix',
+    status: autofix.state === 'running' ? 'run' : 'wait',
+    detail: autofix.message,
+    // The AI mark: the agent does the work. There is no recorded identity, so no `execution`.
+    aiMark: true,
+    evidence: { kind: 'rows', rows: [...attempts, ...steps] },
+  };
 }
 
 /**
@@ -882,11 +909,13 @@ function autofixStatus(autofix: AutofixRowView | null | undefined): InsideStatus
  */
 export function shipProcesses(input: ShipProcessesInput): InsideProcessView[] {
   const warning = shipFindingsWarning(input);
+  const autofix = autofixProcess(input.autofix);
   return [
     ...(warning ? [warning] : []),
     commitProcess(input),
     pushProcess(input),
     prProcess(input),
+    ...(autofix ? [autofix] : []),
     mergeProcess(input),
   ];
 }

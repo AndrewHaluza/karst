@@ -109,6 +109,7 @@ export interface InsideViewsInput {
   findingsBlockingSeverity: Severity | 'none';
   /** The Merge row's auto-fix reading (T1004), or null. */
   autofix?: AutofixRowView | null;
+  ciOpen?: boolean;
   reviewBlockingSeverity?: Severity | 'none';
   testerBlockingSeverity?: Severity | 'none';
   reviewStallDetection?: ReviewStallDetection;
@@ -173,6 +174,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     shipFindings,
     findingsBlockingSeverity,
     autofix,
+    ciOpen,
     reviewBlockingSeverity,
     testerBlockingSeverity,
     reviewStallDetection,
@@ -299,6 +301,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         findings: shipFindings,
         findingsBlockingSeverity,
         autofix: autofix ?? null,
+        ciOpen: ciOpen === true,
       }),
       now,
     ),
