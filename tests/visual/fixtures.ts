@@ -7,7 +7,7 @@
  *   `networkidle` plus `[data-karst-ready]`.
  */
 import { test as base, expect, type Page } from '@playwright/test';
-import type { ThemeId } from './themes.js';
+import { fixtureThemeOf, type ThemeId } from './themes.js';
 import type { ViewId } from './chains.js';
 import { fixtureFile } from './variants.js';
 import { SECTION_LABELS, type SettingsSection } from '../../src/ui/settings/sections.js';
@@ -65,18 +65,7 @@ export const test = base.extend<KarstFixtures>({
     // Theme is derived from the project name (e.g., 'dark', 'light', 'hc',
     // 'dark-grayscale', 'dark-reduced-motion', 'catalog').
     // The base theme is the first part before any hyphen.
-    const name = testInfo.project.name;
-    const themeMap: Record<string, ThemeId> = {
-      dark: 'dark',
-      light: 'light',
-      hc: 'hc',
-      'dark-grayscale': 'dark',
-      'dark-reduced-motion': 'dark',
-      catalog: 'dark',
-      // Geometry is theme-independent (ui:LAYOUT-SANITY): the layout project is dark-only.
-      layout: 'dark',
-    };
-    await use((themeMap[name] ?? 'dark') as ThemeId);
+    await use(fixtureThemeOf(testInfo.project.name));
   },
 
   gotoView: async ({ page, theme }, use) => {

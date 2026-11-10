@@ -18,6 +18,21 @@
 export const THEME_IDS = ['dark', 'light', 'hc'] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 
+/** Playwright projects that read the fixtures of another theme. Any other project reads its own. */
+const PROJECT_FIXTURE_THEME: Readonly<Record<string, ThemeId>> = {
+  'dark-grayscale': 'dark',
+  'dark-reduced-motion': 'dark',
+  catalog: 'dark',
+  // Geometry is theme-independent (ui:LAYOUT-SANITY): the layout project is dark-only.
+  layout: 'dark',
+};
+
+/** The fixture theme (`THEME_IDS`) that a Playwright project name reads. Unknown names read `dark`. */
+export function fixtureThemeOf(projectName: string): ThemeId {
+  const own = THEME_IDS.find((id) => id === projectName);
+  return own ?? PROJECT_FIXTURE_THEME[projectName] ?? 'dark';
+}
+
 export interface Theme {
   readonly bodyClass: string;
   readonly rootCss: string;

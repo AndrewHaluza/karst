@@ -20,7 +20,7 @@ import { readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHAINS, type ViewId } from './chains.js';
-import { THEMES, type ThemeId, THEME_IDS } from './themes.js';
+import { THEMES, type ThemeId, THEME_IDS, fixtureThemeOf } from './themes.js';
 import { getCorpus, dashboardCorpora, ALL_VIEWS, SETTINGS_SCENARIOS } from './corpora.js';
 import { VARIANTS, fixtureFile } from './variants.js';
 
@@ -221,7 +221,7 @@ export function writeFixtures(outDir: string = OUT_DIR): void {
       }
       // One page per registered variant (ui:UI-R57), only for themes the variant declares.
       for (const v of VARIANTS[view]) {
-        if (!v.themes.includes(theme)) continue;
+        if (!v.themes.some((project) => fixtureThemeOf(project) === theme)) continue;
         const html = buildFixture(view, theme, v.corpus().messages, v.corpus().viewState);
         writeFileSync(join(themeDir, fixtureFile(view, v.id)), html, 'utf8');
       }
