@@ -580,7 +580,7 @@ describe('buildTicketFormState — agent core (provider) fields', () => {
     const t = createTicket(store, { key: 'K-1', title: 't' });
     updateTicketFields(store, t.id, { agentProvider: 'antigravity' });
     const s = buildTicketFormState(store, MANIFEST, () => [], () => [], t.id);
-    expect(s.models.map((m) => m.id)).toContain('gemini-3.6-flash-high');
+    expect(s.models.map((m) => m.id)).toContain('gemini-4-argon-high');
     expect(s.models.map((m) => m.id)).not.toContain('claude-opus-4-8');
   });
 });
