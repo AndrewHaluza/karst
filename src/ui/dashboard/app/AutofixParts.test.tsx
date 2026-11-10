@@ -60,16 +60,16 @@ describe('Auto-fix override chip (ship header)', () => {
     expect(items.map((i) => i.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
   });
 
-  it('sends the chosen mode and closes, and sends nothing for the active one', () => {
+  it('sends the chosen mode and shows it pending, and closes without a send for the active one', () => {
     const h = mountInside(ship({ ...SLICE, override: 'on' }));
     fireEvent.click(must('[data-act="autopilot-menu"]'));
     fireEvent.click(must('[data-act="autopilot-override"][data-mode="off"]'));
     expect(h.send.autopilotOverride).toHaveBeenCalledWith('off', expect.any(String));
-    expect(q('[role="menu"][aria-label="Auto-fix"]')).toBeNull();
+    expect(must('[data-mode="off"]').getAttribute('aria-busy')).toBe('true');
     h.send.autopilotOverride.mockClear();
-    fireEvent.click(must('[data-act="autopilot-menu"]'));
     fireEvent.click(must('[data-act="autopilot-override"][data-mode="on"]'));
     expect(h.send.autopilotOverride).not.toHaveBeenCalled();
+    expect(q('[role="menu"][aria-label="Auto-fix"]')).toBeNull();
   });
 
   it('works by keyboard: focus lands on the current choice, arrows move, Escape returns to the chip', () => {

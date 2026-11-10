@@ -38,8 +38,9 @@ function ChoiceItem({ choice, active, onDone }: { readonly choice: Choice; reado
   // The pending marker settles with the next snapshot, which also moves the check (@ui:PENDING-STATE).
   const post = usePendingAction(useCallback((requestId: string) => send.autopilotOverride(choice.mode, requestId), [send, choice.mode]));
   const onClick = (e: MouseEvent<HTMLButtonElement>): void => {
-    if (!active) post(e);
-    onDone();
+    // A new choice keeps the menu open: its item shows the pending marker until the next snapshot moves the check and closes the menu.
+    if (active) onDone();
+    else post(e);
   };
   return (
     <button type="button" className="menuButton autofix-choice" role="menuitemradio" aria-checked={active} data-act="autopilot-override" data-mode={choice.mode} onClick={onClick}>
@@ -71,6 +72,10 @@ export function AutofixOverride({ autopilot }: { readonly autopilot: AutopilotSl
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);
   }, [open]);
+  // The snapshot that carries the new override settles the pending item and closes the menu.
+  useEffect(() => {
+    setOpen(false);
+  }, [autopilot.override]);
   const close = useCallback(() => {
     setOpen(false);
     trigger.current?.focus();
