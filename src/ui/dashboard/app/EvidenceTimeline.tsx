@@ -6,7 +6,6 @@
 import type { EvidenceRow } from '../../../model/inside/types.js';
 import { RuntimeIcon } from './AgentIcon.js';
 import { TimelineTokens } from './InsideClocks.js';
-import { Icon } from './Icon.js';
 import { Overflow } from './EvidenceParts.js';
 import { InsideActionButton, OverflowButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
