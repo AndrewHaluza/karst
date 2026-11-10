@@ -29,6 +29,12 @@ failure is yours to avoid, not a harness outage.
 
 - Run `uat:host:docker` in the foreground and wait for it; a run takes
   minutes. Never end your answer while it is still running.
+- Set the Bash tool's own `timeout` parameter to 600000 (the maximum, in
+  milliseconds) on the probe call. Put no prefix before `npm run`. Do not
+  run the probe in the background and do not poll it with `sleep`.
+- When the ticket changes an Inside webview, write steps that act on the
+  seeded rows (click, type, then read the result), not only read steps.
+  Report SKIPPED only after a step on a seeded row fails to reach the block.
 - Pick the closest predefined fixture: `empty` (no tickets),
   `ticket-mid-stage` (FIX-MID, impl running), `blocked` (FIX-BLOCKED,
   uat blocked `boot-failed`).
