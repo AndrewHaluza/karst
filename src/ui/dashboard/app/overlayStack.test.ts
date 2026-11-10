@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DashboardState } from '../state.js';
 import { MAX_HISTORY, OverlayStack, restoreArt, type ArtScrolls, type ArtView, type OverlayDeps, type PersistArt, type ScrollPort } from './overlayStack.js';
 
-const DASH = { console: null, logs: false, env: false, art: null };
+const DASH = { console: null, logs: false, env: false, baselines: false, art: null };
 const state = (over: Record<string, unknown> = {}): DashboardState => ({ ticketId: 7, key: 'FEAT-7', title: 'Seven', brief: '', description: '', idLabel: 'T7', provider: null, ticketUrl: null, briefSource: { kind: 'manual' }, origin: null, subtaskParent: null, priority: null, approach: null, worktrees: [], ...over }) as unknown as DashboardState;
 
 function make(opts: { state?: DashboardState | null; art?: ArtView | null; scrolls?: ArtScrolls; top?: number } = {}) {
@@ -320,5 +320,63 @@ describe('OverlayStack — drill-down history', () => {
     const history = persisted.at(-1)!.history;
     expect(restoreArt({ history: [...history, 7, null] }).history).toEqual(history);
     expect(restoreArt({}).history).toEqual([]);
+  });
+});
+
+describe('OverlayStack — baseline review', () => {
+  it('opens as its own surface and Back returns to the dashboard', () => {
+    const { stack } = make();
+    stack.openBaselines();
+    expect(stack.getSnapshot()).toMatchObject({ ...DASH, baselines: true });
+    stack.closeBaselines();
+    expect(stack.getSnapshot()).toMatchObject(DASH);
+    expect(stack.getSnapshot().history).toEqual([]);
+  });
+
+  it('opening twice pushes one history entry; closing when closed does nothing', () => {
+    const { stack } = make();
+    stack.closeBaselines();
+    stack.openBaselines();
+    stack.openBaselines();
+    expect(stack.getSnapshot().history).toEqual([DASH]);
+  });
+
+  it('is left by Escape, one step at a time', () => {
+    const { stack } = make();
+    stack.openBaselines();
+    expect(stack.escape()).toBe(true);
+    expect(stack.getSnapshot().baselines).toBe(false);
+    expect(stack.escape()).toBe(false);
+  });
+
+  it('is replaced, not stacked, when another surface opens', () => {
+    const { stack } = make();
+    stack.openBaselines();
+    stack.openEnv();
+    expect(stack.getSnapshot()).toMatchObject({ baselines: false, env: true });
+  });
+
+  it('skips a history entry that is the review when no baseline block exists any more', () => {
+    const stack = new OverlayStack({
+      send: { xtermRequest: vi.fn(), stageLogRequest: vi.fn(), agentLogRequest: vi.fn() } as unknown as OverlayDeps['send'],
+      getState: () => null,
+      scroll: { read: () => 0, write: () => {} },
+      persistArt: () => {},
+      restored: { art: null, scrolls: { ticket: 0, index: 0, detail: {} } },
+      exists: (v) => !v.baselines,
+    });
+    stack.openBaselines();
+    stack.openEnv();
+    stack.back();
+    expect(stack.getSnapshot()).toMatchObject(DASH);
+  });
+
+  it('restores a history entry that was the review, and tolerates an older entry without the field', () => {
+    const { stack, persisted } = make();
+    stack.openBaselines();
+    stack.openEnv();
+    const history = persisted.at(-1)!.history;
+    expect(restoreArt({ history }).history).toEqual(history);
+    expect(restoreArt({ history: [{ console: null, logs: false, env: false, art: null }] }).history).toEqual([DASH]);
   });
 });

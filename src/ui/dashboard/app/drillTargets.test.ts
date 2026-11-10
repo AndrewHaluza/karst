@@ -41,6 +41,10 @@ describe('pillOf / viewLabel', () => {
     expect(pillOf({ ...DASHBOARD, logs: true })).toBe('logs');
     expect(pillOf({ ...DASHBOARD, env: true })).toBe('env');
   });
+  it('has no pill for the baseline review, and Back names it', () => {
+    expect(pillOf({ ...DASHBOARD, baselines: true })).toBe('dashboard');
+    expect(viewLabel({ ...DASHBOARD, baselines: true }, null)).toBe('Baseline review');
+  });
   it('names a detail by its artifact title, falling back when it is gone', () => {
     const view = { ...DASHBOARD, art: { id: 'plan', from: 'index' as const } };
     expect(viewLabel(view, st({ artifacts: [{ id: 'plan', title: 'Plan' }] }))).toBe('Plan');

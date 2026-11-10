@@ -67,7 +67,7 @@ export function viewPills(state: DashboardState): ViewPill[] {
   return pills;
 }
 
-/** The pill a view belongs to (the active one carries aria-current). */
+/** The pill a view belongs to (the active one carries aria-current). The baseline review has no pill: it is the dashboard's own surface. */
 export function pillOf(view: OverlayView): PillKey {
   if (view.console) return 'console';
   if (view.logs) return 'logs';
@@ -77,6 +77,7 @@ export function pillOf(view: OverlayView): PillKey {
 
 /** What Back calls a view: the artifact's title for a detail, else the surface's name. */
 export function viewLabel(view: OverlayView, state: DashboardState | null): string {
+  if (view.baselines) return 'Baseline review';
   if (typeof view.art === 'object' && view.art !== null) {
     const id = view.art.id;
     return state?.artifacts?.find((a) => a.id === id)?.title ?? 'Artifact';
