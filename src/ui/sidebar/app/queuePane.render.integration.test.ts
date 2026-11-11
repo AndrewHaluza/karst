@@ -77,6 +77,19 @@ describe('Queue pane', () => {
     expect(text(h.query('[role="menu"]'))).toContain('Priority');
   });
 
+  it('the row menu opens and stays open after the click, then lists the four levels', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    // The ContextMenu outside-click rule keeps a menu open only for a trigger with data-menu.
+    expect(h.query('[data-queue-row="D452"] .q-menu')!.getAttribute('data-menu')).toBe('qD452');
+    await h.click('[data-queue-row="D452"] .q-menu');
+    expect(h.query('#ctxMenu')!.classList.contains('open')).toBe(true);
+    expect(text(h.query('#ctxMenu'))).toContain('Priority');
+    expect(h.query('[data-queue-row="D452"] .q-menu')!.getAttribute('aria-expanded')).toBe('true');
+    await h.click('#ctxMenu [role="menuitem"]');
+    expect(h.queryAll('#ctxMenu [role="menuitemradio"]').map((i) => text(i))).toEqual(['Urgent', 'High', 'Normal', 'Low', 'Clear']);
+  });
+
   it('shows the empty text', async () => {
     const h = await mount(fixture('empty'));
     await open(h);
