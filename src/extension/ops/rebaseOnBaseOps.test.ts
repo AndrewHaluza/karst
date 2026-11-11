@@ -352,7 +352,7 @@ describe('rebaseOnBase pre-ship', () => {
 });
 
 describe('rebaseOnBase result', () => {
-  it('returns true only after the push and the re-probe', async () => {
+  it('returns true after the push', async () => {
     const r = rig();
     expect(await rebaseOnBase(r.deps)).toBe(true);
   });
@@ -366,15 +366,15 @@ describe('rebaseOnBase result', () => {
     expect(await rebaseOnBase(rig(over).deps)).toBe(false);
   });
 
-  it('returns false when a refusal is reported after the push', async () => {
+  it('returns true when only the sandbox recreate fails after the push', async () => {
     const r = rig({ removeSandbox: async () => { throw new Error('no docker'); } });
-    expect(await rebaseOnBase(r.deps)).toBe(false);
+    expect(await rebaseOnBase(r.deps)).toBe(true);
     expect(r.calls.some((c) => c.startsWith('git push'))).toBe(true);
   });
 
-  it('returns false when the re-probe throws after the push', async () => {
+  it('returns true when the re-probe throws after the push, and reports the error', async () => {
     const error = vi.fn();
-    expect(await rebaseOnBase(rig({ reprobe: async () => { throw new Error('gh down'); }, error }).deps)).toBe(false);
+    expect(await rebaseOnBase(rig({ reprobe: async () => { throw new Error('gh down'); }, error }).deps)).toBe(true);
     expect(error).toHaveBeenCalledWith(expect.stringMatching(/Rebase on base failed: gh down/));
   });
 });

@@ -50,26 +50,23 @@ const UNSYNCED = 'Rebase on base: sync or carry sandbox commits first.';
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-/** True only when the branch was rebased, pushed with the lease, and re-probed with no error reported. Every refusal gives false. */
+/** True when the lease push happened (a later sandbox error does not undo it). Every refusal before the push gives false. */
 export async function rebaseOnBase(deps: RebaseDeps): Promise<boolean> {
-  let failed = false;
   let pushed = false;
   const d: RebaseDeps = {
     ...deps,
-    error: (m) => { failed = true; deps.error(m); },
     // The re-probe runs only after the lease push.
     reprobe: async () => { pushed = true; await deps.reprobe(); },
   };
   try {
     await run(d);
   } catch (err) {
-    failed = true;
     deps.logError('rebaseOnBase failed', err);
     deps.error(`Rebase on base failed: ${message(err)}`);
   } finally {
     deps.afterServerChange();
   }
-  return pushed && !failed;
+  return pushed;
 }
 
 async function run(d: RebaseDeps): Promise<void> {

@@ -194,12 +194,36 @@ describe('rebaseOnBaseAction result and autopilot mode (T1081)', () => {
     expect(pushedRepos(i)).toEqual(['/w/r']);
   });
 
+  it('autopilot mode shows no toast: every message goes to the debug log', async () => {
+    seedPr();
+    const gitFail = vi.fn(async (args: readonly string[]) => ({ stdout: '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    const i = input({ git: gitFail });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
+    expect(i.error).not.toHaveBeenCalled();
+    expect(i.info).not.toHaveBeenCalled();
+    expect(i.debug).toHaveBeenCalledWith(expect.stringMatching(/^\[ship\] autopilot rebase on base: Rebase on base: push rejected/));
+    const none = input();
+    store.db.prepare('DELETE FROM prs').run();
+    await rebaseOnBaseAction(none, () => [], { repos: new Set(['r']) });
+    expect(none.info).not.toHaveBeenCalled();
+    expect(none.debug).toHaveBeenCalledWith('[ship] autopilot rebase on base: Rebase on base is not available: no open pull request is behind its base.');
+  });
+
+  it('a sandbox error after the push still counts as pushed', async () => {
+    seedPr();
+    const sb = sandbox();
+    sb.recreateNoSync = vi.fn(async () => { throw new Error('no docker'); });
+    const i = input({ sandbox: sb });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(true);
+  });
+
   it('a busy agent gives false with the error reported', async () => {
     seedPr();
     store.db.prepare(`UPDATE tickets SET agent_state = 'running' WHERE id = ?`).run(id);
     const i = input();
     expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
-    expect(i.error).toHaveBeenCalledWith(expect.stringMatching(/agent is working/));
+    expect(i.debug).toHaveBeenCalledWith(expect.stringMatching(/agent is working/));
+    expect(i.error).not.toHaveBeenCalled();
   });
 });
 

@@ -85,10 +85,15 @@ export async function rebaseOnBaseAction(
   auto?: { readonly repos: ReadonlySet<string> },
 ): Promise<boolean> {
   let allPushed = false;
+  // Autopilot (T1081): no VS Code toast. Every message goes to the debug log; the stale step writes the bulletin note.
+  const tell = (m: string): void => i.debug(`[ship] autopilot rebase on base: ${m}`);
+  const info = auto ? tell : i.info;
+  const error = auto ? tell : i.error;
+  const logError = auto ? (m: string, err: unknown): void => tell(`${m}: ${err instanceof Error ? err.message : String(err)}`) : i.logError;
   try {
     const state = rebaseState(i.store, i.ticketId);
     if (!state.available) {
-      i.info(
+      info(
         state.reason === 'not-behind'
           ? 'Rebase on base is not available: no open pull request is behind its base.'
           : `Rebase on base is not available (${state.reason}).`,
@@ -98,7 +103,6 @@ export async function rebaseOnBaseAction(
     const prs = auto ? state.prs.filter((p) => auto.repos.has(p.repo)) : state.prs;
     if (auto && prs.length === 0) return false;
     for (const pr of prs) {
-      let failed = false;
       const pushed = await rebaseOnBase({
         repo: pr.repo, cwd: pr.cwd, branch: pr.branch, baseRef: pr.baseRef, regenerate: regenerate(pr.repo).map(regenerateCommand),
         git: async (cwd, args) => {
@@ -125,12 +129,13 @@ export async function rebaseOnBaseAction(
           await i.reprobe();
         },
         confirm: auto ? async () => true : (detail) => i.confirm('Rebase on base?', detail, 'Rebase and push'),
-        info: i.info,
-        error: (m) => { failed = true; i.error(m); },
-        logError: i.logError,
+        info,
+        error,
+        logError,
         afterServerChange: () => {},
       });
-      if (failed || !pushed) return false;
+      // A push that stands is a push: a later sandbox error does not make the CI results current again, so it does not stop the loop.
+      if (!pushed) return false;
     }
     allPushed = true;
   } finally {
