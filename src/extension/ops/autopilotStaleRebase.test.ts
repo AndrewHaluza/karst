@@ -84,6 +84,20 @@ describe('staleRebaseStep', () => {
     expect(x.notes).toEqual([]);
   });
 
+  it('does not wait on the same run after a rebase that stopped: today\'s rules apply and no second rebase runs', async () => {
+    const stopped = ctx({ rebase: false });
+    await staleRebaseStep(stopped.c, [check('A')]);
+    const x = ctx();
+    expect(await staleRebaseStep(x.c, [check('A')])).toEqual({ kind: 'none', earlier: new Set(['A']) });
+    expect(x.rebase).not.toHaveBeenCalled();
+  });
+
+  it('does not wait on the same run after a rebase that threw', async () => {
+    await staleRebaseStep(ctx({ rebase: new Error('boom') }).c, [check('A')]);
+    const x = ctx();
+    expect(await staleRebaseStep(x.c, [check('A')])).toEqual({ kind: 'none', earlier: new Set(['A']) });
+  });
+
   it('names a check as earlier when it was rebased on an older run, even when another check waits on this run', async () => {
     const x = ctx();
     markAutopilotRerun(store, id, { repo: 'r', runId: '99', checkName: 'A', headSha: SHA, pattern: `stale-generated:${CMD}`, rerunAt: 1 });

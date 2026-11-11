@@ -262,10 +262,23 @@ export function getAutopilotRerun(store: Store, ticketId: number, repo: string, 
   return row ?? null;
 }
 
-/** The run ids on which a rebase round for a stale generated file was started for this check (T1081). */
-export function staleRebaseRuns(store: Store, ticketId: number, repo: string, checkName: string): string[] {
+/** Suffix of a stale-rebase marker pattern once the rebase stopped with no push. */
+const STALE_STOPPED_SUFFIX = ' (stopped)';
+
+/** A rebase round for a stale generated file (T1081): its run id, and whether the rebase stopped with no push. */
+export interface StaleRebaseRun { readonly runId: string; readonly stopped: boolean }
+
+/** The runs on which a rebase round for a stale generated file was started for this check (T1081). */
+export function staleRebaseRuns(store: Store, ticketId: number, repo: string, checkName: string): StaleRebaseRun[] {
   const rows = store.db
-    .prepare("SELECT run_id FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ? AND pattern LIKE 'stale-generated:%'")
-    .all(ticketId, repo, checkName) as Array<{ run_id: string }>;
-  return rows.map((r) => r.run_id);
+    .prepare("SELECT run_id, pattern FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ? AND pattern LIKE 'stale-generated:%'")
+    .all(ticketId, repo, checkName) as Array<{ run_id: string; pattern: string }>;
+  return rows.map((r) => ({ runId: r.run_id, stopped: r.pattern.endsWith(STALE_STOPPED_SUFFIX) }));
+}
+
+/** Tag the marker of a rebase that stopped with no push, so the next tick does not wait on that run. */
+export function markStaleRebaseStopped(store: Store, ticketId: number, repo: string, runId: string, checkName: string): void {
+  store.db
+    .prepare("UPDATE autopilot_reruns SET pattern = pattern || ? WHERE ticket_id = ? AND repo = ? AND run_id = ? AND check_name = ? AND pattern LIKE 'stale-generated:%' AND pattern NOT LIKE '%' || ?")
+    .run(STALE_STOPPED_SUFFIX, ticketId, repo, runId, checkName, STALE_STOPPED_SUFFIX);
 }

@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import { markAutopilotRerun, staleRebaseRuns } from '../../store/autopilot.js';
+import { markAutopilotRerun, markStaleRebaseStopped, staleRebaseRuns } from '../../store/autopilot.js';
 import { classifyStaleGeneratedLog, STALE_PATTERN_PREFIX } from '../../workflow/staleGeneratedCi.js';
 import { parseCheckUrl, type CheckUrl } from '../../workflow/transientCi.js';
 import type { FailedCheck } from './autopilotRerun.js';
@@ -45,7 +45,9 @@ export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly Fai
   for (const f of fails) {
     const runs = staleRebaseRuns(c.store, c.ticketId, f.repo, f.name);
     if (runs.length === 0) continue;
-    if (runs.includes(parseCheckUrl(f.url)?.runId ?? '')) waiting = true;
+    const runId = parseCheckUrl(f.url)?.runId ?? '';
+    // Only a rebase that pushed makes the ticket wait: a stopped rebase pushed nothing, so no new run comes.
+    if (runs.some((r) => r.runId === runId && !r.stopped)) waiting = true;
     else earlier.add(f.name);
   }
   const none: StaleStep = { kind: 'none', earlier };
@@ -85,7 +87,10 @@ export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly Fai
         : `rebase on base stopped for ${s.command} after ${s.target.name} failed on ${headSha.slice(0, 9)}`;
       c.note(`Autopilot: ${line}`, `${c.key}: ${line} in ${repo}. It used no attempt.${pushed ? '' : ' Today\'s rules apply.'}`);
       c.debug(`[ship] autopilot ticket ${c.key} ci: ${line}`);
-      if (!pushed) stopped.add(s.target.name);
+      if (!pushed) {
+        stopped.add(s.target.name);
+        markStaleRebaseStopped(c.store, c.ticketId, repo, s.url.runId, s.target.name);
+      }
     }
   }
   // A repo that pushed forgot its rollup: the ticket waits. When no repo pushed, today's rules apply.
