@@ -257,13 +257,7 @@ import {
   setNodeRunProcessRunId,
   type BaseHead,
 } from './store/graph/nodeRuns.js';
-import {
-  plannerRunIdsForGraphRun,
-  plannerRunStatus,
-  plannerRunTicketId,
-  setPlannerRunProcessRunId,
-  setPlannerRunPromptHashArtifact,
-} from './store/graph/plannerRuns.js';
+import { plannerRunIdsForGraphRun, plannerRunStatus, plannerRunTicketId, setPlannerRunProcessRunId, setPlannerRunPromptHashArtifact } from './store/graph/plannerRuns.js';
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import {
   blockGraphStage,
@@ -5018,12 +5012,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  const unlinkStaleGraphJson = (artifactRoot: string | undefined): void => {
-    if (!artifactRoot) return;
-    try {
-      rmSync(join(artifactRoot, 'graph.json'), { force: true });
-    } catch {}
-  };
+  const unlinkStaleGraphJson = (r?: string): void => { if (r) try { rmSync(join(r, 'graph.json'), { force: true }); } catch {} };
 
   /** Terminal-close fallback for a planner that did not complete the explicit
    *  CLI submission. The immutable launch identity prevents a late close from
@@ -5123,10 +5112,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const deps = graphDriverDeps();
     const base = deps.promptBytesOf('karst-graph-planner');
     if (base !== undefined) {
-      const promptHash = createHash('sha256').update(base).digest('hex');
-      const snapshotPath = `prompts/${promptHash}`;
-      deps.writeSnapshot(graphRunId, snapshotPath, base);
-      setPlannerRunPromptHashArtifact(gs.db, plannerRunId, promptHash, snapshotPath);
+      const ph = createHash('sha256').update(base).digest('hex'), sp = `prompts/${ph}`;
+      deps.writeSnapshot(graphRunId, sp, base);
+      setPlannerRunPromptHashArtifact(gs.db, plannerRunId, ph, sp);
     }
     const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
     const prompt = [
@@ -5134,17 +5122,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // PROMPT-08 bounds the interactive-session launch seed only; this
       // graph-planner retry prompt is out of that ticket's scope.
       await ticketContextWithDrift(graphRunTicketId(graphRunId)),
-      plannerVocabularyFor(
-        () => graphCompileContext(graphRunId),
-        graphArtifactRoot(graphRunId),
-        (m) => logger.debug(m),
-      ),
+      plannerVocabularyFor(() => graphCompileContext(graphRunId), graphArtifactRoot(graphRunId), (m) => logger.debug(m)),
       diagnostics ?? 'The compiler rejected the previous `graph.json`.',
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
       PLANNER_SUBMIT_INSTRUCTION,
-    ]
-      .filter((part) => part !== '')
-      .join('\n\n');
+    ].filter(Boolean).join('\n\n');
     unlinkStaleGraphJson(graphArtifactRoot(graphRunId));
     const worktree = resolveGraphLaunchWorktree(graphRunId, graphRunTicketId(graphRunId));
     if (!worktree) return;
@@ -5202,17 +5184,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The skill calls the legal-values block authoritative, so a replanner
       // must get it too — this is the path where a plan is rewritten after a
       // failure, exactly where guessing an id costs another cycle.
-      plannerVocabularyFor(
-        () => graphCompileContext(launch.graphRunId),
-        graphArtifactRoot(launch.graphRunId),
-        (m) => logger.debug(m),
-      ),
+      plannerVocabularyFor(() => graphCompileContext(launch.graphRunId), graphArtifactRoot(launch.graphRunId), (m) => logger.debug(m)),
       `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
       ...(diagnostics ? [diagnostics] : []),
       PLANNER_SUBMIT_INSTRUCTION,
-    ]
-      .filter((part) => part !== '')
-      .join('\n\n');
+    ].filter(Boolean).join('\n\n');
     const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
     if (!worktree) return;
     unlinkStaleGraphJson(graphArtifactRoot(launch.graphRunId));
@@ -5261,15 +5237,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
       await ticketContextWithDrift(graphRunTicketId(launch.graphRunId)),
-      plannerVocabularyFor(
-        () => graphCompileContext(launch.graphRunId),
-        graphArtifactRoot(launch.graphRunId),
-        (m) => logger.debug(m),
-      ),
+      plannerVocabularyFor(() => graphCompileContext(launch.graphRunId), graphArtifactRoot(launch.graphRunId), (m) => logger.debug(m)),
       PLANNER_SUBMIT_INSTRUCTION,
-    ]
-      .filter((part) => part !== '')
-      .join('\n\n');
+    ].filter(Boolean).join('\n\n');
     const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
     if (!worktree) return;
     unlinkStaleGraphJson(graphArtifactRoot(launch.graphRunId));
