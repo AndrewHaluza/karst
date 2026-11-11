@@ -24,7 +24,7 @@ import type { AgentTransport, SupervisedAgentSession } from '../transport/superv
 import type { GitRunner } from '../../../integrations/git.js';
 import { cleanupTerminalNodeWorkspace } from '../workspace/cleanup.js';
 import { nodeWorkspaceDir } from '../workspace/provider.js';
-import { workspacesForNode } from '../../../store/graph/nodeRuns.js';
+import { formatIntegrationNonce, reclaimNodeRunIntegrating, workspacesForNode } from '../../../store/graph/nodeRuns.js';
 import type { ProcessFacts, ProcessFactsSource, LiveCwd } from '../../../runtime/serverIdentity.js';
 
 interface Harness {
@@ -125,14 +125,20 @@ function makeFacts(f: {
   };
 }
 
-function insertNodeRun(h: Harness, id: number, status: string, processRunId?: number): void {
+function insertNodeRun(
+  h: Harness,
+  id: number,
+  status: string,
+  processRunId?: number,
+  ownerNonce?: string | null,
+): void {
   h.db
     .prepare(
       `INSERT INTO approach_node_runs
-         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, process_run_id)
-       VALUES (?, ?, ?, 'n', 'agent', ?, ?, ?)`,
+         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, process_run_id, owner_nonce)
+       VALUES (?, ?, ?, 'n', 'agent', ?, ?, ?, ?)`,
     )
-    .run(id, h.graphRunId, h.revisionId, id, status, processRunId ?? null);
+    .run(id, h.graphRunId, h.revisionId, id, status, processRunId ?? null, ownerNonce ?? null);
 }
 
 function linkProcess(
@@ -648,6 +654,52 @@ describe('runCompletionPipeline — guards', () => {
     );
     expect(result.kind).toBe('no-op');
     expect(nodeRow(h, 74).status).toBe('integrating');
+  });
+
+  it('an integrating node actively held by a live host PID returns no-op', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 76, 'integrating', undefined, formatIntegrationNonce(8888));
+    linkProcess(h, 76, 4954);
+    lease(h, 76, 'dom-term');
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        getSession: () => undefined,
+        facts: makeFacts({ alive: { 4954: false, 8888: true } }),
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 76 },
+    );
+    expect(result.kind).toBe('no-op');
+    expect(nodeRow(h, 76).status).toBe('integrating');
+  });
+
+  it('concurrent resume from a second window — racing reclaim serializes via CAS', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const deadHostNonce = formatIntegrationNonce(8888);
+    insertNodeRun(h, 77, 'integrating', undefined, deadHostNonce);
+    linkProcess(h, 77, 4955);
+    lease(h, 77, 'dom-term');
+    writeFileSync(join(h.worktree, 'a.ts'), 'z\n');
+
+    // Simulate Window 1 winning CAS and claiming integration
+    const window1Nonce = formatIntegrationNonce(process.pid);
+    expect(reclaimNodeRunIntegrating(h.db, 77, deadHostNonce, window1Nonce)).toBe(true);
+
+    // Simulate Window 2 racing on the same old nonce: CAS fails
+    const window2Nonce = formatIntegrationNonce(9992);
+    expect(reclaimNodeRunIntegrating(h.db, 77, deadHostNonce, window2Nonce)).toBe(false);
+
+    // Window 1 continues and successfully completes integration:
+    const window1Result = await runCompletionPipeline(
+      makeDeps(h, {
+        getSession: () => undefined,
+        facts: makeFacts({ alive: { 4955: false, [process.pid]: true } }),
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 77 },
+    );
+    expect(window1Result.kind).toBe('integrated');
+    expect(nodeRow(h, 77).status).toBe('completed');
   });
 
   it('resuming an integrating node is idempotent when changes were already committed', async () => {

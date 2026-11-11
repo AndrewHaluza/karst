@@ -88,9 +88,12 @@ import { acquireDomainLeases, releaseLeaseForNodeRun, type ActivationDomain } fr
 import {
   claimNodeRunIntegrating,
   completeNodeRunIntegration,
+  formatIntegrationNonce,
   nodeRunBaseHeads,
   nodeRunIntegrationRef,
   nodeRunStatus,
+  parseIntegrationPid,
+  reclaimNodeRunIntegrating,
   releaseProcessSlot,
   setNodeRunTerminalFields,
 } from '../../../store/graph/nodeRuns.js';
@@ -242,8 +245,9 @@ export function declaredOutputPaths(
 function claimIntegratingStatus(
   deps: CompletionPipelineDeps,
   nodeRunId: number,
+  nonce?: string,
 ): boolean {
-  return claimNodeRunIntegrating(deps.db, nodeRunId);
+  return claimNodeRunIntegrating(deps.db, nodeRunId, nonce);
 }
 
 /**
@@ -575,7 +579,8 @@ export async function runCompletionPipeline(
         return { kind: 'deferred' };
       }
 
-      if (!claimIntegratingStatus(deps, input.nodeRunId)) {
+      const integrationNonce = formatIntegrationNonce(process.pid);
+      if (!claimIntegratingStatus(deps, input.nodeRunId, integrationNonce)) {
         if (nodeRunStatus(deps.db, input.nodeRunId) === 'completing') {
           return { kind: 'deferred' }; // a racing window is mid-flight
         }
@@ -585,6 +590,17 @@ export async function runCompletionPipeline(
       // Interrupted node already in `integrating` status:
       // Verify termination and ensure physical domain leases before proceeding.
       if (!(await terminationProven(deps, node))) {
+        return { kind: 'no-op' };
+      }
+      const holderPid = parseIntegrationPid(node.owner_nonce);
+      if (holderPid !== null && holderPid !== process.pid && (await deps.facts.isAlive(holderPid))) {
+        deps.debug?.(
+          `[graph] completing node ${node.id}: active integration held by live host pid ${holderPid} — leaving alone`,
+        );
+        return { kind: 'no-op' };
+      }
+      const integrationNonce = formatIntegrationNonce(process.pid);
+      if (!reclaimNodeRunIntegrating(deps.db, input.nodeRunId, node.owner_nonce, integrationNonce)) {
         return { kind: 'no-op' };
       }
       if (!ensureIntegrationLeases(deps, input.graphRunId, input.nodeRunId)) {

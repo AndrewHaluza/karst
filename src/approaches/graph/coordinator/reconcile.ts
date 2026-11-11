@@ -54,6 +54,7 @@ import {
   clearNodeRunLaunchFailStreak,
   nodeRunIdsForGraphRun,
   nodeRunsForGraphRun,
+  parseIntegrationPid,
   setNodeRunReason,
 } from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
@@ -276,12 +277,13 @@ async function collectAbandonedDrainNodes(
   const resumable: number[] = [];
   const rows = deps.db
     .prepare(
-      `SELECT id, status, process_run_id, outcome, node_kind, revision_id, node_id
+      `SELECT id, status, owner_nonce, process_run_id, outcome, node_kind, revision_id, node_id
        FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
     )
     .all(run.id) as Array<{
     id: number;
     status: string;
+    owner_nonce: string | null;
     process_run_id: number | null;
     outcome: string | null;
     node_kind: string;
@@ -292,6 +294,10 @@ async function collectAbandonedDrainNodes(
     if (!ACTIVE_NODE_STATUSES.includes(node.status)) continue;
     if (node.outcome === 'replan') continue; // the drain's evidence; excluded from quiescence
     if (deps.sessionFor(node.id)) continue;
+    if (node.status === 'integrating') {
+      const holderPid = parseIntegrationPid(node.owner_nonce);
+      if (holderPid !== null && (await deps.facts.isAlive(holderPid))) continue;
+    }
     const proc = processOf(deps.db, node);
     if (proc !== null) {
       const attribution = await attributeOf(deps.facts, proc);
@@ -531,6 +537,12 @@ async function reconcileCompleting(
   result: ReconcileGraphRunResult,
 ): Promise<number> {
   if (deps.sessionFor(node.id)) return 0;
+  if (status === 'integrating') {
+    const holderPid = parseIntegrationPid(node.owner_nonce);
+    if (holderPid !== null && (await deps.facts.isAlive(holderPid))) {
+      return 0; // another window or host process is actively integrating — leave alone
+    }
+  }
   const proc = processOf(deps.db, node);
   if (proc === null) return 0; // no pid evidence — never judged dead
   const attribution = await attributeOf(deps.facts, proc);

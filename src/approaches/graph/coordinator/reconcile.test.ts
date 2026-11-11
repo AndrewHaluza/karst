@@ -16,7 +16,7 @@ import { recoverGraphRun, type RecoveryDeps } from './recovery.js';
 import { reconcileGraphRun, type ReconcileGraphRunDeps } from './reconcile.js';
 import { electReplan } from './replan.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
-import { countNodeRunsInStatusesForGraphRun } from '../../../store/graph/nodeRuns.js';
+import { countNodeRunsInStatusesForGraphRun, formatIntegrationNonce } from '../../../store/graph/nodeRuns.js';
 
 const NOW = '2026-08-12T00:00:00.000Z';
 
@@ -441,6 +441,23 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
     expect(resumed).toEqual([109]);
     expect(result.resumed).toEqual([109]);
+  });
+
+  it('an integrating node actively held by a live host PID is left alone (not resumed)', async () => {
+    linkProcess(ctx, 109, 4646, NOW);
+    insertNodeRun(ctx, 109, 'integrating', {
+      ownerNonce: formatIntegrationNonce(8888),
+      processRunId: 109,
+    });
+    const resumed: number[] = [];
+    const deps = ctx.makeDeps({
+      facts: makeFacts({ alive: { 4646: false, 8888: true } }),
+      resumePipeline: (nodeRunId) => resumed.push(nodeRunId),
+    });
+    const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+    expect(resumed).toEqual([]);
+    expect(result.resumed).toEqual([]);
+    expect(nodeRow(ctx, 109).status).toBe('integrating');
   });
 
   it('a completing node with a foreign (recycled PID) process resumes the completion pipeline', async () => {

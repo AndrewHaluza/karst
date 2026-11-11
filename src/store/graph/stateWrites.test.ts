@@ -26,9 +26,12 @@ import {
   clearNodeRunLaunchIdentity,
   completeNodeRunIntegration,
   createNodeRun,
+  formatIntegrationNonce,
   incrementNodeRunLaunchAttempt,
   insertReservedNodeRun,
   nodeRunById,
+  parseIntegrationPid,
+  reclaimNodeRunIntegrating,
   setNodeRunBudgetBlock,
   setNodeRunEndedAt,
   setNodeRunFailure,
@@ -226,6 +229,35 @@ describe('node-run write boundary (NDL-38)', () => {
       effective_outcome: 'blocked',
       failure_category: 'graph-budget-exhausted',
     });
+  });
+
+  it('claims integrating with nonce and reclaims under CAS', () => {
+    const h = harness();
+    const id = nodeRun(h, 'completing');
+    const nonce1 = formatIntegrationNonce(1234, 'nonce1');
+    expect(parseIntegrationPid(nonce1)).toBe(1234);
+    expect(parseIntegrationPid('not-a-nonce')).toBeNull();
+    expect(parseIntegrationPid(null)).toBeNull();
+
+    expect(claimNodeRunIntegrating(h.db, id, nonce1)).toBe(true);
+    expect(nodeRunById(h.db, id)).toMatchObject({
+      status: 'integrating',
+      owner_nonce: nonce1,
+    });
+
+    // Raced reclaim with wrong oldNonce fails
+    const nonce2 = formatIntegrationNonce(5678, 'nonce2');
+    expect(reclaimNodeRunIntegrating(h.db, id, 'wrong-nonce', nonce2)).toBe(false);
+    expect(nodeRunById(h.db, id)?.owner_nonce).toBe(nonce1);
+
+    // Correct reclaim succeeds
+    expect(reclaimNodeRunIntegrating(h.db, id, nonce1, nonce2)).toBe(true);
+    expect(nodeRunById(h.db, id)?.owner_nonce).toBe(nonce2);
+
+    // Second caller racing on old nonce fails
+    const nonce3 = formatIntegrationNonce(9999, 'nonce3');
+    expect(reclaimNodeRunIntegrating(h.db, id, nonce1, nonce3)).toBe(false);
+    expect(nodeRunById(h.db, id)?.owner_nonce).toBe(nonce2);
   });
 
   it('claims integrating and accepts the integration', () => {

@@ -16,6 +16,7 @@
  * concurrent writers.
  */
 
+import { randomBytes } from 'node:crypto';
 import type { GraphDb } from './transitions.js';
 import { NODE_RUN_TRANSITIONS, casStatus } from './transitions.js';
 
@@ -352,13 +353,21 @@ export function nodeRunRetryRef(
 export function nodeRunIntegrationRef(
   db: GraphDb,
   id: number,
-): Pick<NodeRunRow, 'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'process_run_id'> | undefined {
+):
+  | Pick<
+      NodeRunRow,
+      'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'owner_nonce' | 'process_run_id'
+    >
+  | undefined {
   return db
     .prepare(
-      'SELECT id, graph_run_id, revision_id, node_id, status, process_run_id FROM approach_node_runs WHERE id = ?',
+      'SELECT id, graph_run_id, revision_id, node_id, status, owner_nonce, process_run_id FROM approach_node_runs WHERE id = ?',
     )
     .get(id) as
-    | Pick<NodeRunRow, 'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'process_run_id'>
+    | Pick<
+        NodeRunRow,
+        'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'owner_nonce' | 'process_run_id'
+      >
     | undefined;
 }
 
@@ -780,12 +789,64 @@ export function setNodeRunBudgetBlock(
   return res.changes === 1;
 }
 
+export const INTEGRATION_NONCE_PREFIX = 'integration:';
+
+/** Format a durable owner nonce identifying the host process performing integration. */
+export function formatIntegrationNonce(pid: number, randomSuffix?: string): string {
+  const suffix = randomSuffix ?? randomBytes(6).toString('hex');
+  return `${INTEGRATION_NONCE_PREFIX}${pid}:${suffix}`;
+}
+
+/** Parse the host process PID from an integration owner nonce, or null if invalid/not an integration nonce. */
+export function parseIntegrationPid(nonce: string | null | undefined): number | null {
+  if (!nonce || !nonce.startsWith(INTEGRATION_NONCE_PREFIX)) return null;
+  const parts = nonce.split(':');
+  if (parts.length < 3) return null;
+  const pid = Number.parseInt(parts[1]!, 10);
+  return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
 /** Claim `completing → integrating` as a bare status write (used where the
- *  caller needs the affected-row count without the transition-map throw). */
-export function claimNodeRunIntegrating(db: GraphDb, id: number): boolean {
+ *  caller needs the affected-row count without the transition-map throw).
+ *  An optional owner nonce records the host process performing integration. */
+export function claimNodeRunIntegrating(db: GraphDb, id: number, nonce?: string): boolean {
+  if (nonce !== undefined) {
+    const res = db
+      .prepare(
+        `UPDATE approach_node_runs SET status = 'integrating', owner_nonce = ? WHERE id = ? AND status = 'completing'`,
+      )
+      .run(nonce, id);
+    return res.changes === 1;
+  }
   const res = db
     .prepare(`UPDATE approach_node_runs SET status = 'integrating' WHERE id = ? AND status = 'completing'`)
     .run(id);
+  return res.changes === 1;
+}
+
+/**
+ * Atomically reclaims an interrupted `integrating` node run under compare-and-swap on `owner_nonce`.
+ * Ensures only one host process can resume integration of an interrupted node run.
+ */
+export function reclaimNodeRunIntegrating(
+  db: GraphDb,
+  id: number,
+  oldNonce: string | null,
+  newNonce: string,
+): boolean {
+  if (oldNonce === null) {
+    const res = db
+      .prepare(
+        `UPDATE approach_node_runs SET owner_nonce = ? WHERE id = ? AND status = 'integrating' AND owner_nonce IS NULL`,
+      )
+      .run(newNonce, id);
+    return res.changes === 1;
+  }
+  const res = db
+    .prepare(
+      `UPDATE approach_node_runs SET owner_nonce = ? WHERE id = ? AND status = 'integrating' AND owner_nonce = ?`,
+    )
+    .run(newNonce, id, oldNonce);
   return res.changes === 1;
 }
 

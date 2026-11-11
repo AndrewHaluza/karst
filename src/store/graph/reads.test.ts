@@ -236,6 +236,7 @@ describe('node-run read helpers (NDL-60)', () => {
       revision_id: h.revisionId,
       node_id: 'n1',
       status: 'ready',
+      owner_nonce: null,
       process_run_id: procId,
     });
   });
