@@ -275,21 +275,7 @@ async function collectAbandonedDrainNodes(
 ): Promise<{ cancellable: AbandonedNodeRun[]; resumable: number[] }> {
   const cancellable: AbandonedNodeRun[] = [];
   const resumable: number[] = [];
-  const rows = deps.db
-    .prepare(
-      `SELECT id, status, owner_nonce, process_run_id, outcome, node_kind, revision_id, node_id
-       FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
-    )
-    .all(run.id) as Array<{
-    id: number;
-    status: string;
-    owner_nonce: string | null;
-    process_run_id: number | null;
-    outcome: string | null;
-    node_kind: string;
-    revision_id: number;
-    node_id: string;
-  }>;
+  const rows = nodeRunsForGraphRun(deps.db, run.id);
   for (const node of rows) {
     if (!ACTIVE_NODE_STATUSES.includes(node.status)) continue;
     if (node.outcome === 'replan') continue; // the drain's evidence; excluded from quiescence

@@ -81,8 +81,10 @@ import {
   markGraphRunBlocked,
 } from '../../../store/graph/graphRuns.js';
 import {
+  countNodeRunsInStatusesExcludingOutcome,
   nodeRunChangeSetIdsForGraphRun,
   nodeRunFailuresForGraphRun,
+  nodeRunsInStatusesForRevision,
   replanNodeRunReasons,
   setNodeRunBudgetBlock,
 } from '../../../store/graph/nodeRuns.js';
@@ -272,15 +274,9 @@ function replanQuiescenceBlockedBy(db: GraphDb, graphRunId: number): string | nu
   // are the reason for the drain (and the source of its reasons artifact), not
   // active work. Counting them would make the drain refuse its own planner
   // forever — the exact strand this ticket fixes — so they are excluded.
-  const placeholders = ACTIVE_NODE_STATUSES.map(() => '?').join(', ');
-  const active = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN (${placeholders})
-         AND (outcome IS NULL OR outcome <> 'replan')`,
-    )
-    .get(graphRunId, ...ACTIVE_NODE_STATUSES) as { n: number };
-  if (active.n > 0) return 'active-node-runs';
+  if (countNodeRunsInStatusesExcludingOutcome(db, graphRunId, ACTIVE_NODE_STATUSES, 'replan') > 0) {
+    return 'active-node-runs';
+  }
   const leases = db
     .prepare(
       `SELECT COUNT(*) AS n FROM approach_resource_leases
@@ -589,19 +585,7 @@ export function submitReplanDocument(
     // are void. Cancel them in the SAME transaction: left `blocked`, a requester
     // would block the NEW revision's END quiescence (counted run-wide), trip the
     // sweep's first-fault block, and re-fire the election on the next tick.
-    const placeholders = ACTIVE_NODE_STATUSES.map(() => '?').join(', ');
-    const abandoned = db
-      .prepare(
-        `SELECT id, status, node_kind, revision_id, node_id FROM approach_node_runs
-         WHERE graph_run_id = ? AND revision_id = ? AND status IN (${placeholders})`,
-      )
-      .all(graphRunId, revision.id, ...ACTIVE_NODE_STATUSES) as Array<{
-      id: number;
-      status: string;
-      node_kind: string;
-      revision_id: number;
-      node_id: string;
-    }>;
+    const abandoned = nodeRunsInStatusesForRevision(db, graphRunId, revision.id, ACTIVE_NODE_STATUSES);
     cancelNodeRuns(
       { db, now: deps.now },
       graphRunId,

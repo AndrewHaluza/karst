@@ -103,8 +103,11 @@ in the runtime, `extension.ts`, the Inside dashboard, and the workflow boundary
 goes through a named read helper next to the full-row reads (`graphRunById`,
 `nodeRunById`, `plannerRunById`) — `graphRunStatus`, `graphRunTicketId`,
 `latestGraphRunForTicket`, `nodeRunsForGraphRun`,
-`countNodeRunsForRevisionNode`, `nextVisitNumber`, `plannerRunCompileAttempt`,
-`submittedPlannerRunForGraphRun`, … — and call sites narrow with
+`countNodeRunsForRevisionNode`, `countOtherNodeRunsInStatuses`,
+`countNodeRunsInStatusesExcludingOutcome`, `nodeRunsInStatusesForRevision`,
+`maxLaunchFailStreakInStatuses`, `nodeRunLaunchFailStreakForGraphRun`,
+`drainingRevisionNodeRunsInStatuses`, `nextVisitNumber`,
+`plannerRunCompileAttempt`, `submittedPlannerRunForGraphRun`, … — and call sites narrow with
 `Pick<GraphRunRow, …>` / `Pick<NodeRunRow, …>` / `Pick<PlannerRunRow, …>` rather
 than declaring their own drifting row interfaces. A new column or status is
 therefore added to the store module and the schema, never to a repo-wide grep.

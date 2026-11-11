@@ -61,6 +61,7 @@ import {
   clearNodeRunLaunchFailStreak,
   incrementNodeRunLaunchFailStreak,
   nodeRunBaseHeads,
+  nodeRunLaunchFailStreakForGraphRun,
   nodeRunStatus,
   runnableNodeRunsForGraphRun,
   setNodeRunFailure,
@@ -1193,17 +1194,15 @@ export function parkNodeLaunchExit(
   nodeRunId: number,
   outputLine: string,
 ): void {
-  const row = deps.db
-    .prepare('SELECT launch_fail_streak FROM approach_node_runs WHERE id = ? AND graph_run_id = ?')
-    .get(nodeRunId, graphRunId) as { launch_fail_streak: number } | undefined;
-  if (row === undefined) return;
+  const streak = nodeRunLaunchFailStreakForGraphRun(deps.db, nodeRunId, graphRunId);
+  if (streak === undefined) return;
   const captured = collapseDiagnostic(outputLine, LAUNCH_FAILURE_LINE_MAX);
   const line = captured === '' ? '' : `: ${captured}`;
   // The streak this park is about to create: `parkLaunchFailure` increments it
   // for a provider exit. A prior PROVIDER exit on the SAME reserved visit
   // (streak >= 1, never reset because no launch started in between) makes this
   // the second in a row.
-  const repeated = row.launch_fail_streak >= 1;
+  const repeated = streak >= 1;
   const reason = repeated
     ? `launched twice and exited before starting${line} — the agent CLI is probably not trusting this folder; check its folder trust`
     : `failed-to-launch${line}`;

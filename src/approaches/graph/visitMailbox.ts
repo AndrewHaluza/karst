@@ -8,6 +8,8 @@
  * sanitized titles), never an agent-authored body.
  */
 import type { GraphDb } from '../../store/graph/transitions.js';
+import { graphRunStatus } from '../../store/graph/graphRuns.js';
+import { countOtherNodeRunsInStatuses } from '../../store/graph/nodeRuns.js';
 import type { GraphDocument } from './parse.js';
 import { ACTIVE_NODE_STATUSES } from './coordinator/completion.js';
 
@@ -52,10 +54,7 @@ export interface VisitIdentity {
  * `draining`) and never into a superseded (stranded) revision.
  */
 export function mayInjectIntoVisit(db: GraphDb, visit: VisitIdentity): boolean {
-  const run = db.prepare('SELECT status FROM approach_graph_runs WHERE id = ?').get(visit.graphRunId) as
-    | { status: string }
-    | undefined;
-  if (run?.status !== 'running') return false;
+  if (graphRunStatus(db, visit.graphRunId) !== 'running') return false;
   const revision = db
     .prepare('SELECT status FROM approach_graph_revisions WHERE id = ? AND graph_run_id = ?')
     .get(visit.revisionId, visit.graphRunId) as { status: string } | undefined;
@@ -70,14 +69,9 @@ export function mayInjectIntoVisit(db: GraphDb, visit: VisitIdentity): boolean {
 export function isCompletingVisit(db: GraphDb, visit: VisitIdentity, document: GraphDocument): boolean {
   const out = document.edges.filter((e) => e.from === visit.nodeId);
   if (out.length === 0 || out.some((e) => e.to !== 'END')) return false;
-  const placeholders = ACTIVE_NODE_STATUSES.map(() => '?').join(', ');
-  const others = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM approach_node_runs
-       WHERE graph_run_id = ? AND id <> ? AND status IN (${placeholders})`,
-    )
-    .get(visit.graphRunId, visit.nodeRunId, ...ACTIVE_NODE_STATUSES) as { n: number };
-  if (others.n > 0) return false;
+  if (countOtherNodeRunsInStatuses(db, visit.graphRunId, visit.nodeRunId, ACTIVE_NODE_STATUSES) > 0) {
+    return false;
+  }
   const tokens = db
     .prepare(
       `SELECT COUNT(*) AS n FROM approach_graph_tokens
