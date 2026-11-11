@@ -30,11 +30,17 @@ function sandbox(unsynced = false): CiActionsInput['sandbox'] {
   };
 }
 
+/** A git stub whose HEAD moves on each read, so a rebase counts as a move. */
+function movingGit(): CiActionsInput['git'] {
+  let n = 0;
+  return vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: '', exitCode: 0 }));
+}
+
 function input(over: Partial<CiActionsInput> = {}): CiActionsInput {
   return {
     store, ticketId: id, artifactDir: dir,
     gh: vi.fn(async () => ({ stdout: `${SHA}\n`, exitCode: 0 })),
-    git: vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? 'orig\n' : '', stderr: '', exitCode: 0 })),
+    git: movingGit(),
     sandbox: sandbox(),
     deliver: { runShip: vi.fn(async () => {}), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() },
     reprobe: vi.fn(async () => {}),
@@ -107,12 +113,164 @@ describe('rebaseOnBaseAction', () => {
 
   it('a git failure maps to the ops error path and never re-probes', async () => {
     seedPr();
-    const git = vi.fn(async (args: readonly string[]) => ({ stdout: '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    let n = 0;
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
     const i = input({ git });
     await rebaseOnBaseAction(i, () => []);
     expect(i.error).toHaveBeenCalled();
     expect(i.reprobe).not.toHaveBeenCalled();
     expect(i.sandbox.recreateNoSync).not.toHaveBeenCalled();
+  });
+});
+
+function seedSecondPr(): void {
+  store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b2');
+  store.db
+    .prepare('INSERT INTO prs (ticket_id, repo, number, url, status, head_ref, base_ref, merge_block, checks) VALUES (?, ?, 6, ?, ?, ?, ?, ?, ?)')
+    .run(id, 'r2', 'https://github.com/o/r2/pull/6', 'open', 'feat/y', 'develop', 'behind', null);
+}
+
+const pushedRepos = (i: CiActionsInput): string[] =>
+  (i.git as ReturnType<typeof vi.fn>).mock.calls.filter((c) => (c[0] as string[])[0] === 'push').map((c) => c[1] as string);
+
+describe('rebaseOnBaseAction result and autopilot mode (T1081)', () => {
+  it('returns false and says why when the action is not available', async () => {
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [])).toBe(false);
+    expect(i.info).toHaveBeenCalledWith('Rebase on base is not available: no open pull request is behind its base.');
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
+  });
+
+  it('returns true after a user rebase that pushed', async () => {
+    seedPr();
+    expect(await rebaseOnBaseAction(input(), () => [])).toBe(true);
+  });
+
+  it('returns false when the push is rejected', async () => {
+    seedPr();
+    let n = 0;
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    expect(await rebaseOnBaseAction(input({ git }), () => [])).toBe(false);
+  });
+
+  it('autopilot mode never asks for a confirm and returns true after the push', async () => {
+    seedPr();
+    const i = input({ confirm: vi.fn(async () => false) });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(true);
+    expect(i.confirm).not.toHaveBeenCalled();
+    expect(pushedRepos(i)).toEqual(['/w/r']);
+  });
+
+  it('user mode still declines when the user declines', async () => {
+    seedPr();
+    const i = input({ confirm: vi.fn(async () => false) });
+    await rebaseOnBaseAction(i, () => []);
+    expect(i.confirm).toHaveBeenCalledWith('Rebase on base?', expect.any(String), 'Rebase and push');
+    expect(pushedRepos(i)).toEqual([]);
+  });
+
+  it('user mode: a declined confirm on one PR does not stop the next PR', async () => {
+    seedPr();
+    seedSecondPr();
+    const confirm = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);
+    const i = input({ confirm });
+    await rebaseOnBaseAction(i, () => []);
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(pushedRepos(i)).toEqual(['/w/r2']);
+  });
+
+  it('autopilot mode: a refusal on the first PR stops the next PR', async () => {
+    seedPr();
+    seedSecondPr();
+    const i = input({ sandbox: { ...input().sandbox, hasUnsynced: vi.fn(async () => true) } });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r', 'r2']) })).toBe(false);
+    expect(pushedRepos(i)).toEqual([]);
+  });
+
+  it('autopilot mode rebases a PR whose probe is not behind (a failing check hides it), user mode does not', async () => {
+    seedPr();
+    store.db.prepare("UPDATE prs SET merge_block = 'ci' WHERE ticket_id = ?").run(id);
+    const user = input();
+    expect(await rebaseOnBaseAction(user, () => [])).toBe(false);
+    expect(pushedRepos(user)).toEqual([]);
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(true);
+    expect(pushedRepos(i)).toEqual(['/w/r']);
+  });
+
+  it('autopilot mode pushes nothing and returns false when the branch is already current', async () => {
+    seedPr();
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? 'same\n' : '', stderr: '', exitCode: 0 }));
+    const i = input({ git });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
+    expect(pushedRepos(i)).toEqual([]);
+  });
+
+  it('autopilot mode rebases only the named repos', async () => {
+    seedPr();
+    seedSecondPr();
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r2']) })).toBe(true);
+    expect(pushedRepos(i)).toEqual(['/w/r2']);
+  });
+
+  it('user mode rebases every behind repo', async () => {
+    seedPr();
+    seedSecondPr();
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [])).toBe(true);
+    expect(pushedRepos(i)).toEqual(['/w/r', '/w/r2']);
+  });
+
+  it('autopilot mode returns false and touches no git when no named repo is behind', async () => {
+    seedPr();
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['other']) })).toBe(false);
+    expect(i.git).not.toHaveBeenCalled();
+    expect(i.afterServerChange).toHaveBeenCalledOnce();
+  });
+
+  it('the first failing repo stops the rest and the result is false', async () => {
+    seedPr();
+    seedSecondPr();
+    let n = 0;
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    const i = input({ git });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r', 'r2']) })).toBe(false);
+    expect(pushedRepos(i)).toEqual(['/w/r']);
+  });
+
+  it('autopilot mode shows no toast: every message goes to the debug log', async () => {
+    seedPr();
+    let n = 0;
+    const gitFail = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    const i = input({ git: gitFail });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
+    expect(i.error).not.toHaveBeenCalled();
+    expect(i.info).not.toHaveBeenCalled();
+    expect(i.debug).toHaveBeenCalledWith(expect.stringMatching(/^\[ship\] autopilot rebase on base: Rebase on base: push rejected/));
+    const none = input();
+    store.db.prepare('DELETE FROM prs').run();
+    await rebaseOnBaseAction(none, () => [], { repos: new Set(['r']) });
+    expect(none.info).not.toHaveBeenCalled();
+    expect(none.debug).toHaveBeenCalledWith('[ship] autopilot rebase on base: Rebase on base is not available: no open pull request is behind its base.');
+  });
+
+  it('a sandbox error after the push still counts as pushed', async () => {
+    seedPr();
+    const sb = sandbox();
+    sb.recreateNoSync = vi.fn(async () => { throw new Error('no docker'); });
+    const i = input({ sandbox: sb });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(true);
+  });
+
+  it('a busy agent gives false with the error reported', async () => {
+    seedPr();
+    store.db.prepare(`UPDATE tickets SET agent_state = 'running' WHERE id = ?`).run(id);
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
+    expect(i.debug).toHaveBeenCalledWith(expect.stringMatching(/agent is working/));
+    expect(i.error).not.toHaveBeenCalled();
   });
 });
 

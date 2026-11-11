@@ -1533,6 +1533,7 @@ CREATE TABLE IF NOT EXISTS autopilot_budgets (
   attempts  INTEGER NOT NULL DEFAULT 0,
   signature TEXT,
   extra     INTEGER NOT NULL DEFAULT 0,
+  round_head_sha TEXT,                        -- v115 (D564): head SHA of the failing CI run when the last ci round was sent; NULL = none
   PRIMARY KEY (ticket_id, repo, kind)
 );
 
@@ -1581,7 +1582,7 @@ CREATE TABLE IF NOT EXISTS deliver_runs (
   pid         INTEGER,
   started_at  TEXT NOT NULL,
   ended_at    TEXT,
-  kind        TEXT NOT NULL DEFAULT 'auto'
+  kind        TEXT NOT NULL DEFAULT 'auto'  -- v116 (D540): auto | after-take-over
 );
 CREATE INDEX IF NOT EXISTS idx_deliver_runs_ticket ON deliver_runs(ticket_id, id);
 CREATE TABLE IF NOT EXISTS deliver_gate_results (

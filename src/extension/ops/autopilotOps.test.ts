@@ -5,9 +5,9 @@ import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { clearConflictRound, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { clearConflictRound, getAutopilotRerun, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
-import { allChecksAllowed, approveOneMore, autopilotTick, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
+import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
 const NORMAL_BLOCK = 'blocked: the pull request for "r" has changes and is not merged yet.';
 let store: Store;
@@ -1090,5 +1090,316 @@ describe('autopilotTick transient CI re-run (T1019)', () => {
     await autopilotTick(r.deps);
     expect(r.notes[0]).toEqual(['Autopilot: auto-fix stopped: ci could not run (boom)', 'AP-1 (ci): the action failed (boom); the ticket stays in ship and no attempt was used.']);
     expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix stopped: ci could not run (boom)');
+  });
+});
+
+describe('autopilotTick stale generated file (T1081)', () => {
+  const URL_V = 'https://github.com/o/r/actions/runs/100/job/200';
+  const SHA = 'abcdef0123456789abcdef0123456789abcdef01';
+  const CMD = 'npm run -s docs:graph';
+  const STALE_LOG = `2026-11-08T10:00:00.1Z docs/arch/system-map.md is stale: run ${CMD}\n2026-11-08T10:00:00.2Z ##[error]Process completed with exit code 1.\n`;
+  const TEST_LOG = `${STALE_LOG}2026-11-08T10:00:00.3Z FAIL src/a.test.ts\n`;
+  const withUrl = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V })) });
+
+  function staleRig(log: string, rebased = true, over: Partial<AutopilotDeps> = {}): Rig & { rebase: ReturnType<typeof vi.fn>; rerun: ReturnType<typeof vi.fn> } {
+    const rebase = vi.fn(async (_repo: string) => rebased);
+    const rerun = vi.fn(async () => {});
+    const r = rig({
+      staleRebase: { readJobLog: async () => log, readRunHeadSha: async () => SHA, regenerate: () => [CMD], rebase },
+      transientCi: { readJobLog: async () => log, readRunHeadSha: async () => SHA, rerunFailedJobs: rerun },
+      ...over,
+    });
+    return { ...r, rebase, rerun };
+  }
+
+  it('rebases once for a stale generated failure, writes the marker first, uses no attempt and writes one note', async () => {
+    seedPr(withUrl('Docs gate'));
+    const r = staleRig(STALE_LOG);
+    r.rebase.mockImplementationOnce(async () => {
+      expect(getAutopilotRerun(store, id, 'r', '100', 'Docs gate')?.pattern).toBe(`stale-generated:${CMD}`);
+      return true;
+    });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'rebased' });
+    expect(r.rebase).toHaveBeenCalledTimes(1);
+    expect(r.rebase).toHaveBeenCalledWith('r');
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]![0]).toBe(`Autopilot: rebased on base for ${CMD} after Docs gate failed on abcdef012`);
+    expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+  });
+
+  // The CI run that follows the rebase has another run id.
+  const newRun = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V.replace(/runs\/\d+/, 'runs/999999') })) });
+
+  it('waits, with no second rebase and no park, when the same run is read again right after the push', async () => {
+    seedPr(withUrl('Docs gate'));
+    await autopilotTick(staleRig(STALE_LOG).deps);
+    const later = staleRig(STALE_LOG);
+    expect(await autopilotTick(later.deps)).toEqual({ kind: 'rebased' });
+    expect(later.rebase).not.toHaveBeenCalled();
+    expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+  });
+
+  it('takes today\'s path on a second failure on a later run (no second rebase)', async () => {
+    seedPr(withUrl('Docs gate'));
+    await autopilotTick(staleRig(STALE_LOG).deps);
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(newRun('Docs gate')), id);
+    const later = staleRig(STALE_LOG);
+    const result = await autopilotTick(later.deps);
+    expect(later.rebase).not.toHaveBeenCalled();
+    expect(result).toEqual({ kind: 'parked', reason: 'auto-fix not run: ci check Docs gate is not on the allowlist (rebased once for a stale generated file and it failed again)' });
+  });
+
+  it('gives an allowlisted check a CI round after the rebase failed again', async () => {
+    seedPr(withUrl('build'));
+    await autopilotTick(staleRig(STALE_LOG).deps);
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(newRun('build')), id);
+    const later = staleRig(STALE_LOG);
+    expect((await autopilotTick(later.deps)).kind).toBe('armed');
+    expect(later.rebase).not.toHaveBeenCalled();
+  });
+
+  it('takes today\'s path when the rebase stops, and does not rebase again', async () => {
+    seedPr(withUrl('Docs gate'));
+    const r = staleRig(STALE_LOG, false);
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: ci check Docs gate is not on the allowlist (rebased once for a stale generated file and it failed again)' });
+    expect(r.rebase).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes today\'s path for a sandboxed ticket and a graph ticket', async () => {
+    seedPr(withUrl('Docs gate'));
+    const sandbox = staleRig(STALE_LOG, true, { placement: async () => 'sandbox' });
+    expect((await autopilotTick(sandbox.deps)).kind).toBe('parked');
+    expect(sandbox.rebase).not.toHaveBeenCalled();
+    store.db.prepare('UPDATE autopilot_tickets SET stopped_reason = NULL WHERE ticket_id = ?').run(id);
+    const graph = staleRig(STALE_LOG, true, { isGraphTicket: () => true });
+    await autopilotTick(graph.deps);
+    expect(graph.rebase).not.toHaveBeenCalled();
+  });
+
+  it('takes today\'s path for a failure with another error line and for a check without a job url', async () => {
+    seedPr(withUrl('Docs gate'));
+    const other = staleRig(TEST_LOG);
+    expect((await autopilotTick(other.deps)).kind).toBe('parked');
+    expect(other.rebase).not.toHaveBeenCalled();
+    store.db.prepare('UPDATE autopilot_tickets SET stopped_reason = NULL WHERE ticket_id = ?').run(id);
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify({ ...failing('Docs gate'), failing: [{ name: 'Docs gate', url: null }] }), id);
+    const noUrl = staleRig(STALE_LOG);
+    await autopilotTick(noUrl.deps);
+    expect(noUrl.rebase).not.toHaveBeenCalled();
+  });
+
+  it('takes today\'s path when no stale seam is bound', async () => {
+    seedPr(withUrl('build'));
+    const placement = vi.fn(async () => 'host' as const);
+    const r = rig({ staleRebase: undefined, transientCi: undefined, placement });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    // Only the CI round reads the placement; the stale step must not.
+    expect(placement).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes today\'s path when the placement cannot be read', async () => {
+    seedPr(withUrl('Docs gate'));
+    const r = staleRig(STALE_LOG, true, { placement: async () => { throw new Error('no backend'); } });
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(r.rebase).not.toHaveBeenCalled();
+  });
+
+  it('does not rebase when only some failing checks are stale-generated', async () => {
+    seedPr({ ...failing('Docs gate', 'Visual'), failing: [{ name: 'Docs gate', url: URL_V }, { name: 'Visual', url: 'https://github.com/o/r/actions/runs/100/job/201' }] });
+    const r = staleRig(STALE_LOG, true, {
+      staleRebase: { readJobLog: async (_cwd, c) => (c.jobId === '200' ? STALE_LOG : TEST_LOG), readRunHeadSha: async () => SHA, regenerate: () => [CMD], rebase: vi.fn(async () => true) },
+    });
+    await autopilotTick(r.deps);
+    expect(r.deps.staleRebase!.rebase).not.toHaveBeenCalled();
+    expect(r.rebase).not.toHaveBeenCalled();
+  });
+});
+
+describe('autopilotTick CI round that made no commit (D564)', () => {
+  const URL_V = 'https://github.com/o/r/actions/runs/100/job/200';
+  const SHA = 'abcdef0123456789abcdef0123456789abcdef01';
+  const REAL_LOG = '2026-11-08T10:00:00.1Z FAIL src/a.test.ts\n2026-11-08T10:00:00.2Z AssertionError: expected 1 to be 2\n';
+  const withUrl = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V })) });
+  const reseed = (): void => { store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('build')), id); };
+
+  function nrig(over: Partial<AutopilotDeps> = {}, o: { sha?: string; rerun?: Error } = {}): Rig & { rerun: ReturnType<typeof vi.fn> } {
+    const rerun = vi.fn(async (_cwd: string, _c: unknown) => { if (o.rerun) throw o.rerun; });
+    const r = rig({ transientCi: { readJobLog: async () => REAL_LOG, readRunHeadSha: async () => o.sha ?? SHA, rerunFailedJobs: rerun }, ...over });
+    return { ...r, rerun };
+  }
+  /** Round 1 goes out; the agent commits nothing, so the same failed run is read again. */
+  async function emptyRound(): Promise<void> {
+    seedPr(withUrl('build'));
+    expect((await autopilotTick(nrig().deps)).kind).toBe('armed');
+    reseed();
+  }
+
+  it('re-runs the failed jobs once and uses no attempt when the round made no commit', async () => {
+    await emptyRound();
+    const r = nrig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'rerun' });
+    expect(r.rerun).toHaveBeenCalledTimes(1);
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+    expect(getAutopilotRerun(store, id, 'r', '100', 'build')?.pattern).toBe('no-change');
+    expect(r.notes[0]![0]).toBe('Autopilot: build abcdef012 re-run once: the ci round made no commit');
+    // The stored rollup of the failed attempt is forgotten: the ticket waits for the next probe.
+    expect((await autopilotTick(nrig().deps)).kind).toBe('nothing');
+  });
+
+  it('parks when the check fails again on the same head after the one re-run', async () => {
+    await emptyRound();
+    await autopilotTick(nrig().deps);
+    reseed();
+    const later = nrig({ now: () => Date.now() + 10 * 60_000 });
+    const result = await autopilotTick(later.deps);
+    expect(result).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci round made no change' });
+    expect(later.rerun).not.toHaveBeenCalled();
+    expect(later.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+    expect(later.notes[0]![1]).toBe('AP-1 (ci): the agent made no commit and the check failed again after one re-run; fix it by hand or approve one more attempt.');
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix stopped: ci round made no change');
+  });
+
+  it('records the failing run head only when a round was sent (armed), and only with the transient seams', async () => {
+    seedPr(withUrl('build'));
+    expect((await autopilotTick(nrig({}).deps)).kind).toBe('armed');
+    expect(getCiRoundHeadSha(store, id, 'r')).toBe(SHA);
+  });
+
+  it('records no head when the round did not go out', async () => {
+    seedPr(withUrl('build'));
+    const r = nrig();
+    r.sendCi.mockResolvedValueOnce({ kind: 'failed', reason: 'boom' });
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(getCiRoundHeadSha(store, id, 'r')).toBeNull();
+  });
+
+  it('records no head and does not fail without the transient seams', async () => {
+    seedPr(withUrl('build'));
+    expect((await autopilotTick(rig().deps)).kind).toBe('armed');
+    expect(getCiRoundHeadSha(store, id, 'r')).toBeNull();
+  });
+
+  it('does not re-run for a graph ticket, even with a recorded head', async () => {
+    await emptyRound();
+    const r = nrig({ isGraphTicket: () => true });
+    await autopilotTick(r.deps);
+    expect(r.rerun).not.toHaveBeenCalled();
+  });
+
+  it('does not re-run when the placement cannot be read', async () => {
+    await emptyRound();
+    const r = nrig({ placement: async () => { throw new Error('probe failed'); } });
+    await autopilotTick(r.deps);
+    expect(r.rerun).not.toHaveBeenCalled();
+  });
+
+  it('pauses the ticket with the reason when the re-run fails', async () => {
+    await emptyRound();
+    const r = nrig({}, { rerun: new Error('gh exit 1') });
+    await autopilotTick(r.deps);
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix stopped: ci could not run (gh exit 1)');
+    expect(r.notes[0]![1]).toBe('AP-1 (ci): the action failed (gh exit 1); the ticket stays in ship and no attempt was used.');
+  });
+
+  it('does not pause the ticket for the no-change stop', async () => {
+    await emptyRound();
+    await autopilotTick(nrig().deps);
+    reseed();
+    await autopilotTick(nrig({ now: () => Date.now() + 10 * 60_000 }).deps);
+    expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
+  });
+
+  it('approve one more for a conflict attempt keeps the recorded ci head', async () => {
+    seedPr(withUrl('build'));
+    takeAutopilotAttempt(store, id, 'r', 'ci', 'build', 3);
+    setCiRoundHeadSha(store, id, 'r', SHA);
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
+    expect(getCiRoundHeadSha(store, id, 'r')).toBe(SHA);
+  });
+
+  it('starts a normal round when the run head is a new commit', async () => {
+    await emptyRound();
+    const r = nrig({}, { sha: '2222222222222222222222222222222222222222' });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'armed', problem: 'ci', used: 2, max: 3 });
+    expect(r.rerun).not.toHaveBeenCalled();
+  });
+
+  it('does not re-run again after a reload while the marker holds', async () => {
+    await emptyRound();
+    await autopilotTick(nrig().deps);
+    reseed();
+    const reloaded = nrig();
+    expect(await autopilotTick(reloaded.deps)).toEqual({ kind: 'rerun' });
+    expect(reloaded.rerun).not.toHaveBeenCalled();
+  });
+
+  it('parks with the could-not-run reason when gh fails in the re-run', async () => {
+    await emptyRound();
+    const r = nrig({}, { rerun: new Error('gh exit 1') });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci could not run (gh exit 1)' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+  });
+
+  it('after a gh failure in the re-run a later tick re-runs again, and does not park as if it failed twice', async () => {
+    await emptyRound();
+    expect((await autopilotTick(nrig({}, { rerun: new Error('gh exit 1') }).deps)).kind).toBe('parked');
+    expect(getAutopilotRerun(store, id, 'r', '100', 'build')).toBeNull();
+    setAutopilotPaused(store, id, null); // Retry
+    clearParkBlock(store, id);
+    reseed();
+    const r = nrig({ now: () => Date.now() + 10 * 60_000 });
+    expect((await autopilotTick(r.deps)).kind).toBe('rerun');
+    expect(r.rerun).toHaveBeenCalledTimes(1);
+  });
+
+  it('approve one more clears the no-change state of every repo of the ticket', async () => {
+    await emptyRound();
+    takeAutopilotAttempt(store, id, 'other', 'ci', 'x', 3);
+    setCiRoundHeadSha(store, id, 'other', SHA);
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'ci');
+    expect(getCiRoundHeadSha(store, id, 'other')).toBeNull();
+  });
+
+  it('starts a round again after a person approves one more attempt', async () => {
+    await emptyRound();
+    await autopilotTick(nrig().deps);
+    reseed();
+    await autopilotTick(nrig({ now: () => Date.now() + 10 * 60_000 }).deps);
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'ci');
+    reseed();
+    const r = nrig({ now: () => Date.now() + 10 * 60_000 });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(r.sendCi).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('autopilotTick CI round with no commit after a network re-run (D564)', () => {
+  const URL_V = 'https://github.com/o/r/actions/runs/100/job/200';
+  const SHA = 'abcdef0123456789abcdef0123456789abcdef01';
+  const NET_LOG = '2026-11-08T10:00:00.1Z prebuild-install warn install Request timed out\n';
+  const REAL_LOG = '2026-11-08T10:00:00.1Z FAIL src/a.test.ts\n2026-11-08T10:00:00.2Z AssertionError: expected 1 to be 2\n';
+  const withUrl = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V })) });
+  const reseed = (): void => { store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('build')), id); };
+  const later = (log: string, over: Partial<AutopilotDeps> = {}) => {
+    const rerun = vi.fn(async (_cwd: string, _c: unknown) => {});
+    const r = rig({ transientCi: { readJobLog: async () => log, readRunHeadSha: async () => SHA, rerunFailedJobs: rerun }, ...over });
+    return { ...r, rerun };
+  };
+
+  it('parks instead of sending round 2 when the same run was re-run for a network error and the round made no commit', async () => {
+    seedPr(withUrl('build'));
+    expect((await autopilotTick(later(NET_LOG).deps)).kind).toBe('rerun');
+    reseed();
+    const settled = (): number => Date.now() + 10 * 60_000;
+    expect((await autopilotTick(later(REAL_LOG, { now: settled }).deps)).kind).toBe('armed');
+    reseed();
+    const r = later(REAL_LOG, { now: settled });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci round made no change' });
+    expect(r.rerun).not.toHaveBeenCalled();
+    expect(r.sendCi).not.toHaveBeenCalled();
   });
 });

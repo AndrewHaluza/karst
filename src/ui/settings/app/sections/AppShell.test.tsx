@@ -267,6 +267,17 @@ describe('AppShell — the footer renders the host-pushed facts (UI-R31)', () =>
   });
 });
 
+describe('AppShell — an invalid file blocks Save in the save bar', () => {
+  it('says Fix 1 field to save when the file is invalid and not edited', () => {
+    const { bridge } = mount();
+    act(() => bridge.push({ type: 'validation', ok: false, error: 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1' }));
+    const bar = document.getElementById('saveState');
+    expect(bar?.textContent).toBe('Fix 1 field to save');
+    expect(bar?.classList.contains('is-error')).toBe(true);
+    expect((document.getElementById('saveBtn') as HTMLButtonElement | null)?.disabled ?? true).toBe(true);
+  });
+});
+
 describe('AppShell — the topbar keeps the vanilla entry points', () => {
   it('keeps the topbar save-state region, the dirty dot id and the mobile project entry', () => {
     mount();

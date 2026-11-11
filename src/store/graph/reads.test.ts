@@ -3,6 +3,8 @@
  * pin the helpers directly; the runtime suites exercise them through callers.
  */
 
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { openStore } from '../db.js';
 import {
@@ -26,13 +28,19 @@ import {
   countNodeRunsForRevisionNode,
   countNodeRunsForRevisionNodeByOutcome,
   countNodeRunsInStatusesForGraphRun,
+  countOtherNodeRunsInStatuses,
+  countNodeRunsInStatusesExcludingOutcome,
   createNodeRun,
+  drainingRevisionNodeRunsInStatuses,
   latestNodeRunIdForRevisionNode,
+  maxLaunchFailStreakInStatuses,
   nextVisitNumber,
   nodeRunBaseHeads,
   nodeRunIntegrationRef,
+  nodeRunLaunchFailStreakForGraphRun,
   nodeRunStatus,
   nodeRunsForGraphRun,
+  nodeRunsInStatusesForRevision,
   runnableNodeRunsForGraphRun,
   writeNodeRunBaseHeads,
 } from './nodeRuns.js';
@@ -232,6 +240,14 @@ describe('node-run read helpers (NDL-60)', () => {
     h.db.prepare("UPDATE approach_node_runs SET status = 'blocked' WHERE id = ?").run(blocked);
     expect(runnableNodeRunsForGraphRun(h.db, h.graphRunId).map((r) => r.id)).toEqual([ready]);
     expect(nodeRunsForGraphRun(h.db, h.graphRunId).map((r) => r.id)).toEqual([ready, blocked]);
+    expect(nodeRunsForGraphRun(h.db, h.graphRunId)[0]).toMatchObject({
+      id: ready,
+      status: 'ready',
+      outcome: null,
+      node_kind: 'agent',
+      revision_id: h.revisionId,
+      node_id: 'n1',
+    });
     writeNodeRunBaseHeads(h.db, ready, [{ domainKey: 'd1', commit: 'abc' }]);
     expect(nodeRunBaseHeads(h.db, ready)).toEqual([{ domainKey: 'd1', commit: 'abc' }]);
     const procId = Number(
@@ -252,6 +268,69 @@ describe('node-run read helpers (NDL-60)', () => {
       owner_nonce: null,
       process_run_id: procId,
     });
+  });
+
+  it('reads filtered node run counts, revision/drain slices and launch fail streaks', () => {
+    const h = harness();
+    const n1 = createNodeRun(h.db, {
+      graphRunId: h.graphRunId,
+      revisionId: h.revisionId,
+      nodeId: 'n1',
+      nodeKind: 'agent',
+      visitNumber: 1,
+      now: NOW,
+    });
+    const n2 = createNodeRun(h.db, {
+      graphRunId: h.graphRunId,
+      revisionId: h.revisionId,
+      nodeId: 'n2',
+      nodeKind: 'gate',
+      visitNumber: 1,
+      now: NOW,
+    });
+    h.db.prepare("UPDATE approach_node_runs SET status = 'running', launch_fail_streak = 3 WHERE id = ?").run(n1);
+    h.db.prepare("UPDATE approach_node_runs SET status = 'launching', launch_fail_streak = 1 WHERE id = ?").run(n2);
+
+    // countOtherNodeRunsInStatuses
+    expect(countOtherNodeRunsInStatuses(h.db, h.graphRunId, n1, ['running', 'launching'])).toBe(1);
+    expect(countOtherNodeRunsInStatuses(h.db, h.graphRunId, n2, ['running', 'launching'])).toBe(1);
+    expect(countOtherNodeRunsInStatuses(h.db, h.graphRunId, 9999, ['running', 'launching'])).toBe(2);
+    expect(countOtherNodeRunsInStatuses(h.db, h.graphRunId, n1, [])).toBe(0);
+
+    // countNodeRunsInStatusesExcludingOutcome
+    expect(countNodeRunsInStatusesExcludingOutcome(h.db, h.graphRunId, ['running', 'launching'], 'replan')).toBe(2);
+    h.db.prepare("UPDATE approach_node_runs SET outcome = 'replan' WHERE id = ?").run(n1);
+    expect(countNodeRunsInStatusesExcludingOutcome(h.db, h.graphRunId, ['running', 'launching'], 'replan')).toBe(1);
+    expect(countNodeRunsInStatusesExcludingOutcome(h.db, h.graphRunId, [], 'replan')).toBe(0);
+
+    // nodeRunsInStatusesForRevision
+    expect(nodeRunsInStatusesForRevision(h.db, h.graphRunId, h.revisionId, ['running', 'launching'])).toEqual([
+      { id: n1, revision_id: h.revisionId, node_id: 'n1', node_kind: 'agent', status: 'running' },
+      { id: n2, revision_id: h.revisionId, node_id: 'n2', node_kind: 'gate', status: 'launching' },
+    ]);
+    expect(nodeRunsInStatusesForRevision(h.db, h.graphRunId, h.revisionId + 1, ['running'])).toEqual([]);
+    expect(nodeRunsInStatusesForRevision(h.db, h.graphRunId, h.revisionId, [])).toEqual([]);
+
+    // drainingRevisionNodeRunsInStatuses
+    expect(drainingRevisionNodeRunsInStatuses(h.db, h.graphRunId, ['running', 'launching'])).toEqual([]);
+    h.db.prepare("UPDATE approach_graph_revisions SET status = 'draining' WHERE id = ?").run(h.revisionId);
+    expect(drainingRevisionNodeRunsInStatuses(h.db, h.graphRunId, ['running', 'launching'])).toEqual([
+      { id: n1, revision_id: h.revisionId, node_id: 'n1', node_kind: 'agent', status: 'running' },
+      { id: n2, revision_id: h.revisionId, node_id: 'n2', node_kind: 'gate', status: 'launching' },
+    ]);
+    expect(drainingRevisionNodeRunsInStatuses(h.db, h.graphRunId, [])).toEqual([]);
+
+    // nodeRunLaunchFailStreakForGraphRun
+    expect(nodeRunLaunchFailStreakForGraphRun(h.db, n1, h.graphRunId)).toBe(3);
+    expect(nodeRunLaunchFailStreakForGraphRun(h.db, n2, h.graphRunId)).toBe(1);
+    expect(nodeRunLaunchFailStreakForGraphRun(h.db, n1, h.graphRunId + 1)).toBeUndefined();
+    expect(nodeRunLaunchFailStreakForGraphRun(h.db, 9999, h.graphRunId)).toBeUndefined();
+
+    // maxLaunchFailStreakInStatuses
+    expect(maxLaunchFailStreakInStatuses(h.db, h.graphRunId, ['running', 'launching'])).toBe(3);
+    expect(maxLaunchFailStreakInStatuses(h.db, h.graphRunId, ['launching'])).toBe(1);
+    expect(maxLaunchFailStreakInStatuses(h.db, h.graphRunId, ['completed'])).toBe(0);
+    expect(maxLaunchFailStreakInStatuses(h.db, h.graphRunId, [])).toBe(0);
   });
 });
 
@@ -306,5 +385,36 @@ describe('planner-run read helpers (NDL-60)', () => {
     // As is an abandoned legacy NULL-target row.
     h.db.prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?").run(second);
     expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(false);
+  });
+});
+
+describe('graph-run state read boundary guard (@arch:GRAPHRUN)', () => {
+  function walkFiles(dir: string): string[] {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    const files: string[] = [];
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...walkFiles(full));
+      } else if (entry.isFile() && full.endsWith('.ts') && !full.endsWith('.test.ts')) {
+        files.push(full);
+      }
+    }
+    return files;
+  }
+
+  it('asserts zero raw SELECT ... FROM approach_(graph|node|planner)_runs calls under src/approaches/graph/', () => {
+    const files = walkFiles('src/approaches/graph');
+    const pattern = /\bSELECT\b[\s\S]*?\bFROM\b\s+approach_(graph|node|planner)_runs\b/i;
+    const violations: string[] = [];
+
+    for (const file of files) {
+      const content = readFileSync(file, 'utf8');
+      if (pattern.test(content)) {
+        violations.push(file);
+      }
+    }
+
+    expect(violations).toEqual([]);
   });
 });

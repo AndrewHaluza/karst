@@ -2967,10 +2967,17 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 115) {
-    // v115: `deliver_runs.kind` — what started a run: `auto` (the auto-deliver) or `after-take-over` (the re-run
-    // of the gates a manual Deliver skipped, D540). Additive; every pre-v115 run is an `auto` run.
-    const cols115 = tableColumns(db, 'deliver_runs');
-    if (cols115.size > 0 && !cols115.has('kind')) db.exec("ALTER TABLE deliver_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'auto'");
+    // v115: `autopilot_budgets.round_head_sha` — the head SHA of the failing CI run when a ci round was sent (D564, @arch:AP-03).
+    // Additive; NULL = none recorded (no backfill).
+    const cols115 = tableColumns(db, 'autopilot_budgets');
+    if (cols115.size > 0 && !cols115.has('round_head_sha')) db.exec('ALTER TABLE autopilot_budgets ADD COLUMN round_head_sha TEXT');
+  }
+
+  if (current < 116) {
+    // v116: `deliver_runs.kind` — what started a run: `auto` (the auto-deliver) or `after-take-over` (the re-run
+    // of the gates a manual Deliver skipped, D540). Additive; every pre-v116 run is an `auto` run.
+    const cols116 = tableColumns(db, 'deliver_runs');
+    if (cols116.size > 0 && !cols116.has('kind')) db.exec("ALTER TABLE deliver_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'auto'");
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

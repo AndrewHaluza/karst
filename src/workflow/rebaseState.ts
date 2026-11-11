@@ -42,7 +42,8 @@ interface BehindRow {
   cwd: string | null;
 }
 
-export function rebaseState(store: Store, ticketId: number): RebaseState {
+/** `anyBlock` (autopilot, T1081): a failing CI check hides the 'behind' probe, so the ship rows need no `merge_block = 'behind'`. */
+export function rebaseState(store: Store, ticketId: number, opts: { readonly anyBlock?: boolean } = {}): RebaseState {
   const stage = getTicket(store, ticketId).stageCurrent;
   if (PRE_SHIP_STAGES.includes(stage as StageKey)) return preShipState(store, ticketId, stage as StageKey);
   const sb = sendBackState(store, ticketId);
@@ -55,13 +56,13 @@ export function rebaseState(store: Store, ticketId: number): RebaseState {
                 ORDER BY w.rowid DESC LIMIT 1) AS cwd
          FROM prs p
         WHERE p.ticket_id = ? AND p.url IS NOT NULL AND p.status = 'open' AND p.dismissed_at IS NULL
-          AND p.merge_block = 'behind'
+          AND (? = 1 OR p.merge_block = 'behind')
           AND p.rowid = (SELECT q.rowid FROM prs q WHERE q.ticket_id = p.ticket_id AND q.repo = p.repo
                           AND q.url IS NOT NULL
                           ORDER BY CASE WHEN q.status = 'open' THEN 0 ELSE 1 END, q.number DESC LIMIT 1)
         ORDER BY p.repo`,
     )
-    .all(ticketId) as BehindRow[];
+    .all(ticketId, opts.anyBlock === true ? 1 : 0) as BehindRow[];
   const prs = rows.flatMap((r) =>
     r.head_ref && r.base_ref && r.cwd
       ? [{ repo: r.repo, number: r.number, branch: r.head_ref, baseRef: r.base_ref, cwd: r.cwd }]

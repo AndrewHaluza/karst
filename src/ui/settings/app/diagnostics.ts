@@ -28,6 +28,19 @@ export function manifestFaultDetail(raw: string | null): string {
   return String(raw).replace(/^Invalid karst\.yml(?: \([^)]*\))?:\s*/, '');
 }
 
+/** Short field text for a manifest path whose host fault is long; other paths show the host text. */
+const FIELD_MESSAGES: Readonly<Record<string, string>> = {
+  'autopilot.conflicts.maxRounds': 'Enter a whole number of at least 1.',
+  'autopilot.ci.maxAttempts': 'Enter a whole number of at least 1.',
+};
+
+/** The message to show under the field `path`, or undefined when the fault is for another path. */
+export function fieldFaultFor(raw: string | null, path: string): string | undefined {
+  const detail = manifestFaultDetail(raw);
+  if (!detail || !detail.startsWith(path)) return undefined;
+  return FIELD_MESSAGES[path] ?? detail;
+}
+
 /**
  * The one repository field a `ManifestError` names, if any.
  *

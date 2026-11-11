@@ -5,12 +5,14 @@ import { getStage } from '../../store/stages.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
-import { transientRerunStep, type FailedCheck, type TransientCiSeams } from './autopilotRerun.js';
+import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
+import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
+import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { parseChecks } from '../../model/prChecks.js';
 import {
-  clearConflictRound, effectiveAutopilot, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
+  clearConflictRound, effectiveAutopilot, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
   markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind,
 } from '../../store/autopilot.js';
@@ -21,7 +23,7 @@ import {
  * Resolve conflicts (the resolved merge is delivered by karst behind the gates). A sandboxed ticket gets the same rounds
  * through the recorded placement (arch:AC-43); the sandbox never falls back to the host (arch:AC-31).
  *
- * Never auto: a rebase on base, push diverged, merge to base, a closed PR.
+ * Never auto: a rebase on base (except once for a stale generated file on a host ticket, arch:AP-05), push diverged, merge to base, a closed PR.
  * Every decision is a pure read of the store plus injected seams (`vscode`-free); a park writes a bulletin note, never a toast.
  */
 
@@ -70,6 +72,8 @@ export interface AutopilotDeps {
   readonly dropConflictRound: () => void;
   /** gh seams of the one re-run of a transient CI failure (T1019). Absent: no re-run, today's rules apply. */
   readonly transientCi?: TransientCiSeams;
+  /** Host seams of the one rebase for a stale generated file (T1081, @arch:AP-05). Absent: today's rules apply. */
+  readonly staleRebase?: StaleRebaseSeams;
   /** Clock for the re-run settle time. Default: `Date.now`. */
   readonly now?: () => number;
   /** Bulletin note (arch:BULLETIN) for every auto action and fallback. */
@@ -85,7 +89,9 @@ export type AutopilotResult =
   | { readonly kind: 'parked'; readonly reason: string }
   | { readonly kind: 'cleared' }
   /** A transient CI failure was re-run once (T1019); the ticket waits for the result. */
-  | { readonly kind: 'rerun' };
+  | { readonly kind: 'rerun' }
+  /** A host rebase and regenerate ran for a stale generated file (T1081); the ticket waits for the next CI run. */
+  | { readonly kind: 'rebased' };
 
 const LOG = '[ship] autopilot';
 
@@ -264,11 +270,17 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return park(d, 'ci', 'auto-fix not run: the list of failing ci checks is cut short', 'the failing check list is cut short, so the allowlist cannot be checked; send the failure to the agent by hand.');
   }
   // A network fault is re-run once before any park or CI round (T1019). A graph ticket and an unreadable placement keep today's rules.
+  // A stale generated file is fixed by one host rebase first (T1081); a host ticket only.
+  const stale = await staleStep(d, problem);
+  if ('result' in stale) return stale.result;
+  const unchanged = await noChangeStepOf(d, problem);
+  if (unchanged) return unchanged;
   const rerun = await transientStep(d, problem);
   if (rerun.kind === 'result') return rerun.result;
   if (!allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
     const name = (problem.failing ?? []).find((n) => !cfg.ci.checks.includes(n)) ?? '(none)';
-    const reason = `auto-fix not run: ci check ${name} is not on the allowlist${rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : ''}`;
+    const again = stale.earlier.has(name) ? ' (rebased once for a stale generated file and it failed again)' : rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : '';
+    const reason = `auto-fix not run: ci check ${name} is not on the allowlist${again}`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
   }
   // A graph ticket, or a placement that cannot be read, gets no round: park, write a note, spend no attempt.
@@ -296,7 +308,44 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   // An action that throws reached no agent: it costs no attempt and parks with the error, like a failed fetch.
   const outcome: FixOutcome = await d.sendCiFailure()
     .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
-  return settleRound(d, { kind: problem.kind, repo: problem.repo, used: budget.used, max: budget.max, action: 'Send CI failure to agent', refundAll }, outcome);
+  const settled = await settleRound(d, { kind: problem.kind, repo: problem.repo, used: budget.used, max: budget.max, action: 'Send CI failure to agent', refundAll }, outcome);
+  // Remember the head the failing run had: a later failure on the same head means this round made no commit (D564).
+  if (settled.kind === 'armed' && d.transientCi && problem.fails) await recordCiRoundHeads(rerunContext(d, d.transientCi), problem.fails);
+  return settled;
+}
+
+function rerunContext(d: AutopilotDeps, seams: TransientCiSeams): RerunContext {
+  return { store: d.store, ticketId: d.ticketId, key: d.key, seams, now: d.now ?? Date.now, note: d.note, debug: d.debug };
+}
+
+/**
+ * The no-change step (D564): a result to return, or null when today's rules go on. A CI round that made no commit leaves the
+ * failing run on the recorded head; that run is re-run once at no attempt cost, and a second failure parks the ticket.
+ */
+async function noChangeStepOf(d: AutopilotDeps, problem: Problem): Promise<AutopilotResult | null> {
+  if (!d.transientCi || !problem.fails) return null;
+  if (d.isGraphTicket() || (await d.placement().catch(() => null)) === null) return null;
+  const step = await noChangeStep(rerunContext(d, d.transientCi), problem.fails);
+  if (step.kind === 'none') return null;
+  if (step.kind === 'rerun') return { kind: 'rerun' };
+  if (step.kind === 'stopped') {
+    return park(d, 'ci', 'auto-fix stopped: ci round made no change', 'the agent made no commit and the check failed again after one re-run; fix it by hand or approve one more attempt.');
+  }
+  return park(d, 'ci', `auto-fix stopped: ci could not run (${step.reason})`, `the action failed (${step.reason}); the ticket stays in ship and no attempt was used.`, true);
+}
+
+/** The stale generated file step (T1081): a result to return, or the checks that were rebased before (for the park reason). */
+async function staleStep(d: AutopilotDeps, problem: Problem): Promise<{ result: AutopilotResult } | { earlier: ReadonlySet<string> }> {
+  const none = { earlier: new Set<string>() };
+  if (!d.staleRebase || !problem.fails) return none;
+  // A graph ticket and a sandboxed ticket keep today's rules: Rebase on base never runs in a sandbox round (@arch:AP-04).
+  const placed = await d.placement().catch(() => null);
+  if (d.isGraphTicket() || placed === null || placed === 'sandbox') return none;
+  const step = await staleRebaseStep(
+    { store: d.store, ticketId: d.ticketId, key: d.key, seams: d.staleRebase, now: d.now ?? Date.now, note: d.note, debug: d.debug },
+    problem.fails,
+  );
+  return step.kind === 'rebased' ? { result: { kind: 'rebased' } } : { earlier: step.earlier };
 }
 
 /** The transient re-run step: a result to return, or the checks that were re-run before (for the park reason). */
@@ -499,6 +548,8 @@ export interface AutopilotCommandDeps {
 /** "Approve 1 more": a one-off +1 for this PR and kind. It never resets the counter. */
 export function approveOneMore(d: Pick<AutopilotCommandDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug'>, repo: string, kind: AutopilotKind): void {
   const b = grantAutopilotExtra(d.store, d.ticketId, repo, kind);
+  // A person decided: the no-change state of the last CI round is cleared, so the approved attempt can start.
+  if (kind === 'ci') clearCiRoundHeadShas(d.store, d.ticketId);
   clearParkBlock(d.store, d.ticketId);
   d.note(`Autopilot: one more ${kind} attempt approved`, `${d.key}: ${repo} now has ${b.extra} extra attempt(s) (${b.attempts} used).`);
   d.debug(`${LOG} ticket ${d.key} ${kind} +1 approved for ${repo}`);

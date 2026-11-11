@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import type { AutopilotPolicy } from '../../../../manifest/autopilot.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
-import { manifestFaultDetail } from '../diagnostics.js';
+import { fieldFaultFor } from '../diagnostics.js';
 import { Button } from '../primitives/Button.js';
 import { Chip } from '../primitives/Chip.js';
 import { Field, type SelectOption } from '../primitives/Field.js';
@@ -62,9 +62,8 @@ export function AutopilotSection() {
   };
   // The host's verdict names one fault. It lands on the field whose path it
   // starts with, as the Git tab does (`validateManifest` throws on the first).
-  const detail = manifestFaultDetail(state.validation.ok ? null : state.validation.error);
-  const faultFor = (path: string): string | undefined =>
-    detail && detail.startsWith(path) ? detail : undefined;
+  const rawFault = state.validation.ok ? null : state.validation.error;
+  const faultFor = (path: string): string | undefined => fieldFaultFor(rawFault, path);
 
   const commitCheck = (): void => {
     edit(addCheck(checkName));
@@ -116,6 +115,7 @@ export function AutopilotSection() {
             control={{
               kind: 'select',
               name: 'autopilotConflictsPolicy',
+              controlClassName: 'autopilot-select',
               value: view.conflicts.policy,
               options: POLICY_OPTIONS,
               onChange: (value) => {
@@ -131,6 +131,7 @@ export function AutopilotSection() {
               kind: 'input',
               type: 'number',
               name: 'autopilotConflictsMaxRounds',
+              controlClassName: 'autopilot-number',
               value: numberValue('rounds', view.conflicts.maxRounds),
               onChange: numberChange('rounds', setConflictsMaxRounds),
             }}
@@ -152,6 +153,7 @@ export function AutopilotSection() {
             control={{
               kind: 'select',
               name: 'autopilotCiPolicy',
+              controlClassName: 'autopilot-select',
               value: view.ci.policy,
               options: POLICY_OPTIONS,
               onChange: (value) => {
@@ -167,48 +169,51 @@ export function AutopilotSection() {
               kind: 'input',
               type: 'number',
               name: 'autopilotCiMaxAttempts',
+              controlClassName: 'autopilot-number',
               value: numberValue('attempts', view.ci.maxAttempts),
               onChange: numberChange('attempts', setCiMaxAttempts),
             }}
             error={faultFor('autopilot.ci.maxAttempts')}
           />
+          <span className="field-label" id="autopilot-checks-label">Checks karst may fix</span>
           <div className="field-control">
-            <span className="field-label" id="autopilot-checks-label">Checks karst may fix</span>
-            <ul className="autopilot-checks" aria-labelledby="autopilot-checks-label">
-              {view.ci.checks.map((check) => (
-                <li key={check}>
-                  <Chip name="autopilot-check">
-                    <code>{check}</code>
-                    <IconButton label={`Remove ${check}`} onClick={() => edit(removeCheck(check))}>
-                      ×
-                    </IconButton>
-                  </Chip>
-                </li>
-              ))}
-            </ul>
+            <div className="autopilot-check-row">
+              <ul className="autopilot-checks" aria-labelledby="autopilot-checks-label">
+                {view.ci.checks.map((check) => (
+                  <li key={check}>
+                    <Chip name="autopilot-check">
+                      <code>{check}</code>
+                      <IconButton label={`Remove ${check}`} onClick={() => edit(removeCheck(check))}>
+                        ×
+                      </IconButton>
+                    </Chip>
+                  </li>
+                ))}
+              </ul>
+              <Field
+                className="autopilot-add"
+                label="Add a check"
+                hideLabel
+                control={{
+                  kind: 'input',
+                  type: 'text',
+                  name: 'autopilotAddCheck',
+                  value: checkName,
+                  placeholder: 'add a check',
+                  onChange: setCheckName,
+                }}
+                error={faultFor('autopilot.ci.checks')}
+              />
+              <Button
+                variant="secondary"
+                className="fixed"
+                disabled={checkName.trim() === ''}
+                onClick={commitCheck}
+              >
+                Add
+              </Button>
+            </div>
             <Help>Any other check always asks.</Help>
-          </div>
-          <div className="field-control row" role="group" aria-label="Add a check to the list">
-            <Field
-              label="Add a check"
-              control={{
-                kind: 'input',
-                type: 'text',
-                name: 'autopilotAddCheck',
-                value: checkName,
-                placeholder: 'lint',
-                onChange: setCheckName,
-              }}
-              error={faultFor('autopilot.ci.checks')}
-            />
-            <Button
-              variant="secondary"
-              className="fixed"
-              disabled={checkName.trim() === ''}
-              onClick={commitCheck}
-            >
-              Add check
-            </Button>
           </div>
         </div>
       </div>

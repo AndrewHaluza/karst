@@ -12,6 +12,9 @@ import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
 import type { GhRunner } from '../integrations/github.js';
 import { makeTransientCiSeams } from '../integrations/ciRerun.js';
+import { rebaseOnBaseAction } from './ops/ciActionsWiring.js';
+import { regenerateCommand, type RegenerateEntry } from '../workflow/gates/regenerate.js';
+import type { StaleRebaseSeams } from './ops/autopilotStaleRebase.js';
 
 /** Tracks the session launch a hand-off started, so autopilot can read a failed launch as a failed round instead of a sent one. */
 export function makeLaunchTracker(
@@ -96,6 +99,17 @@ export function makeSandboxPreflight(h: {
     if (!synced.ok) return synced.reason;
     return h.setupFailure(id);
   };
+}
+
+/** The `ship.regenerate` commands of a repository (T1081). */
+export const regenerateEntries = (m: Manifest | undefined, repo: string): readonly RegenerateEntry[] =>
+  m?.repositories[repo]?.ship?.regenerate ?? [];
+const regenerateCommands = (m: Manifest | undefined, repo: string): readonly string[] => regenerateEntries(m, repo).map(regenerateCommand);
+
+/** The seams of the one rebase for a stale generated file: the gh log and head reads of the re-run, plus Rebase on base. */
+function makeStaleRebaseSeams(gh: GhRunner, regenerate: (repo: string) => readonly string[], rebase: (repo: string) => Promise<boolean>): StaleRebaseSeams {
+  const { readJobLog, readRunHeadSha } = makeTransientCiSeams(gh);
+  return { readJobLog, readRunHeadSha, regenerate, rebase };
 }
 
 const LEASE_INTERVALS = 3;
@@ -203,6 +217,12 @@ export function startAutopilot(d: AutopilotBindingDeps): {
     d.markRound?.(id, true);
     try { return await sent(id, outcome); } finally { d.markRound?.(id, false); }
   };
+  // The Rebase on base of a stale generated file (T1081) takes longer than the sweep lease: hold the ticket for a whole round,
+  // so a second window starts no CI round meanwhile, then give the short lease back.
+  const rebaseHeld = async (id: number, run: () => Promise<boolean>): Promise<boolean> => {
+    if (!claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS)) return false;
+    try { return await run(); } finally { claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS); }
+  };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
   // One sweep at a time: overlapping sweeps must not spend the budget twice.
   let sweeping = false;
@@ -223,6 +243,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         conflictRoundStalled: () => d.conflictRoundStalled(id),
         dropConflictRound: () => d.dropConflictRound(id),
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
+        ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseHeld(id, () => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) }))) } : {}),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };

@@ -106,6 +106,25 @@ describe('rebaseOnBase', () => {
     expect(r.errors[0]).toMatch(/gen/);
   });
 
+  it('requireMove: pushes nothing and returns false when the rebase and generators moved nothing', async () => {
+    const r = rig({ requireMove: true });
+    expect(await rebaseOnBase(r.deps)).toBe(false);
+    expect(r.calls.some((c) => c.startsWith('git push'))).toBe(false);
+    expect(r.deps.info).toHaveBeenCalledWith(expect.stringContaining('nothing pushed'));
+  });
+
+  it('requireMove: pushes when the branch head moved', async () => {
+    let revs = 0;
+    const r = rig({ requireMove: true });
+    const base = r.deps.git;
+    const deps: RebaseDeps = {
+      ...r.deps,
+      git: async (cwd, args) => (args[0] === 'rev-parse' ? { code: 0, stdout: `head${revs++}\n`, stderr: '' } : base(cwd, args)),
+    };
+    expect(await rebaseOnBase(deps)).toBe(true);
+    expect(r.calls.some((c) => c.startsWith('git push'))).toBe(true);
+  });
+
   it('pushes with the lease on the PR head sha, then recreates in order', async () => {
     const r = rig();
     await rebaseOnBase(r.deps);
@@ -348,5 +367,33 @@ describe('rebaseOnBase pre-ship', () => {
     await rebaseOnBase(r.deps);
     expect(r.errors[0]).toMatch(/recreating the sandbox failed: docker down/);
     expect(armLease).not.toHaveBeenCalled();
+  });
+});
+
+describe('rebaseOnBase result', () => {
+  it('returns true after the push', async () => {
+    const r = rig();
+    expect(await rebaseOnBase(r.deps)).toBe(true);
+  });
+
+  it.each([
+    ['an agent turn is active', { agentActive: () => true }],
+    ['the user declines', { confirm: async () => false }],
+    ['the rebase conflicts', { failGit: (a: string[]) => a[0] === 'rebase' && a[1] !== '--abort' }],
+    ['the lease push is rejected', { failGit: (a: string[]) => a[0] === 'push' }],
+  ])('returns false when %s', async (_name, over) => {
+    expect(await rebaseOnBase(rig(over).deps)).toBe(false);
+  });
+
+  it('returns true when only the sandbox recreate fails after the push', async () => {
+    const r = rig({ removeSandbox: async () => { throw new Error('no docker'); } });
+    expect(await rebaseOnBase(r.deps)).toBe(true);
+    expect(r.calls.some((c) => c.startsWith('git push'))).toBe(true);
+  });
+
+  it('returns true when the re-probe throws after the push, and reports the error', async () => {
+    const error = vi.fn();
+    expect(await rebaseOnBase(rig({ reprobe: async () => { throw new Error('gh down'); }, error }).deps)).toBe(true);
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/Rebase on base failed: gh down/));
   });
 });
