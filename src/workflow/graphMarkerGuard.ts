@@ -28,6 +28,7 @@
  */
 
 import type { Store } from '../store/db.js';
+import type { Manifest } from '../manifest/types.js';
 import { getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { parkGateStage, stageBlock, clearStageBlock } from '../store/stageBlocks.js';
@@ -94,18 +95,23 @@ function graphRunFor(
 }
 
 /**
- * True when a ticket is on the built-in graph approach but has NO graph run
- * at all — bootstrap failed, the run was cancelled before it was created, or
- * a misconfiguration skipped it. Done must mean the work happened: such a
- * ticket must never fall through to the plain impl marker, which would
- * advance it to `uat` with zero graph work performed. Only the built-in
- * `karst-graph-engineering` approach id is graph-runtime-backed (a `graph:`
- * block on any other approach id is inert — see `manifest/types.ts`), so
- * that id is the only safe, manifest-free signal available at this layer.
+ * True when a ticket is configured for a graph approach (built-in or manifest
+ * with a `graph:` block) but has NO graph run at all — bootstrap failed, the
+ * run was cancelled before it was created, or a misconfiguration skipped it.
+ * Done must mean the work happened: such a ticket must never fall through to
+ * the plain impl marker, which would advance it to `uat` with zero graph
+ * work performed.
  */
-export function graphApproachMissingRun(store: Store, ticketId: number): boolean {
+export function graphApproachMissingRun(
+  store: Store,
+  ticketId: number,
+  manifest?: Manifest | null,
+): boolean {
   const ticket = getTicket(store, ticketId);
-  if (ticket.approach !== BUILT_IN_PACKAGE_ID) return false;
+  const isGraph =
+    ticket.approach === BUILT_IN_PACKAGE_ID ||
+    Boolean(manifest?.approaches?.find((a) => a.id === ticket.approach)?.graph);
+  if (!isGraph) return false;
   return !graphRunExistsForTicket(store.db, ticketId);
 }
 
@@ -278,11 +284,19 @@ export function markGraphAwaitingImplMarker(
 export type StageResumeResult =
   | { kind: 'cleared' }
   | { kind: 'refused' }
-  | { kind: 'graph-recovery'; ticketId: number; graphRunId: number };
+  | { kind: 'graph-recovery'; ticketId: number; graphRunId: number }
+  | { kind: 'graph-mark-impl'; ticketId: number; graphRunId: number };
 
 /** Resolve the blocked graph run a graph-recovery action points at. */
 export function blockedGraphRunFor(store: Store, ticketId: number): number | undefined {
   const ticket = getTicket(store, ticketId);
   const run = graphRunFor(store, ticketId, stageAttempt(store, ticketId, 'impl'));
   return run && run.status === 'blocked' ? run.id : undefined;
+}
+
+/** Resolve the graph run parked at completed-awaiting-impl-marker for this ticket's impl stage. */
+export function awaitingMarkerGraphRunFor(store: Store, ticketId: number): number | undefined {
+  const ticket = getTicket(store, ticketId);
+  const run = graphRunFor(store, ticketId, stageAttempt(store, ticketId, 'impl'));
+  return run && run.status === 'completed-awaiting-impl-marker' ? run.id : undefined;
 }

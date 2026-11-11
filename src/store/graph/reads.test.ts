@@ -17,6 +17,7 @@ import {
   graphRunStatusForTicket,
   graphRunTicketId,
   latestGraphRunForTicket,
+  maxGraphRunStageAttemptForTicket,
   nextGraphRunIdForTicketAfter,
   runningGraphRunIdsForProject,
   ticketIdsAwaitingGraphDrive,
@@ -172,6 +173,18 @@ describe('graph-run read helpers (NDL-60)', () => {
       project: 'p1',
     });
     expect(graphRunDiagnosticRef(h.db, 9999)).toBeUndefined();
+  });
+
+  it('reads the maximum graph run stage attempt for a ticket', () => {
+    const h = harness();
+    expect(maxGraphRunStageAttemptForTicket(h.db, h.ticketId)).toBe(1);
+    expect(maxGraphRunStageAttemptForTicket(h.db, 9999)).toBeUndefined();
+    h.db.prepare(
+      `INSERT INTO approach_graph_runs
+         (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+       VALUES (?, 'impl', 4, 'karst-graph-engineering', 'running', ?)`,
+    ).run(h.ticketId, NOW);
+    expect(maxGraphRunStageAttemptForTicket(h.db, h.ticketId)).toBe(4);
   });
 });
 

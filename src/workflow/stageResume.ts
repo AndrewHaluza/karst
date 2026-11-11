@@ -2,7 +2,7 @@ import type { Store } from '../store/db.js';
 import { getTicket } from '../store/tickets.js';
 import { clearStageBlock, stageBlock } from '../store/stageBlocks.js';
 import type { StageKey } from '../model/types.js';
-import { blockedGraphRunFor, type StageResumeResult } from './graphMarkerGuard.js';
+import { awaitingMarkerGraphRunFor, blockedGraphRunFor, type StageResumeResult } from './graphMarkerGuard.js';
 import { openGatingSubtasks } from './subtaskGate.js';
 
 /**
@@ -75,11 +75,17 @@ export function resumeBlockedStage(
   // dashboard derives its "pick another agent/model" hint from blocked_kind, so
   // refusing here needs no caller change.
   if (block.kind === 'usage-limit') return { kind: 'refused' };
-  // Same reasoning as `awaiting-merge`: the question was asked (the graph
-  // finished) and answered "not yet". Clearing it here would strand the
-  // ticket the same way — `markGraphAwaitingImplMarker`'s own guard clears it
-  // the moment the marker actually fires, which a generic Resume can't do.
-  if (block.kind === 'awaiting-impl-marker') return { kind: 'refused' };
+  // A completed graph waiting for its impl marker yields the typed
+  // graph-mark-impl action so host actions (Start / Resume) can advance impl -> uat.
+  // A block whose run cannot be found is stale evidence and clears like any other.
+  if (block.kind === 'awaiting-impl-marker') {
+    const graphRunId = awaitingMarkerGraphRunFor(store, panelTicketId);
+    if (graphRunId === undefined) {
+      clearStageBlock(store, panelTicketId, stageKey);
+      return { kind: 'cleared' };
+    }
+    return { kind: 'graph-mark-impl', ticketId: panelTicketId, graphRunId };
+  }
   // Sub-task gating (design NDL-70 §5): a generic Resume may not clear the
   // block while the predicate is still non-empty — the wait is on another
   // ticket, and clearing would let the parent run past work that has not

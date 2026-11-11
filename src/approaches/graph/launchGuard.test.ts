@@ -73,6 +73,12 @@ describe('graphLaunchDecision', () => {
     });
   });
 
+  it('advancing attempt past a terminal run allows launching again', () => {
+    run('cancelled', 0);
+    expect(graphLaunchDecision(store.db, ticketId, 0)).toMatchObject({ kind: 'attempt-consumed' });
+    expect(graphLaunchDecision(store.db, ticketId, 1)).toEqual({ kind: 'launch' });
+  });
+
   it('a non-terminal run wins over a terminal one at the current attempt', () => {
     run('cancelled', 0);
     const live = run('running', 1);

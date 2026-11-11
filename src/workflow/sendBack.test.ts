@@ -239,6 +239,7 @@ describe('sendBackToImplement', () => {
     expect(ticket.stageCurrent).toBe('impl');
     const impl = getStage(store, id, 'impl')!;
     expect(impl.status).toBe('running');
+    expect(impl.attempt).toBe(1);
     expect(impl.startedAt).toBe('2026-08-09T11:00:00.000Z');
     expect(impl.endedAt).toBeNull();
     expect(impl.verdict).toBeNull();
@@ -348,5 +349,18 @@ describe('sendBackToImplement', () => {
     const done = getStage(store, id, 'done')!;
     expect(done.status).toBe('pending');
     expect(getTicket(store, id).stageCurrent).not.toBe('done');
+  });
+
+  it('increments impl attempt taking max of previous impl attempt and max graph run attempt', () => {
+    walkTo(store, id, 'uat');
+    setStage(store, id, 'impl', { attempt: 2 });
+    store.db.prepare(
+      `INSERT INTO approach_graph_runs
+         (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+       VALUES (?, 'impl', 4, 'karst-graph-engineering', 'cancelled', '2026-08-09T09:00:00.000Z')`,
+    ).run(id);
+    sendBackToImplement(store, id, { now: () => '2026-08-09T11:00:00.000Z' });
+    const impl = getStage(store, id, 'impl')!;
+    expect(impl.attempt).toBe(5);
   });
 });

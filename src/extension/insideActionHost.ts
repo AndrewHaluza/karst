@@ -6,6 +6,7 @@ import { recoverGraphRun, type RecoveryDeps } from '../approaches/graph/coordina
 import type { ReplanLaunchRequest } from '../approaches/graph/coordinator/replan.js';
 import type { BootstrapRelaunchRequest } from '../approaches/graph/coordinator/recovery.js';
 import { resumeBlockedStage } from '../workflow/stageResume.js';
+import { fireGraphImplMarkerFromHost } from '../workflow/graphMarkerGuard.js';
 import { transition } from '../workflow/machine.js';
 import type { InsideActionHost } from '../ui/dashboard/insideActions.js';
 import { getPrById } from '../store/prs.js';
@@ -141,6 +142,20 @@ export function makeInsideActionHost(
       const outcome = resumeBlockedStage(store, ticketId, ticketId, stageKey);
       if (outcome.kind === 'cleared') {
         void vscode.commands.executeCommand('karst.openDashboard', ticketId);
+        return;
+      }
+      if (outcome.kind === 'graph-mark-impl') {
+        const result = fireGraphImplMarkerFromHost(store, outcome.ticketId);
+        if (result.ok) {
+          void vscode.window.showInformationMessage(
+            `Ticket ${formatId('ticket', outcome.ticketId)}: the implementation marker fired (graph run ${outcome.graphRunId}) — advancing to uat.`,
+          );
+          void vscode.commands.executeCommand('karst.openDashboard', outcome.ticketId);
+        } else {
+          void vscode.window.showWarningMessage(
+            `Ticket ${formatId('ticket', outcome.ticketId)}: could not fire the implementation marker (${result.reason}).`,
+          );
+        }
         return;
       }
       if (outcome.kind === 'graph-recovery') {

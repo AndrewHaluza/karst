@@ -34,11 +34,12 @@ overhead.
 
 ## Configuration
 
-The packaged defaults ship disabled (`enabled: false`). Enable the approach in
-Settings → Approaches, then configure the `graph:` block — planner profile,
-execution profiles, the trusted command allowlist, and the budget limits.
-Tickets select it on the ticket form; every existing ticket that already uses
-it remains runnable.
+The packaged defaults ship enabled (`enabled: true`). Configure the approach in
+Settings → Approaches, or tune the `graph:` block in `karst.yml` — planner
+profile, execution profiles, the trusted command allowlist, and the budget
+limits. Tickets select it on the ticket form; every existing ticket that already
+uses it remains runnable. Dynamic graph orchestration scopes strictly to `impl`;
+the `fix` stage runs targeted single-agent repair by design.
 
 ## Reference
 

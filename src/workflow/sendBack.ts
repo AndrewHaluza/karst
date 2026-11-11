@@ -1,7 +1,8 @@
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import { getTicket, setStageCurrent } from '../store/tickets.js';
-import { getStage, setStage } from '../store/stages.js';
+import { getStage, setStage, stageAttempt } from '../store/stages.js';
+import { maxGraphRunStageAttemptForTicket } from '../store/graph/graphRuns.js';
 import { latestStageRun } from '../store/stageRuns.js';
 import { listCurrentPrsByTicket } from '../store/prs.js';
 import { nowIso } from '../model/time.js';
@@ -151,10 +152,13 @@ export function sendBackToImplement(
       `[send-back] ticket ${ticketId}: moving back to impl from '${from}' ` +
         `(downstream uat/review/ship reset to pending; evidence and PRs kept)`,
     );
+    const prevImplAttempt = stageAttempt(store, ticketId, 'impl');
+    const maxGraphAttempt = store.db ? maxGraphRunStageAttemptForTicket(store.db, ticketId) : undefined;
+    const nextAttempt = Math.max(prevImplAttempt, maxGraphAttempt ?? -1) + 1;
     setStage(store, ticketId, 'impl', {
       status: 'running',
       verdict: null,
-      attempt: 0,
+      attempt: nextAttempt,
       artifactPath: null,
       startedAt: at,
       endedAt: null,

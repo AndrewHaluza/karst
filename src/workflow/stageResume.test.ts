@@ -158,4 +158,38 @@ describe('resumeBlockedStage', () => {
     expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'cleared' });
     expect(stageBlock(store, id, 'impl')).toBeNull();
   });
+
+  it('an awaiting-impl-marker block returns the typed graph-mark-impl action when run is awaiting marker', () => {
+    const id = blockedTicket('RB-11', 'impl', 'awaiting-impl-marker');
+    const runId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', 0, 'karst-graph-engineering', 'completed-awaiting-impl-marker', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(id)
+        .lastInsertRowid,
+    );
+    const result = resumeBlockedStage(store, id, id, 'impl');
+    expect(result).toEqual({ kind: 'graph-mark-impl', ticketId: id, graphRunId: runId });
+    expect(stageBlock(store, id, 'impl')?.kind).toBe('awaiting-impl-marker');
+  });
+
+  it('clears an awaiting-impl-marker block whose run is no longer awaiting marker', () => {
+    const id = blockedTicket('RB-12', 'impl', 'awaiting-impl-marker');
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 'impl', 0, 'karst-graph-engineering', 'cancelled', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(id);
+    expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'cleared' });
+    expect(stageBlock(store, id, 'impl')).toBeNull();
+  });
+
+  it('clears an awaiting-impl-marker block when the ticket has no graph run at all', () => {
+    const id = blockedTicket('RB-13', 'impl', 'awaiting-impl-marker');
+    expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'cleared' });
+    expect(stageBlock(store, id, 'impl')).toBeNull();
+  });
 });
