@@ -97,6 +97,8 @@
   #inside .pr-path{flex-wrap:wrap}
   #inside .agent-id .agent-core,#inside .agent-id .agent-sep,#inside .agent-id .agent-model{display:none}
   #inside .stageMenuBtn .stageMenuLabel{display:none}
+  /* The live line wraps here: it ticks, so it cannot carry a static aria-label for an ellipsis (layout clipped-text). */
+  #inside .inside-live{white-space:normal;overflow-wrap:anywhere;display:block}
 }
 @media (prefers-reduced-motion: reduce){
   #inside .glyph.run:before{animation:none}
