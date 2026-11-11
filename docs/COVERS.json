@@ -404,6 +404,10 @@
   "src/extension/ops/autopilotCommandOps.ts": [
     "arch:AP-00"
   ],
+  "src/extension/ops/autopilotNoChange.ts": [
+    "arch:AP-00",
+    "arch:AP-03"
+  ],
   "src/extension/ops/autopilotOps.ts": [
     "arch:AP-00",
     "arch:AP-01",
