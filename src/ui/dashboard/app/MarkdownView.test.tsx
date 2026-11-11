@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { MarkdownView } from './MarkdownView.js';
+import { MarkdownView, scanInline } from './MarkdownView.js';
 
 const view = (markdown: string): HTMLElement => render(<MarkdownView markdown={markdown} />).container.firstElementChild as HTMLElement;
+
+/**
+ * A scan without the MAX_SPAN bound repeats its closer search from every opener: 60000 characters of '[' cost about
+ * 60000 * 60000 / 2 = 1.8e9 character steps (measured here: 3-7 s, and more on a loaded CI runner). The bounded
+ * INLINE_RE stops each attempt after 500 characters, so the same run scans in tens of milliseconds. This limit sits
+ * far from both: ~30x the slowest linear case and well below the quadratic one. It times `scanInline` alone, so no
+ * jsdom render cost is in the number.
+ */
+const SCAN_LIMIT_MS = 2000;
 
 describe('MarkdownView', () => {
   it('renders headings, paragraphs and inline spans', () => {
@@ -80,9 +89,11 @@ describe('MarkdownView', () => {
     expect(el.querySelector('a')?.getAttribute('href')).toBe('https://x.test/p');
   });
 
-  it.each(['`', '**', '*a', '[a'])('scans an unclosed %s opener run in bounded time', (opener) => {
-    const start = Date.now();
-    view(opener.repeat(60000));
-    expect(Date.now() - start).toBeLessThan(2000);
+  it.each(['`', '**', '*a', '[a'])('scans an unclosed %s opener run without a super-linear scan', (opener) => {
+    const run = opener.repeat(60000);
+    const start = performance.now();
+    const tokens = scanInline(run);
+    expect(performance.now() - start).toBeLessThan(SCAN_LIMIT_MS);
+    expect(tokens.length).toBeGreaterThan(0);
   });
 });

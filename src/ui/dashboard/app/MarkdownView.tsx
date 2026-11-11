@@ -94,32 +94,61 @@ const INLINE_RE = new RegExp(
   'g',
 );
 
+/** One span of a text run as the scan finds it, before it becomes an element. */
+export type InlineToken = { readonly at: number } & (
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'code'; readonly text: string }
+  | { readonly kind: 'strong'; readonly text: string }
+  | { readonly kind: 'em'; readonly text: string }
+  | { readonly kind: 'link'; readonly text: string; readonly url: string }
+);
+
+/**
+ * Inline tokens of one text run, in order. Pure and element-free, so a test can time the scan itself: a React render
+ * would put jsdom cost into the number and hide the scan's own shape. `at` is the token's start offset in the run,
+ * which is unique and stable, so it also serves as the React key.
+ */
+export function scanInline(text: string): InlineToken[] {
+  const out: InlineToken[] = [];
+  let last = 0;
+  for (const m of text.matchAll(INLINE_RE)) {
+    const at = m.index;
+    if (at > last) out.push({ kind: 'text', text: text.slice(last, at), at: last });
+    if (m[1] !== undefined) out.push({ kind: 'code', text: m[1], at });
+    else if (m[2] !== undefined) out.push({ kind: 'strong', text: m[2], at });
+    else if (m[3] !== undefined) out.push({ kind: 'em', text: m[3], at });
+    else out.push({ kind: 'link', text: m[4]!, url: m[5]!, at });
+    last = at + m[0].length;
+  }
+  if (last < text.length) out.push({ kind: 'text', text: text.slice(last), at: last });
+  return out;
+}
+
 /** Inline spans of one text run. Text no rule claims stays literal; React escapes it. */
 function inline(text: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    if (m[1] !== undefined) out.push(<code key={key++}>{m[1]}</code>);
-    else if (m[2] !== undefined) out.push(<strong key={key++}>{m[2]}</strong>);
-    else if (m[3] !== undefined) out.push(<em key={key++}>{m[3]}</em>);
-    else {
-      const href = safeUrl(m[5]!);
-      out.push(
-        href ? (
-          <a key={key++} href={href} target="_blank" rel="noreferrer noopener">
-            {m[4]}
+  return scanInline(text).map((token) => {
+    const key = token.at;
+    switch (token.kind) {
+      case 'text':
+        return token.text;
+      case 'code':
+        return <code key={key}>{token.text}</code>;
+      case 'strong':
+        return <strong key={key}>{token.text}</strong>;
+      case 'em':
+        return <em key={key}>{token.text}</em>;
+      case 'link': {
+        const href = safeUrl(token.url);
+        return href ? (
+          <a key={key} href={href} target="_blank" rel="noreferrer noopener">
+            {token.text}
           </a>
         ) : (
-          <Fragment key={key++}>{m[4]}</Fragment>
-        ),
-      );
+          <Fragment key={key}>{token.text}</Fragment>
+        );
+      }
     }
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
+  });
 }
 
 function ListView({ block }: { readonly block: Extract<Block, { kind: 'list' }> }) {
