@@ -2966,5 +2966,12 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 115) {
+    // v115: `autopilot_budgets.round_head_sha` — the head SHA of the failing CI run when a ci round was sent (D564, @arch:AP-03).
+    // Additive; NULL = none recorded (no backfill).
+    const cols115 = tableColumns(db, 'autopilot_budgets');
+    if (cols115.size > 0 && !cols115.has('round_head_sha')) db.exec('ALTER TABLE autopilot_budgets ADD COLUMN round_head_sha TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

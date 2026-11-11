@@ -1533,6 +1533,7 @@ CREATE TABLE IF NOT EXISTS autopilot_budgets (
   attempts  INTEGER NOT NULL DEFAULT 0,
   signature TEXT,
   extra     INTEGER NOT NULL DEFAULT 0,
+  round_head_sha TEXT,                        -- v115 (D564): head SHA of the failing CI run when the last ci round was sent; NULL = none
   PRIMARY KEY (ticket_id, repo, kind)
 );
 

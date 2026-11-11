@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS autopilot_budgets (
   attempts  INTEGER NOT NULL DEFAULT 0,
   signature TEXT,
   extra     INTEGER NOT NULL DEFAULT 0,
+  round_head_sha TEXT,
   PRIMARY KEY (ticket_id, repo, kind)
 );
 `;
@@ -191,6 +192,25 @@ export function grantAutopilotExtra(store: Store, ticketId: number, repo: string
   return run();
 }
 
+/**
+ * The head SHA of the failing CI run when the last CI round for this PR was sent (v115, D564). A later failure on the same
+ * head means that round made no commit. Null clears it. Only an existing `ci` budget row is changed.
+ */
+export function setCiRoundHeadSha(store: Store, ticketId: number, repo: string, sha: string | null): void {
+  store.db.prepare("UPDATE autopilot_budgets SET round_head_sha = ? WHERE ticket_id = ? AND repo = ? AND kind = 'ci'").run(sha, ticketId, repo);
+}
+
+/** Clear the recorded head SHA of every CI budget of a ticket (a person approved one more attempt). */
+export function clearCiRoundHeadShas(store: Store, ticketId: number): void {
+  store.db.prepare("UPDATE autopilot_budgets SET round_head_sha = NULL WHERE ticket_id = ? AND kind = 'ci'").run(ticketId);
+}
+
+/** The head SHA recorded by `setCiRoundHeadSha`, or null when no CI round recorded one. */
+export function getCiRoundHeadSha(store: Store, ticketId: number, repo: string): string | null {
+  const row = store.db.prepare("SELECT round_head_sha AS sha FROM autopilot_budgets WHERE ticket_id = ? AND repo = ? AND kind = 'ci'").get(ticketId, repo) as { sha: string | null } | undefined;
+  return row?.sha ?? null;
+}
+
 /** The park reason for a spent budget. */
 export function stoppedReason(kind: AutopilotKind, used: number, max: number): string {
   return `auto-fix stopped: ${kind} ${used}/${max}`;
@@ -252,6 +272,11 @@ export function markAutopilotRerun(store: Store, ticketId: number, r: AutopilotR
   return store.db
     .prepare('INSERT OR IGNORE INTO autopilot_reruns (ticket_id, repo, run_id, check_name, head_sha, pattern, rerun_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(ticketId, r.repo, r.runId, r.checkName, r.headSha, r.pattern, r.rerunAt).changes === 1;
+}
+
+/** Remove the marker of a re-run that gh refused, so a later tick may try it again. */
+export function deleteAutopilotRerun(store: Store, ticketId: number, repo: string, runId: string, checkName: string): void {
+  store.db.prepare('DELETE FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND run_id = ? AND check_name = ?').run(ticketId, repo, runId, checkName);
 }
 
 /** The earlier re-run of this check on this run, or null. */
