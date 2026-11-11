@@ -1129,10 +1129,22 @@ describe('autopilotTick stale generated file (T1081)', () => {
     expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
   });
 
-  it('takes today\'s path on a second failure of the same run (no second rebase)', async () => {
+  // The CI run that follows the rebase has another run id.
+  const newRun = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V.replace(/runs\/\d+/, 'runs/999999') })) });
+
+  it('waits, with no second rebase and no park, when the same run is read again right after the push', async () => {
     seedPr(withUrl('Docs gate'));
     await autopilotTick(staleRig(STALE_LOG).deps);
-    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('Docs gate')), id);
+    const later = staleRig(STALE_LOG);
+    expect(await autopilotTick(later.deps)).toEqual({ kind: 'rebased' });
+    expect(later.rebase).not.toHaveBeenCalled();
+    expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+  });
+
+  it('takes today\'s path on a second failure on a later run (no second rebase)', async () => {
+    seedPr(withUrl('Docs gate'));
+    await autopilotTick(staleRig(STALE_LOG).deps);
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(newRun('Docs gate')), id);
     const later = staleRig(STALE_LOG);
     const result = await autopilotTick(later.deps);
     expect(later.rebase).not.toHaveBeenCalled();
@@ -1142,7 +1154,7 @@ describe('autopilotTick stale generated file (T1081)', () => {
   it('gives an allowlisted check a CI round after the rebase failed again', async () => {
     seedPr(withUrl('build'));
     await autopilotTick(staleRig(STALE_LOG).deps);
-    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('build')), id);
+    store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(newRun('build')), id);
     const later = staleRig(STALE_LOG);
     expect((await autopilotTick(later.deps)).kind).toBe('armed');
     expect(later.rebase).not.toHaveBeenCalled();

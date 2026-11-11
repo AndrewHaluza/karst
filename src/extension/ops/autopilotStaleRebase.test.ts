@@ -75,6 +75,22 @@ describe('staleRebaseStep', () => {
     expect(x.rebase).not.toHaveBeenCalled();
   });
 
+  it('waits, with no rebase and no note, when the same run was rebased already (the old run is read again before the new run starts)', async () => {
+    const x = ctx();
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: `stale-generated:${CMD}`, rerunAt: 1 });
+    expect(await staleRebaseStep(x.c, [check('A')])).toEqual({ kind: 'rebased' });
+    expect(x.rebase).not.toHaveBeenCalled();
+    expect(x.readJobLog).not.toHaveBeenCalled();
+    expect(x.notes).toEqual([]);
+  });
+
+  it('names a check as earlier when it was rebased on an older run, even when another check waits on this run', async () => {
+    const x = ctx();
+    markAutopilotRerun(store, id, { repo: 'r', runId: '99', checkName: 'A', headSha: SHA, pattern: `stale-generated:${CMD}`, rerunAt: 1 });
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'B', headSha: SHA, pattern: `stale-generated:${CMD}`, rerunAt: 1 });
+    expect(await staleRebaseStep(x.c, [check('A'), check('B', 'r', '100', '201')])).toEqual({ kind: 'none', earlier: new Set(['A']) });
+  });
+
   it('does not count a network re-run marker as a rebase', async () => {
     const x = ctx();
     markAutopilotRerun(store, id, { repo: 'r', runId: '99', checkName: 'A', headSha: SHA, pattern: 'econnreset', rerunAt: 1 });

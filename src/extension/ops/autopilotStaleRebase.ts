@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import { hasStaleRebase, markAutopilotRerun } from '../../store/autopilot.js';
+import { markAutopilotRerun, staleRebaseRuns } from '../../store/autopilot.js';
 import { classifyStaleGeneratedLog, STALE_PATTERN_PREFIX } from '../../workflow/staleGeneratedCi.js';
 import { parseCheckUrl, type CheckUrl } from '../../workflow/transientCi.js';
 import type { FailedCheck } from './autopilotRerun.js';
@@ -38,9 +38,19 @@ export type StaleStep =
 interface Stale { readonly target: FailedCheck; readonly url: CheckUrl; readonly command: string }
 
 export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly FailedCheck[]): Promise<StaleStep> {
-  const earlier = new Set(fails.filter((f) => hasStaleRebase(c.store, c.ticketId, f.repo, f.name)).map((f) => f.name));
+  // A marker on THIS run: the rebase pushed and the old run is read again before the new run starts, so the ticket waits.
+  // A marker on an OLDER run: the rebase ran and the check failed again, so today's rules apply.
+  const earlier = new Set<string>();
+  let waiting = false;
+  for (const f of fails) {
+    const runs = staleRebaseRuns(c.store, c.ticketId, f.repo, f.name);
+    if (runs.length === 0) continue;
+    if (runs.includes(parseCheckUrl(f.url)?.runId ?? '')) waiting = true;
+    else earlier.add(f.name);
+  }
   const none: StaleStep = { kind: 'none', earlier };
   if (earlier.size > 0) return none;
+  if (waiting) return { kind: 'rebased' };
   const stale: Stale[] = [];
   for (const target of fails) {
     const url = parseCheckUrl(target.url);

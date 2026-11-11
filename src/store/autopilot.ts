@@ -262,9 +262,10 @@ export function getAutopilotRerun(store: Store, ticketId: number, repo: string, 
   return row ?? null;
 }
 
-/** True when a rebase round for a stale generated file was started for this check on ANY run (T1081): a later failing run is "failed again". */
-export function hasStaleRebase(store: Store, ticketId: number, repo: string, checkName: string): boolean {
-  return store.db
-    .prepare("SELECT 1 FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ? AND pattern LIKE 'stale-generated:%' LIMIT 1")
-    .get(ticketId, repo, checkName) !== undefined;
+/** The run ids on which a rebase round for a stale generated file was started for this check (T1081). */
+export function staleRebaseRuns(store: Store, ticketId: number, repo: string, checkName: string): string[] {
+  const rows = store.db
+    .prepare("SELECT run_id FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ? AND pattern LIKE 'stale-generated:%'")
+    .all(ticketId, repo, checkName) as Array<{ run_id: string }>;
+  return rows.map((r) => r.run_id);
 }
