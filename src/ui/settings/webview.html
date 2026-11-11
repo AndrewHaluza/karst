@@ -677,6 +677,17 @@
   .save-state{font-size:var(--k-text-sm);color:var(--k-text-dim);white-space:nowrap;flex:0 0 auto}
   .save-state.is-error{color:var(--k-danger)}
 
+  /* Autopilot tab (T1086): number fields fit their value, selects stay narrow,
+     the checks are one wrapping chip row ending in the add input, and the
+     checked switch label keeps the normal text color (UI-R41). */
+  #section-autopilot .k-input.autopilot-number{width:9ch;justify-self:start}
+  #section-autopilot .k-input.autopilot-select{max-width:38ch}
+  #section-autopilot .k-switch,#section-autopilot .k-switch label{color:var(--k-text)}
+  #section-autopilot .autopilot-check-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3)}
+  #section-autopilot .autopilot-checks{display:contents;list-style:none;margin:var(--k-space-0);padding:var(--k-space-0)}
+  #section-autopilot .autopilot-checks > li{list-style:none}
+  #section-autopilot .autopilot-add{flex:0 1 14ch;min-width:var(--k-space-10, 8ch)}
+
   /* Page structure: fewer containers, stronger hierarchy (handoff §2.3). */
   .content{padding:var(--k-space-8) var(--k-space-9) calc(var(--k-space-8) * 4)}
   .section{max-width:calc(var(--k-space-8) * 58)}

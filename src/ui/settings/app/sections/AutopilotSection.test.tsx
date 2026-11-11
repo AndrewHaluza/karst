@@ -32,8 +32,17 @@ function stateWith(autopilot: AutopilotConfig | undefined, error?: string): Sett
   return {
     ...FIXTURE_STATE_PUSH,
     manifest,
-    validation: error ? { ok: false, error } : { ok: true },
-  } as unknown as SettingsState;
+    error: error ?? null,
+  };
+}
+
+function mountInvalid(): ReturnType<typeof mount> {
+  return mount(
+    stateWith(
+      { ...ON, conflicts: { policy: 'auto', maxRounds: 0 } },
+      'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1',
+    ),
+  );
 }
 
 function mount(state: SettingsState): { bridge: TestBridge; probe(): AppProbeShape } {
@@ -135,7 +144,7 @@ describe('Autopilot tab', () => {
       expect.stringContaining('typecheck'),
     ]);
     fireEvent.change(screen.getByLabelText('Add a check'), { target: { value: 'test:unit' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add check' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(block(probe)?.ci.checks).toEqual(['lint', 'typecheck', 'test:unit']);
     fireEvent.click(screen.getByRole('button', { name: 'Remove lint' }));
     expect(block(probe)?.ci.checks).toEqual(['typecheck', 'test:unit']);
@@ -160,6 +169,27 @@ describe('Autopilot tab', () => {
     );
     const field = screen.getByLabelText('Max rounds per PR');
     expect(field.getAttribute('aria-invalid')).toBe('true');
-    expect(screen.getByText(/autopilot\.conflicts\.maxRounds must be a whole number/)).toBeTruthy();
+    expect(screen.getByText('Enter a whole number of at least 1.')).toBeTruthy();
+  });
+
+  it('shows the field fault from a state push alone', () => {
+    mountInvalid();
+    const field = screen.getByLabelText('Max rounds per PR');
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText('Enter a whole number of at least 1.')).toBeTruthy();
+  });
+
+  it('shows the host text for a path without a short message', () => {
+    mount(stateWith(ON, 'Invalid karst.yml: autopilot.ci.policy must be auto or ask'));
+    expect(screen.getByText('autopilot.ci.policy must be auto or ask')).toBeTruthy();
+  });
+
+  it('renders the checks, the input and the Add button in one row with no list bullets', () => {
+    mount(stateWith(ON));
+    const row = document.querySelector('.autopilot-check-row');
+    expect(row).not.toBeNull();
+    expect(row?.querySelectorAll('.k-chip, [data-chip], li').length).toBeGreaterThanOrEqual(2);
+    expect(row?.contains(screen.getByLabelText('Add a check'))).toBe(true);
+    expect(row?.contains(screen.getByRole('button', { name: 'Add' }))).toBe(true);
   });
 });
