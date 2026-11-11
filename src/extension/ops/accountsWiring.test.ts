@@ -306,3 +306,23 @@ it('does not watch a file when the account store is injected', async () => {
   expect(() => w.dispose()).not.toThrow();
   store.close();
 });
+
+it('signals a change after a write and a reload, but not after the first load (T1076)', async () => {
+  const store = openStore(':memory:');
+  const onChange = vi.fn();
+  const w = await wireAccounts({ globalStorageRoot: root, store, accountStore: memoryAccountStore(), onChange });
+  try {
+    expect(onChange).not.toHaveBeenCalled();
+    await w.ops.createAccount('claude', 'w', { source: 'folder', dir: '/h/w' });
+    const afterCreate = onChange.mock.calls.length;
+    expect(afterCreate).toBeGreaterThan(0);
+    await w.ops.setActive('claude', 'w');
+    expect(onChange.mock.calls.length).toBeGreaterThan(afterCreate);
+    const afterSwitch = onChange.mock.calls.length;
+    await w.reload();
+    expect(onChange.mock.calls.length).toBe(afterSwitch + 1);
+  } finally {
+    w.dispose();
+    store.close();
+  }
+});

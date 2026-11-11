@@ -110,38 +110,55 @@ describe('parseClaudeCredentials', () => {
 });
 
 describe('claudeKeychainServices', () => {
-  it('tries the per-config-dir suffixed item, then the default item', () => {
-    expect(claudeKeychainServices('/Users/u/.claude')).toEqual(['Claude Code-credentials']);
-    expect(claudeKeychainServices('/Users/u/.claude-work')).toEqual([
-      'Claude Code-credentials-.claude-work',
-      'Claude Code-credentials',
+  it('uses the default item only for the default folder', () => {
+    expect(claudeKeychainServices('/Users/u/.claude', '/Users/u')).toEqual(['Claude Code-credentials']);
+  });
+
+  it('uses the hashed item of a custom folder and never the default item', () => {
+    // first 8 hex chars of sha256('/Users/u/.claude-work'): the suffix Claude Code writes
+    expect(claudeKeychainServices('/Users/u/.claude-work', '/Users/u')).toEqual([
+      'Claude Code-credentials-87169a1d',
     ]);
+    expect(claudeKeychainServices('/other/home/.claude', '/Users/u')).not.toContain('Claude Code-credentials');
   });
 });
 
 describe('readClaudeOAuthToken', () => {
-  it('reads the macOS Keychain item, falling through to the default variant', async () => {
+  it('reads the hashed Keychain item of a non-default account', async () => {
     const runSecurity = vi.fn(async (service: string) =>
-      service === 'Claude Code-credentials'
+      service === 'Claude Code-credentials-87169a1d'
         ? JSON.stringify({ claudeAiOauth: { accessToken: TOKEN } })
         : null,
     );
     const lookup = await readClaudeOAuthToken({
       configDir: '/Users/u/.claude-work',
+      homeDir: '/Users/u',
       now: NOW,
       platform: 'darwin',
       runSecurity,
     });
     expect(lookup).toEqual({ state: 'ok', token: TOKEN });
-    expect(runSecurity.mock.calls.map(([s]) => s)).toEqual([
-      'Claude Code-credentials-.claude-work',
-      'Claude Code-credentials',
-    ]);
+    expect(runSecurity.mock.calls.map(([s]) => s)).toEqual(['Claude Code-credentials-87169a1d']);
+  });
+
+  it('answers unknown, never the default token, when the account item is missing', async () => {
+    const runSecurity = vi.fn(async (service: string) =>
+      service === 'Claude Code-credentials' ? JSON.stringify({ claudeAiOauth: { accessToken: TOKEN } }) : null,
+    );
+    const lookup = await readClaudeOAuthToken({
+      configDir: '/Users/u/.claude-work',
+      homeDir: '/Users/u',
+      now: NOW,
+      platform: 'darwin',
+      runSecurity,
+    });
+    expect(lookup).toEqual({ state: 'unknown', reason: 'no Claude OAuth token in the macOS Keychain' });
   });
 
   it('reports an expired Keychain token without refreshing it', async () => {
     const lookup = await readClaudeOAuthToken({
       configDir: '/Users/u/.claude',
+      homeDir: '/Users/u',
       now: NOW,
       platform: 'darwin',
       runSecurity: async () =>
@@ -153,6 +170,7 @@ describe('readClaudeOAuthToken', () => {
   it('reports a missing Keychain item', async () => {
     const lookup = await readClaudeOAuthToken({
       configDir: '/Users/u/.claude',
+      homeDir: '/Users/u',
       now: NOW,
       platform: 'darwin',
       runSecurity: async () => null,
@@ -283,6 +301,25 @@ describe('ClaudeUsageClient', () => {
 
     now = new Date(NOW.getTime() + 300_000);
     expect(await client.read()).toEqual({ state: 'ok', windows: parseClaudeUsageWindows(USAGE) });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a 429 backoff for the account that got it and reads another account at once (T1076)', async () => {
+    const other = join(home, '.claude-other');
+    mkdirSync(other, { recursive: true });
+    writeFileSync(join(other, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: TOKEN } }));
+    writeCredentials();
+    const debug = vi.fn();
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({}, 429, { 'retry-after': '300' }))
+      .mockResolvedValueOnce(jsonResponse(USAGE));
+    const client = new ClaudeUsageClient(options({ fetchFn: fetchFn as unknown as typeof fetch, debug }));
+    expect((await client.read()).state).toBe('unknown');
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('rate limited (429)'));
+    expect(await client.read(other)).toEqual({ state: 'ok', windows: parseClaudeUsageWindows(USAGE) });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect((await client.read(join(home, '.claude'))).state).toBe('unknown');
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 

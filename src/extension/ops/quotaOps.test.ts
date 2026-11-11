@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { configureAccounts, resetAccounts } from '../../agent/accounts/registry.js';
 import { QuotaOps, makeClaudeGlobalStatuslineSync, type ClaudeGlobalStatuslineSyncDeps, type QuotaOpsDeps, type QuotaStatusSink } from './quotaOps.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
 import type { Manifest } from '../../manifest/types.js';
@@ -64,6 +65,8 @@ function globalStatusline(
 function make(over: {
   snapshots?: QuotaSnapshot[];
   get?: (core: string) => QuotaSnapshot | undefined;
+  getFor?: (core: string, account: string | undefined) => QuotaSnapshot | undefined;
+  refresh?: () => Promise<QuotaSnapshot[]>;
   thresholdPct?: () => number | undefined;
   /** `null` omits the clock, exercising the real-`Date` default. */
   now?: (() => Date) | null;
@@ -74,6 +77,8 @@ function make(over: {
     service: {
       snapshots: () => over.snapshots ?? [],
       get: (core) => over.get?.(core),
+      getFor: (core, account) => over.getFor?.(core, account),
+      refresh: over.refresh ?? (async () => []),
     },
     thresholdPct: over.thresholdPct ?? (() => 80),
     coreLabel: (core) => core,
@@ -274,5 +279,94 @@ describe('makeClaudeGlobalStatuslineSync', () => {
       'karst: Claude global statusline sync failed',
       expect.any(Error),
     );
+  });
+});
+
+describe('QuotaOps.warnBeforeLaunch account (T1076)', () => {
+  it('uses the snapshot of the launch account, not the active one', () => {
+    const getFor = vi.fn((_core: string, account: string | undefined) => (account === 'work' ? ok('claude', 95) : undefined));
+    const { ops, notify } = make({ get: () => ok('claude', 10), getFor });
+    ops.warnBeforeLaunch('claude', 'work');
+    expect(getFor).toHaveBeenCalledWith('claude', 'work');
+    expect(notify).toHaveBeenCalledOnce();
+  });
+
+  it('does not warn for a launch account with no snapshot, even if the active account is high', () => {
+    const { ops, notify } = make({ get: () => ok('claude', 99), getFor: () => undefined });
+    ops.warnBeforeLaunch('claude', 'other');
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('uses the active snapshot when the launch names no account', () => {
+    const { ops, notify } = make({ get: () => ok('claude', 95), getFor: () => undefined });
+    ops.warnBeforeLaunch('claude');
+    expect(notify).toHaveBeenCalledOnce();
+  });
+});
+
+describe('QuotaOps.accountsChanged (T1076)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('gives one refresh and one statusline sync for a burst of changes', () => {
+    vi.useFakeTimers();
+    const refresh = vi.fn(async () => []);
+    const { ops, global } = make({ refresh });
+    ops.accountsChanged();
+    ops.accountsChanged();
+    ops.accountsChanged();
+    expect(refresh).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(global.apply).toHaveBeenCalledOnce();
+  });
+
+  it('reports a failed refresh and does not throw', async () => {
+    vi.useFakeTimers();
+    const error = vi.fn();
+    const { ops } = make({ refresh: async () => { throw new Error('x'); } }, { error });
+    ops.accountsChanged();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(error).toHaveBeenCalledWith('karst: quota refresh after an account change failed', expect.any(Error));
+  });
+
+  it('dispose cancels a pending change', () => {
+    vi.useFakeTimers();
+    const refresh = vi.fn(async () => []);
+    const { ops } = make({ refresh });
+    ops.accountsChanged();
+    ops.dispose();
+    vi.advanceTimersByTime(1000);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe('global statusline per account (T1076)', () => {
+  afterEach(() => resetAccounts());
+  const acct = (dir: string) => ({ kind: 'subscription' as const, source: 'folder' as const, dir });
+  const claude = (active: string) =>
+    configureAccounts({ claude: { active, list: { work: acct('/acct/work'), home: acct('/acct/home') } } });
+  const on = () => ({ quota: { claudeGlobalStatusline: true } }) as Manifest;
+  const off = () => ({}) as Manifest;
+  const run = (manifest: () => Manifest) => {
+    const apply = vi.fn((_o: { configDir: string; enabled: boolean }) => ({ installed: true, changed: false }));
+    makeClaudeGlobalStatuslineSync({
+      manifest, storageRoot: '/s', warn: vi.fn(), info: vi.fn(), error: vi.fn(), apply: apply as never, node: () => 'node',
+    })();
+    return apply.mock.calls.map(([o]) => [o.configDir, o.enabled]);
+  };
+
+  it('ON installs in the folder of the active account only', () => {
+    claude('work');
+    expect(run(on)).toEqual([['/acct/work', true]]);
+    claude('home');
+    expect(run(on)).toEqual([['/acct/home', true]]);
+  });
+
+  it('OFF restores every account folder, each from its own backup', () => {
+    claude('work');
+    const dirs = run(off).map(([d]) => d);
+    expect(dirs).toEqual(expect.arrayContaining(['/acct/work', '/acct/home']));
+    expect(run(off).every(([, enabled]) => enabled === false)).toBe(true);
+    expect(dirs).toHaveLength(3);
   });
 });

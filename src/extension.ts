@@ -49,7 +49,7 @@ import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessio
 import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, freeSlotOnConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
-import { activeAccountLabel, sessionReaderEnv } from './agent/accounts/registry.js';
+import { accountForLaunch, activeAccountLabel, sessionReaderEnv } from './agent/accounts/registry.js';
 import { wireAccounts } from './extension/ops/accountsWiring.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
@@ -644,7 +644,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   setShipCiDebug((m) => logger.debug(m));
   // @arch:AC-55: publish the machine-local agent accounts to every spawn path.
-  const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, store: localStore, debug: (m) => logger.debug(m) }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
+  // T1076: the accounts config changed (a switch here or in another window); QuotaOps exists later, so a holder.
+  let onAccountsChanged: () => void = () => {};
+  const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, store: localStore, debug: (m) => logger.debug(m), onChange: () => onAccountsChanged() }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
   if (accountsWiring) context.subscriptions.push({ dispose: () => accountsWiring.dispose() });
   const logError: LogError = (m, e) => logger.error(m, e);
   // T1012: reap the headless child of a run a new open supersedes (dead owner only).
@@ -2644,7 +2646,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentManifest()?.quota?.warnThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
   let onQuotaChange: (snapshots: QuotaSnapshot[]) => void = () => {};
   const quotaService = new QuotaService({
-    readers: defaultQuotaReaders({ claudeOauthUsageApi: () => currentManifest()?.quota?.claudeOauthUsageApi === true }),
+    readers: defaultQuotaReaders({ debug: (message) => logger.debug(message), claudeOauthUsageApi: () => currentManifest()?.quota?.claudeOauthUsageApi === true }),
     debug: (message) => logger.debug(message),
     onDidChange: (snapshots) => onQuotaChange(snapshots),
   });
@@ -2689,7 +2691,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     quotaOps.applyStatus(snapshots);
   };
   quotaService.start(); quotaOps.syncClaudeGlobalStatusline();
-  context.subscriptions.push({ dispose: () => quotaService.dispose() });
+  onAccountsChanged = () => quotaOps.accountsChanged();
+  context.subscriptions.push({ dispose: () => { onAccountsChanged = () => {}; quotaOps.dispose(); quotaService.dispose(); } });
 
 
   // The resource monitor (leak hunter): one slow-lane sample every 30 s for the
@@ -6638,7 +6641,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // View-only quota warning (D163): the resolved core is near a limit. Fired
       // only for a real launch — a recovery re-launch is automatic and must not
       // stack warnings. Never awaited, never blocking.
-      if (!options.recovery) quotaOps.warnBeforeLaunch(launchProvider);
+      if (!options.recovery) quotaOps.warnBeforeLaunch(launchProvider, accountForLaunch(launchProvider, resumeId));
 
         await sessions.openSession(
           adapter,

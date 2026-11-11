@@ -106,20 +106,26 @@ export async function wireAccounts(input: {
   readonly store: Store;
   readonly debug?: (message: string) => void;
   readonly accountStore?: AccountStore;
+  /** Called after the registry took a new accounts config (a write here, a reload, another window's edit). Not called for the first load. */
+  readonly onChange?: () => void;
 }): Promise<AccountsWiring> {
   const accountStore = input.accountStore ?? fileAccountStore(input.globalStorageRoot);
   const home = homedir();
-  const publish = async (): Promise<void> => configureAccounts(await accountStore.load());
+  const publish = async (notify = true): Promise<void> => {
+    configureAccounts(await accountStore.load());
+    if (notify) input.onChange?.();
+  };
   // Every write through the ops re-publishes the config to the registry.
   const publishing: AccountStore = {
     load: () => accountStore.load(),
     save: async (config) => {
       await accountStore.save(config);
       configureAccounts(config);
+      input.onChange?.();
     },
   };
   configureRecordedAccountLookup((core, sessionId) => recordedAccountForSession(input.store, core, sessionId));
-  await publish();
+  await publish(false);
   // Headless sessions have no launch intent: their accounts live in a small ledger file.
   seedSessionLedger(await loadSessionLedger(input.globalStorageRoot).catch((e) => {
     input.debug?.(`[accounts] session ledger not loaded: ${String(e)}`);
@@ -151,5 +157,5 @@ export async function wireAccounts(input: {
   // Another window appends to the ledger: merge its entries so a resume here finds them.
   const ledgerFile = join(input.globalStorageRoot, SESSION_LEDGER_FILE);
   watchFile(ledgerFile, { interval: ACCOUNTS_WATCH_MS, persistent: false }, () => { void mergeLedgerFile(input.globalStorageRoot, input.debug); });
-  return { ops, reload: publish, dispose: () => { configureSessionLedgerSink(undefined); unwatchFile(ledgerFile); if (watching) unwatchFile(file); } };
+  return { ops, reload: () => publish(), dispose: () => { configureSessionLedgerSink(undefined); unwatchFile(ledgerFile); if (watching) unwatchFile(file); } };
 }
