@@ -354,11 +354,13 @@ function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number): boolea
  * session in the ticket's canonical worktree. Never falls through to a plain
  * session: a graph-approach launch either starts the planner or names why not.
  */
-function unlinkStaleGraphJson(artifactRoot: string | undefined): void {
+function unlinkStaleGraphJson(artifactRoot: string | undefined, debug?: (msg: string) => void): void {
   if (!artifactRoot) return;
   try {
     rmSync(join(artifactRoot, 'graph.json'), { force: true });
-  } catch {}
+  } catch (err) {
+    debug?.(`[graph] failed to unlink stale graph.json at "${artifactRoot}": ${String(err)}`);
+  }
 }
 
 export async function bootstrapAndLaunchPlanner(
@@ -423,7 +425,7 @@ export async function bootstrapAndLaunchPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   const artifactRoot = deps.artifactRootOf(graphRunId);
-  unlinkStaleGraphJson(artifactRoot);
+  unlinkStaleGraphJson(artifactRoot, deps.debug);
   const env = deps.graphEnvOf({
     launchId: plannerRunId,
     graphRunId,
@@ -566,7 +568,7 @@ export async function relaunchBootstrapPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   const artifactRoot = deps.artifactRootOf(input.graphRunId);
-  unlinkStaleGraphJson(artifactRoot);
+  unlinkStaleGraphJson(artifactRoot, deps.debug);
   const env = deps.graphEnvOf({
     launchId: plannerRunId,
     graphRunId: input.graphRunId,
@@ -1253,7 +1255,7 @@ export async function launchReplanPlanner(
     ownerNonce: plannerOwnerNonce,
   });
   if (!claimed) return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
-  unlinkStaleGraphJson(deps.artifactRootOf(launch.graphRunId));
+  unlinkStaleGraphJson(deps.artifactRootOf(launch.graphRunId), deps.debug);
   const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
   let session: SupervisedAgentSession;
   try {

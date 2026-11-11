@@ -21,7 +21,7 @@ import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js'
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, rmSync, watch as fsWatch } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
@@ -5012,8 +5012,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
-  const unlinkStaleGraphJson = (r?: string): void => { if (r) try { rmSync(join(r, 'graph.json'), { force: true }); } catch {} };
-
   /** Terminal-close fallback for a planner that did not complete the explicit
    *  CLI submission. The immutable launch identity prevents a late close from
    *  submitting on behalf of a newer planner. */
@@ -5112,9 +5110,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const deps = graphDriverDeps();
     const base = deps.promptBytesOf('karst-graph-planner');
     if (base !== undefined) {
-      const ph = createHash('sha256').update(base).digest('hex'), sp = `prompts/${ph}`;
-      deps.writeSnapshot(graphRunId, sp, base);
-      setPlannerRunPromptHashArtifact(gs.db, plannerRunId, ph, sp);
+      try {
+        const ph = createHash('sha256').update(base).digest('hex'), sp = `prompts/${ph}`;
+        deps.writeSnapshot(graphRunId, sp, base);
+        setPlannerRunPromptHashArtifact(gs.db, plannerRunId, ph, sp);
+      } catch (err) {
+        logger.debug(`karst: failed to snapshot prompt bytes for repair: ${String(err)}`);
+      }
     }
     const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
     const prompt = [
@@ -5127,7 +5129,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
       PLANNER_SUBMIT_INSTRUCTION,
     ].filter(Boolean).join('\n\n');
-    unlinkStaleGraphJson(graphArtifactRoot(graphRunId));
     const worktree = resolveGraphLaunchWorktree(graphRunId, graphRunTicketId(graphRunId));
     if (!worktree) return;
     const result = await launchReplanPlanner(deps, {
@@ -5191,7 +5192,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ].filter(Boolean).join('\n\n');
     const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
     if (!worktree) return;
-    unlinkStaleGraphJson(graphArtifactRoot(launch.graphRunId));
     const result = await launchReplanPlanner(graphDriverDeps(), {
       graphRunId: launch.graphRunId,
       plannerRunId: launch.plannerRunId,
@@ -5242,7 +5242,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ].filter(Boolean).join('\n\n');
     const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
     if (!worktree) return;
-    unlinkStaleGraphJson(graphArtifactRoot(launch.graphRunId));
     const result = await launchReplanPlanner(graphDriverDeps(), {
       graphRunId: launch.graphRunId,
       plannerRunId: launch.plannerRunId,

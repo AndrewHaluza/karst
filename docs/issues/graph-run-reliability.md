@@ -386,9 +386,8 @@ END_DOC_BLOCK: [@issue:T3-02]
 ## [@issue:T3-03] Still open (resolved)
 
 - **F1 (resolved in T1078)** — compile re-prompts now re-snapshot live prompt
-  bytes into CAS, update the prompt hash, and append a note flagging the planner
-  prompt/skill as suspect when MAX_COMPILE_ATTEMPTS exhausts with identical
-  diagnostic codes.
+  bytes into CAS, update the prompt hash, and include planner vocabulary during
+  compile repair re-prompts.
 - **F2 (resolved in T1078)** — late bootstrap submissions into non-planning runs
   and late replan submissions into non-draining runs transition to `stale` with
   ended_at and reason recorded.

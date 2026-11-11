@@ -540,64 +540,6 @@ describe('acceptSubmittedPlan', () => {
     expect(planner.compile_attempt).toBe(3);
   });
 
-  it('flags planner prompt/skill suspect when compile attempts are exhausted with identical diagnostic codes', () => {
-    const h = harness();
-    const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
-    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
-
-    // Attempt 1: rejected with repair-requested, writes attempt 1 diagnostics
-    const res1 = acceptSubmittedPlan(h.deps, graphRunId);
-    expect(res1.kind).toBe('repair-requested');
-
-    // Attempt 2: re-submit the same invalid doc
-    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
-    const res2 = acceptSubmittedPlan(h.deps, graphRunId);
-    expect(res2.kind).toBe('repair-requested');
-
-    // Attempt 3: re-submit the same invalid doc -> exhausted (3/3)
-    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
-    const res3 = acceptSubmittedPlan(h.deps, graphRunId);
-    expect(res3.kind).toBe('rejected');
-
-    const run = h.db
-      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { status: string; blocked_reason: string | null };
-    expect(run.status).toBe('blocked');
-    expect(run.blocked_reason).toMatch(/suspect/i);
-    expect(run.blocked_reason).toContain('planner prompt/skill suspect');
-  });
-
-  it('does not flag planner prompt/skill suspect when diagnostic codes differ across attempts', () => {
-    const h = harness();
-    const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
-    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
-
-    // Attempt 1: rejected with repair-requested, writes attempt 1 diagnostics
-    acceptSubmittedPlan(h.deps, graphRunId);
-
-    // Overwrite attempt 1 with a different diagnostic code to simulate differing errors
-    const diagDir = join(h.root, String(graphRunId), 'diagnostics');
-    writeFileSync(
-      join(diagDir, `planner-${plannerRunId}-attempt-1.json`),
-      JSON.stringify(['different-code: something else']),
-    );
-
-    // Attempt 2
-    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
-    acceptSubmittedPlan(h.deps, graphRunId);
-
-    // Attempt 3
-    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
-    const res3 = acceptSubmittedPlan(h.deps, graphRunId);
-    expect(res3.kind).toBe('rejected');
-
-    const run = h.db
-      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { status: string; blocked_reason: string | null };
-    expect(run.status).toBe('blocked');
-    expect(run.blocked_reason).not.toMatch(/suspect/i);
-  });
-
   it('G2: a first rejection re-prompts the SAME planner run instead of blocking', () => {
     const h = harness();
     const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);

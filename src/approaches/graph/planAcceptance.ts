@@ -340,10 +340,7 @@ export function acceptSubmittedReplan(
   return { kind: 'accepted', revisionId: result.revisionId, revisionNumber: result.revisionNumber };
 }
 
-export function diagnosticsPathFor(plannerRunId: number, attempt?: number): string {
-  if (attempt !== undefined) {
-    return `diagnostics/planner-${plannerRunId}-attempt-${attempt}.json`;
-  }
+export function diagnosticsPathFor(plannerRunId: number): string {
   return `diagnostics/planner-${plannerRunId}.json`;
 }
 
@@ -351,9 +348,8 @@ export function readPlannerDiagnostics(
   deps: Pick<GraphDriverDepsForPlanAcceptance, 'readBytes'>,
   graphRunId: number,
   plannerRunId: number,
-  attempt?: number,
 ): string[] {
-  const bytes = deps.readBytes(graphRunId, diagnosticsPathFor(plannerRunId, attempt));
+  const bytes = deps.readBytes(graphRunId, diagnosticsPathFor(plannerRunId));
   if (bytes === undefined) return [];
   try {
     const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
@@ -436,45 +432,13 @@ function writeDiagnosticsFile(
   graphRunId: number,
   plannerRunId: number,
   diagnostics: string[],
-  attempt?: number,
 ): void {
   try {
     const bytes = new TextEncoder().encode(JSON.stringify(diagnostics, null, 2));
     deps.writeSnapshot(graphRunId, diagnosticsPathFor(plannerRunId), bytes);
-    if (attempt !== undefined) {
-      deps.writeSnapshot(graphRunId, diagnosticsPathFor(plannerRunId, attempt), bytes);
-    }
   } catch (err) {
     deps.debug?.(`[graph] run ${graphRunId}: diagnostics write failed (${String(err)})`);
   }
-}
-
-function extractDiagnosticCode(diagnostic: string): string {
-  const colon = diagnostic.indexOf(':');
-  return colon > 0 ? diagnostic.slice(0, colon).trim() : diagnostic.trim();
-}
-
-function diagnosticCodesKey(diagnostics: readonly string[]): string {
-  return [...new Set(diagnostics.map(extractDiagnosticCode))].sort().join(',');
-}
-
-function hasIdenticalDiagnosticCodesAcrossAttempts(
-  deps: Pick<GraphDriverDepsForPlanAcceptance, 'readBytes'>,
-  graphRunId: number,
-  plannerRunId: number,
-  diagnostics: readonly string[],
-  exhaustedAttempt: number,
-): boolean {
-  if (exhaustedAttempt < MAX_COMPILE_ATTEMPTS || diagnostics.length === 0) return false;
-  const currentKey = diagnosticCodesKey(diagnostics);
-  if (!currentKey) return false;
-  for (let a = 1; a < exhaustedAttempt; a++) {
-    const prior = readPlannerDiagnostics(deps, graphRunId, plannerRunId, a);
-    if (prior.length === 0 || diagnosticCodesKey(prior) !== currentKey) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function rejectPlan(
@@ -486,22 +450,7 @@ function rejectPlan(
 ): AcceptPlanResult {
   const decision = nextCompileAttempt(deps.db, plannerRunId);
   if (decision.exhausted) {
-    const suspectPrompt = hasIdenticalDiagnosticCodesAcrossAttempts(
-      deps,
-      graphRunId,
-      plannerRunId,
-      diagnostics,
-      decision.attempt,
-    );
-    return blockInvalidPlan(
-      deps,
-      graphRunId,
-      plannerRunId,
-      diagnostics,
-      decision.attempt,
-      runStatus,
-      suspectPrompt,
-    );
+    return blockInvalidPlan(deps, graphRunId, plannerRunId, diagnostics, decision.attempt, runStatus);
   }
   const reprompted = deps.transaction(() => {
     if (!transitionPlannerRun(deps.db, plannerRunId, 'submitted', 'blocked')) return false;
@@ -519,7 +468,7 @@ function rejectPlan(
     );
     return { kind: 'undecidable', reason: 'planner run already moved' };
   }
-  writeDiagnosticsFile(deps, graphRunId, plannerRunId, diagnostics, decision.attempt);
+  writeDiagnosticsFile(deps, graphRunId, plannerRunId, diagnostics);
   deps.debug?.(
     `[graph] run ${graphRunId}: ${runStatus === 'draining' ? 'replan' : 'bootstrap'} plan rejected on compile attempt ${decision.attempt}/${MAX_COMPILE_ATTEMPTS} — re-prompting planner ${plannerRunId} with ${diagnostics.length} diagnostic(s)`,
   );
@@ -533,12 +482,8 @@ function blockInvalidPlan(
   diagnostics: string[],
   attempt?: number,
   runStatus: RepairRunStatus = 'planning',
-  suspectPrompt = false,
 ): AcceptPlanResult {
-  const baseReason = `graph-plan-invalid: ${diagnostics[0] ?? 'planner produced an invalid document'}`;
-  const reason = suspectPrompt
-    ? `${baseReason} (planner prompt/skill suspect: identical diagnostic codes across compile attempts)`
-    : baseReason;
+  const reason = `graph-plan-invalid: ${diagnostics[0] ?? 'planner produced an invalid document'}`;
   const blocked = deps.transaction(() => {
     if (attempt !== undefined) recordCompileAttempt(deps, plannerRunId, attempt);
     setPlannerRunReasonEndedAt(deps.db, plannerRunId, reason.slice(0, 2000), deps.now());
@@ -551,7 +496,7 @@ function blockInvalidPlan(
     return true;
   });
   if (blocked) {
-    writeDiagnosticsFile(deps, graphRunId, plannerRunId, diagnostics, attempt);
+    writeDiagnosticsFile(deps, graphRunId, plannerRunId, diagnostics);
     deps.debug?.(`[graph] run ${graphRunId}: bootstrap plan rejected — ${reason}`);
   }
   return { kind: 'rejected', diagnostics };
