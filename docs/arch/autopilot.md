@@ -11,7 +11,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 Autopilot runs the same host actions a user clicks at the ship stage. It does not add a new action. Related: `docs/arch/stages-and-gates.md`, `docs/arch/github-and-merge.md`, `docs/arch/manifest-and-settings.md`.
 
 ## [@arch:AP-00] Overview
-covers: src/extension/ops/autopilotOps.ts, src/extension/ops/autopilotCommandOps.ts, src/extension/ops/autopilotWiring.ts, src/extension/autopilotBinding.ts, src/store/autopilot.ts, src/manifest/autopilot.ts
+covers: src/extension/ops/autopilotOps.ts, src/extension/ops/autopilotNoChange.ts, src/extension/ops/autopilotCommandOps.ts, src/extension/ops/autopilotWiring.ts, src/extension/autopilotBinding.ts, src/store/autopilot.ts, src/manifest/autopilot.ts
 
 ### Purpose
 Fix an allowlisted CI failure or a merge conflict on an open PR of a ticket without a click. Each (PR, kind) has a retry budget. When the budget is spent, the ticket parks with `auto-fix stopped: <kind> <n>/<max>`. Sandbox rules are in `@arch:AP-04`.
@@ -44,6 +44,7 @@ flowchart TD
 - CI uses Send CI failure to agent. A check that is not on the allowlist parks. A gh failure parks and does not move the ticket. An unknown or pending CI status is never a pass. A closed PR is never fixed.
 - Transient CI re-run (T1019): one `gh run rerun --failed` per (ticket, repo, run, check) for a network failure, before the allowlist decision. Rules in `@arch:AP-03`.
 - Stale generated file (T1081): when every failing check failed only on `<path> is stale: run <command>` for a `ship.regenerate` command, a host ticket gets ONE Rebase on base, with no confirm prompt and no attempt, before the transient re-run. Rules in `@arch:AP-05`.
+- CI round with no commit (D564): when a failing check shows the same run head SHA that the last CI round recorded, the round made no commit. The engine re-runs the failed jobs ONCE with no attempt, then parks with `auto-fix stopped: ci round made no change`. Rules in `@arch:AP-03`.
 - The placement comes from the recorded backend: `host` runs on the host, any other backend runs in its sandbox (`@arch:AC-43`). A missing placement gets no round.
 - A ticket that ran an implementation graph gets no round: it parks with `auto-fix not run: graph ticket`. A live session that runs, or waits on a prompt or a question, also blocks a round. A closing window releases its `session_owner` rows.
 - A rollup with pending checks is not read: its failing list is partial, so the ticket waits. The allowlist covers every failing PR, because the action sends them all. Each failing PR spends its own attempt. A spent budget on any of them parks the round and gives back the attempts taken first.
@@ -94,9 +95,11 @@ Show the auto-fix state and the controls. The UI adds no new engine rule.
 END_DOC_BLOCK: [@arch:AP-02]
 
 ## [@arch:AP-03] Transient CI re-run
-covers: src/extension/ops/autopilotRerun.ts, src/workflow/transientCi.ts, src/integrations/ciRerun.ts, src/store/autopilot.ts
+covers: src/extension/ops/autopilotRerun.ts, src/extension/ops/autopilotNoChange.ts, src/workflow/transientCi.ts, src/integrations/ciRerun.ts, src/store/autopilot.ts
 
 When every check of the open PRs has finished and a check failed, the engine reads the tail of the log of each failed job (`gh api .../actions/jobs/<id>/logs`, bounded, read as text, never evaluated). A failure is transient only when a step-level line (`##[error]`, an npm, prebuild-install or gyp line) matches the closed list `TRANSIENT_CI_PATTERNS` (`workflow/transientCi.ts`); test output never matches. A transient check gets ONE `gh run rerun <run> --failed` per (ticket, repo, run, check), before the allowlist decision. A run id names one head, so a new push gets a new re-run. The marker is the row in `autopilot_reruns` (v106), written before gh runs, so a reload or a second window never re-runs again. The re-run uses no attempt. It forgets the stored rollup of that PR, so the ticket waits until the next probe reads the newest run per check (D281). A fresh marker also holds the ticket for `RERUN_SETTLE_MS`, in case gh still shows the old attempt. One bulletin note names the check, the 9-character sha and the pattern. If the check fails again, today's rules apply: an allowlisted check gets a CI round, any other check parks, and the park reason ends with `(re-run once after a network error and it failed again)`. A gh failure while it reads a log or starts the re-run parks with `auto-fix stopped: ci could not run (...)`. A sandboxed ticket, a graph ticket and a status check without a job url keep today's rules. A marker with pattern `stale-generated:<command>` (a rebase round, `@arch:AP-05`) is not a network re-run: this step skips it.
+
+Rule (D564): when a CI round is sent, the engine records the head SHA of the failing run in `autopilot_budgets.round_head_sha` (v115). A later tick, before the allowlist decision, compares the head SHA of the failing run with it. When they are equal, the round made no commit and CI cannot change. The engine then re-runs the failed jobs ONCE, with no attempt, through an `autopilot_reruns` marker with pattern `no-change`, and writes one bulletin note. When the check fails again on the same head, the ticket parks with `auto-fix stopped: ci round made no change` and the round keeps its attempt. A new head SHA clears this state. Approve 1 more clears the recorded head SHA. A gh failure parks with `auto-fix stopped: ci could not run (...)`.
 
 END_DOC_BLOCK: [@arch:AP-03]
 

@@ -1216,3 +1216,85 @@ describe('autopilotTick stale generated file (T1081)', () => {
     expect(r.rebase).not.toHaveBeenCalled();
   });
 });
+
+describe('autopilotTick CI round that made no commit (D564)', () => {
+  const URL_V = 'https://github.com/o/r/actions/runs/100/job/200';
+  const SHA = 'abcdef0123456789abcdef0123456789abcdef01';
+  const REAL_LOG = '2026-11-08T10:00:00.1Z FAIL src/a.test.ts\n2026-11-08T10:00:00.2Z AssertionError: expected 1 to be 2\n';
+  const withUrl = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V })) });
+  const reseed = (): void => { store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('build')), id); };
+
+  function nrig(over: Partial<AutopilotDeps> = {}, o: { sha?: string; rerun?: Error } = {}): Rig & { rerun: ReturnType<typeof vi.fn> } {
+    const rerun = vi.fn(async (_cwd: string, _c: unknown) => { if (o.rerun) throw o.rerun; });
+    const r = rig({ transientCi: { readJobLog: async () => REAL_LOG, readRunHeadSha: async () => o.sha ?? SHA, rerunFailedJobs: rerun }, ...over });
+    return { ...r, rerun };
+  }
+  /** Round 1 goes out; the agent commits nothing, so the same failed run is read again. */
+  async function emptyRound(): Promise<void> {
+    seedPr(withUrl('build'));
+    expect((await autopilotTick(nrig().deps)).kind).toBe('armed');
+    reseed();
+  }
+
+  it('re-runs the failed jobs once and uses no attempt when the round made no commit', async () => {
+    await emptyRound();
+    const r = nrig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'rerun' });
+    expect(r.rerun).toHaveBeenCalledTimes(1);
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+    expect(getAutopilotRerun(store, id, 'r', '100', 'build')?.pattern).toBe('no-change');
+    expect(r.notes[0]![0]).toBe('Autopilot: re-ran build on abcdef012: the ci round made no commit');
+    // The stored rollup of the failed attempt is forgotten: the ticket waits for the next probe.
+    expect((await autopilotTick(nrig().deps)).kind).toBe('nothing');
+  });
+
+  it('parks when the check fails again on the same head after the one re-run', async () => {
+    await emptyRound();
+    await autopilotTick(nrig().deps);
+    reseed();
+    const later = nrig({ now: () => Date.now() + 10 * 60_000 });
+    const result = await autopilotTick(later.deps);
+    expect(result).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci round made no change' });
+    expect(later.rerun).not.toHaveBeenCalled();
+    expect(later.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+    expect(later.notes[0]![1]).toBe('AP-1 (ci): the agent made no commit and the check failed again after one re-run; fix it by hand or approve one more attempt.');
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix stopped: ci round made no change');
+  });
+
+  it('starts a normal round when the run head is a new commit', async () => {
+    await emptyRound();
+    const r = nrig({}, { sha: '2222222222222222222222222222222222222222' });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'armed', problem: 'ci', used: 2, max: 3 });
+    expect(r.rerun).not.toHaveBeenCalled();
+  });
+
+  it('does not re-run again after a reload while the marker holds', async () => {
+    await emptyRound();
+    await autopilotTick(nrig().deps);
+    reseed();
+    const reloaded = nrig();
+    expect(await autopilotTick(reloaded.deps)).toEqual({ kind: 'rerun' });
+    expect(reloaded.rerun).not.toHaveBeenCalled();
+  });
+
+  it('parks with the could-not-run reason when gh fails in the re-run', async () => {
+    await emptyRound();
+    const r = nrig({}, { rerun: new Error('gh exit 1') });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci could not run (gh exit 1)' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+  });
+
+  it('starts a round again after a person approves one more attempt', async () => {
+    await emptyRound();
+    await autopilotTick(nrig().deps);
+    reseed();
+    await autopilotTick(nrig({ now: () => Date.now() + 10 * 60_000 }).deps);
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'ci');
+    reseed();
+    const r = nrig({ now: () => Date.now() + 10 * 60_000 });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(r.sendCi).toHaveBeenCalledTimes(1);
+  });
+});

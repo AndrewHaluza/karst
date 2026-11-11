@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS autopilot_budgets (
   attempts  INTEGER NOT NULL DEFAULT 0,
   signature TEXT,
   extra     INTEGER NOT NULL DEFAULT 0,
+  round_head_sha TEXT,
   PRIMARY KEY (ticket_id, repo, kind)
 );
 `;
@@ -189,6 +190,20 @@ export function grantAutopilotExtra(store: Store, ticketId: number, repo: string
     return next;
   });
   return run();
+}
+
+/**
+ * The head SHA of the failing CI run when the last CI round for this PR was sent (v115, D564). A later failure on the same
+ * head means that round made no commit. Null clears it. Only an existing `ci` budget row is changed.
+ */
+export function setCiRoundHeadSha(store: Store, ticketId: number, repo: string, sha: string | null): void {
+  store.db.prepare("UPDATE autopilot_budgets SET round_head_sha = ? WHERE ticket_id = ? AND repo = ? AND kind = 'ci'").run(sha, ticketId, repo);
+}
+
+/** The head SHA recorded by `setCiRoundHeadSha`, or null when no CI round recorded one. */
+export function getCiRoundHeadSha(store: Store, ticketId: number, repo: string): string | null {
+  const row = store.db.prepare("SELECT round_head_sha AS sha FROM autopilot_budgets WHERE ticket_id = ? AND repo = ? AND kind = 'ci'").get(ticketId, repo) as { sha: string | null } | undefined;
+  return row?.sha ?? null;
 }
 
 /** The park reason for a spent budget. */
