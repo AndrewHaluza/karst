@@ -10,6 +10,8 @@ import {
 } from '../../store/graph/graphRuns.js';
 import { graphRunById } from '../../store/graph/graphRuns.js';
 import {
+  markSubmittedBootstrapPlannerRunsStale,
+  markSubmittedReplanPlannerRunsStale,
   plannerRunIdsForGraphRun,
   setPlannerRunReason,
   setPlannerRunReasonEndedAt,
@@ -84,6 +86,16 @@ export function acceptSubmittedPlan(
 ): AcceptPlanResult {
   const run = graphRunById(deps.db, graphRunId);
   if (!run || run.status !== 'planning') {
+    if (run) {
+      deps.transaction(() => {
+        markSubmittedBootstrapPlannerRunsStale(
+          deps.db,
+          graphRunId,
+          `submitted into ${run.status} run`,
+          deps.now(),
+        );
+      });
+    }
     deps.debug?.(
       `[graph] run ${graphRunId}: bootstrap submission not accepted — ${
         run ? `run is ${run.status}, not planning` : 'run not found'
@@ -250,7 +262,19 @@ export function acceptSubmittedReplan(
   graphRunId: number,
 ): AcceptReplanResult {
   const run = graphRunById(deps.db, graphRunId);
-  if (!run || run.status !== 'draining') return { kind: 'no-op' };
+  if (!run || run.status !== 'draining') {
+    if (run) {
+      deps.transaction(() => {
+        markSubmittedReplanPlannerRunsStale(
+          deps.db,
+          graphRunId,
+          `submitted into ${run.status} run`,
+          deps.now(),
+        );
+      });
+    }
+    return { kind: 'no-op' };
+  }
   // Scope the accept to the CURRENT drain: its planner is bound to the
   // draining revision's successor. A completed replan's planner row stays
   // `submitted` forever, so an unscoped lookup (`ORDER BY id LIMIT 1`) would
@@ -423,11 +447,8 @@ function writeDiagnosticsFile(
   diagnostics: string[],
 ): void {
   try {
-    deps.writeSnapshot(
-      graphRunId,
-      diagnosticsPathFor(plannerRunId),
-      new TextEncoder().encode(JSON.stringify(diagnostics, null, 2)),
-    );
+    const bytes = new TextEncoder().encode(JSON.stringify(diagnostics, null, 2));
+    deps.writeSnapshot(graphRunId, diagnosticsPathFor(plannerRunId), bytes);
   } catch (err) {
     deps.debug?.(`[graph] run ${graphRunId}: diagnostics write failed (${String(err)})`);
   }

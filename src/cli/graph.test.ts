@@ -162,6 +162,17 @@ describe('runGraphCommand — success and idempotent rejection', () => {
     expect(require('node:fs').existsSync(snapshotPath)).toBe(true);
   });
 
+  it('marks a late submission stale when graph run is no longer planning', () => {
+    const { store, env, plannerRunId } = harness();
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = ?").run(Number(env.graphRunId));
+    const result = run(store, env);
+    expect(result.ok).toBe(true);
+    const row = plannerRunById(store.db, plannerRunId)!;
+    expect(row.status).toBe('stale');
+    expect(row.reason).toBe('submitted into running run');
+    expect(row.ended_at).toBe('2026-08-11T00:00:00.000Z');
+  });
+
   it('rejects a duplicate submission idempotently with no state change', () => {
     const { store, env, plannerRunId } = harness();
     expect(run(store, env).ok).toBe(true);

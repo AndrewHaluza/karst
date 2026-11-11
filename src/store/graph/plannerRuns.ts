@@ -453,6 +453,64 @@ export function setPlannerRunReasonEndedAt(
   return res.changes === 1;
 }
 
+/** Transition any submitted bootstrap planner runs for a graph run to `stale`
+ *  with a reason and ended_at (e.g. late submissions into a run that left planning). */
+export function markSubmittedBootstrapPlannerRunsStale(
+  db: GraphDb,
+  graphRunId: number,
+  reason: string,
+  now: string,
+): number {
+  const rows = db
+    .prepare(
+      `SELECT p.id FROM approach_planner_runs p
+       WHERE p.graph_run_id = ? AND p.kind = 'bootstrap' AND p.status = 'submitted'
+         AND (p.graph_snapshot_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM approach_graph_revisions r
+           WHERE r.graph_run_id = p.graph_run_id
+             AND (r.planner_artifact_snapshot_id = p.graph_snapshot_id OR r.planner_graph_snapshot_id = p.graph_snapshot_id)
+         ))`,
+    )
+    .all(graphRunId) as Array<{ id: number }>;
+  let count = 0;
+  for (const row of rows) {
+    if (transitionPlannerRun(db, row.id, 'submitted', 'stale')) {
+      setPlannerRunReasonEndedAt(db, row.id, reason, now);
+      count++;
+    }
+  }
+  return count;
+}
+
+/** Transition any submitted replan planner runs for a graph run to `stale`
+ *  with a reason and ended_at (e.g. late submissions into a run that left draining). */
+export function markSubmittedReplanPlannerRunsStale(
+  db: GraphDb,
+  graphRunId: number,
+  reason: string,
+  now: string,
+): number {
+  const rows = db
+    .prepare(
+      `SELECT p.id FROM approach_planner_runs p
+       WHERE p.graph_run_id = ? AND p.kind = 'replan' AND p.status = 'submitted'
+         AND (p.graph_snapshot_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM approach_graph_revisions r
+           WHERE r.graph_run_id = p.graph_run_id
+             AND (r.planner_artifact_snapshot_id = p.graph_snapshot_id OR r.planner_graph_snapshot_id = p.graph_snapshot_id)
+         ))`,
+    )
+    .all(graphRunId) as Array<{ id: number }>;
+  let count = 0;
+  for (const row of rows) {
+    if (transitionPlannerRun(db, row.id, 'submitted', 'stale')) {
+      setPlannerRunReasonEndedAt(db, row.id, reason, now);
+      count++;
+    }
+  }
+  return count;
+}
+
 /** Record the compile attempt a rejection consumed. */
 export function setPlannerRunCompileAttempt(db: GraphDb, id: number, attempt: number): boolean {
   const res = db

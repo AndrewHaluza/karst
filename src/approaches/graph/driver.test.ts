@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../store/db.js';
@@ -32,6 +32,7 @@ import {
   resolveGraphNodeProfile,
   parkLaunchFailure,
   parkNodeLaunchExit,
+  nodePromptWithReporter,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -187,6 +188,11 @@ function harness(config: GraphApproachConfig = graphApproachConfig()): Harness {
       const target = join(root, String(graphRunId), rel);
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, bytes);
+    },
+    unlinkArtifact: (graphRunId, rel) => {
+      try {
+        rmSync(join(root, String(graphRunId), rel), { force: true });
+      } catch {}
     },
     readBytes,
     ticketContextOf: async () => '# Ticket context',
@@ -650,6 +656,70 @@ describe('acceptSubmittedPlan', () => {
       .prepare('UPDATE approach_graph_runs SET status = \'running\' WHERE id = ?')
       .run(graphRunId);
     expect(acceptSubmittedPlan(h.deps, graphRunId).kind).toBe('no-op');
+  });
+
+  it('marks a late submitted bootstrap planner run stale when run is not in planning', () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare('UPDATE approach_graph_runs SET status = \'running\' WHERE id = ?')
+      .run(graphRunId);
+    const plannerRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id)
+           VALUES (?, 1, 'bootstrap', 'submitted', 'snap-1')`,
+        )
+        .run(graphRunId).lastInsertRowid,
+    );
+    const result = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(result.kind).toBe('no-op');
+    const planner = h.db
+      .prepare('SELECT status, reason, ended_at FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; reason: string | null; ended_at: string | null };
+    expect(planner.status).toBe('stale');
+    expect(planner.reason).toBe('submitted into running run');
+    expect(planner.ended_at).not.toBeNull();
+  });
+
+  it('does not mark an already accepted bootstrap planner run stale', () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    const plannerRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id)
+           VALUES (?, 1, 'bootstrap', 'submitted', 'snap-accepted')`,
+        )
+        .run(graphRunId).lastInsertRowid,
+    );
+    h.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions (graph_run_id, revision_number, canonical_graph, fingerprint, planner_artifact_snapshot_id, status, created_at)
+         VALUES (?, 1, '{}', 'fp-1', 'snap-accepted', 'active', ?)`,
+      )
+      .run(graphRunId, NOW);
+    h.db
+      .prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = ?")
+      .run(graphRunId);
+
+    const result = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(result.kind).toBe('no-op');
+    const planner = h.db
+      .prepare('SELECT status, reason, ended_at FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; reason: string | null; ended_at: string | null };
+    expect(planner.status).toBe('submitted');
+    expect(planner.reason).toBeNull();
   });
 
   it('repairs a planning run that already holds an active revision instead of inserting a second one', () => {
@@ -1723,6 +1793,33 @@ describe('acceptSubmittedReplan', () => {
     expect(acceptSubmittedReplan(h.deps, graphRunId).kind).toBe('accepted');
   });
 
+  it('marks a late submitted replan planner run stale when run is not in draining', () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = ?").run(graphRunId);
+    const plannerRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id)
+           VALUES (?, 2, 'replan', 'submitted', 'snap-rpl')`,
+        )
+        .run(graphRunId).lastInsertRowid,
+    );
+    const result = acceptSubmittedReplan(h.deps, graphRunId);
+    expect(result.kind).toBe('no-op');
+    const planner = h.db
+      .prepare('SELECT status, reason, ended_at FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; reason: string | null; ended_at: string | null };
+    expect(planner.status).toBe('stale');
+    expect(planner.reason).toBe('submitted into running run');
+    expect(planner.ended_at).toBe(NOW);
+  });
+
   /** A draining run whose replan planner submitted `json`. */
   function submittedReplan(h: Harness, json: string): number {
     const graphRunId = createGraphRun(h.db, {
@@ -1846,6 +1943,73 @@ describe('launchReplanPlanner', () => {
     expect(planner.generation).not.toBeNull();
     expect(planner.capability_hash).not.toBeNull();
     expect(h.starts).toHaveLength(1);
+  });
+
+  it('unlinks stale graph.json at the artifact root before launching', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 2, 'replan', 'ready')`,
+      )
+      .run(graphRunId);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(artRoot, { recursive: true });
+    const stalePlan = join(artRoot, 'graph.json');
+    writeFileSync(stalePlan, '{"stale": true}');
+
+    const result = await launchReplanPlanner(h.deps, {
+      graphRunId,
+      plannerRunId,
+      generation: '',
+      capability: '',
+      prompt: '# replan',
+      cwd: join(h.root, 'wt'),
+      repo: 'api',
+    });
+    expect(result.kind).toBe('launched');
+    expect(existsSync(stalePlan)).toBe(false);
+  });
+
+  it('preserves graph.json when isRepair is true', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 2, 'replan', 'ready')`,
+      )
+      .run(graphRunId);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(artRoot, { recursive: true });
+    const repairPlan = join(artRoot, 'graph.json');
+    writeFileSync(repairPlan, '{"repair": true}');
+
+    const result = await launchReplanPlanner(h.deps, {
+      graphRunId,
+      plannerRunId,
+      generation: '',
+      capability: '',
+      prompt: '# compile repair',
+      cwd: join(h.root, 'wt'),
+      repo: 'api',
+      isRepair: true,
+    });
+    expect(result.kind).toBe('launched');
+    expect(existsSync(repairPlan)).toBe(true);
   });
 
   it('leaves a replan planner whose spawn threw at launching with its nonce', async () => {
@@ -2467,5 +2631,18 @@ describe('parkNodeLaunchExit', () => {
     expect(nodeOf(h, nodeRunId).status).toBe('blocked');
     expect(nodeOf(h, nodeRunId).failure_category).toBe('failed-to-launch');
     expect(nodeOf(h, nodeRunId).launch_fail_streak).toBe(0);
+  });
+});
+
+describe('nodePromptWithReporter', () => {
+  it('shows explicit CLI invocation syntax for complete, block, and replan', () => {
+    const prompt = nodePromptWithReporter({
+      promptBytesOf: () => new TextEncoder().encode('# Node Task'),
+      cliNodeCompletionCommand: () => 'node "/path/to/cli.js" node complete',
+    });
+    expect(prompt).toContain('# Node Task');
+    expect(prompt).toContain(
+      'Report your outcome with:\n- `node "/path/to/cli.js" node complete`\n- `node "/path/to/cli.js" node block --reason "<why>"`\n- `node "/path/to/cli.js" node replan --reason "<why>"`',
+    );
   });
 });

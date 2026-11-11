@@ -165,6 +165,11 @@ describe('parseNodeArgs', () => {
       verb: 'block',
       reason: 'gate failed',
     });
+    expect(parseNodeArgs(['node', 'blocked', '--reason', 'gate failed'])).toEqual({
+      verb: 'block',
+      reason: 'gate failed',
+    });
+    expect(parseNodeArgs(['node', 'blocked'])).toEqual({ verb: 'block', reason: undefined });
     expect(parseNodeArgs(['node', 'replan', '--reason', 'x'])).toEqual({ verb: 'replan', reason: 'x' });
   });
 
@@ -227,6 +232,21 @@ describe('runNodeCommand — capability-authenticated one-shot completion', () =
     insertNodeRun(ctx.db, ctx);
     const out = JSON.parse(
       runNodeCommand(ctx.store, ctx.env, ['node', 'block', '--reason', 'user said stop']),
+    ) as { ok: boolean; outcome: string };
+    expect(out).toMatchObject({ ok: true, outcome: 'blocked' });
+    const run = ctx.db.prepare('SELECT status, outcome, reason FROM approach_node_runs WHERE id = 1').get() as {
+      status: string;
+      outcome: string | null;
+      reason: string | null;
+    };
+    expect(run).toMatchObject({ status: 'blocked', outcome: 'blocked', reason: 'user said stop' });
+  });
+
+  it('blocked alias records the bounded reason and moves the run to blocked', () => {
+    const ctx = harness();
+    insertNodeRun(ctx.db, ctx);
+    const out = JSON.parse(
+      runNodeCommand(ctx.store, ctx.env, ['node', 'blocked', '--reason', 'user said stop']),
     ) as { ok: boolean; outcome: string };
     expect(out).toMatchObject({ ok: true, outcome: 'blocked' });
     const run = ctx.db.prepare('SELECT status, outcome, reason FROM approach_node_runs WHERE id = 1').get() as {

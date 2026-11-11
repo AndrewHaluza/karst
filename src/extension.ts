@@ -21,7 +21,7 @@ import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js'
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, rmSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
@@ -257,12 +257,7 @@ import {
   setNodeRunProcessRunId,
   type BaseHead,
 } from './store/graph/nodeRuns.js';
-import {
-  plannerRunIdsForGraphRun,
-  plannerRunStatus,
-  plannerRunTicketId,
-  setPlannerRunProcessRunId,
-} from './store/graph/plannerRuns.js';
+import { plannerRunIdsForGraphRun, plannerRunStatus, plannerRunTicketId, setPlannerRunProcessRunId } from './store/graph/plannerRuns.js';
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import {
   blockGraphStage,
@@ -4622,6 +4617,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, bytes);
       },
+      unlinkArtifact: (graphRunId, relativePath) => {
+        const root = graphArtifactRoot(graphRunId);
+        if (root) {
+          try {
+            rmSync(join(root, relativePath), { force: true });
+          } catch (err) {
+            logger.debug(`unlinkArtifact failed: ${String(err)}`);
+          }
+        }
+      },
       readBytes: (graphRunId, relativeOrAbsolute) => {
         // Recorded artifact-instance `snapshot_path` values are absolute
         // (content-addressed under the root); relative paths (the plan
@@ -5115,20 +5120,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ): Promise<void> => {
     const gs = graphCoordinatorStore;
     if (!gs) return;
-    const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    const deps = graphDriverDeps();
+    const base = deps.promptBytesOf('karst-graph-planner');
     const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
       // PROMPT-08 bounds the interactive-session launch seed only; this
       // graph-planner retry prompt is out of that ticket's scope.
       await ticketContextWithDrift(graphRunTicketId(graphRunId)),
+      plannerVocabularyFor(() => graphCompileContext(graphRunId), graphArtifactRoot(graphRunId), (m) => logger.debug(m)),
       diagnostics ?? 'The compiler rejected the previous `graph.json`.',
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
       PLANNER_SUBMIT_INSTRUCTION,
-    ].join('\n\n');
+    ].filter(Boolean).join('\n\n');
     const worktree = resolveGraphLaunchWorktree(graphRunId, graphRunTicketId(graphRunId));
     if (!worktree) return;
-    const result = await launchReplanPlanner(graphDriverDeps(), {
+    const result = await launchReplanPlanner(deps, {
       graphRunId,
       plannerRunId,
       generation: '',
@@ -5136,6 +5143,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       prompt,
       cwd: worktree.path,
       repo: worktree.repo,
+      isRepair: true,
     }).catch((err) => {
       logError(`karst: planner compile repair failed for run ${graphRunId}`, err);
       return { kind: 'failed' as const, reason: 'planner session could not start' };
@@ -5182,17 +5190,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The skill calls the legal-values block authoritative, so a replanner
       // must get it too — this is the path where a plan is rewritten after a
       // failure, exactly where guessing an id costs another cycle.
-      plannerVocabularyFor(
-        () => graphCompileContext(launch.graphRunId),
-        graphArtifactRoot(launch.graphRunId),
-        (m) => logger.debug(m),
-      ),
+      plannerVocabularyFor(() => graphCompileContext(launch.graphRunId), graphArtifactRoot(launch.graphRunId), (m) => logger.debug(m)),
       `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
       ...(diagnostics ? [diagnostics] : []),
       PLANNER_SUBMIT_INSTRUCTION,
-    ]
-      .filter((part) => part !== '')
-      .join('\n\n');
+    ].filter(Boolean).join('\n\n');
     const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
     if (!worktree) return;
     const result = await launchReplanPlanner(graphDriverDeps(), {
@@ -5240,15 +5242,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
       await ticketContextWithDrift(graphRunTicketId(launch.graphRunId)),
-      plannerVocabularyFor(
-        () => graphCompileContext(launch.graphRunId),
-        graphArtifactRoot(launch.graphRunId),
-        (m) => logger.debug(m),
-      ),
+      plannerVocabularyFor(() => graphCompileContext(launch.graphRunId), graphArtifactRoot(launch.graphRunId), (m) => logger.debug(m)),
       PLANNER_SUBMIT_INSTRUCTION,
-    ]
-      .filter((part) => part !== '')
-      .join('\n\n');
+    ].filter(Boolean).join('\n\n');
     const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
     if (!worktree) return;
     const result = await launchReplanPlanner(graphDriverDeps(), {

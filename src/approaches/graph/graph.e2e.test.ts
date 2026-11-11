@@ -429,7 +429,6 @@ describe('documented failures of the current dynamic graph implementation', () =
         { id: 'e3', from: 'impl', on: 'blocked', to: 'END' },
         { id: 'e4', from: 'impl', on: 'replan', to: 'END' },
       ];
-      writePlannerSubmission(h, JSON.stringify(graphJson));
       const launched = await bootstrapAndLaunchPlanner(h.deps, {
         ticketId: h.ticketId,
         stageAttempt: 0,
@@ -438,6 +437,7 @@ describe('documented failures of the current dynamic graph implementation', () =
       });
       expect(launched.kind).toBe('launched');
       if (launched.kind !== 'launched') return;
+      writePlannerSubmission(h, JSON.stringify(graphJson));
       const submitted = JSON.parse(
         runGraphCommand(
           h.store,
@@ -494,7 +494,6 @@ describe('documented failures of the current dynamic graph implementation', () =
         nodes: Record<string, unknown>[];
       };
       graphJson.nodes[0]!['resources'] = { reads: [], writes: [] };
-      writePlannerSubmission(h, JSON.stringify(graphJson));
       const launched = await bootstrapAndLaunchPlanner(h.deps, {
         ticketId: h.ticketId,
         stageAttempt: 0,
@@ -503,6 +502,7 @@ describe('documented failures of the current dynamic graph implementation', () =
       });
       expect(launched.kind).toBe('launched');
       if (launched.kind !== 'launched') return;
+      writePlannerSubmission(h, JSON.stringify(graphJson));
       const submitted = JSON.parse(
         runGraphCommand(
           h.store,
