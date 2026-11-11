@@ -77,7 +77,8 @@ export const frameOf =
         prFeedback: !!(state.prFeedbackFix && state.prFeedbackFix.available && key === 'ship'),
         ci: !!(state.ciFailure && state.ciFailure.available) && key === 'ship',
         rebase: !!(state.rebase && state.rebase.available) && key === (state.rebase.stage || 'ship'),
-        autofixStop: key === 'ship' && state.autopilot?.roundRunning === true,
+        // The stop item needs the visible Auto-fix row, which shows only while autopilot is effective; Merge all stays off for any live round.
+        autofixStop: key === 'ship' && state.autopilot?.roundRunning === true && state.autopilot.effective,
       },
       deliver: dv && key === 'ship' && (dv.available || dv.auto) ? { notOnPr: dv.notOnPr, inSandbox: dv.inSandbox, canDeliver: dv.available, auto: dv.auto ?? null } : null,
       autopilot: key === 'ship' ? (state.autopilot ?? null) : null,

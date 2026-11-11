@@ -213,7 +213,7 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
   };
   return {
-    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), roundActive: facts.round !== null, roundRunning: effective && facts.round !== null },
+    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), roundActive: facts.round !== null, roundRunning: facts.round !== null },
     row: autofixRow(facts),
     ciOpen: ciOpenOf(store, ticketId),
     input: autofixInputOf(facts),

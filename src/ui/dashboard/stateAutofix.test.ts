@@ -36,13 +36,13 @@ describe('readAutofix', () => {
     expect(readAutofix(store, id, undefined).slice).toMatchObject({ projectDefault: false, effective: false });
   });
 
-  it('offers no running-round stop while the ticket override turns auto-fix off', () => {
+  it('keeps a live round running (Merge all stays off) when the ticket override turns auto-fix off', () => {
     const { store, id } = setup();
     takeAutopilotAttempt(store, id, 'web', 'conflicts', 'b', 2);
     markConflictRound(store, id, Date.now());
     expect(readAutofix(store, id, CONFIG).slice.roundRunning).toBe(true);
     setAutopilotOverride(store, id, 'off');
-    expect(readAutofix(store, id, CONFIG).slice).toMatchObject({ roundRunning: false, effective: false });
+    expect(readAutofix(store, id, CONFIG).slice).toMatchObject({ roundRunning: true, effective: false });
   });
 
   it('follows the ticket override over the project default', () => {

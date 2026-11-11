@@ -163,6 +163,11 @@ describe('Stop auto-fix now (stage menu)', () => {
     expect(q('[data-stage-menu="ship"]')).toBeNull();
   });
 
+  it('offers no stop item when auto-fix is off, even while a round is live', () => {
+    mountInside(ship({ ...SLICE, effective: false, roundRunning: true }, RUNNING));
+    expect(q('[data-stage-menu="ship"]')).toBeNull();
+  });
+
   it('asks before stopping; Cancel sends nothing', () => {
     const h = mountInside(ship(SLICE, RUNNING));
     openMenu();
