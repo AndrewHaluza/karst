@@ -182,9 +182,18 @@ describe('recovery lifecycle ordering', () => {
     expect(lifecycle.isCurrentHook(7, undefined)).toBe(false);
   });
 
-  it('admits a rebound session whose id is unknown but not retired', () => {
+  it('refuses an unknown id when the ticket has no active launch', () => {
     const lifecycle = new SessionRecoveryLifecycle();
-    expect(lifecycle.isCurrentHook(7, '123e4567-e89b-42d3-a456-426614174000')).toBe(true);
+    expect(lifecycle.isCurrentHook(7, '123e4567-e89b-42d3-a456-426614174000')).toBe(false);
+  });
+
+  it('admits a rebound session whose id recovery adopted, until it is retired', () => {
+    const lifecycle = new SessionRecoveryLifecycle();
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    lifecycle.adoptLaunch(7, id);
+    expect(lifecycle.isCurrentHook(7, id)).toBe(true);
+    lifecycle.sessionClosed(7, id);
+    expect(lifecycle.isCurrentHook(7, id)).toBe(false);
   });
 
   it('quarantines all hooks for an adopted legacy terminal without launch metadata', () => {
@@ -216,10 +225,12 @@ describe('recovery lifecycle ordering', () => {
   });
 
   it('allows SessionEnd after the replacement terminal has closed', () => {
+    const lifecycle = new SessionRecoveryLifecycle();
+    lifecycle.adoptLaunch(7, '123e4567-e89b-42d3-a456-426614174000');
     expect(
       shouldApplySessionHookState(
         { isOpen: () => false },
-        new SessionRecoveryLifecycle(),
+        lifecycle,
         7,
         { hook_event_name: 'SessionEnd', launchId: '123e4567-e89b-42d3-a456-426614174000' },
       ),
@@ -500,7 +511,8 @@ describe('recovery lifecycle ordering', () => {
       return launchId;
     });
 
-    expect(lifecycle.isCurrentHook(7, launches[0])).toBe(true);
+    // Aged out of both bounded sets: an unknown id is refused, never re-admitted.
+    expect(lifecycle.isCurrentHook(7, launches[0])).toBe(false);
     expect(lifecycle.isCurrentHook(7, launches[1])).toBe(false);
     expect(lifecycle.isCurrentHook(7, launches[2])).toBe(false);
   });

@@ -71,7 +71,8 @@ export class SessionRecoveryLifecycle {
   private readonly pending = new Map<number, PendingReadiness>();
   private readonly activeLaunches = new Map<number, string>();
   private readonly retiredLaunches = new Set<string>();
-  private readonly blockUnidentified = new Set<number>();
+  /** Launch ids this lifecycle issued or adopted; a hook id must be one of them. */
+  private readonly knownLaunches = new Set<string>();
   /** Legacy adoption has no generation with which to distinguish safe hooks. */
   private readonly blockAll = new Set<number>();
 
@@ -84,7 +85,7 @@ export class SessionRecoveryLifecycle {
     this.cancel(ticketId);
     const launchId = randomUUID();
     this.activeLaunches.set(ticketId, launchId);
-    this.blockUnidentified.delete(ticketId);
+    this.rememberKnown(launchId);
     this.blockAll.delete(ticketId);
 
     let resolve!: (result: ReadinessResult) => void;
@@ -137,13 +138,12 @@ export class SessionRecoveryLifecycle {
 
     if (launchId === undefined || launchId.length === 0) {
       this.activeLaunches.delete(ticketId);
-      this.blockUnidentified.add(ticketId);
       this.blockAll.add(ticketId);
       return;
     }
 
     this.activeLaunches.set(ticketId, launchId);
-    this.blockUnidentified.delete(ticketId);
+    this.rememberKnown(launchId);
     this.blockAll.delete(ticketId);
   }
 
@@ -153,7 +153,7 @@ export class SessionRecoveryLifecycle {
     if (pending) return pending.launchId;
     const launchId = randomUUID();
     this.activeLaunches.set(ticketId, launchId);
-    this.blockUnidentified.delete(ticketId);
+    this.rememberKnown(launchId);
     this.blockAll.delete(ticketId);
     return launchId;
   }
@@ -198,7 +198,6 @@ export class SessionRecoveryLifecycle {
       this.rememberRetired(launchId);
       this.activeLaunches.delete(ticketId);
     }
-    this.blockUnidentified.add(ticketId);
   }
 
   isCurrentHook(ticketId: number, launchId: string | undefined): boolean {
@@ -208,8 +207,8 @@ export class SessionRecoveryLifecycle {
     if (this.retiredLaunches.has(launchId)) return false;
     const activeLaunch = this.activeLaunches.get(ticketId);
     if (activeLaunch !== undefined) return launchId === activeLaunch;
-    // No active launch: a rebound session (reload) whose id is not retired.
-    return true;
+    // No active launch: admit only an id recovery knows (adopted or issued).
+    return this.knownLaunches.has(launchId);
   }
 
   /** Resolve every readiness waiter before extension teardown closes the store. */
@@ -221,13 +220,23 @@ export class SessionRecoveryLifecycle {
         pending.result = { kind: 'interrupted' };
         if (unresolved) pending.resolve(pending.result);
       }
-      this.blockUnidentified.add(ticketId);
     }
     for (const [ticketId, launchId] of this.activeLaunches) {
       this.rememberRetired(launchId);
-      this.blockUnidentified.add(ticketId);
     }
     this.activeLaunches.clear();
+  }
+
+  private rememberKnown(launchId: string): void {
+    this.knownLaunches.delete(launchId);
+    this.knownLaunches.add(launchId);
+    while (this.knownLaunches.size > this.maxRetiredLaunches) {
+      const oldest = this.knownLaunches.values().next().value as
+        | string
+        | undefined;
+      if (oldest === undefined) break;
+      this.knownLaunches.delete(oldest);
+    }
   }
 
   private rememberRetired(launchId: string): void {
