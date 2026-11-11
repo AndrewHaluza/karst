@@ -1263,6 +1263,64 @@ describe('autopilotTick CI round that made no commit (D564)', () => {
     expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix stopped: ci round made no change');
   });
 
+  it('records the failing run head only when a round was sent (armed), and only with the transient seams', async () => {
+    seedPr(withUrl('build'));
+    expect((await autopilotTick(nrig({}).deps)).kind).toBe('armed');
+    expect(getCiRoundHeadSha(store, id, 'r')).toBe(SHA);
+  });
+
+  it('records no head when the round did not go out', async () => {
+    seedPr(withUrl('build'));
+    const r = nrig();
+    r.sendCi.mockResolvedValueOnce({ kind: 'failed', reason: 'boom' });
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(getCiRoundHeadSha(store, id, 'r')).toBeNull();
+  });
+
+  it('records no head and does not fail without the transient seams', async () => {
+    seedPr(withUrl('build'));
+    expect((await autopilotTick(rig().deps)).kind).toBe('armed');
+    expect(getCiRoundHeadSha(store, id, 'r')).toBeNull();
+  });
+
+  it('does not re-run for a graph ticket, even with a recorded head', async () => {
+    await emptyRound();
+    const r = nrig({ isGraphTicket: () => true });
+    await autopilotTick(r.deps);
+    expect(r.rerun).not.toHaveBeenCalled();
+  });
+
+  it('does not re-run when the placement cannot be read', async () => {
+    await emptyRound();
+    const r = nrig({ placement: async () => { throw new Error('probe failed'); } });
+    await autopilotTick(r.deps);
+    expect(r.rerun).not.toHaveBeenCalled();
+  });
+
+  it('pauses the ticket with the reason when the re-run fails', async () => {
+    await emptyRound();
+    const r = nrig({}, { rerun: new Error('gh exit 1') });
+    await autopilotTick(r.deps);
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix stopped: ci could not run (gh exit 1)');
+    expect(r.notes[0]![1]).toBe('AP-1 (ci): the action failed (gh exit 1); the ticket stays in ship and no attempt was used.');
+  });
+
+  it('does not pause the ticket for the no-change stop', async () => {
+    await emptyRound();
+    await autopilotTick(nrig().deps);
+    reseed();
+    await autopilotTick(nrig({ now: () => Date.now() + 10 * 60_000 }).deps);
+    expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
+  });
+
+  it('approve one more for a conflict attempt keeps the recorded ci head', async () => {
+    seedPr(withUrl('build'));
+    takeAutopilotAttempt(store, id, 'r', 'ci', 'build', 3);
+    setCiRoundHeadSha(store, id, 'r', SHA);
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
+    expect(getCiRoundHeadSha(store, id, 'r')).toBe(SHA);
+  });
+
   it('starts a normal round when the run head is a new commit', async () => {
     await emptyRound();
     const r = nrig({}, { sha: '2222222222222222222222222222222222222222' });
