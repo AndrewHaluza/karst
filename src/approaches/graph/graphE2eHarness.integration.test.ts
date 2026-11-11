@@ -864,12 +864,9 @@ export async function tickGraphRun(h: Harness, graphRunId: number): Promise<stri
     }
     if (accepted.kind === 'accepted') await claimAndDrive(h, graphRunId);
   } else if (status === 'running') {
-    // A node report (`blocked` / `replan`) is settled by the host the moment it
-    // lands; the sweep's first-fault block would otherwise preempt the election.
-    if (earliestNodeRunOutcomeForGraphRun(db, graphRunId, ['blocked'])) {
-      await settleRun(h, graphRunId);
-      return graphRunStatus(db, graphRunId) ?? 'gone';
-    }
+    // Host order (`runGraphCoordinatorTick`): the sweep runs FIRST, then the
+    // continuation drives completing nodes and settles. A node report settles
+    // only after the sweep, exactly as in production.
     await claimAndDrive(h, graphRunId);
     for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(db, graphRunId, ['completing'])) {
       await runCompletionPipeline(h.pipelineDeps, { graphRunId, nodeRunId });

@@ -1139,7 +1139,11 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
     }
   });
 
-  it('drains on `node replan` after a not-matched gate, accepts revision 2, then completes', async () => {
+  // DEFECT (host order): the wake-up route runs `runCoordinatorTick` BEFORE the
+  // settle step. The sweep's first-fault block treats a node run in status
+  // `blocked` (outcome `replan`) as a fault and parks the run `blocked`, so
+  // `electReplan` never runs. The tick helper mirrors that order on purpose.
+  it.fails('drains on `node replan` after a not-matched gate, accepts revision 2, then completes', async () => {
     const h = makeHarness({ isolatedWorkspaces: true });
     try {
       const doc = topologyJson(
@@ -1319,7 +1323,7 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
         processStartMs: () => Date.parse(NOW),
       };
       await reconcileAfterReload(h, graphRunId, aliveFacts);
-      expect(runOf(h, graphRunId, 'impl').status).not.toBe('completed');
+      expect(runOf(h, graphRunId, 'impl').status).toBe('running');
       expect(existsSync(join(h.worktree, 'src/live.ts'))).toBe(false);
     } finally {
       h.close();
