@@ -101,6 +101,7 @@ flowchart LR
   agent --> workflow
   agents --> approaches
   approaches --> agent
+  approaches --> cli
   approaches --> diagnostics
   approaches --> integrations
   approaches --> manifest

@@ -11,6 +11,7 @@ import {
 import { graphRunById } from '../../store/graph/graphRuns.js';
 import {
   markSubmittedBootstrapPlannerRunsStale,
+  markSubmittedReplanPlannerRunsStale,
   plannerRunIdsForGraphRun,
   setPlannerRunReason,
   setPlannerRunReasonEndedAt,
@@ -261,7 +262,19 @@ export function acceptSubmittedReplan(
   graphRunId: number,
 ): AcceptReplanResult {
   const run = graphRunById(deps.db, graphRunId);
-  if (!run || run.status !== 'draining') return { kind: 'no-op' };
+  if (!run || run.status !== 'draining') {
+    if (run) {
+      deps.transaction(() => {
+        markSubmittedReplanPlannerRunsStale(
+          deps.db,
+          graphRunId,
+          `submitted into ${run.status} run`,
+          deps.now(),
+        );
+      });
+    }
+    return { kind: 'no-op' };
+  }
   // Scope the accept to the CURRENT drain: its planner is bound to the
   // draining revision's successor. A completed replan's planner row stays
   // `submitted` forever, so an unscoped lookup (`ORDER BY id LIMIT 1`) would

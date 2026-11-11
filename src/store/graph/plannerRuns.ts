@@ -475,6 +475,28 @@ export function markSubmittedBootstrapPlannerRunsStale(
   return count;
 }
 
+/** Transition any submitted replan planner runs for a graph run to `stale`
+ *  with a reason and ended_at (e.g. late submissions into a run that left draining). */
+export function markSubmittedReplanPlannerRunsStale(
+  db: GraphDb,
+  graphRunId: number,
+  reason: string,
+  now: string,
+): number {
+  let count = 0;
+  let planner = submittedPlannerRunForGraphRun(db, graphRunId, 'replan');
+  while (planner) {
+    if (transitionPlannerRun(db, planner.id, 'submitted', 'stale')) {
+      setPlannerRunReasonEndedAt(db, planner.id, reason, now);
+      count++;
+    } else {
+      break;
+    }
+    planner = submittedPlannerRunForGraphRun(db, graphRunId, 'replan');
+  }
+  return count;
+}
+
 /** Record the compile attempt a rejection consumed. */
 export function setPlannerRunCompileAttempt(db: GraphDb, id: number, attempt: number): boolean {
   const res = db

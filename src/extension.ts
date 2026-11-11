@@ -21,7 +21,7 @@ import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js'
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, rmSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
@@ -257,7 +257,7 @@ import {
   setNodeRunProcessRunId,
   type BaseHead,
 } from './store/graph/nodeRuns.js';
-import { plannerRunIdsForGraphRun, plannerRunStatus, plannerRunTicketId, setPlannerRunProcessRunId, setPlannerRunPromptHashArtifact } from './store/graph/plannerRuns.js';
+import { plannerRunIdsForGraphRun, plannerRunStatus, plannerRunTicketId, setPlannerRunProcessRunId } from './store/graph/plannerRuns.js';
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import {
   blockGraphStage,
@@ -4614,6 +4614,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, bytes);
       },
+      unlinkArtifact: (graphRunId, relativePath) => {
+        const root = graphArtifactRoot(graphRunId);
+        if (root) try { rmSync(join(root, relativePath), { force: true }); } catch {}
+      },
       readBytes: (graphRunId, relativeOrAbsolute) => {
         // Recorded artifact-instance `snapshot_path` values are absolute
         // (content-addressed under the root); relative paths (the plan
@@ -4927,6 +4931,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return;
       }
+      acceptSubmittedPlan(graphDriverDeps(), graphRunId);
+      acceptSubmittedReplan(graphDriverDeps(), graphRunId);
       if (status === 'awaiting-confirmation') return;
       if (status === 'blocked') {
         settleGraphRun(gs.db, graphRunId);
@@ -5109,15 +5115,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!gs) return;
     const deps = graphDriverDeps();
     const base = deps.promptBytesOf('karst-graph-planner');
-    if (base !== undefined) {
-      try {
-        const ph = createHash('sha256').update(base).digest('hex'), sp = `prompts/${ph}`;
-        deps.writeSnapshot(graphRunId, sp, base);
-        setPlannerRunPromptHashArtifact(gs.db, plannerRunId, ph, sp);
-      } catch (err) {
-        logger.debug(`karst: failed to snapshot prompt bytes for repair: ${String(err)}`);
-      }
-    }
     const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),

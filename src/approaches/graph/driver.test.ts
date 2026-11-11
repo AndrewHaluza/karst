@@ -189,6 +189,11 @@ function harness(config: GraphApproachConfig = graphApproachConfig()): Harness {
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, bytes);
     },
+    unlinkArtifact: (graphRunId, rel) => {
+      try {
+        rmSync(join(root, String(graphRunId), rel), { force: true });
+      } catch {}
+    },
     readBytes,
     ticketContextOf: async () => '# Ticket context',
     compileContextOf,
@@ -1751,6 +1756,33 @@ describe('acceptSubmittedReplan', () => {
     expect(run.status).toBe('draining');
     // The very same replan IS judged once the manifest resolves.
     expect(acceptSubmittedReplan(h.deps, graphRunId).kind).toBe('accepted');
+  });
+
+  it('marks a late submitted replan planner run stale when run is not in draining', () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = ?").run(graphRunId);
+    const plannerRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id)
+           VALUES (?, 2, 'replan', 'submitted', 'snap-rpl')`,
+        )
+        .run(graphRunId).lastInsertRowid,
+    );
+    const result = acceptSubmittedReplan(h.deps, graphRunId);
+    expect(result.kind).toBe('no-op');
+    const planner = h.db
+      .prepare('SELECT status, reason, ended_at FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; reason: string | null; ended_at: string | null };
+    expect(planner.status).toBe('stale');
+    expect(planner.reason).toBe('submitted into running run');
+    expect(planner.ended_at).toBe(NOW);
   });
 
   /** A draining run whose replan planner submitted `json`. */

@@ -32,8 +32,8 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { rmSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
+import { PLANNER_GRAPH_JSON } from '../../cli/graph.js';
 import { canonicalPath } from '../../runtime/pathScope.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
 import {
@@ -174,6 +174,8 @@ export interface GraphDriverDeps {
   promptBytesOf: (identity: GraphPromptIdentity) => Uint8Array | undefined;
   /** Content-addressed snapshot write under the graph run's artifact root. */
   writeSnapshot: (graphRunId: number, relativePath: string, bytes: Uint8Array) => void;
+  /** Unlink an artifact file under the graph run's artifact root. */
+  unlinkArtifact?: (graphRunId: number, relativePath: string) => void;
   /** Read a file under the graph run's artifact root. */
   readBytes: (graphRunId: number, relativePath: string) => Uint8Array | undefined;
   /** Current ticket context markdown for seeding a session. */
@@ -354,12 +356,13 @@ function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number): boolea
  * session in the ticket's canonical worktree. Never falls through to a plain
  * session: a graph-approach launch either starts the planner or names why not.
  */
-function unlinkStaleGraphJson(artifactRoot: string | undefined, debug?: (msg: string) => void): void {
-  if (!artifactRoot) return;
+function unlinkStaleGraphJson(deps: GraphDriverDeps, graphRunId: number): void {
   try {
-    rmSync(join(artifactRoot, 'graph.json'), { force: true });
+    deps.unlinkArtifact?.(graphRunId, PLANNER_GRAPH_JSON);
   } catch (err) {
-    debug?.(`[graph] failed to unlink stale graph.json at "${artifactRoot}": ${String(err)}`);
+    deps.debug?.(
+      `[graph] failed to unlink stale ${PLANNER_GRAPH_JSON} for run ${graphRunId}: ${String(err)}`,
+    );
   }
 }
 
@@ -425,7 +428,7 @@ export async function bootstrapAndLaunchPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   const artifactRoot = deps.artifactRootOf(graphRunId);
-  unlinkStaleGraphJson(artifactRoot, deps.debug);
+  unlinkStaleGraphJson(deps, graphRunId);
   const env = deps.graphEnvOf({
     launchId: plannerRunId,
     graphRunId,
@@ -568,7 +571,7 @@ export async function relaunchBootstrapPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   const artifactRoot = deps.artifactRootOf(input.graphRunId);
-  unlinkStaleGraphJson(artifactRoot, deps.debug);
+  unlinkStaleGraphJson(deps, input.graphRunId);
   const env = deps.graphEnvOf({
     launchId: plannerRunId,
     graphRunId: input.graphRunId,
@@ -1255,7 +1258,7 @@ export async function launchReplanPlanner(
     ownerNonce: plannerOwnerNonce,
   });
   if (!claimed) return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
-  unlinkStaleGraphJson(deps.artifactRootOf(launch.graphRunId), deps.debug);
+  unlinkStaleGraphJson(deps, launch.graphRunId);
   const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
   let session: SupervisedAgentSession;
   try {
