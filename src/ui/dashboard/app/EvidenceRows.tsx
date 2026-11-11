@@ -8,7 +8,7 @@ import type { EvidenceRow, InsideProcessView, ProcessEvidenceView } from '../../
 import type { GateStage } from '../../../store/ticketGates.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { StopNowConfirm } from './AutofixParts.js';
-import { EvAction, EvGlyph, EvTiming, PrState } from './EvidenceParts.js';
+import { EvAction, EvGlyph, EvOutput, EvTiming, PrState } from './EvidenceParts.js';
 import { GraphDag, GraphNodeList, GraphViewToggle } from './EvidenceGraph.js';
 import { useDagShown } from './InsideMemory.js';
 import { ObjLink } from './InsideParts.js';
@@ -17,6 +17,13 @@ import { INSIDE_ACTION_TITLE, withKeys } from './insideText.js';
 const rowKey = (r: EvidenceRow): string => r.label;
 
 type Of<K extends ProcessEvidenceView['kind']> = Extract<ProcessEvidenceView, { kind: K }>;
+
+/** The Deliver row's two regions (T1018): the running gate is the progress line, a kept failure is a gate failure. */
+function deliverRegion(id: string, r: EvidenceRow): string | undefined {
+  if (id !== 'deliver') return undefined;
+  if (r.deliverDismiss) return 'deliver-gate-failures';
+  return r.status === 'run' ? 'deliver-progress' : undefined;
+}
 
 export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceView; readonly stage: string; readonly id: string }) {
   const shown = useDagShown();
@@ -31,12 +38,13 @@ export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceVi
         </>
       ) : null}
       {withKeys(ev.rows, rowKey).map(([key, r], index) => (
-        <div className="evidence-row" key={key}>
+        <div className="evidence-row" key={key} data-region={deliverRegion(id, r)}>
           <EvGlyph r={r} />
           <span className="ev-key">{r.label}</span>
           <span className="ev-detail">
             {r.detail || ''}
             <PrState state={r.prState} />
+            <EvOutput text={r.output} />
           </span>
           <EvAction r={r} />
           <EvTiming r={r} cls="ev-state" stage={stage} id={id} index={index} />

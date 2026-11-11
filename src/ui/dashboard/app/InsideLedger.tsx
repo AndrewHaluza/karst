@@ -10,8 +10,8 @@
  */
 import { memo, useCallback, type MouseEvent, type SyntheticEvent } from 'react';
 import type { InsideProcessView } from '../../../model/inside/types.js';
-import { useDashboardSend, useOverlays } from './DashboardAppContext.js';
-import { usePendingAction } from './usePendingAction.js';
+import { useDashboardSend, useOps, useOverlays, usePendingOps } from './DashboardAppContext.js';
+import { beginPending, usePendingAction } from './usePendingAction.js';
 import { EvidenceBody } from './EvidenceBody.js';
 import { Icon } from './Icon.js';
 import { RowDuration, RowTime, RowTokens } from './InsideClocks.js';
@@ -20,10 +20,14 @@ import { useInsideScope } from './InsideMemory.js';
 import { hasEvidenceBody, statusWord, withKeys } from './insideText.js';
 import { sameIgnoringLive } from './insideLive.js';
 
+const DELIVER_ID = 'deliver';
+const RESUME_TITLE = 'Resume — unpause execution';
+
 /** The console (terminal detailed mode) entry point: icon-only, the label moving to aria-label + title (the SAME string, UI-R21/R24). */
-function ConsoleButton({ owner, p }: { readonly owner: string; readonly p: InsideProcessView }) {
+export function ConsoleButton({ owner, p }: { readonly owner: string; readonly p: InsideProcessView }) {
   const overlays = useOverlays();
-  const gates = p.id === 'gates';
+  // The gates row and the Deliver row open the stage's whole console, not one process's.
+  const gates = p.id === 'gates' || p.id === DELIVER_ID;
   const label = `View this ${gates ? "stage's" : "process's"} console output in the dashboard`;
   // Reads `owner`, never a selection: a console click must not re-point the strip. A gate-lane AI process narrows the surface to its own console.
   const onClick = useCallback(
@@ -62,7 +66,7 @@ function Footer({ footer }: { readonly footer: readonly string[] | undefined }) 
   );
 }
 
-/** Inline Unpause on a paused stage's row — the pause chip alone was missed (D303). */
+/** Inline Resume on a paused stage's row — the pause chip alone was missed (D303). Label 'Resume'; the sentence is the title. */
 function UnpauseButton() {
   const send = useDashboardSend();
   const pend = usePendingAction((requestId) => send.unpauseExecution(requestId));
@@ -75,8 +79,38 @@ function UnpauseButton() {
     [pend],
   );
   return (
-    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="unpause-execution" onClick={onClick}>
-      Unpause
+    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="unpause-execution" title={RESUME_TITLE} aria-label={RESUME_TITLE} onClick={onClick}>
+      <Icon name="player-play" />
+      Resume
+    </button>
+  );
+}
+
+/**
+ * The Deliver row's Push button: the host syncs the sandbox and pushes, reports through notifications, then sends a state
+ * push. The request carries no id on the wire, so it is held in `pendingOps` and settles on that push (a second click
+ * cannot start a second delivery). The title (= aria-label) is the host's sentence and starts with the label.
+ */
+function DeliverPushButton({ title }: { readonly title: string }) {
+  const send = useDashboardSend();
+  const ops = usePendingOps();
+  const busy = useOps().running.has('deliver');
+  const onClick = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      // Inside a <summary>: without this the click would also toggle the disclosure.
+      e.preventDefault();
+      if (ops.isRunning('deliver')) return;
+      const requestId = beginPending(e);
+      if (requestId === null) return;
+      ops.beginAction('deliver', requestId);
+      send.deliverToPr();
+    },
+    [ops, send],
+  );
+  return (
+    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="deliver-to-pr" aria-busy={busy ? 'true' : undefined} disabled={busy} title={title} aria-label={title} onClick={onClick}>
+      <Icon name="git-branch" />
+      Push
     </button>
   );
 }
@@ -106,7 +140,7 @@ const ProcessRow = memo(
     // run happened and a tail exists): that is the process's own availability and does not depend on the stage's.
     const owner = p.id === 'gates' ? consoleStage : p.console ? stageKey || consoleStage : null;
     const detail = (
-      <span className={`op-detail ${p.status}${owner ? ' detail-console' : ''}`}>
+      <span className={`op-detail ${p.status}${owner ? ' detail-console' : ''}`} role={p.id === DELIVER_ID ? 'status' : undefined}>
         {p.detail ? <span className="op-detail-text">{p.detail}</span> : null}
         {owner ? <ConsoleButton owner={owner} p={p} /> : null}
         {p.paused ? <UnpauseButton /> : null}
@@ -123,6 +157,7 @@ const ProcessRow = memo(
         ) : null}
         {p.count ? <span className="count">{p.count}</span> : null}
         {p.action ? <InsideActionButton action={p.action} /> : null}
+        {p.deliver ? <DeliverPushButton title={p.deliver.title} /> : null}
         {/* The Σ pill is the LAST tail item, so it sits directly before the time columns and in the timeline rows' Σ column (UI-R41). */}
         <RowTokens stage={stageKey} id={p.id} />
       </span>

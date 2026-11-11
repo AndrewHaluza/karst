@@ -81,22 +81,22 @@
   text-overflow:ellipsis;white-space:nowrap;line-height:18px;column-gap:0}
 #inside .sep{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--k-space-4);
   margin-inline:var(--k-border-w);padding:0;color:var(--p-muted2);line-height:18px}
-#inside .inside-deliver{display:flex;align-items:center;justify-content:space-between;gap:var(--p-s3);padding:var(--p-s1) var(--p-s3);font-size:var(--p-xs);color:var(--p-muted2)}
 #inside .inside-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
   line-height:18px;white-space:nowrap}
-/* The current stage header's ⋯ menu — the ONE recovery surface. Only the
-   host's availability verdict renders it; the menu itself is a composed
-   popover exactly like the ticket-controls menu, from the same tokens. */
-#inside .stageMenuWrap{position:relative;display:flex;align-items:center}
-#inside .stageMenuBtn{width:var(--k-control-h-sm);height:var(--k-control-h-sm);padding:0;
-  display:inline-grid;place-items:center;border-radius:var(--k-radius-sm);color:var(--p-muted)}
-#inside .stageMenuBtn:hover{background:var(--p-hover);color:var(--p-text)}
-#inside .stageMenuBtn[aria-expanded="true"]{background:var(--p-surface2);color:var(--p-text)}
-#inside .stageMenuBtn .k-icon{width:var(--p-s3);height:var(--p-s3)}
-#inside .stageMenu{position:absolute;right:0;top:calc(100% + var(--p-s1));z-index:40;min-width:calc(var(--k-control-h-lg) * 10);
-  padding:var(--p-s2);border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--p-r2);
+/* The current stage header's actions: the host-picked main button (secondary) and the ghost 'Actions' button that
+   opens the rest. Only the host's availability verdict renders them; the menu is a composed popover exactly like the
+   ticket-controls menu, from the same tokens. Groups carry a title; each item carries a one-line description. */
+#inside .stageMenuWrap{position:relative;display:flex;align-items:center;gap:var(--p-s2)}
+#inside .stageMenuBtn[aria-expanded="true"]{background:var(--k-surface-hover);color:var(--k-text)}
+#inside .stageMenu{position:absolute;left:0;top:calc(100% + var(--p-s1));z-index:40;min-width:calc(var(--k-control-h-lg) * 10);
+  max-width:calc(100vw - var(--p-s5));padding:var(--p-s2);border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--p-r2);
   background:var(--k-surface);box-shadow:var(--k-elev-2)}
-#inside .stageMenu .menuButton{min-height:var(--k-control-h-lg)}
+#inside .stageMenu .menuGroup + .menuGroup{margin-top:var(--p-s2);padding-top:var(--p-s2);border-top:var(--k-border-w) solid var(--p-border)}
+#inside .stageMenu .menuGroupTitle{padding:var(--p-s1) var(--p-s3);color:var(--p-muted2);font-size:var(--p-xs);font-weight:var(--k-weight-semibold)}
+#inside .stageMenu .menuButton{min-height:var(--k-control-h-lg);align-items:flex-start;white-space:normal;text-align:left}
+#inside .stageMenu .menuButton .k-icon{margin-top:var(--k-space-1);flex:none}
+#inside .stageMenu .menuText{display:flex;flex-direction:column;min-width:0}
+#inside .stageMenu .menuDesc{color:var(--p-muted2);font-size:var(--p-xs);font-weight:var(--k-weight-regular,400)}
 #inside .blurb{padding:var(--p-s3) var(--p-s4);color:var(--p-muted);font-size:var(--p-sm)}
 
 /* Round switcher (Option B, T6 — docs/plans/round-switcher.md): the tabs

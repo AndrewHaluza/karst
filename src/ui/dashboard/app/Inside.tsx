@@ -11,13 +11,13 @@
  */
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useSelection } from './DashboardAppContext.js';
-import { DeliverRow } from './DeliverRow.js';
 import { AutofixOverride, setStopConfirm } from './AutofixParts.js';
 import { AttemptTabs } from './InsideAttempts.js';
 import { LiveDuration, StageClock } from './InsideClocks.js';
 import { Ledger } from './InsideLedger.js';
 import { InsideMemory, InsideScopeContext } from './InsideMemory.js';
 import { StageMenu } from './InsideMenu.js';
+import { Icon } from './Icon.js';
 import { AgentId } from './InsideParts.js';
 import { RegionPortal } from './RegionPortal.js';
 import { ShipPreview } from './ShipPreview.js';
@@ -68,8 +68,9 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
     if (!stopOffered) setStopConfirm(false);
   }, [stopOffered]);
   if (!frame) return null;
-  const { view, menu, deliver, back } = frame;
-  const anyMenu = menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase || menu.retry !== null || menu.autofixStop;
+  const { view, menu, main, back } = frame;
+  const anyMenu = menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase || menu.retry !== null || menu.autofixStop || menu.deliverFailures;
+  const backSentence = `Current stage — return the strip to ${back ?? 'the current stage'}, the stage the ticket is actually on`;
   const lstatus = frame.live ? frame.live.status || 'run' : '';
   return (
     <InsideScopeContext.Provider value={scope}>
@@ -78,8 +79,9 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
           <div className="vbar">
             <span>{`Viewing ${view.title} — not the current stage.`}</span>
             <span className="sp">
-              <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-back="" title="Return the strip to the stage the ticket is actually on" onClick={() => select(null)}>
-                {`Back to ${back}`}
+              <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-back="" title={backSentence} aria-label={backSentence} onClick={() => select(null)}>
+                <Icon name="arrow-left" />
+                {`Current stage`}
               </button>
             </span>
           </div>
@@ -91,10 +93,8 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
           </span>
           {frame.autopilot ? <AutofixOverride autopilot={frame.autopilot} /> : null}
           <StageClock stage={stage} />
-          {anyMenu ? <StageMenu key={selection.epoch} stageKey={view.stageKey} menu={menu} /> : null}
+          {anyMenu ? <StageMenu key={selection.epoch} stageKey={view.stageKey} menu={menu} main={main} /> : null}
         </div>
-        {/* "Deliver to PR": the count line + action, ship only, hidden while nothing is undelivered. */}
-        {deliver ? <DeliverRow notOnPr={deliver.notOnPr} inSandbox={deliver.inSandbox} canDeliver={deliver.canDeliver} auto={deliver.auto} /> : null}
         {/* ONE slot for the round row and its caption, so the ledger keeps its sibling position (layout ledger keys are nth-child paths). */}
         {(view.attempts?.length ?? 0) >= 2 || view.attemptNote ? (
           <div className="attempt-slot">

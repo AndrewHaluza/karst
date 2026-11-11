@@ -181,6 +181,25 @@ const deliverAutoTierVariants = (): Variant[] =>
     ),
   );
 
+/** T1072 (F): the stage menu open at the wide and narrow tiers, on a ship with a main action plus rest, and on a failed review. */
+const stageMenuOpenVariants = (): Variant[] => {
+  const cases = [
+    ['ship', 'ci-failure', 'ship', (s: DashboardState): DashboardState => ({ ...s, rebase: { available: true, stage: 'ship' } })],
+    ['review', 'menu-retry-send-back', 'review', (s: DashboardState): DashboardState => s],
+  ] as const;
+  return cases.flatMap(([stage, id, key, patch]) => {
+    const c = INSIDE_CASES.find((x) => x.stage === stage && x.id === id);
+    if (!c) throw new Error(`dashboard: no ${stage}/${id} inside case`);
+    return ([['wide', 1100], ['narrow', 360]] as const).map(([tier, width]) =>
+      variant('dashboard', `inside-${stage}-menu-open-${tier}`, () => stateMessage(patch(c.state())), {
+        skipLayout: true,
+        width,
+        click: `[data-stage-menu="${key}"]`,
+      }),
+    );
+  });
+};
+
 /** T1069 (B9): the live token pill at the wide, mid and narrow tiers. */
 const liveTokenVariants = (): Variant[] =>
   INSIDE_CASES.filter((c) => c.id === 'live-tokens').flatMap((c) =>
@@ -465,6 +484,7 @@ const dashboardVariants = (): Variant[] => [
   }))),
   ...insideCaseVariants(),
   ...deliverAutoTierVariants(),
+  ...stageMenuOpenVariants(),
   ...liveTokenVariants(),
   ...agentPopoverVariants(),
   ...ticketDetailsVariants(),

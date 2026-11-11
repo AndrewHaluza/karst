@@ -11,6 +11,7 @@ import { deliverTargets } from '../../workflow/deliverState.js';
 import type { DashboardAgentContext, DashboardState } from './stateTypes.js';
 import { deliverFactsFor } from '../../store/deliverFacts.js';
 import type { DeliverFacts } from '../../model/inside/deliver.js';
+import type { DeliverRowInput } from '../../model/inside/shipDeliver.js';
 
 /** The auto-deliver facts of a ticket, only when a run left a record (a ticket that never auto-delivered carries none). */
 function readDeliverAuto(store: Store, ticketId: number): DeliverFacts | undefined {
@@ -72,5 +73,19 @@ export function shipActionViews(
         : { available: false, notOnPr: 0, inSandbox: 0 }),
       ...(deliverAuto ? { auto: deliverAuto } : {}),
     },
+  };
+}
+
+/** The Deliver row's input (T1072): the undelivered counts and the auto-deliver record, or null when neither exists. */
+export function deliverRowInput(
+  undelivered: ReturnType<typeof readActionStates>['undelivered'],
+  deliverAuto: ReturnType<typeof readActionStates>['deliverAuto'],
+): DeliverRowInput | null {
+  if (!undelivered && !deliverAuto) return null;
+  return {
+    canDeliver: undelivered !== undefined,
+    notOnPr: undelivered ? undelivered.hostAhead + undelivered.sandboxAhead : 0,
+    inSandbox: undelivered ? undelivered.sandboxAhead : 0,
+    auto: deliverAuto ?? null,
   };
 }

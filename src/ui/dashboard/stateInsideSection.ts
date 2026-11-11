@@ -1,4 +1,5 @@
 import type { AutofixRowView } from '../../model/inside/autofix.js';
+import type { DeliverRowInput } from '../../model/inside/shipDeliver.js';
 import type { ImplSessionReading } from '../../model/implSessionReading.js';
 import type { Store } from '../../store/db.js';
 import type { ProcessRun } from '../../store/processRuns.js';
@@ -46,6 +47,7 @@ export interface InsideSectionInput {
   attemptSelection?: Partial<Record<'uat' | 'review', string>>;
   findingsBlockingSeverity: Severity | 'none';
   autofix?: AutofixRowView | null;
+  deliver?: DeliverRowInput | null;
   /** An open PR's CI is not green (the Merge row's 'waits on CI'). */
   ciOpen?: boolean;
   displayBlocking?: {
@@ -64,7 +66,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
   const {
     ticket, stepper, currentStage, rounds, worktrees, prs, mergeChecks, now, evidence, cellOf, attach,
     assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
-    findingsBlockingSeverity, displayBlocking, autofix, ciOpen, liveRunUsage,
+    findingsBlockingSeverity, displayBlocking, autofix, deliver, ciOpen, liveRunUsage,
   } = input;
   const { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
   const tokensFor = buildTokensFor(store, ticket.id);
@@ -162,6 +164,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     shipFindings,
     findingsBlockingSeverity,
     autofix,
+    deliver,
     ciOpen,
     reviewBlockingSeverity: displayBlocking?.review,
     testerBlockingSeverity: displayBlocking?.tester,

@@ -16,6 +16,7 @@ import type {
 import { STAGE_BLURBS, STAGE_TITLES } from '../../model/inside/types.js';
 import { boundedEvidenceRows } from '../../model/inside/bounds.js';
 import { REPOSITORY_EVIDENCE_LIMIT } from '../../model/inside/ship.js';
+import { deliverProcess } from '../../model/inside/shipDeliver.js';
 import { STAGE_KEYS, type StageKey, type StageStatus } from '../../model/types.js';
 import type { StepperCell } from '../../model/stepper.js';
 import { buildStageRail } from '../../model/stageRail.js';
@@ -1386,4 +1387,20 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
 /** Fixed offset from the render clock (mid-hour, so the `Xh` text is stable): an absolute date aged the visual baselines run by run. */
 function hoursAgo(hours: number): string {
   return new Date(Date.now() - hours * 3_600_000).toISOString();
+}
+
+/**
+ * The ship view with the Deliver row the host would build from `state.deliver` (T1072). A fixture that sets the
+ * undelivered counts or the auto-deliver record by hand calls this, so the row shows where the host puts it: after
+ * Auto-fix, before Merge.
+ */
+export function withDeliverRow(state: DashboardState): DashboardState {
+  const d = state.deliver;
+  const row = deliverProcess({ canDeliver: d.available, notOnPr: d.notOnPr, inSandbox: d.inSandbox, auto: d.auto ?? null });
+  if (!row) return state;
+  const view = state.insideViews.ship;
+  const rest = view.processes.filter((p) => p.id !== 'deliver');
+  const at = rest.findIndex((p) => p.id === 'merge');
+  const processes = at < 0 ? [...rest, row] : [...rest.slice(0, at), row, ...rest.slice(at)];
+  return { ...state, insideViews: { ...state.insideViews, ship: { ...view, processes } } };
 }

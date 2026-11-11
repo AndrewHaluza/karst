@@ -7,7 +7,7 @@
 import { autofixProcess } from '../../../model/inside/ship.js';
 import { expect } from 'vitest';
 import type { RenderHandle } from '../../testing/renderHarness.js';
-import { populatedStateFor, shipPreviewStateFor, sharedServerFixtures } from '../renderFixtures.js';
+import { populatedStateFor, shipPreviewStateFor, sharedServerFixtures, withDeliverRow } from '../renderFixtures.js';
 import type { DashboardState } from '../state.js';
 import { buildStageRail } from '../../../model/stageRail.js';
 
@@ -60,16 +60,24 @@ const railNeedsState = (stage: Stage, cta: Record<string, unknown>): DashboardSt
 };
 
 const shipMenuState = (): DashboardState =>
-  st('ship', {
+  withDeliverRow(st('ship', {
     sendBack: { available: true, stage: 'ship' },
     prFeedbackFix: { available: true, round: 1, items: 2 },
     ciFailure: { available: true, repos: [REPO] },
     rebase: { available: true, stage: 'ship' },
     deliver: { available: true, notOnPr: 2, inSandbox: 1 },
-  });
+  }));
+
+/** The ship state with the CI failure and the rebase off (and the PR feedback too, unless asked), so the next action is the main one. */
+const withNoCiOrFeedback = (s: DashboardState, keep: { feedback?: boolean } = {}): DashboardState =>
+  ({
+    ...s,
+    ciFailure: { available: false, repos: [] },
+    ...(keep.feedback ? { rebase: { available: false } } : { prFeedbackFix: { available: false } }),
+  }) as DashboardState;
 
 const deliverFailureState = (): DashboardState =>
-  st('ship', {
+  withDeliverRow(st('ship', {
     deliver: {
       available: true, notOnPr: 2, inSandbox: 0,
       auto: {
@@ -77,7 +85,7 @@ const deliverFailureState = (): DashboardState =>
         failures: [{ gate: 'unit', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f6', summary: 'boom' }],
       },
     },
-  });
+  }));
 
 const uatMenuState = (): DashboardState =>
   st('uat', {
@@ -528,8 +536,17 @@ export const COVERED: readonly ParityCase[] = [
 
   // --- stage ⋯ menu + inside ----------------------------------------------
   {
-    act: 'send-ci-failure', variant: 'stage menu', repeat: true, state: shipMenuState, prep: ensureMenu('ship', '.menuButton' + act('send-ci-failure')),
-    sel: '.menuButton' + act('send-ci-failure'), posts: [{ type: 'send-ci-failure' }], rid: false, pendingSel: false,
+    // The host-picked main action (T1072): a visible secondary button beside the Actions trigger, not a menu item.
+    act: 'send-ci-failure', variant: 'main action', state: shipMenuState,
+    sel: '.stageMain' + act('send-ci-failure'), posts: [{ type: 'send-ci-failure' }], rid: false, pendingSel: false,
+  },
+  {
+    act: 'rebase-on-base', variant: 'main action', state: () => withNoCiOrFeedback(shipMenuState()),
+    sel: '.stageMain' + act('rebase-on-base'), posts: [{ type: 'rebase-on-base' }], rid: false, pendingSel: false,
+  },
+  {
+    act: 'address-pr-feedback', variant: 'main action', state: () => withNoCiOrFeedback(shipMenuState(), { feedback: true }),
+    sel: '.stageMain' + act('address-pr-feedback'), posts: [{ type: 'address-pr-feedback' }], rid: false, pendingSel: false,
   },
   {
     act: 'rebase-on-base', repeat: true, state: shipMenuState, prep: ensureMenu('ship', act('rebase-on-base')),
@@ -544,8 +561,8 @@ export const COVERED: readonly ParityCase[] = [
     sel: act('send-back-to-implement'), posts: [{ type: 'send-back-to-implement' }], rid: false, pendingSel: false,
   },
   {
-    act: 'rerun-gate', repeat: true, state: uatMenuState, prep: ensureMenu('uat', act('rerun-gate')),
-    sel: act('rerun-gate'), posts: [{ type: 'rerun-gate', stage: 'uat' }], rid: false, pendingSel: false,
+    act: 'rerun-gate', variant: 'main action', state: uatMenuState,
+    sel: '.stageMain' + act('rerun-gate'), posts: [{ type: 'rerun-gate', stage: 'uat' }], rid: false, pendingSel: false,
   },
   {
     act: 'reset-stage', repeat: true, state: uatMenuState, prep: ensureMenu('uat', act('reset-stage')),
@@ -556,8 +573,14 @@ export const COVERED: readonly ParityCase[] = [
     posts: [{ type: 'deliver-to-pr' }], rid: false,
   },
   {
-    act: 'dismiss-deliver-failures', state: deliverFailureState, sel: act('dismiss-deliver-failures'),
+    act: 'dismiss-deliver-failures', variant: 'gate row', state: deliverFailureState, sel: act('dismiss-deliver-failures'),
     posts: [{ type: 'dismiss-deliver-failures', gate: 'unit' }], rid: false, pendingSel: false,
+  },
+  {
+    act: 'dismiss-deliver-failures', variant: 'stage menu', state: deliverFailureState,
+    prep: ensureMenu('ship', '.stageMenu ' + act('dismiss-deliver-failures')),
+    sel: '.stageMenu ' + act('dismiss-deliver-failures'), posts: [{ type: 'dismiss-deliver-failures' }], rid: false, pendingSel: false,
+    after: (h) => { if (q(h, '.stageMenu')) throw new Error('the menu stayed open after Dismiss'); },
   },
   {
     act: 'inside-action', state: () => st('impl'), sel: act('inside-action', '[data-action-id="fixture:open-full-evidence:1"]'),

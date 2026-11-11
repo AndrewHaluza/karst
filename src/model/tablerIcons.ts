@@ -279,6 +279,15 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M5 12l14 0"/>' +
     '<path d="M5 12l6 6"/>' +
     '<path d="M5 12l6 -6"/>',
+  // Added for the Inside buttons (T1072): 'Send CI failure' and 'Rebase'.
+  send:
+    '<path d="M10 14l11 -11"/>' +
+    '<path d="M21 3l-6.5 18a.55 .55 0 0 1 -1 0l-3.5 -7l-7 -3.5a.55 .55 0 0 1 0 -1l18 -6.5"/>',
+  'arrows-down-up':
+    '<path d="M17 3l0 18"/>' +
+    '<path d="M10 18l-3 3l-3 -3"/>' +
+    '<path d="M7 21l0 -18"/>' +
+    '<path d="M20 6l-3 -3l-3 3"/>',
 };
 
 /** Default render size in CSS px for `karstIcon()` (16px toolbar baseline). */

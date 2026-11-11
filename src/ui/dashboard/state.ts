@@ -29,7 +29,7 @@ import { buildAgentState, emptyCapabilityIdentity, buildSandbox, resolveSessionC
 import { buildDashboardRows } from './stateRows.js';
 import { readRelations, readRounds, originLabel } from './stateRelations.js';
 import { buildAttach, buildArtifacts, readEvidence } from './stateEvidence.js';
-import { readActionStates, shipActionViews } from './stateActions.js';
+import { deliverRowInput, readActionStates, shipActionViews } from './stateActions.js';
 import { implSessionReading } from '../../model/implSessionReading.js';
 import { graphRunIsLive } from '../../model/inside/graph.js';
 import { buildInsideSection } from './stateInsideSection.js';
@@ -347,6 +347,7 @@ export function buildDashboardState(
     findingsBlockingSeverity,
     displayBlocking,
     autofix: autofixReading.row,
+    deliver: deliverRowInput(undelivered, deliverAuto),
     ciOpen: autofixReading.ciOpen,
   });
 

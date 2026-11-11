@@ -240,3 +240,19 @@ describe('the status glyph marks sit at the ring center (T1014)', () => {
     expect(rule('#inside .glyph.pass:before')).toContain('translate(-0.5px,-1px) rotate(-45deg)');
   });
 });
+
+describe('the nested error-text disclosure (T1072)', () => {
+  it("resets the row rule's grid so 'Show' stays one inline word", () => {
+    const line = new RegExp(`${escapeRegExp('#inside .op .ev-output summary')}\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '';
+    expect(line).toContain('display:inline-block');
+    expect(line).toContain('grid-template-columns:none');
+    expect(line).toContain('white-space:nowrap');
+  });
+});
+
+describe('the narrow Deliver row (T1072)', () => {
+  it('gives the Deliver body its own timing vars and moves the detail to a second row', () => {
+    expect(CSS).toContain('#inside .op[data-proc-id$=":deliver"] .op-body{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}');
+    expect(CSS).toContain('#inside .op[data-proc-id$=":deliver"] summary>.op-detail{grid-column:2/-1;grid-row:2}');
+  });
+});

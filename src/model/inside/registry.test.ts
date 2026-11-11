@@ -8,8 +8,8 @@ import {
 import { EVIDENCE_KINDS } from './types.js';
 
 describe('INSIDE_PROCESSES', () => {
-  it('fixes the ship roster: commit, push, pr, autofix, merge', () => {
-    expect(INSIDE_PROCESSES.ship).toEqual(['commit', 'push', 'pr', 'autofix', 'merge']);
+  it('fixes the ship roster: commit, push, pr, autofix, deliver, merge', () => {
+    expect(INSIDE_PROCESSES.ship).toEqual(['commit', 'push', 'pr', 'autofix', 'deliver', 'merge']);
   });
 
   it('fixes the done roster: a single delivery receipt', () => {

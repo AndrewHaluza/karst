@@ -16,6 +16,7 @@ import type { InsideStageKey, ProcessEvidenceView } from './types.js';
  *
  * `autofix` (T1070) is the one registered id that does not always render: the ship builder omits it unless autopilot
  * applies to the ticket and a round, a park, an attempt or an unknown CI status gives it something to say.
+ * `deliver` (T1072) is the same kind of id: it renders only while commits wait to be pushed or an auto-deliver left a record.
  */
 export const INSIDE_PROCESSES: Readonly<Record<InsideStageKey, readonly string[]>> = {
   scope: ['hot-set', 'worktrees'],
@@ -24,7 +25,7 @@ export const INSIDE_PROCESSES: Readonly<Record<InsideStageKey, readonly string[]
   // Review does not spin or stop services (D155) — its lint/build gates need no
   // running app — so it presents no Services row.
   review: ['gates', 'review'],
-  ship: ['commit', 'push', 'pr', 'autofix', 'merge'],
+  ship: ['commit', 'push', 'pr', 'autofix', 'deliver', 'merge'],
   done: ['delivery-receipt'],
 };
 
@@ -61,6 +62,7 @@ const PROCESS_EVIDENCE_KIND: Readonly<Record<string, ProcessEvidenceView['kind']
   push: 'rows',
   pr: 'prs',
   autofix: 'rows',
+  deliver: 'rows',
   merge: 'rows',
   'delivery-receipt': 'receipt',
 };

@@ -49,8 +49,9 @@ describe('Inside — the shell', () => {
     expect(must('#inside > section.inside').classList.contains('viewing')).toBe(true);
     expect(text(must('.vbar > span'))).toBe('Viewing Scope — not the current stage.');
     const back = must<HTMLButtonElement>('.vbar [data-back]');
-    expect(text(back)).toBe('Back to Implementation');
-    expect(back.getAttribute('title')).toBe('Return the strip to the stage the ticket is actually on');
+    expect(text(back)).toBe('Current stage');
+    expect(back.getAttribute('title')).toBe('Current stage — return the strip to Implementation, the stage the ticket is actually on');
+    expect(back.getAttribute('aria-label')).toBe(back.getAttribute('title'));
     fireEvent.click(back);
     expect(text(must('#inside-title'))).toBe('Inside impl');
     expect(q('.vbar')).toBeNull();
@@ -74,10 +75,10 @@ describe('Inside — the shell', () => {
   it('names the presented stage in Back when a fix round shows another stage', () => {
     mountInside(insideState({ stageCurrent: 'fix', presentedStage: 'uat', views: { scope: view('scope', { title: 'Scope' }) } }), { persisted: { sel: 'scope' } });
     expect(text(must('.vbar > span'))).toBe('Viewing Scope — not the current stage.');
-    expect(text(must('.vbar [data-back]'))).toBe('Back to UAT');
+    expect(must('.vbar [data-back]').title).toContain('return the strip to UAT');
     cleanupInside();
     mountInside(insideState({ stageCurrent: 'fix', presentedStage: 'review', views: { scope: view('scope', { title: 'Scope' }) } }), { persisted: { sel: 'scope' } });
-    expect(text(must('.vbar [data-back]'))).toBe('Back to Review');
+    expect(must('.vbar [data-back]').title).toContain('return the strip to Review');
   });
 
   it('keeps the selection across a snapshot, a live repaint and a clocks repaint', () => {

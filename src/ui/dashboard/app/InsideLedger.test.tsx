@@ -211,8 +211,8 @@ describe('Ledger — the action button', () => {
   it('labels it from the closed vocabulary, or with the host’s count-bearing label verbatim', () => {
     mountInside(withAction({ actionId: 'x:1', kind: 'open-full-evidence' }));
     expect(text(button())).toBe('Show all');
-    expect(button().title).toBe('Show every recorded row');
-    expect(button().className).toBe('k-btn k-btn--secondary k-btn--sm');
+    expect(button().title).toBe('Show all — show every recorded row');
+    expect(button().className).toBe('k-btn k-btn--link k-btn--sm overflow-btn');
     cleanupInside();
     mountInside(withAction({ actionId: 'x:1', kind: 'open-full-evidence', label: 'Show 14 more' }));
     expect(text(button())).toBe('Show 14 more');
@@ -221,7 +221,7 @@ describe('Ledger — the action button', () => {
   it('draws an irreversible control as the danger variant, and the override edit as an ordinary one', () => {
     mountInside(withAction({ actionId: 'x:1', kind: 'graph-discard-node' }));
     expect(button().classList.contains('k-btn--danger')).toBe(true);
-    expect(button().title).toBe('Discard unknown process — it may still be running');
+    expect(button().title).toBe('Discard process — discard unknown process — it may still be running');
     cleanupInside();
     mountInside(withAction({ actionId: 'x:1', kind: 'graph-edit-override' }));
     expect(button().classList.contains('k-btn--danger')).toBe(false);

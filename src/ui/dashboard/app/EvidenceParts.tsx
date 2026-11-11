@@ -9,6 +9,8 @@
  */
 import type { EvidenceRow } from '../../../model/inside/types.js';
 import { LastRoundButton } from './AutofixParts.js';
+import { useDashboardSend } from './DashboardAppContext.js';
+import { Icon } from './Icon.js';
 import { RowTimingCells } from './InsideClocks.js';
 import { InsideActionButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
@@ -26,10 +28,33 @@ export function EvTiming({ r, cls, stage, id, index }: { readonly r: EvidenceRow
   );
 }
 
+/** One failed gate's own Dismiss: an x icon button. Its title = aria-label starts with the visible name 'Dismiss'. */
+function DeliverDismissButton({ gate }: { readonly gate: string }) {
+  const send = useDashboardSend();
+  const label = `Dismiss — drop the kept failure of gate ${gate}`;
+  return (
+    <button type="button" className="k-iconbtn ib" data-act="dismiss-deliver-failures" aria-label={label} title={label} onClick={() => send.dismissDeliverFailures(gate)}>
+      <Icon name="x" />
+    </button>
+  );
+}
+
+/** A failed row's error text, closed behind a native 'Show' disclosure (never inline). */
+export function EvOutput({ text }: { readonly text: string | undefined }) {
+  if (!text) return null;
+  return (
+    <details className="ev-output">
+      <summary>Show</summary>
+      <pre>{text}</pre>
+    </details>
+  );
+}
+
 export function EvAction({ r }: { readonly r: EvidenceRow }) {
   return (
     <span className="ev-tail">
       {r.action ? <InsideActionButton action={r.action} /> : null}
+      {r.deliverDismiss ? <DeliverDismissButton gate={r.deliverDismiss.gate} /> : null}
       {r.autofixStop ? <LastRoundButton requested={r.autofixStop.requested} /> : null}
     </span>
   );

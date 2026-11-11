@@ -1728,3 +1728,64 @@ describe('Auto-fix is its own process row (T1070)', () => {
     expect(merge.detail).toBe('0/1 merged');
   });
 });
+
+describe('Deliver process (T1072)', () => {
+  const A = 'a'.repeat(40);
+  const B = 'b'.repeat(40);
+  const facts = { running: null, failures: [], takenOver: null, roundActive: false, headSha: A } as const;
+  const dv = (over: Partial<NonNullable<ShipProcessesInput['deliver']>> = {}): ShipProcessesInput['deliver'] => ({
+    notOnPr: 2, inSandbox: 0, canDeliver: true, auto: null, ...over,
+  });
+  const deliverOf = (deliver: ShipProcessesInput['deliver']) => shipProcesses(shipInput({ deliver })).find((p) => p.id === 'deliver');
+
+  it('is absent when nothing is undelivered and no auto-deliver left a record', () => {
+    expect(deliverOf(undefined)).toBeUndefined();
+    expect(deliverOf(null)).toBeUndefined();
+    expect(deliverOf(dv({ canDeliver: false, notOnPr: 0 }))).toBeUndefined();
+  });
+
+  it('sits after Auto-fix and before Merge', () => {
+    const ids = shipProcesses(shipInput({ deliver: dv() })).map((p) => p.id);
+    expect(ids).toEqual(['commit', 'push', 'pr', 'deliver', 'merge']);
+  });
+
+  it('states the commits not on the PR and carries the Push title', () => {
+    const row = deliverOf(dv({ inSandbox: 1 }))!;
+    expect(row).toMatchObject({ kind: 'deliver', label: 'Deliver', status: 'wait', detail: '2 commits not on the PR (1 still in the sandbox)' });
+    expect(row.deliver!.title).toBe('Push — sync the sandbox, then push the branch onto the open pull request');
+    expect(row.evidence).toEqual({ kind: 'rows', rows: [{ label: 'Sync the sandbox', status: 'pending' }, { label: 'Push the branch', detail: 'after the sync', status: 'pending' }] });
+  });
+
+  it('uses the singular for one commit', () => {
+    expect(deliverOf(dv({ notOnPr: 1 }))!.detail).toBe('1 commit not on the PR');
+  });
+
+  it('shows the running gate as "gate n of m" and its hint as the Push title', () => {
+    const row = deliverOf(dv({ auto: { ...facts, running: { n: 4, m: 5, gate: 'docs' } } }))!;
+    expect(row.status).toBe('run');
+    expect(row.detail).toBe('2 commits not on the PR · gate 4 of 5');
+    expect(row.deliver!.title).toBe('Push — auto-deliver runs gate 4/5 (docs). Deliver now skips the remaining gates.');
+    const rows = rowsOf(row);
+    expect(rows[0]).toMatchObject({ label: 'Gate 4 of 5', detail: 'docs', status: 'run' });
+  });
+
+  it('keeps one fail row per kept failure, with its head, its dismiss and its output', () => {
+    const f = { gate: 'unit', repo: 'web', exitCode: 2, headSha: A, summary: 'boom' };
+    const old = { gate: 'docs', repo: 'web', exitCode: 1, headSha: B, summary: null };
+    const row = deliverOf(dv({ auto: { ...facts, failures: [f, old] } }))!;
+    expect(row.status).toBe('fail');
+    const rows = rowsOf(row);
+    const fails = rows.filter((r) => r.status === 'fail');
+    expect(fails).toEqual([
+      { label: 'Gate unit failed', detail: `exit 2 · on the current head ${'a'.repeat(9)}`, status: 'fail', deliverDismiss: { gate: 'unit' }, output: 'boom' },
+      { label: 'Gate docs failed', detail: `exit 1 · on an older head ${'b'.repeat(9)}`, status: 'fail', deliverDismiss: { gate: 'docs' } },
+    ]);
+  });
+
+  it('shows the takeover line when a manual Deliver took over', () => {
+    const row = deliverOf(dv({ canDeliver: false, notOnPr: 0, auto: { ...facts, takenOver: { failed: ['unit'], skipped: [] } } }))!;
+    expect(row.deliver).toBeUndefined();
+    expect(row.status).toBe('note');
+    expect(row.detail).toBe('Delivery taken over by a manual Deliver; failed: unit; skipped: none');
+  });
+});

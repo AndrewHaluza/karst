@@ -11,6 +11,7 @@ import type { AutofixBannerAction, AutofixBannerView } from '../../../model/insi
 import type { AutopilotSlice } from '../stateAutofix.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
+import { insideActionSentence } from './insideText.js';
 import { usePendingAction } from './usePendingAction.js';
 import './Autofix.css';
 
@@ -134,11 +135,12 @@ const useStopConfirm = (): boolean => useSyncExternalStore(subscribeConfirm, () 
 export function LastRoundButton({ requested }: { readonly requested: boolean }) {
   const send = useDashboardSend();
   const post = usePendingAction(useCallback((requestId: string) => send.autopilotStop('after-round', requestId), [send]));
-  const title = requested ? 'Auto-fix stops after this round' : 'Stop auto-fix after this round';
+  const label = requested ? 'Stopping' : 'Last round';
+  const title = `${label} — ${requested ? 'auto-fix stops after this round' : 'stop auto-fix after this round'}`;
   return (
-    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="autopilot-stop-after" disabled={requested} title={title} aria-label={`Last round: ${title}`} onClick={(e) => { e.preventDefault(); post(e); }}>
+    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="autopilot-stop-after" disabled={requested} title={title} aria-label={title} onClick={(e) => { e.preventDefault(); post(e); }}>
       <Icon name="player-pause" size={16} />
-      <span>{requested ? 'Stopping' : 'Last round'}</span>
+      <span>{label}</span>
     </button>
   );
 }
@@ -175,6 +177,9 @@ export function StopNowConfirm() {
   );
 }
 
+/** The banner button's title = aria-label: the full sentence, starting with the visible label. */
+const bannerSentence = (a: AutofixBannerAction): string => insideActionSentence(a.label, a.title);
+
 function BannerButton({ action, primary, ticketRepoFallback }: { readonly action: AutofixBannerAction; readonly primary: boolean; readonly ticketRepoFallback?: string }) {
   const send = useDashboardSend();
   const repo = action.repo ?? ticketRepoFallback ?? '';
@@ -189,7 +194,7 @@ function BannerButton({ action, primary, ticketRepoFallback }: { readonly action
   // An approval names a PR. Without one the host cannot tell which budget to extend, so the control stays off.
   const needsRepo = action.act === 'autopilot-approve-one' && repo === '';
   return (
-    <button type="button" className={`k-btn ${primary ? 'k-btn--primary' : 'k-btn--secondary'} k-btn--sm`} data-act={action.act} disabled={needsRepo} title={action.title} aria-label={action.title ? `${action.label}: ${action.title}` : action.label} onClick={onClick}>
+    <button type="button" className={`k-btn ${primary ? 'k-btn--primary' : 'k-btn--secondary'} k-btn--sm`} data-act={action.act} disabled={needsRepo} title={bannerSentence(action)} aria-label={bannerSentence(action)} onClick={onClick}>
       {action.icon ? <Icon name={action.icon} size={16} /> : null}
       <span>{action.label}</span>
     </button>

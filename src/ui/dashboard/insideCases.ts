@@ -4,7 +4,7 @@ import { autofixProcess } from '../../model/inside/ship.js';
 import type { GraphNodeListRow, InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { StageKey } from '../../model/types.js';
 import { buildStageRail } from '../../model/stageRail.js';
-import { populatedStateFor, renderFixtures, shipPreviewStateFor } from './renderFixtures.js';
+import { populatedStateFor, renderFixtures, shipPreviewStateFor, withDeliverRow } from './renderFixtures.js';
 import {
   buildCaseViews,
   caseCell,
@@ -585,31 +585,31 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   {
     stage: 'ship',
     id: 'deliver',
-    state: legacy('ship', (s) => ({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 1 } })),
+    state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 1 } })),
   },
   {
     stage: 'ship',
     id: 'deliver-auto-running',
     skipLayout: true,
-    state: legacy('ship', (s) => ({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: { n: 3, m: 5, gate: 'integration-sandbox-docker-layout-visual-regression-gate' }, failures: [], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
+    state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: { n: 3, m: 5, gate: 'integration-sandbox-docker-layout-visual-regression-gate' }, failures: [], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
   },
   {
     stage: 'ship',
     id: 'deliver-auto-failed',
     skipLayout: true,
-    state: legacy('ship', (s) => ({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: { n: 4, m: 5, gate: 'visual' }, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
+    state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: { n: 4, m: 5, gate: 'visual' }, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
   },
   {
     stage: 'ship',
     id: 'deliver-auto-taken-over',
     skipLayout: true,
-    state: legacy('ship', (s) => ({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: null, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: { failed: ['integration-sandbox-docker-layout-visual-regression-gate'], skipped: ['visual', 'docs-graph'] }, roundActive: false, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
+    state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: null, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: { failed: ['integration-sandbox-docker-layout-visual-regression-gate'], skipped: ['visual', 'docs-graph'] }, roundActive: false, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
   },
   {
     stage: 'ship',
     id: 'deliver-auto-older-head',
     skipLayout: true,
-    state: legacy('ship', (s) => ({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: null, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: '0f9e8d7c6b5a49382716f5e4d3c2b1a099887766', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: null, roundActive: false, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
+    state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: null, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: '0f9e8d7c6b5a49382716f5e4d3c2b1a099887766', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: null, roundActive: false, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
   },
   { stage: 'ship', id: 'preview-ready', aliasOf: 'confirm-ship', state: () => shipPreviewStateFor('ready') },
   { stage: 'ship', id: 'preview-blocked', aliasOf: 'ship-blocked', state: () => shipPreviewStateFor('blocked') },
@@ -690,7 +690,7 @@ export const INSIDE_CASES: readonly InsideCase[] = [
         banner: {
           state: 'paused', title: 'Auto-fix paused', titleSuffix: 'sandbox ticket',
           cause: 'The sandbox cannot run a round. Fix the sandbox, then retry.',
-          primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: { act: 'sandbox-diff', label: 'Open sync diff' }, history: [],
+          primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: { act: 'sandbox-diff', label: 'Sync diff', icon: 'git-compare', title: 'Open the sandbox sync diff' }, history: [],
         },
       },
       { reason: 'auto-fix paused: sandbox clone is dirty' },

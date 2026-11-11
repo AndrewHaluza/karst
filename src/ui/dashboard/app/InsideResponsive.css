@@ -17,6 +17,10 @@
   /* has-actions outranks the rule above: keep the menu in its own track on row one. */
   #inside .inside-head.has-actions{grid-template-columns:auto minmax(0,1fr) auto}
   #inside .inside-head .stageMenuWrap{grid-column:3;grid-row:1}
+  /* The menu button now sits at the right edge, so the popover opens leftward from it. */
+  #inside .stageMenu{left:auto;right:0}
+  /* Only 'Actions' goes icon-only at the tight tier; the main action keeps its label (RD-NEVER #1). */
+  #inside .stageMenuBtn .stageMenuLabel{display:none}
   #inside .inside-meta{grid-column:2}
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto var(--inside-dur-w) 16px;
     padding-left:var(--p-s2);padding-right:var(--p-s2)}
@@ -27,6 +31,10 @@
   #inside .ev-state,#inside .gate-state{grid-template-columns:var(--inside-dur-w)}
   #inside .op-tail .agent-model{display:none}
   #inside .op-body{margin-left:20px}
+  /* #inside is itself the container, so the `#inside{--vars}` rules here never match it. The Deliver row's body sets the timing vars on itself, and its summary moves the detail to a second row beside the Push button. */
+  #inside .op[data-proc-id$=":deliver"] .op-body{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}
+  #inside .op[data-proc-id$=":deliver"] summary{grid-template-columns:20px minmax(0,1fr) auto var(--inside-dur-w) 16px}
+  #inside .op[data-proc-id$=":deliver"] summary>.op-detail{grid-column:2/-1;grid-row:2}
   /* Four rendered children at this width — glyph, name, detail, state —
      get four named tracks, not three: an item left to auto-place wraps to
      an implicit new row instead of sharing one (UI-R04/R05). The repo is

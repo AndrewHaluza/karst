@@ -535,6 +535,9 @@
   "src/model/inside/deliver.ts": [
     "arch:AP-02"
   ],
+  "src/model/inside/shipDeliver.ts": [
+    "arch:AP-02"
+  ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
   ],
@@ -912,9 +915,6 @@
     "arch:UATHOST-03"
   ],
   "src/ui/dashboard/app/AutofixParts.tsx": [
-    "arch:AP-02"
-  ],
-  "src/ui/dashboard/app/DeliverRow.tsx": [
     "arch:AP-02"
   ],
   "src/ui/dashboard/state.ts#buildDashboardState": [

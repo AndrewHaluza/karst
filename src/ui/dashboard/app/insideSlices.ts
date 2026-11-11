@@ -15,7 +15,6 @@ import type { AutopilotSlice } from '../stateAutofix.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { liveOperation, overlayProcesses } from './insideLive.js';
 import { STAGE_TITLE } from './railText.js';
-import type { DeliverFacts } from '../../../model/inside/deliver.js';
 
 export interface MenuFlags {
   /** Send back to Implement (the stage the host names). */
@@ -29,6 +28,23 @@ export interface MenuFlags {
   readonly rebase: boolean;
   /** Ship only: an auto-fix round runs, so 'Stop auto-fix now…' is offered. */
   readonly autofixStop: boolean;
+  /** Ship only: the auto-deliver kept gate failures, so 'Dismiss delivery failures' (all of them) is offered. */
+  readonly deliverFailures: boolean;
+}
+
+/** The one action the header shows as a visible button; the others stay in the Actions menu. */
+export type MainAction = 'retry' | 'ci' | 'prFeedback' | 'rebase';
+
+/**
+ * The action that fits the state, picked from the host's availability flags in a fixed order: a failed gate asks for
+ * Retry, then a failing CI for Send CI failure, then PR feedback, then a conflict for Rebase. Null when none is offered.
+ */
+export function mainActionOf(menu: MenuFlags): MainAction | null {
+  if (menu.retry !== null) return 'retry';
+  if (menu.ci) return 'ci';
+  if (menu.prFeedback) return 'prFeedback';
+  if (menu.rebase) return 'rebase';
+  return null;
 }
 
 export interface Frame {
@@ -40,7 +56,8 @@ export interface Frame {
   /** Set when the strip shows a stage that is not the ticket's current one: the title Back returns to. */
   readonly back: string | null;
   readonly menu: MenuFlags;
-  readonly deliver: { readonly notOnPr: number; readonly inSandbox: number; readonly canDeliver: boolean; readonly auto: DeliverFacts | null } | null;
+  /** The action the header shows as a visible button, or null. */
+  readonly main: MainAction | null;
   /** Ship only, and only while the header's ship slot waits for Confirm / Retry. */
   readonly preview: { readonly data: ShipPreview | null } | null;
   /** Ship only: the auto-fix override, effective mode and action log (T1004). */
@@ -63,6 +80,17 @@ export const frameOf =
     const rg = state.rerunGate;
     const dv = state.deliver;
     const slot = state.ship?.kind;
+    const menu: MenuFlags = {
+      sendBack: !!(sb && sb.available && key === sb.stage),
+      retry: rg && rg.available && key === rg.stage ? rg.stage : null,
+      reset: state.resetStage && state.resetStage.available && key === state.resetStage.stage ? state.resetStage.stage : null,
+      prFeedback: !!(state.prFeedbackFix && state.prFeedbackFix.available && key === 'ship'),
+      ci: !!(state.ciFailure && state.ciFailure.available) && key === 'ship',
+      rebase: !!(state.rebase && state.rebase.available) && key === (state.rebase.stage || 'ship'),
+      // The stop item needs the visible Auto-fix row, which shows only while autopilot is effective; Merge all stays off for any live round.
+      autofixStop: key === 'ship' && state.autopilot?.roundRunning === true && state.autopilot.effective,
+      deliverFailures: key === 'ship' && (dv?.auto?.failures.length ?? 0) > 0,
+    };
     return {
       view: { ...view, processes: overlayProcesses(view, snapshot.liveOps) },
       live: liveOperation(view, snapshot.liveOps),
@@ -70,17 +98,8 @@ export const frameOf =
       // "Not the current stage" is only meaningful when there IS one: on a ticket that never started, every stage is equally uncurrent.
       // In a fix round `stageCurrent` is `fix` while `presentedStage` is the gate being retried; the ticket's own stage is the presented one.
       back: ownStage && stage !== ownStage ? STAGE_TITLE[ownStage] || ownStage : null,
-      menu: {
-        sendBack: !!(sb && sb.available && key === sb.stage),
-        retry: rg && rg.available && key === rg.stage ? rg.stage : null,
-        reset: state.resetStage && state.resetStage.available && key === state.resetStage.stage ? state.resetStage.stage : null,
-        prFeedback: !!(state.prFeedbackFix && state.prFeedbackFix.available && key === 'ship'),
-        ci: !!(state.ciFailure && state.ciFailure.available) && key === 'ship',
-        rebase: !!(state.rebase && state.rebase.available) && key === (state.rebase.stage || 'ship'),
-        // The stop item needs the visible Auto-fix row, which shows only while autopilot is effective; Merge all stays off for any live round.
-        autofixStop: key === 'ship' && state.autopilot?.roundRunning === true && state.autopilot.effective,
-      },
-      deliver: dv && key === 'ship' && (dv.available || dv.auto) ? { notOnPr: dv.notOnPr, inSandbox: dv.inSandbox, canDeliver: dv.available, auto: dv.auto ?? null } : null,
+      menu,
+      main: mainActionOf(menu),
       autopilot: key === 'ship' ? (state.autopilot ?? null) : null,
       preview: key === 'ship' && (slot === 'confirm' || slot === 'retry') ? { data: state.shipPreview ?? null } : null,
     };

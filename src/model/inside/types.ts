@@ -429,6 +429,10 @@ export interface EvidenceRow {
    * `requested` is true once the stop was asked, and the webview then shows the button as done.
    */
   autofixStop?: { requested: boolean };
+  /** The Deliver failure row that carries its own Dismiss (an x icon button). `gate` is the gate name `dismissDeliverFailures` takes. */
+  deliverDismiss?: { gate: string };
+  /** A failed row's error text: shown behind a native 'Show' disclosure, never inline. Host-shipped, verbatim. */
+  output?: string;
   /**
    * The repository this row's evidence was recorded against — `gate_runs.repo`,
    * verbatim. Absent for a row that names no repository (a pre-v21 gate row,
@@ -769,6 +773,11 @@ export interface InsideProcessView {
    * row states it and the webview offers an inline Unpause (D303).
    */
   paused?: true;
+  /**
+   * The Deliver row's Push button (`data-act="deliver-to-pr"`): present only while the host found commits to push.
+   * `title` is the full sentence (the button's title and aria-label); the webview adds no wording of its own.
+   */
+  deliver?: { title: string };
   /**
    * The kind-specific aggregate copy for the process row — "4 passed · 1
    * failed", "2 blocking", "3 commits". Computed host-side by the reducer
