@@ -53,28 +53,55 @@ function jsonResponse(payload: unknown, status = 200, headers: Record<string, st
   });
 }
 
+const FIVE_RESET = '2026-05-06T15:00:00.000Z';
+const SEVEN_RESET = '2026-05-09T15:00:00.000Z';
+// Real GET /api/oauth/usage shape: utilization is a PERCENT, the reset key is `resets_at` (ISO).
 const USAGE = {
-  five_hour: { utilization: 0.34, resetsAt: 1746540000 },
-  seven_day: { utilization: 0.12, resetsAt: 1746799200 },
-  seven_day_sonnet: { utilization: 0.99, resetsAt: 1746799200 },
-  seven_day_opus: { utilization: 0.9, resetsAt: 1746799200 },
+  five_hour: { utilization: 34.0, resets_at: FIVE_RESET },
+  seven_day: { utilization: 12.0, resets_at: SEVEN_RESET },
+  seven_day_sonnet: { utilization: 99.0, resets_at: SEVEN_RESET },
+  seven_day_opus: { utilization: 90.0, resets_at: SEVEN_RESET },
 };
 
 describe('parseClaudeUsageWindows', () => {
   it('maps the 5-hour and 7-day windows, ignoring the model-scoped blocks', () => {
     expect(parseClaudeUsageWindows(USAGE)).toEqual([
-      { label: '5-hour', usedPct: 34, resetsAt: new Date(1746540000 * 1000).toISOString() },
-      { label: '7-day', usedPct: 12, resetsAt: new Date(1746799200 * 1000).toISOString() },
+      { label: '5-hour', usedPct: 34, resetsAt: FIVE_RESET },
+      { label: '7-day', usedPct: 12, resetsAt: SEVEN_RESET },
     ]);
   });
 
-  it('rounds float noise and clamps to 0-100', () => {
+  it('reads a utilization of 6 as 6% (not 100%) with a non-null reset', () => {
+    const [win] = parseClaudeUsageWindows({ five_hour: { utilization: 6, resets_at: FIVE_RESET } });
+    expect(win!.usedPct).toBe(6);
+    expect(win!.resetsAt).toBe(FIVE_RESET);
+  });
+
+  it('does not guess the scale: 0.5 is 0.5%', () => {
+    expect(parseClaudeUsageWindows({ five_hour: { utilization: 0.5 } })[0]!.usedPct).toBe(0.5);
+  });
+
+  it('still parses the camelCase resetsAt as epoch seconds', () => {
+    expect(parseClaudeUsageWindows({ five_hour: { utilization: 34, resetsAt: 1746540000 } })).toEqual([
+      { label: '5-hour', usedPct: 34, resetsAt: new Date(1746540000 * 1000).toISOString() },
+    ]);
+  });
+
+  it('prefers resets_at over resetsAt', () => {
+    const [win] = parseClaudeUsageWindows({
+      five_hour: { utilization: 1, resets_at: FIVE_RESET, resetsAt: 1746540000 },
+    });
+    expect(win!.resetsAt).toBe(FIVE_RESET);
+  });
+
+  it('rounds float noise to one decimal and clamps to 0-100', () => {
     const windows = parseClaudeUsageWindows({
-      five_hour: { utilization: 0.07 },
-      seven_day: { utilization: 1.5 },
+      five_hour: { utilization: 7.04 },
+      seven_day: { utilization: 150 },
     });
     expect(windows.map((w) => w.usedPct)).toEqual([7, 100]);
     expect(windows[0]!.resetsAt).toBeNull();
+    expect(parseClaudeUsageWindows({ five_hour: { utilization: -3 } })[0]!.usedPct).toBe(0);
   });
 
   it('skips a window whose utilization is not a number', () => {

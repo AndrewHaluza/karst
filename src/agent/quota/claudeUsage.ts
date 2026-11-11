@@ -85,7 +85,7 @@ function num(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-/** `resetsAt` as epoch seconds (the API's shape), or an ISO string, to ISO. */
+/** A reset instant as an ISO string or epoch seconds, to ISO. */
 function resetsAtIso(value: unknown): string | null {
   if (typeof value === 'string') {
     const date = new Date(value);
@@ -104,7 +104,8 @@ const USAGE_WINDOW_LABELS: Readonly<Record<string, string>> = {
 
 /**
  * Map the usage response's `five_hour` / `seven_day` windows. `utilization` is
- * 0–1 (x100 for the view's used-%), `resetsAt` epoch seconds. The sonnet/opus/
+ * a PERCENT 0–100 (never rescaled by value), the reset is `resets_at` (ISO),
+ * with `resetsAt` (ISO or epoch seconds) as a fallback key. The sonnet/opus/
  * model-scoped blocks are deliberately ignored (this feature is only the two
  * subscription windows). A window with no numeric utilization is skipped —
  * never coerced to 0%.
@@ -120,9 +121,8 @@ export function parseClaudeUsageWindows(raw: unknown): QuotaWindow[] {
     if (utilization === null) continue;
     windows.push({
       label,
-      // Round to one decimal: 0-1 x100 otherwise leaks float noise (0.07 -> 7.000000000000001).
-      usedPct: Math.max(0, Math.min(100, Math.round(utilization * 1000) / 10)),
-      resetsAt: resetsAtIso(win['resetsAt']),
+      usedPct: Math.max(0, Math.min(100, Math.round(utilization * 10) / 10)),
+      resetsAt: resetsAtIso(win['resets_at']) ?? resetsAtIso(win['resetsAt']),
     });
   }
   return windows;
