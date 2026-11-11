@@ -72,6 +72,26 @@ describe('sibling-overlap', () => {
   });
 });
 
+describe('rail chevron exemption', () => {
+  const parent = el({ rect: { w: 400, h: 100 } });
+  const seg = (n: number, x: number, w = 100, path?: string) =>
+    el({ parentId: parent.id, path: path ?? `div#rail > div.track:nth-child(1) > div.lane:nth-child(1) > div.seg.stg-impl:nth-child(${n})`, rect: { x, y: 0, w, h: 44 } });
+  const run = (...segs: ElementSnap[]) => checksOf(snap([parent, ...segs]), 'sibling-overlap');
+  it('passes adjacent rail segments that nest by the 12px notch', () => {
+    expect(run(seg(1, 0), seg(2, 88))).toEqual([]);
+  });
+  it('fails a rail overlap wider than the notch', () => {
+    expect(run(seg(1, 0), seg(2, 80))).toHaveLength(1);
+  });
+  it('fails non-adjacent rail segments that overlap', () => {
+    expect(run(seg(1, 0), seg(2, 200), seg(3, 90))).toHaveLength(1);
+  });
+  it('fails the same notch overlap outside #rail', () => {
+    const other = (n: number, x: number) => seg(n, x, 100, `div#prs > div.lane > div.seg:nth-child(${n})`);
+    expect(run(other(1, 0), other(2, 88))).toHaveLength(1);
+  });
+});
+
 describe('sticky exemption', () => {
   const parent = el({ rect: { w: 400, h: 100 } });
   const mk = (over: Omit<Partial<ElementSnap>, 'rect'>) =>

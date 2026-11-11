@@ -315,6 +315,7 @@ END_DOC_BLOCK: [@ui:RD-PRIMITIVES]
 5. Docker visual run (`test:visual:docker`) is required after each view change (CLAUDE.md); baselines at the new widths are recorded by the owning view ticket.
 6. The `BREAKPOINT_PINNED_FILES` list grows by one file per migrated view; any `@container`/`@media` px outside `{400, 700, 1000}` ±1 fails that test.
 7. Departure from item 1 (T1090): the 400/399/320 widths are probed only on `inside-*` dashboard targets, through `layoutWidthsFor(view, variantId)`. Every other view keeps the 480 floor, and the global widening stays open. The `InsideResponsive.css` file is pinned with the `999 / 699 / 399` container tiers.
+8. Rail exemption (T1090): the `sibling-overlap` check skips two ADJACENT `.seg` siblings of `#rail` that overlap by no more than the 12 px notch (`--trk-notch`), because the stage rail draws nested chevrons. A wider overlap, a non-adjacent pair, or the same overlap outside `#rail` still fails (`layoutChecks.ts`, `RAIL_NOTCH_PX`).
 END_DOC_BLOCK: [@ui:RD-GATE]
 
 ## [@ui:RD-BACKLOG] Ordered implementation backlog
