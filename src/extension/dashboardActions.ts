@@ -46,6 +46,7 @@ import { nowIso } from '../model/time.js';
 import { dismissDeliverFailures } from '../store/deliverRuns.js';
 import { findTicketPr } from '../store/prs.js';
 import { resumeBlockedStage } from '../workflow/stageResume.js';
+import { fireGraphImplMarkerFromHost } from '../workflow/graphMarkerGuard.js';
 import { runKilledGatesOnHost } from './ops/runGateOnHost.js';
 import { sendBackState, sendBackToImplement } from '../workflow/sendBack.js';
 import { resetStageAction } from './ops/resetStageAction.js';
@@ -490,6 +491,21 @@ export function makeDashboardActions(
       if (outcome.kind === 'cleared') {
         afterServerChange();
         driveAfterResume(ticketId);
+        return;
+      }
+      if (outcome.kind === 'graph-mark-impl') {
+        const result = fireGraphImplMarkerFromHost(store, outcome.ticketId);
+        if (result.ok) {
+          void vscode.window.showInformationMessage(
+            `Ticket ${formatId('ticket', outcome.ticketId)}: the implementation marker fired (graph run ${outcome.graphRunId}) — advancing to uat.`,
+          );
+          afterServerChange();
+          driveAfterResume(outcome.ticketId);
+        } else {
+          void vscode.window.showWarningMessage(
+            `Ticket ${formatId('ticket', outcome.ticketId)}: could not fire the implementation marker (${result.reason}).`,
+          );
+        }
         return;
       }
       if (outcome.kind === 'graph-recovery') {

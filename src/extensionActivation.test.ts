@@ -258,11 +258,11 @@ describe('extension activation', () => {
     expect(source).toContain('its session is not attached to this window');
   });
 
-  it('directs a graph run awaiting its impl marker to the guarded marker command', () => {
+  it('fires the impl marker for a graph run awaiting its impl marker', () => {
     const source = readExtensionSources();
 
     expect(source).toContain("activeGraph.status === 'completed-awaiting-impl-marker'");
-    expect(source).toContain('karst stage impl pass');
+    expect(source).toContain('fireGraphImplMarkerFromHost(localStore, ticketId)');
     expect(source.indexOf("activeGraph.status === 'completed-awaiting-impl-marker'")).toBeLessThan(
       source.indexOf("if (!options.providerReady && !(await guardCapability('sessions', ticketId))) return startGuards.failedLaunch("),
     );

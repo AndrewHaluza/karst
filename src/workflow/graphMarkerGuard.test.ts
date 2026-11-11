@@ -24,6 +24,7 @@ import {
   graphApproachMissingRun,
   GRAPH_FAILED_BLOCKER,
 } from './graphMarkerGuard.js';
+import type { Manifest } from '../manifest/types.js';
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtIn.js';
 import { workspacesForNode } from '../store/graph/nodeRuns.js';
 import { nodeWorkspaceDir } from '../approaches/graph/workspace/provider.js';
@@ -479,6 +480,34 @@ describe('graphApproachMissingRun', () => {
       )
       .run(ticketId, attempt);
     expect(graphApproachMissingRun(store, ticketId)).toBe(false);
+  });
+
+  it('detects missing run for a custom approach configured with a graph block in the manifest', () => {
+    const ticketId = createTicket(store, { key: 'NR-5', title: 'thing' }).id;
+    store.db.prepare('UPDATE tickets SET approach = ? WHERE id = ?').run('custom-graph', ticketId);
+    const testManifest = {
+      approaches: [
+        {
+          id: 'custom-graph',
+          graph: {
+            planner: { profile: 'expert', prompt: { artifact: 'p.md' } },
+            profiles: {},
+            commands: {},
+            limits: {} as any,
+          },
+        },
+      ],
+    } as unknown as Manifest;
+    expect(graphApproachMissingRun(store, ticketId, testManifest)).toBe(true);
+
+    const attempt = stageAttempt(store, ticketId, 'impl');
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 'impl', ?, 'custom-graph', 'running', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(ticketId, attempt);
+    expect(graphApproachMissingRun(store, ticketId, testManifest)).toBe(false);
   });
 });
 

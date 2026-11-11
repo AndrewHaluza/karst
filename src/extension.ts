@@ -296,6 +296,7 @@ import {
   graphRunTicketStageAttempt,
   markGraphRunBlocked,
 } from './store/graph/graphRuns.js';
+import { advanceConsumedGraphAttempt } from './extension/ops/graphLaunchOps.js';
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { projectEndpointKey, writeCurrentEndpoint } from './agent/hookFailureLog.js';
@@ -6191,14 +6192,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const adapter = options.assignment
           ? instrument(resolveAdapter(options.assignment.provider), options.assignment.provider)
           : currentAgentAdapter(ticketId);
-      // A completed graph is waiting only for Karst's local marker; this must
-      // not depend on the formerly used provider still being available.
+      // A completed graph is waiting only for Karst's local marker; firing
+      // the marker directly advances the ticket to uat.
       const activeGraph = activeGraphRunFor(localStore.db, ticketId);
       if (activeGraph && activeGraph.status === 'completed-awaiting-impl-marker') {
-        void vscode.window.showInformationMessage(
-          `Ticket ${formatId('ticket', ticketId)}: the implementation graph is complete — run \`karst stage impl pass\` to advance.`,
+        const result = fireGraphImplMarkerFromHost(localStore, ticketId);
+        if (result.ok) {
+          void vscode.window.showInformationMessage(
+            `Ticket ${formatId('ticket', ticketId)}: the implementation marker fired (graph run ${activeGraph.graphRunId}) — advancing to uat.`,
+          );
+          maybeDrive(ticketId, 'graph-impl-marker');
+          provider.refresh();
+          dashboard.pushState(ticketId);
+          return { kind: 'launched' };
+        }
+        void vscode.window.showWarningMessage(
+          `Ticket ${formatId('ticket', ticketId)}: could not fire the implementation marker (${result.reason}).`,
         );
-        return { kind: 'not-applicable', reason: 'graph-owned' };
+        return startGuards.failedLaunch(ticketId, result.reason ?? 'could not fire implementation marker');
       }
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
@@ -6316,10 +6327,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return { kind: 'not-applicable', reason: 'graph-owned' };
         }
         if (decision.kind === 'attempt-consumed') {
-          void vscode.window.showWarningMessage(
-            `Ticket ${formatId('ticket', ticketId)}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
-          );
-          return { kind: 'not-applicable', reason: 'graph-owned' };
+          if (!advanceConsumedGraphAttempt(localStore, ticketId, decision, implAttemptOf(ticketId), (m) => logger.info(m))) {
+            void vscode.window.showWarningMessage(
+              `Ticket ${formatId('ticket', ticketId)}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
+            );
+            return { kind: 'not-applicable', reason: 'graph-owned' };
+          }
         }
         return (await launchGraphRun(ticketId)) ? { kind: 'launched' } : startGuards.failedLaunch(ticketId, 'the graph planner session did not start');
       }

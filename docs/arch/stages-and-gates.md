@@ -58,6 +58,10 @@ file the ticket changed holds a block over the `@arch:DOC-01` cap
 (`workflow/docsBlockGuard.ts`, fed by `scripts/docsKeys.mjs lint`). Warnings and
 untouched files never refuse; a lint that cannot run lets the marker through.
 
+Dynamic graph orchestration scopes strictly to `impl` (`approach_graph_runs`
+tracks `impl` attempts); the `fix` stage runs targeted single-agent repair by
+design, so recovery rounds never execute graph topologies.
+
 The concrete marker command is rendered by `karst context` under
 `## How this stage ends` (`cli/context.ts`'s `renderStageEnding`), resolved from
 `markerStageFor(stageCurrent)` at read time rather than at session launch. A

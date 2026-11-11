@@ -306,6 +306,20 @@ export function latestGraphRunIdForTicket(db: GraphDb, ticketId: number): number
   return row?.id;
 }
 
+/**
+ * Highest stage_attempt among all graph runs for this ticket, or undefined if
+ * no run exists.
+ */
+export function maxGraphRunStageAttemptForTicket(
+  db: GraphDb,
+  ticketId: number,
+): number | undefined {
+  const row = db
+    .prepare('SELECT MAX(stage_attempt) AS maxAttempt FROM approach_graph_runs WHERE ticket_id = ?')
+    .get(ticketId) as { maxAttempt: number | null } | undefined;
+  return row?.maxAttempt !== null && row?.maxAttempt !== undefined ? row.maxAttempt : undefined;
+}
+
 /** True when the ticket has any graph run at all. */
 export function graphRunExistsForTicket(db: GraphDb, ticketId: number): boolean {
   const row = db

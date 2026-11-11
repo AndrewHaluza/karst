@@ -6,6 +6,7 @@ import {
   assertMarkerNotWhileWaiting,
 } from './stage.js';
 import type { Store } from '../store/db.js';
+import type { Manifest } from '../manifest/types.js';
 import { openStore } from '../store/db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { createSubtask } from '../workflow/stages/subtask.js';
@@ -512,6 +513,83 @@ describe('runStageCommand', () => {
         .run(id, attempt, status);
       expect(() => runStageCommand(store, id, ['stage', 'impl', 'pass'])).toThrow(message);
       expect(getTicket(store, id).stageCurrent).toBe('impl');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('refuses the impl marker for a custom manifest graph-approach ticket missing its graph run', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-CUSTOM-MISSING', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      updateTicketFields(store, id, { approach: 'custom-graph' });
+      const testManifest = {
+        approaches: [
+          {
+            id: 'custom-graph',
+            graph: { planner: {}, profiles: {}, commands: {}, limits: {} },
+          },
+        ],
+      } as unknown as Manifest;
+      expect(() =>
+        runStageCommand(store, id, ['stage', 'impl', 'pass'], undefined, {
+          manifest: testManifest,
+        }),
+      ).toThrow(/graph marker refused: no graph run for ticket \d+ \(approach custom-graph\)/);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('routes a custom manifest graph-approach ticket with a completed run to the graph marker guard', () => {
+    const store = openStore(':memory:');
+    try {
+      const id = createTicketFlow(store, { key: 'T-CUSTOM-COMPLETED', title: 't' }).id;
+      transition(store, id, 'scope', { kind: 'passed' });
+      updateTicketFields(store, id, { approach: 'custom-graph' });
+      const attempt = stageAttempt(store, id, 'impl');
+      const graphRunId = Number(
+        store.db
+          .prepare(
+            `INSERT INTO approach_graph_runs
+               (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+             VALUES (?, 'impl', ?, 'custom-graph', 'completed-awaiting-impl-marker', '2026-09-01T00:00:00.000Z')`,
+          )
+          .run(id, attempt)
+          .lastInsertRowid,
+      );
+      const revisionId = Number(
+        store.db
+          .prepare(
+            `INSERT INTO approach_graph_revisions
+               (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+             VALUES (?, 1, '{}', 'fp', 'active', '2026-09-01T00:00:00.000Z')`,
+          )
+          .run(graphRunId)
+          .lastInsertRowid,
+      );
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_tokens
+             (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id,
+              destination_end, fork_instance, fork_lineage, status, created_at)
+           VALUES (?, NULL, 1, 'e1', 'END', 1, 0, 'root', 'consumed', '2026-09-01T00:00:00.000Z')`,
+        )
+        .run(revisionId);
+      const testManifest = {
+        approaches: [
+          {
+            id: 'custom-graph',
+            graph: { planner: {}, profiles: {}, commands: {}, limits: {} },
+          },
+        ],
+      } as unknown as Manifest;
+      const next = runStageCommand(store, id, ['stage', 'impl', 'pass'], undefined, {
+        manifest: testManifest,
+      });
+      expect(next).toBe('uat');
+      expect(getTicket(store, id).stageCurrent).toBe('uat');
     } finally {
       store.close();
     }

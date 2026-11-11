@@ -1,5 +1,6 @@
 import type { Store } from '../store/db.js';
 import type { StageKey, Verdict } from '../model/types.js';
+import type { Manifest } from '../manifest/types.js';
 import { MARKER_STAGES, isMarkerStage, type MarkerStage } from '../agent/markerStage.js';
 import { transition as defaultTransition } from '../workflow/machine.js';
 import { graphImplMarkerGuard, graphApproachMissingRun } from '../workflow/graphMarkerGuard.js';
@@ -105,6 +106,7 @@ export type TransitionFn = (
 export interface StageCommandTicket {
   agentState?: string | null;
   stageCurrent?: string | null;
+  manifest?: Manifest | null;
 }
 
 /**
@@ -218,16 +220,24 @@ export function runStageCommand(
   // markImplementDone's run bookkeeping never applies.
   if (stage === 'impl') {
     // The graph marker guard is the ONLY graph/stage boundary. Its routing
-    // must apply only to graph-approach tickets: a `direct` ticket with a
-    // leftover graph-run row (a mid-flight approach switch, a partial
-    // bootstrap) is not a graph ticket, and routing it to the guard would
-    // strand it at impl with no exit. The guard's own no-run sibling
-    // (`graphApproachMissingRun`) gates on the same approach id for the same
-    // reason. The store is the real db-backed store in production; the test
-    // seam may stub it without `db` — the graph check simply does not apply
-    // then.
+    // must apply to graph-approach tickets (built-in or manifest graph: block)
+    // and any ticket that has a graph run for its current approach: a `direct`
+    // ticket with a leftover graph-run row (a mid-flight approach switch, a
+    // partial bootstrap) is not a graph ticket, and routing it to the guard
+    // would strand it at impl with no exit. The guard's own no-run sibling
+    // (`graphApproachMissingRun`) gates on the same approach id / manifest block
+    // for the same reason. The store is the real db-backed store in production;
+    // the test seam may stub it without `db` — the graph check simply does not
+    // apply then.
+    const ticketApproach = store.db ? getTicket(store, ticketId).approach : null;
     const isGraphApproach = store.db
-      ? getTicket(store, ticketId).approach === BUILT_IN_PACKAGE_ID
+      ? ticketApproach === BUILT_IN_PACKAGE_ID ||
+        Boolean(ticket?.manifest?.approaches?.find((a) => a.id === ticketApproach)?.graph) ||
+        (ticketApproach
+          ? (store.db
+              .prepare('SELECT 1 AS n FROM approach_graph_runs WHERE ticket_id = ? AND approach_id = ? LIMIT 1')
+              .get(ticketId, ticketApproach) as { n: number } | undefined) !== undefined
+          : false)
       : false;
     const hasGraphRun =
       isGraphApproach &&
@@ -250,9 +260,10 @@ export function runStageCommand(
     // plain marker below — that would advance the ticket with zero graph
     // work performed. Refuse the marker, name why, and leave the ticket
     // exactly where it is.
-    if (store.db && graphApproachMissingRun(store, ticketId)) {
+    if (store.db && graphApproachMissingRun(store, ticketId, ticket?.manifest)) {
+      const app = ticketApproach ?? BUILT_IN_PACKAGE_ID;
       throw new Error(
-        `graph marker refused: no graph run for ticket ${ticketId} (approach ${BUILT_IN_PACKAGE_ID})`,
+        `graph marker refused: no graph run for ticket ${ticketId} (approach ${app})`,
       );
     }
     // The impl marker routes through markImplementDone, never directly through
