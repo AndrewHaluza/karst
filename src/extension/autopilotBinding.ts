@@ -217,6 +217,12 @@ export function startAutopilot(d: AutopilotBindingDeps): {
     d.markRound?.(id, true);
     try { return await sent(id, outcome); } finally { d.markRound?.(id, false); }
   };
+  // The Rebase on base of a stale generated file (T1081) takes longer than the sweep lease: hold the ticket for a whole round,
+  // so a second window starts no CI round meanwhile, then give the short lease back.
+  const rebaseHeld = async (id: number, run: () => Promise<boolean>): Promise<boolean> => {
+    if (!claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS)) return false;
+    try { return await run(); } finally { claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS); }
+  };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
   // One sweep at a time: overlapping sweeps must not spend the budget twice.
   let sweeping = false;
@@ -237,7 +243,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         conflictRoundStalled: () => d.conflictRoundStalled(id),
         dropConflictRound: () => d.dropConflictRound(id),
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
-        ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) })) } : {}),
+        ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseHeld(id, () => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) }))) } : {}),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };

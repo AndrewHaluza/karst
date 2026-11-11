@@ -6,7 +6,7 @@ import { setStage } from '../store/stages.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { transition } from '../workflow/machine.js';
 import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, regenerateEntries, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
-import { getAutopilotSessionOwner, getAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
+import { claimAutopilotTicket, getAutopilotSessionOwner, getAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
 import { rebaseOnBaseAction, sendCiFailureAction } from './ops/ciActionsWiring.js';
 
@@ -128,6 +128,22 @@ describe('a stale generated file (T1081)', () => {
     expect(auto).toEqual({ repos: new Set(['r']) });
     expect(sendCiFailureAction).not.toHaveBeenCalled();
     expect(r.deps.changed).toHaveBeenCalled();
+  });
+
+  it('holds the ticket for a whole round while the rebase runs, then gives the short lease back', async () => {
+    const r = staleRig([CMD]);
+    const claimUntil = (): number => (r.store.db.prepare('SELECT claim_until AS c FROM autopilot_tickets WHERE ticket_id = ?').get(r.id) as { c: number }).c;
+    let during: { until: number; otherWindow: boolean; at: number } | undefined;
+    vi.mocked(rebaseOnBaseAction).mockImplementation(async () => {
+      during = { until: claimUntil(), otherWindow: claimAutopilotTicket(r.store, r.id, 'OTHER', Date.now(), 1000), at: Date.now() };
+      return true;
+    });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    handle.dispose();
+    expect(during!.otherWindow).toBe(false);
+    expect(during!.until - during!.at).toBeGreaterThanOrEqual(120_000);
+    expect(claimUntil() - Date.now()).toBeLessThanOrEqual(3 * r.deps.intervalMs);
   });
 
   it('keeps today\'s rules when the repository lists no ship.regenerate command', async () => {
