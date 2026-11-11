@@ -264,4 +264,25 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], { uat, runProcess, evidence: { store, ticketId }, onRunOpened: (id) => opened.push(id) });
     expect(opened).toEqual([currentDeliverRun(store, ticketId)!.id]);
   });
+
+  it('does not report a run id when no run is opened (no evidence target)', async () => {
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const runProcess: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 0, output: '' });
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const opened: number[] = [];
+    await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], { uat, runProcess, onRunOpened: (id) => opened.push(id) });
+    expect(opened).toEqual([]);
+  });
+
+  it('keeps only the named gates among the skipped ones too', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-3', title: 't' }).id;
+    const runProcess: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 0, output: '' });
+    await runShipGates([repoWith(scripts)], {
+      uat: uiGates, runProcess, git: gitDiff(['src/store/a.ts']), gateEnv: () => ({ prBody: '', baseRef: 'develop' }),
+      evidence: { store, ticketId }, only: ['unit', 'visual'],
+    });
+    expect(currentDeliverRun(store, ticketId)?.gates).toEqual(['unit', 'visual']);
+    expect(listDeliverResults(store, ticketId).map((r) => r.gateName).sort()).toEqual(['unit', 'visual']);
+  });
 });
