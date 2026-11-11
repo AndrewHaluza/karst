@@ -40,7 +40,7 @@ interface Stale { readonly target: FailedCheck; readonly url: CheckUrl; readonly
 export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly FailedCheck[]): Promise<StaleStep> {
   const earlier = new Set(fails.filter((f) => hasStaleRebase(c.store, c.ticketId, f.repo, f.name)).map((f) => f.name));
   const none: StaleStep = { kind: 'none', earlier };
-  if (fails.length === 0 || earlier.size > 0) return none;
+  if (earlier.size > 0) return none;
   const stale: Stale[] = [];
   for (const target of fails) {
     const url = parseCheckUrl(target.url);
@@ -80,5 +80,5 @@ export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly Fai
   }
   // A repo that pushed forgot its rollup: the ticket waits. When no repo pushed, today's rules apply.
   // `earlier` names only the checks whose rebase stopped: a check that a network re-run marked was never rebased.
-  return done === 0 ? { kind: 'none', earlier: stopped } : { kind: 'rebased' };
+  return done > 0 ? { kind: 'rebased' } : { kind: 'none', earlier: stopped };
 }
