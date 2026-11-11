@@ -34,6 +34,8 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 /** In-memory PanelHost double: records created panels + messages. */
+let activePanels: FakePanel[] = [];
+
 function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
   const panels: FakePanel[] = [];
   const host: PanelHost = {
@@ -69,6 +71,7 @@ function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
         emitViewState: (active) => viewStateHandlers.forEach((h) => h(active)),
       };
       panels.push(panel);
+      activePanels.push(panel);
       return panel;
     },
   };
@@ -78,7 +81,13 @@ function fakeHost(): { host: PanelHost; panels: FakePanel[] } {
 describe('DashboardManager', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
-  afterEach(() => store.close());
+  afterEach(() => {
+    for (const p of activePanels) {
+      if (!p.disposed) p.dispose();
+    }
+    activePanels = [];
+    store.close();
+  });
 
   it('opening the same ticket twice reveals the existing panel (one per id)', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
