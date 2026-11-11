@@ -461,16 +461,23 @@ export function markSubmittedBootstrapPlannerRunsStale(
   reason: string,
   now: string,
 ): number {
+  const rows = db
+    .prepare(
+      `SELECT p.id FROM approach_planner_runs p
+       WHERE p.graph_run_id = ? AND p.kind = 'bootstrap' AND p.status = 'submitted'
+         AND (p.graph_snapshot_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM approach_graph_revisions r
+           WHERE r.graph_run_id = p.graph_run_id
+             AND (r.planner_artifact_snapshot_id = p.graph_snapshot_id OR r.planner_graph_snapshot_id = p.graph_snapshot_id)
+         ))`,
+    )
+    .all(graphRunId) as Array<{ id: number }>;
   let count = 0;
-  let planner = submittedPlannerRunForGraphRun(db, graphRunId, 'bootstrap');
-  while (planner) {
-    if (transitionPlannerRun(db, planner.id, 'submitted', 'stale')) {
-      setPlannerRunReasonEndedAt(db, planner.id, reason, now);
+  for (const row of rows) {
+    if (transitionPlannerRun(db, row.id, 'submitted', 'stale')) {
+      setPlannerRunReasonEndedAt(db, row.id, reason, now);
       count++;
-    } else {
-      break;
     }
-    planner = submittedPlannerRunForGraphRun(db, graphRunId, 'bootstrap');
   }
   return count;
 }
@@ -483,16 +490,23 @@ export function markSubmittedReplanPlannerRunsStale(
   reason: string,
   now: string,
 ): number {
+  const rows = db
+    .prepare(
+      `SELECT p.id FROM approach_planner_runs p
+       WHERE p.graph_run_id = ? AND p.kind = 'replan' AND p.status = 'submitted'
+         AND (p.graph_snapshot_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM approach_graph_revisions r
+           WHERE r.graph_run_id = p.graph_run_id
+             AND (r.planner_artifact_snapshot_id = p.graph_snapshot_id OR r.planner_graph_snapshot_id = p.graph_snapshot_id)
+         ))`,
+    )
+    .all(graphRunId) as Array<{ id: number }>;
   let count = 0;
-  let planner = submittedPlannerRunForGraphRun(db, graphRunId, 'replan');
-  while (planner) {
-    if (transitionPlannerRun(db, planner.id, 'submitted', 'stale')) {
-      setPlannerRunReasonEndedAt(db, planner.id, reason, now);
+  for (const row of rows) {
+    if (transitionPlannerRun(db, row.id, 'submitted', 'stale')) {
+      setPlannerRunReasonEndedAt(db, row.id, reason, now);
       count++;
-    } else {
-      break;
     }
-    planner = submittedPlannerRunForGraphRun(db, graphRunId, 'replan');
   }
   return count;
 }

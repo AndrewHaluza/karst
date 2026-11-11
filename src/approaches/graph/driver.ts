@@ -1222,6 +1222,7 @@ export interface ReplanPlannerLaunch {
   prompt: string;
   cwd: string;
   repo: string;
+  isRepair?: boolean;
 }
 
 export type LaunchReplanResult =
@@ -1258,7 +1259,9 @@ export async function launchReplanPlanner(
     ownerNonce: plannerOwnerNonce,
   });
   if (!claimed) return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
-  unlinkStaleGraphJson(deps, launch.graphRunId);
+  if (!launch.isRepair) {
+    unlinkStaleGraphJson(deps, launch.graphRunId);
+  }
   const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
   let session: SupervisedAgentSession;
   try {

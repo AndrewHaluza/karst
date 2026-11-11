@@ -4616,7 +4616,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       unlinkArtifact: (graphRunId, relativePath) => {
         const root = graphArtifactRoot(graphRunId);
-        if (root) try { rmSync(join(root, relativePath), { force: true }); } catch {}
+        if (root) {
+          try {
+            rmSync(join(root, relativePath), { force: true });
+          } catch (err) {
+            logger.debug(`unlinkArtifact failed: ${String(err)}`);
+          }
+        }
       },
       readBytes: (graphRunId, relativeOrAbsolute) => {
         // Recorded artifact-instance `snapshot_path` values are absolute
@@ -4931,8 +4937,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return;
       }
-      acceptSubmittedPlan(graphDriverDeps(), graphRunId);
-      acceptSubmittedReplan(graphDriverDeps(), graphRunId);
       if (status === 'awaiting-confirmation') return;
       if (status === 'blocked') {
         settleGraphRun(gs.db, graphRunId);
@@ -5136,6 +5140,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       prompt,
       cwd: worktree.path,
       repo: worktree.repo,
+      isRepair: true,
     }).catch((err) => {
       logError(`karst: planner compile repair failed for run ${graphRunId}`, err);
       return { kind: 'failed' as const, reason: 'planner session could not start' };

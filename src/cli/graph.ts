@@ -136,7 +136,26 @@ function submitUpdate(
   return store.db
     .prepare(
       `UPDATE approach_planner_runs
-       SET status = 'submitted', graph_snapshot_id = ?, submitted_at = ?
+       SET status = CASE
+             WHEN (approach_planner_runs.kind = 'bootstrap' AND (SELECT gr.status FROM approach_graph_runs gr WHERE gr.id = approach_planner_runs.graph_run_id) = 'planning')
+               OR (approach_planner_runs.kind = 'replan' AND (SELECT gr.status FROM approach_graph_runs gr WHERE gr.id = approach_planner_runs.graph_run_id) = 'draining')
+             THEN 'submitted'
+             ELSE 'stale'
+           END,
+           graph_snapshot_id = ?,
+           submitted_at = ?,
+           ended_at = CASE
+             WHEN (approach_planner_runs.kind = 'bootstrap' AND (SELECT gr.status FROM approach_graph_runs gr WHERE gr.id = approach_planner_runs.graph_run_id) = 'planning')
+               OR (approach_planner_runs.kind = 'replan' AND (SELECT gr.status FROM approach_graph_runs gr WHERE gr.id = approach_planner_runs.graph_run_id) = 'draining')
+             THEN NULL
+             ELSE ?
+           END,
+           reason = CASE
+             WHEN (approach_planner_runs.kind = 'bootstrap' AND (SELECT gr.status FROM approach_graph_runs gr WHERE gr.id = approach_planner_runs.graph_run_id) = 'planning')
+               OR (approach_planner_runs.kind = 'replan' AND (SELECT gr.status FROM approach_graph_runs gr WHERE gr.id = approach_planner_runs.graph_run_id) = 'draining')
+             THEN NULL
+             ELSE 'submitted into ' || (SELECT gr.status FROM approach_graph_runs gr WHERE gr.id = approach_planner_runs.graph_run_id) || ' run'
+           END
        WHERE id = ? AND status = 'running'
          AND graph_run_id = ?
          AND generation = ?
@@ -152,6 +171,7 @@ function submitUpdate(
     )
     .run(
       graphSnapshotId,
+      now,
       now,
       Number(env.plannerRunId),
       Number(env.graphRunId),
