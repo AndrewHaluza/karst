@@ -13,7 +13,7 @@ import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
 import { deliverTargets } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
-import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
+import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
 import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
 import { formatId } from '../../model/entityId.js';
@@ -181,7 +181,7 @@ function postTakeOverNote(i: CiActionsInput, title: string, body: string): void 
 export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   const h = i.deliver;
   const key = getTicket(i.store, i.ticketId).key ?? formatId('ticket', i.ticketId);
-  const endPush = beginManualPush(i.ticketId); // a re-run of older skipped gates stops: this push makes a newer head
+  const endPush = beginManualPush(i.ticketId); // no re-run starts while this push is in flight
   let skipped: readonly string[] | null = null;
   const taken = takeOverAutoDeliver(i.ticketId, {
     rounds: conflictRounds,
@@ -205,10 +205,14 @@ export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   } finally {
     endPush();
   }
-  // D506: the push went at once. D540: the gates it skipped run now, on the pushed head, in the background.
-  if (taken === 'taken-over' && outcome.kind === 'delivered') {
-    void rerunAfterTakeOver(i, key, skipped ?? []).catch((e: unknown) => i.logError('skipped-gate re-run after a take-over failed', e));
-  }
+  // A click that pushed nothing leaves a running re-run alone. A delivered push makes a newer head: the older re-run stops.
+  if (outcome.kind !== 'delivered') return;
+  const rerun = (async () => {
+    await supersedeRerun(i.ticketId);
+    // D506: the push went at once. D540: the gates it skipped run now, on the pushed head, in the background.
+    if (taken === 'taken-over') await rerunAfterTakeOver(i, key, skipped ?? []);
+  })();
+  void rerun.catch((e: unknown) => i.logError('skipped-gate re-run after a take-over failed', e));
 }
 
 /** The ship gates a manual Deliver skipped, run on the pushed head and recorded as an `after-take-over` run (D540). */
@@ -221,6 +225,7 @@ async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: reado
       agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
       note: (title, body) => postTakeOverNote(i, title, body),
       log: (m) => i.debug(m),
+      refused: (why) => i.info(`Deliver to PR: the skipped gates did not run after the push: ${why}.`),
       runGates: async (gates, signal): Promise<RerunResult> => {
         const targets = deliverTargets(i.store, i.ticketId);
         if (!targets.available) return { kind: 'stopped', headSha: null };
@@ -230,9 +235,13 @@ async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: reado
           headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange, only: gates, kind: 'after-take-over', onRunOpened: (id) => { runId = id; },
         });
         const run = runId === null ? null : getDeliverRun(i.store, runId);
-        const headSha = run?.headSha ?? null;
+        const first = targets.prs[0];
+        const headSha = run?.headSha ?? (first === undefined ? null : await headShaOf(i, first.cwd));
         if (failure === null) return { kind: 'passed', headSha };
-        const failed = listDeliverResults(i.store, i.ticketId).filter((r) => r.runId === run?.id && r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName);
+        // No run row: a gate could not be resolved before the run opened; the note names that reason.
+        const failed = run === null
+          ? [failure]
+          : listDeliverResults(i.store, i.ticketId).filter((r) => r.runId === run.id && r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName);
         return { kind: 'failed', headSha, failed };
       },
     });

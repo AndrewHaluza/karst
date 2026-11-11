@@ -17,6 +17,7 @@ import {
   type ResolvedRound,
   rerunSkippedGates,
   beginManualPush,
+  supersedeRerun,
   deliverRerunNote,
   type RerunDeps,
   type RerunResult,
@@ -402,12 +403,35 @@ describe('rerunSkippedGates (after a manual Deliver took over)', () => {
     let release!: (r: RerunResult) => void;
     const { deps, notes } = rerigRerun({ runGates: (_g, s) => { signal = s; return new Promise<RerunResult>((r) => { release = r; }); } });
     const running = rerunSkippedGates(deps);
-    const endPush = beginManualPush(5);
+    const ended = supersedeRerun(5);
     expect(signal.aborted).toBe(true);
     release({ kind: 'stopped', headSha: 'abcdef1234567890' });
     expect(await running).toBe('superseded');
-    endPush();
+    await ended;
     expect(notes.map((n) => n[0])).toEqual(['Autopilot: the gates skipped by the manual Deliver ran on abcdef123: superseded by a newer push']);
+  });
+
+  it('a push that is only in flight does not abort the re-run: a click that pushes nothing leaves it alone', async () => {
+    let signal!: AbortSignal;
+    let release!: (r: RerunResult) => void;
+    const { deps } = rerigRerun({ runGates: (_g, s) => { signal = s; return new Promise<RerunResult>((r) => { release = r; }); } });
+    const running = rerunSkippedGates(deps);
+    const endPush = beginManualPush(5);
+    expect(signal.aborted).toBe(false);
+    endPush();
+    release({ kind: 'passed', headSha: null });
+    expect(await running).toBe('passed');
+  });
+
+  it('supersedeRerun resolves at once when no re-run runs, and when it ended', async () => {
+    await expect(supersedeRerun(5)).resolves.toBeUndefined();
+  });
+
+  it('reports the refusal reason to the user through refused', async () => {
+    const reasons: string[] = [];
+    const { deps } = rerigRerun({ agentActive: () => true, refused: (w) => reasons.push(w) });
+    expect(await rerunSkippedGates(deps)).toBe('refused');
+    expect(reasons).toEqual(['an agent turn is active']);
   });
 
   it('a stop that no push caused is not a supersede', async () => {

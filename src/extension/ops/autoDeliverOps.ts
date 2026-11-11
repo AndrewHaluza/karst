@@ -159,7 +159,7 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
   if (!targets.available) return; // not at ship, no open PR, or a ship run is in flight: the manual button decides
   const entry: InFlight = { controller: new AbortController(), phase: 'gates', takenOver: false };
   inFlight.set(d.ticketId, entry);
-  supersedeRerun(d.ticketId); // the auto-deliver makes a newer head: a re-run on the older head stops
+  void supersedeRerun(d.ticketId); // the auto-deliver makes a newer head: a re-run on the older head stops
   try {
     const pr = targets.prs.find((p) => p.repo === round.repo) ?? targets.prs[0]!;
     d.status(`Delivering resolved merge to PR #${pr.number ?? '?'}…`);
@@ -233,29 +233,37 @@ export interface RerunDeps {
   readonly runGates: (gates: readonly string[], signal: AbortSignal) => Promise<RerunResult>;
   readonly note: (title: string, body: string) => void;
   readonly log: (message: string) => void;
+  /** Called with the reason when the re-run is refused; the log is a debug line, so this one reaches the user. */
+  readonly refused?: (why: string) => void;
 }
 
 interface RerunFlight {
   readonly controller: AbortController;
   superseded: boolean;
+  /** Resolves when the re-run has unwound (its run closed, its note written). */
+  readonly ended: Promise<void>;
+  readonly end: () => void;
 }
 const reruns = new Map<number, RerunFlight>();
 const pushes = new Map<number, number>();
 
-/** A newer head is coming (a manual push or an auto-deliver): abort a re-run on the older head and record it as superseded. */
-function supersedeRerun(ticketId: number): void {
+/**
+ * A newer head exists (a manual push delivered, or an auto-deliver starts): abort a re-run on the older head and
+ * record it as superseded, not failed (D540). Resolves when that re-run has unwound, so a new one may start.
+ */
+export function supersedeRerun(ticketId: number): Promise<void> {
   const flight = reruns.get(ticketId);
-  if (flight === undefined) return;
+  if (flight === undefined) return Promise.resolve();
   flight.superseded = true;
   flight.controller.abort();
+  return flight.ended;
 }
 
 /**
- * A manual push of this ticket begins: a re-run of the skipped gates on an older head is aborted, and it is
- * recorded as superseded, not failed (D540). The returned function ends the push; no re-run starts before it.
+ * A manual push of this ticket begins. The returned function ends the push; no re-run starts before it. A click that
+ * pushes nothing leaves a running re-run alone: the caller supersedes it with `supersedeRerun` once the push delivered.
  */
 export function beginManualPush(ticketId: number): () => void {
-  supersedeRerun(ticketId);
   pushes.set(ticketId, (pushes.get(ticketId) ?? 0) + 1);
   let ended = false;
   return () => {
@@ -279,12 +287,13 @@ export function deliverRerunNote(r: RerunResult | { readonly kind: 'superseded';
 /**
  * After a take-over push succeeded: run the gates the manual Deliver skipped, on the pushed head, in the background
  * (D540, @arch:AP-01). It never blocks the push. It refuses while an agent turn is active, a push is in flight or
- * another re-run runs, and says so in the log. A newer push aborts it (`beginManualPush`).
+ * another re-run runs, and says so in the log. A newer delivered push aborts it (`supersedeRerun`).
  */
 export async function rerunSkippedGates(d: RerunDeps): Promise<RerunOutcome> {
   if (d.skipped.length === 0) return 'nothing';
   const refuse = (why: string): RerunOutcome => {
     d.log(`[ship] ticket ${d.key} skipped-gate re-run not started: ${why}`);
+    d.refused?.(why);
     return 'refused';
   };
   if (d.agentActive()) return refuse('an agent turn is active');
@@ -292,7 +301,9 @@ export async function rerunSkippedGates(d: RerunDeps): Promise<RerunOutcome> {
   if (auto !== undefined && !auto.takenOver) return refuse('an auto-deliver is running');
   if (pushes.has(d.ticketId)) return refuse('a push is in flight');
   if (reruns.has(d.ticketId)) return refuse('a re-run is already in progress');
-  const flight: RerunFlight = { controller: new AbortController(), superseded: false };
+  let end!: () => void;
+  const ended = new Promise<void>((r) => { end = r; });
+  const flight: RerunFlight = { controller: new AbortController(), superseded: false, ended, end };
   reruns.set(d.ticketId, flight);
   try {
     const result = await d.runGates(d.skipped, flight.controller.signal);
@@ -303,5 +314,6 @@ export async function rerunSkippedGates(d: RerunDeps): Promise<RerunOutcome> {
     return outcome;
   } finally {
     reruns.delete(d.ticketId);
+    flight.end();
   }
 }
