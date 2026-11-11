@@ -1114,11 +1114,10 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.inside-head title="Ship">
       <span#inside-title.inside-title> "Inside ship"
       <span.inside-live>
-      <span.autofix-override aria-label="Auto-fix" role="group">
-        <span.autofix-override-label aria-hidden="true"> "Auto-fix:"
-        <button.autofix-seg aria-pressed="true" data-act="autopilot-override" data-mode="inherit" type="button"> "Project default (off)"
-        <button.autofix-seg aria-pressed="false" data-act="autopilot-override" data-mode="on" type="button"> "On"
-        <button.autofix-seg aria-pressed="false" data-act="autopilot-override" data-mode="off" type="button"> "Off"
+      <span.autofix-chipwrap>
+        <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
+          <span> "Auto-fix off · default"
+          <svg.k-icon aria-hidden="true">
       <span.inside-meta> "<clock> · <dur> <dur>"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
@@ -1279,9 +1278,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.ev-tail>
             <span.ev-state.wait>
               <span.ev-time>
-              <span.ev-dur>
-    <div.autofix-foot>
-      <p.autofix-note> "Autopilot never merges. Merge stays your click.""
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview loading > inside · ship preview loading 1`] = `
@@ -1290,11 +1287,10 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.inside-head title="Ship">
       <span#inside-title.inside-title> "Inside ship"
       <span.inside-live>
-      <span.autofix-override aria-label="Auto-fix" role="group">
-        <span.autofix-override-label aria-hidden="true"> "Auto-fix:"
-        <button.autofix-seg aria-pressed="true" data-act="autopilot-override" data-mode="inherit" type="button"> "Project default (off)"
-        <button.autofix-seg aria-pressed="false" data-act="autopilot-override" data-mode="on" type="button"> "On"
-        <button.autofix-seg aria-pressed="false" data-act="autopilot-override" data-mode="off" type="button"> "Off"
+      <span.autofix-chipwrap>
+        <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
+          <span> "Auto-fix off · default"
+          <svg.k-icon aria-hidden="true">
       <span.inside-meta> "<clock> · <dur> <dur>"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
@@ -1456,9 +1452,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.ev-tail>
             <span.ev-state.wait>
               <span.ev-time>
-              <span.ev-dur>
-    <div.autofix-foot>
-      <p.autofix-note> "Autopilot never merges. Merge stays your click.""
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview ready > inside · ship preview ready 1`] = `
@@ -1467,11 +1461,10 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
     <div.inside-head title="Ship">
       <span#inside-title.inside-title> "Inside ship"
       <span.inside-live>
-      <span.autofix-override aria-label="Auto-fix" role="group">
-        <span.autofix-override-label aria-hidden="true"> "Auto-fix:"
-        <button.autofix-seg aria-pressed="true" data-act="autopilot-override" data-mode="inherit" type="button"> "Project default (off)"
-        <button.autofix-seg aria-pressed="false" data-act="autopilot-override" data-mode="on" type="button"> "On"
-        <button.autofix-seg aria-pressed="false" data-act="autopilot-override" data-mode="off" type="button"> "Off"
+      <span.autofix-chipwrap>
+        <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
+          <span> "Auto-fix off · default"
+          <svg.k-icon aria-hidden="true">
       <span.inside-meta> "<clock> · <dur> <dur>"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
@@ -1658,9 +1651,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
             <span.ev-tail>
             <span.ev-state.wait>
               <span.ev-time>
-              <span.ev-dur>
-    <div.autofix-foot>
-      <p.autofix-note> "Autopilot never merges. Merge stays your click.""
+              <span.ev-dur>"
 `;
 
 exports[`dashboard region parity (DOM contract) > logsView #logsView · closed > logsView · closed 1`] = `"<div#logsView.hidden.logsview tabindex="-1">"`;

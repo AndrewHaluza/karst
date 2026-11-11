@@ -119,7 +119,7 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   { id: 'pr-merged', patch: withPrs([MERGED]) },
   {
     id: 'pr-autofix-running',
-    patch: (s) => ({ ...withPrs([READY, FIX_RUNNING])(s), autopilot: { ...(s.autopilot ?? { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [] }), roundRunning: true } }),
+    patch: (s) => ({ ...withPrs([READY, FIX_RUNNING])(s), autopilot: { ...(s.autopilot ?? { override: 'inherit', projectDefault: true, effective: true, banner: null }), roundRunning: true } }),
   },
   { id: 'pr-autofix-parked', patch: withPrs([READY, FIX_PARKED]) },
   { id: 'pr-empty', patch: withPrs([]) },

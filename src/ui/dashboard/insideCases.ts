@@ -1,5 +1,6 @@
 import type { DashboardState } from './state.js';
-import type { AutofixRowView } from '../../model/inside/autofix.js';
+import { STEP_CI_AGENT, STEP_CONFLICT_AGENT, STEP_FETCH_LOG, type AutofixAttemptRow, type AutofixRowView } from '../../model/inside/autofix.js';
+import { autofixProcess } from '../../model/inside/ship.js';
 import type { GraphNodeListRow, InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { StageKey } from '../../model/types.js';
 import { buildStageRail } from '../../model/stageRail.js';
@@ -75,11 +76,8 @@ function legacy(stage: InsideStageKey, patch: (s: DashboardState, v: InsideStage
 
 type AutopilotPatch = Partial<DashboardState['autopilot']>;
 
-const AUTOFIX_STEPS_CONFLICT = ['agent resolving', 'running gates', 'karst delivers to PR', 're-probe'];
-const AUTOFIX_STEPS_CI = ['host fetched log (gh)', 'agent fixing', 'gates', 'push', 'wait for CI'];
-
 /**
- * HAND-WRITTEN: the legacy ship view with auto-fix state on its Merge row. `row` is the host-built view;
+ * HAND-WRITTEN: the legacy ship view with an Auto-fix row after the PR row (T1070). `row` is the host-built view;
  * `banner` (with `reason`) parks the ticket the way the engine does (an awaiting-merge block). The cases skip the
  * layout ledger: it only ever shrinks, and these are new dashboard routes.
  */
@@ -89,15 +87,12 @@ function autofixShip(
   park?: { readonly reason: string },
 ): () => DashboardState {
   return legacy('ship', (s, v) => {
-    const processes = v.processes.map((p) => {
-      if (p.id !== 'merge' || !row) return p;
-      const status = row.state === 'running' ? ('run' as const) : ('wait' as const);
-      return { ...p, status, detail: row.message, autofix: row };
-    });
+    const own = row ? autofixProcess(row) : undefined;
+    const processes = own ? v.processes.flatMap((p) => (p.id === 'merge' ? [own, p] : [p])) : v.processes;
     const cell = s.currentStage ?? caseCell('ship', 'running');
     return {
       ...s,
-      autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], roundActive: row?.state === 'running', ...slice },
+      autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, roundActive: row?.state === 'running', roundRunning: row?.state === 'running', ...slice },
       insideViews: { ...s.insideViews, ship: { ...v, processes } },
       currentStage: park
         ? { ...cell, blocked: { kind: 'awaiting-merge', reason: park.reason, at: t(30), resumable: false } }
@@ -106,14 +101,28 @@ function autofixShip(
   });
 }
 
+const attempt = (kind: 'ci' | 'conflicts', n: number, max: number, at: string): AutofixAttemptRow => ({
+  label: `${kind === 'ci' ? 'attempt' : 'round'} ${n}`,
+  detail: `${kind === 'ci' ? 'CI' : 'conflict'} ${kind === 'ci' ? 'attempt' : 'round'} ${n} of ${max} ran`,
+  result: 'ran',
+  at,
+});
+const failed = (a: AutofixAttemptRow): AutofixAttemptRow => ({ ...a, detail: 'CI lint still fails', result: 'fails' });
+
 const RUNNING_CONFLICT: AutofixRowView = {
-  state: 'running', message: 'Auto-fix: conflict on web #421 · round 1 of 2', steps: AUTOFIX_STEPS_CONFLICT, activeStep: 1, stopAfterRequested: false,
+  state: 'running', message: 'conflict on web #421 · round 1 of 2', attempts: [],
+  steps: [{ label: STEP_CONFLICT_AGENT, detail: 'round 1', status: 'run', stopAfter: true }], stopAfterRequested: false,
 };
+const CI_ATTEMPT_1 = attempt('ci', 1, 3, t(40));
 const RUNNING_CI: AutofixRowView = {
-  state: 'running', message: 'Auto-fix: CI lint failed on api #88 · attempt 2 of 3', steps: AUTOFIX_STEPS_CI, activeStep: 1, stopAfterRequested: false,
+  state: 'running', message: 'CI lint on api #88 · attempt 2 of 3', attempts: [CI_ATTEMPT_1],
+  steps: [
+    { label: STEP_FETCH_LOG, detail: 'gh · lint', status: 'pass' },
+    { label: STEP_CI_AGENT, detail: 'attempt 2', status: 'run', stopAfter: true },
+  ],
+  stopAfterRequested: false,
 };
-const PARKED = { steps: [], activeStep: 0, stopAfterRequested: false };
-const LOG = ['Autopilot: fixed lint on api #88', 'Autopilot: resolved conflicts on web #421'];
+const PARKED = { attempts: [] as readonly AutofixAttemptRow[], steps: [] as readonly never[], stopAfterRequested: false };
 
 // ----------------------------------------------------------- gate-stage rows
 
@@ -612,24 +621,23 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   },
 
   // auto-fix on the Merge row and the blocked banner (T1004): HAND-WRITTEN, outside the layout ledger
-  { stage: 'ship', id: 'auto-conflict-running', skipLayout: true, allThemes: true, state: autofixShip(RUNNING_CONFLICT, { log: LOG }) },
-  { stage: 'ship', id: 'auto-ci-running', skipLayout: true, allThemes: true, state: autofixShip(RUNNING_CI, { override: 'on', log: LOG }) },
+  { stage: 'ship', id: 'auto-conflict-running', skipLayout: true, allThemes: true, state: autofixShip(RUNNING_CONFLICT, {}) },
+  { stage: 'ship', id: 'auto-ci-running', skipLayout: true, allThemes: true, state: autofixShip(RUNNING_CI, { override: 'on' }) },
   {
     stage: 'ship',
     id: 'auto-budget-spent',
     skipLayout: true,
     allThemes: true,
     state: autofixShip(
-      { ...PARKED, state: 'spent', message: 'Auto-fix stopped: CI failed 3 of 3 attempts on api #88' },
+      { ...PARKED, state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 attempts', attempts: [failed(attempt('ci', 1, 3, t(60))), failed(attempt('ci', 2, 3, t(50))), failed(attempt('ci', 3, 3, t(40)))] },
       {
         banner: {
           state: 'spent', title: 'lint', titleHref: 'https://github.com/example/api/actions/runs/1', titleSuffix: 'failed on api #88',
           cause: 'Auto-fix tried 3 of 3 times and the check still fails.',
-          primary: { act: 'autopilot-approve-one', label: 'Approve 1 more attempt', repo: 'api', kind: 'ci' },
-          secondary: { act: 'send-ci-failure', label: 'Send CI failure with a note…' },
+          primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'refresh', title: 'Approve 1 more auto-fix attempt', repo: 'api', kind: 'ci' },
+          secondary: { act: 'send-ci-failure', label: 'Send back…', icon: 'arrow-left', title: 'Send the CI failure to the agent with a note' },
           history: ['Attempt 1 · lint · 09:10', 'Attempt 2 · lint · 09:20', 'Attempt 3 · lint · 09:31'],
         },
-        log: LOG,
       },
       { reason: 'auto-fix stopped: ci 3/3' },
     ),
@@ -640,7 +648,7 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     skipLayout: true,
     allThemes: true,
     state: autofixShip(
-      { ...PARKED, state: 'gh-failed', message: 'Auto-fix paused: could not read CI for api #88 (gh: HTTP 502)' },
+      { ...PARKED, state: 'gh-failed', message: 'paused: could not read CI for api #88 (gh: HTTP 502)' },
       {
         banner: {
           state: 'gh-failed', title: 'Auto-fix paused', titleSuffix: 'could not read CI', cause: 'Could not read CI for api #88 (gh: HTTP 502)',
@@ -655,7 +663,14 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     id: 'auto-status-unknown',
     skipLayout: true,
     allThemes: true,
-    state: autofixShip({ ...PARKED, state: 'unknown', message: 'CI status unknown for api #88. Auto-fix waits; not counted as pass.' }, {}),
+    state: autofixShip({ ...PARKED, state: 'unknown', message: 'CI status unknown for api #88. Waits; not counted as pass.' }, {}),
+  },
+  {
+    stage: 'ship',
+    id: 'auto-override-on-default',
+    skipLayout: true,
+    allThemes: true,
+    state: autofixShip(null, {}),
   },
   {
     stage: 'ship',
@@ -670,7 +685,7 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     skipLayout: true,
     allThemes: true,
     state: autofixShip(
-      { ...PARKED, state: 'paused', message: 'Auto-fix paused: sandbox clone is dirty' },
+      { ...PARKED, state: 'paused', message: 'paused: sandbox clone is dirty' },
       {
         banner: {
           state: 'paused', title: 'Auto-fix paused', titleSuffix: 'sandbox ticket',

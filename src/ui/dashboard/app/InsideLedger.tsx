@@ -19,7 +19,6 @@ import { InsideActionButton, Identity } from './InsideParts.js';
 import { useInsideScope } from './InsideMemory.js';
 import { hasEvidenceBody, statusWord, withKeys } from './insideText.js';
 import { sameIgnoringLive } from './insideLive.js';
-import { AutofixRowExtras } from './AutofixParts.js';
 
 /** The console (terminal detailed mode) entry point: icon-only, the label moving to aria-label + title (the SAME string, UI-R21/R24). */
 function ConsoleButton({ owner, p }: { readonly owner: string; readonly p: InsideProcessView }) {
@@ -95,12 +94,12 @@ const ProcessRow = memo(
       },
       [memory, key, open],
     );
-    const running = p.autofix?.state === 'running';
+    const running = p.id === 'autofix' && p.status === 'run';
     const glyph = <span className={`glyph ${p.status}`} role="img" aria-label={p.statusLabel || statusWord(p.status)} />;
     const name = (
       <span className="op-name" title={p.label}>
         <span className="op-name-text">{p.label}</span>
-        {p.execution || p.configuredExecution ? <span className="ai-mark">AI</span> : null}
+        {p.execution || p.configuredExecution || p.aiMark ? <span className="ai-mark">AI</span> : null}
       </span>
     );
     // A gate-lane AI process offers the same console from its OWN description area when the host flags `p.console` (a
@@ -109,7 +108,6 @@ const ProcessRow = memo(
     const detail = (
       <span className={`op-detail ${p.status}${owner ? ' detail-console' : ''}`}>
         {p.detail ? <span className="op-detail-text">{p.detail}</span> : null}
-        {p.autofix ? <AutofixRowExtras row={p.autofix} /> : null}
         {owner ? <ConsoleButton owner={owner} p={p} /> : null}
         {p.paused ? <UnpauseButton /> : null}
       </span>

@@ -7,6 +7,7 @@ import { useCallback } from 'react';
 import type { EvidenceRow, InsideProcessView, ProcessEvidenceView } from '../../../model/inside/types.js';
 import type { GateStage } from '../../../store/ticketGates.js';
 import { useDashboardSend } from './DashboardAppContext.js';
+import { StopNowConfirm } from './AutofixParts.js';
 import { EvAction, EvGlyph, EvTiming, PrState } from './EvidenceParts.js';
 import { GraphDag, GraphNodeList, GraphViewToggle } from './EvidenceGraph.js';
 import { useDagShown } from './InsideMemory.js';
@@ -41,6 +42,7 @@ export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceVi
           <EvTiming r={r} cls="ev-state" stage={stage} id={id} index={index} />
         </div>
       ))}
+      {id === 'autofix' ? <StopNowConfirm /> : null}
     </>
   );
 }

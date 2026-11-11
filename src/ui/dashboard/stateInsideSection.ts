@@ -46,6 +46,8 @@ export interface InsideSectionInput {
   attemptSelection?: Partial<Record<'uat' | 'review', string>>;
   findingsBlockingSeverity: Severity | 'none';
   autofix?: AutofixRowView | null;
+  /** An open PR's CI is not green (the Merge row's 'waits on CI'). */
+  ciOpen?: boolean;
   displayBlocking?: {
     review?: Severity | 'none';
     tester?: Severity | 'none';
@@ -62,7 +64,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
   const {
     ticket, stepper, currentStage, rounds, worktrees, prs, mergeChecks, now, evidence, cellOf, attach,
     assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
-    findingsBlockingSeverity, displayBlocking, autofix, liveRunUsage,
+    findingsBlockingSeverity, displayBlocking, autofix, ciOpen, liveRunUsage,
   } = input;
   const { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
   const tokensFor = buildTokensFor(store, ticket.id);
@@ -160,6 +162,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     shipFindings,
     findingsBlockingSeverity,
     autofix,
+    ciOpen,
     reviewBlockingSeverity: displayBlocking?.review,
     testerBlockingSeverity: displayBlocking?.tester,
     reviewStallDetection: displayBlocking?.reviewStall,

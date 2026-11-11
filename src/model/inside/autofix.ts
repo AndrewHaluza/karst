@@ -1,9 +1,9 @@
 /**
- * Auto-fix on the ship panel (T1004; layout: docs/ui/prototypes/autopilot-inapp-v2.html).
+ * Auto-fix on the ship panel (T1004, reshaped by T1070; layout: docs/ui/prototypes/inside-cleanup.html C2-C4).
  *
- * Pure wording over facts the host read from the autopilot store (@arch:AP-00). There is no
- * new step row: the state lands on the existing Merge row (`row`) and on the existing
- * blocked banner (`banner`). The park reason is the engine's own string; this module only
+ * Pure wording over facts the host read from the autopilot store (@arch:AP-00). Auto-fix is its own
+ * process row (`row`, registry id `autofix`, before Merge) with attempt rows and provable step rows,
+ * and it has a blocked banner (`banner`). The park reason is the engine's own string; this module only
  * reads it. A reason it does not know stays visible as written, never hidden.
  *
  * Autopilot never merges (@arch:GH-04) and never fixes a diverged push (@arch:GH-08), so no
@@ -25,8 +25,6 @@ export interface AutofixTarget {
 export interface AutofixRound extends AutofixTarget {
   readonly used: number;
   readonly max: number;
-  /** Index into the step line of this kind; 0 when the host cannot tell. */
-  readonly step: number;
 }
 
 export interface AutofixFacts {
@@ -43,21 +41,51 @@ export interface AutofixFacts {
   readonly target: AutofixTarget | null;
   /** One line per attempt, oldest first (the banner's collapsed history). */
   readonly history?: readonly string[];
+  /** Every armed round of both kinds, oldest first, with the time of its Autopilot note (the Auto-fix row's attempt rows). */
+  readonly attempts?: readonly AutofixAttempt[];
 }
 
-export type AutofixRowState = 'running' | 'spent' | 'paused' | 'gh-failed' | 'unknown';
+/** One `Autopilot: <kind> round n/m` note: the engine writes it when it arms a round. */
+export interface AutofixAttempt {
+  readonly kind: AutofixKind;
+  readonly n: number;
+  readonly max: number;
+  /** The note's ISO time. */
+  readonly at: string;
+}
 
-/** The Merge row's auto-fix reading. `steps` is empty unless a round runs. */
+export type AutofixRowState = 'running' | 'spent' | 'paused' | 'gh-failed' | 'unknown' | 'history';
+
+/** A finished attempt: `ran` while a later round runs, `fails` on a spent park (every attempt failed). */
+export interface AutofixAttemptRow {
+  readonly label: string;
+  readonly detail: string;
+  readonly result: 'ran' | 'fails';
+  readonly at: string;
+}
+
+/** A step of the running attempt. Only a step the host can prove is listed: the engine writes no step signal (@arch:AP-02). */
+export interface AutofixStepRow {
+  readonly label: string;
+  readonly detail: string;
+  readonly status: 'pass' | 'run';
+  /** The row that holds "Last round" (the running step). */
+  readonly stopAfter?: boolean;
+}
+
+/** The Auto-fix process row's reading. `steps` is empty unless a round runs. */
 export interface AutofixRowView {
   readonly state: AutofixRowState;
   readonly message: string;
-  readonly steps: readonly string[];
-  readonly activeStep: number;
+  readonly attempts: readonly AutofixAttemptRow[];
+  readonly steps: readonly AutofixStepRow[];
   readonly stopAfterRequested: boolean;
 }
 
-export const CONFLICT_STEPS: readonly string[] = ['agent resolving', 'running gates', 'karst delivers to PR', 're-probe'];
-export const CI_STEPS: readonly string[] = ['host fetched log (gh)', 'agent fixing', 'gates', 'push', 'wait for CI'];
+/** The step rows the host can prove (T1070; these replace the old CI_STEPS / CONFLICT_STEPS chains). */
+export const STEP_FETCH_LOG = 'fetch CI log';
+export const STEP_CI_AGENT = 'agent fix';
+export const STEP_CONFLICT_AGENT = 'agent resolving';
 
 const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
 // The engine's own park for a CI round that did not start (a gh fetch failure refunds the attempt), and the prototype's wording.
@@ -73,55 +101,99 @@ const prLabel = (t: AutofixTarget): string => (t.pr === null ? t.repo : `${t.rep
 const onPr = (t: AutofixTarget): string => (prLabel(t) === '' ? '' : ` on ${prLabel(t)}`);
 const capitalize = (s: string): string => (s === '' ? s : `${s[0]!.toUpperCase()}${s.slice(1)}`);
 
+const kindWord = (kind: AutofixKind): string => (kind === 'ci' ? 'CI' : 'conflict');
+const unitWord = (kind: AutofixKind): string => (kind === 'ci' ? 'attempt' : 'round');
+
+/** The step rows the host can prove. A CI round has fetched its log (the host does that before the hand-off) and the agent works. */
+function provableSteps(round: AutofixRound): readonly AutofixStepRow[] {
+  if (round.kind === 'ci') {
+    return [
+      { label: STEP_FETCH_LOG, detail: round.check ? `gh · ${round.check}` : 'gh', status: 'pass' },
+      { label: STEP_CI_AGENT, detail: `${unitWord('ci')} ${round.used}`, status: 'run', stopAfter: true },
+    ];
+  }
+  return [{ label: STEP_CONFLICT_AGENT, detail: `${unitWord('conflicts')} ${round.used}`, status: 'run', stopAfter: true }];
+}
+
+/** The attempt row of a finished round. A spent park says every attempt failed; a running row states no result (the host has none). */
+function attemptRow(a: AutofixAttempt, failed: boolean): AutofixAttemptRow {
+  // The target names the check that fails NOW; an earlier attempt may have met another one, so its row names none.
+  return {
+    label: `${unitWord(a.kind)} ${a.n}`,
+    detail: failed ? `${kindWord(a.kind)} still ${a.kind === 'ci' ? 'fails' : 'there'}` : `${kindWord(a.kind)} ${unitWord(a.kind)} ${a.n} of ${a.max} ran`,
+    result: failed ? 'fails' : 'ran',
+    at: a.at,
+  };
+}
+
+/** The finished attempts. While a round runs, its own note is the newest of its kind and is not finished yet. */
+function finishedAttempts(f: AutofixFacts, failedKind: AutofixKind | null, failedCount = 0): readonly AutofixAttemptRow[] {
+  const all = f.attempts ?? [];
+  const running = f.round?.kind ?? null;
+  const skip = running === null ? -1 : all.map((a) => a.kind).lastIndexOf(running);
+  // A spent park of `n` attempts failed the NEWEST `n` notes of its kind; older ones belong to a budget that was reset or raised.
+  const failedFrom = failedKind === null ? Infinity : all.map((a) => a.kind).reduce<number[]>((acc, k, i) => (k === failedKind ? [...acc, i] : acc), []).slice(-Math.max(failedCount, 0))[0] ?? Infinity;
+  return all.flatMap((a, i) => (i === skip ? [] : [attemptRow(a, a.kind === failedKind && i >= failedFrom)]));
+}
+
 function runningRow(f: AutofixFacts, round: AutofixRound): AutofixRowView {
   const isCi = round.kind === 'ci';
-  const steps = isCi ? CI_STEPS : CONFLICT_STEPS;
   return {
     state: 'running',
     message: isCi
-      ? `Auto-fix: CI ${round.check ?? 'check'} failed${onPr(round)} · attempt ${round.used} of ${round.max}`
-      : `Auto-fix: conflict${onPr(round)} · round ${round.used} of ${round.max}`,
-    steps,
-    activeStep: Math.min(Math.max(round.step, 0), steps.length - 1),
+      ? `CI ${round.check ?? 'check'}${onPr(round)} · attempt ${round.used} of ${round.max}`
+      : `conflict${onPr(round)} · round ${round.used} of ${round.max}`,
+    attempts: finishedAttempts(f, null),
+    steps: provableSteps(round),
     stopAfterRequested: f.stopAfter,
   };
 }
 
 function parkedRow(f: AutofixFacts, reason: string): AutofixRowView {
   const spent = STOPPED.exec(reason);
-  const base = { steps: [], activeStep: 0, stopAfterRequested: false } as const;
+  const base = { steps: [], stopAfterRequested: false } as const;
   if (spent) {
     const [, kind, used, max] = spent;
+    const k = kind as AutofixKind;
+    const subject = k === 'ci' ? `CI ${f.target?.check ?? 'check'}` : 'conflict';
     const where = f.target ? ` on ${prLabel(f.target)}` : '';
-    const message = kind === 'ci'
-      ? `Auto-fix stopped: CI failed ${used} of ${max} attempts${where}`
-      : `Auto-fix stopped: conflicts in ${used} of ${max} rounds${where}`;
-    return { ...base, state: 'spent', message };
+    const message = `stopped: ${subject}${where} · ${used} of ${max} ${k === 'ci' ? 'attempts' : 'rounds'}`;
+    return { ...base, state: 'spent', message, attempts: finishedAttempts(f, k, Number(used)) };
   }
+  const attempts = finishedAttempts(f, null);
   if (GH_FAILED.test(reason)) {
     // The engine park reads as the specified row: "could not read CI (gh: <error>)".
     const engine = ENGINE_GH.exec(reason);
     const inner = engine?.[1] ?? '';
-    const message = engine ? `Auto-fix paused: could not read CI (${/^gh\b/.test(inner) ? inner : `gh: ${inner}`})` : capitalize(reason);
-    return { ...base, state: 'gh-failed', message };
+    const message = engine ? `paused: could not read CI (${/^gh\b/.test(inner) ? inner : `gh: ${inner}`})` : reason.replace(/^auto-fix /, '');
+    return { ...base, state: 'gh-failed', message, attempts };
   }
-  if (reason === SANDBOXED) return { ...base, state: 'paused', message: 'Auto-fix paused: sandbox ticket (autopilot runs host tickets only)' };
-  return { ...base, state: 'paused', message: capitalize(reason) };
+  if (reason === SANDBOXED) return { ...base, state: 'paused', message: 'paused: sandbox ticket (autopilot runs host tickets only)', attempts };
+  return { ...base, state: 'paused', message: reason.replace(/^auto-fix /, ''), attempts };
 }
 
-/** The auto-fix state of the Merge row, or null when there is nothing to say. A running round wins over a stale park. */
+/**
+ * The Auto-fix row's reading, or null when the row is omitted: autopilot must apply to the ticket, and a round, a park, an attempt
+ * on record or an unknown CI status gives it something to say. A running round wins over a stale park.
+ */
 export function autofixRow(f: AutofixFacts): AutofixRowView | null {
+  if (!f.effective) return null;
   if (f.round) return runningRow(f, f.round);
   if (f.reason !== null && f.reason.startsWith('auto-fix')) return parkedRow(f, f.reason);
   // Unknown CI status is never a pass (@arch:GH-03): the row says the engine waits.
-  if (f.effective && f.unknownCi.length > 0) {
+  if (f.unknownCi.length > 0) {
     return {
       state: 'unknown',
       message: `CI status unknown for ${f.unknownCi.join(', ')}. Auto-fix waits; not counted as pass.`,
+      attempts: finishedAttempts(f, null),
       steps: [],
-      activeStep: 0,
       stopAfterRequested: false,
     };
+  }
+  // Earlier attempts alone still give the row: it lists them and states no result it cannot prove.
+  const earlier = finishedAttempts(f, null);
+  if (earlier.length > 0) {
+    return { state: 'history', message: `${earlier.length} earlier ${earlier.length === 1 ? 'attempt' : 'attempts'}`, attempts: earlier, steps: [], stopAfterRequested: false };
   }
   return null;
 }
@@ -129,7 +201,12 @@ export function autofixRow(f: AutofixFacts): AutofixRowView | null {
 /** One button of the banner: `act` is the dashboard `data-act`. */
 export interface AutofixBannerAction {
   readonly act: string;
+  /** The short visible label (icon + 1-2 words, UI-R21). */
   readonly label: string;
+  /** The `Icon` name beside the label. Absent → a text-only button. */
+  readonly icon?: string;
+  /** The full sentence: it is the title and, after the label, the accessible name. */
+  readonly title?: string;
   readonly repo?: string;
   readonly kind?: AutofixKind;
 }
@@ -167,11 +244,15 @@ function spentBanner(f: AutofixFacts, used: string, max: string, kind: AutofixKi
       : `Auto-fix resolved the conflict in ${used} of ${max} rounds and it is still there.`,
     primary: {
       act: 'autopilot-approve-one',
-      label: isCi ? 'Approve 1 more attempt' : 'Approve 1 more round',
+      label: isCi ? '+1 attempt' : '+1 round',
+      icon: 'refresh',
+      title: isCi ? 'Approve 1 more auto-fix attempt' : 'Approve 1 more auto-fix round',
       ...(t ? { repo: t.repo } : {}),
       kind,
     },
-    secondary: isCi ? { act: 'send-ci-failure', label: 'Send CI failure with a note…' } : { act: 'resolve-conflicts', label: 'Resolve conflicts by hand…', ...(t ? { repo: t.repo } : {}) },
+    secondary: isCi
+      ? { act: 'send-ci-failure', label: 'Send back…', icon: 'arrow-left', title: 'Send the CI failure to the agent with a note' }
+      : { act: 'resolve-conflicts', label: 'Resolve by hand…', icon: 'pencil', title: 'Resolve conflicts by hand', ...(t ? { repo: t.repo } : {}) },
     history,
   };
 }
