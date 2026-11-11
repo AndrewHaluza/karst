@@ -54,6 +54,7 @@ import {
   clearNodeRunLaunchFailStreak,
   nodeRunIdsForGraphRun,
   nodeRunsForGraphRun,
+  parseIntegrationPid,
   setNodeRunReason,
 } from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
@@ -208,7 +209,7 @@ function drainingRevisionNumber(db: GraphDb, graphRunId: number): number | undef
 /** The run's node-linked process identity, or null when none exists (a null
  *  pid is equally no evidence — "never declared dead merely because this
  *  window cannot see its terminal"). */
-function processOf(
+export function processOf(
   db: GraphDb,
   node: { process_run_id: number | null },
 ): { pid: number; startedAt: string | null } | null {
@@ -242,7 +243,7 @@ function plannerProcessOf(db: GraphDb, planner: PlannerRunRow): { pid: number; s
  *  supervised transport awaits them: both sync and async fact sources feed the
  *  same pure decision (`runtime/serverIdentity.ts` is the mandated evidence
  *  source). The recorded row carries no cwd, so the start-time rule decides. */
-async function attributeOf(
+export async function attributeOf(
   facts: ProcessFactsSource,
   proc: { pid: number; startedAt: string | null },
 ): Promise<Attribution> {
@@ -276,12 +277,13 @@ async function collectAbandonedDrainNodes(
   const resumable: number[] = [];
   const rows = deps.db
     .prepare(
-      `SELECT id, status, process_run_id, outcome, node_kind, revision_id, node_id
+      `SELECT id, status, owner_nonce, process_run_id, outcome, node_kind, revision_id, node_id
        FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
     )
     .all(run.id) as Array<{
     id: number;
     status: string;
+    owner_nonce: string | null;
     process_run_id: number | null;
     outcome: string | null;
     node_kind: string;
@@ -292,6 +294,10 @@ async function collectAbandonedDrainNodes(
     if (!ACTIVE_NODE_STATUSES.includes(node.status)) continue;
     if (node.outcome === 'replan') continue; // the drain's evidence; excluded from quiescence
     if (deps.sessionFor(node.id)) continue;
+    if (node.status === 'integrating') {
+      const holderPid = parseIntegrationPid(node.owner_nonce);
+      if (holderPid !== null && (await deps.facts.isAlive(holderPid))) continue;
+    }
     const proc = processOf(deps.db, node);
     if (proc !== null) {
       const attribution = await attributeOf(deps.facts, proc);
@@ -531,6 +537,12 @@ async function reconcileCompleting(
   result: ReconcileGraphRunResult,
 ): Promise<number> {
   if (deps.sessionFor(node.id)) return 0;
+  if (status === 'integrating') {
+    const holderPid = parseIntegrationPid(node.owner_nonce);
+    if (holderPid !== null && (await deps.facts.isAlive(holderPid))) {
+      return 0; // another window or host process is actively integrating — leave alone
+    }
+  }
   const proc = processOf(deps.db, node);
   if (proc === null) return 0; // no pid evidence — never judged dead
   const attribution = await attributeOf(deps.facts, proc);
