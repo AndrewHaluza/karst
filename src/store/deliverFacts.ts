@@ -6,7 +6,7 @@ import type { DeliverFacts } from '../model/inside/deliver.js';
 
 /**
  * The deliver facts of one ticket, read from the deliver tables (T1018). The same read serves the ship panel and
- * `karst context` (a separate process), so both word one truth. `roundActive` is true while a run is in progress or
+ * `karst context` (a separate process), so both word one truth. `roundActive` is true while an auto run is in progress (an after-take-over re-run checks a head that is already pushed) or
  * while an Autopilot conflict round is armed (the stored `conflict_round_at`; the in-memory round is not visible to the CLI).
  * The current head is the newest head the merge probe saw, so a failure of an older run reads as an older head.
  */
@@ -33,5 +33,5 @@ export function deliverFactsFor(store: Store, ticketId: number): DeliverFacts {
       skipped: skippedGates(run.gates, results.map((r) => r.gateName)),
     };
   }
-  return { running, failures, takenOver, roundActive: running !== null || getConflictRoundAt(store, ticketId) !== null, headSha: currentHead(store, ticketId) ?? run?.headSha ?? null };
+  return { running, failures, takenOver, roundActive: (running !== null && running.afterTakeOver !== true) || getConflictRoundAt(store, ticketId) !== null, headSha: currentHead(store, ticketId) ?? run?.headSha ?? null };
 }

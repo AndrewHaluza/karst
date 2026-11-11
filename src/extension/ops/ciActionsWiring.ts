@@ -14,7 +14,7 @@ import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deli
 import { deliverTargets } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
 import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
-import { currentDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
+import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
 import { formatId } from '../../model/entityId.js';
 import { nowIso } from '../../model/time.js';
@@ -224,11 +224,12 @@ async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: reado
       runGates: async (gates, signal): Promise<RerunResult> => {
         const targets = deliverTargets(i.store, i.ticketId);
         if (!targets.available) return { kind: 'stopped', headSha: null };
+        let runId: number | null = null;
         const failure = await runShipGates(targets.prs, {
           ...seam.deps, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId },
-          headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange, only: gates, kind: 'after-take-over',
+          headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange, only: gates, kind: 'after-take-over', onRunOpened: (id) => { runId = id; },
         });
-        const run = currentDeliverRun(i.store, i.ticketId);
+        const run = runId === null ? null : getDeliverRun(i.store, runId);
         const headSha = run?.headSha ?? null;
         if (failure === null) return { kind: 'passed', headSha };
         const failed = listDeliverResults(i.store, i.ticketId).filter((r) => r.runId === run?.id && r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName);

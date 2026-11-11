@@ -368,6 +368,20 @@ describe('the re-run after a take-over: edges (D540)', () => {
     expect(base.logError).not.toHaveBeenCalled();
   });
 
+  it('words the note from the run it opened, not from a newer run of the ticket', async () => {
+    const { i, auto, settled } = await takeOver({
+      exit: () => {
+        openDeliverRun(store, { ticketId: id, headSha: 'f'.repeat(40), gates: ['unit'], pid: 1, now: 'T9' });
+        return 0;
+      },
+    });
+    const done = new Promise<void>((r) => { settled.mockImplementation(r); });
+    await deliverToPrAction(i);
+    await auto;
+    await done;
+    expect(rerunTitles()).toEqual([`Autopilot: the gates skipped by the manual Deliver ran on ${SHA.slice(0, 9)}: passed`]);
+  });
+
   it('a throwing ship-gates seam is logged, not thrown', async () => {
     const { i, auto } = await takeOver({ seam: () => { throw new Error('no console'); } });
     await deliverToPrAction(i);

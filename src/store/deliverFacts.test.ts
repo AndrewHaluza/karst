@@ -53,4 +53,13 @@ describe('deliverFactsFor', () => {
     openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit'], pid: 1, now: 'T' });
     expect(deliverFactsFor(store, id).running).toEqual({ n: 1, m: 1, gate: 'unit' });
   });
+
+  it('an after-take-over run does not arm the round: the head it checks is already on the PR', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['visual'], pid: 1, now: 'T', kind: 'after-take-over' });
+    expect(deliverFactsFor(store, id).roundActive).toBe(false);
+  });
+  it('an auto run arms the round', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['visual'], pid: 1, now: 'T' });
+    expect(deliverFactsFor(store, id).roundActive).toBe(true);
+  });
 });

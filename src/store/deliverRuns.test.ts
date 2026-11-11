@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import {
-  currentDeliverRun, dismissDeliverFailures, finishDeliverRun, listDeliverFailures, listDeliverResults,
+  currentDeliverRun, getDeliverRun, dismissDeliverFailures, finishDeliverRun, listDeliverFailures, listDeliverResults,
   openDeliverRun, recordDeliverGate, setDeliverProgress, stopStaleDeliverRuns, takeOverDeliverRun,
 } from './deliverRuns.js';
 
@@ -113,5 +113,12 @@ describe('deliver runs', () => {
     recordDeliverGate(store, id, { gateName: 'visual', repo: 'r', exitCode: 1, summary: 'x', startedAt: null, endedAt: null });
     finishDeliverRun(store, id, 'failed', 'T2');
     expect(listDeliverFailures(store, ticketId)).toMatchObject([{ gateName: 'visual', headSha: 'a'.repeat(40) }]);
+  });
+
+  it('reads one run by id, not the newest run of the ticket', () => {
+    const first = openDeliverRun(store, { ticketId, headSha: 'a'.repeat(40), gates: ['lint'], pid: 7, now: 'T1', kind: 'after-take-over' });
+    openDeliverRun(store, { ticketId, headSha: 'b'.repeat(40), gates: ['unit'], pid: 7, now: 'T2' });
+    expect(getDeliverRun(store, first)).toMatchObject({ id: first, kind: 'after-take-over', headSha: 'a'.repeat(40), gates: ['lint'], state: 'stopped' });
+    expect(getDeliverRun(store, 9999)).toBeNull();
   });
 });

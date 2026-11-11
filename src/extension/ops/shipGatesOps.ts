@@ -35,6 +35,8 @@ export interface ShipGatesDeps {
   readonly headSha?: (cwd: string) => Promise<string | null>;
   /** Run only the gates with these names (the re-run of the gates a manual Deliver skipped); absent → every gate. */
   readonly only?: readonly string[];
+  /** Called with the id of the run this call opened. */
+  readonly onRunOpened?: (runId: number) => void;
   /** What started the run; recorded on the run row. Default `auto`. */
   readonly kind?: DeliverRunKind;
   /** Aborts the running gate process (a manual Deliver takes over). */
@@ -81,6 +83,7 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
     planned.push({ pr, probe, gates: cut.kept.filter(wanted), skipped: cut.skipped.filter(wanted) });
   }
   const runId = await openRun(planned, d);
+  if (runId !== null) d.onRunOpened?.(runId);
   let failure: string | null = null;
   try {
     for (const p of planned) {

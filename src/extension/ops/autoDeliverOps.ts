@@ -159,6 +159,7 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
   if (!targets.available) return; // not at ship, no open PR, or a ship run is in flight: the manual button decides
   const entry: InFlight = { controller: new AbortController(), phase: 'gates', takenOver: false };
   inFlight.set(d.ticketId, entry);
+  supersedeRerun(d.ticketId); // the auto-deliver makes a newer head: a re-run on the older head stops
   try {
     const pr = targets.prs.find((p) => p.repo === round.repo) ?? targets.prs[0]!;
     d.status(`Delivering resolved merge to PR #${pr.number ?? '?'}…`);
@@ -241,16 +242,20 @@ interface RerunFlight {
 const reruns = new Map<number, RerunFlight>();
 const pushes = new Map<number, number>();
 
+/** A newer head is coming (a manual push or an auto-deliver): abort a re-run on the older head and record it as superseded. */
+function supersedeRerun(ticketId: number): void {
+  const flight = reruns.get(ticketId);
+  if (flight === undefined) return;
+  flight.superseded = true;
+  flight.controller.abort();
+}
+
 /**
  * A manual push of this ticket begins: a re-run of the skipped gates on an older head is aborted, and it is
  * recorded as superseded, not failed (D540). The returned function ends the push; no re-run starts before it.
  */
 export function beginManualPush(ticketId: number): () => void {
-  const flight = reruns.get(ticketId);
-  if (flight !== undefined) {
-    flight.superseded = true;
-    flight.controller.abort();
-  }
+  supersedeRerun(ticketId);
   pushes.set(ticketId, (pushes.get(ticketId) ?? 0) + 1);
   let ended = false;
   return () => {
@@ -283,6 +288,8 @@ export async function rerunSkippedGates(d: RerunDeps): Promise<RerunOutcome> {
     return 'refused';
   };
   if (d.agentActive()) return refuse('an agent turn is active');
+  const auto = inFlight.get(d.ticketId);
+  if (auto !== undefined && !auto.takenOver) return refuse('an auto-deliver is running');
   if (pushes.has(d.ticketId)) return refuse('a push is in flight');
   if (reruns.has(d.ticketId)) return refuse('a re-run is already in progress');
   const flight: RerunFlight = { controller: new AbortController(), superseded: false };

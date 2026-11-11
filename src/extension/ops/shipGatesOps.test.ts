@@ -253,4 +253,15 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     expect(currentDeliverRun(store, ticketId)).toMatchObject({ kind: 'after-take-over', state: 'passed', gates: ['lint', 'types'] });
     expect(listDeliverResults(store, ticketId).map((x) => [x.gateName, x.headSha])).toEqual([['lint', 'c'.repeat(40)], ['types', 'c'.repeat(40)]]);
   });
+
+  it('reports the id of the run it opened, and none when no gate is planned', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-2', title: 't' }).id;
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const runProcess: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 0, output: '' });
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const opened: number[] = [];
+    await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], { uat, runProcess, evidence: { store, ticketId }, onRunOpened: (id) => opened.push(id) });
+    expect(opened).toEqual([currentDeliverRun(store, ticketId)!.id]);
+  });
 });

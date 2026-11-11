@@ -170,6 +170,12 @@ export function currentDeliverRun(store: Store, ticketId: number): DeliverRun | 
   return row ? rowToRun(row) : null;
 }
 
+/** One run by id, so a caller reads the run it opened, not the newest run of the ticket. */
+export function getDeliverRun(store: Store, runId: number): DeliverRun | null {
+  const row = store.db.prepare(`${RUN_SELECT} WHERE r.id = ?`).get(runId) as RunRow | undefined;
+  return row ? rowToRun(row) : null;
+}
+
 export function listDeliverResults(store: Store, ticketId: number): DeliverGateResult[] {
   return store.db
     .prepare('SELECT * FROM deliver_gate_results WHERE ticket_id = ? ORDER BY id')

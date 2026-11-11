@@ -468,4 +468,30 @@ describe('rerunSkippedGates (after a manual Deliver took over)', () => {
     beginManualPush(5)();
     expect(await rerunSkippedGates(deps)).toBe('passed');
   });
+
+  it('an auto-deliver that starts aborts a running re-run and records it superseded', async () => {
+    let signalOf!: AbortSignal;
+    let release!: (r: RerunResult) => void;
+    const re = rerigRerun({ ticketId: 1, key: 'T1', runGates: (_g, s) => new Promise<RerunResult>((r) => { signalOf = s; release = r; }) });
+    const running = rerunSkippedGates(re.deps);
+    let seen = false;
+    const { deps } = rig({ runGates: async () => { seen = signalOf.aborted; return null; } });
+    await autoDeliverAfterConflict(deps);
+    expect(seen).toBe(true);
+    release({ kind: 'stopped', headSha: 'abcdef1234567890' });
+    expect(await running).toBe('superseded');
+  });
+
+  it('refuses a re-run while an auto-deliver runs its gates, and logs why', async () => {
+    let hold!: () => void;
+    const gates = new Promise<null>((r) => { hold = () => r(null); });
+    const { deps } = rig({ runGates: () => gates });
+    const auto = autoDeliverAfterConflict(deps);
+    const re = rerigRerun({ ticketId: 1, key: 'T1' });
+    expect(await rerunSkippedGates(re.deps)).toBe('refused');
+    expect(re.log).toEqual(['[ship] ticket T1 skipped-gate re-run not started: an auto-deliver is running']);
+    expect(re.calls).toHaveLength(0);
+    hold();
+    await auto;
+  });
 });
