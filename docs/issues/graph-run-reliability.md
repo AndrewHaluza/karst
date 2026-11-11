@@ -383,14 +383,13 @@ between them they cover the whole path from "the user clicked Start" to "the
 node parked".
 END_DOC_BLOCK: [@issue:T3-02]
 
-## [@issue:T3-03] Still open
+## [@issue:T3-03] Still open (resolved)
 
-- **F1** — a compile re-prompt replays a frozen prompt snapshot, so a prompt
-  defect cannot be corrected within a planner run. Either the repair
-  re-snapshots (breaking Decision 14's immutability for the repair case only,
-  which is arguably what the repair IS), or an exhausted repair must say in its
-  block reason that the prompt is the suspect.
-- **F2** — a bootstrap submission into a non-`planning` run is dropped and its
-  planner row is left `submitted` forever. It should move `submitted → stale`
-  with a reason, which is the treatment a late replan submission already gets.
+- **F1 (resolved in T1078)** — compile re-prompts now re-snapshot live prompt
+  bytes into CAS, update the prompt hash, and append a note flagging the planner
+  prompt/skill as suspect when MAX_COMPILE_ATTEMPTS exhausts with identical
+  diagnostic codes.
+- **F2 (resolved in T1078)** — late bootstrap submissions into non-planning runs
+  and late replan submissions into non-draining runs transition to `stale` with
+  ended_at and reason recorded.
 END_DOC_BLOCK: [@issue:T3-03]

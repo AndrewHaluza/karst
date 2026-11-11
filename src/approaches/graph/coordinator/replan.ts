@@ -538,7 +538,9 @@ export function submitReplanDocument(
             ? 'ready'
             : planner.status === 'launching'
               ? 'launching'
-              : null;
+              : planner.status === 'submitted'
+                ? 'submitted'
+                : null;
       if (from) {
         transitionPlannerRun(db, input.plannerRunId, from, 'stale');
         setPlannerRunEndedAt(db, input.plannerRunId, deps.now());

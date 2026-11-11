@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../store/db.js';
@@ -32,6 +32,7 @@ import {
   resolveGraphNodeProfile,
   parkLaunchFailure,
   parkNodeLaunchExit,
+  nodePromptWithReporter,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -539,6 +540,64 @@ describe('acceptSubmittedPlan', () => {
     expect(planner.compile_attempt).toBe(3);
   });
 
+  it('flags planner prompt/skill suspect when compile attempts are exhausted with identical diagnostic codes', () => {
+    const h = harness();
+    const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+
+    // Attempt 1: rejected with repair-requested, writes attempt 1 diagnostics
+    const res1 = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(res1.kind).toBe('repair-requested');
+
+    // Attempt 2: re-submit the same invalid doc
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
+    const res2 = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(res2.kind).toBe('repair-requested');
+
+    // Attempt 3: re-submit the same invalid doc -> exhausted (3/3)
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
+    const res3 = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(res3.kind).toBe('rejected');
+
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/suspect/i);
+    expect(run.blocked_reason).toContain('planner prompt/skill suspect');
+  });
+
+  it('does not flag planner prompt/skill suspect when diagnostic codes differ across attempts', () => {
+    const h = harness();
+    const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+
+    // Attempt 1: rejected with repair-requested, writes attempt 1 diagnostics
+    acceptSubmittedPlan(h.deps, graphRunId);
+
+    // Overwrite attempt 1 with a different diagnostic code to simulate differing errors
+    const diagDir = join(h.root, String(graphRunId), 'diagnostics');
+    writeFileSync(
+      join(diagDir, `planner-${plannerRunId}-attempt-1.json`),
+      JSON.stringify(['different-code: something else']),
+    );
+
+    // Attempt 2
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
+    acceptSubmittedPlan(h.deps, graphRunId);
+
+    // Attempt 3
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
+    const res3 = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(res3.kind).toBe('rejected');
+
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).not.toMatch(/suspect/i);
+  });
+
   it('G2: a first rejection re-prompts the SAME planner run instead of blocking', () => {
     const h = harness();
     const graphRunId = submittedPlan(h, 'fp2', INVALID_DOC);
@@ -650,6 +709,35 @@ describe('acceptSubmittedPlan', () => {
       .prepare('UPDATE approach_graph_runs SET status = \'running\' WHERE id = ?')
       .run(graphRunId);
     expect(acceptSubmittedPlan(h.deps, graphRunId).kind).toBe('no-op');
+  });
+
+  it('marks a late submitted bootstrap planner run stale when run is not in planning', () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare('UPDATE approach_graph_runs SET status = \'running\' WHERE id = ?')
+      .run(graphRunId);
+    const plannerRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id)
+           VALUES (?, 1, 'bootstrap', 'submitted', 'snap-1')`,
+        )
+        .run(graphRunId).lastInsertRowid,
+    );
+    const result = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(result.kind).toBe('no-op');
+    const planner = h.db
+      .prepare('SELECT status, reason, ended_at FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; reason: string | null; ended_at: string | null };
+    expect(planner.status).toBe('stale');
+    expect(planner.reason).toBe('submitted into running run');
+    expect(planner.ended_at).not.toBeNull();
   });
 
   it('repairs a planning run that already holds an active revision instead of inserting a second one', () => {
@@ -1848,6 +1936,39 @@ describe('launchReplanPlanner', () => {
     expect(h.starts).toHaveLength(1);
   });
 
+  it('unlinks stale graph.json at the artifact root before launching', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 2, 'replan', 'ready')`,
+      )
+      .run(graphRunId);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(artRoot, { recursive: true });
+    const stalePlan = join(artRoot, 'graph.json');
+    writeFileSync(stalePlan, '{"stale": true}');
+
+    const result = await launchReplanPlanner(h.deps, {
+      graphRunId,
+      plannerRunId,
+      generation: '',
+      capability: '',
+      prompt: '# replan',
+      cwd: join(h.root, 'wt'),
+      repo: 'api',
+    });
+    expect(result.kind).toBe('launched');
+    expect(existsSync(stalePlan)).toBe(false);
+  });
+
   it('leaves a replan planner whose spawn threw at launching with its nonce', async () => {
     const h = harness();
     const graphRunId = createGraphRun(h.db, {
@@ -2467,5 +2588,18 @@ describe('parkNodeLaunchExit', () => {
     expect(nodeOf(h, nodeRunId).status).toBe('blocked');
     expect(nodeOf(h, nodeRunId).failure_category).toBe('failed-to-launch');
     expect(nodeOf(h, nodeRunId).launch_fail_streak).toBe(0);
+  });
+});
+
+describe('nodePromptWithReporter', () => {
+  it('shows explicit CLI invocation syntax for complete, block, and replan', () => {
+    const prompt = nodePromptWithReporter({
+      promptBytesOf: () => new TextEncoder().encode('# Node Task'),
+      cliNodeCompletionCommand: () => 'node "/path/to/cli.js" node complete',
+    });
+    expect(prompt).toContain('# Node Task');
+    expect(prompt).toContain(
+      'Report your outcome with:\n- `node "/path/to/cli.js" node complete`\n- `node "/path/to/cli.js" node block --reason "<why>"`\n- `node "/path/to/cli.js" node replan --reason "<why>"`',
+    );
   });
 });

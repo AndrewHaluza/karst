@@ -21,7 +21,7 @@ import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js'
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, rmSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
@@ -262,6 +262,7 @@ import {
   plannerRunStatus,
   plannerRunTicketId,
   setPlannerRunProcessRunId,
+  setPlannerRunPromptHashArtifact,
 } from './store/graph/plannerRuns.js';
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import {
@@ -5017,6 +5018,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  const unlinkStaleGraphJson = (artifactRoot: string | undefined): void => {
+    if (!artifactRoot) return;
+    try {
+      rmSync(join(artifactRoot, 'graph.json'), { force: true });
+    } catch {}
+  };
+
   /** Terminal-close fallback for a planner that did not complete the explicit
    *  CLI submission. The immutable launch identity prevents a late close from
    *  submitting on behalf of a newer planner. */
@@ -5112,20 +5120,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ): Promise<void> => {
     const gs = graphCoordinatorStore;
     if (!gs) return;
-    const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
+    const deps = graphDriverDeps();
+    const base = deps.promptBytesOf('karst-graph-planner');
+    if (base !== undefined) {
+      const promptHash = createHash('sha256').update(base).digest('hex');
+      const snapshotPath = `prompts/${promptHash}`;
+      deps.writeSnapshot(graphRunId, snapshotPath, base);
+      setPlannerRunPromptHashArtifact(gs.db, plannerRunId, promptHash, snapshotPath);
+    }
     const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
       // PROMPT-08 bounds the interactive-session launch seed only; this
       // graph-planner retry prompt is out of that ticket's scope.
       await ticketContextWithDrift(graphRunTicketId(graphRunId)),
+      plannerVocabularyFor(
+        () => graphCompileContext(graphRunId),
+        graphArtifactRoot(graphRunId),
+        (m) => logger.debug(m),
+      ),
       diagnostics ?? 'The compiler rejected the previous `graph.json`.',
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
       PLANNER_SUBMIT_INSTRUCTION,
-    ].join('\n\n');
+    ]
+      .filter((part) => part !== '')
+      .join('\n\n');
+    unlinkStaleGraphJson(graphArtifactRoot(graphRunId));
     const worktree = resolveGraphLaunchWorktree(graphRunId, graphRunTicketId(graphRunId));
     if (!worktree) return;
-    const result = await launchReplanPlanner(graphDriverDeps(), {
+    const result = await launchReplanPlanner(deps, {
       graphRunId,
       plannerRunId,
       generation: '',
@@ -5192,6 +5215,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .join('\n\n');
     const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
     if (!worktree) return;
+    unlinkStaleGraphJson(graphArtifactRoot(launch.graphRunId));
     const result = await launchReplanPlanner(graphDriverDeps(), {
       graphRunId: launch.graphRunId,
       plannerRunId: launch.plannerRunId,
@@ -5248,6 +5272,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .join('\n\n');
     const worktree = resolveGraphLaunchWorktree(launch.graphRunId, graphRunTicketId(launch.graphRunId));
     if (!worktree) return;
+    unlinkStaleGraphJson(graphArtifactRoot(launch.graphRunId));
     const result = await launchReplanPlanner(graphDriverDeps(), {
       graphRunId: launch.graphRunId,
       plannerRunId: launch.plannerRunId,

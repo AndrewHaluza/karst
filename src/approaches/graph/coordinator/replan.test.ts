@@ -665,6 +665,25 @@ describe('submitReplanDocument — validate, supersede, resume (steps 8–10)', 
     expect(revisionCount(ctx)).toBe(revisionsBefore);
   });
 
+  it('a late submission from a submitted replan planner is marked stale when not draining', () => {
+    const { ctx, plannerRunId } = drainingWithPlanner();
+    ctx.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(plannerRunId);
+    setRunStatus(ctx, 'running');
+    setRevisionStatus(ctx, ctx.revisionId, 'superseded');
+
+    const result = submitReplanDocument(submitDeps(ctx), {
+      plannerRunId,
+      document: draftN1(),
+      rationale: 'late submitted',
+    });
+    expect(result).toEqual({ ok: false, reason: 'not-draining' });
+    const planner = ctx.db
+      .prepare('SELECT status, ended_at FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string; ended_at: string | null };
+    expect(planner.status).toBe('stale');
+    expect(planner.ended_at).not.toBeNull();
+  });
+
   it('a conflicting resource claim defers instead of failing compile', () => {
     const { ctx, plannerRunId } = drainingWithPlanner();
     // Revision N holds a lease on the physical domain N+1's node claims.

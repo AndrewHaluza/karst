@@ -114,12 +114,13 @@ export interface ParsedNodeCommand {
  * bounded `--reason` for `block`/`replan`; trailing argv is rejected.
  */
 export function parseNodeArgs(argv: string[]): ParsedNodeCommand {
-  const [cmd, verb, ...rest] = argv;
+  const [cmd, rawVerb, ...rest] = argv;
   if (cmd !== 'node') {
     throw new Error(`expected 'node' command, got '${cmd ?? ''}'`);
   }
+  const verb = rawVerb === 'blocked' ? 'block' : rawVerb;
   if (verb !== 'complete' && verb !== 'block' && verb !== 'replan') {
-    throw new Error(`unknown node verb '${verb ?? ''}' (complete|block|replan)`);
+    throw new Error(`unknown node verb '${rawVerb ?? ''}' (complete|block|replan)`);
   }
   let reason: string | undefined;
   if (rest.length > 0) {

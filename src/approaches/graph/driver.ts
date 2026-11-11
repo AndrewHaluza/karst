@@ -32,6 +32,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { rmSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { canonicalPath } from '../../runtime/pathScope.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
@@ -353,6 +354,13 @@ function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number): boolea
  * session in the ticket's canonical worktree. Never falls through to a plain
  * session: a graph-approach launch either starts the planner or names why not.
  */
+function unlinkStaleGraphJson(artifactRoot: string | undefined): void {
+  if (!artifactRoot) return;
+  try {
+    rmSync(join(artifactRoot, 'graph.json'), { force: true });
+  } catch {}
+}
+
 export async function bootstrapAndLaunchPlanner(
   deps: GraphDriverDeps,
   input: BootstrapPlannerInput,
@@ -415,6 +423,7 @@ export async function bootstrapAndLaunchPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   const artifactRoot = deps.artifactRootOf(graphRunId);
+  unlinkStaleGraphJson(artifactRoot);
   const env = deps.graphEnvOf({
     launchId: plannerRunId,
     graphRunId,
@@ -557,6 +566,7 @@ export async function relaunchBootstrapPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   const artifactRoot = deps.artifactRootOf(input.graphRunId);
+  unlinkStaleGraphJson(artifactRoot);
   const env = deps.graphEnvOf({
     launchId: plannerRunId,
     graphRunId: input.graphRunId,
@@ -1058,10 +1068,14 @@ function inputSnapshotsOf(
 
 /** The karst-graph-node base prompt with the reporting instruction appended
  *  (the agent must report its outcome via the capability-authenticated CLI). */
-function nodePromptWithReporter(deps: GraphDriverDeps): string {
+export function nodePromptWithReporter(
+  deps: Pick<GraphDriverDeps, 'promptBytesOf' | 'cliNodeCompletionCommand'>,
+): string {
   const bytes = deps.promptBytesOf('karst-graph-node');
   const base = bytes === undefined ? '' : new TextDecoder().decode(bytes);
-  return `${base}\n\nReport your outcome with:\n\`${deps.cliNodeCompletionCommand()}\``;
+  const completeCmd = deps.cliNodeCompletionCommand();
+  const baseCmd = completeCmd.replace(/\s+complete$/, '');
+  return `${base}\n\nReport your outcome with:\n- \`${baseCmd} complete\`\n- \`${baseCmd} block --reason "<why>"\`\n- \`${baseCmd} replan --reason "<why>"\``;
 }
 
 /** Complete a deterministic node (gate/command): one transaction transitions
@@ -1239,6 +1253,7 @@ export async function launchReplanPlanner(
     ownerNonce: plannerOwnerNonce,
   });
   if (!claimed) return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
+  unlinkStaleGraphJson(deps.artifactRootOf(launch.graphRunId));
   const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
   let session: SupervisedAgentSession;
   try {
