@@ -11,6 +11,7 @@ import {
   autofixBanner,
   autofixRow,
   type AutofixBannerView,
+  type AutofixAttempt,
   type AutofixFacts,
   type AutofixKind,
   type AutofixRowView,
@@ -29,7 +30,6 @@ import type { Store } from '../../store/db.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { getTicket } from '../../store/tickets.js';
 
-export const AUTOFIX_LOG_LIMIT = 5;
 const NOTE_PREFIX = 'Autopilot:';
 /** The note "Stop after this round" posts: the round still runs, so it must not hide the round note. */
 const STOP_AFTER_NOTE = 'Autopilot: stopped after this round';
@@ -39,7 +39,6 @@ export interface AutopilotSlice {
   readonly projectDefault: boolean;
   readonly effective: boolean;
   readonly banner: AutofixBannerView | null;
-  readonly log: readonly string[];
   /** An auto-fix round (conflicts or CI) is live: the runtime strip adds "· auto-fix" to the agent state. */
   readonly roundActive: boolean;
   /** An auto-fix round is running now; the PR panel's Merge all is disabled meanwhile. Absent reads as false. */
@@ -49,6 +48,8 @@ export interface AutopilotSlice {
 export interface AutofixReading {
   readonly slice: AutopilotSlice;
   readonly row: AutofixRowView | null;
+  /** An open PR still waits on CI (a failing, pending or unknown rollup): the Merge row says "waits on CI". */
+  readonly ciOpen: boolean;
   /** The same reading, shaped for the PR panel's merge-readiness reasons (`model/prMergeReadiness.ts`). */
   readonly input: AutofixInput;
 }
@@ -78,19 +79,23 @@ function maxFor(kind: AutofixKind, config: AutopilotConfig | undefined): number 
     : (config?.conflicts.maxRounds ?? DEFAULT_AUTOPILOT_MAX_ROUNDS);
 }
 
-function readLog(store: Store, ticketId: number): string[] {
-  const rows = store.db
-    .prepare('SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE ? ORDER BY id DESC LIMIT ?')
-    .all(ticketId, `${NOTE_PREFIX}%`, AUTOFIX_LOG_LIMIT) as Array<{ title: string }>;
-  return rows.map((r) => r.title);
-}
-
 /** One line per round the engine armed for the kind, oldest first: the banner's collapsed "Attempt history". */
 function readHistory(store: Store, ticketId: number, kind: AutofixKind): string[] {
   const rows = store.db
     .prepare('SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE ? ORDER BY id ASC')
     .all(ticketId, `${NOTE_PREFIX} ${kind} round %/%`) as Array<{ title: string }>;
   return rows.map((r) => r.title.slice(NOTE_PREFIX.length).trim()).filter((t) => /^(conflicts|ci) round \d+\/\d+$/.test(t));
+}
+
+/** Every `Autopilot: <kind> round n/m` note of the ticket, oldest first, with its time: the Auto-fix row's attempt rows. */
+function readAttempts(store: Store, ticketId: number): AutofixAttempt[] {
+  const rows = store.db
+    .prepare('SELECT title, created_at AS at FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE ? ORDER BY id ASC')
+    .all(ticketId, `${NOTE_PREFIX} % round %/%`) as Array<{ title: string; at: string }>;
+  return rows.flatMap((r) => {
+    const m = /^Autopilot: (conflicts|ci) round (\d+)\/(\d+)$/.exec(r.title);
+    return m ? [{ kind: m[1] as AutofixKind, n: Number(m[2]), max: Number(m[3]), at: r.at }] : [];
+  });
 }
 
 /** Only an https log link is kept: the check url is untrusted upstream text. */
@@ -148,7 +153,7 @@ function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | 
   const max = maxFor('conflicts', config) + Math.max(...budgets.map((b) => b.budget.extra));
   const only = budgets.length === 1 ? budgets[0]! : null;
   const pr = only ? (store.db.prepare('SELECT number FROM prs WHERE ticket_id = ? AND repo = ?').get(ticketId, only.repo) as { number: number | null } | undefined) : undefined;
-  return { kind: 'conflicts', repo: only?.repo ?? '', pr: pr?.number ?? null, check: null, used, max, step: 0 };
+  return { kind: 'conflicts', repo: only?.repo ?? '', pr: pr?.number ?? null, check: null, used, max };
 }
 
 /**
@@ -172,11 +177,18 @@ function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig 
   }
   if (hits.length === 0) return null;
   const only = hits.length === 1 ? hits[0]! : null;
-  // The host fetched the log before the hand-off, so the agent is the active step.
   return {
     kind: 'ci', repo: only?.repo ?? '', pr: only?.number ?? null, check: only?.check ?? null,
-    used: Math.max(...hits.map((h) => h.attempts)), max: maxFor('ci', config) + Math.max(...hits.map((h) => h.extra)), step: 1,
+    used: Math.max(...hits.map((h) => h.attempts)), max: maxFor('ci', config) + Math.max(...hits.map((h) => h.extra)),
   };
+}
+
+/** An open PR whose checks failed, are pending or are unknown: CI is still a blocker of the Merge row. */
+function ciOpenOf(store: Store, ticketId: number): boolean {
+  const rows = store.db
+    .prepare("SELECT repo, number, checks FROM prs WHERE ticket_id = ? AND status = 'open' AND url IS NOT NULL AND dismissed_at IS NULL")
+    .all(ticketId) as PrRow[];
+  return rows.some((r) => { const c = parseChecks(r.checks); return c === null || c.state === 'failing' || c.state === 'unknown' || c.pending > 0; });
 }
 
 export function readAutofix(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixReading {
@@ -197,11 +209,13 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
     stopAfter: ticket.stopAfter,
     unknownCi: unknownCiLabels(store, ticketId),
     target,
+    attempts: readAttempts(store, ticketId),
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
   };
   return {
-    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), log: readLog(store, ticketId), roundActive: facts.round !== null, roundRunning: facts.round !== null },
+    slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), roundActive: facts.round !== null, roundRunning: facts.round !== null },
     row: autofixRow(facts),
+    ciOpen: ciOpenOf(store, ticketId),
     input: autofixInputOf(facts),
   };
 }

@@ -2,7 +2,6 @@ import type { StageKey } from '../types.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { AttemptKey, GateAttemptView } from './rounds.js';
 import type { InsideStallView } from './stall.js';
-import type { AutofixRowView } from './autofix.js';
 
 /**
  * How an operation row reads.
@@ -426,6 +425,11 @@ export interface EvidenceRow {
    */
   connector?: 'switch' | 'resume';
   /**
+   * The Auto-fix step row that holds "Last round" in its action cell (T1070). The host sets it on the running step only;
+   * `requested` is true once the stop was asked, and the webview then shows the button as done.
+   */
+  autofixStop?: { requested: boolean };
+  /**
    * The repository this row's evidence was recorded against — `gate_runs.repo`,
    * verbatim. Absent for a row that names no repository (a pre-v21 gate row,
    * the `changes` evidence row, a non-gate body): the renderer drops the column
@@ -798,6 +802,8 @@ export interface InsideProcessView {
   execution?: AgentExecutionView;
   /** What the settings said WOULD run, for a process that has not run. */
   configuredExecution?: AgentExecutionView;
+  /** An agent does the work of this process but karst records no identity for it (the Auto-fix row): only the AI mark shows. */
+  aiMark?: true;
   /**
    * The §11 absence copy for a process that RAN without a recorded identity
    * ("No historical execution identity recorded") — shown in the identity
@@ -825,12 +831,6 @@ export interface InsideProcessView {
    * a control with nothing to choose.
    */
   repoFilter?: { repos: readonly string[]; selected: string | null };
-  /**
-   * Auto-fix state on the Merge row (T1004): the message replaces `detail`, and a running round
-   * adds the step line and the Stop actions. Host-derived (`model/inside/autofix.ts`); the webview
-   * renders it verbatim. Absent → the row is a plain Merge row.
-   */
-  autofix?: AutofixRowView;
 }
 
 /**

@@ -58,6 +58,7 @@ function QueueRow({ row }: { readonly row: QueueRowView }) {
       <button
         type="button"
         className="k-iconbtn q-menu"
+        data-menu={owner}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         aria-label={`More actions for ${row.idLabel}`}

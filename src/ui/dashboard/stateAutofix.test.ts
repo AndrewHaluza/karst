@@ -27,13 +27,22 @@ describe('readAutofix', () => {
   it('reports the project default and an inherit override', () => {
     const { store, id } = setup();
     const r = readAutofix(store, id, CONFIG);
-    expect(r.slice).toMatchObject({ override: 'inherit', projectDefault: true, effective: true, banner: null, log: [] });
+    expect(r.slice).toMatchObject({ override: 'inherit', projectDefault: true, effective: true, banner: null });
     expect(r.row).toBeNull();
   });
 
   it('treats an absent manifest block as off', () => {
     const { store, id } = setup();
     expect(readAutofix(store, id, undefined).slice).toMatchObject({ projectDefault: false, effective: false });
+  });
+
+  it('keeps a live round running (Merge all stays off) when the ticket override turns auto-fix off', () => {
+    const { store, id } = setup();
+    takeAutopilotAttempt(store, id, 'web', 'conflicts', 'b', 2);
+    markConflictRound(store, id, Date.now());
+    expect(readAutofix(store, id, CONFIG).slice.roundRunning).toBe(true);
+    setAutopilotOverride(store, id, 'off');
+    expect(readAutofix(store, id, CONFIG).slice).toMatchObject({ roundRunning: true, effective: false });
   });
 
   it('follows the ticket override over the project default', () => {
@@ -46,7 +55,7 @@ describe('readAutofix', () => {
     const { store, id } = setup();
     setAutopilotPaused(store, id, 'auto-fix paused: sandbox is read-only');
     const r = readAutofix(store, id, CONFIG);
-    expect(r.row).toMatchObject({ state: 'paused', message: 'Auto-fix paused: sandbox is read-only' });
+    expect(r.row).toMatchObject({ state: 'paused', message: 'paused: sandbox is read-only' });
     expect(r.slice.banner).toMatchObject({ state: 'paused', primary: { act: 'autopilot-retry' } });
   });
 
@@ -74,12 +83,21 @@ describe('readAutofix', () => {
     expect(readAutofix(store, id, CONFIG).row?.stopAfterRequested).toBe(true);
   });
 
-  it('lists the last autopilot notes of the ticket, newest first, and no other note', () => {
+  it('reads the autopilot round notes as attempts, oldest first, and ignores other notes', () => {
     const { store, id } = setup();
-    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: first', body: 'a' });
+    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 1/3', body: 'a' });
     postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Unrelated', body: 'b' });
-    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: second', body: 'c' });
-    expect(readAutofix(store, id, CONFIG).slice.log).toEqual(['Autopilot: second', 'Autopilot: first']);
+    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 2/3', body: 'c' });
+    park(store, id, 'auto-fix stopped: ci 3/3');
+    const attempts = readAutofix(store, id, CONFIG).row?.attempts ?? [];
+    expect(attempts.map((a) => a.label)).toEqual(['attempt 1', 'attempt 2']);
+  });
+
+  it('reports CI as open only for an open PR with failing or pending checks', () => {
+    const { store, id } = setup();
+    expect(readAutofix(store, id, CONFIG).ciOpen).toBe(false);
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
+    expect(readAutofix(store, id, CONFIG).ciOpen).toBe(true);
   });
 
   it('picks the spent budget of the kind the park names, not the first spent budget', () => {
@@ -133,9 +151,9 @@ describe('readAutofix', () => {
     const { store, id } = setup();
     takeAutopilotAttempt(store, id, 'web', 'conflicts', 'b', 2);
     markConflictRound(store, id, Date.now());
-    expect(readAutofix(store, id, CONFIG).row?.message).toBe('Auto-fix: conflict on web · round 1 of 2');
+    expect(readAutofix(store, id, CONFIG).row?.message).toBe('conflict on web · round 1 of 2');
     takeAutopilotAttempt(store, id, 'docs', 'conflicts', 'b', 2);
-    expect(readAutofix(store, id, CONFIG).row?.message).toBe('Auto-fix: conflict · round 1 of 2');
+    expect(readAutofix(store, id, CONFIG).row?.message).toBe('conflict · round 1 of 2');
   });
 
   it('shows a CI attempt as running while the ticket is out of ship and its budget matches the failing checks', () => {
@@ -144,7 +162,7 @@ describe('readAutofix', () => {
     takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
     postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 1/3', body: 'a' });
     const r = readAutofix(store, id, CONFIG);
-    expect(r.row).toMatchObject({ state: 'running', message: 'Auto-fix: CI lint failed on api #88 · attempt 1 of 3', activeStep: 1 });
+    expect(r.row).toMatchObject({ state: 'running', message: 'CI lint on api #88 · attempt 1 of 3' });
   });
 
   it('fills the banner history from the round notes of the parked kind, oldest first', () => {

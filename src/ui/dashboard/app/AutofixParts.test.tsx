@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import type { AutofixBannerView, AutofixRowView } from '../../../model/inside/autofix.js';
+import { autofixProcess } from '../../../model/inside/ship.js';
 import type { AutopilotSlice } from '../stateAutofix.js';
 import { installRuntimeDoubles } from './fixtures/prsPanelKit.js';
 import { all, cleanupInside, insideState, must, mountInside, proc, q, text, view } from './fixtures/insideKit.js';
@@ -13,119 +14,209 @@ afterEach(() => {
   cleanupRail();
 });
 
-const SLICE: AutopilotSlice = { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], roundActive: false };
+const SLICE: AutopilotSlice = { override: 'inherit', projectDefault: true, effective: true, banner: null, roundActive: false };
 const RUNNING: AutofixRowView = {
   state: 'running',
-  message: 'Auto-fix: conflict on web #421 · round 1 of 2',
-  steps: ['agent resolving', 'running gates', 'karst delivers to PR', 're-probe'],
-  activeStep: 1,
+  message: 'CI lint on api #88 · attempt 2 of 3',
+  attempts: [{ label: 'attempt 1', detail: 'CI attempt 1 of 3 ran', result: 'ran', at: '2026-08-11T09:10:00.000Z' }],
+  steps: [
+    { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
+    { label: 'agent fix', detail: 'attempt 2', status: 'run', stopAfter: true },
+  ],
   stopAfterRequested: false,
 };
 
-const ship = (autopilot: AutopilotSlice, autofix?: AutofixRowView, status = 'run') =>
-  insideState({
+const ship = (autopilot: AutopilotSlice, autofix?: AutofixRowView) => {
+  const row = autofix ? autofixProcess(autofix) : undefined;
+  return insideState({
     stageCurrent: 'ship',
-    autopilot,
-    views: { ship: view('ship', { processes: [proc('merge', { status, label: 'Merge', detail: autofix?.message ?? '', ...(autofix ? { autofix } : {}) })] }) },
+    autopilot: { ...autopilot, roundRunning: autofix?.state === 'running' },
+    views: { ship: view('ship', { processes: [...(row ? [row] : []), proc('merge', { status: 'wait', label: 'Merge', detail: 'waits on 1 conflict and CI' })] }) },
+  });
+};
+
+describe('Auto-fix override chip (ship header)', () => {
+  it('reads "Auto-fix on · default" with no dot while the project default decides', () => {
+    mountInside(ship(SLICE));
+    const chip = must('[data-act="autopilot-menu"]');
+    expect(text(chip)).toBe('Auto-fix on · default');
+    expect(q('.autofix-dot', chip)).toBeNull();
+    expect(chip.getAttribute('aria-haspopup')).toBe('menu');
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
   });
 
-describe('Auto-fix override (ship header)', () => {
-  it('is a labelled group of three toggles and marks the active one', () => {
-    mountInside(ship({ ...SLICE, projectDefault: false }));
-    const group = must('[role="group"][aria-label="Auto-fix"]');
-    const buttons = all<HTMLButtonElement>('button', group);
-    expect(buttons.map((b) => b.textContent)).toEqual(['Project default (off)', 'On', 'Off']);
-    expect(buttons.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false']);
+  it('shows a blue dot and no "· default" for a ticket override', () => {
+    mountInside(ship({ ...SLICE, override: 'off', effective: false }));
+    const chip = must('[data-act="autopilot-menu"]');
+    expect(text(chip)).toBe('Auto-fix off');
+    expect(q('.autofix-dot', chip)).not.toBeNull();
   });
 
-  it('sends the chosen mode, and nothing for the mode that is already active', () => {
+  it('opens a menu of three choices, with the project value under the first and a check on the current one', () => {
+    mountInside(ship({ ...SLICE, projectDefault: false, effective: false }));
+    fireEvent.click(must('[data-act="autopilot-menu"]'));
+    const items = all('[role="menuitemradio"]', must('[role="menu"][aria-label="Auto-fix"]'));
+    expect(items.map((i) => text(i))).toEqual(['Use project defaultSettings › Autopilot: off', 'On for this ticket', 'Off for this ticket']);
+    expect(items.map((i) => i.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+  });
+
+  it('sends the chosen mode and shows it pending, and closes without a send for the active one', () => {
     const h = mountInside(ship({ ...SLICE, override: 'on' }));
+    fireEvent.click(must('[data-act="autopilot-menu"]'));
     fireEvent.click(must('[data-act="autopilot-override"][data-mode="off"]'));
     expect(h.send.autopilotOverride).toHaveBeenCalledWith('off', expect.any(String));
+    expect(must('[data-mode="off"]').getAttribute('aria-busy')).toBe('true');
     h.send.autopilotOverride.mockClear();
     fireEvent.click(must('[data-act="autopilot-override"][data-mode="on"]'));
     expect(h.send.autopilotOverride).not.toHaveBeenCalled();
+    expect(q('[role="menu"][aria-label="Auto-fix"]')).toBeNull();
+  });
+
+  it('hands the focus back to the chip when the settled override closes the menu', () => {
+    const h = mountInside(ship({ ...SLICE, override: 'on' }));
+    fireEvent.click(must('[data-act="autopilot-menu"]'));
+    fireEvent.click(must('[data-act="autopilot-override"][data-mode="off"]'));
+    must('[data-mode="off"]').focus();
+    h.emit({ type: 'state', state: ship({ ...SLICE, override: 'off', effective: false }) });
+    expect(q('[role="menu"][aria-label="Auto-fix"]')).toBeNull();
+    expect(document.activeElement).toBe(must('[data-act="autopilot-menu"]'));
+  });
+
+  it('works by keyboard: focus lands on the current choice, arrows move, Escape returns to the chip', () => {
+    mountInside(ship({ ...SLICE, override: 'on' }));
+    const chip = must('[data-act="autopilot-menu"]');
+    fireEvent.click(chip);
+    expect(document.activeElement).toBe(must('[data-mode="on"]'));
+    fireEvent.keyDown(must('[data-mode="on"]'), { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(must('[data-mode="off"]'));
+    fireEvent.keyDown(must('[data-mode="off"]'), { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(must('[data-mode="inherit"]'));
+    fireEvent.keyDown(must('[data-mode="inherit"]'), { key: 'Escape' });
+    expect(q('[role="menu"][aria-label="Auto-fix"]')).toBeNull();
+    expect(document.activeElement).toBe(chip);
+  });
+
+  it('leaves arrow keys to the page while the chip is closed', () => {
+    mountInside(ship(SLICE));
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+    must('[data-act="autopilot-menu"]').dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
   });
 
   it('is absent from every other stage', () => {
     mountInside(insideState({ stageCurrent: 'impl', autopilot: SLICE }));
-    expect(q('[data-act="autopilot-override"]')).toBeNull();
-    expect(q('[data-region="autofix-log"]')).toBeNull();
+    expect(q('[data-act="autopilot-menu"]')).toBeNull();
   });
 });
 
-describe('Auto-fix on the Merge row', () => {
-  it('marks a running round: glyph image, busy row, message, step line with the active step', () => {
+describe('Auto-fix process row', () => {
+  it('marks a running round: busy row, AI mark, message, attempt and step rows', () => {
     mountInside(ship(SLICE, RUNNING));
-    const row = must('[data-proc-id="ship:merge"]');
+    const row = must('[data-proc-id="ship:autofix"]');
     expect(row.getAttribute('aria-busy')).toBe('true');
-    const glyph = must('.glyph', row);
-    expect(glyph.getAttribute('role')).toBe('img');
-    expect(glyph.getAttribute('aria-label')).toBeTruthy();
-    expect(text(row)).toContain('Auto-fix: conflict on web #421 · round 1 of 2');
-    const steps = all('.autofix-steps li', row);
-    expect(steps.map((s) => s.textContent)).toEqual(RUNNING.steps);
-    expect(steps.filter((s) => s.getAttribute('aria-current') === 'step').map((s) => s.textContent)).toEqual(['running gates']);
+    expect(must('.glyph', row).getAttribute('role')).toBe('img');
+    expect(text(must('.ai-mark', row))).toBe('AI');
+    expect(text(row)).toContain('CI lint on api #88 · attempt 2 of 3');
+    expect(all('.ev-key', row).map((k) => k.textContent)).toEqual(['attempt 1', 'fetch CI log', 'agent fix']);
   });
 
-  it('shows no steps, no stop actions and no busy flag for a spent budget', () => {
-    mountInside(ship(SLICE, { state: 'spent', message: 'Auto-fix stopped: CI failed 3 of 3 attempts on api #88', steps: [], activeStep: 0, stopAfterRequested: false }, 'wait'));
-    const row = must('[data-proc-id="ship:merge"]');
+  it('is not rendered when the host sent no Auto-fix process', () => {
+    mountInside(ship(SLICE));
+    expect(q('[data-proc-id="ship:autofix"]')).toBeNull();
+    expect(q('[data-region="autofix-log"]')).toBeNull();
+    expect(q('.autofix-note')).toBeNull();
+  });
+
+  it('shows no busy flag, no stop action and the stopped text for a spent budget', () => {
+    const attempt = (n: number) => ({ label: `attempt ${n}`, detail: 'CI lint still fails', result: 'fails', at: '2026-08-11T09:10:00.000Z' }) as const;
+    mountInside(ship(SLICE, { state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 attempts', attempts: [attempt(1), attempt(2), attempt(3)], steps: [], stopAfterRequested: false }));
+    const row = must('[data-proc-id="ship:autofix"]');
     expect(row.getAttribute('aria-busy')).toBeNull();
-    expect(q('.autofix-steps', row)).toBeNull();
     expect(q('[data-act="autopilot-stop-after"]', row)).toBeNull();
-    expect(text(row)).toContain('Auto-fix stopped: CI failed 3 of 3 attempts on api #88');
+    expect(all('.ev-key', row)).toHaveLength(3);
   });
 
-  it('stops after this round with one click', () => {
+  it('puts "Last round" in the running step only and stops after this round with one click', () => {
     const h = mountInside(ship(SLICE, RUNNING));
-    fireEvent.click(must('[data-act="autopilot-stop-after"]'));
+    expect(all('[data-act="autopilot-stop-after"]')).toHaveLength(1);
+    const btn = must<HTMLButtonElement>('[data-act="autopilot-stop-after"]');
+    expect(text(btn)).toBe('Last round');
+    expect(btn.title).toBe('Stop auto-fix after this round');
+    expect(btn.getAttribute('aria-label')).toBe('Last round: Stop auto-fix after this round');
+    fireEvent.click(btn);
     expect(h.send.autopilotStop).toHaveBeenCalledWith('after-round', expect.any(String));
   });
 
-  it('disables the stop-after action once it is requested', () => {
+  it('disables Last round once it is requested', () => {
     mountInside(ship(SLICE, { ...RUNNING, stopAfterRequested: true }));
     expect(must<HTMLButtonElement>('[data-act="autopilot-stop-after"]').disabled).toBe(true);
   });
+});
 
-  it('asks before Stop now, and Cancel sends nothing', () => {
+describe('Stop auto-fix now (stage menu)', () => {
+  const openMenu = (): void => {
+    fireEvent.click(must('[data-stage-menu="ship"]'));
+  };
+
+  it('is offered in the stage menu only while a round runs', () => {
+    mountInside(ship(SLICE));
+    expect(q('[data-stage-menu="ship"]')).toBeNull();
+  });
+
+  it('offers no stop item when auto-fix is off, even while a round is live', () => {
+    mountInside(ship({ ...SLICE, effective: false, roundRunning: true }, RUNNING));
+    expect(q('[data-stage-menu="ship"]')).toBeNull();
+  });
+
+  it('asks before stopping; Cancel sends nothing', () => {
     const h = mountInside(ship(SLICE, RUNNING));
+    openMenu();
+    expect(text(must('[data-act="autopilot-stop-confirm"]'))).toBe('Stop auto-fix now…');
     fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
     expect(h.send.autopilotStop).not.toHaveBeenCalled();
     expect(must('[role="alertdialog"]').textContent).toContain('ends the agent session');
+    expect(must('[data-act="autopilot-stop-now"]').className).toContain('k-btn--danger');
     fireEvent.click(must('[data-act="autopilot-stop-cancel"]'));
     expect(q('[role="alertdialog"]')).toBeNull();
     expect(h.send.autopilotStop).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(must('[data-act="autopilot-stop-confirm"]'));
   });
 
-  it('moves focus into the confirm when it opens', () => {
+  it('opens a collapsed Auto-fix row so the confirm is visible', () => {
     mountInside(ship(SLICE, RUNNING));
+    const row = must<HTMLDetailsElement>('[data-proc-id="ship:autofix"]');
+    row.open = false;
+    fireEvent(row, new Event('toggle'));
+    openMenu();
+    fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
+    expect(must<HTMLDetailsElement>('[data-proc-id="ship:autofix"]').open).toBe(true);
+  });
+
+  it('returns the focus to the Auto-fix row summary when the confirm closes', () => {
+    mountInside(ship(SLICE, RUNNING));
+    const summary = (): Element | null => must('[data-proc-id="ship:autofix"]').querySelector('summary');
+    const reopen = (): void => {
+      openMenu();
+      fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
+    };
+    reopen();
+    fireEvent.click(must('[data-act="autopilot-stop-cancel"]'));
+    expect(document.activeElement).toBe(summary());
+    reopen();
+    fireEvent.keyDown(must('[role="alertdialog"]'), { key: 'Escape' });
+    expect(document.activeElement).toBe(summary());
+    reopen();
+    fireEvent.click(must('[data-act="autopilot-stop-now"]'));
+    expect(document.activeElement).toBe(summary());
+  });
+
+  it('moves focus into the confirm and sends Stop now only after it', () => {
+    const h = mountInside(ship(SLICE, RUNNING));
+    openMenu();
     fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
     expect(document.activeElement).toBe(must('[data-act="autopilot-stop-now"]'));
-  });
-
-  it('sends Stop now only after the confirm', () => {
-    const h = mountInside(ship(SLICE, RUNNING));
-    fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
     fireEvent.click(must('[data-act="autopilot-stop-now"]'));
     expect(h.send.autopilotStop).toHaveBeenCalledWith('now', expect.any(String));
     expect(q('[role="alertdialog"]')).toBeNull();
-  });
-});
-
-describe('Auto-fix log and the never-merges line', () => {
-  it('lists the recent actions under the panel', () => {
-    mountInside(ship({ ...SLICE, log: ['Autopilot: fixed lint on api #88', 'Autopilot: resolved conflicts on web #421'] }));
-    const log = must('[data-region="autofix-log"]');
-    expect(all('li', log).map((l) => l.textContent)).toEqual(['Autopilot: fixed lint on api #88', 'Autopilot: resolved conflicts on web #421']);
-  });
-
-  it('says that autopilot never merges, and leaves out an empty log', () => {
-    mountInside(ship(SLICE));
-    expect(text(must('.autofix-note'))).toBe('Autopilot never merges. Merge stays your click.');
-    expect(q('[data-region="autofix-log"]')).toBeNull();
-    expect(q('[data-region="inside-ship"]')).not.toBeNull();
   });
 });
 
@@ -135,8 +226,8 @@ const BANNER: AutofixBannerView = {
   titleHref: 'https://example.test/run/1',
   titleSuffix: 'failed on api #88',
   cause: 'Auto-fix tried 3 of 3 times and the check still fails.',
-  primary: { act: 'autopilot-approve-one', label: 'Approve 1 more attempt', repo: 'api', kind: 'ci' },
-  secondary: { act: 'send-ci-failure', label: 'Send CI failure with a note…' },
+  primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'refresh', title: 'Approve 1 more auto-fix attempt', repo: 'api', kind: 'ci' },
+  secondary: { act: 'send-ci-failure', label: 'Send back…', icon: 'arrow-left', title: 'Send the CI failure to the agent with a note' },
   history: ['Attempt 1 · lint · 09:10', 'Attempt 2 · lint · 09:20'],
 };
 
@@ -152,8 +243,11 @@ describe('Auto-fix in the blocked banner', () => {
     expect(link.getAttribute('href')).toBe('https://example.test/run/1');
     expect(root.textContent).toContain('failed on api #88');
     expect(root.textContent).toContain('Auto-fix tried 3 of 3 times');
-    expect(all('.k-btn--primary', root).map((b) => b.textContent)).toEqual(['Approve 1 more attempt']);
-    expect(all('.k-btn--secondary', root).map((b) => b.textContent)).toEqual(['Send CI failure with a note…']);
+    expect(all('.k-btn--primary', root).map((b) => b.textContent)).toEqual(['+1 attempt']);
+    expect(all('.k-btn--secondary', root).map((b) => b.textContent)).toEqual(['Send back…']);
+    const approve = must('[data-act="autopilot-approve-one"]', root);
+    expect(approve.getAttribute('title')).toBe('Approve 1 more auto-fix attempt');
+    expect(approve.getAttribute('aria-label')?.startsWith('+1 attempt')).toBe(true);
   });
 
   it('keeps the attempt history in a collapsed disclosure', () => {
@@ -188,7 +282,7 @@ describe('Auto-fix in the blocked banner', () => {
   });
 
   it('disables Approve when no PR resolved, so it never posts an empty repo', () => {
-    const h = mountRail(parked({ ...BANNER, primary: { act: 'autopilot-approve-one', label: 'Approve 1 more attempt', kind: 'ci' } }));
+    const h = mountRail(parked({ ...BANNER, primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'refresh', title: 'Approve 1 more auto-fix attempt', kind: 'ci' } }));
     const btn = railMust<HTMLButtonElement>('#blocked [data-act="autopilot-approve-one"]');
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);

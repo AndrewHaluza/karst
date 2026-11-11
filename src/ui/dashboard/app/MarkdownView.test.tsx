@@ -1,9 +1,21 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { MarkdownView } from './MarkdownView.js';
+import { MarkdownView, scanInline } from './MarkdownView.js';
 
 const view = (markdown: string): HTMLElement => render(<MarkdownView markdown={markdown} />).container.firstElementChild as HTMLElement;
+
+/**
+ * The unclosed run the four cases scan. The gap between a bounded and an unbounded scan grows with the run length:
+ * at 120000 openers the bounded INLINE_RE looks at most 500 characters ahead from each one (~88 ms here), while a
+ * scan without MAX_SPAN walks to the end of the run from every opener — 120000 * 120000 / 2 = 7.2e9 character
+ * steps (10-14 s here, and more on a loaded CI runner). SCAN_LIMIT_MS sits between the two with room on each side:
+ * ~20x the slowest linear case and 5-7x below the quadratic one. A 60000-character run left the quadratic case at
+ * only ~1.5x the limit; the longer run is what buys the margin. It times `scanInline` alone, so no jsdom render
+ * cost is in the number.
+ */
+const UNCLOSED_RUN = 120000;
+const SCAN_LIMIT_MS = 2000;
 
 describe('MarkdownView', () => {
   it('renders headings, paragraphs and inline spans', () => {
@@ -80,9 +92,11 @@ describe('MarkdownView', () => {
     expect(el.querySelector('a')?.getAttribute('href')).toBe('https://x.test/p');
   });
 
-  it.each(['`', '**', '*a', '[a'])('scans an unclosed %s opener run in bounded time', (opener) => {
-    const start = Date.now();
-    view(opener.repeat(60000));
-    expect(Date.now() - start).toBeLessThan(2000);
+  it.each(['`', '**', '*a', '[a'])('scans an unclosed %s opener run without a super-linear scan', (opener) => {
+    const run = opener.repeat(UNCLOSED_RUN);
+    const start = performance.now();
+    const tokens = scanInline(run);
+    expect(performance.now() - start).toBeLessThan(SCAN_LIMIT_MS);
+    expect(tokens.length).toBeGreaterThan(0);
   });
 });

@@ -13,6 +13,9 @@ import type { InsideStageKey, ProcessEvidenceView } from './types.js';
  * observed from two stages, never a collision. `services` is UAT's alone (D155):
  * only UAT starts the ticket's services (before the Tester) and stops them
  * after, so only UAT presents a Services row.
+ *
+ * `autofix` (T1070) is the one registered id that does not always render: the ship builder omits it unless autopilot
+ * applies to the ticket and a round, a park, an attempt or an unknown CI status gives it something to say.
  */
 export const INSIDE_PROCESSES: Readonly<Record<InsideStageKey, readonly string[]>> = {
   scope: ['hot-set', 'worktrees'],
@@ -21,7 +24,7 @@ export const INSIDE_PROCESSES: Readonly<Record<InsideStageKey, readonly string[]
   // Review does not spin or stop services (D155) — its lint/build gates need no
   // running app — so it presents no Services row.
   review: ['gates', 'review'],
-  ship: ['commit', 'push', 'pr', 'merge'],
+  ship: ['commit', 'push', 'pr', 'autofix', 'merge'],
   done: ['delivery-receipt'],
 };
 
@@ -57,6 +60,7 @@ const PROCESS_EVIDENCE_KIND: Readonly<Record<string, ProcessEvidenceView['kind']
   commit: 'commits',
   push: 'rows',
   pr: 'prs',
+  autofix: 'rows',
   merge: 'rows',
   'delivery-receipt': 'receipt',
 };

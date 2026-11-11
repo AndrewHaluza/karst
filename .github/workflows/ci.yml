@@ -140,9 +140,14 @@ jobs:
         run: npm run build
 
       # scripts/prototypeShot.integration.test.mjs launches the repo's own
-      # Playwright chromium; the runner image does not ship it.
+      # Playwright chromium; the runner image does not ship the browser, but it
+      # does ship every OS library the browser needs. `--with-deps` only
+      # re-added those through apt, and two runs failed the whole job when the
+      # runner could not reach its mirror ("Temporary failure resolving
+      # 'azure.archive.ubuntu.com'", apt exit 100) before any test started.
+      # Installing the browser alone keeps this step off apt.
       - name: Install Playwright chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Integration and e2e tests
         run: npm run test:integration

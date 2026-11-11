@@ -9,10 +9,10 @@
  * the clocks and token counts are leaves that read their own value (`InsideClocks.tsx`), so a live push renders only
  * those. What the user opened or switched lives in `InsideMemory`, above the block, so it survives every push.
  */
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useSelection } from './DashboardAppContext.js';
 import { DeliverRow } from './DeliverRow.js';
-import { AutofixFooter, AutofixOverride } from './AutofixParts.js';
+import { AutofixOverride, setStopConfirm } from './AutofixParts.js';
 import { AttemptTabs } from './InsideAttempts.js';
 import { LiveDuration, StageClock } from './InsideClocks.js';
 import { Ledger } from './InsideLedger.js';
@@ -62,9 +62,14 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
   const { selection, select } = useSelection();
   const frame = useSlice(useMemo(() => frameOf(stage), [stage]), sameIgnoringLive);
   const scope = useMemo(() => ({ memory, stageKey: stage, ticketId: frame?.ticketId ?? 0 }), [memory, stage, frame?.ticketId]);
+  const stopOffered = frame?.menu.autofixStop === true;
+  // The round ended (or the stop item is gone): a confirm opened earlier must close with it.
+  useEffect(() => {
+    if (!stopOffered) setStopConfirm(false);
+  }, [stopOffered]);
   if (!frame) return null;
   const { view, menu, deliver, back } = frame;
-  const anyMenu = menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase || menu.retry !== null;
+  const anyMenu = menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase || menu.retry !== null || menu.autofixStop;
   const lstatus = frame.live ? frame.live.status || 'run' : '';
   return (
     <InsideScopeContext.Provider value={scope}>
@@ -100,7 +105,6 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
         {/* The ship preview sits ABOVE the ledger (D142, UI-R40 reading order): the first thing read before the Confirm click. */}
         {frame.preview ? <ShipPreview preview={frame.preview.data} /> : null}
         {view.processes.length ? <Ledger stageKey={view.stageKey} processes={view.processes} consoleStage={view.console ? view.stageKey : null} /> : <div className="blurb">{view.blurb}</div>}
-        {frame.autopilot ? <AutofixFooter autopilot={frame.autopilot} /> : null}
       </section>
     </InsideScopeContext.Provider>
   );

@@ -1,36 +1,28 @@
-/* Auto-fix on the ship panel (T1004). Existing tokens only: blue = running, amber = needs you (@ui:TOKENS). */
-#inside .autofix-override{display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0;flex-wrap:wrap}
-#inside .autofix-override-label{font-size:var(--p-xs);color:var(--p-muted2);margin-right:var(--p-s1)}
-#inside .autofix-seg{min-height:var(--k-hit-min);padding:0 var(--p-s3);background:transparent;border:var(--k-border-w) solid var(--p-border);
-  color:var(--p-muted2);cursor:pointer;font-size:var(--p-xs);font-family:inherit}
-#inside .autofix-seg + .autofix-seg{margin-left:calc(-1 * var(--k-border-w))}
-#inside .autofix-seg:first-of-type{border-radius:var(--k-radius-sm) 0 0 var(--k-radius-sm)}
-#inside .autofix-seg:last-of-type{border-radius:0 var(--k-radius-sm) var(--k-radius-sm) 0}
-#inside .autofix-seg[aria-pressed="true"]{color:var(--p-text);background:var(--p-hover);border-color:var(--p-running);position:relative}
-#inside .autofix-seg[aria-busy="true"]{opacity:.7}
-#inside .autofix-seg:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+/* Auto-fix on the ship panel (T1070). Existing tokens only: blue = running/override, amber = needs you (@ui:TOKENS). */
+/* The override chip: borderless, the runtime strip's `.rs-dd` pattern. */
+#inside .autofix-chipwrap{position:relative;display:inline-flex;align-items:center;min-width:0}
+#inside .autofix-chip{display:inline-flex;align-items:center;gap:var(--p-s2);min-height:var(--k-hit-min);padding:0 var(--p-s3);
+  border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--p-text);
+  font:inherit;font-size:var(--p-xs);cursor:pointer;white-space:nowrap}
+#inside .autofix-chip:hover,#inside .autofix-chip[aria-expanded="true"]{background:var(--p-hover);border-color:var(--p-border)}
+#inside .autofix-chip:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+#inside .autofix-chip .k-icon{width:var(--p-s3);height:var(--p-s3);flex:none;color:var(--p-muted2)}
+#inside .autofix-dot{width:var(--p-s2);height:var(--p-s2);border-radius:50%;background:var(--p-running);flex:none}
+#inside .autofix-menu{position:absolute;left:0;top:calc(100% + var(--p-s1));z-index:40;min-width:calc(var(--k-control-h-lg) * 7);
+  padding:var(--p-s1);background:var(--p-surface);border:var(--k-border-w) solid var(--p-border);border-radius:var(--k-radius-md)}
+#inside .autofix-choice{align-items:flex-start;min-height:var(--k-control-h-lg)}
+#inside .autofix-check{display:inline-flex;width:var(--p-s4);flex:none}
+#inside .autofix-choice-text{display:flex;flex-direction:column;text-align:left}
+#inside .autofix-hint{font-size:var(--p-xs);color:var(--p-muted2)}
 
-#inside .autofix-extras{display:flex;flex-wrap:wrap;align-items:center;gap:var(--p-s2) var(--p-s4);margin-top:var(--p-s1);width:100%}
-#inside .autofix-steps{display:flex;flex-wrap:wrap;gap:var(--p-s1) var(--p-s3);margin:0;padding:0;list-style:none;font-size:var(--p-xs);color:var(--p-muted2);min-width:0}
-#inside .autofix-steps li + li:before{content:"→";margin-right:var(--p-s3);color:var(--p-muted2)}
-#inside .autofix-steps li.is-active{color:var(--p-running);font-weight:var(--k-weight-semibold)}
-#inside .autofix-actions{display:inline-flex;flex-wrap:wrap;align-items:center;gap:var(--p-s2)}
+/* The Stop now confirm sits under the Auto-fix row's evidence rows. */
+#inside .autofix-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--p-s2);padding:var(--p-s2) 0}
 #inside .autofix-confirm{font-size:var(--p-xs);color:var(--p-attention)}
+#inside .ev-tail .k-btn .k-icon{width:var(--p-s3);height:var(--p-s3)}
 
-#inside .autofix-foot{padding:var(--p-s2) var(--p-s4) var(--p-s3);border-top:var(--k-border-w) solid var(--p-border)}
-#inside .autofix-log{margin:0 0 var(--p-s2);padding:0;list-style:none;font-size:var(--p-xs);color:var(--p-muted2)}
-#inside .autofix-note{margin:0;font-size:var(--p-xs);color:var(--p-muted2)}
-
-/* The running Merge row: the glyph's spin stops under reduced motion (the arc stays as a still ring). */
+/* The running Auto-fix row: the glyph's spin stops under reduced motion (the arc stays as a still ring). */
 @media (prefers-reduced-motion: reduce){
   #inside .op[aria-busy="true"] .glyph.run:before{animation:none}
-}
-
-/* Narrow: the step line wraps under the message and the actions stack. */
-@media (max-width: 699px){
-  #inside .autofix-extras{flex-direction:column;align-items:flex-start}
-  #inside .autofix-actions{flex-direction:column;align-items:stretch;width:100%}
-  #inside .autofix-override{width:100%}
 }
 
 /* Blocked banner body for an auto-fix park. */

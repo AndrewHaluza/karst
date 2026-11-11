@@ -284,9 +284,8 @@ describe('shipProcesses', () => {
     );
     const merge = views[3]!;
     expect(merge.status).toBe('wait'); // a conflict is a wait, never a fail
-    expect(merge.detail).toBe(
-      'Ship is waiting: resolve the merge conflict before the ticket can be done.',
-    );
+    // T1070: the Merge row words its open blockers as '<waits on> <list>'; the long sentence is gone.
+    expect(merge.detail).toBe('waits on 1 conflict');
     // The per-repo row keeps its factual reading; the sentence is the summary.
     expect(rowsOf(merge)[0]!.detail).toContain('conflicted');
   });
@@ -1660,44 +1659,72 @@ describe('retry-ship-repo action', () => {
   });
 });
 
-describe('merge row carries the auto-fix state (T1004)', () => {
+describe('Auto-fix is its own process row (T1070)', () => {
   const openPr = pr('/web', { number: 421, status: 'open' });
   const running = {
     state: 'running',
-    message: 'Auto-fix: conflict on web #421 · round 1 of 2',
-    steps: ['agent resolving'],
-    activeStep: 0,
+    message: 'conflict on web #421 · round 1 of 2',
+    attempts: [],
+    steps: [{ label: 'agent resolving', detail: 'round 1', status: 'run', stopAfter: true }],
     stopAfterRequested: false,
   } as const;
+  const byId = (input: ReturnType<typeof shipInput>, id: string) => shipProcesses(input).find((p) => p.id === id);
 
-  it('reads run, states the round, and keeps the PR rows', () => {
-    const merge = shipProcesses(shipInput({ prs: [openPr], autofix: running }))[3]!;
-    expect(merge.status).toBe('run');
-    expect(merge.detail).toBe(running.message);
-    expect(merge.autofix).toEqual(running);
+  it('sits after the PR row and before Merge, runs, and carries the AI mark only', () => {
+    const all = shipProcesses(shipInput({ prs: [openPr], autofix: running }));
+    expect(all.map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'autofix', 'merge']);
+    const row = all[3]!;
+    expect(row).toMatchObject({ status: 'run', label: 'Auto-fix', detail: running.message, aiMark: true });
+    expect(row.execution).toBeUndefined();
+    expect(row.configuredExecution).toBeUndefined();
+  });
+
+  it('is omitted without a reading', () => {
+    expect(shipProcesses(shipInput({ prs: [openPr] })).map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
+  });
+
+  it('lists attempt rows (pass, note time only) and then the provable steps, with Last round on the running step', () => {
+    const row = byId(shipInput({
+      prs: [openPr],
+      autofix: {
+        ...running,
+        attempts: [{ label: 'attempt 1', detail: 'CI attempt 1 of 3 ran', result: 'ran', at: '2026-01-01T09:10:00.000Z' }],
+        steps: [
+          { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
+          { label: 'agent fix', detail: 'attempt 2', status: 'run', stopAfter: true },
+        ],
+      },
+    }), 'autofix')!;
+    const rows = rowsOf(row);
+    expect(rows.map((r) => [r.label, r.status])).toEqual([['attempt 1', 'pass'], ['fetch CI log', 'pass'], ['agent fix', 'run']]);
+    expect(rows[0]!.time).toBeTruthy();
+    expect(rows[0]!.duration).toBeUndefined();
+    expect(rows[1]!.autofixStop).toBeUndefined();
+    expect(rows[2]!.autofixStop).toEqual({ requested: false });
+  });
+
+  it('reads wait (the needs-you amber) for a spent budget, with one fail row per attempt', () => {
+    const attempt = (n: number) => ({ label: `attempt ${n}`, detail: 'CI lint still fails', result: 'fails', at: '2026-01-01T09:10:00.000Z' }) as const;
+    const spent = { state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 attempts', attempts: [attempt(1), attempt(2), attempt(3)], steps: [], stopAfterRequested: false } as const;
+    const row = byId(shipInput({ prs: [openPr], autofix: spent }), 'autofix')!;
+    expect(row.status).toBe('wait');
+    expect(rowsOf(row).map((r) => r.status)).toEqual(['fail', 'fail', 'fail']);
+  });
+
+  it('keeps auto-fix text out of the Merge row and states only its own blockers', () => {
+    const merge = byId(shipInput({
+      prs: [openPr],
+      mergeChecks: [check('/web', { state: 'conflicted', files: ['a.ts'], reason: 'both sides edit' })],
+      autofix: running,
+      ciOpen: true,
+    }), 'merge')!;
+    expect(merge.detail).toBe('waits on 1 conflict and CI');
+    expect(JSON.stringify(merge)).not.toMatch(/auto-fix|round 1/i);
     expect(rowsOf(merge)).toHaveLength(1);
   });
 
-  it('reads wait (the existing needs-you amber) for a spent budget', () => {
-    const spent = { ...running, state: 'spent', message: 'Auto-fix stopped: CI failed 3 of 3 attempts on api #88', steps: [] } as const;
-    const merge = shipProcesses(shipInput({ prs: [openPr], autofix: spent }))[3]!;
-    expect(merge.status).toBe('wait');
-    expect(merge.detail).toBe(spent.message);
-  });
-
-  it('keeps the conflict sentence when CI status is unknown', () => {
-    const unknown = { ...running, state: 'unknown', message: 'CI status unknown for web #421. Auto-fix waits; not counted as pass.', steps: [] } as const;
-    const merge = shipProcesses(shipInput({
-      prs: [openPr],
-      mergeChecks: [check('/web', { state: 'conflicted', files: ['a.ts'], reason: 'both sides edit' })],
-      autofix: unknown,
-    }))[3]!;
-    expect(merge.detail).toBe(`Ship is waiting: resolve the merge conflict before the ticket can be done. ${unknown.message}`);
-  });
-
-  it('is a plain Merge row without auto-fix', () => {
-    const merge = shipProcesses(shipInput({ prs: [openPr] }))[3]!;
-    expect(merge.autofix).toBeUndefined();
+  it('is a plain Merge row with no blocker', () => {
+    const merge = byId(shipInput({ prs: [openPr] }), 'merge')!;
     expect(merge.detail).toBe('0/1 merged');
   });
 });

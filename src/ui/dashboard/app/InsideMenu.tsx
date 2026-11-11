@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { GateStage } from '../../../store/ticketGates.js';
 import { useDashboardSend, useOverlays, usePendingOps } from './DashboardAppContext.js';
+import { setStopConfirm } from './AutofixParts.js';
 import { Icon } from './Icon.js';
 import type { MenuFlags } from './insideSlices.js';
 import type { ActionName } from './pendingOps.js';
@@ -102,6 +103,10 @@ export function StageMenu({ stageKey, menu }: { readonly stageKey: string; reado
           ) : null}
           {menu.sendBack ? (
             <Item data-act="send-back-to-implement" title="Move this ticket back to Implement — UAT and Review will run again" icon="history" label="Send back to Implement" onClick={start('sendBack', () => send.sendBackToImplement())} />
+          ) : null}
+          {menu.autofixStop ? (
+            // Opens the inline confirm under the Auto-fix row (it ends the agent session); nothing is posted from here.
+            <Item data-act="autopilot-stop-confirm" title="Stop auto-fix now and end the agent session" icon="player-stop" label="Stop auto-fix now…" onClick={() => { setOpen(false); setStopConfirm(true); }} />
           ) : null}
         </div>
       ) : null}

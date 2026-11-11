@@ -4,6 +4,7 @@
  * source-reading coverage guard (`coverage.test.ts`, unit). Adding a `data-act` needs a
  * case in `COVERED` or a reason in `NOT_COVERED`.
  */
+import { autofixProcess } from '../../../model/inside/ship.js';
 import { expect } from 'vitest';
 import type { RenderHandle } from '../../testing/renderHarness.js';
 import { populatedStateFor, shipPreviewStateFor, sharedServerFixtures } from '../renderFixtures.js';
@@ -201,19 +202,18 @@ const graphState = (): DashboardState => {
   return { ...s, insideViews: { ...s.insideViews, impl: { ...view, processes } } } as unknown as DashboardState;
 };
 
-/** The ship view with an auto-fix round running on the Merge row (T1004). */
+/** The ship view with an auto-fix round running: its own Auto-fix row after the PR row (T1070). */
 const autofixRunningState = (): DashboardState => {
   const s = populatedStateFor('ship');
   const view = s.insideViews.ship;
-  const autofix = {
-    state: 'running', message: 'Auto-fix: conflict on web #421 · round 1 of 2',
-    steps: ['agent resolving', 'running gates', 'karst delivers to PR', 're-probe'], activeStep: 0, stopAfterRequested: false,
-  };
-  const merge = { ...(view.processes.find((p) => p.id === 'merge') ?? view.processes[0]!), status: 'run', autofix };
-  const processes = view.processes.map((p) => (p.id === merge.id ? merge : p));
+  const row = autofixProcess({
+    state: 'running', message: 'conflict on web #421 · round 1 of 2', attempts: [],
+    steps: [{ label: 'agent resolving', detail: 'round 1', status: 'run', stopAfter: true }], stopAfterRequested: false,
+  })!;
+  const processes = view.processes.flatMap((p) => (p.id === 'merge' ? [row, p] : [p]));
   return {
     ...s,
-    autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, log: [], roundActive: false },
+    autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, roundActive: true, roundRunning: true },
     insideViews: { ...s.insideViews, ship: { ...view, processes } },
   } as unknown as DashboardState;
 };
@@ -328,10 +328,15 @@ const openRejectForm = (h: RenderHandle): void => {
 export const act = (a: string, extra = ''): string => `[data-act="${a}"]${extra}`;
 const forRepo = (a: string): string => act(a, `[data-repo="${REPO}"]`);
 
-/** Opens the "Stop now…" confirm (idempotent: a no-op once the confirm shows). */
+/** Opens the "Stop auto-fix now…" confirm from the stage menu (idempotent: a no-op once the confirm shows). */
 const openStopConfirm = (h: RenderHandle): void => {
-  const open = q(h, act('autopilot-stop-confirm'));
-  if (open) clickEl(open);
+  if (q(h, act('autopilot-stop-now'))) return;
+  if (!q(h, act('autopilot-stop-confirm'))) clickEl(q(h, '[data-stage-menu="ship"]')!);
+  clickEl(q(h, act('autopilot-stop-confirm'))!);
+};
+/** Opens the Auto-fix chip's menu (idempotent). */
+const openChipMenu = (h: RenderHandle): void => {
+  if (!q(h, act('autopilot-override'))) clickEl(q(h, act('autopilot-menu'))!);
 };
 
 /** The ticket details drawer opens locally from the doc icon (no host message). */
@@ -497,7 +502,11 @@ export const COVERED: readonly ParityCase[] = [
 
   // --- auto-fix on the ship panel (T1004) ---------------------------------
   {
-    act: 'autopilot-override', state: autofixRunningState, sel: act('autopilot-override') + '[data-mode="off"]',
+    act: 'autopilot-menu', state: autofixRunningState, sel: act('autopilot-menu'), posts: [],
+    after: (h) => { if (!q(h, act('autopilot-override'))) throw new Error('the chip menu did not open'); },
+  },
+  {
+    act: 'autopilot-override', state: autofixRunningState, prep: openChipMenu, sel: act('autopilot-override') + '[data-mode="off"]',
     posts: [{ type: 'autopilot-override', mode: 'off' }], rid: true,
   },
   {
@@ -505,7 +514,7 @@ export const COVERED: readonly ParityCase[] = [
     posts: [{ type: 'autopilot-stop', when: 'after-round' }], rid: true,
   },
   {
-    act: 'autopilot-stop-confirm', state: autofixRunningState, sel: act('autopilot-stop-confirm'), posts: [],
+    act: 'autopilot-stop-confirm', state: autofixRunningState, prep: ensureMenu('ship', act('autopilot-stop-confirm')), sel: act('autopilot-stop-confirm'), posts: [],
     after: (h) => { if (!q(h, act('autopilot-stop-now'))) throw new Error('the confirm did not open'); },
   },
   {

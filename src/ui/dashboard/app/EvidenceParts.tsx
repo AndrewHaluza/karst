@@ -8,6 +8,7 @@
  * keeps the grid's column alignment.
  */
 import type { EvidenceRow } from '../../../model/inside/types.js';
+import { LastRoundButton } from './AutofixParts.js';
 import { RowTimingCells } from './InsideClocks.js';
 import { InsideActionButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
@@ -26,7 +27,12 @@ export function EvTiming({ r, cls, stage, id, index }: { readonly r: EvidenceRow
 }
 
 export function EvAction({ r }: { readonly r: EvidenceRow }) {
-  return <span className="ev-tail">{r.action ? <InsideActionButton action={r.action} /> : null}</span>;
+  return (
+    <span className="ev-tail">
+      {r.action ? <InsideActionButton action={r.action} /> : null}
+      {r.autofixStop ? <LastRoundButton requested={r.autofixStop.requested} /> : null}
+    </span>
+  );
 }
 
 /** The bounded remainder of a RICH body. The host owns both the count copy and the continuation's label; the webview counts nothing (UI-R31). */
