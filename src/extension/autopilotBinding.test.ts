@@ -6,7 +6,7 @@ import { setStage } from '../store/stages.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { transition } from '../workflow/machine.js';
 import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, regenerateEntries, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
-import { claimAutopilotTicket, getAutopilotSessionOwner, getAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
+import { claimAutopilotTicket, getAutopilotSessionOwner, getAutopilotTicket, staleRebaseRuns, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
 import { rebaseOnBaseAction, sendCiFailureAction } from './ops/ciActionsWiring.js';
 
@@ -144,6 +144,26 @@ describe('a stale generated file (T1081)', () => {
     expect(during!.otherWindow).toBe(false);
     expect(during!.until - during!.at).toBeGreaterThanOrEqual(120_000);
     expect(claimUntil() - Date.now()).toBeLessThanOrEqual(3 * r.deps.intervalMs);
+    expect(claimUntil() - Date.now()).toBeGreaterThan(2 * r.deps.intervalMs);
+  });
+
+  it('does not run the rebase when another window took the ticket after the sweep claim ran out', async () => {
+    const r = staleRig([CMD]);
+    const gh = r.deps.gh as unknown as ReturnType<typeof vi.fn>;
+    const read = gh.getMockImplementation() as (args: readonly string[]) => Promise<unknown>;
+    gh.mockImplementation(async (args: readonly string[]) => {
+      if (args[1]?.endsWith('/logs')) {
+        vi.setSystemTime(Date.now() + 3_600_000);
+        claimAutopilotTicket(r.store, r.id, 'OTHER', Date.now(), 600_000);
+      }
+      return read(args);
+    });
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    handle.dispose();
+    expect(rebaseOnBaseAction).not.toHaveBeenCalled();
+    // A refused claim is a stopped rebase, not a push: the marker says so and the ticket does not wait.
+    expect(staleRebaseRuns(r.store, r.id, 'r', 'build').map((x) => x.stopped)).toEqual([true]);
   });
 
   it('keeps today\'s rules when the repository lists no ship.regenerate command', async () => {
