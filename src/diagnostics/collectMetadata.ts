@@ -22,10 +22,12 @@ import {
   readGateRuns,
   readGraphRuns,
   readMergeChecks,
+  readNodeDeferrals,
   readNodeRuns,
   readPhaseMarks,
   readPlannerRuns,
   readPullRequests,
+  readResourceLeases,
   readServers,
   readStages,
   readWorktrees,
@@ -350,7 +352,9 @@ function collectGraph(
     const runs = readGraphRuns(input.store, input.ticketId, cap)
     const plannerRuns = readPlannerRuns(input.store, input.ticketId, cap)
     const nodeRuns = readNodeRuns(input.store, input.ticketId, cap)
-    const omitted = runs.omitted + plannerRuns.omitted + nodeRuns.omitted
+    const deferrals = readNodeDeferrals(input.store, input.ticketId, cap)
+    const leases = readResourceLeases(input.store, input.ticketId, cap)
+    const omitted = runs.omitted + plannerRuns.omitted + nodeRuns.omitted + deferrals.omitted + leases.omitted
     const data = {
       runs: runs.rows.map((row) => ({
         id: row.id,
@@ -387,9 +391,35 @@ function collectGraph(
         id: row.id,
         graphRunId: row.graphRunId,
         nodeId: safe(row.nodeId),
+        nodeKind: row.nodeKind,
+        visitNumber: row.visitNumber,
         status: row.status,
+        launchAttempt: row.launchAttempt,
+        launchFailStreak: row.launchFailStreak,
         outcome: safe(row.outcome),
         reason: safe(row.reason),
+        startedAt: row.startedAt,
+        endedAt: row.endedAt,
+      })),
+      deferrals: deferrals.rows.map((row) => ({
+        id: row.id,
+        graphRunId: row.graphRunId,
+        revisionId: row.revisionId,
+        nodeId: safe(row.nodeId),
+        reason: safe(row.reason),
+        waitSince: row.waitSince,
+        updatedAt: row.updatedAt,
+      })),
+      leases: leases.rows.map((row) => ({
+        id: row.id,
+        graphRunId: row.graphRunId,
+        ownerNodeRunId: row.ownerNodeRunId,
+        physicalDomain: safe(row.physicalDomain),
+        accessMode: row.accessMode,
+        claimedPaths: safe(row.claimedPaths),
+        status: row.status,
+        acquiredAt: row.acquiredAt,
+        releasedAt: row.releasedAt,
       })),
     }
     return omitted > 0

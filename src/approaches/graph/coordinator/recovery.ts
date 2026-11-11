@@ -76,6 +76,7 @@ import {
 } from '../../../store/graph/graphRuns.js';
 import {
   firstNodeRunIdInStatuses,
+  maxLaunchFailStreakInStatuses,
   nodeOverrideFor,
   nodeRunsInStatusesForGraphRun,
   setNodeRunPromptHash,
@@ -282,14 +283,7 @@ function blockedNodeRows(db: RecoveryDeps['store']['db'], graphRunId: number): B
  * `cancelled`) cannot refuse a Resume for a node that is no longer in the plan.
  */
 export function launchFailureStreak(db: Store['db'], graphRunId: number): number {
-  const placeholders = RECOVERY_ATTENTION_STATUSES.map(() => '?').join(', ');
-  const row = db
-    .prepare(
-      `SELECT MAX(launch_fail_streak) AS streak FROM approach_node_runs
-        WHERE graph_run_id = ? AND status IN (${placeholders})`,
-    )
-    .get(graphRunId, ...RECOVERY_ATTENTION_STATUSES) as { streak: number | null } | undefined;
-  return row?.streak ?? 0;
+  return maxLaunchFailStreakInStatuses(db, graphRunId, RECOVERY_ATTENTION_STATUSES);
 }
 
 /** The categories whose recovery retries the reserved visits in place — the

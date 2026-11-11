@@ -1032,11 +1032,11 @@ describe('collectMetadata', () => {
     })
     expect(draft.metadata.graph).toEqual({
       status: 'available',
-      data: { runs: [], plannerRuns: [], nodeRuns: [] },
+      data: { runs: [], plannerRuns: [], nodeRuns: [], deferrals: [], leases: [] },
     })
   })
 
-  it('surfaces a blocked graph run, its planner/node runs and active revision, redacting free text', async () => {
+  it('surfaces a blocked graph run, its planner/node runs, deferrals, leases and active revision, redacting free text', async () => {
     store = openStore(':memory:')
     const localStore = store
     const project = upsertProject(localStore, { slug: 'one' })
@@ -1067,8 +1067,19 @@ describe('collectMetadata', () => {
     ).run()
     localStore.db.prepare(
       `INSERT INTO approach_node_runs
-         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, outcome, reason)
-       VALUES (1, 1, 1, 'implement-setup', 'agent', 1, 'blocked', 'error', 'unknown-repository')`,
+         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, launch_attempt, launch_fail_streak, outcome, reason, started_at, ended_at)
+       VALUES (1, 1, 1, 'implement-setup', 'agent', 1, 'blocked', 2, 1, 'error', 'unknown-repository',
+               '2026-08-16T00:10:00.000Z', '2026-08-16T00:15:00.000Z')`,
+    ).run()
+    localStore.db.prepare(
+      `INSERT INTO approach_node_deferrals
+         (id, graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+       VALUES (1, 1, 1, 'implement-setup', 'lease-held: extention at /private/worktree', '2026-08-16T00:08:00.000Z', '2026-08-16T00:09:00.000Z')`,
+    ).run()
+    localStore.db.prepare(
+      `INSERT INTO approach_resource_leases
+         (id, graph_run_id, owner_node_run_id, physical_domain, access_mode, claimed_paths, status, acquired_at, released_at)
+       VALUES (1, 1, 1, 'domain-repo', 'exclusive', '["/private/worktree/file.ts"]', 'held', '2026-08-16T00:05:00.000Z', NULL)`,
     ).run()
 
     const draft = await collectMetadata({
@@ -1120,10 +1131,39 @@ describe('collectMetadata', () => {
       id: 1,
       graphRunId: 1,
       nodeId: 'implement-setup',
+      nodeKind: 'agent',
+      visitNumber: 1,
       status: 'blocked',
+      launchAttempt: 2,
+      launchFailStreak: 1,
       outcome: 'error',
       reason: 'unknown-repository',
+      startedAt: '2026-08-16T00:10:00.000Z',
+      endedAt: '2026-08-16T00:15:00.000Z',
     })
+
+    expect(data.deferrals).toHaveLength(1)
+    expect(data.deferrals[0]).toMatchObject({
+      id: 1,
+      graphRunId: 1,
+      revisionId: 1,
+      nodeId: 'implement-setup',
+      waitSince: '2026-08-16T00:08:00.000Z',
+      updatedAt: '2026-08-16T00:09:00.000Z',
+    })
+    expect(data.deferrals[0].reason).toContain('lease-held')
+
+    expect(data.leases).toHaveLength(1)
+    expect(data.leases[0]).toMatchObject({
+      id: 1,
+      graphRunId: 1,
+      ownerNodeRunId: 1,
+      accessMode: 'exclusive',
+      status: 'held',
+      acquiredAt: '2026-08-16T00:05:00.000Z',
+      releasedAt: null,
+    })
+    expect(data.leases[0].physicalDomain).toBe('domain-repo')
 
     const serialized = JSON.stringify(draft)
     expect(serialized).not.toContain('CANONICAL_GRAPH_BODY_MUST_NEVER_APPEAR')
