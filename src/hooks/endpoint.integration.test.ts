@@ -14,8 +14,19 @@ import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 import { listTokenUsage } from '../store/tokenUsage.js';
 
+const DEFAULT_LAUNCH = '00000000-0000-4000-8000-000000000001';
+
+/** The endpoint refuses a hook with no launch id; tests that do not care add one. */
+function withLaunch(url: string): string {
+  const parsed = new URL(url);
+  if (!parsed.searchParams.has('karstLaunch') && parsed.pathname === '/hooks') {
+    parsed.searchParams.set('karstLaunch', DEFAULT_LAUNCH);
+  }
+  return parsed.toString();
+}
+
 async function post(url: string, body: unknown): Promise<number> {
-  const res = await fetch(url, {
+  const res = await fetch(withLaunch(url), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -31,7 +42,7 @@ async function rawRequest(port: number, target: string): Promise<number> {
     socket.setEncoding('utf8');
     socket.on('connect', () => {
       socket.write(
-        `POST ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: 2\r\n\r\n{}`,
+        `POST ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\nContent-Length: 2\r\n\r\n{}`,
       );
     });
     socket.on('data', (chunk) => {
@@ -183,6 +194,11 @@ describe('startHookEndpoint', () => {
     expect(parseHookRequestTarget('http://[')).toEqual({
       kind: 'bad-request',
     });
+    expect(parseHookRequestTarget('/hooks')).toEqual({ kind: 'bad-request' });
+    expect(parseHookRequestTarget(`/hooks?karstLaunch=${DEFAULT_LAUNCH}`)).toEqual({
+      kind: 'ok',
+      launchId: DEFAULT_LAUNCH,
+    });
     expect(await rawRequest(ep.port, '/hooks?karstLaunch=%')).toBe(400);
     expect(getTicket(store, id).agentState).toBe('none');
   });
@@ -210,14 +226,14 @@ describe('startHookEndpoint', () => {
   });
 
   it('a malformed body returns 2xx and does not crash the endpoint', async () => {
-    const res = await fetch(ep.url, { method: 'POST', body: 'not json{' });
+    const res = await fetch(withLaunch(ep.url), { method: 'POST', body: 'not json{' });
     await res.text();
     expect(res.status).toBeGreaterThanOrEqual(200);
     expect(res.status).toBeLessThan(300);
   });
 
   it('a non-POST request is rejected with 404', async () => {
-    const res = await fetch(ep.url, { method: 'GET' });
+    const res = await fetch(withLaunch(ep.url), { method: 'GET' });
     await res.text();
     expect(res.status).toBe(404);
   });
@@ -230,7 +246,7 @@ describe('startHookEndpoint', () => {
     });
     const id = ticketAt();
     const huge = 'x'.repeat(1024 * 1024 + 4096);
-    const res = await fetch(ep.url, {
+    const res = await fetch(withLaunch(ep.url), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ hook_event_name: 'SessionStart', cwd: WT, pad: huge }),
@@ -258,7 +274,7 @@ describe('startHookEndpoint', () => {
       partial = connect(ep.port, '127.0.0.1');
       partial.on('connect', () => {
         partial!.write(
-          'POST /hooks HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 999999999\r\n\r\n' +
+          `POST /hooks?karstLaunch=${DEFAULT_LAUNCH} HTTP/1.1\r\nHost: 127.0.0.1:${ep.port}\r\nContent-Length: 999999999\r\n\r\n` +
             'x'.repeat(1024 * 1024 + 4096),
         );
         resolve();
@@ -308,7 +324,7 @@ describe('startHookEndpoint', () => {
       partial = connect(ep.port, '127.0.0.1');
       partial.on('connect', () => {
         partial!.write(
-          'POST /hooks HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\n{',
+          `POST /hooks?karstLaunch=${DEFAULT_LAUNCH} HTTP/1.1\r\nHost: 127.0.0.1:${ep.port}\r\nContent-Length: 100\r\n\r\n{`,
         );
         resolve();
       });
@@ -436,7 +452,7 @@ describe('mail reply channel', () => {
   }
 
   async function postBody(url: string, body: unknown): Promise<{ status: number; json: unknown }> {
-    const res = await fetch(url, {
+    const res = await fetch(withLaunch(url), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),

@@ -17,6 +17,7 @@ import type {
   HookChannelRecorder,
 } from '../diagnostics/hookChannel.js';
 import { serveCreateTicketRequest, type TicketApiOptions } from './ticketApi.js';
+import { isBrowserRequest } from './requestGuard.js';
 
 /**
  * Cap the accepted hook body. A tool result rides the hook payload
@@ -32,7 +33,7 @@ const LAUNCH_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type HookRequestTarget =
-  | { kind: 'ok'; launchId?: string }
+  | { kind: 'ok'; launchId: string }
   | { kind: 'bad-request' }
   | { kind: 'not-found' };
 
@@ -48,10 +49,12 @@ export function parseHookRequestTarget(raw: string | undefined): HookRequestTarg
   const launchIds = target.searchParams.getAll('karstLaunch');
   if (launchIds.length > 1) return { kind: 'bad-request' };
   const launchId = launchIds[0];
-  if (launchId !== undefined && !LAUNCH_ID_RE.test(launchId)) {
+  // The per-launch id is the endpoint's shared secret: a request without a
+  // well-formed one is refused before dispatch.
+  if (launchId === undefined || !LAUNCH_ID_RE.test(launchId)) {
     return { kind: 'bad-request' };
   }
-  return launchId === undefined ? { kind: 'ok' } : { kind: 'ok', launchId };
+  return { kind: 'ok', launchId };
 }
 
 /** The URL's pathname, '' for a target that does not parse as a URL. */
@@ -79,7 +82,7 @@ export interface HookReplyInput {
   ticketId: number;
   /** The normalized event name (`Stop`, `session.idle`, …). */
   event: string;
-  /** The URL-authenticated launch generation, when the request carried one. */
+  /** The URL-authenticated launch generation (mandatory on every hook). */
   launchId?: string;
   /**
    * Claude's Stop re-entry flag. A `Stop` with this set is the agent
@@ -210,7 +213,7 @@ export function startHookEndpoint(
     const replyFor = (
       payload: HookPayload | null,
       result: HookDispatchResult,
-      launchId: string | undefined,
+      launchId: string,
     ): HookReply | null => {
       if (
         payload === null ||
@@ -224,13 +227,14 @@ export function startHookEndpoint(
         return options.hookReply({
           ticketId: result.ticketId,
           event: payload.hook_event_name ?? '',
-          ...(launchId === undefined ? {} : { launchId }),
+          launchId,
           ...(payload.stop_hook_active === true ? { stopHookActive: true } : {}),
         });
       } catch {
         return null;
       }
     };
+    let boundPort = port;
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       // Only the POST /hooks contract is served; anything else gets a fast 404.
       if (req.method !== 'POST') {
@@ -244,11 +248,21 @@ export function startHookEndpoint(
       // touches the hook path or its recorder.
       if (requestPath(req.url) === '/tickets') {
         serveCreateTicketRequest(req, res, {
+          port: boundPort,
           store,
           options: options.ticketApi,
           maxBodyBytes: MAX_TICKET_BODY_BYTES,
           requestTimeoutMs,
         });
+        return;
+      }
+      // Browser guard: a page cannot forge Host (DNS rebinding aside) or omit
+      // Origin on a cross-site POST, so either one is refused before any parse.
+      if (isBrowserRequest(req, boundPort)) {
+        observe('bad-request');
+        res.writeHead(403);
+        res.end();
+        req.resume();
         return;
       }
       const target = parseHookRequestTarget(req.url);
@@ -373,8 +387,7 @@ export function startHookEndpoint(
         // launch generation back to the ticket that was answered and confirm —
         // never dispatch, never record on the hook channel.
         if (payload?.hook_event_name === 'MailReplyAck') {
-          const ticketId =
-            launchId === undefined ? undefined : pendingReplyByLaunch.get(launchId);
+          const ticketId = pendingReplyByLaunch.get(launchId);
           if (ticketId !== undefined) {
             try {
               options.onReplyDelivered?.(ticketId);
@@ -388,10 +401,7 @@ export function startHookEndpoint(
 
         let result: HookDispatchResult = { admitted: false };
         if (payload) {
-          const dispatchPayload =
-            launchId === undefined
-              ? payload
-              : { ...payload, launchId };
+          const dispatchPayload = { ...payload, launchId };
           observe('accepted', payload.hook_event_name);
           // Dispatch failures are real bugs (bad SQL, store error), not a
           // malformed body — surface them instead of silently swallowing.
@@ -443,7 +453,7 @@ export function startHookEndpoint(
           // ACK can confirm delivery without a DB lookup. The bridge prints this
           // body and then POSTs the ACK; only the ACK means the agent received
           // it — a flushed response is not enough when the host stalled.
-          if (launchId !== undefined && result.ticketId !== undefined) {
+          if (result.ticketId !== undefined) {
             pendingReplyByLaunch.set(launchId, result.ticketId);
           }
           finish(200, false, JSON.stringify(reply));
@@ -474,6 +484,7 @@ export function startHookEndpoint(
     server.on('listening', () => {
       const addr = server.address();
       const bound = typeof addr === 'object' && addr ? addr.port : port;
+      boundPort = bound;
       let closePromise: Promise<void> | undefined;
       resolve({
         port: bound,
