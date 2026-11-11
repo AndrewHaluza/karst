@@ -9,7 +9,9 @@
 .wt .wadd{color:var(--k-passed)}
 .wt .wdel{color:var(--k-failed)}
 /* The branch the header shows once. */
-.phead .sec-sum .wsum-br{margin-right:var(--k-space-2)}
+.phead .sec-sum:has(.wsum-br){display:flex;align-items:center;overflow:hidden}
+.phead .sec-sum .wsum-br{margin-right:var(--k-space-2);min-width:0;overflow:hidden;text-overflow:ellipsis}
+.phead .sec-sum .k-iconbtn{flex:none}
 .phead .sec-sum [data-act="copy-worktree-branch"]{vertical-align:middle}
 /* Base branch — inline label inside the row */
 .wt .wbase{display:inline-flex;align-items:center;gap:var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-2xs);white-space:nowrap;flex-shrink:0}

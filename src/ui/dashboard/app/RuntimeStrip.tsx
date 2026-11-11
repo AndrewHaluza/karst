@@ -265,7 +265,7 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
               </span>
               <span className="rs-name">{agentName(session.provider)}</span>
               <span className={running ? 'rs-state running' : 'rs-state'}>{stateWord}</span>
-              <span className="rs-sub" title={session.modelId ?? undefined}>
+              <span className="rs-sub" title={session.modelId ?? undefined} aria-label={`${session.modelLabel}${session.effort ? ` · ${session.effort}` : ''}`}>
                 {session.modelLabel}
                 {session.effort ? ` · ${session.effort}` : ''}
               </span>

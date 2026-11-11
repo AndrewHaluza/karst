@@ -112,7 +112,7 @@ export const TicketIdentity = memo(function TicketIdentity() {
 export const TicketTitle = memo(function TicketTitle() {
   const slice = useSlice(selectIdentity);
   return (
-    <h1 id="title" className="ticketTitle" title={slice ? ticketIdentityText(slice.idLabel, slice.key, slice.title) : undefined}>
+    <h1 id="title" className="ticketTitle" title={slice ? ticketIdentityText(slice.idLabel, slice.key, slice.title) : undefined} aria-label={slice ? ticketIdentityText(slice.idLabel, slice.key, slice.title) : undefined}>
       {slice?.title}
     </h1>
   );
