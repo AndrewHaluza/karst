@@ -30,11 +30,17 @@ function sandbox(unsynced = false): CiActionsInput['sandbox'] {
   };
 }
 
+/** A git stub whose HEAD moves on each read, so a rebase counts as a move. */
+function movingGit(): CiActionsInput['git'] {
+  let n = 0;
+  return vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: '', exitCode: 0 }));
+}
+
 function input(over: Partial<CiActionsInput> = {}): CiActionsInput {
   return {
     store, ticketId: id, artifactDir: dir,
     gh: vi.fn(async () => ({ stdout: `${SHA}\n`, exitCode: 0 })),
-    git: vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? 'orig\n' : '', stderr: '', exitCode: 0 })),
+    git: movingGit(),
     sandbox: sandbox(),
     deliver: { runShip: vi.fn(async () => {}), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() },
     reprobe: vi.fn(async () => {}),
@@ -107,7 +113,8 @@ describe('rebaseOnBaseAction', () => {
 
   it('a git failure maps to the ops error path and never re-probes', async () => {
     seedPr();
-    const git = vi.fn(async (args: readonly string[]) => ({ stdout: '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    let n = 0;
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
     const i = input({ git });
     await rebaseOnBaseAction(i, () => []);
     expect(i.error).toHaveBeenCalled();
@@ -141,7 +148,8 @@ describe('rebaseOnBaseAction result and autopilot mode (T1081)', () => {
 
   it('returns false when the push is rejected', async () => {
     seedPr();
-    const git = vi.fn(async (args: readonly string[]) => ({ stdout: '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    let n = 0;
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
     expect(await rebaseOnBaseAction(input({ git }), () => [])).toBe(false);
   });
 
@@ -179,6 +187,25 @@ describe('rebaseOnBaseAction result and autopilot mode (T1081)', () => {
     expect(pushedRepos(i)).toEqual([]);
   });
 
+  it('autopilot mode rebases a PR whose probe is not behind (a failing check hides it), user mode does not', async () => {
+    seedPr();
+    store.db.prepare("UPDATE prs SET merge_block = 'ci' WHERE ticket_id = ?").run(id);
+    const user = input();
+    expect(await rebaseOnBaseAction(user, () => [])).toBe(false);
+    expect(pushedRepos(user)).toEqual([]);
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(true);
+    expect(pushedRepos(i)).toEqual(['/w/r']);
+  });
+
+  it('autopilot mode pushes nothing and returns false when the branch is already current', async () => {
+    seedPr();
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? 'same\n' : '', stderr: '', exitCode: 0 }));
+    const i = input({ git });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
+    expect(pushedRepos(i)).toEqual([]);
+  });
+
   it('autopilot mode rebases only the named repos', async () => {
     seedPr();
     seedSecondPr();
@@ -206,7 +233,8 @@ describe('rebaseOnBaseAction result and autopilot mode (T1081)', () => {
   it('the first failing repo stops the rest and the result is false', async () => {
     seedPr();
     seedSecondPr();
-    const git = vi.fn(async (args: readonly string[]) => ({ stdout: '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    let n = 0;
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
     const i = input({ git });
     expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r', 'r2']) })).toBe(false);
     expect(pushedRepos(i)).toEqual(['/w/r']);
@@ -214,7 +242,8 @@ describe('rebaseOnBaseAction result and autopilot mode (T1081)', () => {
 
   it('autopilot mode shows no toast: every message goes to the debug log', async () => {
     seedPr();
-    const gitFail = vi.fn(async (args: readonly string[]) => ({ stdout: '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    let n = 0;
+    const gitFail = vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
     const i = input({ git: gitFail });
     expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
     expect(i.error).not.toHaveBeenCalled();

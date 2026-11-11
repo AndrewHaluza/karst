@@ -91,7 +91,7 @@ export async function rebaseOnBaseAction(
   const error = auto ? tell : i.error;
   const logError = auto ? (m: string, err: unknown): void => tell(`${m}: ${err instanceof Error ? err.message : String(err)}`) : i.logError;
   try {
-    const state = rebaseState(i.store, i.ticketId);
+    const state = rebaseState(i.store, i.ticketId, { anyBlock: auto !== undefined });
     if (!state.available) {
       info(
         state.reason === 'not-behind'
@@ -114,6 +114,7 @@ export async function rebaseOnBaseAction(
         agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
         sandboxUnsynced: () => i.sandbox.hasUnsynced(i.ticketId),
         preShip: pr.preShip === true,
+        requireMove: auto !== undefined,
         armLease: pr.number === null ? undefined : () => armForcePushLease(i.store, i.ticketId, pr.repo),
         prHeadSha: async () => {
           if (pr.number === null) throw new Error('no pull request to read');

@@ -106,6 +106,25 @@ describe('rebaseOnBase', () => {
     expect(r.errors[0]).toMatch(/gen/);
   });
 
+  it('requireMove: pushes nothing and returns false when the rebase and generators moved nothing', async () => {
+    const r = rig({ requireMove: true });
+    expect(await rebaseOnBase(r.deps)).toBe(false);
+    expect(r.calls.some((c) => c.startsWith('git push'))).toBe(false);
+    expect(r.deps.info).toHaveBeenCalledWith(expect.stringContaining('nothing pushed'));
+  });
+
+  it('requireMove: pushes when the branch head moved', async () => {
+    let revs = 0;
+    const r = rig({ requireMove: true });
+    const base = r.deps.git;
+    const deps: RebaseDeps = {
+      ...r.deps,
+      git: async (cwd, args) => (args[0] === 'rev-parse' ? { code: 0, stdout: `head${revs++}\n`, stderr: '' } : base(cwd, args)),
+    };
+    expect(await rebaseOnBase(deps)).toBe(true);
+    expect(r.calls.some((c) => c.startsWith('git push'))).toBe(true);
+  });
+
   it('pushes with the lease on the PR head sha, then recreates in order', async () => {
     const r = rig();
     await rebaseOnBase(r.deps);

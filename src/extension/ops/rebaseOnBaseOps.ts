@@ -34,6 +34,8 @@ export interface RebaseDeps {
    * re-probe. `armLease` is passed when a PR exists, so ship's next push is a lease push.
    */
   readonly preShip?: boolean;
+  /** Autopilot (T1081): push only when the rebase and the generators changed the branch; otherwise nothing is pushed and the result is false. */
+  readonly requireMove?: boolean;
   readonly armLease?: () => void;
   readonly removeSandbox: () => Promise<void>;
   readonly reopenSandbox: () => Promise<void>;
@@ -87,6 +89,9 @@ async function run(d: RebaseDeps): Promise<void> {
   }
   if (!(await regenerated(d, origHead))) return;
   if (d.preShip) return finishPreShip(d, origHead);
+  if (d.requireMove && (await upToDate(d, origHead))) {
+    return d.info(`Rebase on base: ${d.branch} is already on origin/${d.baseRef} and the generated files are current; nothing pushed.`);
+  }
 
   let sha: string;
   try {

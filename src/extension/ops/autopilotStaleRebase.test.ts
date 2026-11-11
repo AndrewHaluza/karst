@@ -20,7 +20,7 @@ function ctx(o: { log?: string | Error; sha?: string | Error; rebase?: boolean |
   const debug = vi.fn();
   const order: string[] = [];
   const readJobLog = vi.fn(async () => { if (o.log instanceof Error) throw o.log; return o.log ?? STALE; });
-  const readRunHeadSha = vi.fn(async () => { if (o.sha instanceof Error) throw o.sha; return o.sha ?? SHA; });
+  const readRunHeadSha = vi.fn(async (_cwd: string, _c?: unknown) => { if (o.sha instanceof Error) throw o.sha; return o.sha ?? SHA; });
   const rebase = vi.fn(async (repo: string) => {
     order.push(`rebase:${repo}`);
     if (o.rebase instanceof Error) throw o.rebase;
@@ -111,6 +111,14 @@ describe('staleRebaseStep', () => {
     expect(await staleRebaseStep(x.c, [check('A')])).toEqual({ kind: 'none', earlier: new Set() });
     expect(x.rebase).not.toHaveBeenCalled();
     expect(getAutopilotRerun(store, id, 'r', '100', 'A')).toBeNull();
+  });
+
+  it('keeps the ticket waiting when a later repo head sha read fails after an earlier repo pushed', async () => {
+    const x = ctx();
+    x.readRunHeadSha.mockImplementation(async (cwd: string) => { if (cwd === '/w/r2') throw new Error('gh down'); return SHA; });
+    expect(await staleRebaseStep(x.c, [check('A', 'r1'), check('B', 'r2')])).toEqual({ kind: 'rebased' });
+    expect(x.order).toEqual(['rebase:r1']);
+    expect(getAutopilotRerun(store, id, 'r2', '100', 'B')).toBeNull();
   });
 
   it('writes the stopped note and returns none naming the check when the rebase stops', async () => {

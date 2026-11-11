@@ -60,7 +60,8 @@ export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly Fai
   for (const [repo, group] of repos) {
     const first = group[0]!;
     let headSha: string;
-    try { headSha = await c.seams.readRunHeadSha(first.target.cwd, first.url); } catch { return none; }
+    // A failed read skips this repo only: a repo that already pushed keeps the ticket waiting.
+    try { headSha = await c.seams.readRunHeadSha(first.target.cwd, first.url); } catch { continue; }
     // The marker is written BEFORE the rebase: a reload or a second window that sees it never rebases the same check again.
     const marked = group.filter((s) => markAutopilotRerun(c.store, c.ticketId, {
       repo, runId: s.url.runId, checkName: s.target.name, headSha, pattern: `${STALE_PATTERN_PREFIX}${s.command}`, rerunAt: c.now(),
