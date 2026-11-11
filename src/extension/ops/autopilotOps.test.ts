@@ -1298,3 +1298,30 @@ describe('autopilotTick CI round that made no commit (D564)', () => {
     expect(r.sendCi).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('autopilotTick CI round with no commit after a network re-run (D564)', () => {
+  const URL_V = 'https://github.com/o/r/actions/runs/100/job/200';
+  const SHA = 'abcdef0123456789abcdef0123456789abcdef01';
+  const NET_LOG = '2026-11-08T10:00:00.1Z prebuild-install warn install Request timed out\n';
+  const REAL_LOG = '2026-11-08T10:00:00.1Z FAIL src/a.test.ts\n2026-11-08T10:00:00.2Z AssertionError: expected 1 to be 2\n';
+  const withUrl = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V })) });
+  const reseed = (): void => { store.db.prepare('UPDATE prs SET checks = ? WHERE ticket_id = ?').run(JSON.stringify(withUrl('build')), id); };
+  const later = (log: string, over: Partial<AutopilotDeps> = {}) => {
+    const rerun = vi.fn(async (_cwd: string, _c: unknown) => {});
+    const r = rig({ transientCi: { readJobLog: async () => log, readRunHeadSha: async () => SHA, rerunFailedJobs: rerun }, ...over });
+    return { ...r, rerun };
+  };
+
+  it('parks instead of sending round 2 when the same run was re-run for a network error and the round made no commit', async () => {
+    seedPr(withUrl('build'));
+    expect((await autopilotTick(later(NET_LOG).deps)).kind).toBe('rerun');
+    reseed();
+    const settled = (): number => Date.now() + 10 * 60_000;
+    expect((await autopilotTick(later(REAL_LOG, { now: settled }).deps)).kind).toBe('armed');
+    reseed();
+    const r = later(REAL_LOG, { now: settled });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci round made no change' });
+    expect(r.rerun).not.toHaveBeenCalled();
+    expect(r.sendCi).not.toHaveBeenCalled();
+  });
+});

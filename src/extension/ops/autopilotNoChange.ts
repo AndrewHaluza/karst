@@ -1,16 +1,16 @@
 import { getAutopilotRerun, getCiRoundHeadSha, markAutopilotRerun, setCiRoundHeadSha } from '../../store/autopilot.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { parseCheckUrl, type CheckUrl } from '../../workflow/transientCi.js';
-import { RERUN_SETTLE_MS, type FailedCheck, type RerunContext } from './autopilotRerun.js';
+import { NO_CHANGE_PATTERN, RERUN_SETTLE_MS, type FailedCheck, type RerunContext } from './autopilotRerun.js';
+import { STALE_PATTERN_PREFIX } from '../../workflow/staleGeneratedCi.js';
+
+export { NO_CHANGE_PATTERN };
 
 /**
  * A CI round that made no commit (D564, @arch:AP-03): when a failing check still shows the head SHA that was recorded when the
  * last CI round was sent, no commit came and CI cannot change. The failed jobs of that run are re-run ONCE, at no attempt cost
  * (marker `no-change` in `autopilot_reruns`, written before gh runs). A second failure on the same head parks the ticket.
  */
-
-/** Marker pattern of the one re-run after a round that made no commit. */
-export const NO_CHANGE_PATTERN = 'no-change';
 
 export type NoChangeStep =
   | { readonly kind: 'none' }
@@ -49,8 +49,9 @@ export async function noChangeStep(c: RerunContext, fails: readonly FailedCheck[
     const recorded = getCiRoundHeadSha(c.store, c.ticketId, target.repo);
     if (!url || recorded === null) continue;
     const done = getAutopilotRerun(c.store, c.ticketId, target.repo, url.runId, target.name);
-    // A marker of another kind (a network re-run, a stale rebase) belongs to its own step.
-    if (done && done.pattern !== NO_CHANGE_PATTERN) continue;
+    // A stale rebase pushed a new head, so its marker belongs to its own step. A network re-run marker on this run means the one
+    // re-run of this run is used: on an unchanged head the check is not re-run again, and it stops once the re-run has settled.
+    if (done?.pattern.startsWith(STALE_PATTERN_PREFIX)) continue;
     let headSha: string;
     try { headSha = await c.seams.readRunHeadSha(target.cwd, url); } catch (err) { return { kind: 'error', reason: messageOf(err) }; }
     if (headSha !== recorded) continue;

@@ -16,6 +16,9 @@ export interface TransientCiSeams {
   readonly rerunFailedJobs: (cwd: string, check: CheckUrl) => Promise<void>;
 }
 
+/** Marker pattern of the one re-run after a CI round that made no commit (D564). It is not a network re-run. */
+export const NO_CHANGE_PATTERN = 'no-change';
+
 /** After a re-run starts, a rollup that still shows the old failure is not read for this long (gh may lag). */
 export const RERUN_SETTLE_MS = 90_000;
 
@@ -54,6 +57,8 @@ export async function transientRerunStep(c: RerunContext, fails: readonly Failed
     const done = getAutopilotRerun(c.store, c.ticketId, target.repo, url.runId, target.name);
     // A rebase round for a stale generated file (T1081) is not a network re-run: it neither settles nor counts as one.
     if (done?.pattern.startsWith(STALE_PATTERN_PREFIX)) continue;
+    // The re-run after a round with no commit (D564) belongs to the no-change step: after Approve 1 more it must not hold this one.
+    if (done?.pattern === NO_CHANGE_PATTERN) continue;
     if (done) {
       earlier.add(target.name);
       if (c.now() - done.rerunAt < RERUN_SETTLE_MS) settling = true;

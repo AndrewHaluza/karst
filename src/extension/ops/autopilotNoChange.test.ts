@@ -125,9 +125,17 @@ describe('noChangeStep', () => {
     expect(x.rerunFailedJobs).not.toHaveBeenCalled();
   });
 
-  it('leaves a check that another re-run marked to its own step', async () => {
+  it('stops, with no second re-run, when a network re-run already used this run and the round made no commit', async () => {
     setCiRoundHeadSha(store, id, 'r', SHA);
     markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: 'econnreset', rerunAt: clock - RERUN_SETTLE_MS });
+    const x = ctx();
+    expect(await noChangeStep(x.c, [check('A')])).toEqual({ kind: 'stopped', check: 'A' });
+    expect(x.rerunFailedJobs).not.toHaveBeenCalled();
+  });
+
+  it('leaves a check that a stale rebase marked to its own step', async () => {
+    setCiRoundHeadSha(store, id, 'r', SHA);
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: 'stale-generated:npm run -s docs:graph', rerunAt: clock - RERUN_SETTLE_MS });
     const x = ctx();
     expect(await noChangeStep(x.c, [check('A')])).toEqual({ kind: 'none' });
     expect(x.readRunHeadSha).not.toHaveBeenCalled();
