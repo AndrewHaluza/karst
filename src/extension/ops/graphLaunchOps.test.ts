@@ -17,7 +17,22 @@ describe('advanceConsumedGraphAttempt', () => {
     store.close();
   });
 
-  it('returns false and mutates nothing when decision status is not cancelled or stale', () => {
+  it('returns false and mutates nothing when decision status is not a terminal status', () => {
+    const lines: string[] = [];
+    const log = (m: string): void => void lines.push(m);
+    const advanced = advanceConsumedGraphAttempt(
+      store,
+      ticketId,
+      { kind: 'attempt-consumed', graphRunId: 1, status: 'running', stageAttempt: 0 },
+      0,
+      log,
+    );
+    expect(advanced).toBe(false);
+    expect(stageAttempt(store, ticketId, 'impl')).toBe(0);
+    expect(lines).toHaveLength(0);
+  });
+
+  it('advances attempt when status is closed', () => {
     const lines: string[] = [];
     const log = (m: string): void => void lines.push(m);
     const advanced = advanceConsumedGraphAttempt(
@@ -27,9 +42,9 @@ describe('advanceConsumedGraphAttempt', () => {
       0,
       log,
     );
-    expect(advanced).toBe(false);
-    expect(stageAttempt(store, ticketId, 'impl')).toBe(0);
-    expect(lines).toHaveLength(0);
+    expect(advanced).toBe(true);
+    expect(stageAttempt(store, ticketId, 'impl')).toBe(1);
+    expect(lines[0]).toContain(`advanced ticket T${ticketId} impl attempt to 1 following terminal (closed) graph run 1`);
   });
 
   it('advances attempt when status is cancelled', () => {

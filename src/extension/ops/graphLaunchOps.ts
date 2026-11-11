@@ -5,7 +5,7 @@ import type { GraphLaunchDecision } from '../../approaches/graph/launchGuard.js'
 import { formatId } from '../../model/entityId.js';
 
 /**
- * When a graph run for the current impl attempt terminated (cancelled or stale),
+ * When a graph run for the current impl attempt terminated (cancelled, stale, or closed),
  * advance the impl stage attempt so the next run can bootstrap cleanly under the
  * strict UNIQUE (ticket_id, stage_attempt) invariant.
  * Returns true if the attempt was advanced, or false if the decision status is not advanceable.
@@ -17,7 +17,7 @@ export function advanceConsumedGraphAttempt(
   currentAttempt: number,
   log?: (message: string) => void,
 ): boolean {
-  if (decision.status !== 'cancelled' && decision.status !== 'stale') return false;
+  if (decision.status !== 'cancelled' && decision.status !== 'stale' && decision.status !== 'closed') return false;
   const maxGraphAttempt = maxGraphRunStageAttemptForTicket(store.db, ticketId);
   const nextAttempt = Math.max(currentAttempt, maxGraphAttempt ?? -1) + 1;
   setStage(store, ticketId, 'impl', { attempt: nextAttempt });
