@@ -265,8 +265,8 @@ describe('React rail and banner — one post per click, one request per operatio
     v.window.addEventListener('karst:prBegin', (e) => heard.push((e as CustomEvent).detail));
     const before = v.posted.length;
     await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
-    await click(v, '[data-stage-menu="ship"]');
-    await click(v, '.stageMenu [data-act="send-ci-failure"]');
+    // The host-picked main action is a visible button, so no menu opens first.
+    await click(v, '.stageMain[data-act="send-ci-failure"]');
     expect(types(v, before)).toEqual(['send-ci-failure']);
     expect(heard).toEqual([]);
   });

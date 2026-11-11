@@ -17,6 +17,10 @@
   /* has-actions outranks the rule above: keep the menu in its own track on row one. */
   #inside .inside-head.has-actions{grid-template-columns:auto minmax(0,1fr) auto}
   #inside .inside-head .stageMenuWrap{grid-column:3;grid-row:1}
+  /* The menu button now sits at the right edge, so the popover opens leftward from it. */
+  #inside .stageMenu{left:auto;right:0}
+  /* Only 'Actions' goes icon-only at the tight tier; the main action keeps its label (RD-NEVER #1). */
+  #inside .stageMenuBtn .stageMenuLabel{display:none}
   #inside .inside-meta{grid-column:2}
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(68px,86px) minmax(0,1fr) auto var(--inside-dur-w) 16px;
     padding-left:var(--p-s2);padding-right:var(--p-s2)}

@@ -16,9 +16,6 @@
 .fault .freason{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);
   white-space:pre-wrap;word-break:break-word}
 .fault .facts{display:flex;gap:var(--k-space-3);margin-top:0;flex-wrap:nowrap}
-.fault .k-btn--ghost{background:transparent;border-color:transparent;color:var(--k-text-dim)}
-.fault .k-btn--ghost:hover{background:var(--k-surface-hover)}
-.fault .k-btn--ghost:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
 /* The baseline-review line (BaselineBanner.tsx): a needs-you block, so amber, not the failed tint. #blocked keeps its
    .fault class (it is static markup), so the amber rides :has() on the line it holds. */

@@ -95,6 +95,17 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Unlink a cloud session | `unlink` | sidebar context window, manual links only |
 | Link a cloud session to a ticket/draft | `link` | sidebar unlinked-session row |
 | Collapse all | `chevrons-up` | Planning section header |
+| Push the branch onto the pull request (Inside, Deliver row) | `git-branch` | row action, label "Push" |
+| Resume a paused stage (Inside) | `player-play` | row action, label "Resume" |
+| Retry a failed stage (Inside) | `refresh` | stage header main action, label "Retry" |
+| Send the CI failure to the agent (Inside) | `send` | stage header main action, label "Send CI failure" |
+| Address PR feedback (Inside) | `pencil` | stage header main action, label "Address feedback" |
+| Rebase on the base branch (Inside) | `arrows-down-up` | stage header main action, label "Rebase" |
+| Reset a failed stage (Inside menu) | `arrow-back-up` | not `history` (Restore) |
+| Send back to Implement (Inside menu) | `arrow-left` | |
+| Last round of Auto-fix (Inside) | `player-pause` | row action, label "Last round" |
+| More rows (Inside overflow) | `chevron-down` | text button, label "14 more" |
+| Stage menu trigger (Inside) | `dots` | ghost button, label "Actions" |
 
 Scope note: **attach/detach** and **clear-terminal** controls have no current
 UI surface; when one appears it uses a native Tabler glyph (`link`/`unlink`

@@ -369,3 +369,7 @@
 /* The timeline overflow: a text button under the rail, aligned with the rail's name column. */
 #inside .timeline-overflow{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s3) + 20px + var(--p-s1))}
 #inside .overflow-btn{display:inline-flex;min-height:20px;align-items:center;gap:var(--p-s1);color:var(--p-running)}
+/* A failed Deliver row's error text: closed behind 'Show'; long output wraps (UI-R44). */
+#inside .ev-output{margin-top:var(--p-s1)}
+#inside .ev-output summary{cursor:pointer;color:var(--p-muted2)}
+#inside .ev-output pre{margin:var(--p-s1) 0 0;font-family:var(--p-mono);color:var(--p-muted2);white-space:pre-wrap;overflow-wrap:anywhere}

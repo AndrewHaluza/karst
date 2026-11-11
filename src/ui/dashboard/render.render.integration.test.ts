@@ -185,7 +185,7 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('renders the ship ⋯ menu when PR feedback is the only available recovery action', async () => {
+  it('shows PR feedback as the main action, with no Actions button, when it is the only available recovery action', async () => {
     const h = await renderWebviewReady('dashboard');
     const base = renderStateFor('ship');
     h.receive({
@@ -199,7 +199,8 @@ describe('dashboard render — fixture corpus', () => {
       },
     });
     await drainReactWork(h);
-    expect(h.query('[data-stage-menu="ship"]'), '⋯ menu not rendered').toBeTruthy();
+    expect(h.query('.stageMain[data-act="address-pr-feedback"]'), 'main action not rendered').toBeTruthy();
+    expect(h.query('[data-stage-menu="ship"]'), 'nothing is left for the Actions menu').toBeNull();
     expect(h.errors).toEqual([]);
     h.close();
   });

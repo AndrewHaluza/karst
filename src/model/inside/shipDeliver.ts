@@ -71,6 +71,8 @@ export function deliverProcess(d: DeliverRowInput | null | undefined): InsidePro
     status: rowStatus(d),
     ...(parts.length > 0 ? { detail: parts.join(DETAIL_SEPARATOR) } : {}),
     ...(d.canDeliver ? { deliver: { title: hint ? `Push — ${lowerFirst(hint)}` : DELIVER_PUSH_TITLE } } : {}),
+    // A run left a record: the row offers the stage console, as the Gate output button did.
+    ...(auto ? { console: true as const } : {}),
     evidence: { kind: 'rows', rows: evidenceRows(d) },
   };
 }

@@ -8,7 +8,7 @@ import type { AgentExecutionView, InsideProcessView, TokenUsageView, TypedInside
 import { useDashboardSend } from './DashboardAppContext.js';
 import { RuntimeIcon } from './AgentIcon.js';
 import { Icon } from './Icon.js';
-import { INSIDE_ACTION_DANGER, INSIDE_ACTION_LABEL, INSIDE_ACTION_TITLE } from './insideText.js';
+import { INSIDE_ACTION_DANGER, INSIDE_ACTION_ICON, INSIDE_ACTION_LABEL, INSIDE_ACTION_OVERFLOW, INSIDE_ACTION_TITLE, insideActionSentence } from './insideText.js';
 import { usePendingAction } from './usePendingAction.js';
 
 /** Posts `inside-action` for one opaque action id, runtime-pending until the host answers. The control keeps one className whatever it shows. */
@@ -31,17 +31,23 @@ export const InsideActionButton = memo(function InsideActionButton({ action }: {
   // The host may ship a count-bearing label ("Show 4 more"); the static map is the fallback, never a webview-computed count.
   const label = action.label || INSIDE_ACTION_LABEL[action.kind];
   // A danger action gets the danger variant (UI-R10b), so an irreversible control is never styled as an ordinary secondary button.
-  const variant = INSIDE_ACTION_DANGER.has(action.kind) ? 'k-btn--danger' : 'k-btn--secondary';
+  // An overflow is the text button with a chevron (a row action is the secondary button).
+  const overflow = INSIDE_ACTION_OVERFLOW.has(action.kind);
+  const variant = INSIDE_ACTION_DANGER.has(action.kind) ? 'k-btn--danger' : overflow ? 'k-btn--link' : 'k-btn--secondary';
+  const icon = INSIDE_ACTION_ICON[action.kind];
+  const sentence = insideActionSentence(label ?? '', INSIDE_ACTION_TITLE[action.kind]);
   return (
     <button
       key={action.actionId}
       type="button"
-      className={`k-btn ${variant} k-btn--sm`}
+      className={`k-btn ${variant} k-btn--sm${overflow ? ' overflow-btn' : ''}`}
       data-act="inside-action"
       data-action-id={action.actionId}
-      title={INSIDE_ACTION_TITLE[action.kind]}
+      title={sentence}
+      aria-label={sentence}
       onClick={onClick}
     >
+      {icon ? <Icon name={icon} /> : null}
       {label}
     </button>
   );

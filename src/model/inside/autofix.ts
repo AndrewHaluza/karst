@@ -227,8 +227,8 @@ export interface AutofixBannerView {
   readonly history: readonly string[];
 }
 
-const RETRY: AutofixBannerAction = { act: 'autopilot-retry', label: 'Retry' };
-const SYNC_DIFF: AutofixBannerAction = { act: 'sandbox-diff', label: 'Open sync diff' };
+const RETRY: AutofixBannerAction = { act: 'autopilot-retry', label: 'Retry', icon: 'refresh', title: 'Retry the auto-fix' };
+const SYNC_DIFF: AutofixBannerAction = { act: 'sandbox-diff', label: 'Sync diff', icon: 'git-compare', title: 'Open the sandbox sync diff' };
 
 function spentBanner(f: AutofixFacts, used: string, max: string, kind: AutofixKind): AutofixBannerView {
   const t = f.target;
@@ -245,7 +245,7 @@ function spentBanner(f: AutofixFacts, used: string, max: string, kind: AutofixKi
     primary: {
       act: 'autopilot-approve-one',
       label: isCi ? '+1 attempt' : '+1 round',
-      icon: 'refresh',
+      icon: 'plus',
       title: isCi ? 'Approve 1 more auto-fix attempt' : 'Approve 1 more auto-fix round',
       ...(t ? { repo: t.repo } : {}),
       kind,

@@ -21,7 +21,7 @@ export const INSIDE_ACTION_LABEL: Readonly<Partial<Record<InsideActionKind, stri
   'graph-resume': 'Resume',
   'graph-restart': 'Restart graph',
   'graph-replan': 'Replan',
-  'graph-mark-impl': 'Mark implementation complete',
+  'graph-mark-impl': 'Mark done',
   'graph-discard-node': 'Discard process',
   'graph-edit-override': 'Edit override',
 };
@@ -49,6 +49,38 @@ export const INSIDE_ACTION_TITLE: Readonly<Partial<Record<InsideActionKind, stri
   // The per-node override edit is an ORDINARY secondary control (reversible editing, nothing lost on click).
   'graph-edit-override': "Edit this node's profile/provider/model/effort/prompt overrides before it claims",
 };
+
+/** kind to Tabler glyph (@ui:ICONS-02). Every Inside action button carries one; a kind not listed shows its label alone. */
+export const INSIDE_ACTION_ICON: Readonly<Partial<Record<InsideActionKind, string>>> = {
+  'open-pr': 'external-link',
+  'open-commit': 'external-link',
+  'open-file': 'external-link',
+  'open-stage-log': 'terminal-2',
+  'resume-stage': 'player-play',
+  'retry-ship-repo': 'refresh',
+  'open-full-evidence': 'chevron-down',
+  'open-bounded-evidence': 'chevron-down',
+  'open-session': 'terminal-2',
+  'graph-open-session': 'terminal-2',
+  'graph-confirm': 'player-play',
+  'graph-stop': 'player-stop',
+  'graph-resume': 'player-play',
+  'graph-restart': 'refresh',
+  'graph-replan': 'list-tree',
+  'graph-mark-impl': 'check',
+  'graph-discard-node': 'trash',
+  'graph-edit-override': 'pencil',
+};
+
+/** The kinds that continue a bounded list: drawn as the text button with a chevron-down, never as a row action. */
+export const INSIDE_ACTION_OVERFLOW: ReadonlySet<string> = new Set(['open-full-evidence', 'open-bounded-evidence']);
+
+const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+
+/** The button's full sentence, used for title AND aria-label. It starts with the visible label (WCAG 2.5.3). */
+export function insideActionSentence(label: string, sentence: string | undefined): string {
+  return sentence ? `${label} — ${lowerFirst(sentence)}` : label;
+}
 
 /** The DANGER variants (UI-R10b: irreversible loss). */
 export const INSIDE_ACTION_DANGER: ReadonlySet<string> = new Set(['graph-discard-node']);

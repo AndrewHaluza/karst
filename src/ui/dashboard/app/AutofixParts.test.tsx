@@ -141,8 +141,8 @@ describe('Auto-fix process row', () => {
     expect(all('[data-act="autopilot-stop-after"]')).toHaveLength(1);
     const btn = must<HTMLButtonElement>('[data-act="autopilot-stop-after"]');
     expect(text(btn)).toBe('Last round');
-    expect(btn.title).toBe('Stop auto-fix after this round');
-    expect(btn.getAttribute('aria-label')).toBe('Last round: Stop auto-fix after this round');
+    expect(btn.title).toBe('Last round — stop auto-fix after this round');
+    expect(btn.getAttribute('aria-label')).toBe(btn.title);
     fireEvent.click(btn);
     expect(h.send.autopilotStop).toHaveBeenCalledWith('after-round', expect.any(String));
   });
@@ -171,7 +171,7 @@ describe('Stop auto-fix now (stage menu)', () => {
   it('asks before stopping; Cancel sends nothing', () => {
     const h = mountInside(ship(SLICE, RUNNING));
     openMenu();
-    expect(text(must('[data-act="autopilot-stop-confirm"]'))).toBe('Stop auto-fix now…');
+    expect(text(must('[data-act="autopilot-stop-confirm"] .menuLabel'))).toBe('Stop auto-fix now…');
     fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
     expect(h.send.autopilotStop).not.toHaveBeenCalled();
     expect(must('[role="alertdialog"]').textContent).toContain('ends the agent session');
@@ -226,7 +226,7 @@ const BANNER: AutofixBannerView = {
   titleHref: 'https://example.test/run/1',
   titleSuffix: 'failed on api #88',
   cause: 'Auto-fix tried 3 of 3 times and the check still fails.',
-  primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'refresh', title: 'Approve 1 more auto-fix attempt', repo: 'api', kind: 'ci' },
+  primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'plus', title: 'Approve 1 more auto-fix attempt', repo: 'api', kind: 'ci' },
   secondary: { act: 'send-ci-failure', label: 'Send back…', icon: 'arrow-left', title: 'Send the CI failure to the agent with a note' },
   history: ['Attempt 1 · lint · 09:10', 'Attempt 2 · lint · 09:20'],
 };
@@ -246,8 +246,8 @@ describe('Auto-fix in the blocked banner', () => {
     expect(all('.k-btn--primary', root).map((b) => b.textContent)).toEqual(['+1 attempt']);
     expect(all('.k-btn--secondary', root).map((b) => b.textContent)).toEqual(['Send back…']);
     const approve = must('[data-act="autopilot-approve-one"]', root);
-    expect(approve.getAttribute('title')).toBe('Approve 1 more auto-fix attempt');
-    expect(approve.getAttribute('aria-label')?.startsWith('+1 attempt')).toBe(true);
+    expect(approve.getAttribute('title')).toBe('+1 attempt — approve 1 more auto-fix attempt');
+    expect(approve.getAttribute('aria-label')).toBe(approve.getAttribute('title'));
   });
 
   it('keeps the attempt history in a collapsed disclosure', () => {
@@ -275,14 +275,14 @@ describe('Auto-fix in the blocked banner', () => {
   });
 
   it('puts the sandbox sync diff beside the ONE Retry of a sandbox pause', () => {
-    const h = mountRail(parked({ state: 'paused', title: 'Auto-fix paused', titleSuffix: 'sandbox ticket', cause: 'x', primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: { act: 'sandbox-diff', label: 'Open sync diff' }, history: [] }));
+    const h = mountRail(parked({ state: 'paused', title: 'Auto-fix paused', titleSuffix: 'sandbox ticket', cause: 'x', primary: { act: 'autopilot-retry', label: 'Retry' }, secondary: { act: 'sandbox-diff', label: 'Sync diff', icon: 'git-compare', title: 'Open the sandbox sync diff' }, history: [] }));
     expect(all('#blocked .k-btn--primary').map((b) => b.textContent)).toEqual(['Retry']);
     fireEvent.click(railMust('#blocked [data-act="sandbox-diff"]'));
     expect(h.send.sandboxDiff).toHaveBeenCalledWith(expect.any(String));
   });
 
   it('disables Approve when no PR resolved, so it never posts an empty repo', () => {
-    const h = mountRail(parked({ ...BANNER, primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'refresh', title: 'Approve 1 more auto-fix attempt', kind: 'ci' } }));
+    const h = mountRail(parked({ ...BANNER, primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'plus', title: 'Approve 1 more auto-fix attempt', kind: 'ci' } }));
     const btn = railMust<HTMLButtonElement>('#blocked [data-act="autopilot-approve-one"]');
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);

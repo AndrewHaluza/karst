@@ -135,7 +135,7 @@ describe('autofixBanner', () => {
       titleHref: 'https://example.test/run/1',
       titleSuffix: 'failed on api #88',
       cause: 'Auto-fix tried 3 of 3 times and the check still fails.',
-      primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'refresh', title: 'Approve 1 more auto-fix attempt', repo: 'api', kind: 'ci' },
+      primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'plus', title: 'Approve 1 more auto-fix attempt', repo: 'api', kind: 'ci' },
       secondary: { act: 'send-ci-failure', label: 'Send back…', icon: 'arrow-left', title: 'Send the CI failure to the agent with a note' },
       history: ['Attempt 1 · lint · 09:10', 'Attempt 2 · lint · 09:20', 'Attempt 3 · lint · 09:31'],
     });
@@ -143,29 +143,29 @@ describe('autofixBanner', () => {
 
   it('names the repo on the conflicts secondary so Resolve conflicts targets the right PR', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix stopped: conflicts 2/2', target: { kind: 'conflicts', repo: 'web', pr: 421, check: null } });
-    expect(b?.primary).toEqual({ act: 'autopilot-approve-one', label: '+1 round', icon: 'refresh', title: 'Approve 1 more auto-fix round', repo: 'web', kind: 'conflicts' });
+    expect(b?.primary).toEqual({ act: 'autopilot-approve-one', label: '+1 round', icon: 'plus', title: 'Approve 1 more auto-fix round', repo: 'web', kind: 'conflicts' });
     expect(b?.secondary).toEqual({ act: 'resolve-conflicts', label: 'Resolve by hand…', icon: 'pencil', title: 'Resolve conflicts by hand', repo: 'web' });
   });
 
   it('gives a gh failure a Retry and no attempt count', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix paused: could not read CI for api #88 (gh: HTTP 502)' });
     expect(b?.state).toBe('gh-failed');
-    expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry' });
+    expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry', icon: 'refresh', title: 'Retry the auto-fix' });
     expect(b?.history).toEqual([]);
   });
 
   it('gives a sandbox pause ONE Retry, the sync diff beside it and no run-on-host action', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix paused: sandbox clone is dirty' });
     expect(b?.state).toBe('paused');
-    expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry' });
-    expect(b?.secondary).toEqual({ act: 'sandbox-diff', label: 'Open sync diff' });
+    expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry', icon: 'refresh', title: 'Retry the auto-fix' });
+    expect(b?.secondary).toEqual({ act: 'sandbox-diff', label: 'Sync diff', icon: 'git-compare', title: 'Open the sandbox sync diff' });
     expect(JSON.stringify(b)).not.toMatch(/host/i);
   });
 
   it('gives a permanent graph-ticket park no Retry, because a retry parks again', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix not run: sandboxed ticket' });
-    expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry' });
-    expect(b?.secondary).toEqual({ act: 'sandbox-diff', label: 'Open sync diff' });
+    expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry', icon: 'refresh', title: 'Retry the auto-fix' });
+    expect(b?.secondary).toEqual({ act: 'sandbox-diff', label: 'Sync diff', icon: 'git-compare', title: 'Open the sandbox sync diff' });
     expect(autofixBanner({ ...BASE, reason: 'auto-fix not run: graph ticket' })?.primary).toBeNull();
   });
 
@@ -182,6 +182,6 @@ describe('autofixBanner', () => {
 
   it('keeps the Approve action when no PR resolves but the kind is known', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix stopped: ci 3/3' });
-    expect(b?.primary).toEqual({ act: 'autopilot-approve-one', label: '+1 attempt', icon: 'refresh', title: 'Approve 1 more auto-fix attempt', kind: 'ci' });
+    expect(b?.primary).toEqual({ act: 'autopilot-approve-one', label: '+1 attempt', icon: 'plus', title: 'Approve 1 more auto-fix attempt', kind: 'ci' });
   });
 });

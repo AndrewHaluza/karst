@@ -25,7 +25,7 @@
 .k-btn--secondary{background:var(--k-action-2-bg);color:var(--k-action-2-fg);border-color:var(--k-border)}
 .k-btn--secondary:hover{background:var(--k-action-2-bg-hover)}
 
-.k-btn--ghost{background:transparent;color:var(--k-text-dim);border-color:var(--k-border)}
+.k-btn--ghost{background:transparent;color:var(--k-text-dim);border-color:transparent}
 .k-btn--ghost:hover{background:var(--k-surface-hover);color:var(--k-text)}
 
 .k-btn--danger{background:transparent;color:var(--k-danger);border-color:var(--k-danger)}

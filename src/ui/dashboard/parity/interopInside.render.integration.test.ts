@@ -170,8 +170,8 @@ describe('React Inside / React panels — shared operations, never two dialogs',
   it('the stage menu’s Send CI failure and the PR panel’s are one operation, from either side', async () => {
     let v = await open(failingCi());
     let before = v.posted.length;
-    await click(v, '[data-stage-menu="ship"]');
-    await click(v, '.stageMenu [data-act="send-ci-failure"]');
+    // The host-picked main action is a visible button, so no menu opens first.
+    await click(v, '.stageMain[data-act="send-ci-failure"]');
     await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
     expect(types(v, before)).toEqual(['send-ci-failure']);
     expect(v.query<HTMLButtonElement>('#prs .prsn[data-kind="checks"] .mgbtn')!.disabled).toBe(true);
@@ -182,8 +182,8 @@ describe('React Inside / React panels — shared operations, never two dialogs',
     v = await open(failingCi());
     before = v.posted.length;
     await click(v, '#prs .prsn[data-kind="checks"] .mgbtn');
-    await click(v, '[data-stage-menu="ship"]');
-    await click(v, '.stageMenu [data-act="send-ci-failure"]');
+    // The host-picked main action is a visible button, so no menu opens first.
+    await click(v, '.stageMain[data-act="send-ci-failure"]');
     expect(types(v, before)).toEqual(['send-ci-failure']);
   });
 
