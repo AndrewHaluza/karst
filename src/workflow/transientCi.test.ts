@@ -13,6 +13,8 @@ const POSITIVE: Record<string, string> = {
   eai_again: 'npm error code EAI_AGAIN',
   'socket-hang-up': 'npm ERR! network request to https://registry.npmjs.org/x failed, reason: socket hang up',
   'codeql-download': '##[error]Failed to download and extract CodeQL bundle',
+  'dns-temporary-failure': "E: Failed to fetch http://azure.archive.ubuntu.com/ubuntu/pool/x.deb  Temporary failure resolving 'azure.archive.ubuntu.com'",
+  'dns-could-not-resolve-host': 'curl: (6) Could not resolve host: github.com',
   'runner-shutdown': '##[error]The runner has received a shutdown signal. This can happen when the runner service is stopped.',
 };
 
@@ -27,12 +29,27 @@ describe('TRANSIENT_CI_PATTERNS', () => {
 
   it.each(Object.entries(POSITIVE))('does not match %s inside test output', (_id, line) => {
     // Same text, but as a plain test-output line (no runner or tool prefix).
-    const plain = line.replace(/^(##\[error\]|npm ERR! |npm error |prebuild-install warn install )/, '');
+    const plain = line.replace(/^(##\[error\]|E: |curl: |npm ERR! |npm error |prebuild-install warn install )/, '');
     expect(classifyTransientLog(`${ts}  ✗ api client: ${plain}\n${ts}FAIL src/api.test.ts\n`)).toBeNull();
   });
 });
 
 describe('classifyTransientLog', () => {
+  const aptLine = "E: Failed to fetch http://azure.archive.ubuntu.com/ubuntu/pool/x.deb  Temporary failure resolving 'azure.archive.ubuntu.com'";
+  it('reads the apt DNS fault of 2026-11-11 as transient, with and without the runner timestamp', () => {
+    const tail = ['Failed to install browsers', 'Error: Installation process exited with code: 100'];
+    expect(classifyTransientLog([aptLine, ...tail].join('\n'))).toBe('dns-temporary-failure');
+    expect(classifyTransientLog([`${ts}${aptLine}`, ...tail.map((l) => ts + l)].join('\n'))).toBe('dns-temporary-failure');
+  });
+
+  it('is not transient for an apt E: line with no network text', () => {
+    expect(classifyTransientLog(`${ts}E: Unable to locate package foo\n`)).toBeNull();
+  });
+
+  it('is not transient for an indented apt continuation line without a prefix', () => {
+    expect(classifyTransientLog(`${ts}  Temporary failure resolving 'azure.archive.ubuntu.com'\n`)).toBeNull();
+  });
+
   it('is not transient for a real test failure that prints "timed out"', () => {
     const log = [
       `${ts}FAIL src/net.test.ts > fetch retries`,

@@ -9,10 +9,10 @@
 export const MAX_CI_LOG_CHARS = 200_000;
 
 /**
- * A line is "step-level" when, after the runner timestamp, it starts with a runner annotation or a package-tool prefix.
+ * A line is "step-level" when, after the runner timestamp, it starts with a runner annotation, a package-tool prefix or an apt error prefix ("E: ").
  * Test output is printed without such a prefix, so "Request timed out" in an assertion message never counts.
  */
-const STEP_LINE = /^(?:\S+Z\s+)?(?:##\[(?:error|warning)\]|npm (?:ERR!|error|warn)\s|prebuild-install (?:warn|ERR!)|gyp (?:ERR!|WARN)|curl: )/;
+const STEP_LINE = /^(?:\S+Z\s+)?(?:##\[(?:error|warning)\]|npm (?:ERR!|error|warn)\s|prebuild-install (?:warn|ERR!)|gyp (?:ERR!|WARN)|curl: |E: )/;
 
 export interface TransientPattern {
   /** Stable id, named in the bulletin note. */
@@ -31,6 +31,8 @@ export const TRANSIENT_CI_PATTERNS: readonly TransientPattern[] = [
   { id: 'eai_again', re: /\bEAI_AGAIN\b/ },
   { id: 'socket-hang-up', re: /socket hang up/ },
   { id: 'codeql-download', re: /Failed to download and extract CodeQL/ },
+  { id: 'dns-temporary-failure', re: /Temporary failure resolving/ },
+  { id: 'dns-could-not-resolve-host', re: /Could not resolve host/ },
   { id: 'runner-shutdown', re: /The runner has received a shutdown signal/ },
 ];
 
