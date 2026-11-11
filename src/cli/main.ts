@@ -115,6 +115,34 @@ function projectIdFromEnv(env: Readonly<Record<string, string | undefined>>): nu
   return v !== undefined && /^[1-9]\d*$/.test(v) ? Number(v) : undefined;
 }
 
+interface ProjectManifestResult {
+  slug?: string;
+  manifest?: Manifest;
+}
+
+/**
+ * The project slug and parsed manifest named by a manifest, or empty when there
+ * is no path, the file won't load, or is invalid YAML. Never throws: a stage marker
+ * must still fire when the manifest is missing or broken — it just resolves unscoped.
+ * Legacy-manifest deprecation warnings are still surfaced to stderr on the way.
+ */
+function loadProjectManifest(
+  manifestPath: string | undefined,
+  verbose: boolean = false,
+): ProjectManifestResult {
+  if (!manifestPath) return {};
+  try {
+    const { manifest, warnings, notices } = loadManifestWithDiagnostics(manifestPath);
+    writeManifestDiagnostics(warnings);
+    // Notices are INFO facts (keys declared but not yet read) — they belong on
+    // the CLI's verbose channel (--verbose), not on every invocation.
+    if (verbose) writeManifestDiagnostics(notices);
+    return { slug: manifest.id, manifest };
+  } catch {
+    return {};
+  }
+}
+
 /**
  * The project slug named by a manifest, or undefined when there is no path, the
  * file won't load, or it predates the `id` field. Never throws: a stage marker
@@ -125,17 +153,7 @@ function loadProjectSlug(
   manifestPath: string | undefined,
   verbose: boolean = false,
 ): string | undefined {
-  if (!manifestPath) return undefined;
-  try {
-    const { manifest, warnings, notices } = loadManifestWithDiagnostics(manifestPath);
-    writeManifestDiagnostics(warnings);
-    // Notices are INFO facts (keys declared but not yet read) — they belong on
-    // the CLI's verbose channel (--verbose), not on every invocation.
-    if (verbose) writeManifestDiagnostics(notices);
-    return manifest.id;
-  } catch {
-    return undefined;
-  }
+  return loadProjectManifest(manifestPath, verbose).slug;
 }
 
 /**
@@ -434,8 +452,8 @@ export function runCli(
       // `--manifest` is optional here but load-bearing once several projects
       // share the DB: without it, a key two projects both use resolves to
       // whichever row is older, and the marker advances the wrong board.
-      const stageManifest = manifestPath ? loadManifestWithDiagnostics(manifestPath).manifest : undefined;
-      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
+      const { slug, manifest: stageManifest } = loadProjectManifest(manifestPath, verbose);
+      const found = resolveTicketByKey(store, ticket, slug);
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runStageCommand(store, found.id, effectiveRest, undefined, { ...found, manifest: stageManifest });
     } finally {
@@ -567,11 +585,11 @@ export function runCli(
     if (!ticket) throw new Error('missing --ticket <key>');
     const store = openWritableStore(db);
     try {
-      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
+      const { slug, manifest: envManifest } = loadProjectManifest(manifestPath, verbose);
+      const found = resolveTicketByKey(store, ticket, slug);
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       // The manifest lets `--service` validate against real unit keys
       // (`repo` / `repo/service`); without one the scope passes through.
-      const envManifest = manifestPath ? loadManifestWithDiagnostics(manifestPath).manifest : undefined;
       return runEnvCommand(store, found.id, effectiveRest, envManifest);
     } finally {
       store.close();

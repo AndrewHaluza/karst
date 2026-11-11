@@ -77,6 +77,46 @@ describe('runCli — stage marker', () => {
     check.close();
   });
 
+  it('fires the marker even when --manifest is missing or points to invalid YAML', () => {
+    const invalidYml = join(dir, 'corrupt.yml');
+    writeFileSync(invalidYml, '::: invalid yaml :::\n');
+
+    const out1 = runCli([
+      'stage',
+      'impl',
+      'pass',
+      '--db',
+      dbPath,
+      '--ticket',
+      'K-1',
+      '--manifest',
+      invalidYml,
+    ]);
+    expect(out1.trim()).toBe('uat');
+
+    const check1: Store = openStore(dbPath);
+    expect(getTicket(check1, 1).stageCurrent).toBe('uat');
+    transition(check1, 1, 'uat', { kind: 'failed' }); // -> fix
+    check1.close();
+
+    const out2 = runCli([
+      'stage',
+      'fix',
+      'pass',
+      '--db',
+      dbPath,
+      '--ticket',
+      'K-1',
+      '--manifest',
+      join(dir, 'nonexistent.yml'),
+    ]);
+    expect(out2.trim()).toBe('uat');
+
+    const check2: Store = openStore(dbPath);
+    expect(getTicket(check2, 1).stageCurrent).toBe('uat');
+    check2.close();
+  });
+
   it('fails loudly on an unknown ticket key', () => {
     expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'NOPE'])).toThrow(/NOPE/);
   });
