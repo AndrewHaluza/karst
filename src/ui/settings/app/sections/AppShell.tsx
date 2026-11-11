@@ -334,7 +334,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           <span className="spacer" />
           <span
             id="saveState"
-            className={valid && dirty ? 'save-state is-error' : 'save-state'}
+            className={!valid ? 'save-state is-error' : 'save-state'}
             role="status"
             aria-live="polite"
           >
@@ -565,14 +565,14 @@ function LeaveModal({
 
 /** One sentence for the whole topbar: saved / unsaved / in flight / blocked. */
 function saveStateText(dirty: boolean, saving: boolean, valid: boolean): string {
+  if (!valid) return 'Fix 1 field to save';
   if (!dirty && !saving) return 'All changes saved';
   if (saving) return 'Saving…';
-  if (!valid) return 'Unsaved changes — fix the error to save';
   return 'Unsaved changes';
 }
 
 function saveTitle(dirty: boolean, valid: boolean, section: SettingsSection): string {
+  if (!valid) return 'Fix the field with the error before saving';
   if (!dirty) return `No unsaved changes on ${SECTION_LABELS[section]}`;
-  if (!valid) return 'Fix the error above before saving';
   return `Save ${SECTION_LABELS[section]} (⌘S / Ctrl+S)`;
 }

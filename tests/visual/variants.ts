@@ -548,21 +548,47 @@ function qualityKillVariant(id: string, gate: Record<string, unknown>): Variant 
   };
 }
 
-/** Autopilot route in one state: off is the default `route-autopilot`; on and a host fault are these (T1004). */
-function autopilotVariant(id: string, over: Record<string, unknown>, validation?: { ok: false; error: string }): Variant {
+/**
+ * Autopilot route in one state: off is the default `route-autopilot`; on and a host fault are these (T1004).
+ * The fault rides `SettingsState.error`, the only field the app reads for it (T1086).
+ */
+function autopilotVariant(
+  id: string,
+  over: Record<string, unknown>,
+  opts: { error?: string; width?: number } = {},
+): Variant {
   const manifest = { ...REALISTIC_SETTINGS.manifest, ...over };
   return {
-    ...variant('settings', id, () => stateMessage({ ...REALISTIC_SETTINGS, manifest, ...(validation ? { validation } : {}) } as never), {
+    ...variant('settings', id, () => stateMessage({ ...REALISTIC_SETTINGS, manifest, error: opts.error ?? null }), {
       baseline: `settings--${id}`,
       themes: ALL_THEMES,
+      // Layout ids are unique per route: `route-autopilot` already runs the autopilot layout at 1280, 699 and 480.
       skipLayout: true,
+      ...(opts.width === undefined ? {} : { width: opts.width }),
     }),
     route: { section: 'autopilot' },
   };
 }
 
+const AUTOPILOT_FAULT = 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1';
+const AUTOPILOT_TIERS = [['mid', 800], ['narrow', 480]] as const;
+const MANY_CHECKS = ['lint', 'typecheck', 'test:unit', 'test:integration', 'test:e2e', 'build', 'docs-gate', 'docs-graph', 'mutation-score', 'visual-regression', 'layout-sanity', 'a-very-long-check-name-for-wrapping'];
+
 const AUTOPILOT_ON = {
   autopilot: { enabled: true, ci: { policy: 'auto', maxAttempts: 3, checks: ['lint', 'typecheck'] }, conflicts: { policy: 'auto', maxRounds: 2 } },
+};
+
+const autopilotVariants = (): Variant[] => {
+  const invalid = { autopilot: { ...AUTOPILOT_ON.autopilot, conflicts: { policy: 'auto', maxRounds: 0 } } };
+  return [
+    autopilotVariant('autopilot-on', AUTOPILOT_ON),
+    autopilotVariant('autopilot-invalid', invalid, { error: AUTOPILOT_FAULT }),
+    autopilotVariant('autopilot-long-content', { autopilot: { ...AUTOPILOT_ON.autopilot, ci: { ...AUTOPILOT_ON.autopilot.ci, checks: MANY_CHECKS } } }),
+    ...AUTOPILOT_TIERS.flatMap(([tier, width]) => [
+      autopilotVariant(`autopilot-on-${tier}`, AUTOPILOT_ON, { width }),
+      autopilotVariant(`autopilot-invalid-${tier}`, invalid, { error: AUTOPILOT_FAULT, width }),
+    ]),
+  ];
 };
 
 /** Accounts tab (T1015) with the host's accounts-state pushed after the settings state. */
@@ -615,8 +641,7 @@ const settingsVariants = (): Variant[] => [
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
   qualityKillVariant('quality-oom-disabled', { enabled: false }),
-  autopilotVariant('autopilot-on', AUTOPILOT_ON),
-  autopilotVariant('autopilot-invalid', { autopilot: { ...AUTOPILOT_ON.autopilot, conflicts: { policy: 'auto', maxRounds: 0 } } }, { ok: false, error: 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1' }),
+  ...autopilotVariants(),
   qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 }),
 ];
 
