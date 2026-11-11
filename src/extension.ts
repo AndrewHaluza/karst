@@ -295,9 +295,8 @@ import {
   graphRunTicketId as storeGraphRunTicketId,
   graphRunTicketStageAttempt,
   markGraphRunBlocked,
-  maxGraphRunStageAttemptForTicket,
 } from './store/graph/graphRuns.js';
-import { setStage } from './store/stages.js';
+import { advanceConsumedGraphAttempt } from './extension/ops/graphLaunchOps.js';
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { projectEndpointKey, writeCurrentEndpoint } from './agent/hookFailureLog.js';
@@ -6328,15 +6327,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return { kind: 'not-applicable', reason: 'graph-owned' };
         }
         if (decision.kind === 'attempt-consumed') {
-          if (decision.status === 'cancelled' || decision.status === 'stale') {
-            const currentAttempt = implAttemptOf(ticketId);
-            const maxGraphAttempt = maxGraphRunStageAttemptForTicket(localStore.db, ticketId);
-            const nextAttempt = Math.max(currentAttempt, maxGraphAttempt ?? -1) + 1;
-            setStage(localStore, ticketId, 'impl', { attempt: nextAttempt });
-            logger.info(
-              `karst: advanced ticket ${formatId('ticket', ticketId)} impl attempt to ${nextAttempt} following terminal (${decision.status}) graph run ${decision.graphRunId}`,
-            );
-          } else {
+          if (!advanceConsumedGraphAttempt(localStore, ticketId, decision, implAttemptOf(ticketId), (m) => logger.info(m))) {
             void vscode.window.showWarningMessage(
               `Ticket ${formatId('ticket', ticketId)}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
             );
