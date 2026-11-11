@@ -55,6 +55,8 @@ export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly Fai
   const repos = new Map<string, Stale[]>();
   for (const s of stale) repos.set(s.target.repo, [...(repos.get(s.target.repo) ?? []), s]);
   const stopped = new Set<string>();
+  // A check that has a marker for the same run (a network re-run) is not rebased: today's rules handle it, so it counts as not done.
+  let done = 0;
   for (const [repo, group] of repos) {
     const first = group[0]!;
     let headSha: string;
@@ -65,6 +67,7 @@ export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly Fai
     }));
     if (marked.length === 0) continue;
     const pushed = await c.seams.rebase(repo).catch(() => false);
+    if (pushed) done += marked.length;
     for (const s of marked) {
       const line = pushed
         ? `rebased on base for ${s.command} after ${s.target.name} failed on ${headSha.slice(0, 9)}`
@@ -74,6 +77,7 @@ export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly Fai
       if (!pushed) stopped.add(s.target.name);
     }
   }
-  // A repo that pushed forgot its rollup: the ticket waits. When no repo pushed, today's rules apply to the stopped checks.
-  return stopped.size === fails.length ? { kind: 'none', earlier: stopped } : { kind: 'rebased' };
+  // A repo that pushed forgot its rollup: the ticket waits. When no repo pushed, today's rules apply.
+  // `earlier` names only the checks whose rebase stopped: a check that a network re-run marked was never rebased.
+  return done === 0 ? { kind: 'none', earlier: stopped } : { kind: 'rebased' };
 }

@@ -156,8 +156,26 @@ describe('rebaseOnBaseAction result and autopilot mode (T1081)', () => {
   it('user mode still declines when the user declines', async () => {
     seedPr();
     const i = input({ confirm: vi.fn(async () => false) });
-    expect(await rebaseOnBaseAction(i, () => [])).toBe(false);
+    await rebaseOnBaseAction(i, () => []);
     expect(i.confirm).toHaveBeenCalledWith('Rebase on base?', expect.any(String), 'Rebase and push');
+    expect(pushedRepos(i)).toEqual([]);
+  });
+
+  it('user mode: a declined confirm on one PR does not stop the next PR', async () => {
+    seedPr();
+    seedSecondPr();
+    const confirm = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);
+    const i = input({ confirm });
+    await rebaseOnBaseAction(i, () => []);
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(pushedRepos(i)).toEqual(['/w/r2']);
+  });
+
+  it('autopilot mode: a refusal on the first PR stops the next PR', async () => {
+    seedPr();
+    seedSecondPr();
+    const i = input({ sandbox: { ...input().sandbox, hasUnsynced: vi.fn(async () => true) } });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r', 'r2']) })).toBe(false);
     expect(pushedRepos(i)).toEqual([]);
   });
 

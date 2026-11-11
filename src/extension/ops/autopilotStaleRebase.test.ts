@@ -154,10 +154,10 @@ describe('staleRebaseStep', () => {
     ]);
   });
 
-  it('does not rebase when a marker already exists for the same run and check', async () => {
+  it('returns none and does not rebase when a network marker already exists for the same run and check', async () => {
     const x = ctx();
     markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: 'econnreset', rerunAt: 1 });
-    expect(await staleRebaseStep(x.c, [check('A')])).toEqual({ kind: 'rebased' });
+    expect(await staleRebaseStep(x.c, [check('A')])).toEqual({ kind: 'none', earlier: new Set() });
     expect(x.rebase).not.toHaveBeenCalled();
     expect(x.notes).toEqual([]);
   });

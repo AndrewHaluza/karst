@@ -103,6 +103,7 @@ export async function rebaseOnBaseAction(
     const prs = auto ? state.prs.filter((p) => auto.repos.has(p.repo)) : state.prs;
     if (auto && prs.length === 0) return false;
     for (const pr of prs) {
+      let failed = false;
       const pushed = await rebaseOnBase({
         repo: pr.repo, cwd: pr.cwd, branch: pr.branch, baseRef: pr.baseRef, regenerate: regenerate(pr.repo).map(regenerateCommand),
         git: async (cwd, args) => {
@@ -130,12 +131,13 @@ export async function rebaseOnBaseAction(
         },
         confirm: auto ? async () => true : (detail) => i.confirm('Rebase on base?', detail, 'Rebase and push'),
         info,
-        error,
+        error: (m) => { failed = true; error(m); },
         logError,
         afterServerChange: () => {},
       });
-      // A push that stands is a push: a later sandbox error does not make the CI results current again, so it does not stop the loop.
-      if (!pushed) return false;
+      // The button stops at the first error; a declined confirm goes on to the next PR (as before T1081).
+      // Autopilot needs every PR pushed: any refusal stops it. A push that stands is a push even after a later sandbox error.
+      if (auto ? !pushed : failed) return false;
     }
     allPushed = true;
   } finally {
