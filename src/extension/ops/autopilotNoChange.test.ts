@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
-import { getAutopilotRerun, getCiRoundHeadSha, markAutopilotRerun, setCiRoundHeadSha, takeAutopilotAttempt } from '../../store/autopilot.js';
+import { clearCiRoundHeadShas, getAutopilotRerun, getCiRoundHeadSha, markAutopilotRerun, setCiRoundHeadSha, takeAutopilotAttempt } from '../../store/autopilot.js';
 import { RERUN_SETTLE_MS, type FailedCheck, type RerunContext } from './autopilotRerun.js';
 import { NO_CHANGE_PATTERN, noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
 
@@ -47,6 +47,16 @@ describe('ci round head sha (store)', () => {
     setCiRoundHeadSha(store, id, 'r', SHA);
     takeAutopilotAttempt(store, id, 'r', 'ci', 'A', 3);
     expect(getCiRoundHeadSha(store, id, 'r')).toBe(SHA);
+  });
+});
+
+describe('clearCiRoundHeadShas', () => {
+  it('clears the head of every ci budget of the ticket', () => {
+    takeAutopilotAttempt(store, id, 'r2', 'ci', 'A', 3);
+    setCiRoundHeadSha(store, id, 'r', SHA);
+    setCiRoundHeadSha(store, id, 'r2', SHA);
+    clearCiRoundHeadShas(store, id);
+    expect([getCiRoundHeadSha(store, id, 'r'), getCiRoundHeadSha(store, id, 'r2')]).toEqual([null, null]);
   });
 });
 
@@ -96,8 +106,8 @@ describe('noChangeStep', () => {
     expect(x.rerunFailedJobs).toHaveBeenCalledTimes(1);
     expect(getAutopilotRerun(store, id, 'r', '100', 'A')).toEqual({ repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: 'no-change', rerunAt: clock });
     expect(x.notes).toEqual([[
-      'Autopilot: re-ran A on abcdef012: the ci round made no commit',
-      'AP-1: re-ran A on abcdef012 in r once: the ci round made no commit. It used no attempt.',
+      'Autopilot: A abcdef012 re-run once: the ci round made no commit',
+      'AP-1: A abcdef012 re-run once: the ci round made no commit in r. It used no attempt.',
     ]]);
   });
 
@@ -152,5 +162,7 @@ describe('noChangeStep', () => {
     const x = ctx({ rerun: new Error('rerun refused') });
     expect(await noChangeStep(x.c, [check('A')])).toEqual({ kind: 'error', reason: 'rerun refused' });
     expect(x.notes).toEqual([]);
+    // No re-run happened: no marker stays, so a Retry may re-run.
+    expect(getAutopilotRerun(store, id, 'r', '100', 'A')).toBeNull();
   });
 });

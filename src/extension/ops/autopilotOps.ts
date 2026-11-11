@@ -12,7 +12,7 @@ import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { parseChecks } from '../../model/prChecks.js';
 import {
-  clearConflictRound, effectiveAutopilot, setCiRoundHeadSha, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
+  clearConflictRound, effectiveAutopilot, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
   markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind,
 } from '../../store/autopilot.js';
@@ -549,7 +549,7 @@ export interface AutopilotCommandDeps {
 export function approveOneMore(d: Pick<AutopilotCommandDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug'>, repo: string, kind: AutopilotKind): void {
   const b = grantAutopilotExtra(d.store, d.ticketId, repo, kind);
   // A person decided: the no-change state of the last CI round is cleared, so the approved attempt can start.
-  if (kind === 'ci') setCiRoundHeadSha(d.store, d.ticketId, repo, null);
+  if (kind === 'ci') clearCiRoundHeadShas(d.store, d.ticketId);
   clearParkBlock(d.store, d.ticketId);
   d.note(`Autopilot: one more ${kind} attempt approved`, `${d.key}: ${repo} now has ${b.extra} extra attempt(s) (${b.attempts} used).`);
   d.debug(`${LOG} ticket ${d.key} ${kind} +1 approved for ${repo}`);

@@ -5,9 +5,9 @@ import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { clearConflictRound, getAutopilotRerun, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { clearConflictRound, getAutopilotRerun, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
-import { allChecksAllowed, approveOneMore, autopilotTick, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
+import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
 const NORMAL_BLOCK = 'blocked: the pull request for "r" has changes and is not merged yet.';
 let store: Store;
@@ -1244,7 +1244,7 @@ describe('autopilotTick CI round that made no commit (D564)', () => {
     expect(r.sendCi).not.toHaveBeenCalled();
     expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
     expect(getAutopilotRerun(store, id, 'r', '100', 'build')?.pattern).toBe('no-change');
-    expect(r.notes[0]![0]).toBe('Autopilot: re-ran build on abcdef012: the ci round made no commit');
+    expect(r.notes[0]![0]).toBe('Autopilot: build abcdef012 re-run once: the ci round made no commit');
     // The stored rollup of the failed attempt is forgotten: the ticket waits for the next probe.
     expect((await autopilotTick(nrig().deps)).kind).toBe('nothing');
   });
@@ -1284,6 +1284,26 @@ describe('autopilotTick CI round that made no commit (D564)', () => {
     const r = nrig({}, { rerun: new Error('gh exit 1') });
     expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci could not run (gh exit 1)' });
     expect(r.sendCi).not.toHaveBeenCalled();
+  });
+
+  it('after a gh failure in the re-run a later tick re-runs again, and does not park as if it failed twice', async () => {
+    await emptyRound();
+    expect((await autopilotTick(nrig({}, { rerun: new Error('gh exit 1') }).deps)).kind).toBe('parked');
+    expect(getAutopilotRerun(store, id, 'r', '100', 'build')).toBeNull();
+    setAutopilotPaused(store, id, null); // Retry
+    clearParkBlock(store, id);
+    reseed();
+    const r = nrig({ now: () => Date.now() + 10 * 60_000 });
+    expect((await autopilotTick(r.deps)).kind).toBe('rerun');
+    expect(r.rerun).toHaveBeenCalledTimes(1);
+  });
+
+  it('approve one more clears the no-change state of every repo of the ticket', async () => {
+    await emptyRound();
+    takeAutopilotAttempt(store, id, 'other', 'ci', 'x', 3);
+    setCiRoundHeadSha(store, id, 'other', SHA);
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'ci');
+    expect(getCiRoundHeadSha(store, id, 'other')).toBeNull();
   });
 
   it('starts a round again after a person approves one more attempt', async () => {

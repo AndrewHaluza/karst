@@ -1,4 +1,4 @@
-import { getAutopilotRerun, getCiRoundHeadSha, markAutopilotRerun, setCiRoundHeadSha } from '../../store/autopilot.js';
+import { deleteAutopilotRerun, getAutopilotRerun, getCiRoundHeadSha, markAutopilotRerun, setCiRoundHeadSha } from '../../store/autopilot.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { parseCheckUrl, type CheckUrl } from '../../workflow/transientCi.js';
 import { NO_CHANGE_PATTERN, RERUN_SETTLE_MS, type FailedCheck, type RerunContext } from './autopilotRerun.js';
@@ -82,13 +82,19 @@ async function rerunOnce(c: RerunContext, group: readonly Candidate[]): Promise<
     repo: f.target.repo, runId: f.url.runId, checkName: f.target.name, headSha: f.headSha, pattern: NO_CHANGE_PATTERN, rerunAt: c.now(),
   }));
   if (marked.length === 0) return null;
-  try { await c.seams.rerunFailedJobs(first.target.cwd, first.url); } catch (err) { return messageOf(err); }
+  try {
+    await c.seams.rerunFailedJobs(first.target.cwd, first.url);
+  } catch (err) {
+    // gh refused: no re-run happened, so the marker must not say one did (a Retry would park as if it failed again).
+    for (const f of marked) deleteAutopilotRerun(c.store, c.ticketId, f.target.repo, f.url.runId, f.target.name);
+    return messageOf(err);
+  }
   // The stored rollup shows the failed attempt: forget it, so the ticket waits for the next probe (D281).
   clearOpenPrProbe(c.store, c.ticketId, first.target.repo);
   for (const f of marked) {
     const sha = f.headSha.slice(0, 9);
-    const line = `re-ran ${f.target.name} on ${sha}: the ci round made no commit`;
-    c.note(`Autopilot: ${line}`, `${c.key}: re-ran ${f.target.name} on ${sha} in ${f.target.repo} once: the ci round made no commit. It used no attempt.`);
+    const line = `${f.target.name} ${sha} re-run once: the ci round made no commit`;
+    c.note(`Autopilot: ${line}`, `${c.key}: ${line} in ${f.target.repo}. It used no attempt.`);
     c.debug(`[ship] autopilot ticket ${c.key} ci: ${line}`);
   }
   return null;
