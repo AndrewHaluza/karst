@@ -1178,6 +1178,22 @@ describe('autopilotTick stale generated file (T1081)', () => {
     expect(noUrl.rebase).not.toHaveBeenCalled();
   });
 
+  it('takes today\'s path when no stale seam is bound', async () => {
+    seedPr(withUrl('build'));
+    const placement = vi.fn(async () => 'host' as const);
+    const r = rig({ staleRebase: undefined, transientCi: undefined, placement });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    // Only the CI round reads the placement; the stale step must not.
+    expect(placement).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes today\'s path when the placement cannot be read', async () => {
+    seedPr(withUrl('Docs gate'));
+    const r = staleRig(STALE_LOG, true, { placement: async () => { throw new Error('no backend'); } });
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(r.rebase).not.toHaveBeenCalled();
+  });
+
   it('does not rebase when only some failing checks are stale-generated', async () => {
     seedPr({ ...failing('Docs gate', 'Visual'), failing: [{ name: 'Docs gate', url: URL_V }, { name: 'Visual', url: 'https://github.com/o/r/actions/runs/100/job/201' }] });
     const r = staleRig(STALE_LOG, true, {

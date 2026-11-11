@@ -271,7 +271,7 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   // A network fault is re-run once before any park or CI round (T1019). A graph ticket and an unreadable placement keep today's rules.
   // A stale generated file is fixed by one host rebase first (T1081); a host ticket only.
   const stale = await staleStep(d, problem);
-  if (stale.kind === 'result') return stale.result;
+  if ('result' in stale) return stale.result;
   const rerun = await transientStep(d, problem);
   if (rerun.kind === 'result') return rerun.result;
   if (!allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
@@ -309,16 +309,17 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
 }
 
 /** The stale generated file step (T1081): a result to return, or the checks that were rebased before (for the park reason). */
-async function staleStep(d: AutopilotDeps, problem: Problem): Promise<{ kind: 'result'; result: AutopilotResult } | { kind: 'go'; earlier: ReadonlySet<string> }> {
-  const none = { kind: 'go', earlier: new Set<string>() } as const;
+async function staleStep(d: AutopilotDeps, problem: Problem): Promise<{ result: AutopilotResult } | { earlier: ReadonlySet<string> }> {
+  const none = { earlier: new Set<string>() };
   if (!d.staleRebase || !problem.fails) return none;
   // A graph ticket and a sandboxed ticket keep today's rules: Rebase on base never runs in a sandbox round (@arch:AP-04).
-  if (d.isGraphTicket() || (await d.placement().catch(() => null)) !== 'host') return none;
+  const placed = await d.placement().catch(() => null);
+  if (d.isGraphTicket() || placed === null || placed === 'sandbox') return none;
   const step = await staleRebaseStep(
     { store: d.store, ticketId: d.ticketId, key: d.key, seams: d.staleRebase, now: d.now ?? Date.now, note: d.note, debug: d.debug },
     problem.fails,
   );
-  return step.kind === 'rebased' ? { kind: 'result', result: { kind: 'rebased' } } : { kind: 'go', earlier: step.earlier };
+  return step.kind === 'rebased' ? { result: { kind: 'rebased' } } : { earlier: step.earlier };
 }
 
 /** The transient re-run step: a result to return, or the checks that were re-run before (for the park reason). */

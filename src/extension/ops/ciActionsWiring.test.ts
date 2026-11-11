@@ -116,6 +116,93 @@ describe('rebaseOnBaseAction', () => {
   });
 });
 
+function seedSecondPr(): void {
+  store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(id, 'r2', '/w/r2', 'b2');
+  store.db
+    .prepare('INSERT INTO prs (ticket_id, repo, number, url, status, head_ref, base_ref, merge_block, checks) VALUES (?, ?, 6, ?, ?, ?, ?, ?, ?)')
+    .run(id, 'r2', 'https://github.com/o/r2/pull/6', 'open', 'feat/y', 'develop', 'behind', null);
+}
+
+const pushedRepos = (i: CiActionsInput): string[] =>
+  (i.git as ReturnType<typeof vi.fn>).mock.calls.filter((c) => (c[0] as string[])[0] === 'push').map((c) => c[1] as string);
+
+describe('rebaseOnBaseAction result and autopilot mode (T1081)', () => {
+  it('returns false and says why when the action is not available', async () => {
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [])).toBe(false);
+    expect(i.info).toHaveBeenCalledWith('Rebase on base is not available: no open pull request is behind its base.');
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
+  });
+
+  it('returns true after a user rebase that pushed', async () => {
+    seedPr();
+    expect(await rebaseOnBaseAction(input(), () => [])).toBe(true);
+  });
+
+  it('returns false when the push is rejected', async () => {
+    seedPr();
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    expect(await rebaseOnBaseAction(input({ git }), () => [])).toBe(false);
+  });
+
+  it('autopilot mode never asks for a confirm and returns true after the push', async () => {
+    seedPr();
+    const i = input({ confirm: vi.fn(async () => false) });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(true);
+    expect(i.confirm).not.toHaveBeenCalled();
+    expect(pushedRepos(i)).toEqual(['/w/r']);
+  });
+
+  it('user mode still declines when the user declines', async () => {
+    seedPr();
+    const i = input({ confirm: vi.fn(async () => false) });
+    expect(await rebaseOnBaseAction(i, () => [])).toBe(false);
+    expect(i.confirm).toHaveBeenCalledWith('Rebase on base?', expect.any(String), 'Rebase and push');
+    expect(pushedRepos(i)).toEqual([]);
+  });
+
+  it('autopilot mode rebases only the named repos', async () => {
+    seedPr();
+    seedSecondPr();
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r2']) })).toBe(true);
+    expect(pushedRepos(i)).toEqual(['/w/r2']);
+  });
+
+  it('user mode rebases every behind repo', async () => {
+    seedPr();
+    seedSecondPr();
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [])).toBe(true);
+    expect(pushedRepos(i)).toEqual(['/w/r', '/w/r2']);
+  });
+
+  it('autopilot mode returns false and touches no git when no named repo is behind', async () => {
+    seedPr();
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['other']) })).toBe(false);
+    expect(i.git).not.toHaveBeenCalled();
+    expect(i.afterServerChange).toHaveBeenCalledOnce();
+  });
+
+  it('the first failing repo stops the rest and the result is false', async () => {
+    seedPr();
+    seedSecondPr();
+    const git = vi.fn(async (args: readonly string[]) => ({ stdout: '', stderr: 'rejected', exitCode: args[0] === 'push' ? 1 : 0 }));
+    const i = input({ git });
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r', 'r2']) })).toBe(false);
+    expect(pushedRepos(i)).toEqual(['/w/r']);
+  });
+
+  it('a busy agent gives false with the error reported', async () => {
+    seedPr();
+    store.db.prepare(`UPDATE tickets SET agent_state = 'running' WHERE id = ?`).run(id);
+    const i = input();
+    expect(await rebaseOnBaseAction(i, () => [], { repos: new Set(['r']) })).toBe(false);
+    expect(i.error).toHaveBeenCalledWith(expect.stringMatching(/agent is working/));
+  });
+});
+
 describe('sendCiFailureAction', () => {
   it('writes the log into the artifact dir and sends the ticket back with its path', async () => {
     seedPr({ block: null });

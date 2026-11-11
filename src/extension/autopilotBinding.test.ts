@@ -5,12 +5,12 @@ import { createTicket } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { transition } from '../workflow/machine.js';
-import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
+import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, regenerateEntries, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
 import { getAutopilotSessionOwner, getAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
-import { sendCiFailureAction } from './ops/ciActionsWiring.js';
+import { rebaseOnBaseAction, sendCiFailureAction } from './ops/ciActionsWiring.js';
 
-vi.mock('./ops/ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn(async () => {}) }));
+vi.mock('./ops/ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn(async () => {}), rebaseOnBaseAction: vi.fn(async () => true) }));
 
 const cfg = { enabled: true, ci: { policy: 'auto' as const, maxAttempts: 5, checks: ['build'] }, conflicts: { policy: 'auto' as const, maxRounds: 2 } };
 const FAILING = { state: 'failing', total: 2, passed: 1, failed: 1, pending: 0, failedShown: 1, failing: [{ name: 'build', url: null }] };
@@ -89,6 +89,75 @@ describe('startAutopilot', () => {
     await vi.advanceTimersByTimeAsync(3000);
     handle.dispose();
     expect(sendCiFailureAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('a stale generated file (T1081)', () => {
+  const CMD = 'npm run -s docs:graph';
+  const SHA = 'c'.repeat(40);
+  const URL = 'https://github.com/o/r/actions/runs/100/job/200';
+  const LOG = `docs/arch/system-map.md is stale: run ${CMD}\n##[error]Process completed with exit code 1.\n`;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(sendCiFailureAction).mockReset(); vi.mocked(sendCiFailureAction).mockImplementation(async () => {});
+    vi.mocked(rebaseOnBaseAction).mockReset(); vi.mocked(rebaseOnBaseAction).mockImplementation(async () => true);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  function staleRig(regenerate: unknown) {
+    const r = rig({
+      manifest: () => ({ autopilot: cfg, repositories: { r: { ship: { regenerate } } } }) as never,
+      gh: vi.fn(async (args: readonly string[]) => (
+        args[1]?.endsWith('/logs') ? { stdout: LOG, stderr: '', exitCode: 0 } : { stdout: `${SHA}\n`, stderr: '', exitCode: 0 }
+      )) as never,
+    });
+    r.store.db.prepare('UPDATE prs SET checks = ?').run(JSON.stringify({ ...FAILING, failing: [{ name: 'build', url: URL }] }));
+    return r;
+  }
+
+  it('runs Rebase on base once for the repo, with the manifest commands, and starts no CI round', async () => {
+    const r = staleRig([CMD, { run: 'npm run -s docs:index' }]);
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    handle.dispose();
+    expect(rebaseOnBaseAction).toHaveBeenCalledTimes(1);
+    const [input, regenerate, auto] = vi.mocked(rebaseOnBaseAction).mock.calls[0]!;
+    expect((input as { ticketId: number }).ticketId).toBe(r.id);
+    expect(regenerate('r')).toEqual([CMD, { run: 'npm run -s docs:index' }]);
+    expect(regenerate('other')).toEqual([]);
+    expect(auto).toEqual({ repos: new Set(['r']) });
+    expect(sendCiFailureAction).not.toHaveBeenCalled();
+    expect(r.deps.changed).toHaveBeenCalled();
+  });
+
+  it('keeps today\'s rules when the repository lists no ship.regenerate command', async () => {
+    const r = staleRig(undefined);
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    handle.dispose();
+    expect(rebaseOnBaseAction).not.toHaveBeenCalled();
+    expect(sendCiFailureAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes no stale step without a gh runner', async () => {
+    const r = staleRig([CMD]);
+    const handle = startAutopilot({ ...r.deps, gh: undefined });
+    await vi.advanceTimersByTimeAsync(1000);
+    handle.dispose();
+    expect(rebaseOnBaseAction).not.toHaveBeenCalled();
+  });
+});
+
+describe('regenerateEntries (T1081)', () => {
+  const m = (repositories: unknown) => ({ repositories }) as never;
+  it('gives the ship.regenerate list of the repository', () => {
+    expect(regenerateEntries(m({ r: { ship: { regenerate: ['a', { run: 'b' }] } } }), 'r')).toEqual(['a', { run: 'b' }]);
+  });
+  it('gives an empty list for no manifest, an unknown repository, no ship and no regenerate', () => {
+    expect(regenerateEntries(undefined, 'r')).toEqual([]);
+    expect(regenerateEntries(m({}), 'r')).toEqual([]);
+    expect(regenerateEntries(m({ r: {} }), 'r')).toEqual([]);
+    expect(regenerateEntries(m({ r: { ship: {} } }), 'r')).toEqual([]);
   });
 });
 

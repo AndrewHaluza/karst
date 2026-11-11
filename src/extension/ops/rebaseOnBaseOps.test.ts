@@ -365,4 +365,16 @@ describe('rebaseOnBase result', () => {
   ])('returns false when %s', async (_name, over) => {
     expect(await rebaseOnBase(rig(over).deps)).toBe(false);
   });
+
+  it('returns false when a refusal is reported after the push', async () => {
+    const r = rig({ removeSandbox: async () => { throw new Error('no docker'); } });
+    expect(await rebaseOnBase(r.deps)).toBe(false);
+    expect(r.calls.some((c) => c.startsWith('git push'))).toBe(true);
+  });
+
+  it('returns false when the re-probe throws after the push', async () => {
+    const error = vi.fn();
+    expect(await rebaseOnBase(rig({ reprobe: async () => { throw new Error('gh down'); }, error }).deps)).toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/Rebase on base failed: gh down/));
+  });
 });

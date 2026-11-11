@@ -13,7 +13,7 @@ import type { CiActionsInput } from './ops/ciActionsWiring.js';
 import type { GhRunner } from '../integrations/github.js';
 import { makeTransientCiSeams } from '../integrations/ciRerun.js';
 import { rebaseOnBaseAction } from './ops/ciActionsWiring.js';
-import { regenerateCommand } from '../workflow/gates/regenerate.js';
+import { regenerateCommand, type RegenerateEntry } from '../workflow/gates/regenerate.js';
 import type { StaleRebaseSeams } from './ops/autopilotStaleRebase.js';
 
 /** Tracks the session launch a hand-off started, so autopilot can read a failed launch as a failed round instead of a sent one. */
@@ -102,8 +102,9 @@ export function makeSandboxPreflight(h: {
 }
 
 /** The `ship.regenerate` commands of a repository (T1081). */
-const regenerateCommands = (m: Manifest | undefined, repo: string): readonly string[] =>
-  (m?.repositories[repo]?.ship?.regenerate ?? []).map(regenerateCommand);
+export const regenerateEntries = (m: Manifest | undefined, repo: string): readonly RegenerateEntry[] =>
+  m?.repositories[repo]?.ship?.regenerate ?? [];
+const regenerateCommands = (m: Manifest | undefined, repo: string): readonly string[] => regenerateEntries(m, repo).map(regenerateCommand);
 
 /** The seams of the one rebase for a stale generated file: the gh log and head reads of the re-run, plus Rebase on base. */
 function makeStaleRebaseSeams(gh: GhRunner, regenerate: (repo: string) => readonly string[], rebase: (repo: string) => Promise<boolean>): StaleRebaseSeams {
@@ -236,7 +237,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         conflictRoundStalled: () => d.conflictRoundStalled(id),
         dropConflictRound: () => d.dropConflictRound(id),
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
-        ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseOnBaseAction(d.ciInput(id), (r) => d.manifest()?.repositories[r]?.ship?.regenerate ?? [], { repos: new Set([repo]) })) } : {}),
+        ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) })) } : {}),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };
