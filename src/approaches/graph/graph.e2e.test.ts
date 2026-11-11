@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCli } from '../../cli/main.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -33,6 +33,10 @@ import { runNodeCommand } from '../../cli/node.js';
 import { flipOnEndQuiescence } from './coordinator/completion.js';
 import { runCompletionPipeline } from './integration/pipeline.js';
 import { runStageCommand } from '../../cli/stage.js';
+import { sendBackToImplement } from '../../workflow/sendBack.js';
+import { getTicket } from '../../store/tickets.js';
+import { stageAttempt } from '../../store/stages.js';
+import { graphRunStatus } from '../../store/graph/graphRuns.js';
 import {
   makeHarness,
   bootAndSubmit,
@@ -42,6 +46,10 @@ import {
   graphEnv,
   agentGraphJson,
   realTransport,
+  tickGraphRun,
+  tickUntil,
+  reconcileAfterReload,
+  git,
   NOW,
   GRAPH_APPROACH,
   type Harness,
@@ -834,4 +842,525 @@ describe('documented failures of the current dynamic graph implementation', () =
       }
     },
   );
+});
+
+/* ------------------------------------------------------------------ */
+/* Autonomous coordinator topologies                                   */
+/* ------------------------------------------------------------------ */
+
+interface NodeRunSummary {
+  id: number;
+  node_id: string;
+  status: string;
+  outcome: string | null;
+  generation: string | null;
+}
+
+function nodeRunsOf(h: Harness, graphRunId: number): NodeRunSummary[] {
+  return h.store.db
+    .prepare(
+      'SELECT id, node_id, status, outcome, generation FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id',
+    )
+    .all(graphRunId) as unknown as NodeRunSummary[];
+}
+
+/** Tick until the node has a run (a deterministic chain mints its successor on a later sweep). */
+async function tickToNode(h: Harness, graphRunId: number, nodeId: string): Promise<NodeRunSummary> {
+  for (let i = 0; i < 6 && !nodeRunsOf(h, graphRunId).some((n) => n.node_id === nodeId); i++) {
+    await tickGraphRun(h, graphRunId);
+  }
+  return runOf(h, graphRunId, nodeId);
+}
+
+function runOf(h: Harness, graphRunId: number, nodeId: string): NodeRunSummary {
+  const run = nodeRunsOf(h, graphRunId).find((n) => n.node_id === nodeId);
+  if (!run) throw new Error(`no node run for ${nodeId}`);
+  return run;
+}
+
+/** The agent reports through the REAL node CLI (the verb an agent session runs). */
+function reportNode(
+  h: Harness,
+  graphRunId: number,
+  run: NodeRunSummary,
+  verb: 'complete' | 'blocked' | 'replan',
+  reason?: string,
+): { ok: boolean; outcome?: string } {
+  return JSON.parse(
+    runNodeCommand(
+      h.store,
+      graphEnv(h, {
+        graphRunId: String(graphRunId),
+        launchId: String(run.id),
+        generation: run.generation!,
+        capability: nodeCapabilityOf(h, run.id),
+      }),
+      ['node', verb, ...(reason === undefined ? [] : ['--reason', reason])],
+      () => NOW,
+    ),
+  ) as { ok: boolean; outcome?: string };
+}
+
+/** The agent writes a file into its node's isolated workspace clone. */
+function writeInWorkspace(h: Harness, run: NodeRunSummary, rel: string, content: string): void {
+  const target = join(h.workspaceOfNode(run.id), rel);
+  mkdirSync(join(target, '..'), { recursive: true });
+  writeFileSync(target, content);
+}
+
+const WORKER_NODE = (id: string, paths: string[], extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  id,
+  kind: 'agent',
+  label: id,
+  profile: 'worker',
+  instructionsArtifact: 'task',
+  inputs: [],
+  outputs: [],
+  resources: {
+    reads: [{ repo: 'api', paths }],
+    writes: [{ repo: 'api', paths }],
+  },
+  outcomes: ['complete', 'blocked', 'replan'],
+  budget: { maxVisits: 2 },
+  ...extra,
+});
+
+const GATE_NODE = (id: string, policy: Record<string, unknown>): Record<string, unknown> => ({
+  id,
+  kind: 'gate',
+  label: id,
+  policy,
+  outcomes: ['matched', 'not-matched'],
+  budget: { maxVisits: 2 },
+});
+
+const COMMAND_NODE = (id: string): Record<string, unknown> => ({
+  id,
+  kind: 'command',
+  label: id,
+  command: 'test',
+  repositories: ['api'],
+  outcomes: ['passed', 'failed', 'infrastructure-error'],
+  budget: { maxVisits: 2 },
+});
+
+/** A topology document: the shared `task` artifact is consumed by every agent. */
+function topologyJson(
+  nodes: Record<string, unknown>[],
+  edges: { id: string; from: string; on: string; to: string }[],
+  entries: string[],
+  budgets: Record<string, number> = { maxNodeRuns: 12, maxExpertRuns: 3, maxReplans: 2 },
+): string {
+  const consumers = nodes.filter((n) => n['kind'] === 'agent').map((n) => n['id']);
+  return agentGraphJson({
+    entries,
+    nodes,
+    edges,
+    budgets,
+    artifacts: [
+      {
+        id: 'task',
+        path: 'artifacts/task.md',
+        producer: '$planner',
+        consumers,
+        mediaType: 'text/markdown',
+        maxBytes: 1000,
+        required: true,
+      },
+    ],
+  });
+}
+
+
+/** Launch the bootstrap planner and submit a (compile-invalid) document: the run stays in `planning`. */
+async function bootAndSubmitInvalid(
+  h: Harness,
+  graphJson: string,
+): Promise<{ graphRunId: number; plannerRunId: number }> {
+  const launched = await bootstrapAndLaunchPlanner(h.deps, {
+    ticketId: h.ticketId,
+    stageAttempt: 0,
+    approachId: GRAPH_APPROACH,
+    projectSlug: 'e2e',
+  });
+  if (launched.kind !== 'launched') throw new Error('bootstrap did not launch');
+  writePlannerSubmission(h, graphJson);
+  const out = JSON.parse(
+    runGraphCommand(
+      h.store,
+      graphEnv(h, {
+        graphRunId: String(launched.graphRunId),
+        launchId: String(launched.plannerRunId),
+        generation: launched.generation,
+        capability: launched.capability,
+      }),
+      ['graph', 'submit'],
+      () => NOW,
+    ),
+  ) as { ok: boolean };
+  expect(out.ok).toBe(true);
+  return { graphRunId: launched.graphRunId, plannerRunId: launched.plannerRunId };
+}
+
+describe('dynamic graph e2e — autonomous coordinator topologies', () => {
+  it('fans out two agent nodes into isolated clones and fans in at an all-of join', async () => {
+    const h = makeHarness({
+      isolatedWorkspaces: true,
+      configure: (c) => ({ ...c, limits: { ...c.limits, maxParallel: 2 } }),
+    });
+    try {
+      const doc = topologyJson(
+        [
+          GATE_NODE('fork', { kind: 'artifact-exists', artifact: 'task' }),
+          WORKER_NODE('left', ['src/left']),
+          WORKER_NODE('right', ['src/right']),
+          {
+            id: 'join',
+            kind: 'join',
+            label: 'join',
+            forkFrom: 'fork',
+            waitFor: ['left', 'right'],
+            mode: 'all',
+            outcomes: ['complete'],
+            budget: { maxVisits: 2 },
+          },
+        ],
+        [
+          { id: 'f-l', from: 'fork', on: 'matched', to: 'left' },
+          { id: 'f-r', from: 'fork', on: 'matched', to: 'right' },
+          { id: 'f-end', from: 'fork', on: 'not-matched', to: 'END' },
+          { id: 'l-j', from: 'left', on: 'complete', to: 'join' },
+          { id: 'r-j', from: 'right', on: 'complete', to: 'join' },
+          { id: 'j-end', from: 'join', on: 'complete', to: 'END' },
+        ],
+        ['fork'],
+      );
+      const { graphRunId } = await bootAndSubmit(h, doc);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+
+      // One tick claims the gate, then BOTH branches launch concurrently.
+      expect(await tickGraphRun(h, graphRunId)).toBe('running');
+      const left = runOf(h, graphRunId, 'left');
+      const right = runOf(h, graphRunId, 'right');
+      expect([left.status, right.status]).toEqual(['running', 'running']);
+      expect(h.workspaceOfNode(left.id)).not.toBe(h.workspaceOfNode(right.id));
+
+      writeInWorkspace(h, left, 'src/left/l.ts', 'left\n');
+      writeInWorkspace(h, right, 'src/right/r.ts', 'right\n');
+      expect(reportNode(h, graphRunId, left, 'complete').ok).toBe(true);
+      expect(reportNode(h, graphRunId, right, 'complete').ok).toBe(true);
+
+      const status = await tickUntil(h, graphRunId, (s) => s === 'completed-awaiting-impl-marker');
+      expect(status).toBe('completed-awaiting-impl-marker');
+      const runs = nodeRunsOf(h, graphRunId);
+      expect(runs.map((n) => `${n.node_id}:${n.status}`)).toEqual([
+        'fork:completed',
+        'left:completed',
+        'right:completed',
+        'join:completed',
+      ]);
+      // Both disjoint commits landed in the canonical worktree.
+      expect(readFileSync(join(h.worktree, 'src/left/l.ts'), 'utf8')).toBe('left\n');
+      expect(readFileSync(join(h.worktree, 'src/right/r.ts'), 'utf8')).toBe('right\n');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('routes a gate on artifact-exists, then an allowlisted command and a node-outcomes gate after the agent', async () => {
+    const h = makeHarness();
+    try {
+      const doc = topologyJson(
+        [
+          GATE_NODE('has-task', { kind: 'artifact-exists', artifact: 'task' }),
+          WORKER_NODE('impl', ['src']),
+          COMMAND_NODE('verify'),
+          GATE_NODE('verified', {
+            kind: 'node-outcomes',
+            node: 'verify',
+            outcome: 'passed',
+            op: 'gte',
+            value: 1,
+          }),
+        ],
+        [
+          { id: 'g-i', from: 'has-task', on: 'matched', to: 'impl' },
+          { id: 'g-end', from: 'has-task', on: 'not-matched', to: 'END' },
+          { id: 'i-v', from: 'impl', on: 'complete', to: 'verify' },
+          { id: 'v-g', from: 'verify', on: 'passed', to: 'verified' },
+          { id: 'v-f', from: 'verify', on: 'failed', to: 'END' },
+          { id: 'v-x', from: 'verify', on: 'infrastructure-error', to: 'END' },
+          { id: 'vg-end', from: 'verified', on: 'matched', to: 'END' },
+          { id: 'vg-no', from: 'verified', on: 'not-matched', to: 'END' },
+        ],
+        ['has-task'],
+      );
+      const { graphRunId } = await bootAndSubmit(h, doc);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      const impl = await tickToNode(h, graphRunId, 'impl');
+      expect(impl.status).toBe('running');
+      expect(h.commandRuns).toEqual([]);
+      writeInWorkspace(h, impl, 'src/gated.ts', 'ok\n');
+      expect(reportNode(h, graphRunId, impl, 'complete').ok).toBe(true);
+      expect(await tickUntil(h, graphRunId, (s) => s === 'completed-awaiting-impl-marker')).toBe(
+        'completed-awaiting-impl-marker',
+      );
+      // The command ran once through the allowlist with its declared argv.
+      expect(h.commandRuns.map((c) => `${c.command} ${c.args.join(' ')}`.trim())).toEqual(['npm test']);
+      const outcomes = nodeRunsOf(h, graphRunId).map((n) => `${n.node_id}:${n.outcome}`);
+      expect(outcomes).toEqual(['has-task:matched', 'impl:complete', 'verify:passed', 'verified:matched']);
+    } finally {
+      h.close();
+    }
+  });
+
+  // DEFECT: a command node's domain lease (`write` access on the repo) is never
+  // released when the deterministic node completes, so a LATER agent node that
+  // writes the same repository is deferred forever with `resource-conflict`.
+  it.fails('lets an agent node run after a write-access command node (command lease leaks)', async () => {
+    const h = makeHarness();
+    try {
+      const doc = topologyJson(
+        [COMMAND_NODE('verify'), WORKER_NODE('impl', ['src'])],
+        [
+          { id: 'v-i', from: 'verify', on: 'passed', to: 'impl' },
+          { id: 'v-f', from: 'verify', on: 'failed', to: 'END' },
+          { id: 'v-x', from: 'verify', on: 'infrastructure-error', to: 'END' },
+          { id: 'i-end', from: 'impl', on: 'complete', to: 'END' },
+        ],
+        ['verify'],
+      );
+      const { graphRunId } = await bootAndSubmit(h, doc);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      const impl = await tickToNode(h, graphRunId, 'impl');
+      expect(impl.status).toBe('running');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('drains on `node replan` after a not-matched gate, accepts revision 2, then completes', async () => {
+    const h = makeHarness({ isolatedWorkspaces: true });
+    try {
+      const doc = topologyJson(
+        [
+          WORKER_NODE('impl', ['src']),
+          GATE_NODE('twice', { kind: 'node-outcomes', node: 'impl', outcome: 'complete', op: 'gte', value: 2 }),
+          WORKER_NODE('fix', ['src']),
+        ],
+        [
+          { id: 'i-t', from: 'impl', on: 'complete', to: 'twice' },
+          { id: 't-end', from: 'twice', on: 'matched', to: 'END' },
+          { id: 't-f', from: 'twice', on: 'not-matched', to: 'fix' },
+          { id: 'f-end', from: 'fix', on: 'complete', to: 'END' },
+        ],
+        ['impl'],
+      );
+      const { graphRunId } = await bootAndSubmit(h, doc);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      const impl = await tickToNode(h, graphRunId, 'impl');
+      writeInWorkspace(h, impl, 'src/first.ts', 'first\n');
+      expect(reportNode(h, graphRunId, impl, 'complete').ok).toBe(true);
+      const fix = await (async () => {
+        for (let i = 0; i < 6 && !nodeRunsOf(h, graphRunId).some((n) => n.node_id === 'fix'); i++) {
+          await tickGraphRun(h, graphRunId);
+        }
+        return runOf(h, graphRunId, 'fix');
+      })();
+      expect(fix.status).toBe('running');
+
+      // `node replan` is honored (the lineage holds a not-matched gate): the run drains.
+      expect(reportNode(h, graphRunId, fix, 'replan', 'the approach is wrong').ok).toBe(true);
+      expect(await tickGraphRun(h, graphRunId)).toBe('draining');
+      expect(h.plannerPrompts.map((p) => p.kind)).toEqual(['replan']);
+
+      // The replan planner submits revision 2 through the REAL `graph submit` CLI.
+      const planner = h.transport.started.at(-1)!;
+      writePlannerSubmission(
+        h,
+        topologyJson(
+          [WORKER_NODE('retry', ['src'])],
+          [{ id: 'r-end', from: 'retry', on: 'complete', to: 'END' }],
+          ['retry'],
+        ),
+      );
+      const submitted = JSON.parse(
+        runGraphCommand(
+          h.store,
+          graphEnv(h, {
+            graphRunId: String(graphRunId),
+            launchId: String(planner.nodeRunId),
+            generation: planner.graphEnv?.KARST_GRAPH_GENERATION ?? '',
+            capability: planner.graphEnv?.KARST_GRAPH_CAPABILITY ?? '',
+          }),
+          ['graph', 'submit'],
+          () => NOW,
+        ),
+      ) as { ok: boolean };
+      expect(submitted.ok).toBe(true);
+      expect(await tickGraphRun(h, graphRunId)).toBe('running');
+      const revision = h.store.db
+        .prepare('SELECT MAX(revision_number) AS n FROM approach_graph_revisions WHERE graph_run_id = ?')
+        .get(graphRunId) as { n: number };
+      expect(revision.n).toBe(2);
+
+      const retry = await tickToNode(h, graphRunId, 'retry');
+      writeInWorkspace(h, retry, 'src/retry.ts', 'retry\n');
+      expect(reportNode(h, graphRunId, retry, 'complete').ok).toBe(true);
+      expect(await tickUntil(h, graphRunId, (s) => s === 'completed-awaiting-impl-marker')).toBe(
+        'completed-awaiting-impl-marker',
+      );
+    } finally {
+      h.close();
+    }
+  });
+
+  it('parks the run when an agent reports `node blocked` (the alias of block) with no replan', async () => {
+    const h = makeHarness();
+    try {
+      const { graphRunId } = await bootAndSubmit(h);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      await tickGraphRun(h, graphRunId);
+      const impl = runOf(h, graphRunId, 'impl');
+      const out = reportNode(h, graphRunId, impl, 'blocked', 'missing credentials');
+      expect(out.ok).toBe(true);
+      expect(await tickGraphRun(h, graphRunId)).toBe('blocked');
+      const run = h.store.db
+        .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
+        .get(graphRunId) as { blocked_reason: string };
+      expect(run.blocked_reason).toContain('missing credentials');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('repairs an invalid graph.json: the re-prompt carries the planner vocabulary, attempt 2 completes', async () => {
+    const h = makeHarness();
+    try {
+      const bad = JSON.stringify({ ...JSON.parse(agentGraphJson()), edges: [] });
+      const { graphRunId, plannerRunId } = await bootAndSubmitInvalid(h, bad);
+      expect(await tickGraphRun(h, graphRunId)).toBe('planning');
+      expect(h.plannerPrompts).toHaveLength(1);
+      const repair = h.plannerPrompts[0]!;
+      expect(repair.kind).toBe('repair');
+      expect(repair.prompt).toContain('Legal values for this run');
+      expect(repair.prompt).toContain('repositories: `api`');
+      expect(repair.prompt).toContain('commands: `test`');
+      expect(repair.prompt).toContain('missing-normal-edge');
+
+      // Attempt 2: a valid document through the real CLI, then acceptance.
+      writePlannerSubmission(h, agentGraphJson());
+      const planner = h.transport.started.at(-1)!;
+      const resubmitted = JSON.parse(
+        runGraphCommand(
+          h.store,
+          graphEnv(h, {
+            graphRunId: String(graphRunId),
+            launchId: String(plannerRunId),
+            generation: planner.graphEnv?.KARST_GRAPH_GENERATION ?? '',
+            capability: planner.graphEnv?.KARST_GRAPH_CAPABILITY ?? '',
+          }),
+          ['graph', 'submit'],
+          () => NOW,
+        ),
+      ) as { ok: boolean };
+      expect(resubmitted.ok).toBe(true);
+      await tickGraphRun(h, graphRunId);
+      expect(graphRunStatus(h.store.db, graphRunId)).toBe('awaiting-confirmation');
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      await tickGraphRun(h, graphRunId);
+      const impl = runOf(h, graphRunId, 'impl');
+      writeInWorkspace(h, impl, 'src/repaired.ts', 'ok\n');
+      expect(reportNode(h, graphRunId, impl, 'complete').ok).toBe(true);
+      expect(await tickUntil(h, graphRunId, (s) => s === 'completed-awaiting-impl-marker')).toBe(
+        'completed-awaiting-impl-marker',
+      );
+    } finally {
+      h.close();
+    }
+  });
+
+  it('resumes a node that crashed while completing: durable OS facts prove termination and the commit lands', async () => {
+    const h = makeHarness({ recordProcesses: true });
+    try {
+      const { graphRunId } = await bootAndSubmit(h);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      await tickGraphRun(h, graphRunId);
+      const impl = runOf(h, graphRunId, 'impl');
+      writeInWorkspace(h, impl, 'src/crash.ts', 'survived\n');
+      expect(reportNode(h, graphRunId, impl, 'complete').ok).toBe(true);
+      expect(runOf(h, graphRunId, 'impl').status).toBe('completing');
+
+      // The window reloads: no session, the process is dead.
+      const { result } = await reconcileAfterReload(h, graphRunId);
+      expect(result).toBeDefined();
+      expect(runOf(h, graphRunId, 'impl').status).toBe('completed');
+      expect(readFileSync(join(h.worktree, 'src/crash.ts'), 'utf8')).toBe('survived\n');
+      expect(await tickUntil(h, graphRunId, (s) => s === 'completed-awaiting-impl-marker')).toBe(
+        'completed-awaiting-impl-marker',
+      );
+    } finally {
+      h.close();
+    }
+  });
+
+  it('keeps a completing node parked while its process is still alive after a reload', async () => {
+    const h = makeHarness({ recordProcesses: true });
+    try {
+      const { graphRunId } = await bootAndSubmit(h);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      await tickGraphRun(h, graphRunId);
+      const impl = runOf(h, graphRunId, 'impl');
+      writeInWorkspace(h, impl, 'src/live.ts', 'live\n');
+      expect(reportNode(h, graphRunId, impl, 'complete').ok).toBe(true);
+      const aliveFacts = {
+        isAlive: () => true,
+        liveCwd: () => ({ path: h.workspaceOfNode(impl.id), deleted: false }),
+        processStartMs: () => Date.parse(NOW),
+      };
+      await reconcileAfterReload(h, graphRunId, aliveFacts);
+      expect(runOf(h, graphRunId, 'impl').status).not.toBe('completed');
+      expect(existsSync(join(h.worktree, 'src/live.ts'))).toBe(false);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('launches graph run #2 at stage attempt 1 after impl -> uat -> send-back', async () => {
+    const h = makeHarness();
+    try {
+      const first = await bootAndSubmit(h);
+      expect(confirmGraphRun(h.deps, first.graphRunId)).toBe(true);
+      await tickGraphRun(h, first.graphRunId);
+      const impl = runOf(h, first.graphRunId, 'impl');
+      writeInWorkspace(h, impl, 'src/first.ts', 'one\n');
+      expect(reportNode(h, first.graphRunId, impl, 'complete').ok).toBe(true);
+      await tickUntil(h, first.graphRunId, (s) => s === 'completed-awaiting-impl-marker');
+
+      expect(
+        runStageCommand(h.store, h.ticketId, ['stage', 'impl', 'pass'], undefined, { agentState: 'running' }),
+      ).toBe('uat');
+      expect(graphRunStatus(h.store.db, first.graphRunId)).toBe('closed');
+
+      sendBackToImplement(h.store, h.ticketId, { now: () => NOW, reason: 'uat found a gap' });
+      expect(getTicket(h.store, h.ticketId).stageCurrent).toBe('impl');
+
+      const launched = await bootstrapAndLaunchPlanner(h.deps, {
+        ticketId: h.ticketId,
+        stageAttempt: stageAttempt(h.store, h.ticketId, 'impl'),
+        approachId: GRAPH_APPROACH,
+        projectSlug: 'e2e',
+      });
+      expect(stageAttempt(h.store, h.ticketId, 'impl')).toBe(1);
+      expect(launched.kind).toBe('launched');
+      if (launched.kind !== 'launched') return;
+      expect(launched.graphRunId).not.toBe(first.graphRunId);
+      const second = h.store.db
+        .prepare('SELECT stage_attempt FROM approach_graph_runs WHERE id = ?')
+        .get(launched.graphRunId) as { stage_attempt: number };
+      expect(second.stage_attempt).toBe(1);
+    } finally {
+      h.close();
+    }
+  });
 });
