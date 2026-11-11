@@ -443,6 +443,19 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.resumed).toEqual([109]);
   });
 
+  it('a completing node with a foreign (recycled PID) process resumes the completion pipeline', async () => {
+    linkProcess(ctx, 112, 4949, NOW);
+    insertNodeRun(ctx, 112, 'completing', { processRunId: 112 });
+    const resumed: number[] = [];
+    const deps = ctx.makeDeps({
+      facts: makeFacts({ alive: { 4949: true }, startMs: { 4949: Date.parse(NOW) + 500_000 } }),
+      resumePipeline: (nodeRunId) => resumed.push(nodeRunId),
+    });
+    const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+    expect(resumed).toEqual([112]);
+    expect(result.resumed).toEqual([112]);
+  });
+
   it('a completing node with a live attributable process reverts to running and completion proceeds', async () => {
     linkProcess(ctx, 110, 4747, NOW);
     insertNodeRun(ctx, 110, 'completing', { processRunId: 110 });

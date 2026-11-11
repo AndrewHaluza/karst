@@ -99,6 +99,8 @@ import { graphRunIdStatus, markGraphRunBlocked } from '../../../store/graph/grap
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
+import { attributeOf, processOf } from '../coordinator/reconcile.js';
+import type { ProcessFactsSource } from '../../../runtime/serverIdentity.js';
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -111,6 +113,7 @@ export interface CompletionPipelineDeps {
   transaction: <T>(fn: () => T) => T;
   now: () => string;
   debug?: (message: string) => void;
+  facts: ProcessFactsSource;
   git: GitRunner;
   /** `git rev-parse --git-common-dir` for the domain key. */
   gitCommonDirOf: (cwd: string) => string | null;
@@ -144,7 +147,7 @@ export type CompletionPipelineResult =
 
 type NodeRunRow = Pick<
   FullNodeRunRow,
-  'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status'
+  'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'process_run_id'
 >;
 
 function parkNode(
@@ -429,11 +432,19 @@ async function landWorkspaceChanges(
       writeFileSync(patchFile, patch);
       const check = await deps.git(['apply', '--check', patchFile], domain.canonicalWorktree);
       if (check.exitCode !== 0) {
-        return { ok: false, stderr: check.stderr, reason: 'git apply --check refused' };
-      }
-      const applied = await deps.git(['apply', patchFile], domain.canonicalWorktree);
-      if (applied.exitCode !== 0) {
-        return { ok: false, stderr: applied.stderr, reason: 'git apply refused' };
+        // If the patch was already applied before interruption, verify with --reverse --check
+        const reverseCheck = await deps.git(
+          ['apply', '--reverse', '--check', patchFile],
+          domain.canonicalWorktree,
+        );
+        if (reverseCheck.exitCode !== 0) {
+          return { ok: false, stderr: check.stderr, reason: 'git apply --check refused' };
+        }
+      } else {
+        const applied = await deps.git(['apply', patchFile], domain.canonicalWorktree);
+        if (applied.exitCode !== 0) {
+          return { ok: false, stderr: applied.stderr, reason: 'git apply refused' };
+        }
       }
     }
     for (const u of untracked) {
@@ -453,23 +464,38 @@ async function landWorkspaceChanges(
 
 async function terminationProven(
   deps: CompletionPipelineDeps,
-  nodeRunId: number,
+  node: Pick<NodeRunRow, 'id' | 'process_run_id'>,
 ): Promise<boolean> {
-  const session = deps.getSession(nodeRunId);
+  const session = deps.getSession(node.id);
   if (!session) {
-    deps.debug?.(`[graph] completing node ${nodeRunId}: no session in the registry — cannot prove termination`);
-    return false;
+    const proc = processOf(deps.db, node);
+    if (!proc) {
+      deps.debug?.(
+        `[graph] completing node ${node.id}: no session in the registry and no durable process identity — cannot prove termination`,
+      );
+      return false;
+    }
+    const attribution = await attributeOf(deps.facts, proc);
+    const proven = attribution === 'dead' || attribution === 'foreign';
+    if (!proven) {
+      deps.debug?.(
+        `[graph] completing node ${node.id}: termination not proven from durable OS facts (${attribution})`,
+      );
+    }
+    return proven;
   }
   const proof = await deps.transport.terminate(session);
   const proven =
     (proof.kind === 'attributable' && proof.kill === 'killed') || proof.kind === 'dead';
   if (!proven) {
     deps.debug?.(
-      `[graph] completing node ${nodeRunId}: termination not proven (${proof.kind}${proof.kind === 'attributable' ? `:${proof.kill}` : ''})`,
+      `[graph] completing node ${node.id}: termination not proven (${proof.kind}${proof.kind === 'attributable' ? `:${proof.kill}` : ''})`,
     );
   }
   return proven;
 }
+
+const inFlightPipelines = new Set<number>();
 
 /**
  * Run the completing pipeline for one node. Returns a closed result; every
@@ -482,69 +508,112 @@ export async function runCompletionPipeline(
 ): Promise<CompletionPipelineResult> {
   if (graphRunIdStatus(deps.db, input.graphRunId)?.status !== 'running') return { kind: 'no-op' };
   const node = nodeRunIntegrationRef(deps.db, input.nodeRunId);
-  if (!node || node.status !== 'completing') return { kind: 'no-op' };
+  if (!node || (node.status !== 'completing' && node.status !== 'integrating')) return { kind: 'no-op' };
 
-  const revisionId = node.revision_id;
-  /** Structured diagnostic for this run, through the injected debug callback. */
-  const graphDiag = (
-    category: 'completion-rejection' | 'integration',
-    detail: string,
-  ): string | undefined => {
-    return emitGraphDiagnostic({ db: deps.db, debug: deps.debug }, {
-      category,
-      graphRunId: input.graphRunId,
-      revisionId,
-      nodeRunId: input.nodeRunId,
-      detail,
-    });
-  };
-
-  graphDiag('integration', 'completing the node — terminating and verifying');
-  if (!(await terminationProven(deps, input.nodeRunId))) {
-    parkNode(deps, input.nodeRunId, 'completing', 'termination-unknown', {});
-    graphDiag('completion-rejection', 'termination not proven — node parked termination-unknown');
-    return { kind: 'termination-unknown' };
+  if (inFlightPipelines.has(input.nodeRunId)) {
+    return node.status === 'completing' ? { kind: 'deferred' } : { kind: 'no-op' };
+  }
+  if (node.status === 'integrating' && deps.getSession(input.nodeRunId) !== undefined) {
+    return { kind: 'no-op' };
   }
 
-  // Slice 4 Task 2: required outputs are validated BEFORE the effective
-  // outcome is accepted. A missing or unsafe REQUIRED output parks the node
-  // (effective outcome null, no edge) and blocks the graph — the reported
-  // `complete` stays evidence, never a routing outcome.
-  const artifactRoot = deps.artifactRoot();
-  const validation = validateRequiredOutputs(deps.db, {
-    revisionId: node.revision_id,
-    nodeId: node.node_id,
-    nodeRunId: input.nodeRunId,
-    outputPaths: declaredOutputPaths(deps.db, node.revision_id, node.node_id, artifactRoot),
-    snapshotDir: artifactRoot,
-  }, deps.debug);
-  if (!validation.ok) {
-    const reason = `${validation.code}: artifact "${validation.artifactId}" ${validation.code === 'output-artifact-missing' ? 'produced nothing' : `failed validation: ${validation.reason}`}`;
-    graphDiag('completion-rejection', reason);
-    parkNode(deps, input.nodeRunId, 'completing', validation.code, {
-      outcome: 'complete',
-      failureCategory: validation.code,
-      reason,
-    });
-    blockGraphRun(deps, input.graphRunId, reason);
-    return { kind: validation.code, artifactId: validation.artifactId, reason };
-  }
+  inFlightPipelines.add(input.nodeRunId);
+  try {
+    const revisionId = node.revision_id;
+    /** Structured diagnostic for this run, through the injected debug callback. */
+    const graphDiag = (
+      category: 'completion-rejection' | 'integration',
+      detail: string,
+    ): string | undefined => {
+      return emitGraphDiagnostic({ db: deps.db, debug: deps.debug }, {
+        category,
+        graphRunId: input.graphRunId,
+        revisionId,
+        nodeRunId: input.nodeRunId,
+        detail,
+      });
+    };
 
-  // Slice 5 Task 5: PER-PHYSICAL-DOMAIN serialization. The node must hold (or
-  // acquire) the lease of every domain it declares writes for BEFORE it may
-  // integrate; a conflicting lease (a same-domain writer in flight) defers
-  // the node — it stays `completing` and the walk re-drives it in node-run
-  // order. Disjoint domains are never contended: there is no graph-global slot.
-  if (!ensureIntegrationLeases(deps, input.graphRunId, input.nodeRunId)) {
-    return { kind: 'deferred' };
-  }
+    if (node.status === 'completing') {
+      graphDiag('integration', 'completing the node — terminating and verifying');
+      if (!(await terminationProven(deps, node))) {
+        parkNode(deps, input.nodeRunId, 'completing', 'termination-unknown', {});
+        graphDiag('completion-rejection', 'termination not proven — node parked termination-unknown');
+        return { kind: 'termination-unknown' };
+      }
 
-  if (!claimIntegratingStatus(deps, input.nodeRunId)) {
-    if (nodeRunStatus(deps.db, input.nodeRunId) === 'completing') {
-      return { kind: 'deferred' }; // a racing window is mid-flight
+      // Slice 4 Task 2: required outputs are validated BEFORE the effective
+      // outcome is accepted. A missing or unsafe REQUIRED output parks the node
+      // (effective outcome null, no edge) and blocks the graph — the reported
+      // `complete` stays evidence, never a routing outcome.
+      const artifactRoot = deps.artifactRoot();
+      const validation = validateRequiredOutputs(deps.db, {
+        revisionId: node.revision_id,
+        nodeId: node.node_id,
+        nodeRunId: input.nodeRunId,
+        outputPaths: declaredOutputPaths(deps.db, node.revision_id, node.node_id, artifactRoot),
+        snapshotDir: artifactRoot,
+      }, deps.debug);
+      if (!validation.ok) {
+        const reason = `${validation.code}: artifact "${validation.artifactId}" ${validation.code === 'output-artifact-missing' ? 'produced nothing' : `failed validation: ${validation.reason}`}`;
+        graphDiag('completion-rejection', reason);
+        parkNode(deps, input.nodeRunId, 'completing', validation.code, {
+          outcome: 'complete',
+          failureCategory: validation.code,
+          reason,
+        });
+        blockGraphRun(deps, input.graphRunId, reason);
+        return { kind: validation.code, artifactId: validation.artifactId, reason };
+      }
+
+      // Slice 5 Task 5: PER-PHYSICAL-DOMAIN serialization. The node must hold (or
+      // acquire) the lease of every domain it declares writes for BEFORE it may
+      // integrate; a conflicting lease (a same-domain writer in flight) defers
+      // the node — it stays `completing` and the walk re-drives it in node-run
+      // order. Disjoint domains are never contended: there is no graph-global slot.
+      if (!ensureIntegrationLeases(deps, input.graphRunId, input.nodeRunId)) {
+        return { kind: 'deferred' };
+      }
+
+      if (!claimIntegratingStatus(deps, input.nodeRunId)) {
+        if (nodeRunStatus(deps.db, input.nodeRunId) === 'completing') {
+          return { kind: 'deferred' }; // a racing window is mid-flight
+        }
+        return { kind: 'no-op' }; // already moved by a racing window
+      }
+    } else {
+      // Interrupted node already in `integrating` status:
+      // Verify termination and ensure physical domain leases before proceeding.
+      if (!(await terminationProven(deps, node))) {
+        return { kind: 'no-op' };
+      }
+      if (!ensureIntegrationLeases(deps, input.graphRunId, input.nodeRunId)) {
+        return { kind: 'deferred' };
+      }
     }
-    return { kind: 'no-op' }; // already moved by a racing window
-  }
+
+    // Required outputs validation instance resolution:
+    // When completing, validation already ran above; when resuming integrating,
+    // compute validated output instances for recording in the completion transaction.
+    const artifactRoot = deps.artifactRoot();
+    const validation = validateRequiredOutputs(deps.db, {
+      revisionId: node.revision_id,
+      nodeId: node.node_id,
+      nodeRunId: input.nodeRunId,
+      outputPaths: declaredOutputPaths(deps.db, node.revision_id, node.node_id, artifactRoot),
+      snapshotDir: artifactRoot,
+    }, deps.debug);
+    if (!validation.ok) {
+      const reason = `${validation.code}: artifact "${validation.artifactId}" ${validation.code === 'output-artifact-missing' ? 'produced nothing' : `failed validation: ${validation.reason}`}`;
+      graphDiag('completion-rejection', reason);
+      parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
+        outcome: 'complete',
+        failureCategory: validation.code,
+        reason,
+      });
+      blockGraphRun(deps, input.graphRunId, reason);
+      return { kind: validation.code, artifactId: validation.artifactId, reason };
+    }
 
   // Snapshot + validate. Domains are sorted by key; change sets are captured
   // per domain from the node's ISOLATED workspace clone (Slice 5 T1), falling
@@ -631,17 +700,29 @@ export async function runCompletionPipeline(
       domain.canonicalWorktree,
     );
     if (commit.exitCode !== 0) {
-      const reason = `integration-conflict: git commit refused in ${domain.repoNames.join('/')} (${boundedGitReason(commit.stderr)})`;
-      graphDiag('integration', reason);
-      parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
-        outcome: 'failed',
-        failureCategory: 'integration-conflict',
-        reason,
-      });
-      blockGraphRun(deps, input.graphRunId, reason);
-      return { kind: 'integration-conflict', reason: commit.stderr };
+      const logCheck = await deps.git(
+        ['log', '-1', '--format=%s', 'HEAD'],
+        domain.canonicalWorktree,
+      );
+      if (
+        logCheck.exitCode === 0 &&
+        logCheck.stdout.trim() === `${INTEGRATION_COMMIT_PREFIX} ${input.graphRunId} node ${input.nodeRunId}`
+      ) {
+        committed = true;
+      } else {
+        const reason = `integration-conflict: git commit refused in ${domain.repoNames.join('/')} (${boundedGitReason(commit.stderr)})`;
+        graphDiag('integration', reason);
+        parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
+          outcome: 'failed',
+          failureCategory: 'integration-conflict',
+          reason,
+        });
+        blockGraphRun(deps, input.graphRunId, reason);
+        return { kind: 'integration-conflict', reason: commit.stderr };
+      }
+    } else {
+      committed = true;
     }
-    committed = true;
   }
 
   deps.transaction(() => {
@@ -704,4 +785,7 @@ export async function runCompletionPipeline(
     );
   }
   return { kind: 'integrated', committed };
+  } finally {
+    inFlightPipelines.delete(input.nodeRunId);
+  }
 }

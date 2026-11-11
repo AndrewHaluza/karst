@@ -352,13 +352,13 @@ export function nodeRunRetryRef(
 export function nodeRunIntegrationRef(
   db: GraphDb,
   id: number,
-): Pick<NodeRunRow, 'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status'> | undefined {
+): Pick<NodeRunRow, 'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'process_run_id'> | undefined {
   return db
     .prepare(
-      'SELECT id, graph_run_id, revision_id, node_id, status FROM approach_node_runs WHERE id = ?',
+      'SELECT id, graph_run_id, revision_id, node_id, status, process_run_id FROM approach_node_runs WHERE id = ?',
     )
     .get(id) as
-    | Pick<NodeRunRow, 'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status'>
+    | Pick<NodeRunRow, 'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'process_run_id'>
     | undefined;
 }
 

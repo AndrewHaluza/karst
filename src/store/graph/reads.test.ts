@@ -29,6 +29,7 @@ import {
   latestNodeRunIdForRevisionNode,
   nextVisitNumber,
   nodeRunBaseHeads,
+  nodeRunIntegrationRef,
   nodeRunStatus,
   nodeRunsForGraphRun,
   runnableNodeRunsForGraphRun,
@@ -220,6 +221,23 @@ describe('node-run read helpers (NDL-60)', () => {
     expect(nodeRunsForGraphRun(h.db, h.graphRunId).map((r) => r.id)).toEqual([ready, blocked]);
     writeNodeRunBaseHeads(h.db, ready, [{ domainKey: 'd1', commit: 'abc' }]);
     expect(nodeRunBaseHeads(h.db, ready)).toEqual([{ domainKey: 'd1', commit: 'abc' }]);
+    const procId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, pid, status, started_at)
+           VALUES (1, 'impl', 'graph-node', 0, 4242, 'running', ?)`,
+        )
+        .run(NOW).lastInsertRowid,
+    );
+    h.db.prepare('UPDATE approach_node_runs SET process_run_id = ? WHERE id = ?').run(procId, ready);
+    expect(nodeRunIntegrationRef(h.db, ready)).toEqual({
+      id: ready,
+      graph_run_id: h.graphRunId,
+      revision_id: h.revisionId,
+      node_id: 'n1',
+      status: 'ready',
+      process_run_id: procId,
+    });
   });
 });
 

@@ -44,6 +44,7 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import { SUPPORTED } from '../../agent/surfaces.js';
 import { domainKeyOf } from './integration/domains.js';
 import { canonicalPath } from '../../runtime/pathScope.js';
+import { systemAsyncProcessFacts } from '../../runtime/serverIdentity.js';
 
 export const NOW = '2026-08-15T00:00:00.000Z';
 export const GRAPH_APPROACH = 'karst-graph-engineering';
@@ -388,6 +389,7 @@ export function makeHarness(): Harness {
     transaction,
     now: () => NOW,
     debug: () => undefined,
+    facts: systemAsyncProcessFacts,
     git: gitRunner(),
     gitCommonDirOf: (cwd) => gitCommonDir(cwd),
     transport: transport as unknown as CompletionPipelineDeps['transport'],

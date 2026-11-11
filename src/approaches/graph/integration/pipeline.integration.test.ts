@@ -25,7 +25,7 @@ import type { GitRunner } from '../../../integrations/git.js';
 import { cleanupTerminalNodeWorkspace } from '../workspace/cleanup.js';
 import { nodeWorkspaceDir } from '../workspace/provider.js';
 import { workspacesForNode } from '../../../store/graph/nodeRuns.js';
-import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
+import type { ProcessFacts, ProcessFactsSource, LiveCwd } from '../../../runtime/serverIdentity.js';
 
 interface Harness {
   store: Store;
@@ -113,14 +113,44 @@ const deadProcessFacts: ProcessFacts = {
   processStartMs: () => null,
 };
 
-function insertNodeRun(h: Harness, id: number, status: string): void {
+function makeFacts(f: {
+  alive?: Record<number, boolean>;
+  startMs?: Record<number, number | null>;
+  cwd?: Record<number, LiveCwd | null>;
+}): ProcessFactsSource {
+  return {
+    isAlive: async (pid) => f.alive?.[pid] ?? true,
+    liveCwd: async (pid) => f.cwd?.[pid] ?? null,
+    processStartMs: async (pid) => f.startMs?.[pid] ?? null,
+  };
+}
+
+function insertNodeRun(h: Harness, id: number, status: string, processRunId?: number): void {
   h.db
     .prepare(
       `INSERT INTO approach_node_runs
-         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-       VALUES (?, ?, ?, 'n', 'agent', ?, ?)`,
+         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, process_run_id)
+       VALUES (?, ?, ?, 'n', 'agent', ?, ?, ?)`,
     )
-    .run(id, h.graphRunId, h.revisionId, id, status);
+    .run(id, h.graphRunId, h.revisionId, id, status, processRunId ?? null);
+}
+
+function linkProcess(
+  h: Harness,
+  processRunId: number,
+  pid: number | null,
+  startedAt = '2026-08-12T00:00:00.000Z',
+): void {
+  h.db
+    .prepare(
+      `INSERT INTO process_runs
+         (id, ticket_id, stage_key, process_id, attempt, pid, status, started_at)
+       VALUES (?, ?, 'impl', 'graph-node', 0, ?, 'running', ?)`,
+    )
+    .run(processRunId, h.ticketId, pid, startedAt);
+  h.db
+    .prepare('UPDATE approach_node_runs SET process_run_id = ? WHERE id = ?')
+    .run(processRunId, processRunId);
 }
 
 /** Record a node run's claim-time base head for one physical domain — what the
@@ -159,6 +189,7 @@ function makeDeps(
 ): CompletionPipelineDeps {
   const base: CompletionPipelineDeps = {
     db: h.db,
+    facts: deadProcessFacts,
     transaction: <T>(fn: () => T): T =>
       (h.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
         begin: 'immediate',
@@ -533,7 +564,7 @@ describe('runCompletionPipeline — termination', () => {
     expect(leaseRow(h, 61)).toEqual({ status: 'held' });
   });
 
-  it('a session that vanished from the registry cannot prove termination', async () => {
+  it('a session that vanished from the registry cannot prove termination when no durable process exists', async () => {
     const h = harness();
     cleanups.push(h.close);
     insertNodeRun(h, 62, 'completing');
@@ -543,10 +574,103 @@ describe('runCompletionPipeline — termination', () => {
     );
     expect(result.kind).toBe('termination-unknown');
   });
+
+  it('a session missing from registry proves termination from durable process_runs and dead OS facts', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 63, 'completing');
+    linkProcess(h, 63, 4949);
+    lease(h, 63, 'dom-term');
+    writeFileSync(join(h.worktree, 'a.ts'), 'z\n');
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        getSession: () => undefined,
+        facts: makeFacts({ alive: { 4949: false } }),
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 63 },
+    );
+    expect(result.kind).toBe('integrated');
+    expect(nodeRow(h, 63).status).toBe('completed');
+  });
+
+  it('a session missing from registry with live attributable OS facts cannot prove termination', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 64, 'completing');
+    linkProcess(h, 64, 4950);
+    lease(h, 64, 'dom-term');
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        getSession: () => undefined,
+        facts: makeFacts({
+          alive: { 4950: true },
+          startMs: { 4950: Date.parse('2026-08-12T00:00:00.000Z') },
+        }),
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 64 },
+    );
+    expect(result.kind).toBe('termination-unknown');
+    expect(nodeRow(h, 64).status).toBe('termination-unknown');
+  });
 });
 
 describe('runCompletionPipeline — guards', () => {
-  it('no-op when the node is not completing', async () => {
+  it('resumes an interrupted integrating node when process is proven dead', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 73, 'integrating');
+    linkProcess(h, 73, 4951);
+    lease(h, 73, 'dom-term');
+    writeFileSync(join(h.worktree, 'a.ts'), 'z\n');
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        getSession: () => undefined,
+        facts: makeFacts({ alive: { 4951: false } }),
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 73 },
+    );
+    expect(result.kind).toBe('integrated');
+    expect(nodeRow(h, 73).status).toBe('completed');
+  });
+
+  it('integrating node returns no-op when an in-memory session is active in registry', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 74, 'integrating');
+    linkProcess(h, 74, 4952);
+    lease(h, 74, 'dom-term');
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        getSession: () => session(74),
+        facts: makeFacts({ alive: { 4952: false } }),
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 74 },
+    );
+    expect(result.kind).toBe('no-op');
+    expect(nodeRow(h, 74).status).toBe('integrating');
+  });
+
+  it('resuming an integrating node is idempotent when changes were already committed', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 75, 'integrating');
+    linkProcess(h, 75, 4953);
+    lease(h, 75, 'dom-term');
+    writeFileSync(join(h.worktree, 'a.ts'), 'z\n');
+    git(h.worktree, ['add', 'a.ts']);
+    git(h.worktree, ['commit', '-m', `${INTEGRATION_COMMIT_PREFIX} ${h.graphRunId} node 75`]);
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        getSession: () => undefined,
+        facts: makeFacts({ alive: { 4953: false } }),
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 75 },
+    );
+    expect(result.kind).toBe('integrated');
+    expect(nodeRow(h, 75).status).toBe('completed');
+  });
+
+  it('no-op when the node is not completing or integrating', async () => {
     const h = harness();
     cleanups.push(h.close);
     insertNodeRun(h, 71, 'completed');

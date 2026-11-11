@@ -208,7 +208,7 @@ function drainingRevisionNumber(db: GraphDb, graphRunId: number): number | undef
 /** The run's node-linked process identity, or null when none exists (a null
  *  pid is equally no evidence — "never declared dead merely because this
  *  window cannot see its terminal"). */
-function processOf(
+export function processOf(
   db: GraphDb,
   node: { process_run_id: number | null },
 ): { pid: number; startedAt: string | null } | null {
@@ -242,7 +242,7 @@ function plannerProcessOf(db: GraphDb, planner: PlannerRunRow): { pid: number; s
  *  supervised transport awaits them: both sync and async fact sources feed the
  *  same pure decision (`runtime/serverIdentity.ts` is the mandated evidence
  *  source). The recorded row carries no cwd, so the start-time rule decides. */
-async function attributeOf(
+export async function attributeOf(
   facts: ProcessFactsSource,
   proc: { pid: number; startedAt: string | null },
 ): Promise<Attribution> {

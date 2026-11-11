@@ -4426,6 +4426,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
       now: () => new Date().toISOString(),
       debug: (message) => logger.debug(message),
+      facts: systemAsyncProcessFacts,
       git: defaultGitRunner,
       gitCommonDirOf: gitCommonDirFromFs,
       transport: tr,
