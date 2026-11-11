@@ -910,8 +910,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
             <span.op-detail-text> "session k-9f2e"
           <span.op-tail>
             <span.agent-id>
-              <span.agenticon aria-hidden="true">
-                <svg>
+              <span.agent-mark aria-label="Claude Code" data-tip="Claude Code · Claude Opus 4.1" role="img" tabindex="0">
+                <span.agenticon aria-hidden="true">
+                  <svg>
               <span.agent-core> "Claude Code"
               <span.agent-sep> "·"
               <span.agent-model> "Claude Opus 4.1"
@@ -921,6 +922,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
           <span.duration> "<dur> <dur>"
           <span.chev aria-hidden="true">
         <div.op-body>
+          <p.op-detail-full> "session k-9f2e"
           <div.session-segments>
             <div.timeline-row.timeline-start>
               <span.timeline-slot>
@@ -939,8 +941,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
                 <span> "switch"
               <span.switch-value>
                 <span.agent-id>
-                  <span.agenticon aria-hidden="true">
-                    <svg>
+                  <span.agent-mark aria-label="Codex" data-tip="Codex · Codex X" role="img" tabindex="0">
+                    <span.agenticon aria-hidden="true">
+                      <svg>
                   <span.agent-core> "Codex · Codex X"
               <span.timeline-tail>
                 <span.token-stat title="22,400 fresh tokens"> "22.4k tok"
@@ -955,8 +958,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
                 <span> "resumed"
               <span.switch-value>
                 <span.agent-id>
-                  <span.agenticon aria-hidden="true">
-                    <svg>
+                  <span.agent-mark aria-label="Claude Code" data-tip="Claude Code · Claude Opus 4.1" role="img" tabindex="0">
+                    <span.agenticon aria-hidden="true">
+                      <svg>
                   <span.agent-core> "Claude Code · Claude Opus 4.1"
               <span.timeline-tail>
                 <span.token-stat title="17,300 fresh tokens"> "17.3k tok"
@@ -1002,8 +1006,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
             <span.op-detail-text> "session c7f1 · completed"
           <span.op-tail>
             <span.agent-id>
-              <span.agenticon aria-hidden="true">
-                <svg>
+              <span.agent-mark aria-label="Claude Code" data-tip="Claude Code · Sonnet" role="img" tabindex="0">
+                <span.agenticon aria-hidden="true">
+                  <svg>
               <span.agent-core> "Claude Code"
               <span.agent-sep> "·"
               <span.agent-model> "Sonnet"
@@ -1013,6 +1018,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
           <span.duration> "<dur>"
           <span.chev aria-hidden="true">
         <div.op-body>
+          <p.op-detail-full> "session c7f1 · completed"
           <div.session-segments>
             <div.timeline-row.timeline-start>
               <span.timeline-slot>
@@ -1020,8 +1026,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
               <span.timeline-start-label> "started with"
               <span.switch-value>
                 <span.agent-id>
-                  <span.agenticon aria-hidden="true">
-                    <svg>
+                  <span.agent-mark aria-label="Claude Code" data-tip="Claude Code · Opus" role="img" tabindex="0">
+                    <span.agenticon aria-hidden="true">
+                      <svg>
                   <span.agent-core> "Claude Code · Opus"
               <span.timeline-tail>
                 <span.token-stat title="18,600 fresh tokens"> "18.6k tok"
@@ -1052,8 +1059,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
                 <span> "switched core + model"
               <span.switch-value>
                 <span.agent-id>
-                  <span.agenticon aria-hidden="true">
-                    <svg>
+                  <span.agent-mark aria-label="Codex" data-tip="Codex · Sol" role="img" tabindex="0">
+                    <span.agenticon aria-hidden="true">
+                      <svg>
                   <span.agent-core> "Codex · Sol"
               <span.timeline-tail>
                 <span.token-stat title="22,400 fresh tokens"> "22.4k tok"
@@ -1076,8 +1084,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
                 <span> "switched core + model"
               <span.switch-value>
                 <span.agent-id>
-                  <span.agenticon aria-hidden="true">
-                    <svg>
+                  <span.agent-mark aria-label="Claude Code" data-tip="Claude Code · Sonnet" role="img" tabindex="0">
+                    <span.agenticon aria-hidden="true">
+                      <svg>
                   <span.agent-core> "Claude Code · Sonnet"
               <span.timeline-tail>
                 <span.token-stat title="17,300 fresh tokens"> "17.3k tok"
@@ -1261,6 +1270,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
+          <p.op-detail-full> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
@@ -1435,6 +1445,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
+          <p.op-detail-full> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
@@ -1634,6 +1645,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
+          <p.op-detail-full> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
