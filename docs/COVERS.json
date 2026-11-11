@@ -412,8 +412,14 @@
   "src/extension/ops/autopilotRerun.ts": [
     "arch:AP-03"
   ],
+  "src/extension/ops/autopilotStaleRebase.ts": [
+    "arch:AP-05"
+  ],
   "src/extension/ops/autopilotWiring.ts": [
     "arch:AP-00"
+  ],
+  "src/extension/ops/ciActionsWiring.ts": [
+    "arch:AP-05"
   ],
   "src/extension/ops/cloudSessionLinkOps.ts": [
     "arch:CLOUD-01"
@@ -441,6 +447,9 @@
   ],
   "src/extension/ops/planningProposalOps.ts#createPlanningProposalOps": [
     "arch:CLI-17"
+  ],
+  "src/extension/ops/rebaseOnBaseOps.ts": [
+    "arch:AP-05"
   ],
   "src/extension/ops/sandboxLaunchFailureOps.ts": [
     "arch:AP-04"
@@ -1056,6 +1065,9 @@
   ],
   "src/workflow/stages/subtask.ts#createSubtask": [
     "arch:CLI-09"
+  ],
+  "src/workflow/staleGeneratedCi.ts": [
+    "arch:AP-05"
   ],
   "src/workflow/transientCi.ts": [
     "arch:AP-03"
