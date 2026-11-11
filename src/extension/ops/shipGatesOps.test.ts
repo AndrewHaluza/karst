@@ -235,4 +235,22 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     await runShipGates([pr], { uat: uiGates, runProcess, git: gitDiff(['src/store/a.ts']) });
     expect(ran).toEqual(names);
   });
+
+  it('runs only the named gates and records the run as after-take-over', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-1', title: 't' }).id;
+    const uat = { gates: [
+      { name: 'unit', kind: 'command', command: 'a' }, { name: 'lint', kind: 'command', command: 'b' }, { name: 'types', kind: 'command', command: 'c' },
+    ], repositories: {} } as never;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (cmd) => { ran.push(cmd); return { kind: 'completed', exitCode: 0, output: '' }; };
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const r = await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], {
+      uat, runProcess, evidence: { store, ticketId }, headSha: async () => 'c'.repeat(40), only: ['lint', 'types'], kind: 'after-take-over',
+    });
+    expect(r).toBeNull();
+    expect(ran).toEqual(['b', 'c']);
+    expect(currentDeliverRun(store, ticketId)).toMatchObject({ kind: 'after-take-over', state: 'passed', gates: ['lint', 'types'] });
+    expect(listDeliverResults(store, ticketId).map((x) => [x.gateName, x.headSha])).toEqual([['lint', 'c'.repeat(40)], ['types', 'c'.repeat(40)]]);
+  });
 });

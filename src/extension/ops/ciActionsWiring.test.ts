@@ -155,6 +155,39 @@ describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
   });
 });
 
+describe('deliverToPrAction re-runs the skipped gates after a take-over push (D540)', () => {
+  it('runs exactly the skipped gates on the pushed head, records an after-take-over run and writes one note', async () => {
+    seedPr();
+    openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['unit', 'lint', 'types'], pid: 1, now: 'T0' });
+    recordDeliverGate(store, currentDeliverRun(store, id)!.id, { gateName: 'unit', repo: 'r', exitCode: 0, summary: null, startedAt: null, endedAt: null });
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    const cwd = mkdtempSync(join(tmpdir(), 'rerun-'));
+    const ran: string[] = [];
+    const uat = { gates: ['unit', 'lint', 'types'].map((name) => ({ name, kind: 'command', command: name })), repositories: {} } as never;
+    const settled = vi.fn();
+    const i = input({ git: vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `${SHA}\n` : '', stderr: '', exitCode: 0 })) });
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(cwd, id);
+    const done = new Promise<void>((resolve) => { settled.mockImplementation(resolve); });
+    await deliverToPrAction({ ...i, deliver: { ...i.deliver, shipGates: () => ({ settled, deps: { uat, runProcess: async (cmd: string) => { ran.push(cmd); return { kind: 'completed', exitCode: cmd === 'types' ? 2 : 0, output: 'x' }; } } }) } });
+    await auto;
+    await done;
+    expect(ran).toEqual(['lint', 'types']);
+    const run = currentDeliverRun(store, id)!;
+    expect(run).toMatchObject({ kind: 'after-take-over', state: 'failed', gates: ['lint', 'types'] });
+    expect(listDeliverResults(store, id).filter((r) => r.runId === run.id).map((r) => [r.gateName, r.exitCode, r.headSha])).toEqual([['lint', 0, SHA], ['types', 2, SHA]]);
+    const notes = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+    expect(notes).toContain(`Autopilot: the gates skipped by the manual Deliver ran on ${SHA.slice(0, 9)}: failed: types`);
+  });
+});
+
 describe('headShaOf (T1018)', () => {
   const git = (stdout: string, exitCode = 0) => ({ git: vi.fn(async () => ({ stdout, stderr: '', exitCode })) });
   it('returns a full sha, trimmed, and asks git for HEAD in the worktree', async () => {

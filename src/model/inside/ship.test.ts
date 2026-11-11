@@ -1764,7 +1764,7 @@ describe('Deliver process (T1072)', () => {
     const row = deliverOf(dv({ auto: { ...facts, running: { n: 4, m: 5, gate: 'docs' } } }))!;
     expect(row.status).toBe('run');
     expect(row.detail).toBe('2 commits not on the PR · gate 4 of 5');
-    expect(row.deliver!.title).toBe('Push — auto-deliver runs gate 4/5 (docs). Deliver now skips the remaining gates.');
+    expect(row.deliver!.title).toBe('Push — auto-deliver runs gate 4/5 (docs). Deliver now pushes at once; the skipped gates run after the push.');
     const rows = rowsOf(row);
     expect(rows[0]).toMatchObject({ label: 'Gate 4 of 5', detail: 'docs', status: 'run' });
   });

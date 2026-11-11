@@ -1580,7 +1580,8 @@ CREATE TABLE IF NOT EXISTS deliver_runs (
   state       TEXT NOT NULL CHECK (state IN ('running', 'passed', 'failed', 'taken-over', 'stopped')),
   pid         INTEGER,
   started_at  TEXT NOT NULL,
-  ended_at    TEXT
+  ended_at    TEXT,
+  kind        TEXT NOT NULL DEFAULT 'auto'
 );
 CREATE INDEX IF NOT EXISTS idx_deliver_runs_ticket ON deliver_runs(ticket_id, id);
 CREATE TABLE IF NOT EXISTS deliver_gate_results (

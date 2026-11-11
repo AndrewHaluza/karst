@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS deliver_runs (
   state       TEXT NOT NULL CHECK (state IN ('running', 'passed', 'failed', 'taken-over', 'stopped')),
   pid         INTEGER,
   started_at  TEXT NOT NULL,
-  ended_at    TEXT
+  ended_at    TEXT,
+  kind        TEXT NOT NULL DEFAULT 'auto'
 );
 CREATE INDEX IF NOT EXISTS idx_deliver_runs_ticket ON deliver_runs(ticket_id, id);
 CREATE TABLE IF NOT EXISTS deliver_gate_results (
@@ -38,6 +39,13 @@ CREATE INDEX IF NOT EXISTS idx_deliver_results_ticket ON deliver_gate_results(ti
 
 export type DeliverRunState = 'running' | 'passed' | 'failed' | 'taken-over' | 'stopped';
 
+/**
+ * What started a run: `auto` = the auto-deliver of a resolved merge, `after-take-over` = the re-run of the gates a
+ * manual Deliver skipped, on the pushed head (D540). A re-run stopped by a newer push ends `stopped`, never `failed`.
+ */
+export type DeliverRunKind = 'auto' | 'after-take-over';
+const KINDS: readonly string[] = ['auto', 'after-take-over'];
+
 export interface DeliverRun {
   readonly id: number;
   readonly ticketId: number;
@@ -49,6 +57,7 @@ export interface DeliverRun {
   /** Gates that finished (one result each). */
   readonly finished: number;
   readonly state: DeliverRunState;
+  readonly kind: DeliverRunKind;
   readonly startedAt: string;
   readonly endedAt: string | null;
 }
@@ -79,7 +88,7 @@ export interface DeliverGateInput {
 
 interface RunRow {
   id: number; ticket_id: number; head_sha: string | null; gates: string; current_gate: string | null;
-  state: string; started_at: string; ended_at: string | null; finished: number;
+  state: string; started_at: string; ended_at: string | null; finished: number; kind: string;
 }
 interface ResultRow {
   id: number; run_id: number; gate_name: string; repo: string; exit_code: number | null; head_sha: string | null;
@@ -105,6 +114,7 @@ const rowToRun = (r: RunRow): DeliverRun => ({
   currentGate: r.current_gate,
   finished: r.finished,
   state: (STATES.includes(r.state) ? r.state : 'stopped') as DeliverRunState,
+  kind: (KINDS.includes(r.kind) ? r.kind : 'auto') as DeliverRunKind,
   startedAt: r.started_at,
   endedAt: r.ended_at,
 });
@@ -114,7 +124,7 @@ const rowToResult = (r: ResultRow): DeliverGateResult => ({
   summary: r.summary, startedAt: r.started_at, endedAt: r.ended_at, dismissedAt: r.dismissed_at,
 });
 
-const RUN_SELECT = `SELECT r.id, r.ticket_id, r.head_sha, r.gates, r.current_gate, r.state, r.started_at, r.ended_at,
+const RUN_SELECT = `SELECT r.id, r.ticket_id, r.head_sha, r.gates, r.current_gate, r.state, r.kind, r.started_at, r.ended_at,
   (SELECT COUNT(*) FROM deliver_gate_results g WHERE g.run_id = r.id) AS finished FROM deliver_runs r`;
 
 export interface OpenDeliverRunInput {
@@ -123,14 +133,16 @@ export interface OpenDeliverRunInput {
   readonly gates: readonly string[];
   readonly pid: number | null;
   readonly now: string;
+  /** Default `auto`. */
+  readonly kind?: DeliverRunKind;
 }
 
 /** Open a run before its first gate. A run still `running` for the ticket is closed as `stopped` first. */
 export function openDeliverRun(store: Store, input: OpenDeliverRunInput): number {
   store.db.prepare("UPDATE deliver_runs SET state = 'stopped', ended_at = ? WHERE ticket_id = ? AND state = 'running'").run(input.now, input.ticketId);
   const info = store.db
-    .prepare("INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at) VALUES (?, ?, ?, 'running', ?, ?)")
-    .run(input.ticketId, input.headSha, JSON.stringify(input.gates), input.pid, input.now);
+    .prepare("INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at, kind) VALUES (?, ?, ?, 'running', ?, ?, ?)")
+    .run(input.ticketId, input.headSha, JSON.stringify(input.gates), input.pid, input.now, input.kind ?? 'auto');
   return Number(info.lastInsertRowid);
 }
 

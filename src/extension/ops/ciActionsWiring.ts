@@ -13,8 +13,8 @@ import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
 import { deliverTargets } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
-import { autoDeliverAfterConflict, conflictRounds, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps } from './autoDeliverOps.js';
-import { takeOverDeliverRun } from '../../store/deliverRuns.js';
+import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
+import { currentDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
 import { formatId } from '../../model/entityId.js';
 import { nowIso } from '../../model/time.js';
@@ -136,6 +136,11 @@ export interface DeliverHost {
   /** The sync blocker prompt (Open sync diff / Carry). */
   readonly blocked: (reason: string, rewritten: boolean, cliUnknown?: boolean) => Promise<void>;
   readonly tracker: UndeliveredTracker;
+  /**
+   * The ship gate deps of this ticket (manifest `uat`, sandbox process runners, gate env, console output). The re-run
+   * of the gates a manual Deliver skipped uses them (D540). Absent → no re-run. `settled` runs when the re-run ends.
+   */
+  readonly shipGates?: () => { readonly deps: ShipGatesDeps; readonly settled?: () => void };
 }
 
 /** The HEAD sha of a worktree, or null when git cannot read it. */
@@ -175,18 +180,71 @@ function postTakeOverNote(i: CiActionsInput, title: string, body: string): void 
  */
 export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   const h = i.deliver;
+  const key = getTicket(i.store, i.ticketId).key ?? formatId('ticket', i.ticketId);
+  const endPush = beginManualPush(i.ticketId); // a re-run of older skipped gates stops: this push makes a newer head
+  let skipped: readonly string[] = [];
   const taken = takeOverAutoDeliver(i.ticketId, {
     rounds: conflictRounds,
-    key: getTicket(i.store, i.ticketId).key ?? formatId('ticket', i.ticketId),
-    recordTakeOver: () => takeOverDeliverRun(i.store, i.ticketId, nowIso()),
+    key,
+    recordTakeOver: () => {
+      const t = takeOverDeliverRun(i.store, i.ticketId, nowIso());
+      skipped = t?.skipped ?? [];
+      return t;
+    },
     note: (title, body) => postTakeOverNote(i, title, body),
   });
   if (taken === 'pushing') {
+    endPush();
     i.info('Deliver to PR: the auto-deliver pushes now; nothing more to do.');
     i.afterServerChange();
     return;
   }
-  await deliverToPr({
+  let outcome: Awaited<ReturnType<typeof deliverToPr>>;
+  try {
+    outcome = await pushToPr(i);
+  } finally {
+    endPush();
+  }
+  // D506: the push went at once. D540: the gates it skipped run now, on the pushed head, in the background.
+  if (taken === 'taken-over' && outcome.kind === 'delivered') {
+    void rerunAfterTakeOver(i, key, skipped).catch((e: unknown) => i.logError('skipped-gate re-run after a take-over failed', e));
+  }
+}
+
+/** The ship gates a manual Deliver skipped, run on the pushed head and recorded as an `after-take-over` run (D540). */
+async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: readonly string[]): Promise<void> {
+  const seam = i.deliver.shipGates?.();
+  if (seam === undefined) return;
+  try {
+    await rerunSkippedGates({
+      ticketId: i.ticketId, key, skipped,
+      agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
+      note: (title, body) => postTakeOverNote(i, title, body),
+      log: (m) => i.debug(m),
+      runGates: async (gates, signal): Promise<RerunResult> => {
+        const targets = deliverTargets(i.store, i.ticketId);
+        if (!targets.available) return { kind: 'stopped', headSha: null };
+        const failure = await runShipGates(targets.prs, {
+          ...seam.deps, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId },
+          headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange, only: gates, kind: 'after-take-over',
+        });
+        const run = currentDeliverRun(i.store, i.ticketId);
+        const headSha = run?.headSha ?? null;
+        if (failure === null) return { kind: 'passed', headSha };
+        if (signal.aborted) return { kind: 'stopped', headSha };
+        const failed = run === null ? [] : listDeliverResults(i.store, i.ticketId).filter((r) => r.runId === run.id && r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName);
+        return { kind: 'failed', headSha, failed };
+      },
+    });
+  } finally {
+    seam.settled?.();
+    i.afterServerChange();
+  }
+}
+
+function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
+  const h = i.deliver;
+  return deliverToPr({
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),

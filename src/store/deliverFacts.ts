@@ -20,7 +20,7 @@ function currentHead(store: Store, ticketId: number): string | null {
 export function deliverFactsFor(store: Store, ticketId: number): DeliverFacts {
   const run = currentDeliverRun(store, ticketId);
   const running = run !== null && run.state === 'running'
-    ? { n: Math.min(run.finished + 1, run.gates.length), m: run.gates.length, gate: run.currentGate ?? run.gates[run.finished] ?? '' }
+    ? { n: Math.min(run.finished + 1, run.gates.length), m: run.gates.length, gate: run.currentGate ?? run.gates[run.finished] ?? '', ...(run.kind === 'after-take-over' ? { afterTakeOver: true } : {}) }
     : null;
   const failures = listDeliverFailures(store, ticketId)
     .filter((f) => f.exitCode !== null)

@@ -44,4 +44,13 @@ describe('deliverFactsFor', () => {
     takeOverDeliverRun(store, id, 'T');
     expect(deliverFactsFor(store, id).takenOver).toEqual({ failed: [], skipped: ['unit', 'docs'] });
   });
+
+  it('marks the running run as after-take-over so the wording does not promise a push', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['integration', 'visual'], pid: 1, now: 'T', kind: 'after-take-over' });
+    expect(deliverFactsFor(store, id).running).toEqual({ n: 1, m: 2, gate: 'integration', afterTakeOver: true });
+  });
+  it('does not mark an auto run as after-take-over', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit'], pid: 1, now: 'T' });
+    expect(deliverFactsFor(store, id).running).toEqual({ n: 1, m: 1, gate: 'unit' });
+  });
 });

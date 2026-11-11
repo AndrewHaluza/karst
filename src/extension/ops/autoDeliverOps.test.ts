@@ -15,6 +15,11 @@ import {
   verifyMergeResolved,
   type AutoDeliverDeps,
   type ResolvedRound,
+  rerunSkippedGates,
+  beginManualPush,
+  deliverRerunNote,
+  type RerunDeps,
+  type RerunResult,
 } from './autoDeliverOps.js';
 import type { DeliverTargets } from '../../workflow/deliverState.js';
 
@@ -322,5 +327,95 @@ describe('manual Deliver takes over an in-flight auto-deliver (T1018)', () => {
 
   it('words the note with none for empty lists', () => {
     expect(deliverTakeOverNote({ failed: [], skipped: [] })).toBe('Autopilot: delivery taken over by a manual Deliver; failed: none; skipped: none');
+  });
+});
+
+function rerigRerun(over: Partial<RerunDeps> = {}) {
+  const calls: Array<{ gates: readonly string[]; signal: AbortSignal }> = [];
+  const log: string[] = [];
+  const notes: Array<[string, string]> = [];
+  const deps: RerunDeps = {
+    ticketId: 5,
+    key: 'T5',
+    skipped: ['integration', 'visual'],
+    agentActive: () => false,
+    runGates: async (gates, signal): Promise<RerunResult> => { calls.push({ gates, signal }); return { kind: 'passed', headSha: 'abcdef1234567890' }; },
+    note: (t, b) => notes.push([t, b]),
+    log: (m) => log.push(m),
+    ...over,
+  };
+  return { deps, calls, log, notes };
+}
+
+describe('rerunSkippedGates (after a manual Deliver took over)', () => {
+  it('runs exactly the skipped gates and writes one passed note', async () => {
+    const { deps, calls, notes } = rerigRerun();
+    expect(await rerunSkippedGates(deps)).toBe('passed');
+    expect(calls.map((c) => c.gates)).toEqual([['integration', 'visual']]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]![0]).toBe('Autopilot: the gates skipped by the manual Deliver ran on abcdef123: passed');
+  });
+
+  it('names the failed gates in the note', async () => {
+    const { deps, notes } = rerigRerun({ runGates: async () => ({ kind: 'failed', headSha: 'abcdef1234567890', failed: ['visual'] }) });
+    expect(await rerunSkippedGates(deps)).toBe('failed');
+    expect(notes.map((n) => n[0])).toEqual(['Autopilot: the gates skipped by the manual Deliver ran on abcdef123: failed: visual']);
+  });
+
+  it('runs nothing when no gate was skipped', async () => {
+    const { deps, calls, notes } = rerigRerun({ skipped: [] });
+    expect(await rerunSkippedGates(deps)).toBe('nothing');
+    expect(calls).toHaveLength(0);
+    expect(notes).toHaveLength(0);
+  });
+
+  it('refuses while an agent turn is active and says so in the log', async () => {
+    const { deps, calls, log, notes } = rerigRerun({ agentActive: () => true });
+    expect(await rerunSkippedGates(deps)).toBe('refused');
+    expect(calls).toHaveLength(0);
+    expect(log.join('\n')).toMatch(/not started: an agent turn is active/);
+    expect(notes).toHaveLength(0);
+  });
+
+  it('refuses while a push is in flight and says so in the log', async () => {
+    const { deps, calls, log } = rerigRerun();
+    const endPush = beginManualPush(5);
+    expect(await rerunSkippedGates(deps)).toBe('refused');
+    expect(log.join('\n')).toMatch(/not started: a push is in flight/);
+    endPush();
+    expect(await rerunSkippedGates(deps)).toBe('passed');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('refuses a second re-run of the same ticket while the first runs', async () => {
+    let release!: (r: RerunResult) => void;
+    const first = rerigRerun({ runGates: () => new Promise<RerunResult>((r) => { release = r; }) });
+    const running = rerunSkippedGates(first.deps);
+    const second = rerigRerun();
+    expect(await rerunSkippedGates(second.deps)).toBe('refused');
+    release({ kind: 'passed', headSha: 'abcdef1234567890' });
+    expect(await running).toBe('passed');
+  });
+
+  it('a newer push aborts the re-run and records it as superseded, not failed', async () => {
+    let signal!: AbortSignal;
+    let release!: (r: RerunResult) => void;
+    const { deps, notes } = rerigRerun({ runGates: (_g, s) => { signal = s; return new Promise<RerunResult>((r) => { release = r; }); } });
+    const running = rerunSkippedGates(deps);
+    const endPush = beginManualPush(5);
+    expect(signal.aborted).toBe(true);
+    release({ kind: 'stopped', headSha: 'abcdef1234567890' });
+    expect(await running).toBe('superseded');
+    endPush();
+    expect(notes.map((n) => n[0])).toEqual(['Autopilot: the gates skipped by the manual Deliver ran on abcdef123: superseded by a newer push']);
+  });
+
+  it('a stop that no push caused is not a supersede', async () => {
+    const { deps } = rerigRerun({ runGates: async () => ({ kind: 'stopped', headSha: null }) });
+    expect(await rerunSkippedGates(deps)).toBe('stopped');
+  });
+
+  it('words the note for an unknown head', () => {
+    expect(deliverRerunNote({ kind: 'passed', headSha: null })).toBe('Autopilot: the gates skipped by the manual Deliver ran on unknown head: passed');
   });
 });

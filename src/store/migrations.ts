@@ -2966,5 +2966,12 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 115) {
+    // v115: `deliver_runs.kind` — what started a run: `auto` (the auto-deliver) or `after-take-over` (the re-run
+    // of the gates a manual Deliver skipped, D540). Additive; every pre-v115 run is an `auto` run.
+    const cols115 = tableColumns(db, 'deliver_runs');
+    if (cols115.size > 0 && !cols115.has('kind')) db.exec("ALTER TABLE deliver_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'auto'");
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

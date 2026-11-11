@@ -100,4 +100,18 @@ describe('deliver runs', () => {
     expect(stopStaleDeliverRuns(store, () => false, 'T')).toBe(1);
     expect(store.db.prepare('SELECT state FROM deliver_runs WHERE id = ?').get(id)).toEqual({ state: 'stopped' });
   });
+
+  it('records the kind of a run: auto by default, after-take-over when asked', () => {
+    open();
+    expect(currentDeliverRun(store, ticketId)).toMatchObject({ kind: 'auto' });
+    openDeliverRun(store, { ticketId, headSha: 'b'.repeat(40), gates: ['visual'], pid: 7, now: '2026-11-08T10:05:00Z', kind: 'after-take-over' });
+    expect(currentDeliverRun(store, ticketId)).toMatchObject({ kind: 'after-take-over', state: 'running', gates: ['visual'] });
+  });
+
+  it('keeps the failure of an after-take-over run on record until a pass on a newer head', () => {
+    const id = openDeliverRun(store, { ticketId, headSha: 'a'.repeat(40), gates: ['visual'], pid: 7, now: 'T', kind: 'after-take-over' });
+    recordDeliverGate(store, id, { gateName: 'visual', repo: 'r', exitCode: 1, summary: 'x', startedAt: null, endedAt: null });
+    finishDeliverRun(store, id, 'failed', 'T2');
+    expect(listDeliverFailures(store, ticketId)).toMatchObject([{ gateName: 'visual', headSha: 'a'.repeat(40) }]);
+  });
 });

@@ -5,6 +5,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { getMergeCheck } from '../../store/mergeChecks.js';
 import { clearConflictRound } from '../../store/autopilot.js';
+import { shortSha } from '../../model/inside/deliver.js';
 
 /**
  * Auto-delivery of a resolved merge conflict at ship (arch:AC-39, D247).
@@ -210,4 +211,90 @@ export const conflictRounds = createConflictRounds((ticketId) => roundEnded?.(ti
 /** The host sets the store once: a round that ends (delivered, dropped, stopped) frees its sub-task slot. Host tickets only: the engine parks a sandboxed one first. */
 export function freeSlotOnConflictRoundEnd(store: Store): void {
   roundEnded = (ticketId) => clearConflictRound(store, ticketId);
+}
+
+/** The result of the gates a manual Deliver skipped, run on the pushed head. */
+export type RerunResult =
+  | { readonly kind: 'passed'; readonly headSha: string | null }
+  | { readonly kind: 'failed'; readonly headSha: string | null; readonly failed: readonly string[] }
+  | { readonly kind: 'stopped'; readonly headSha: string | null };
+
+/** `nothing`: no gate was skipped. `refused`: an agent turn, a push or another re-run blocks it. `superseded`: a newer push aborted it. */
+export type RerunOutcome = 'passed' | 'failed' | 'nothing' | 'refused' | 'superseded' | 'stopped';
+
+export interface RerunDeps {
+  readonly ticketId: number;
+  readonly key: string;
+  /** `delivery.takenOver.skipped`: the gates the manual Deliver cut short. */
+  readonly skipped: readonly string[];
+  readonly agentActive: () => boolean;
+  /** Runs exactly these gates in the ticket worktree and records the run (kind `after-take-over`). `signal` aborts it. */
+  readonly runGates: (gates: readonly string[], signal: AbortSignal) => Promise<RerunResult>;
+  readonly note: (title: string, body: string) => void;
+  readonly log: (message: string) => void;
+}
+
+interface RerunFlight {
+  readonly controller: AbortController;
+  superseded: boolean;
+}
+const reruns = new Map<number, RerunFlight>();
+const pushes = new Map<number, number>();
+
+/**
+ * A manual push of this ticket begins: a re-run of the skipped gates on an older head is aborted, and it is
+ * recorded as superseded, not failed (D540). The returned function ends the push; no re-run starts before it.
+ */
+export function beginManualPush(ticketId: number): () => void {
+  const flight = reruns.get(ticketId);
+  if (flight !== undefined) {
+    flight.superseded = true;
+    flight.controller.abort();
+  }
+  pushes.set(ticketId, (pushes.get(ticketId) ?? 0) + 1);
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    const left = (pushes.get(ticketId) ?? 1) - 1;
+    if (left <= 0) pushes.delete(ticketId);
+    else pushes.set(ticketId, left);
+  };
+}
+
+/** The bulletin line when the re-run ends (@arch:AP-00: every action writes a note). */
+export function deliverRerunNote(r: RerunResult | { readonly kind: 'superseded'; readonly headSha: string | null }): string {
+  const head = `Autopilot: the gates skipped by the manual Deliver ran on ${shortSha(r.headSha)}`;
+  if (r.kind === 'passed') return `${head}: passed`;
+  if (r.kind === 'failed') return `${head}: failed: ${list(r.failed)}`;
+  if (r.kind === 'superseded') return `${head}: superseded by a newer push`;
+  return `${head}: stopped`;
+}
+
+/**
+ * After a take-over push succeeded: run the gates the manual Deliver skipped, on the pushed head, in the background
+ * (D540, @arch:AP-01). It never blocks the push. It refuses while an agent turn is active, a push is in flight or
+ * another re-run runs, and says so in the log. A newer push aborts it (`beginManualPush`).
+ */
+export async function rerunSkippedGates(d: RerunDeps): Promise<RerunOutcome> {
+  if (d.skipped.length === 0) return 'nothing';
+  const refuse = (why: string): RerunOutcome => {
+    d.log(`[ship] ticket ${d.key} skipped-gate re-run not started: ${why}`);
+    return 'refused';
+  };
+  if (d.agentActive()) return refuse('an agent turn is active');
+  if (pushes.has(d.ticketId)) return refuse('a push is in flight');
+  if (reruns.has(d.ticketId)) return refuse('a re-run is already in progress');
+  const flight: RerunFlight = { controller: new AbortController(), superseded: false };
+  reruns.set(d.ticketId, flight);
+  try {
+    const result = await d.runGates(d.skipped, flight.controller.signal);
+    const outcome: RerunOutcome = flight.superseded ? 'superseded' : result.kind;
+    const title = deliverRerunNote(flight.superseded ? { kind: 'superseded', headSha: result.headSha } : result);
+    if (outcome !== 'stopped') d.note(title, `${d.key}: ${title.replace(/^Autopilot: /, '')}. A failure stays on record on the ship panel.`);
+    d.log(`[ship] ticket ${d.key} skipped-gate re-run: ${outcome}`);
+    return outcome;
+  } finally {
+    reruns.delete(d.ticketId);
+  }
 }
