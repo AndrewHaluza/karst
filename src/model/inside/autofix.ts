@@ -127,11 +127,13 @@ function attemptRow(a: AutofixAttempt, failed: boolean): AutofixAttemptRow {
 }
 
 /** The finished attempts. While a round runs, its own note is the newest of its kind and is not finished yet. */
-function finishedAttempts(f: AutofixFacts, failedKind: AutofixKind | null): readonly AutofixAttemptRow[] {
+function finishedAttempts(f: AutofixFacts, failedKind: AutofixKind | null, failedCount = 0): readonly AutofixAttemptRow[] {
   const all = f.attempts ?? [];
   const running = f.round?.kind ?? null;
   const skip = running === null ? -1 : all.map((a) => a.kind).lastIndexOf(running);
-  return all.flatMap((a, i) => (i === skip ? [] : [attemptRow(a, a.kind === failedKind)]));
+  // A spent park of `n` attempts failed the NEWEST `n` notes of its kind; older ones belong to a budget that was reset or raised.
+  const failedFrom = failedKind === null ? Infinity : all.map((a) => a.kind).reduce<number[]>((acc, k, i) => (k === failedKind ? [...acc, i] : acc), []).slice(-Math.max(failedCount, 0))[0] ?? Infinity;
+  return all.flatMap((a, i) => (i === skip ? [] : [attemptRow(a, a.kind === failedKind && i >= failedFrom)]));
 }
 
 function runningRow(f: AutofixFacts, round: AutofixRound): AutofixRowView {
@@ -156,7 +158,7 @@ function parkedRow(f: AutofixFacts, reason: string): AutofixRowView {
     const subject = k === 'ci' ? `CI ${f.target?.check ?? 'check'}` : 'conflict';
     const where = f.target ? ` on ${prLabel(f.target)}` : '';
     const message = `stopped: ${subject}${where} · ${used} of ${max} ${k === 'ci' ? 'attempts' : 'rounds'}`;
-    return { ...base, state: 'spent', message, attempts: finishedAttempts(f, k) };
+    return { ...base, state: 'spent', message, attempts: finishedAttempts(f, k, Number(used)) };
   }
   const attempts = finishedAttempts(f, null);
   if (GH_FAILED.test(reason)) {

@@ -80,6 +80,12 @@ describe('autofixRow', () => {
     expect(row?.attempts.map((x) => x.detail)).toEqual(['CI still fails', 'CI still fails']);
   });
 
+  it('fails only the newest notes of a spent park and leaves earlier ones as ran', () => {
+    const at = (n: number) => ({ kind: 'ci' as const, n, max: 2, at: `0${n}:00` });
+    const row = autofixRow({ ...BASE, attempts: [at(1), at(2), at(1), at(2)], reason: 'auto-fix stopped: ci 2/2', target: { kind: 'ci', repo: 'api', pr: 88, check: 'lint' } });
+    expect(row?.attempts.map((x) => x.result)).toEqual(['ran', 'ran', 'fails', 'fails']);
+  });
+
   it('words a spent conflict budget', () => {
     const row = autofixRow({ ...BASE, reason: 'auto-fix stopped: conflicts 2/2', target: { kind: 'conflicts', repo: 'web', pr: 421, check: null } });
     expect(row?.message).toBe('stopped: conflict on web #421 · 2 of 2 rounds');

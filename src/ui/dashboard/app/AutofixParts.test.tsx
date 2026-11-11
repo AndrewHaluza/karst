@@ -72,6 +72,16 @@ describe('Auto-fix override chip (ship header)', () => {
     expect(q('[role="menu"][aria-label="Auto-fix"]')).toBeNull();
   });
 
+  it('hands the focus back to the chip when the settled override closes the menu', () => {
+    const h = mountInside(ship({ ...SLICE, override: 'on' }));
+    fireEvent.click(must('[data-act="autopilot-menu"]'));
+    fireEvent.click(must('[data-act="autopilot-override"][data-mode="off"]'));
+    must('[data-mode="off"]').focus();
+    h.emit({ type: 'state', state: ship({ ...SLICE, override: 'off', effective: false }) });
+    expect(q('[role="menu"][aria-label="Auto-fix"]')).toBeNull();
+    expect(document.activeElement).toBe(must('[data-act="autopilot-menu"]'));
+  });
+
   it('works by keyboard: focus lands on the current choice, arrows move, Escape returns to the chip', () => {
     mountInside(ship({ ...SLICE, override: 'on' }));
     const chip = must('[data-act="autopilot-menu"]');
@@ -132,6 +142,7 @@ describe('Auto-fix process row', () => {
     const btn = must<HTMLButtonElement>('[data-act="autopilot-stop-after"]');
     expect(text(btn)).toBe('Last round');
     expect(btn.title).toBe('Stop auto-fix after this round');
+    expect(btn.getAttribute('aria-label')).toBe('Last round: Stop auto-fix after this round');
     fireEvent.click(btn);
     expect(h.send.autopilotStop).toHaveBeenCalledWith('after-round', expect.any(String));
   });
@@ -173,6 +184,24 @@ describe('Stop auto-fix now (stage menu)', () => {
     openMenu();
     fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
     expect(must<HTMLDetailsElement>('[data-proc-id="ship:autofix"]').open).toBe(true);
+  });
+
+  it('returns the focus to the Auto-fix row summary when the confirm closes', () => {
+    mountInside(ship(SLICE, RUNNING));
+    const summary = (): Element | null => must('[data-proc-id="ship:autofix"]').querySelector('summary');
+    const reopen = (): void => {
+      openMenu();
+      fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
+    };
+    reopen();
+    fireEvent.click(must('[data-act="autopilot-stop-cancel"]'));
+    expect(document.activeElement).toBe(summary());
+    reopen();
+    fireEvent.keyDown(must('[role="alertdialog"]'), { key: 'Escape' });
+    expect(document.activeElement).toBe(summary());
+    reopen();
+    fireEvent.click(must('[data-act="autopilot-stop-now"]'));
+    expect(document.activeElement).toBe(summary());
   });
 
   it('moves focus into the confirm and sends Stop now only after it', () => {

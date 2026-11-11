@@ -74,6 +74,8 @@ export function AutofixOverride({ autopilot }: { readonly autopilot: AutopilotSl
   }, [open]);
   // The snapshot that carries the new override settles the pending item and closes the menu.
   useEffect(() => {
+    // The menu item that held the focus goes away with the menu: the chip takes the focus back.
+    if (wrap.current?.contains(document.activeElement) && document.activeElement !== trigger.current) trigger.current?.focus();
     setOpen(false);
   }, [autopilot.override]);
   const close = useCallback(() => {
@@ -134,7 +136,7 @@ export function LastRoundButton({ requested }: { readonly requested: boolean }) 
   const post = usePendingAction(useCallback((requestId: string) => send.autopilotStop('after-round', requestId), [send]));
   const title = requested ? 'Auto-fix stops after this round' : 'Stop auto-fix after this round';
   return (
-    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="autopilot-stop-after" disabled={requested} title={title} aria-label={title} onClick={(e) => { e.preventDefault(); post(e); }}>
+    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="autopilot-stop-after" disabled={requested} title={title} aria-label={`Last round: ${title}`} onClick={(e) => { e.preventDefault(); post(e); }}>
       <Icon name="player-pause" size={16} />
       <span>{requested ? 'Stopping' : 'Last round'}</span>
     </button>
@@ -147,21 +149,28 @@ export function StopNowConfirm() {
   const open = useStopConfirm();
   const confirmRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDetailsElement | null>(null);
+  // Closing the dialog removes the focused button: hand the focus to the row's summary, never to the page.
+  const dismiss = useCallback(() => {
+    rowRef.current?.querySelector('summary')?.focus();
+    setStopConfirm(false);
+  }, []);
   // The flag is module-wide: leaving the row (another ticket or stage) must not leave the confirm armed.
   useEffect(() => () => setStopConfirm(false), []);
   useEffect(() => {
     // A row the user collapsed keeps this dialog hidden. The disclosure memory does not re-render, so open the native <details> itself.
-    const row = dialogRef.current?.closest('details');
+    const row = dialogRef.current?.closest('details') ?? null;
+    if (open) rowRef.current = row;
     if (open && row && !row.open) row.open = true;
     if (open) confirmRef.current?.focus();
   }, [open]);
-  const now = usePendingAction(useCallback((requestId: string) => { setStopConfirm(false); send.autopilotStop('now', requestId); }, [send]));
+  const now = usePendingAction(useCallback((requestId: string) => { dismiss(); send.autopilotStop('now', requestId); }, [send, dismiss]));
   if (!open) return null;
   return (
-    <div className="autofix-actions" ref={dialogRef} role="alertdialog" aria-label="Stop auto-fix now" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setStopConfirm(false); } }}>
+    <div className="autofix-actions" ref={dialogRef} role="alertdialog" aria-label="Stop auto-fix now" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); dismiss(); } }}>
       <span className="autofix-confirm">This ends the agent session. Karst syncs first.</span>
       <button type="button" className="k-btn k-btn--danger k-btn--sm" ref={confirmRef} data-act="autopilot-stop-now" onClick={(e) => { e.preventDefault(); now(e); }}>Stop now</button>
-      <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-act="autopilot-stop-cancel" onClick={(e) => { e.preventDefault(); setStopConfirm(false); }}>Cancel</button>
+      <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-act="autopilot-stop-cancel" onClick={(e) => { e.preventDefault(); dismiss(); }}>Cancel</button>
     </div>
   );
 }
