@@ -1,6 +1,7 @@
 /**
  * The merge-readiness block of one pull request: ready is one green line, blocked is a bordered list with one
- * row per reason. It replaces the separate CI line, failing-checks details and merge-check line. Every string
+ * row per reason. Two or more blocking reasons fold into one closed `details` whose summary carries the brief
+ * items and the actions; one reason keeps the plain list (a collapsed check or file list inside). It replaces the separate CI line, failing-checks details and merge-check line. Every string
  * and every verdict is the host's (`model/prMergeReadiness.ts`); this file only places them and never decides
  * that a PR is mergeable. An action is rendered only when the host attached it to the reason.
  */
@@ -63,13 +64,15 @@ function ActionButton({ action, repo, ciBusy }: { readonly action: ReasonAction;
 
 interface ReasonRowProps {
   readonly r: Reason;
+  /** True inside the folded body: the action rides on the summary line, and the list is already open. */
+  readonly folded?: boolean;
   readonly repo: string;
   readonly ciBusy: boolean;
   readonly open: boolean;
   readonly onToggle: (repo: string, open: boolean) => void;
 }
 
-function ReasonRow({ r, repo, ciBusy, open, onToggle }: ReasonRowProps) {
+function ReasonRow({ r, folded = false, repo, ciBusy, open, onToggle }: ReasonRowProps) {
   const hasBody = (r.list?.length ?? 0) > 0 || r.why !== undefined;
   // The first disclosure of a conflicts reason is the one the panel remembers (the vanilla `openMergeRepos`).
   const remembered = r.kind === 'conflicts';
@@ -83,10 +86,16 @@ function ReasonRow({ r, repo, ciBusy, open, onToggle }: ReasonRowProps) {
           <b className="prsn-label">{r.label}</b>
           {r.detail ? <span className="prsn-detail">{r.detail}</span> : null}
         </span>
-        {r.action ? <ActionButton action={r.action} repo={repo} ciBusy={ciBusy} /> : null}
+        {r.action && !folded ? <ActionButton action={r.action} repo={repo} ciBusy={ciBusy} /> : null}
       </div>
       {r.extra ? <div className="prsn-extra">{r.extra}</div> : null}
-      {hasBody ? (
+      {hasBody && folded ? (
+        <div className="mgdbody prsn-more">
+          {r.why !== undefined ? <div className="mgreason">{r.why}</div> : null}
+          {r.list ? <Items list={r.list} /> : null}
+          {r.listNote ? <div className="prsn-note">{r.listNote}</div> : null}
+        </div>
+      ) : hasBody ? (
         <details
           className="mgd prsn-more"
           data-repo={repo}
@@ -101,6 +110,39 @@ function ReasonRow({ r, repo, ciBusy, open, onToggle }: ReasonRowProps) {
         </details>
       ) : null}
     </li>
+  );
+}
+
+const isBlocking = (r: Reason): boolean => r.state !== 'ok';
+
+/** The summary line of the folded list: chevron, headline, one brief item per blocking reason, then the actions. */
+function FoldSummary({ headline, blockers, repo, ciBusy }: { readonly headline: string; readonly blockers: readonly Reason[]; readonly repo: string; readonly ciBusy: boolean }) {
+  const acting = blockers.filter((r) => r.action !== undefined);
+  return (
+    <summary className="prblock-head">
+      <span className="prblock-chev" aria-hidden="true">
+        <Icon name="chevron-right" size={13} />
+      </span>
+      <b>{headline}</b>
+      <span className="prblock-items">
+        {blockers.map((r) => (
+          <span className={`prblock-item prsn-${r.state}`} data-kind={r.kind} key={r.kind}>
+            <span className="prsn-icon" aria-hidden="true">
+              <Icon name={STATE_ICON[r.state]} size={12} />
+            </span>
+            {r.short}
+          </span>
+        ))}
+      </span>
+      {acting.length > 0 ? (
+        // A click on an action must not toggle the disclosure: cancel the summary's default, the button's own handler already ran.
+        <span className="prblock-acts" onClick={(e) => e.preventDefault()}>
+          {acting.map((r) => (
+            <ActionButton key={r.kind} action={r.action!} repo={repo} ciBusy={ciBusy} />
+          ))}
+        </span>
+      ) : null}
+    </summary>
   );
 }
 
@@ -127,7 +169,25 @@ export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onM
     );
   }
   if (readiness.reasons.length === 0) return null;
-  const n = readiness.reasons.filter((r) => r.state !== 'ok').length;
+  const blockers = readiness.reasons.filter(isBlocking);
+  const n = blockers.length;
+  if (n >= 2) {
+    return (
+      <details
+        className="prblock prblock-fold"
+        data-state="blocked"
+        open={mergeOpen}
+        onToggle={(e) => onMergeToggle(p.repo, e.currentTarget.open)}
+      >
+        <FoldSummary headline={readiness.headline} blockers={blockers} repo={p.repo} ciBusy={ciBusy} />
+        <ul className="prblock-list">
+          {readiness.reasons.map((r) => (
+            <ReasonRow key={r.kind} r={r} folded repo={p.repo} ciBusy={ciBusy} open={mergeOpen} onToggle={onMergeToggle} />
+          ))}
+        </ul>
+      </details>
+    );
+  }
   return (
     <div className="prblock" data-state="blocked">
       <div className="prblock-head">
