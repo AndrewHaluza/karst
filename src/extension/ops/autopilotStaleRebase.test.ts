@@ -3,7 +3,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { getAutopilotRerun, markAutopilotRerun } from '../../store/autopilot.js';
 import type { FailedCheck } from './autopilotRerun.js';
-import { staleRebaseStep, type StaleRebaseContext } from './autopilotStaleRebase.js';
+import { STALE_WAIT_MS, staleRebaseStep, type StaleRebaseContext } from './autopilotStaleRebase.js';
 
 const SHA = 'abcdef0123456789abcdef0123456789abcdef01';
 const CMD = 'npm run -s docs:graph';
@@ -82,6 +82,19 @@ describe('staleRebaseStep', () => {
     expect(x.rebase).not.toHaveBeenCalled();
     expect(x.readJobLog).not.toHaveBeenCalled();
     expect(x.notes).toEqual([]);
+  });
+
+  it('stops waiting on the same run when the marker is older than the wait window (a crash before the result)', async () => {
+    const x = ctx();
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: `stale-generated:${CMD}`, rerunAt: 5_000 - STALE_WAIT_MS });
+    expect(await staleRebaseStep(x.c, [check('A')])).toEqual({ kind: 'none', earlier: new Set(['A']) });
+    expect(x.rebase).not.toHaveBeenCalled();
+  });
+
+  it('still waits on the same run one millisecond inside the wait window', async () => {
+    const x = ctx();
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: `stale-generated:${CMD}`, rerunAt: 5_000 - STALE_WAIT_MS + 1 });
+    expect(await staleRebaseStep(x.c, [check('A')])).toEqual({ kind: 'rebased' });
   });
 
   it('does not wait on the same run after a rebase that stopped: today\'s rules apply and no second rebase runs', async () => {

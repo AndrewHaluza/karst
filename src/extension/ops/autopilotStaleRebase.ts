@@ -10,6 +10,9 @@ import type { FailedCheck } from './autopilotRerun.js';
  * It uses no attempt and no agent. The marker row (`autopilot_reruns`, pattern `stale-generated:<command>`) is written before the rebase.
  */
 
+/** How long a marker on the current run makes the ticket wait for the new run. A crash before the rebase result leaves such a marker, so the wait must end. */
+export const STALE_WAIT_MS = 10 * 60_000;
+
 export interface StaleRebaseSeams {
   readonly readJobLog: (cwd: string, check: CheckUrl) => Promise<string>;
   readonly readRunHeadSha: (cwd: string, check: CheckUrl) => Promise<string>;
@@ -47,7 +50,8 @@ export async function staleRebaseStep(c: StaleRebaseContext, fails: readonly Fai
     if (runs.length === 0) continue;
     const runId = parseCheckUrl(f.url)?.runId ?? '';
     // Only a rebase that pushed makes the ticket wait: a stopped rebase pushed nothing, so no new run comes.
-    if (runs.some((r) => r.runId === runId && !r.stopped)) waiting = true;
+    // The wait ends after STALE_WAIT_MS: a crash before the result leaves an untagged marker.
+    if (runs.some((r) => r.runId === runId && !r.stopped && c.now() - r.rerunAt < STALE_WAIT_MS)) waiting = true;
     else earlier.add(f.name);
   }
   const none: StaleStep = { kind: 'none', earlier };
