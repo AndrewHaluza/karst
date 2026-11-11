@@ -182,13 +182,13 @@ export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   const h = i.deliver;
   const key = getTicket(i.store, i.ticketId).key ?? formatId('ticket', i.ticketId);
   const endPush = beginManualPush(i.ticketId); // a re-run of older skipped gates stops: this push makes a newer head
-  let skipped: readonly string[] = [];
+  let skipped: readonly string[] | null = null;
   const taken = takeOverAutoDeliver(i.ticketId, {
     rounds: conflictRounds,
     key,
     recordTakeOver: () => {
       const t = takeOverDeliverRun(i.store, i.ticketId, nowIso());
-      skipped = t?.skipped ?? [];
+      skipped = t?.skipped ?? null;
       return t;
     },
     note: (title, body) => postTakeOverNote(i, title, body),
@@ -207,7 +207,7 @@ export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   }
   // D506: the push went at once. D540: the gates it skipped run now, on the pushed head, in the background.
   if (taken === 'taken-over' && outcome.kind === 'delivered') {
-    void rerunAfterTakeOver(i, key, skipped).catch((e: unknown) => i.logError('skipped-gate re-run after a take-over failed', e));
+    void rerunAfterTakeOver(i, key, skipped ?? []).catch((e: unknown) => i.logError('skipped-gate re-run after a take-over failed', e));
   }
 }
 
@@ -231,8 +231,7 @@ async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: reado
         const run = currentDeliverRun(i.store, i.ticketId);
         const headSha = run?.headSha ?? null;
         if (failure === null) return { kind: 'passed', headSha };
-        if (signal.aborted) return { kind: 'stopped', headSha };
-        const failed = run === null ? [] : listDeliverResults(i.store, i.ticketId).filter((r) => r.runId === run.id && r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName);
+        const failed = listDeliverResults(i.store, i.ticketId).filter((r) => r.runId === run?.id && r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName);
         return { kind: 'failed', headSha, failed };
       },
     });

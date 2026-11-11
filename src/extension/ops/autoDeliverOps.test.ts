@@ -418,4 +418,54 @@ describe('rerunSkippedGates (after a manual Deliver took over)', () => {
   it('words the note for an unknown head', () => {
     expect(deliverRerunNote({ kind: 'passed', headSha: null })).toBe('Autopilot: the gates skipped by the manual Deliver ran on unknown head: passed');
   });
+
+  it('writes the note body with the key and no Autopilot prefix, and logs the outcome', async () => {
+    const { deps, notes, log } = rerigRerun();
+    await rerunSkippedGates(deps);
+    expect(notes[0]![1]).toBe('T5: the gates skipped by the manual Deliver ran on abcdef123: passed. A failure stays on record on the ship panel.');
+    expect(log).toContain('[ship] ticket T5 skipped-gate re-run: passed');
+  });
+
+  it('a stop that no push caused writes no note and words the stopped line', async () => {
+    const { deps, notes } = rerigRerun({ runGates: async () => ({ kind: 'stopped', headSha: 'abcdef1234567890' }) });
+    expect(await rerunSkippedGates(deps)).toBe('stopped');
+    expect(notes).toHaveLength(0);
+    expect(deliverRerunNote({ kind: 'stopped', headSha: 'abcdef1234567890' })).toBe('Autopilot: the gates skipped by the manual Deliver ran on abcdef123: stopped');
+  });
+
+  it('words the refusal of a second re-run in the log', async () => {
+    let release!: (r: RerunResult) => void;
+    const first = rerigRerun({ runGates: () => new Promise<RerunResult>((r) => { release = r; }) });
+    const running = rerunSkippedGates(first.deps);
+    const second = rerigRerun();
+    await rerunSkippedGates(second.deps);
+    expect(second.log).toEqual(['[ship] ticket T5 skipped-gate re-run not started: a re-run is already in progress']);
+    release({ kind: 'passed', headSha: null });
+    await running;
+  });
+
+  it('keeps refusing until every overlapping push ended, and an end called twice counts once', async () => {
+    const { deps } = rerigRerun();
+    const endA = beginManualPush(5);
+    const endB = beginManualPush(5);
+    endA();
+    endA();
+    expect(await rerunSkippedGates(deps)).toBe('refused');
+    endB();
+    expect(await rerunSkippedGates(deps)).toBe('passed');
+  });
+
+  it('a push of another ticket neither blocks nor aborts the re-run', async () => {
+    const { deps } = rerigRerun();
+    const end = beginManualPush(99);
+    expect(await rerunSkippedGates(deps)).toBe('passed');
+    end();
+  });
+
+  it('a push that begins after the re-run ended does not mark it superseded', async () => {
+    const { deps } = rerigRerun();
+    await rerunSkippedGates(deps);
+    beginManualPush(5)();
+    expect(await rerunSkippedGates(deps)).toBe('passed');
+  });
 });

@@ -291,7 +291,7 @@ export async function rerunSkippedGates(d: RerunDeps): Promise<RerunOutcome> {
     const result = await d.runGates(d.skipped, flight.controller.signal);
     const outcome: RerunOutcome = flight.superseded ? 'superseded' : result.kind;
     const title = deliverRerunNote(flight.superseded ? { kind: 'superseded', headSha: result.headSha } : result);
-    if (outcome !== 'stopped') d.note(title, `${d.key}: ${title.replace(/^Autopilot: /, '')}. A failure stays on record on the ship panel.`);
+    if (outcome !== 'stopped') d.note(title, `${d.key}: ${title.replace('Autopilot: ', '')}. A failure stays on record on the ship panel.`);
     d.log(`[ship] ticket ${d.key} skipped-gate re-run: ${outcome}`);
     return outcome;
   } finally {
