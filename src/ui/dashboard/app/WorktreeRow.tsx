@@ -3,13 +3,13 @@
  * popover form, the branch with its copy button, the live totals and the row actions.
  * Same DOM, classes, `data-*` hooks and ARIA as the vanilla renderer it replaced.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type { DashboardWorktreeView } from '../stateTypes.js';
 import type { WorktreeStats } from '../worktreeStats.js';
 import type { DashboardSender } from './hostBridge.js';
 import { Icon } from './Icon.js';
 import { Row } from './Row.js';
-import { placeBelow } from './placeBelow.js';
+import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { usePendingAction } from './usePendingAction.js';
 
 /** The popover's fixed width: it must not resize with its content (see WorktreesPanel.css). */
@@ -162,9 +162,7 @@ export interface WorktreeRowProps {
 export function WorktreeRow({ w, stats, headerBranch, send, formOpen, rebaseOn, onToggleForm, onToggleRebase, onChangeRequested }: WorktreeRowProps) {
   const editRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (formOpen && popRef.current && editRef.current) placeBelow(popRef.current, editRef.current, POPOVER_WIDTH);
-  }, [formOpen]);
+  useAnchoredPopover(formOpen, popRef, editRef, () => onToggleForm(w.repo), POPOVER_WIDTH);
 
   const openTerminal = usePendingAction(useCallback((requestId: string) => send.openWorktreeTerminal(w.path, requestId), [send, w.path]));
   const openFolder = usePendingAction(useCallback((requestId: string) => send.openWorktreeFolder(w.path, requestId), [send, w.path]));

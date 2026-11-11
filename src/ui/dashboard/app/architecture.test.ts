@@ -41,10 +41,10 @@ describe('dashboard static guards — non-vacuity', () => {
 const RAW_HTML_ALLOWED = ['AgentIcon.tsx', 'Icon.tsx'];
 
 /**
- * The one sanctioned imperative-style site: placeBelow.ts positions a `position:fixed` popover from its
- * trigger's measured rect, which CSS cannot express.
+ * The dashboard app writes no element style imperatively: `position:fixed` popovers are placed by the
+ * shared `src/ui/shared/anchoredPopover.ts` primitive (from the trigger's measured rect, which CSS cannot express).
  */
-const IMPERATIVE_STYLE_ALLOWED = ['placeBelow.ts'];
+const IMPERATIVE_STYLE_ALLOWED: string[] = [];
 
 describe('R-X6 — no inline style, no raw HTML', () => {
   const BANNED: ReadonlyArray<readonly [string, RegExp]> = [
@@ -90,7 +90,7 @@ describe('raw HTML allowance is scoped to the sanctioned files', () => {
     expect(users.sort()).toEqual([...RAW_HTML_ALLOWED].sort());
   });
 
-  it('only placeBelow.ts writes element styles imperatively', () => {
+  it('no dashboard app file writes element styles imperatively', () => {
     const users = APP_SOURCE.filter((f) => /\.style\./.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
     expect(users).toEqual(IMPERATIVE_STYLE_ALLOWED);
   });

@@ -7,18 +7,9 @@
  */
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActButton } from './action.js';
+import { attachAnchoredPopover } from '../../shared/anchoredPopover.js';
 import { Icon } from './Icon.js';
 import { useSidebar, type MenuItem } from './SidebarContext.js';
-
-/** Position the window at the trigger (flipping above when it would overflow the bottom). */
-function placeAt(menu: HTMLElement, trigger: HTMLElement): void {
-  const r = trigger.getBoundingClientRect();
-  const w = menu.offsetWidth || 176;
-  const left = Math.min(r.left, Math.max(8, window.innerWidth - w - 8));
-  const bottom = window.innerHeight - r.bottom;
-  menu.style.left = `${left}px`;
-  menu.style.top = `${bottom > 240 ? r.bottom + 4 : Math.max(8, r.top - menu.offsetHeight - 4)}px`;
-}
 
 /** An entry that opens a nested list (e.g. "Priority ▸"); Right opens it and Left folds it back; it expands inline because the window scrolls and would clip a flyout. */
 function SubMenu({ item, open, onToggle, onPick }: {
@@ -75,12 +66,18 @@ export function ContextMenu() {
     const el = ref.current;
     if (!menu || !el) return;
     setSub(null);
-    placeAt(el, menu.trigger);
     const first = el.querySelector<HTMLElement>('.ctxitem');
     if (first && typeof first.focus === 'function') first.focus();
   }, [menu]);
 
   const isOpen = menu !== null;
+  const trigger = menu?.trigger ?? null;
+  // Follow the trigger on scroll/resize; close (focus stays put) once it is out of view.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !trigger) return undefined;
+    return attachAnchoredPopover({ popover: el, trigger, onTriggerHidden: () => closeMenu(false) });
+  }, [trigger, closeMenu]);
   useEffect(() => {
     if (!isOpen) return undefined;
     const onClick = (e: MouseEvent): void => {
