@@ -45,7 +45,29 @@ export function probeClaudeQuotaFromCache(cachePath = join(homedir(), '.claude',
   }
 }
 
-if (process.argv[1]?.endsWith('probe-claude.mjs')) {
+/** Replace every leaf with its type name: keys and types only, never a value (arch:AC-48). */
+export function describeShape(value) {
+  if (Array.isArray(value)) return value.length ? [describeShape(value[0])] : [];
+  if (value === null) return 'null';
+  if (typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, describeShape(v)]));
+  }
+  return typeof value;
+}
+
+/** GET /api/oauth/usage with a token from CLAUDE_OAUTH_TOKEN; returns the shape only. The token is never printed. */
+export async function probeClaudeUsageShape(token = process.env.CLAUDE_OAUTH_TOKEN) {
+  if (!token) return { status: 'no_token', message: 'Set CLAUDE_OAUTH_TOKEN to run this probe.' };
+  const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
+    headers: { authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' },
+  });
+  if (!res.ok) return { status: 'http_error', code: res.status };
+  return { status: 'ok', shape: describeShape(await res.json()) };
+}
+
+if (process.argv[1]?.endsWith('probe-claude.mjs') && process.argv[2] === '--usage') {
+  console.log(JSON.stringify(await probeClaudeUsageShape(), null, 2));
+} else if (process.argv[1]?.endsWith('probe-claude.mjs')) {
   const res = probeClaudeQuotaFromCache();
   console.log('Claude Quota Probe:');
   console.log(JSON.stringify(res, null, 2));

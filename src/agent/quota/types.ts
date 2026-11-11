@@ -55,14 +55,27 @@ export interface QuotaReader {
   read(): Promise<QuotaSnapshot>;
 }
 
+/** Window length by label: a window with no reset stamp is stale once the snapshot is older. */
+const WINDOW_LENGTH_MS: Readonly<Record<string, number>> = {
+  '5-hour': 5 * 3_600_000,
+  '7-day': 7 * 24 * 3_600_000,
+};
+
 /**
- * True when a window's reset instant has already passed: the window has reset,
- * so its recorded used-% describes a period that no longer applies. A window
- * with no reset stamp (or an unparseable one) cannot be shown to have expired,
- * so it stays eligible — only a definite past instant excludes a window.
+ * True when the window no longer describes the current period.
+ *
+ * A window WITH a reset stamp is expired once that instant has passed. A window
+ * with no stamp cannot be dated, so it expires by AGE: when the snapshot `readAt`
+ * is older than the window length (known labels only). An unknown label, a
+ * missing `readAt` or an unparseable instant stays eligible.
  */
-export function isWindowExpired(window: QuotaWindow, now: Date): boolean {
-  if (window.resetsAt === null) return false;
+export function isWindowExpired(window: QuotaWindow, now: Date, readAt?: string): boolean {
+  if (window.resetsAt === null) {
+    const length = WINDOW_LENGTH_MS[window.label];
+    if (length === undefined || readAt === undefined) return false;
+    const read = new Date(readAt).getTime();
+    return !Number.isNaN(read) && now.getTime() - read > length;
+  }
   const at = new Date(window.resetsAt).getTime();
   return !Number.isNaN(at) && at <= now.getTime();
 }
@@ -84,7 +97,7 @@ export function tightestWindow(snapshot: QuotaSnapshot, now: Date): QuotaWindow 
   if (snapshot.state !== 'ok') return null;
   let best: QuotaWindow | null = null;
   for (const w of snapshot.windows) {
-    if (isWindowExpired(w, now)) continue;
+    if (isWindowExpired(w, now, snapshot.readAt)) continue;
     if (best === null || w.usedPct > best.usedPct) best = w;
   }
   return best;

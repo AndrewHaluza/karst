@@ -55,6 +55,17 @@ describe('formatResetDate', () => {
 });
 
 describe('quotaLaunchWarning', () => {
+  it('gives no warning for an aged null-reset 100% window', () => {
+    const snapshot: QuotaSnapshot = {
+      core: 'claude',
+      state: 'ok',
+      windows: [{ label: '5-hour', usedPct: 100, resetsAt: null }],
+      source: 'test',
+      readAt: '2025-12-31T17:00:00.000Z',
+    };
+    expect(quotaLaunchWarning(snapshot, 80, 'Claude Code', NOW)).toBeNull();
+  });
+
   it('returns null for an absent or unknown snapshot', () => {
     expect(quotaLaunchWarning(undefined, 80, 'Codex', NOW)).toBeNull();
     expect(quotaLaunchWarning(unknown, 80, 'Codex', NOW)).toBeNull();

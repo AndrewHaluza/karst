@@ -30,6 +30,17 @@
         "user:profile",
         "user:sessions:claude_code"
       ]
+    },
+    "oauth_usage_shape": {
+      "_note": "KEYS and value TYPES only (arch:AC-48). From the ticket description; not yet confirmed by a live probe run.",
+      "five_hour": {
+        "utilization": "number (percent 0-100)",
+        "resets_at": "string (ISO-8601)"
+      },
+      "seven_day": {
+        "utilization": "number (percent 0-100)",
+        "resets_at": "string (ISO-8601)"
+      }
     }
   },
   "codex": {

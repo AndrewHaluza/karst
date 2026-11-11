@@ -344,7 +344,7 @@ describe('defaultQuotaReaders', () => {
 
     function apiFetch(): typeof fetch {
       return vi.fn(async () =>
-        new Response(JSON.stringify({ five_hour: { utilization: 0.42, resetsAt: 1746540000 } }), {
+        new Response(JSON.stringify({ five_hour: { utilization: 42, resets_at: '2026-05-06T15:00:00.000Z' } }), {
           status: 200,
         }),
       ) as unknown as typeof fetch;
