@@ -78,7 +78,13 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
 }
 
 /** Rebase every PR of the ticket that is behind its base, one repo at a time; the first failure stops the rest. */
-export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: string) => readonly RegenerateEntry[]): Promise<void> {
+export async function rebaseOnBaseAction(
+  i: CiActionsInput,
+  regenerate: (repo: string) => readonly RegenerateEntry[],
+  /** Autopilot (T1081, @arch:AP-05): no confirm prompt, only these repos, and the result says whether every one was pushed. */
+  auto?: { readonly repos: ReadonlySet<string> },
+): Promise<boolean> {
+  let allPushed = false;
   try {
     const state = rebaseState(i.store, i.ticketId);
     if (!state.available) {
@@ -87,11 +93,13 @@ export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: s
           ? 'Rebase on base is not available: no open pull request is behind its base.'
           : `Rebase on base is not available (${state.reason}).`,
       );
-      return;
+      return false;
     }
-    for (const pr of state.prs) {
+    const prs = auto ? state.prs.filter((p) => auto.repos.has(p.repo)) : state.prs;
+    if (auto && prs.length === 0) return false;
+    for (const pr of prs) {
       let failed = false;
-      await rebaseOnBase({
+      const pushed = await rebaseOnBase({
         repo: pr.repo, cwd: pr.cwd, branch: pr.branch, baseRef: pr.baseRef, regenerate: regenerate(pr.repo).map(regenerateCommand),
         git: async (cwd, args) => {
           const r = await i.git([...args], cwd);
@@ -116,17 +124,19 @@ export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: s
           clearOpenPrProbe(i.store, i.ticketId, pr.repo);
           await i.reprobe();
         },
-        confirm: (detail) => i.confirm('Rebase on base?', detail, 'Rebase and push'),
+        confirm: auto ? async () => true : (detail) => i.confirm('Rebase on base?', detail, 'Rebase and push'),
         info: i.info,
         error: (m) => { failed = true; i.error(m); },
         logError: i.logError,
         afterServerChange: () => {},
       });
-      if (failed) return;
+      if (failed || !pushed) return false;
     }
+    allPushed = true;
   } finally {
     i.afterServerChange();
   }
+  return allPushed;
 }
 
 /** Ship-stage "Deliver to PR" host seams beyond the shared ones. */

@@ -350,3 +350,19 @@ describe('rebaseOnBase pre-ship', () => {
     expect(armLease).not.toHaveBeenCalled();
   });
 });
+
+describe('rebaseOnBase result', () => {
+  it('returns true only after the push and the re-probe', async () => {
+    const r = rig();
+    expect(await rebaseOnBase(r.deps)).toBe(true);
+  });
+
+  it.each([
+    ['an agent turn is active', { agentActive: () => true }],
+    ['the user declines', { confirm: async () => false }],
+    ['the rebase conflicts', { failGit: (a: string[]) => a[0] === 'rebase' && a[1] !== '--abort' }],
+    ['the lease push is rejected', { failGit: (a: string[]) => a[0] === 'push' }],
+  ])('returns false when %s', async (_name, over) => {
+    expect(await rebaseOnBase(rig(over).deps)).toBe(false);
+  });
+});
