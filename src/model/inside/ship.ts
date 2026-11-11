@@ -11,6 +11,7 @@ import {
 import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
 import type { AutofixRowView } from './autofix.js';
+import { deliverProcess, type DeliverRowInput } from './shipDeliver.js';
 import { boundedEvidenceRows } from './bounds.js';
 import { bounded } from './bounds.js';
 import { executionView, tokenView, type SessionTokensInput } from './agent.js';
@@ -97,6 +98,8 @@ export interface ShipProcessesInput {
   findingsBlockingSeverity?: Severity | 'none';
   /** Auto-fix reading (T1004, own row since T1070). Absent or null → no Auto-fix row. */
   autofix?: AutofixRowView | null;
+  /** Deliver reading (T1072). Absent or null → no Deliver row. */
+  deliver?: DeliverRowInput | null;
   /** An open PR still waits on CI: the Merge row names it among its blockers. */
   ciOpen?: boolean;
 }
@@ -910,12 +913,14 @@ export function autofixProcess(autofix: AutofixRowView | null | undefined): Insi
 export function shipProcesses(input: ShipProcessesInput): InsideProcessView[] {
   const warning = shipFindingsWarning(input);
   const autofix = autofixProcess(input.autofix);
+  const deliver = deliverProcess(input.deliver);
   return [
     ...(warning ? [warning] : []),
     commitProcess(input),
     pushProcess(input),
     prProcess(input),
     ...(autofix ? [autofix] : []),
+    ...(deliver ? [deliver] : []),
     mergeProcess(input),
   ];
 }
