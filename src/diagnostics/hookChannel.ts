@@ -20,7 +20,7 @@ export const HOOK_REQUEST_OUTCOMES = [
   'malformed-body',
   /** Wrong path or method — the sender is aimed at something else. */
   'not-found',
-  /** Malformed target: a bad or repeated `karstLaunch`. */
+  /** Refused before dispatch: no/bad/repeated `karstLaunch`, an `Origin` header, or a non-loopback `Host`. */
   'bad-request',
   /** Body over the endpoint cap. */
   'too-large',

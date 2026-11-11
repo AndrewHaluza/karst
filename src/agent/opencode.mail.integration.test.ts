@@ -66,7 +66,10 @@ describe('opencode session.idle mail reply', () => {
       mkdirSync(configDir, { recursive: true });
       const cmd = new OpencodeAdapter().buildInteractiveCommand({
         cwd: worktree,
-        hookChannel: { endpointUrl: endpoint.url, configDir },
+        hookChannel: {
+          endpointUrl: `${endpoint.url}?karstLaunch=123e4567-e89b-42d3-a456-426614174000`,
+          configDir,
+        },
       });
       for (const [key, value] of Object.entries(cmd.env)) vi.stubEnv(key, value);
 

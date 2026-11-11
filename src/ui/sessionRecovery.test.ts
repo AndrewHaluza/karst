@@ -175,6 +175,18 @@ describe('recovery candidate planning', () => {
 });
 
 describe('recovery lifecycle ordering', () => {
+  it('never admits an unidentified hook, even for a ticket with no launch state', () => {
+    const lifecycle = new SessionRecoveryLifecycle();
+    expect(lifecycle.isCurrentHook(7, undefined)).toBe(false);
+    lifecycle.startLaunch(7);
+    expect(lifecycle.isCurrentHook(7, undefined)).toBe(false);
+  });
+
+  it('admits a rebound session whose id is unknown but not retired', () => {
+    const lifecycle = new SessionRecoveryLifecycle();
+    expect(lifecycle.isCurrentHook(7, '123e4567-e89b-42d3-a456-426614174000')).toBe(true);
+  });
+
   it('quarantines all hooks for an adopted legacy terminal without launch metadata', () => {
     const lifecycle = new SessionRecoveryLifecycle();
 
@@ -209,7 +221,7 @@ describe('recovery lifecycle ordering', () => {
         { isOpen: () => false },
         new SessionRecoveryLifecycle(),
         7,
-        { hook_event_name: 'SessionEnd' },
+        { hook_event_name: 'SessionEnd', launchId: '123e4567-e89b-42d3-a456-426614174000' },
       ),
     ).toBe(true);
   });

@@ -202,15 +202,13 @@ export class SessionRecoveryLifecycle {
   }
 
   isCurrentHook(ticketId: number, launchId: string | undefined): boolean {
+    // An unidentified hook is never current: the launch id is the secret.
+    if (launchId === undefined) return false;
     if (this.blockAll.has(ticketId)) return false;
-    if (launchId !== undefined && this.retiredLaunches.has(launchId)) {
-      return false;
-    }
+    if (this.retiredLaunches.has(launchId)) return false;
     const activeLaunch = this.activeLaunches.get(ticketId);
     if (activeLaunch !== undefined) return launchId === activeLaunch;
-    if (launchId === undefined && this.blockUnidentified.has(ticketId)) {
-      return false;
-    }
+    // No active launch: a rebound session (reload) whose id is not retired.
     return true;
   }
 
