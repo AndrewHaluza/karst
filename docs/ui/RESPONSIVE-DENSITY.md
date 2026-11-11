@@ -314,6 +314,7 @@ END_DOC_BLOCK: [@ui:RD-PRIMITIVES]
 4. The audit script `responsive-audit/capture.ts` stays as evidence tooling; it is not a gate.
 5. Docker visual run (`test:visual:docker`) is required after each view change (CLAUDE.md); baselines at the new widths are recorded by the owning view ticket.
 6. The `BREAKPOINT_PINNED_FILES` list grows by one file per migrated view; any `@container`/`@media` px outside `{400, 700, 1000}` ±1 fails that test.
+7. Departure from item 1 (T1090): the 400/399/320 widths are probed only on `inside-*` dashboard targets, through `layoutWidthsFor(view, variantId)`. Every other view keeps the 480 floor, and the global widening stays open. The `InsideResponsive.css` file is pinned with the `999 / 699 / 399` container tiers.
 END_DOC_BLOCK: [@ui:RD-GATE]
 
 ## [@ui:RD-BACKLOG] Ordered implementation backlog

@@ -34,4 +34,13 @@ describe('Header.css — guards moved with the rules', () => {
     }
     expect(PAGE).toContain('.menuButton{width:100%');
   });
+
+  it('never hides the ticket id or the ticket title at any container tier (RD-NEVER #4)', () => {
+    const tiers = CSS.match(/@container ticket-head[^\n]*/g) ?? [];
+    expect(tiers.length).toBeGreaterThan(0);
+    for (const line of tiers) {
+      expect(line).not.toMatch(/\.ticketKey[^}]*display:none/);
+      expect(line).not.toMatch(/ticketTitle[^}]*display:none/);
+    }
+  });
 });

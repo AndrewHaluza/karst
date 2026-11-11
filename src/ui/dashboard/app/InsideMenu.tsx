@@ -128,7 +128,7 @@ export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string;
         </button>
       ) : null}
       {rest ? (
-        <button type="button" className="k-btn k-btn--ghost k-btn--sm stageMenuBtn" data-stage-menu={stageKey} aria-label="Actions — more actions for this stage" title="Actions — more actions for this stage" aria-haspopup="menu" aria-expanded={open ? 'true' : 'false'} onClick={() => setOpen((o) => !o)}>
+        <button type="button" className="k-btn k-btn--ghost k-btn--sm stageMenuBtn" data-stage-menu={stageKey} aria-label="Actions — more actions for this stage" title="Actions — more actions for this stage" data-tip="Actions — more actions for this stage" aria-haspopup="menu" aria-expanded={open ? 'true' : 'false'} onClick={() => setOpen((o) => !o)}>
           <Icon name="dots" size={16} />
           <span className="stageMenuLabel">Actions</span>
         </button>

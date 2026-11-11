@@ -1025,6 +1025,13 @@ associated help.
 
 A custom tooltip that conveys useful information must work for keyboard focus as
 well as pointer hover.
+
+The `k-tooltip` primitive does this. A control opts in with `data-tip="Full label"`.
+One delegate on the document (`src/ui/dashboard/app/kTooltip.ts`) shows one
+`role="tooltip"` node on pointer hover and on keyboard focus. The node hides on pointer
+leave, blur and Escape. The control gets `aria-describedby` only while the tooltip shows.
+The control keeps its own `aria-label`. The tooltip text is that label, or "core · model"
+for an agent core mark. The tooltip never carries information found nowhere else.
 END_DOC_BLOCK: [@ui:11.18]
 
 ---

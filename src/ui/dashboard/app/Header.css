@@ -132,5 +132,6 @@
 .ticketStatus.running{color:var(--k-running)}
 .ticketStatus.attention{color:var(--k-attention)}
 @container ticket-head (max-width: 999px){ .ticketKey{max-width:calc(var(--k-space-8) * 5);overflow:hidden;text-overflow:ellipsis} }
-@container ticket-head (max-width: 699px){ .ticketKey,.ticketIdentity .prio{display:none} }
-@container ticket-head (max-width: 399px){ .dhead h1.ticketTitle{display:none} }
+/* RD-NEVER #4: the ticket id never hides. Only the priority chip drops; the title always shows on one line with an ellipsis (it shrinks first, the id keeps its own ellipsis box). */
+@container ticket-head (max-width: 699px){ .ticketIdentity .prio{display:none} }
+@container ticket-head (max-width: 399px){ .ticketKey{max-width:calc(var(--k-space-8) * 3)} .dhead h1.ticketTitle{margin:0 var(--k-space-2)} }

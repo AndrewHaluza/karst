@@ -39,7 +39,7 @@ export function ConsoleButton({ owner, p }: { readonly owner: string; readonly p
     [overlays, owner, gates, p.id],
   );
   return (
-    <button type="button" className="k-iconbtn ib t-open" data-act="console" data-console={owner} data-console-proc={gates ? undefined : p.id} aria-label={label} title={label} onClick={onClick}>
+    <button type="button" className="k-iconbtn ib t-open" data-act="console" data-console={owner} data-console-proc={gates ? undefined : p.id} aria-label={label} title={label} data-tip={label} onClick={onClick}>
       <Icon name="terminal-2" />
     </button>
   );
@@ -225,6 +225,7 @@ const ProcessRow = memo(
           <span className="chev" aria-hidden="true" />
         </summary>
         <div className="op-body">
+          {p.detail ? <p className="op-detail-full">{p.detail}</p> : null}
           {ev && hasEvidenceBody(ev) ? <EvidenceBody ev={ev} p={p} stageKey={stageKey} /> : null}
           {footer}
         </div>
