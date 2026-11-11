@@ -31,6 +31,15 @@ describe('rebaseState', () => {
       prs: [{ repo: 'r', number: 5, branch: 'feat/x', baseRef: 'develop', cwd: '/w/r' }],
     });
   });
+  it('anyBlock: is available for an open PR with another block or no probe', () => {
+    seedPr({ block: 'ci' });
+    expect(rebaseState(store, id)).toEqual({ available: false, reason: 'not-behind' });
+    expect(rebaseState(store, id, { anyBlock: true })).toMatchObject({ available: true, prs: [{ repo: 'r', number: 5 }] });
+  });
+  it('anyBlock: still needs an open PR with a head branch', () => {
+    seedPr({ block: null, head: null });
+    expect(rebaseState(store, id, { anyBlock: true })).toEqual({ available: false, reason: 'not-behind' });
+  });
   it('is not-behind when blocked for another reason or unprobed', () => {
     seedPr({ block: 'conflicts' });
     expect(rebaseState(store, id)).toEqual({ available: false, reason: 'not-behind' });

@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import { getAutopilotRerun, markAutopilotRerun } from '../../store/autopilot.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
+import { STALE_PATTERN_PREFIX } from '../../workflow/staleGeneratedCi.js';
 import { classifyTransientLog, parseCheckUrl, type CheckUrl } from '../../workflow/transientCi.js';
 
 /**
@@ -51,6 +52,8 @@ export async function transientRerunStep(c: RerunContext, fails: readonly Failed
     const url = parseCheckUrl(target.url);
     if (!url) continue;
     const done = getAutopilotRerun(c.store, c.ticketId, target.repo, url.runId, target.name);
+    // A rebase round for a stale generated file (T1081) is not a network re-run: it neither settles nor counts as one.
+    if (done?.pattern.startsWith(STALE_PATTERN_PREFIX)) continue;
     if (done) {
       earlier.add(target.name);
       if (c.now() - done.rerunAt < RERUN_SETTLE_MS) settling = true;

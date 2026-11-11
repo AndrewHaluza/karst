@@ -78,20 +78,33 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
 }
 
 /** Rebase every PR of the ticket that is behind its base, one repo at a time; the first failure stops the rest. */
-export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: string) => readonly RegenerateEntry[]): Promise<void> {
+export async function rebaseOnBaseAction(
+  i: CiActionsInput,
+  regenerate: (repo: string) => readonly RegenerateEntry[],
+  /** Autopilot (T1081, @arch:AP-05): no confirm prompt, only these repos, and the result says whether every one was pushed. */
+  auto?: { readonly repos: ReadonlySet<string> },
+): Promise<boolean> {
+  let allPushed = false;
+  // Autopilot (T1081): no VS Code toast. Every message goes to the debug log; the stale step writes the bulletin note.
+  const tell = (m: string): void => i.debug(`[ship] autopilot rebase on base: ${m}`);
+  const info = auto ? tell : i.info;
+  const error = auto ? tell : i.error;
+  const logError = auto ? (m: string, err: unknown): void => tell(`${m}: ${err instanceof Error ? err.message : String(err)}`) : i.logError;
   try {
-    const state = rebaseState(i.store, i.ticketId);
+    const state = rebaseState(i.store, i.ticketId, { anyBlock: auto !== undefined });
     if (!state.available) {
-      i.info(
+      info(
         state.reason === 'not-behind'
           ? 'Rebase on base is not available: no open pull request is behind its base.'
           : `Rebase on base is not available (${state.reason}).`,
       );
-      return;
+      return false;
     }
-    for (const pr of state.prs) {
+    const prs = auto ? state.prs.filter((p) => auto.repos.has(p.repo)) : state.prs;
+    if (auto && prs.length === 0) return false;
+    for (const pr of prs) {
       let failed = false;
-      await rebaseOnBase({
+      const pushed = await rebaseOnBase({
         repo: pr.repo, cwd: pr.cwd, branch: pr.branch, baseRef: pr.baseRef, regenerate: regenerate(pr.repo).map(regenerateCommand),
         git: async (cwd, args) => {
           const r = await i.git([...args], cwd);
@@ -101,6 +114,7 @@ export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: s
         agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
         sandboxUnsynced: () => i.sandbox.hasUnsynced(i.ticketId),
         preShip: pr.preShip === true,
+        requireMove: auto !== undefined,
         armLease: pr.number === null ? undefined : () => armForcePushLease(i.store, i.ticketId, pr.repo),
         prHeadSha: async () => {
           if (pr.number === null) throw new Error('no pull request to read');
@@ -116,17 +130,21 @@ export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: s
           clearOpenPrProbe(i.store, i.ticketId, pr.repo);
           await i.reprobe();
         },
-        confirm: (detail) => i.confirm('Rebase on base?', detail, 'Rebase and push'),
-        info: i.info,
-        error: (m) => { failed = true; i.error(m); },
-        logError: i.logError,
+        confirm: auto ? async () => true : (detail) => i.confirm('Rebase on base?', detail, 'Rebase and push'),
+        info,
+        error: (m) => { failed = true; error(m); },
+        logError,
         afterServerChange: () => {},
       });
-      if (failed) return;
+      // The button stops at the first error; a declined confirm goes on to the next PR (as before T1081).
+      // Autopilot needs every PR pushed: any refusal stops it. A push that stands is a push even after a later sandbox error.
+      if (auto ? !pushed : failed) return false;
     }
+    allPushed = true;
   } finally {
     i.afterServerChange();
   }
+  return allPushed;
 }
 
 /** Ship-stage "Deliver to PR" host seams beyond the shared ones. */

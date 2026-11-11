@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runSteps, type ProbeHost } from './runner.js';
 import { parseSteps } from './steps.js';
 import { createUiClient, type UiDriver } from './uiClient.js';
@@ -77,14 +77,17 @@ describe('runSteps with UI steps', () => {
   it('gives the driver the step timeout less the reply grace when the script budget is tight', async () => {
     const seen: number[] = [];
     const ev: unknown[] = [];
-    await runSteps(parseSteps([{ type: 'read', timeoutMs: 30_000 }]), {
-      host: {
-        execute: async () => undefined, restart: async () => undefined, snapshot: () => ({}) as never,
-        ui: { run: async (_i, _s, ms) => { seen.push(ms); return { status: 'pass' as const }; } },
-      },
-      totalTimeoutMs: 20_000,
-      writeEvidence: (_i, e) => { ev.push(e); },
-    });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      await runSteps(parseSteps([{ type: 'read', timeoutMs: 30_000 }]), {
+        host: {
+          execute: async () => undefined, restart: async () => undefined, snapshot: () => ({}) as never,
+          ui: { run: async (_i, _s, ms) => { seen.push(ms); return { status: 'pass' as const }; } },
+        },
+        totalTimeoutMs: 20_000,
+        writeEvidence: (_i, e) => { ev.push(e); },
+      });
+    } finally { vi.useRealTimers(); }
     expect(seen).toEqual([5000]);
   });
 });

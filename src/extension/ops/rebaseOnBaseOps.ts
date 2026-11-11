@@ -34,6 +34,8 @@ export interface RebaseDeps {
    * re-probe. `armLease` is passed when a PR exists, so ship's next push is a lease push.
    */
   readonly preShip?: boolean;
+  /** Autopilot (T1081): push only when the rebase and the generators changed the branch; otherwise nothing is pushed and the result is false. */
+  readonly requireMove?: boolean;
   readonly armLease?: () => void;
   readonly removeSandbox: () => Promise<void>;
   readonly reopenSandbox: () => Promise<void>;
@@ -50,15 +52,23 @@ const UNSYNCED = 'Rebase on base: sync or carry sandbox commits first.';
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-export async function rebaseOnBase(deps: RebaseDeps): Promise<void> {
+/** True when the lease push happened (a later sandbox error does not undo it). Every refusal before the push gives false. */
+export async function rebaseOnBase(deps: RebaseDeps): Promise<boolean> {
+  let pushed = false;
+  const d: RebaseDeps = {
+    ...deps,
+    // The re-probe runs only after the lease push.
+    reprobe: async () => { pushed = true; await deps.reprobe(); },
+  };
   try {
-    await run(deps);
+    await run(d);
   } catch (err) {
     deps.logError('rebaseOnBase failed', err);
     deps.error(`Rebase on base failed: ${message(err)}`);
   } finally {
     deps.afterServerChange();
   }
+  return pushed;
 }
 
 async function run(d: RebaseDeps): Promise<void> {
@@ -79,6 +89,9 @@ async function run(d: RebaseDeps): Promise<void> {
   }
   if (!(await regenerated(d, origHead))) return;
   if (d.preShip) return finishPreShip(d, origHead);
+  if (d.requireMove && (await upToDate(d, origHead))) {
+    return d.info(`Rebase on base: ${d.branch} is already on origin/${d.baseRef} and the generated files are current; nothing pushed.`);
+  }
 
   let sha: string;
   try {

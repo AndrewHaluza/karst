@@ -5,6 +5,7 @@ import { getStage } from '../../store/stages.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
+import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
 import { transientRerunStep, type FailedCheck, type TransientCiSeams } from './autopilotRerun.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
@@ -21,7 +22,7 @@ import {
  * Resolve conflicts (the resolved merge is delivered by karst behind the gates). A sandboxed ticket gets the same rounds
  * through the recorded placement (arch:AC-43); the sandbox never falls back to the host (arch:AC-31).
  *
- * Never auto: a rebase on base, push diverged, merge to base, a closed PR.
+ * Never auto: a rebase on base (except once for a stale generated file on a host ticket, arch:AP-05), push diverged, merge to base, a closed PR.
  * Every decision is a pure read of the store plus injected seams (`vscode`-free); a park writes a bulletin note, never a toast.
  */
 
@@ -70,6 +71,8 @@ export interface AutopilotDeps {
   readonly dropConflictRound: () => void;
   /** gh seams of the one re-run of a transient CI failure (T1019). Absent: no re-run, today's rules apply. */
   readonly transientCi?: TransientCiSeams;
+  /** Host seams of the one rebase for a stale generated file (T1081, @arch:AP-05). Absent: today's rules apply. */
+  readonly staleRebase?: StaleRebaseSeams;
   /** Clock for the re-run settle time. Default: `Date.now`. */
   readonly now?: () => number;
   /** Bulletin note (arch:BULLETIN) for every auto action and fallback. */
@@ -85,7 +88,9 @@ export type AutopilotResult =
   | { readonly kind: 'parked'; readonly reason: string }
   | { readonly kind: 'cleared' }
   /** A transient CI failure was re-run once (T1019); the ticket waits for the result. */
-  | { readonly kind: 'rerun' };
+  | { readonly kind: 'rerun' }
+  /** A host rebase and regenerate ran for a stale generated file (T1081); the ticket waits for the next CI run. */
+  | { readonly kind: 'rebased' };
 
 const LOG = '[ship] autopilot';
 
@@ -264,11 +269,15 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return park(d, 'ci', 'auto-fix not run: the list of failing ci checks is cut short', 'the failing check list is cut short, so the allowlist cannot be checked; send the failure to the agent by hand.');
   }
   // A network fault is re-run once before any park or CI round (T1019). A graph ticket and an unreadable placement keep today's rules.
+  // A stale generated file is fixed by one host rebase first (T1081); a host ticket only.
+  const stale = await staleStep(d, problem);
+  if ('result' in stale) return stale.result;
   const rerun = await transientStep(d, problem);
   if (rerun.kind === 'result') return rerun.result;
   if (!allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
     const name = (problem.failing ?? []).find((n) => !cfg.ci.checks.includes(n)) ?? '(none)';
-    const reason = `auto-fix not run: ci check ${name} is not on the allowlist${rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : ''}`;
+    const again = stale.earlier.has(name) ? ' (rebased once for a stale generated file and it failed again)' : rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : '';
+    const reason = `auto-fix not run: ci check ${name} is not on the allowlist${again}`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
   }
   // A graph ticket, or a placement that cannot be read, gets no round: park, write a note, spend no attempt.
@@ -297,6 +306,20 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   const outcome: FixOutcome = await d.sendCiFailure()
     .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
   return settleRound(d, { kind: problem.kind, repo: problem.repo, used: budget.used, max: budget.max, action: 'Send CI failure to agent', refundAll }, outcome);
+}
+
+/** The stale generated file step (T1081): a result to return, or the checks that were rebased before (for the park reason). */
+async function staleStep(d: AutopilotDeps, problem: Problem): Promise<{ result: AutopilotResult } | { earlier: ReadonlySet<string> }> {
+  const none = { earlier: new Set<string>() };
+  if (!d.staleRebase || !problem.fails) return none;
+  // A graph ticket and a sandboxed ticket keep today's rules: Rebase on base never runs in a sandbox round (@arch:AP-04).
+  const placed = await d.placement().catch(() => null);
+  if (d.isGraphTicket() || placed === null || placed === 'sandbox') return none;
+  const step = await staleRebaseStep(
+    { store: d.store, ticketId: d.ticketId, key: d.key, seams: d.staleRebase, now: d.now ?? Date.now, note: d.note, debug: d.debug },
+    problem.fails,
+  );
+  return step.kind === 'rebased' ? { result: { kind: 'rebased' } } : { earlier: step.earlier };
 }
 
 /** The transient re-run step: a result to return, or the checks that were re-run before (for the park reason). */

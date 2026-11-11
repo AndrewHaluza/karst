@@ -261,3 +261,24 @@ export function getAutopilotRerun(store: Store, ticketId: number, repo: string, 
     .get(ticketId, repo, runId, checkName) as AutopilotRerun | undefined;
   return row ?? null;
 }
+
+/** Suffix of a stale-rebase marker pattern once the rebase stopped with no push. */
+const STALE_STOPPED_SUFFIX = ' (stopped)';
+
+/** A rebase round for a stale generated file (T1081): its run id, and whether the rebase stopped with no push. */
+export interface StaleRebaseRun { readonly runId: string; readonly stopped: boolean; readonly rerunAt: number }
+
+/** The runs on which a rebase round for a stale generated file was started for this check (T1081). */
+export function staleRebaseRuns(store: Store, ticketId: number, repo: string, checkName: string): StaleRebaseRun[] {
+  const rows = store.db
+    .prepare("SELECT run_id, pattern, rerun_at FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ? AND pattern LIKE 'stale-generated:%'")
+    .all(ticketId, repo, checkName) as Array<{ run_id: string; pattern: string; rerun_at: number }>;
+  return rows.map((r) => ({ runId: r.run_id, stopped: r.pattern.endsWith(STALE_STOPPED_SUFFIX), rerunAt: r.rerun_at }));
+}
+
+/** Tag the marker of a rebase that stopped with no push, so the next tick does not wait on that run. */
+export function markStaleRebaseStopped(store: Store, ticketId: number, repo: string, runId: string, checkName: string): void {
+  store.db
+    .prepare("UPDATE autopilot_reruns SET pattern = pattern || ? WHERE ticket_id = ? AND repo = ? AND run_id = ? AND check_name = ? AND pattern LIKE 'stale-generated:%' AND pattern NOT LIKE '%' || ?")
+    .run(STALE_STOPPED_SUFFIX, ticketId, repo, runId, checkName, STALE_STOPPED_SUFFIX);
+}
