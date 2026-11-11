@@ -371,5 +371,7 @@
 #inside .overflow-btn{display:inline-flex;min-height:20px;align-items:center;gap:var(--p-s1);color:var(--p-running)}
 /* A failed Deliver row's error text: closed behind 'Show'; long output wraps (UI-R44). */
 #inside .ev-output{margin-top:var(--p-s1)}
-#inside .ev-output summary{cursor:pointer;color:var(--p-muted2)}
+/* The row rule `#inside .op summary` (grid columns, padding, hover) reaches this nested disclosure too: reset it so 'Show' is one inline word. */
+#inside .op .ev-output summary{display:inline-block;grid-template-columns:none;min-height:0;padding:0;border-radius:0;cursor:pointer;color:var(--p-muted2);white-space:nowrap;overflow-wrap:normal}
+#inside .op .ev-output summary:hover{background:none;color:var(--p-text)}
 #inside .ev-output pre{margin:var(--p-s1) 0 0;font-family:var(--p-mono);color:var(--p-muted2);white-space:pre-wrap;overflow-wrap:anywhere}
