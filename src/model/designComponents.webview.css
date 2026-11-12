@@ -227,7 +227,7 @@ button.k-ticket-ref:focus-visible,a.k-ticket-ref:focus-visible{
 .k-tooltip{position:fixed;z-index:var(--k-z-toast);max-width:min(calc(var(--k-space-8) * 8),calc(100vw - var(--k-space-6)));
   padding:var(--k-space-2) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);
   background:var(--k-surface);color:var(--k-text);box-shadow:var(--k-elev-3);font-size:var(--k-text-xs);
-  line-height:1.3;pointer-events:none;overflow-wrap:anywhere}
+  line-height:1.3;overflow-wrap:anywhere}
 .k-tooltip[hidden]{display:none}
 .k-toast-root{
   position:fixed;right:var(--k-space-7);bottom:var(--k-space-7);
