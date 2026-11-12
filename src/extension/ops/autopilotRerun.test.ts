@@ -33,6 +33,13 @@ describe('transientRerunStep', () => {
     expect(x.readJobLog).not.toHaveBeenCalled();
   });
 
+  it('ignores a no-change marker: it neither settles nor counts as a network re-run', async () => {
+    const x = ctx('');
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: 'no-change', rerunAt: clock });
+    expect(await transientRerunStep(x.c, [check('A')])).toEqual({ kind: 'none', earlier: new Set() });
+    expect(x.readJobLog).not.toHaveBeenCalled();
+  });
+
   it('re-runs a run once for several transient checks of that run and writes one note each', async () => {
     const x = ctx();
     expect(await transientRerunStep(x.c, [check('A'), check('B', '100', '201')])).toEqual({ kind: 'rerun' });

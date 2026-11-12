@@ -1280,7 +1280,7 @@ function populatedPrs(): PrPanelRow[] {
         ready: false,
         headline: 'Merge blocked',
         facts: '',
-        reasons: [{ kind: 'review', state: 'warn', label: 'Awaiting review', detail: 'no approvals yet', action: { act: 'open-pr', label: 'Open on GitHub', url: 'fixture:https://github.com/fixture-org/web/pull/421' } }],
+        reasons: [{ kind: 'review', state: 'warn', label: 'Awaiting review', short: 'awaiting review', detail: 'no approvals yet', action: { act: 'open-pr', label: 'Open on GitHub', url: 'fixture:https://github.com/fixture-org/web/pull/421' } }],
       },
       dismissed: false,
       dismissedLabel: '',

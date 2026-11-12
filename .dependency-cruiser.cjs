@@ -1,4 +1,4 @@
-// Layer rules for src/, enforced by `npx depcruise src --config .dependency-cruiser.cjs`.
+// Layer rules for src/, enforced by `npm run -s lint:layers` (CI and the review gate).
 // The generated import map lives in docs/arch/system-map.md (@arch:MAP-01/02);
 // this file is the enforcement side described by @arch:MAP-03.
 //

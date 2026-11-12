@@ -6,8 +6,11 @@ import {
   readCoreUsage,
   readGateRuns,
   readMergeChecks,
+  readNodeDeferrals,
+  readNodeRuns,
   readPhaseMarks,
   readPullRequests,
+  readResourceLeases,
   readServers,
   readStages,
   readWorktrees,
@@ -281,5 +284,99 @@ describe('diagnostic store evidence', () => {
     )
     expect(readCoreUsage(store, { ticketId: ticket.id }, 2).omitted).toBe(1)
     expect(readCoreUsage(store, { ticketId: 99999 }, 10).rows).toEqual([])
+  })
+
+  it('reads enriched node runs, deferrals and resource leases with bounded counts', () => {
+    store = openStore(':memory:')
+    const project = upsertProject(store, { slug: 'p' })
+    const ticket = createTicket(store, { projectId: project.id, key: 'K-1', title: 't' })
+    const otherTicket = createTicket(store, { projectId: project.id, key: 'K-2', title: 't2' })
+
+    store.db.prepare(
+      `INSERT INTO approach_graph_runs
+         (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+       VALUES (10, ?, 'impl', 1, 'karst-graph-engineering', 'running', '2026-08-16T00:00:00.000Z'),
+              (20, ?, 'impl', 1, 'karst-graph-engineering', 'running', '2026-08-16T00:00:00.000Z')`,
+    ).run(ticket.id, otherTicket.id)
+
+    store.db.prepare(
+      `INSERT INTO approach_graph_revisions
+         (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+       VALUES (100, 10, 1, '{}', 'fp1', 'active', '2026-08-16T00:00:00.000Z')`,
+    ).run()
+
+    for (let i = 1; i <= 3; i++) {
+      store.db.prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, launch_attempt, launch_fail_streak, outcome, reason, started_at, ended_at)
+         VALUES (?, 10, 100, ?, 'agent', ?, 'completed', 1, 0, 'complete', 'ok', '2026-08-16T00:01:00.000Z', '2026-08-16T00:02:00.000Z')`,
+      ).run(i, `node-${i}`, i)
+
+      store.db.prepare(
+        `INSERT INTO approach_node_deferrals
+           (id, graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, 10, 100, ?, 'lease-held', '2026-08-16T00:01:00.000Z', '2026-08-16T00:02:00.000Z')`,
+      ).run(i, `node-${i}`)
+
+      store.db.prepare(
+        `INSERT INTO approach_resource_leases
+           (id, graph_run_id, owner_node_run_id, physical_domain, access_mode, claimed_paths, status, acquired_at, released_at)
+         VALUES (?, 10, 1, ?, 'shared', '["/path"]', 'held', '2026-08-16T00:01:00.000Z', NULL)`,
+      ).run(i, `domain-${i}`)
+    }
+
+    // Node runs (retained in chronological order: id 2, then id 3)
+    const nodeRuns = readNodeRuns(store, ticket.id, 2)
+    expect(nodeRuns.rows).toHaveLength(2)
+    expect(nodeRuns.omitted).toBe(1)
+    expect(nodeRuns.rows[1]).toMatchObject({
+      id: 3,
+      graphRunId: 10,
+      nodeId: 'node-3',
+      nodeKind: 'agent',
+      visitNumber: 3,
+      status: 'completed',
+      launchAttempt: 1,
+      launchFailStreak: 0,
+      outcome: 'complete',
+      reason: 'ok',
+      startedAt: '2026-08-16T00:01:00.000Z',
+      endedAt: '2026-08-16T00:02:00.000Z',
+    })
+
+    // Node deferrals (chronological order)
+    const deferrals = readNodeDeferrals(store, ticket.id, 2)
+    expect(deferrals.rows).toHaveLength(2)
+    expect(deferrals.omitted).toBe(1)
+    expect(deferrals.rows[1]).toMatchObject({
+      id: 3,
+      graphRunId: 10,
+      revisionId: 100,
+      nodeId: 'node-3',
+      reason: 'lease-held',
+      waitSince: '2026-08-16T00:01:00.000Z',
+      updatedAt: '2026-08-16T00:02:00.000Z',
+    })
+
+    // Resource leases (chronological order)
+    const leases = readResourceLeases(store, ticket.id, 2)
+    expect(leases.rows).toHaveLength(2)
+    expect(leases.omitted).toBe(1)
+    expect(leases.rows[1]).toMatchObject({
+      id: 3,
+      graphRunId: 10,
+      ownerNodeRunId: 1,
+      physicalDomain: 'domain-3',
+      accessMode: 'shared',
+      claimedPaths: '["/path"]',
+      status: 'held',
+      acquiredAt: '2026-08-16T00:01:00.000Z',
+      releasedAt: null,
+    })
+
+    // Scoped to ticket
+    expect(readNodeRuns(store, otherTicket.id, 10).rows).toEqual([])
+    expect(readNodeDeferrals(store, otherTicket.id, 10).rows).toEqual([])
+    expect(readResourceLeases(store, otherTicket.id, 10).rows).toEqual([])
   })
 })

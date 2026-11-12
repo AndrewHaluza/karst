@@ -80,7 +80,7 @@ jobs:
       # The generated map is only useful if the rules it documents actually
       # hold. .dependency-cruiser.cjs is the enforcement (docs @arch:MAP-03).
       - name: Layer rules
-        run: npx depcruise src --config .dependency-cruiser.cjs
+        run: npm run -s lint:layers
 
       - name: Build
         run: npm run build

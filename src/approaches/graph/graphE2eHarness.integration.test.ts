@@ -29,10 +29,24 @@ import type { GraphDriverDeps } from './driver.js';
 import {
   bootstrapAndLaunchPlanner,
   acceptSubmittedPlan,
+  acceptSubmittedReplan,
+  compileDiagnosticsSection,
   driveReadyNodeRuns,
+  launchReplanPlanner,
+  plannerVocabularyFor,
+  PLANNER_SUBMIT_INSTRUCTION,
+  readPlannerDiagnostics,
   sha256Hex,
 } from './driver.js';
-import type { CompletionPipelineDeps } from './integration/pipeline.js';
+import { runCompletionPipeline, type CompletionPipelineDeps } from './integration/pipeline.js';
+import { beginReplanPlannerRun, electReplan } from './coordinator/replan.js';
+import { flipOnEndQuiescence } from './coordinator/completion.js';
+import { reconcileGraphRun, type ReconcileGraphRunDeps, type ReconcileGraphRunResult } from './coordinator/reconcile.js';
+import { runImmediateTransaction } from '../../store/transactions.js';
+import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../store/graph/transitions.js';
+import { graphRunIdTicketStatus, graphRunStatus, markGraphRunBlocked } from '../../store/graph/graphRuns.js';
+import { earliestNodeRunOutcomeForGraphRun, nodeRunIdsInStatusesForGraphRun } from '../../store/graph/nodeRuns.js';
+import { blockGraphStage, markGraphAwaitingImplMarker } from '../../workflow/graphMarkerGuard.js';
 import { runGraphCommand } from '../../cli/graph.js';
 import { runCoordinatorTick } from './coordinator/sweep.js';
 import { activationDomainKeys, type AllowlistCommandAccess } from './coordinator/conflicts.js';
@@ -53,12 +67,12 @@ export const GRAPH_APPROACH = 'karst-graph-engineering';
 /* Real git helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-function git(cwd: string, args: string[]): { stdout: string; stderr: string; exitCode: number } {
+export function git(cwd: string, args: string[]): { stdout: string; stderr: string; exitCode: number } {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
   return { stdout: (r.stdout ?? '').trim(), stderr: r.stderr ?? '', exitCode: r.status ?? -1 };
 }
 
-function gitOk(cwd: string, args: string[]): string {
+export function gitOk(cwd: string, args: string[]): string {
   const r = git(cwd, args);
   if (r.exitCode !== 0) throw new Error(`git ${args.join(' ')} in ${cwd} failed: ${r.stderr}`);
   return r.stdout;
@@ -163,8 +177,41 @@ export interface Harness {
   deps: GraphDriverDeps;
   pipelineDeps: CompletionPipelineDeps;
   sweepDeps: Parameters<typeof runCoordinatorTick>[0];
+  /** The isolated clone of a node run (the shared `workspace` unless the
+   *  harness was built with `isolatedWorkspaces`). */
+  workspaceOfNode: (nodeRunId: number) => string;
+  /** Every command-node process the driver spawned, in order. */
+  commandRuns: CommandRun[];
+  /** The exit code a command-node process returns (default: 0). Mutable. */
+  commandExit: (run: CommandRun) => number;
+  /** Every repair / replan planner prompt the tick helper composed. */
+  plannerPrompts: { kind: 'repair' | 'replan'; prompt: string }[];
   close: () => void;
 }
+
+/** One command-node process the driver spawned. */
+export interface CommandRun {
+  command: string;
+  args: readonly string[];
+  cwd: string;
+}
+
+/** Optional harness shape; the default is the single-node, single-clone fixture. */
+export interface HarnessOptions {
+  /** Returns the graph approach config the run uses (default: the fixture). */
+  configure?: (config: GraphApproachConfig) => GraphApproachConfig;
+  /** Give every agent node run its own git clone (fan-out). */
+  isolatedWorkspaces?: boolean;
+  /** Record a durable `process_runs` row (pid `9000 + nodeRunId`) per node launch. */
+  recordProcesses?: boolean;
+}
+
+/** OS facts that report every pid dead — a closed terminal / reloaded window. */
+export const deadProcessFacts = {
+  isAlive: () => false,
+  liveCwd: () => null,
+  processStartMs: () => null,
+};
 
 /** A fake supervised transport: records launches, returns a live session,
  *  and proves termination by `attributable: killed` on demand. */
@@ -172,7 +219,15 @@ export class TestTransport {
   sessionsByNode = new Map<number, SupervisedAgentSession>();
   killed = new Set<number>();
   started: SupervisedLaunchRequest[] = [];
-  constructor(private h: { ticketId: number; graphRunId: () => number; startedAt: () => string }) {}
+  constructor(
+    private h: {
+      ticketId: number;
+      graphRunId: () => number;
+      startedAt: () => string;
+      /** Persist the durable process identity of a node launch. */
+      recordProcess?: (nodeRunId: number, pid: number, startedAt: string) => void;
+    },
+  ) {}
 
   capabilities(): { exactModel: boolean; attributedTermination: boolean } {
     return { exactModel: true, attributedTermination: true };
@@ -193,6 +248,9 @@ export class TestTransport {
       providerSessionId: null,
     };
     this.sessionsByNode.set(request.nodeRunId, session);
+    if (request.interactive.sessionName === `Karst node ${request.nodeRunId}`) {
+      this.h.recordProcess?.(request.nodeRunId, session.pid ?? 0, session.startedAt ?? NOW);
+    }
     return session;
   }
 
@@ -232,7 +290,7 @@ function sha256HexCommand(def: {
   );
 }
 
-export function makeHarness(): Harness {
+export function makeHarness(options: HarnessOptions = {}): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'karst-graph-e2e-'));
   const dbPath = join(dir, 'karst.db');
   const artifactRoot = join(dir, 'artifacts');
@@ -271,12 +329,30 @@ export function makeHarness(): Harness {
   const workspace = join(dir, 'ws');
   gitOk(dir, ['clone', '-q', worktree, workspace]);
 
-  const config = graphApproachConfig();
+  const config = options.configure ? options.configure(graphApproachConfig()) : graphApproachConfig();
+  const nodeWorkspaces = new Map<number, string>();
   const transport = new TestTransport({
     ticketId: created.id,
     graphRunId: () => 0,
     startedAt: () => NOW,
+    recordProcess: options.recordProcesses
+      ? (nodeRunId, pid, startedAt) => {
+          const processRunId = Number(
+            store.db
+              .prepare(
+                `INSERT INTO process_runs
+                   (ticket_id, stage_key, process_id, attempt, pid, status, started_at)
+                 VALUES (?, 'impl', 'graph-node', 0, ?, 'running', ?)`,
+              )
+              .run(created.id, pid, startedAt).lastInsertRowid,
+          );
+          store.db
+            .prepare('UPDATE approach_node_runs SET process_run_id = ? WHERE id = ?')
+            .run(processRunId, nodeRunId);
+        }
+      : undefined,
   });
+  const commandRuns: CommandRun[] = [];
   const fakeAdapter: AgentAdapter = {
     requiredBinary: 'opencode',
     runHeadless: async () => ({ sessionId: 's', verdict: null, raw: '' }),
@@ -370,16 +446,27 @@ export function makeHarness(): Harness {
     readBytes,
     ticketContextOf: async () => '# Ticket context',
     compileContextOf: (graphRunId, document) => compileContextOf(document),
-    commandDefOf: () => undefined,
-    runProcess: async () => ({ kind: 'completed', exitCode: 0, output: '' }),
+    commandDefOf: (_graphRunId, commandId) => config.commands[commandId],
+    runProcess: async (command, args, cwd) => {
+      const run: CommandRun = { command, args, cwd };
+      commandRuns.push(run);
+      return { kind: 'completed', exitCode: harness.commandExit(run), output: '' };
+    },
     plannerCwdOf: () => ({ repo: 'api', cwd: worktree }),
     cwdForRepo: () => worktree,
     gitCommonDirOf: (cwd) => gitCommonDir(cwd),
     workspaceOf: () => undefined,
-    createWorkspace: async () => ({
-      kind: 'created',
-      paths: [{ repoName: 'api', cwd: workspace, domainKey: 'd' }],
-    }),
+    createWorkspace: async ({ nodeRunId }) => {
+      let cwd = workspace;
+      if (options.isolatedWorkspaces) {
+        cwd = join(dir, `ws-${nodeRunId}`);
+        gitOk(dir, ['clone', '-q', worktree, cwd]);
+        gitOk(cwd, ['config', 'user.email', 'e2e@karst']);
+        gitOk(cwd, ['config', 'user.name', 'E2E']);
+        nodeWorkspaces.set(nodeRunId, cwd);
+      }
+      return { kind: 'created', paths: [{ repoName: 'api', cwd, domainKey: 'd' }] };
+    },
     sessionNamingOf: (_graphRunId, runId, kind) => ({ name: `Karst ${kind} ${runId}` }),
     cliNodeCompletionCommand: () => 'node "/dist/cli/main.js" node complete',
   };
@@ -417,7 +504,7 @@ export function makeHarness(): Harness {
         }));
     },
     artifactRoot: () => artifactRoot,
-    workspaceCwdOf: () => workspace,
+    workspaceCwdOf: (nodeRunId) => nodeWorkspaces.get(nodeRunId) ?? workspace,
     cleanupNodeWorkspace: () => undefined,
   };
 
@@ -492,7 +579,7 @@ export function makeHarness(): Harness {
     maxParallelOf: () => config.limits.maxParallel,
   };
 
-  return {
+  const harness: Harness = {
     dir,
     dbPath,
     artifactRoot,
@@ -507,11 +594,16 @@ export function makeHarness(): Harness {
     deps,
     pipelineDeps,
     sweepDeps,
+    workspaceOfNode: (nodeRunId) => nodeWorkspaces.get(nodeRunId) ?? workspace,
+    commandRuns,
+    commandExit: () => 0,
+    plannerPrompts: [],
     close: () => {
       store.close();
       rmSync(dir, { recursive: true, force: true });
     },
   };
+  return harness;
 }
 
 /* ------------------------------------------------------------------ */
@@ -543,7 +635,10 @@ export function graphEnv(
 
 /** Launch the bootstrap planner, then submit its graph.json through the REAL
  *  `graph submit` CLI and accept the plan. Returns the graph run id. */
-export async function bootAndSubmit(h: Harness): Promise<{
+export async function bootAndSubmit(
+  h: Harness,
+  graphJson: string = agentGraphJson(),
+): Promise<{
   graphRunId: number;
   plannerRunId: number;
   generation: string;
@@ -557,7 +652,7 @@ export async function bootAndSubmit(h: Harness): Promise<{
   });
   expect(launched.kind).toBe('launched');
   if (launched.kind !== 'launched') throw new Error('bootstrap did not launch');
-  writePlannerSubmission(h, agentGraphJson());
+  writePlannerSubmission(h, graphJson);
   const out = JSON.parse(
     runGraphCommand(
       h.store,
@@ -623,6 +718,203 @@ export async function claimAndDrive(
     if (sweep.claimed === 0 && driven.launched === 0 && driven.completed === 0) break;
   }
   return total;
+}
+
+/* ------------------------------------------------------------------ */
+/* Autonomous coordinator tick                                         */
+/* ------------------------------------------------------------------ */
+
+/** Compose a repair / replan planner prompt the way the extension host does
+ *  (`launchPlannerRepairHost` / `launchReplanPlannerHost`): the base prompt, the
+ *  ticket context, the planner vocabulary, then the situation text. */
+function plannerPromptOf(h: Harness, graphRunId: number, situation: string[]): string {
+  return [
+    '# Planner',
+    '# Ticket context',
+    plannerVocabularyFor(() => h.deps.compileContextOf(graphRunId), h.artifactRoot, () => undefined),
+    ...situation,
+    PLANNER_SUBMIT_INSTRUCTION,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** The host's compile-repair re-prompt: the SAME planner run gets its next
+ *  attempt, with the compile diagnostics, through `launchReplanPlanner`. */
+async function launchRepairPlanner(
+  h: Harness,
+  graphRunId: number,
+  plannerRunId: number,
+  attempt: number,
+): Promise<void> {
+  const diagnostics = compileDiagnosticsSection(readPlannerDiagnostics(h.deps, graphRunId, plannerRunId));
+  const prompt = plannerPromptOf(h, graphRunId, [
+    diagnostics ?? 'The compiler rejected the previous `graph.json`.',
+    `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
+  ]);
+  h.plannerPrompts.push({ kind: 'repair', prompt });
+  const launched = await launchReplanPlanner(h.deps, {
+    graphRunId,
+    plannerRunId,
+    generation: '',
+    capability: '',
+    prompt,
+    cwd: h.worktree,
+    repo: 'api',
+    isRepair: true,
+  });
+  if (launched.kind !== 'launched') throw new Error(`repair planner did not launch: ${launched.kind}`);
+}
+
+/** Allocate the elected replan planner run and start its session (the host's
+ *  `relaunchReplanPlannerHost` + `launchReplanPlannerHost`). */
+async function launchElectedReplanPlanner(h: Harness, graphRunId: number): Promise<void> {
+  const begun = beginReplanPlannerRun(
+    {
+      db: h.store.db,
+      transaction: h.deps.transaction,
+      now: () => NOW,
+      debug: () => undefined,
+      writeSnapshot: h.deps.writeSnapshot,
+      readPrompt: () => new TextEncoder().encode('# Planner'),
+      promptPath: 'karst-graph-planner',
+      ticketContext: '# Ticket context',
+    },
+    { graphRunId },
+  );
+  if (!begun.ok) throw new Error(`replan planner not allocated: ${begun.reason}`);
+  const prompt = plannerPromptOf(h, graphRunId, [
+    `Replan the graph (superseding revision ${begun.launch.priorRevisionNumber}). The replan reasons are under the artifact root: ${begun.launch.reasonsSnapshotPath}.`,
+  ]);
+  h.plannerPrompts.push({ kind: 'replan', prompt });
+  const launched = await launchReplanPlanner(h.deps, {
+    graphRunId,
+    plannerRunId: begun.launch.plannerRunId,
+    generation: '',
+    capability: '',
+    prompt,
+    cwd: h.worktree,
+    repo: 'api',
+  });
+  if (launched.kind !== 'launched') throw new Error(`replan planner did not launch: ${launched.kind}`);
+}
+
+/** The host's `settleGraphRun`: a blocked node blocks the run (or elects a
+ *  replan), an END-quiescent run flips to `completed-awaiting-impl-marker`. */
+async function settleRun(h: Harness, graphRunId: number): Promise<void> {
+  const db = h.store.db;
+  const run = graphRunIdTicketStatus(db, graphRunId);
+  if (!run) return;
+  const clock = () => NOW;
+  if (run.status === 'blocked') {
+    blockGraphStage(h.store, run.ticket_id, graphRunId, clock);
+    return;
+  }
+  if (run.status !== 'running') return;
+  const blockedNode = earliestNodeRunOutcomeForGraphRun(db, graphRunId, ['blocked']);
+  if (blockedNode) {
+    if (blockedNode.outcome === 'replan') {
+      const elected = electReplan(
+        { db, transaction: h.deps.transaction, now: clock, debug: () => undefined },
+        { graphRunId, requestNodeRunId: blockedNode.id },
+      );
+      if (elected.elected) await launchElectedReplanPlanner(h, graphRunId);
+      return;
+    }
+    const reason = `node-blocked: node ${blockedNode.id} (${blockedNode.reason ?? 'blocked by agent'})`;
+    const blocked = runImmediateTransaction(db, () => {
+      if (!casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')) {
+        return false;
+      }
+      markGraphRunBlocked(db, graphRunId, reason, NOW);
+      return true;
+    });
+    if (blocked) blockGraphStage(h.store, run.ticket_id, graphRunId, clock);
+    return;
+  }
+  const flipped = flipOnEndQuiescence(
+    { db, transaction: h.deps.transaction, now: clock, debug: () => undefined },
+    { graphRunId },
+  );
+  if (flipped.flipped) markGraphAwaitingImplMarker(h.store, run.ticket_id, graphRunId, clock);
+}
+
+/**
+ * ONE pass of the extension host's coordinator loop for a graph run
+ * (`runGraphCoordinatorTick` + `driveGraphRunContinuation`):
+ *  - `planning`: judge the submitted plan; a repair request re-prompts the planner.
+ *  - `draining`: judge the submitted replan; a repair request re-prompts it.
+ *  - `running`: claim tokens, drive ready nodes, drive `completing` nodes
+ *    through the completion pipeline, then settle (blocked / replan / END).
+ * The agent's work between ticks goes through the REAL CLI verbs. Returns the
+ * run's status after the pass.
+ */
+export async function tickGraphRun(h: Harness, graphRunId: number): Promise<string> {
+  const db = h.store.db;
+  const status = graphRunStatus(db, graphRunId);
+  if (status === 'planning') {
+    const accepted = acceptSubmittedPlan(h.deps, graphRunId);
+    if (accepted.kind === 'repair-requested') {
+      await launchRepairPlanner(h, graphRunId, accepted.plannerRunId, accepted.attempt);
+    }
+  } else if (status === 'draining') {
+    const accepted = acceptSubmittedReplan(h.deps, graphRunId);
+    if (accepted.kind === 'repair-requested') {
+      await launchRepairPlanner(h, graphRunId, accepted.plannerRunId, accepted.attempt);
+    }
+    if (accepted.kind === 'accepted') await claimAndDrive(h, graphRunId);
+  } else if (status === 'running') {
+    // Host order (`runGraphCoordinatorTick`): the sweep runs FIRST, then the
+    // continuation drives completing nodes and settles. A node report settles
+    // only after the sweep, exactly as in production.
+    await claimAndDrive(h, graphRunId);
+    for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(db, graphRunId, ['completing'])) {
+      await runCompletionPipeline(h.pipelineDeps, { graphRunId, nodeRunId });
+    }
+    await settleRun(h, graphRunId);
+  }
+  return graphRunStatus(db, graphRunId) ?? 'gone';
+}
+
+/** Tick until `done` holds for the run's status (bounded). */
+export async function tickUntil(
+  h: Harness,
+  graphRunId: number,
+  done: (status: string) => boolean,
+  maxTicks = 12,
+): Promise<string> {
+  let status = graphRunStatus(h.store.db, graphRunId) ?? 'gone';
+  for (let i = 0; i < maxTicks && !done(status); i++) status = await tickGraphRun(h, graphRunId);
+  return status;
+}
+
+/** A window reload: drop every in-memory session, then run the REAL reconcile
+ *  pass. A node proven dead is handed to the completion pipeline (awaited). */
+export async function reconcileAfterReload(
+  h: Harness,
+  graphRunId: number,
+  facts: ReconcileGraphRunDeps['facts'] = deadProcessFacts,
+): Promise<{ result: ReconcileGraphRunResult; relaunched: string[] }> {
+  h.transport.sessionsByNode.clear();
+  const resumed: Promise<unknown>[] = [];
+  const relaunched: string[] = [];
+  const deps: ReconcileGraphRunDeps = {
+    db: h.store.db,
+    transaction: h.deps.transaction,
+    now: () => NOW,
+    debug: () => undefined,
+    facts,
+    sessionFor: () => undefined,
+    resumePipeline: (nodeRunId) => {
+      resumed.push(runCompletionPipeline({ ...h.pipelineDeps, facts }, { graphRunId, nodeRunId }));
+    },
+    relaunchPlanner: (id) => void relaunched.push(`planner:${id}`),
+    relaunchReplanPlanner: (id) => void relaunched.push(`replan:${id}`),
+    relaunchCompileRepair: (id, plannerRunId) => void relaunched.push(`repair:${id}:${plannerRunId}`),
+  };
+  const result = await reconcileGraphRun(deps, { graphRunId });
+  await Promise.all(resumed);
+  return { result, relaunched };
 }
 
 /** A REAL supervised transport with minimal fakes — enough to assert the

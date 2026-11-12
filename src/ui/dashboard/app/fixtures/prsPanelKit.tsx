@@ -50,7 +50,7 @@ export const blockedBy = (...reasons: Array<[Reason['kind'], Reason['state']]>):
   ready: false,
   headline: 'Merge blocked',
   facts: '',
-  reasons: reasons.map(([kind, state]) => ({ kind, state, label: `${kind} label`, detail: `${kind} detail` })),
+  reasons: reasons.map(([kind, state]) => ({ kind, state, label: `${kind} label`, short: `${kind} short`, detail: `${kind} detail` })),
 });
 
 /** A blocked readiness block with one hand-written reason (an action, a list, ...). */
@@ -58,7 +58,7 @@ export const blockedWith = (reason: Partial<Reason> & Pick<Reason, 'kind'>): Row
   ready: false,
   headline: 'Merge blocked',
   facts: '',
-  reasons: [{ state: 'bad', label: `${reason.kind} label`, detail: '', ...reason }],
+  reasons: [{ state: 'bad', label: `${reason.kind} label`, short: `${reason.kind} short`, detail: '', ...reason }],
 });
 
 export const failing = (...names: Array<[string, string | null]>): Row['checks'] => ({

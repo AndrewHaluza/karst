@@ -349,9 +349,37 @@ export interface NodeRunEvidence {
   readonly id: number
   readonly graphRunId: number
   readonly nodeId: string
+  readonly nodeKind: string
+  readonly visitNumber: number
   readonly status: string
+  readonly launchAttempt: number
+  readonly launchFailStreak: number
   readonly outcome: string | null
   readonly reason: string | null
+  readonly startedAt: string | null
+  readonly endedAt: string | null
+}
+
+export interface NodeDeferralEvidence {
+  readonly id: number
+  readonly graphRunId: number
+  readonly revisionId: number
+  readonly nodeId: string
+  readonly reason: string
+  readonly waitSince: string
+  readonly updatedAt: string
+}
+
+export interface ResourceLeaseEvidence {
+  readonly id: number
+  readonly graphRunId: number
+  readonly ownerNodeRunId: number
+  readonly physicalDomain: string
+  readonly accessMode: string
+  readonly claimedPaths: string | null
+  readonly status: string
+  readonly acquiredAt: string
+  readonly releasedAt: string | null
 }
 
 /**
@@ -464,7 +492,9 @@ export function readPlannerRuns(store: Store, ticketId: number, cap: number): Bo
 export function readNodeRuns(store: Store, ticketId: number, cap: number): BoundedRows<NodeRunEvidence> {
   const limit = checkedCap(cap)
   const rows = store.db.prepare(
-    `SELECT n.id, n.graph_run_id, n.node_id, n.status, n.outcome, n.reason,
+    `SELECT n.id, n.graph_run_id, n.node_id, n.node_kind, n.visit_number, n.status,
+            n.launch_attempt, n.launch_fail_streak, n.outcome, n.reason,
+            n.started_at, n.ended_at,
             COUNT(*) OVER() AS total_count
        FROM approach_node_runs n
        JOIN approach_graph_runs r ON r.id = n.graph_run_id
@@ -475,9 +505,15 @@ export function readNodeRuns(store: Store, ticketId: number, cap: number): Bound
     id: number
     graph_run_id: number
     node_id: string
+    node_kind: string
+    visit_number: number
     status: string
+    launch_attempt: number
+    launch_fail_streak: number
     outcome: string | null
     reason: string | null
+    started_at: string | null
+    ended_at: string | null
     total_count: number
   }>
   const result = bounded(rows, limit, rows[0]?.total_count ?? 0)
@@ -487,9 +523,90 @@ export function readNodeRuns(store: Store, ticketId: number, cap: number): Bound
       id: row.id,
       graphRunId: row.graph_run_id,
       nodeId: row.node_id,
+      nodeKind: row.node_kind,
+      visitNumber: row.visit_number,
       status: row.status,
+      launchAttempt: row.launch_attempt,
+      launchFailStreak: row.launch_fail_streak,
       outcome: row.outcome,
       reason: row.reason,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+    })),
+  }
+}
+
+export function readNodeDeferrals(store: Store, ticketId: number, cap: number): BoundedRows<NodeDeferralEvidence> {
+  const limit = checkedCap(cap)
+  const rows = store.db.prepare(
+    `SELECT d.id, d.graph_run_id, d.revision_id, d.node_id, d.reason, d.wait_since, d.updated_at,
+            COUNT(*) OVER() AS total_count
+       FROM approach_node_deferrals d
+       JOIN approach_graph_runs r ON r.id = d.graph_run_id
+      WHERE r.ticket_id = ?
+      ORDER BY d.id DESC
+      LIMIT ?`,
+  ).all(ticketId, limit + 1) as Array<{
+    id: number
+    graph_run_id: number
+    revision_id: number
+    node_id: string
+    reason: string
+    wait_since: string
+    updated_at: string
+    total_count: number
+  }>
+  const result = bounded(rows, limit, rows[0]?.total_count ?? 0)
+  return {
+    ...result,
+    rows: result.rows.map((row) => ({
+      id: row.id,
+      graphRunId: row.graph_run_id,
+      revisionId: row.revision_id,
+      nodeId: row.node_id,
+      reason: row.reason,
+      waitSince: row.wait_since,
+      updatedAt: row.updated_at,
+    })),
+  }
+}
+
+export function readResourceLeases(store: Store, ticketId: number, cap: number): BoundedRows<ResourceLeaseEvidence> {
+  const limit = checkedCap(cap)
+  const rows = store.db.prepare(
+    `SELECT l.id, l.graph_run_id, l.owner_node_run_id, l.physical_domain, l.access_mode,
+            l.claimed_paths, l.status, l.acquired_at, l.released_at,
+            COUNT(*) OVER() AS total_count
+       FROM approach_resource_leases l
+       JOIN approach_graph_runs r ON r.id = l.graph_run_id
+      WHERE r.ticket_id = ?
+      ORDER BY l.id DESC
+      LIMIT ?`,
+  ).all(ticketId, limit + 1) as Array<{
+    id: number
+    graph_run_id: number
+    owner_node_run_id: number
+    physical_domain: string
+    access_mode: string
+    claimed_paths: string | null
+    status: string
+    acquired_at: string
+    released_at: string | null
+    total_count: number
+  }>
+  const result = bounded(rows, limit, rows[0]?.total_count ?? 0)
+  return {
+    ...result,
+    rows: result.rows.map((row) => ({
+      id: row.id,
+      graphRunId: row.graph_run_id,
+      ownerNodeRunId: row.owner_node_run_id,
+      physicalDomain: row.physical_domain,
+      accessMode: row.access_mode,
+      claimedPaths: row.claimed_paths,
+      status: row.status,
+      acquiredAt: row.acquired_at,
+      releasedAt: row.released_at,
     })),
   }
 }

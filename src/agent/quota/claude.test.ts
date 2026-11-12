@@ -102,8 +102,8 @@ describe('readClaudeQuota', () => {
 });
 
 const API_USAGE = {
-  five_hour: { utilization: 0.5, resetsAt: 1746540000 },
-  seven_day: { utilization: 0.25, resetsAt: 1746799200 },
+  five_hour: { utilization: 50, resets_at: '2026-05-06T15:00:00.000Z' },
+  seven_day: { utilization: 25, resets_at: '2026-05-09T15:00:00.000Z' },
 };
 
 function writeCredentials(token = 'test-token'): void {

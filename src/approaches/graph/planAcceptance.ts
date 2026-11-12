@@ -21,6 +21,7 @@ import {
 } from '../../store/graph/plannerRuns.js';
 import { activeRevision, createRevision, drainingRevision, nextRevisionNumber } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
+import { drainingRevisionNodeRunsInStatuses } from '../../store/graph/nodeRuns.js';
 import type { GraphDocument } from './parse.js';
 import { parseGraphDocument } from './parse.js';
 import {
@@ -177,21 +178,7 @@ export function acceptSubmittedPlan(
     // lingering second `draining` revision would make the drain selectors
     // disagree, and a surviving `blocked` replan requester (or its held lease)
     // would block the recovered revision's END quiescence run-wide forever.
-    const placeholders = ACTIVE_NODE_STATUSES.map(() => '?').join(', ');
-    const abandoned = deps.db
-      .prepare(
-        `SELECT n.id, n.status, n.node_kind, n.revision_id, n.node_id
-         FROM approach_node_runs n
-         JOIN approach_graph_revisions r ON r.id = n.revision_id
-         WHERE n.graph_run_id = ? AND r.status = 'draining' AND n.status IN (${placeholders})`,
-      )
-      .all(graphRunId, ...ACTIVE_NODE_STATUSES) as Array<{
-      id: number;
-      status: string;
-      node_kind: string;
-      revision_id: number;
-      node_id: string;
-    }>;
+    const abandoned = drainingRevisionNodeRunsInStatuses(deps.db, graphRunId, ACTIVE_NODE_STATUSES);
     deps.db
       .prepare(
         `UPDATE approach_graph_revisions SET status = 'superseded', superseded_at = ?

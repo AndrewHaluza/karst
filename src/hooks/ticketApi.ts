@@ -14,6 +14,7 @@ import type { Store } from '../store/db.js';
 import { generateTicketKey, type Ticket } from '../store/tickets.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { isBrowserRequest } from './requestGuard.js';
 
 /** Fields a ticket-creation request may carry. Everything is validated. */
 export interface CreateTicketRequest {
@@ -94,6 +95,8 @@ export interface TicketApiOptions {
 }
 
 export interface ServeCreateTicketDeps {
+  /** The port this listener is bound to; the Host header must name it. */
+  port: number;
   store: Store;
   options?: TicketApiOptions;
   maxBodyBytes: number;
@@ -180,7 +183,7 @@ export function serveCreateTicketRequest(
   // preflight) at localhost. Browsers always attach Origin and cannot send
   // application/json cross-origin without a preflight this server never
   // answers, so these two checks keep browsers out; local processes are unaffected.
-  if (req.headers.origin !== undefined) {
+  if (isBrowserRequest(req, deps.port)) {
     respondJson(res, 403, { ok: false, error: 'browser cross-origin requests are not allowed' });
     req.resume();
     return;

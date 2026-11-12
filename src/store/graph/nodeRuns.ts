@@ -204,18 +204,27 @@ export function nodeRunsForGraphRunDisplay(
   >;
 }
 
-/** The graph run's node runs (launch-identity columns), in id order — the
+/** The graph run's node runs (launch-identity and lifecycle columns), in id order — the
  *  reconcile sweep's deterministic read. */
 export function nodeRunsForGraphRun(
   db: GraphDb,
   graphRunId: number,
-): Array<Pick<NodeRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'>> {
+): Array<
+  Pick<
+    NodeRunRow,
+    'id' | 'status' | 'owner_nonce' | 'process_run_id' | 'outcome' | 'node_kind' | 'revision_id' | 'node_id'
+  >
+> {
   return db
     .prepare(
-      'SELECT id, status, owner_nonce, process_run_id FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id',
+      `SELECT id, status, owner_nonce, process_run_id, outcome, node_kind, revision_id, node_id
+       FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
     )
     .all(graphRunId) as Array<
-    Pick<NodeRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'>
+    Pick<
+      NodeRunRow,
+      'id' | 'status' | 'owner_nonce' | 'process_run_id' | 'outcome' | 'node_kind' | 'revision_id' | 'node_id'
+    >
   >;
 }
 
@@ -277,6 +286,7 @@ export function countNodeRunsInStatusesForGraphRun(
   graphRunId: number,
   statuses: readonly string[],
 ): number {
+  if (statuses.length === 0) return 0;
   const placeholders = statuses.map(() => '?').join(', ');
   const row = db
     .prepare(
@@ -284,6 +294,50 @@ export function countNodeRunsInStatusesForGraphRun(
        WHERE graph_run_id = ? AND status IN (${placeholders})`,
     )
     .get(graphRunId, ...statuses) as { n: number };
+  return row.n;
+}
+
+/**
+ * How many of a graph run's node runs sit in one of `statuses`, excluding
+ * `excludeNodeRunId` — the completing visit's predicate (NDL-60).
+ */
+export function countOtherNodeRunsInStatuses(
+  db: GraphDb,
+  graphRunId: number,
+  excludeNodeRunId: number,
+  statuses: readonly string[],
+): number {
+  if (statuses.length === 0) return 0;
+  const placeholders = statuses.map(() => '?').join(', ');
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM approach_node_runs
+       WHERE graph_run_id = ? AND id <> ? AND status IN (${placeholders})`,
+    )
+    .get(graphRunId, excludeNodeRunId, ...statuses) as { n: number };
+  return row.n;
+}
+
+/**
+ * How many of a graph run's node runs sit in one of `statuses` with an outcome
+ * other than `excludedOutcome` (or NULL outcome) — the replan quiescence
+ * check's predicate (NDL-60).
+ */
+export function countNodeRunsInStatusesExcludingOutcome(
+  db: GraphDb,
+  graphRunId: number,
+  statuses: readonly string[],
+  excludedOutcome: string,
+): number {
+  if (statuses.length === 0) return 0;
+  const placeholders = statuses.map(() => '?').join(', ');
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM approach_node_runs
+       WHERE graph_run_id = ? AND status IN (${placeholders})
+         AND (outcome IS NULL OR outcome <> ?)`,
+    )
+    .get(graphRunId, ...statuses, excludedOutcome) as { n: number };
   return row.n;
 }
 
@@ -451,12 +505,57 @@ export function nodeRunsInStatusesForGraphRun(
   graphRunId: number,
   statuses: readonly string[],
 ): Array<Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'>> {
+  if (statuses.length === 0) return [];
   const placeholders = statuses.map(() => '?').join(', ');
   return db
     .prepare(
       `SELECT id, revision_id, node_id, node_kind, status FROM approach_node_runs
        WHERE graph_run_id = ? AND status IN (${placeholders})
        ORDER BY id`,
+    )
+    .all(graphRunId, ...statuses) as Array<
+    Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'>
+  >;
+}
+
+/** The node runs of a revision in one of `statuses` (replan supersede shape). */
+export function nodeRunsInStatusesForRevision(
+  db: GraphDb,
+  graphRunId: number,
+  revisionId: number,
+  statuses: readonly string[],
+): Array<Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'>> {
+  if (statuses.length === 0) return [];
+  const placeholders = statuses.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `SELECT id, revision_id, node_id, node_kind, status FROM approach_node_runs
+       WHERE graph_run_id = ? AND revision_id = ? AND status IN (${placeholders})
+       ORDER BY id`,
+    )
+    .all(graphRunId, revisionId, ...statuses) as Array<
+    Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'>
+  >;
+}
+
+/**
+ * The still-active node runs belonging to a draining revision of this graph run
+ * (plan-acceptance supersede shape).
+ */
+export function drainingRevisionNodeRunsInStatuses(
+  db: GraphDb,
+  graphRunId: number,
+  statuses: readonly string[],
+): Array<Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'>> {
+  if (statuses.length === 0) return [];
+  const placeholders = statuses.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `SELECT n.id, n.revision_id, n.node_id, n.node_kind, n.status
+       FROM approach_node_runs n
+       JOIN approach_graph_revisions r ON r.id = n.revision_id
+       WHERE n.graph_run_id = ? AND r.status = 'draining' AND n.status IN (${placeholders})
+       ORDER BY n.id`,
     )
     .all(graphRunId, ...statuses) as Array<
     Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'>
@@ -714,6 +813,40 @@ export function nodeRunLaunchFailStreak(db: GraphDb, id: number): number {
   const row = db
     .prepare('SELECT launch_fail_streak AS streak FROM approach_node_runs WHERE id = ?')
     .get(id) as { streak: number } | undefined;
+  return row?.streak ?? 0;
+}
+
+/**
+ * Look up the launch failure streak for a node run within a specific graph run,
+ * or undefined if no such node run exists for that graph run.
+ */
+export function nodeRunLaunchFailStreakForGraphRun(
+  db: GraphDb,
+  id: number,
+  graphRunId: number,
+): number | undefined {
+  const row = db
+    .prepare('SELECT launch_fail_streak FROM approach_node_runs WHERE id = ? AND graph_run_id = ?')
+    .get(id, graphRunId) as { launch_fail_streak: number } | undefined;
+  return row?.launch_fail_streak;
+}
+
+/**
+ * The highest consecutive launch fail streak across node runs in `statuses`.
+ */
+export function maxLaunchFailStreakInStatuses(
+  db: GraphDb,
+  graphRunId: number,
+  statuses: readonly string[],
+): number {
+  if (statuses.length === 0) return 0;
+  const placeholders = statuses.map(() => '?').join(', ');
+  const row = db
+    .prepare(
+      `SELECT MAX(launch_fail_streak) AS streak FROM approach_node_runs
+        WHERE graph_run_id = ? AND status IN (${placeholders})`,
+    )
+    .get(graphRunId, ...statuses) as { streak: number | null } | undefined;
   return row?.streak ?? 0;
 }
 
