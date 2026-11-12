@@ -256,3 +256,9 @@
 #inside details.op:not([open]) > .op-body{display:none}
 #inside .op-body{margin:0 0 var(--p-s2) 36px;border-left:var(--k-border-w) solid var(--p-border);
   padding:var(--p-s2) 0 var(--p-s2) var(--p-s3)}
+
+/* The core mark: a named, focusable icon (CoreMark). It is the only part of the identity left at a tight container. */
+#inside .agent-mark{display:inline-flex;align-items:center;flex:none;border-radius:var(--k-radius-sm)}
+#inside .agent-mark:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+/* UI-R44: the full detail repeats at the top of the open body; only the narrow and tight tiers show it, where row one cuts the detail. */
+#inside .op-body>.op-detail-full{display:none;margin-bottom:var(--p-s2)}

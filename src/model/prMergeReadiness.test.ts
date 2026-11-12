@@ -271,6 +271,45 @@ describe('prMergeReadiness', () => {
   });
 });
 
+describe('short summary text', () => {
+  const shortOf = (r: ReturnType<typeof read>) => r.reasons.map((x) => x.short);
+  const running: AutofixInput = { effective: true, running: { kind: 'ci', repo: 'api', round: '2/3' }, parked: null, unknownCi: false };
+
+  it('words draft, review and GitHub rule', () => {
+    expect(shortOf(read(pr({ status: 'draft', checks: null })))).toEqual(['draft']);
+    expect(shortOf(read(pr({ reviewDecision: 'CHANGES_REQUESTED', checks: null })))).toEqual(['changes requested']);
+    expect(shortOf(read(pr({ reviewDecision: 'REVIEW_REQUIRED', checks: null })))).toEqual(['review required']);
+    expect(shortOf(read(pr({ mergeBlock: 'blocked', checks: null })))).toEqual(['GitHub rule']);
+  });
+
+  it('counts failing checks, with the optional split worded', () => {
+    expect(shortOf(read(pr({ checks: { ...failing, required: null } })))).toEqual(['checks failing · 2']);
+    expect(shortOf(read(pr({ checks: failing })))).toEqual(['required checks failing · 1']);
+    const optional = { ...failing, failed: 1, failing: [{ name: 'lint', url: null, required: false }], failedShown: 1, required: { total: 3, failed: 0, pending: 0 } };
+    expect(shortOf(read(pr({ checks: optional })))).toEqual(['optional checks failing · 1']);
+  });
+
+  it('words pending checks and a running auto-fix round as the run state', () => {
+    expect(shortOf(read(pr({ checks: { ...passing, state: 'pending', pending: 2, passed: 2 }, mergeBlock: 'behind' })))[0]).toBe('checks running · 2');
+    expect(shortOf(read(pr({ checks: failing }), undefined, offers, running))).toEqual(['auto-fix round 2/3 runs']);
+  });
+
+  it('counts conflict files and words the run state, unknown and behind', () => {
+    const conflicts = (files: string[], a: AutofixInput = NO_AUTOFIX) => shortOf(read(pr({ checks: null }), check({ state: 'conflicted', files }), offers, a));
+    expect(conflicts(['a', 'b', 'c'])).toEqual(['conflicts · 3 files']);
+    expect(conflicts(['a'])).toEqual(['conflicts · 1 file']);
+    const fix: AutofixInput = { effective: true, running: { kind: 'conflicts', repo: null, round: '1/3' }, parked: null, unknownCi: false };
+    expect(conflicts(['a'], fix)).toEqual(['auto-fix round 1/3 runs']);
+    expect(shortOf(read(pr({ mergeBlock: 'behind', checks: null }), check({ state: 'unknown' })))).toEqual(['conflicts unknown', 'behind develop']);
+  });
+
+  it('gives an ok reason a short text too', () => {
+    expect(shortOf(read(pr({ checks: passing, mergeBlock: 'behind' })))).toEqual(['checks passed', 'behind develop']);
+    expect(shortOf(read(pr({ reviewDecision: 'APPROVED', mergeBlock: 'behind' })))[0]).toBe('approved');
+    expect(shortOf(read(pr({ mergeBlock: 'behind', checks: null }), check()))).toEqual(['no conflicts', 'behind develop']);
+  });
+});
+
 describe('blocking helpers', () => {
   it('joins the blocking reasons and counts them, skipping ok rows', () => {
     const r = read(pr({ reviewDecision: 'APPROVED', approvals: 1, checks: failing, mergeBlock: 'behind' }));

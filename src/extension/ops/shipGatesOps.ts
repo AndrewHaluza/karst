@@ -8,7 +8,7 @@ import type { UatConfig } from '../../manifest/types.js';
 import type { DeliverPr } from '../../workflow/deliverState.js';
 import type { GateOutputChunk } from '../../workflow/gates/run.js';
 import type { Store } from '../../store/db.js';
-import { finishDeliverRun, openDeliverRun, recordDeliverGate, setDeliverProgress } from '../../store/deliverRuns.js';
+import { finishDeliverRun, type DeliverRunKind, openDeliverRun, recordDeliverGate, setDeliverProgress } from '../../store/deliverRuns.js';
 import { nowIso } from '../../model/time.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { cutGatesWithoutUiChange } from '../../workflow/gates/uiDiff.js';
@@ -33,6 +33,12 @@ export interface ShipGatesDeps {
   readonly evidence?: { readonly store: Store; readonly ticketId: number };
   /** The HEAD sha of the merged tree in `cwd`; absent or null → the result carries no sha. */
   readonly headSha?: (cwd: string) => Promise<string | null>;
+  /** Run only the gates with these names (the re-run of the gates a manual Deliver skipped); absent → every gate. */
+  readonly only?: readonly string[];
+  /** Called with the id of the run this call opened. */
+  readonly onRunOpened?: (runId: number) => void;
+  /** What started the run; recorded on the run row. Default `auto`. */
+  readonly kind?: DeliverRunKind;
   /** Aborts the running gate process (a manual Deliver takes over). */
   readonly signal?: AbortSignal;
   /** Live gate output for the ship console (@arch:GATE-OUTPUT). */
@@ -59,6 +65,8 @@ interface PlannedRepo {
   readonly skipped: readonly ResolvedGate[];
 }
 
+const STOPPED = 'stopped: a newer push superseded this run';
+
 /** Null when every gate passed (or there is nothing to run); else the first failure. */
 export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps): Promise<string | null> {
   const planned: PlannedRepo[] = [];
@@ -73,9 +81,14 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
     const cut = d.git && baseRef
       ? await cutGatesWithoutUiChange(resolution.gates, d.git, pr.cwd, baseRef, d.debug)
       : { kept: [...resolution.gates], skipped: [] };
-    planned.push({ pr, probe, gates: cut.kept, skipped: cut.skipped });
+    const wanted = (g: ResolvedGate): boolean => d.only === undefined || d.only.includes(g.name);
+    planned.push({ pr, probe, gates: cut.kept.filter(wanted), skipped: cut.skipped.filter(wanted) });
   }
+  // An abort during planning (a newer push superseded this run): open no run, or it would close the newer one.
+  if (d.signal?.aborted) return STOPPED;
   const runId = await openRun(planned, d);
+  if (runId === null && d.signal?.aborted) return STOPPED; // aborted while the head was read: no run, no gate
+  if (runId !== null) d.onRunOpened?.(runId);
   let failure: string | null = null;
   try {
     for (const p of planned) {
@@ -94,8 +107,9 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
 async function openRun(planned: readonly PlannedRepo[], d: ShipGatesDeps): Promise<number | null> {
   if (!d.evidence || planned.length === 0) return null;
   const head = planned[0] && d.headSha ? await d.headSha(planned[0].pr.cwd) : null;
+  if (d.signal?.aborted) return null; // aborted while the head was read
   const id = openDeliverRun(d.evidence.store, {
-    ticketId: d.evidence.ticketId, headSha: head, pid: process.pid, now: nowIso(),
+    ticketId: d.evidence.ticketId, headSha: head, pid: process.pid, now: nowIso(), ...(d.kind ? { kind: d.kind } : {}),
     gates: planned.flatMap((p) => [...p.gates, ...p.skipped].map((g) => g.name)),
   });
   d.onProgress?.();

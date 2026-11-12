@@ -52,7 +52,7 @@ export function sharedBranch(worktrees: readonly DashboardWorktreeView[] | null)
 function HeaderBranch({ branch, send }: { readonly branch: string; readonly send: DashboardSender }) {
   return (
     <>
-      <span className="wsum-br">{branch}</span>
+      <span className="wsum-br" role="group" aria-label={branch}>{branch}</span>
       <CopyBranchButton branch={branch} send={send} />
     </>
   );

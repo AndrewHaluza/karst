@@ -137,10 +137,26 @@
 .prsn-warn .prsn-icon{color:var(--k-attention)}
 .prsn-run .prsn-icon{color:var(--k-warning)}
 .prsn-ok .prsn-icon{color:var(--k-success)}
-.prsn-text{flex:1;min-width:0;overflow-wrap:anywhere}
+.prsn-text{flex:1;min-width:0;overflow-wrap:anywhere;display:flex;flex-wrap:wrap;align-items:baseline}
 .prsn-label{font-weight:var(--k-weight-semibold)}
 .prsn-detail{margin-left:var(--k-space-3);color:var(--k-text-dim)}
 .prsn-extra,.prsn-note{margin:var(--k-space-1) 0 0 calc(var(--k-space-6) - var(--k-space-1));color:var(--k-text-dim);font-size:var(--k-text-xs)}
 .prsn .prsn-more{margin-left:calc(var(--k-space-6) - var(--k-space-1))}
+/* Folded form (two or more blocking reasons): one closed disclosure. The summary wraps; at narrow width the actions
+   take their own line below the items. */
+.prblock-fold>.prblock-head{cursor:pointer;list-style:none;flex-wrap:wrap;border-bottom:0;gap:var(--k-space-2) var(--k-space-4)}
+.prblock-fold>.prblock-head::-webkit-details-marker{display:none}
+.prblock-fold>.prblock-head:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.prblock-fold[open]>.prblock-head{border-bottom:var(--k-border-w) solid var(--k-border)}
+.prblock-chev{display:inline-flex;color:var(--k-link)}
+.prblock-fold[open] .prblock-chev{transform:rotate(90deg)}
+.prblock-items{display:flex;flex-wrap:wrap;gap:var(--k-space-1) var(--k-space-4);min-width:0}
+.prblock-item{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text)}
+.prblock-item.prsn-bad .prsn-icon{color:var(--k-danger)}
+.prblock-item.prsn-warn .prsn-icon{color:var(--k-attention)}
+.prblock-item.prsn-run .prsn-icon{color:var(--k-warning)}
+.prblock-acts{display:flex;flex-wrap:wrap;gap:var(--k-space-2);margin-left:auto}
+.prblock-fold .prsn-more{margin-left:calc(var(--k-space-6) - var(--k-space-1))}
+@media (max-width:699px){.prblock-acts{margin-left:0;flex-basis:100%}}
 .pinfo-title{font-weight:var(--k-weight-semibold);overflow-wrap:anywhere}
 .pinfo-by{color:var(--k-text-dim);font-size:var(--k-text-xs);padding-bottom:var(--k-space-2)}

@@ -60,6 +60,7 @@ import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
 import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
+import type { ShipGatesDeps } from './extension/ops/shipGatesOps.js';
 import { autoDeliverAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
@@ -2930,11 +2931,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void takeGateSnapshot(gateSnapshotDeps, args[2], { onlyIfMissing: true });
     return result;
   };
+  /** The ship gate deps of a ticket: the auto-deliver and the re-run of the gates a manual Deliver skipped share them (D540). */
+  const shipGateDeps = (ticketId: number): ShipGatesDeps => ({
+    uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m),
+    onOutput: (g: string, c: GateOutputChunk) => gateConsole.append(ticketId, 'ship', g, c),
+    gateEnv: (pr: { repo: string }) => { const m = currentManifest(); return { prBody: renderCitationText(listArchCitations(localStore, ticketId)), ...(m ? { baseRef: resolveTicketBaseRef(localStore, ticketId, pr.repo, m) } : {}) }; },
+  });
   const ciHost = (ticketId: number): CiHost => ({
     retakeGateSnapshot: async () => { await takeGateSnapshot(gateSnapshotDeps, ticketId); },
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), ...sessionSeams(ticketId) }),
-    deliver: { tracker: undelivered, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
+    deliver: { tracker: undelivered, shipGates: () => { gateConsole.reset(ticketId, 'ship'); return { deps: shipGateDeps(ticketId), settled: () => gateConsole.flush(ticketId, 'ship') }; }, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
     gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
     reprobe: async () => { await runPrSync(true); },
     confirm: async (title, detail, action) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, action)) === action,
@@ -3897,9 +3904,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dashboard.pushStoreState(ticketId);
     maybeDrive(ticketId, 'hook');
     if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) {
-      const gate = { uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m), onOutput: (g: string, c: GateOutputChunk) => gateConsole.append(ticketId, 'ship', g, c),
-        gateEnv: (pr: { repo: string }) => { const m = currentManifest(); return { prBody: renderCitationText(listArchCitations(localStore, ticketId)), ...(m ? { baseRef: resolveTicketBaseRef(localStore, ticketId, pr.repo, m) } : {}) }; } };
-      const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
+      const gate = shipGateDeps(ticketId);
+      const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
       gateConsole.reset(ticketId, 'ship');
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e)).finally(() => gateConsole.flush(ticketId, 'ship'));
     }

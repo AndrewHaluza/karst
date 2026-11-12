@@ -38,8 +38,6 @@ export interface InsideCase {
   readonly state: () => DashboardState;
   /** Already registered as this dashboard variant (ledger-keyed); no second baseline. */
   readonly aliasOf?: string;
-  /** A new dashboard route would add rows to the layout ledger, which only ever shrinks. */
-  readonly skipLayout?: boolean;
   /** Baselines in dark, light and high contrast, not dark only (the amber and blue states must hold in every theme). */
   readonly allThemes?: boolean;
 }
@@ -328,14 +326,13 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       },
     })),
   },
-  { stage: 'impl', id: 'graph-long-reason', skipLayout: true, state: legacy('impl', (s) => longGraphNodePatch(s)) },
+  { stage: 'impl', id: 'graph-long-reason', state: legacy('impl', (s) => longGraphNodePatch(s)) },
   { stage: 'impl', id: 'passed', state: fromFacts('impl', { cells: { impl: { status: 'passed' } } }) },
   {
     // A session with more rows than the timeline limit: the host ships the production '+N more' row (`role: 'event'` + action).
     stage: 'impl',
     id: 'bounded-timeline',
     // A new route would add the shared rail and PR-row layout findings to the ledger as NEW; the screenshot still records.
-    skipLayout: true,
     state: legacy('impl', (s, v) => {
       const session = v.processes.find((p) => p.id === 'session');
       if (!session) throw new Error('insideCases: no legacy impl session row');
@@ -386,7 +383,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     // T1041: a running tester run has no ledger row yet, so the pill states why.
     stage: 'uat',
     id: 'tokens-pending',
-    skipLayout: true,
     state: fromFacts('uat', {
       cells: { uat: { status: 'running' } },
       gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })],
@@ -398,7 +394,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     // T1041: a finished run whose rows are all estimates shows the marked estimate.
     stage: 'uat',
     id: 'tokens-estimate',
-    skipLayout: true,
     state: fromFacts('uat', {
       cells: { uat: { status: 'passed' } },
       gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })],
@@ -411,7 +406,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     // T938: round 2 is the recovery revalidation, so its gates carry the "why they re-ran" caption.
     stage: 'uat',
     id: 'gates-revalidation',
-    skipLayout: true,
     state: fromFacts('uat', {
       ...loopFacts('uat', 'passed'),
       rounds: [caseRound({ id: 1, sourceStage: 'uat', round: 1, sourceStageRunId: 1, uatRevalidationStageRunId: 2, endedAt: t(30) })],
@@ -445,7 +439,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     // T861: the Tester observed nothing — coverage SKIPPED, no observation.
     stage: 'uat',
     id: 'tester-skipped',
-    skipLayout: true,
     state: fromFacts('uat', {
       cells: { uat: { status: 'passed' } },
       gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })],
@@ -457,7 +450,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     // T861: `onSkip: reask-then-park` parked UAT; the banner offers Re-run tester / Accept skip.
     stage: 'uat',
     id: 'tester-skipped-blocked',
-    skipLayout: true,
     state: fromFacts(
       'uat',
       { cells: { uat: { status: 'running' } }, gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })], processRuns: [uatTesterRun({ resultKind: 'skipped' })] },
@@ -488,7 +480,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     // B9: a headless review still running, its Σ read live from the transcript (the pill gets the running border and "live").
     stage: 'review',
     id: 'live-tokens',
-    skipLayout: true,
     state: fromFacts('review', {
       cells: { review: { status: 'running' } },
       gateRuns: [caseGate({ id: 1, stageKey: 'review', gateName: 'lint (web)', exitCode: 0 })],
@@ -527,28 +518,28 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   },
   {
     stage: 'review',
-    id: 'menu-retry-only', skipLayout: true,
+    id: 'menu-retry-only',
     state: fromFacts('review', { cells: { review: { status: 'failed' } }, gateRuns: [LONG_GATE] }, menuPatch(false)),
   },
   {
     stage: 'review',
-    id: 'menu-retry-send-back', skipLayout: true,
+    id: 'menu-retry-send-back',
     state: fromFacts('review', { cells: { review: { status: 'failed' } }, gateRuns: [LONG_GATE] }, menuPatch(true)),
   },
-  { stage: 'review', id: 'rounds-12', skipLayout: true, state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(12, 'opened by Review blocking findings · 1m 0s · no fix attempts left')) },
-  { stage: 'review', id: 'long-attempt-note', skipLayout: true, state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(2, `${LONG_SENTENCE} ${LONG_WORDS}`)) },
+  { stage: 'review', id: 'rounds-12', state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(12, 'opened by Review blocking findings · 1m 0s · no fix attempts left')) },
+  { stage: 'review', id: 'long-attempt-note', state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(2, `${LONG_SENTENCE} ${LONG_WORDS}`)) },
   {
     stage: 'review',
-    id: 'long-gate-detail', skipLayout: true,
+    id: 'long-gate-detail',
     state: fromFacts('review', { cells: { review: { status: 'failed' } }, gateRuns: [LONG_GATE] }, longViewPatch('review')),
   },
   {
     stage: 'review',
-    id: 'long-finding-title', skipLayout: true,
+    id: 'long-finding-title',
     state: fromFacts('review', { cells: { review: { status: 'failed' } }, processRuns: [reviewRun({ resultKind: 'findings' })], findings: [LONG_FINDING] }),
   },
-  { stage: 'ship', id: 'long-repo-names', skipLayout: true, state: legacy('ship', (s) => longViewPatch('ship')(s)) },
-  { stage: 'done', id: 'long-text', skipLayout: true, state: legacy('done', (s) => longViewPatch('done')(s)) },
+  { stage: 'ship', id: 'long-repo-names', state: legacy('ship', (s) => longViewPatch('ship')(s)) },
+  { stage: 'done', id: 'long-text', state: legacy('done', (s) => longViewPatch('done')(s)) },
   { stage: 'review', id: 'fix-running', state: fromFacts('review', loopFacts('review', 'live')) },
   { stage: 'review', id: 'passed-round-2', state: fromFacts('review', loopFacts('review', 'passed')) },
   {
@@ -571,7 +562,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     stage: 'ship',
     id: 'failed',
     // Same rail segment markup as Confirm ship: adds no layout of its own, so it stays out of the ledger.
-    skipLayout: true,
     state: fromFacts('ship', { cells: { ship: { status: 'failed' } } }, (s) => ({
       ...s,
       rail: buildStageRail(s.stepper, s.stepper, {
@@ -590,25 +580,21 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   {
     stage: 'ship',
     id: 'deliver-auto-running',
-    skipLayout: true,
     state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: { n: 3, m: 5, gate: 'integration-sandbox-docker-layout-visual-regression-gate' }, failures: [], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
   },
   {
     stage: 'ship',
     id: 'deliver-auto-failed',
-    skipLayout: true,
     state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: { n: 4, m: 5, gate: 'visual' }, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
   },
   {
     stage: 'ship',
     id: 'deliver-auto-taken-over',
-    skipLayout: true,
     state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: null, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: { failed: ['integration-sandbox-docker-layout-visual-regression-gate'], skipped: ['visual', 'docs-graph'] }, roundActive: false, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
   },
   {
     stage: 'ship',
     id: 'deliver-auto-older-head',
-    skipLayout: true,
     state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: null, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: '0f9e8d7c6b5a49382716f5e4d3c2b1a099887766', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: null, roundActive: false, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
   },
   { stage: 'ship', id: 'preview-ready', aliasOf: 'confirm-ship', state: () => shipPreviewStateFor('ready') },
@@ -621,12 +607,11 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   },
 
   // auto-fix on the Merge row and the blocked banner (T1004): HAND-WRITTEN, outside the layout ledger
-  { stage: 'ship', id: 'auto-conflict-running', skipLayout: true, allThemes: true, state: autofixShip(RUNNING_CONFLICT, {}) },
-  { stage: 'ship', id: 'auto-ci-running', skipLayout: true, allThemes: true, state: autofixShip(RUNNING_CI, { override: 'on' }) },
+  { stage: 'ship', id: 'auto-conflict-running', allThemes: true, state: autofixShip(RUNNING_CONFLICT, {}) },
+  { stage: 'ship', id: 'auto-ci-running', allThemes: true, state: autofixShip(RUNNING_CI, { override: 'on' }) },
   {
     stage: 'ship',
     id: 'auto-budget-spent',
-    skipLayout: true,
     allThemes: true,
     state: autofixShip(
       { ...PARKED, state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 attempts', attempts: [failed(attempt('ci', 1, 3, t(60))), failed(attempt('ci', 2, 3, t(50))), failed(attempt('ci', 3, 3, t(40)))] },
@@ -645,7 +630,6 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   {
     stage: 'ship',
     id: 'auto-gh-failed',
-    skipLayout: true,
     allThemes: true,
     state: autofixShip(
       { ...PARKED, state: 'gh-failed', message: 'paused: could not read CI for api #88 (gh: HTTP 502)' },
@@ -661,28 +645,24 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   {
     stage: 'ship',
     id: 'auto-status-unknown',
-    skipLayout: true,
     allThemes: true,
     state: autofixShip({ ...PARKED, state: 'unknown', message: 'CI status unknown for api #88. Waits; not counted as pass.' }, {}),
   },
   {
     stage: 'ship',
     id: 'auto-override-on-default',
-    skipLayout: true,
     allThemes: true,
     state: autofixShip(null, {}),
   },
   {
     stage: 'ship',
     id: 'auto-override-off',
-    skipLayout: true,
     allThemes: true,
     state: autofixShip(null, { override: 'off', effective: false }),
   },
   {
     stage: 'ship',
     id: 'auto-sandbox-paused',
-    skipLayout: true,
     allThemes: true,
     state: autofixShip(
       { ...PARKED, state: 'paused', message: 'paused: sandbox clone is dirty' },

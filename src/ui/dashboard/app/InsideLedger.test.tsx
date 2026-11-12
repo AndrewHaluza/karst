@@ -45,6 +45,18 @@ describe('Ledger — rows', () => {
     expect((d as HTMLDetailsElement).open).toBe(false);
   });
 
+  it('repeats the whole detail at the top of the open body, for the tiers that cut it to one line (UI-R44)', () => {
+    mountInside(rows('uat', [proc('gates', { detail: 'lint failed in repo-a, repo-b and repo-c', evidence: gatesEvidence })]));
+    const full = row('gates').querySelector('.op-body > .op-detail-full');
+    expect(text(full)).toBe('lint failed in repo-a, repo-b and repo-c');
+    expect(full!.previousElementSibling).toBeNull();
+  });
+
+  it('adds no body copy for a row with no detail text', () => {
+    mountInside(rows('uat', [proc('gates', { detail: '', evidence: gatesEvidence })]));
+    expect(row('gates').querySelector('.op-detail-full')).toBeNull();
+  });
+
   it('one with nothing behind it states its fact and offers no disclosure it cannot honour', () => {
     mountInside(rows('uat', [proc('fix', { detail: 'nothing to fix' })]));
     const d = row('fix');
@@ -371,6 +383,7 @@ describe('Ledger — the console button', () => {
     expect(b!.querySelector('svg.k-icon')).not.toBeNull();
     expect(b!.textContent).toBe('');
     expect(b!.getAttribute('aria-label')).toBe("View this stage's console output in the dashboard");
+    expect(b!.getAttribute('data-tip')).toBe(b!.getAttribute('aria-label'));
     expect(b!.title).toBe(b!.getAttribute('aria-label'));
     expect(b!.dataset.console).toBe('uat');
     expect(b!.hasAttribute('data-console-proc')).toBe(false);

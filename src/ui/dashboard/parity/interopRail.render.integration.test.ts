@@ -259,7 +259,7 @@ describe('React rail and banner — one post per click, one request per operatio
 
   it('Send CI failure is one operation with the Inside stage menu’s item: the Inside block is React now, so no seam carries it', async () => {
     const s = populatedStateFor('ship');
-    const failing = { ...s, prs: [{ ...s.prs[0]!, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'checks', state: 'bad', label: 'CI failing', detail: '', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } }] } }], ciFailure: { available: true, repos: [REPO] }, sendBack: { available: true, stage: 'ship' } } as DashboardState;
+    const failing = { ...s, prs: [{ ...s.prs[0]!, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'checks', state: 'bad', label: 'CI failing', short: 'ci failing', detail: '', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } }] } }], ciFailure: { available: true, repos: [REPO] }, sendBack: { available: true, stage: 'ship' } } as DashboardState;
     const v = await open(failing);
     const heard: unknown[] = [];
     v.window.addEventListener('karst:prBegin', (e) => heard.push((e as CustomEvent).detail));

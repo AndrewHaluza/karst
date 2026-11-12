@@ -12,7 +12,7 @@
  * never --grep: that title filter can drop the layout-teardown test.
  */
 import { test } from './fixtures.js';
-import { LAYOUT_HEIGHT, LAYOUT_WIDTHS, tierFor } from '../../src/ui/layout/layoutBreakpoints.js';
+import { LAYOUT_HEIGHT, LAYOUT_WIDTHS, layoutWidthsFor, tierFor } from '../../src/ui/layout/layoutBreakpoints.js';
 import { runChecks, stateSurvivesResize, type ResizeState } from '../../src/ui/layout/layoutChecks.js';
 import { collectSnapshot } from './layoutSnapshot.js';
 import { readExpectations, writeShard } from './layoutShards.js';
@@ -58,7 +58,7 @@ for (const route of settingsRoutes()) {
 
 // Every registered variant that is not a settings route (those run above).
 for (const target of extraLayoutTargets()) {
-  for (const width of LAYOUT_WIDTHS) {
+  for (const width of layoutWidthsFor(target.view, target.variant.id)) {
     test(`${target.id} @${width}`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width, height: LAYOUT_HEIGHT });
       await gotoView(target.view, { variant: target.variant.id });

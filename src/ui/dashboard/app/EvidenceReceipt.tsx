@@ -23,7 +23,7 @@ function Lines({ ev }: { readonly ev: Receipt }) {
         <div className="done-lines">
           {withKeys(ev.rows, (r) => `${r.label}/${r.detail ?? ''}`).map(([key, r]) => (
             <div className="done-line" key={key}>
-              <span className="done-key">{r.label}</span>
+              <span className="done-key" role="group" aria-label={r.label}>{r.label}</span>
               <span className="done-copy">
                 {/* A delivery line's PR number IS its link (UI-R09c): the open-pr action rides the number itself. */}
                 {r.action && r.action.kind === 'open-pr' ? <ObjLink text={r.detail} action={r.action} cls="pr-link" title={INSIDE_ACTION_TITLE['open-pr'] ?? ''} /> : r.detail || ''}

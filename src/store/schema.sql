@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
   host_gates        TEXT,                 -- JSON ["unit"]: gates this ticket reruns on the host after an out-of-memory kill; NULL = none
   disabled_gates    TEXT,                 -- JSON {"uat":["e2e"],"review":["lint"]}; NULL = nothing disabled
-  -- v116 per-ticket gate-set snapshot (kept in sync with migrations.ts v116 ALTER):
+  -- v117 per-ticket gate-set snapshot (kept in sync with migrations.ts v117 ALTER):
   gate_snapshot     TEXT,                 -- JSON {"uat":[names],"review":[names]}: the gates the branch was cut with (@arch:GATE-SNAPSHOT); NULL = no snapshot, every gate runs
   -- v44 provider-native priority label (kept in sync with migrations.ts v44 ALTER):
   priority          TEXT,                 -- 'urgent' | 'high' | 'normal' | ... ; NULL = provider did not expose it
@@ -1583,7 +1583,8 @@ CREATE TABLE IF NOT EXISTS deliver_runs (
   state       TEXT NOT NULL CHECK (state IN ('running', 'passed', 'failed', 'taken-over', 'stopped')),
   pid         INTEGER,
   started_at  TEXT NOT NULL,
-  ended_at    TEXT
+  ended_at    TEXT,
+  kind        TEXT NOT NULL DEFAULT 'auto'  -- v116 (D540): auto | after-take-over
 );
 CREATE INDEX IF NOT EXISTS idx_deliver_runs_ticket ON deliver_runs(ticket_id, id);
 CREATE TABLE IF NOT EXISTS deliver_gate_results (

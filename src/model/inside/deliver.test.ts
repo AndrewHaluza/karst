@@ -11,9 +11,6 @@ describe('deliver wording', () => {
     expect(deliverProgressLine(base)).toBeNull();
     expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs' } })).toBe('Delivering resolved merge: gate 2/5 (docs), push after the gates');
   });
-  it('hints the running gate', () => {
-    expect(deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' } })).toBe('Auto-deliver runs gate 2/5 (docs). Deliver now skips the remaining gates.');
-  });
   it('a failure on the current head wins over the running hint', () => {
     expect(deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' }, failures: [fail] })).toBe(`Gate unit failed (exit 2) on ${'a'.repeat(9)}. Deliver now pushes it anyway.`);
   });
@@ -33,5 +30,14 @@ describe('deliver wording', () => {
     expect(mergeStateWording('clean', true)).toBe('clean (the local merge commit, not on the PR yet)');
     expect(mergeStateWording('clean', false)).toBe('clean');
     expect(mergeStateWording('conflict', true)).toBe('conflict');
+  });
+
+  it('words the progress of an after-take-over run without a push', () => {
+    const f = { ...base, running: { n: 1, m: 2, gate: 'integration', afterTakeOver: true }, roundActive: true };
+    expect(deliverProgressLine(f)).toBe('Running the gates skipped by the manual Deliver: gate 1/2 (integration)');
+    expect(deliverHint(f)).toBeNull();
+  });
+  it('tells that Deliver pushes at once and the skipped gates run after the push', () => {
+    expect(deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' } })).toBe('Auto-deliver runs gate 2/5 (docs). Deliver now pushes at once; the skipped gates run after the push.');
   });
 });

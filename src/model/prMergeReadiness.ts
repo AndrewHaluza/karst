@@ -36,6 +36,8 @@ export interface Reason {
   readonly kind: ReasonKind;
   readonly state: ReasonState;
   readonly label: string;
+  /** The brief item the collapsed summary shows: icon-less, e.g. `checks failing · 2` (the host words it). */
+  readonly short: string;
   readonly detail: string;
   /** A second detail line (an Autopilot park reason or the unknown-CI wait). */
   readonly extra?: string;
@@ -113,7 +115,7 @@ function reviewReason(pr: ReadinessPr, offers: ReadinessOffers): Reason | null {
       const action: ReasonAction | undefined = offers.feedbackAvailable
         ? { act: 'address-pr-feedback', label: 'Address feedback' }
         : openPr(pr);
-      return { kind: 'review', state: 'bad', label: 'Changes requested', detail: 'a reviewer asked for changes', ...(action ? { action } : {}) };
+      return { kind: 'review', state: 'bad', label: 'Changes requested', short: 'changes requested', detail: 'a reviewer asked for changes', ...(action ? { action } : {}) };
     }
     case 'REVIEW_REQUIRED': {
       const action = openPr(pr);
@@ -123,13 +125,14 @@ function reviewReason(pr: ReadinessPr, offers: ReadinessOffers): Reason | null {
           : pr.reviewRequests.length > 0
             ? `requested from ${pr.reviewRequests.join(', ')}`
             : 'an approving review is required';
-      return { kind: 'review', state: 'bad', label: 'Review required', detail, ...(action ? { action } : {}) };
+      return { kind: 'review', state: 'bad', label: 'Review required', short: 'review required', detail, ...(action ? { action } : {}) };
     }
     case 'APPROVED':
       return {
         kind: 'review',
         state: 'ok',
         label: 'Approved',
+        short: 'approved',
         detail: pr.approvals !== null && pr.approvals > 0 ? plural(pr.approvals, 'approving review') : 'by a reviewer',
       };
     default:
@@ -142,12 +145,13 @@ function autofixFor(
   kind: AutofixKindInput,
   pr: ReadinessPr,
   autofix: AutofixInput,
-): { running: string | null; parked: string | null } {
+): { running: string | null; runningShort: string | null; parked: string | null } {
   const run = autofix.running;
   const runs = run !== null && run.kind === kind && (run.repo === null || run.repo === pr.repo);
   const park = autofix.parked;
   return {
     running: runs ? `Auto-fix round ${run.round} runs` : null,
+    runningShort: runs ? `auto-fix round ${run.round} runs` : null,
     parked: park !== null && park.kind === kind ? park.reason : null,
   };
 }
@@ -163,6 +167,8 @@ function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: Autofix
     // Only a split that counts a failed required check may say "required"; otherwise the failures are optional or unsplit.
     const requiredFailing = split !== null && split.failed > 0;
     const label = requiredFailing ? 'Required checks failing' : split ? 'Optional checks failing' : 'Checks failing';
+    const shortCount = requiredFailing ? split.failed : c.failed;
+    const short = `${label.toLowerCase()} · ${shortCount}`;
     const detail = requiredFailing
       ? `${split.failed} of ${split.total} required failing${optionalPending > 0 ? ` · ${optionalPending} optional pending` : ''}`
       : split
@@ -171,7 +177,7 @@ function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: Autofix
     const list = c.failing.map((f) => ({ text: f.name, ...(f.url ? { url: f.url } : {}) }));
     const note = c.failedShown < c.failed ? `— first ${c.failedShown} of ${c.failed} shown` : undefined;
     if (fix.running !== null) {
-      return { kind: 'checks', state: 'run', label, detail: fix.running, list, ...(note ? { listNote: note } : {}) };
+      return { kind: 'checks', state: 'run', label, short: fix.runningShort ?? short, detail: fix.running, list, ...(note ? { listNote: note } : {}) };
     }
     const canSend = offers.ciAvailable && offers.ciRepos.includes(pr.repo);
     const extra = fix.parked ?? waits;
@@ -179,6 +185,7 @@ function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: Autofix
       kind: 'checks',
       state: 'bad',
       label,
+      short,
       detail,
       ...(extra ? { extra } : {}),
       ...(canSend ? { action: { act: 'send-ci-failure', label: 'Send CI failure' } satisfies ReasonAction } : {}),
@@ -191,11 +198,12 @@ function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: Autofix
       kind: 'checks',
       state: 'run',
       label: 'Checks running',
+      short: `checks running · ${c.pending}`,
       detail: `${c.pending} of ${c.total} pending`,
       ...(waits ? { extra: waits } : {}),
     };
   }
-  return { kind: 'checks', state: 'ok', label: 'Checks passed', detail: `${c.passed} of ${c.total}` };
+  return { kind: 'checks', state: 'ok', label: 'Checks passed', short: 'checks passed', detail: `${c.passed} of ${c.total}` };
 }
 
 function conflictsReason(
@@ -213,12 +221,13 @@ function conflictsReason(
     const fix = autofixFor('conflicts', pr, autofix);
     const list = check.files.map((text) => ({ text }));
     if (fix.running !== null) {
-      return { kind: 'conflicts', state: 'run', label: `Conflicts with ${base}`, detail: fix.running, list };
+      return { kind: 'conflicts', state: 'run', label: `Conflicts with ${base}`, short: fix.runningShort ?? '', detail: fix.running, list };
     }
     return {
       kind: 'conflicts',
       state: 'warn',
       label: `Conflicts with ${base}`,
+      short: `conflicts · ${plural(check.files.length, 'file')}`,
       detail: join(plural(check.files.length, 'file'), checked),
       ...(fix.parked ? { extra: fix.parked } : {}),
       action: { act: 'resolve-conflicts', label: 'Resolve', repo: pr.repo },
@@ -230,11 +239,12 @@ function conflictsReason(
       kind: 'conflicts',
       state: 'warn',
       label: 'Conflicts unknown',
+      short: 'conflicts unknown',
       detail: join(`vs ${base}`, checked),
       ...(check.reason ? { disclosure: 'why karst could not tell', why: check.reason } : {}),
     };
   }
-  return { kind: 'conflicts', state: 'ok', label: 'No conflicts', detail: join(`vs ${base}`, checked) };
+  return { kind: 'conflicts', state: 'ok', label: 'No conflicts', short: 'no conflicts', detail: join(`vs ${base}`, checked) };
 }
 
 const isBad = (r: Reason): boolean => r.state === 'bad' || r.state === 'warn';
@@ -253,7 +263,7 @@ export function prMergeReadiness(
   const reasons: Reason[] = [];
   if (pr.status === 'draft') {
     const action = openPr(pr);
-    reasons.push({ kind: 'draft', state: 'bad', label: 'Draft', detail: 'mark it ready for review on GitHub', ...(action ? { action } : {}) });
+    reasons.push({ kind: 'draft', state: 'bad', label: 'Draft', short: 'draft', detail: 'mark it ready for review on GitHub', ...(action ? { action } : {}) });
   }
   const review = reviewReason(pr, offers);
   if (review) reasons.push(review);
@@ -266,6 +276,7 @@ export function prMergeReadiness(
       kind: 'behind',
       state: 'warn',
       label: `Behind ${pr.baseRef ?? 'its base'}`,
+      short: `behind ${pr.baseRef ?? 'its base'}`,
       detail: 'the branch is out of date',
       ...(offers.rebaseAvailable ? { action: { act: 'rebase-on-base', label: 'Rebase on base' } satisfies ReasonAction } : {}),
     });
@@ -273,7 +284,7 @@ export function prMergeReadiness(
   const refused = pr.mergeBlock === 'blocked' || pr.mergeBlock === 'dirty';
   if (refused && !reasons.some((r) => isBad(r) || r.state === 'run')) {
     const action = openPr(pr);
-    reasons.push({ kind: 'github-rule', state: 'bad', label: 'Blocked by a GitHub rule', detail: FALLBACK_DETAIL, ...(action ? { action } : {}) });
+    reasons.push({ kind: 'github-rule', state: 'bad', label: 'Blocked by a GitHub rule', short: 'GitHub rule', detail: FALLBACK_DETAIL, ...(action ? { action } : {}) });
   }
 
   const problem = reasons.some((r) => isBad(r) || r.state === 'run');

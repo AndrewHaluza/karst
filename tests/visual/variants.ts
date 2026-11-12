@@ -170,14 +170,18 @@ function dashboardScenario(
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
 const insideCaseVariants = (): Variant[] =>
   INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').map((c) =>
-    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), { ...(c.skipLayout ? { skipLayout: true } : {}), ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
+    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), { ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
   );
 
-/** T1018: the auto-deliver lines of the Deliver row at the mid and narrow tiers (the wide tier is the plain case). */
-const deliverAutoTierVariants = (): Variant[] =>
-  INSIDE_CASES.filter((c) => c.id.startsWith('deliver-auto-')).flatMap((c) =>
-    ([['mid', 800], ['narrow', 360]] as const).map(([tier, width]) =>
-      variant('dashboard', `inside-${c.stage}-${c.id}-${tier}`, () => stateMessage(c.state()), { skipLayout: true, width }),
+/**
+ * T1090: every Inside case at the mid, narrow and tight tiers, layout checks ON (@ui:RD-TIERS). The widths sit inside the
+ * tier they name: mid 700-999, narrow 400-699, tight <=399. The live-tokens and stage-menu cases carry their own tier sets.
+ */
+const INSIDE_TIERS = [['mid', 800], ['narrow', 500], ['tight', 360]] as const;
+const insideTierVariants = (): Variant[] =>
+  INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').flatMap((c) =>
+    INSIDE_TIERS.map(([tier, width]) =>
+      variant('dashboard', `inside-${c.stage}-${c.id}-${tier}`, () => stateMessage(c.state()), { width, ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
     ),
   );
 
@@ -190,9 +194,8 @@ const stageMenuOpenVariants = (): Variant[] => {
   return cases.flatMap(([stage, id, key, patch]) => {
     const c = INSIDE_CASES.find((x) => x.stage === stage && x.id === id);
     if (!c) throw new Error(`dashboard: no ${stage}/${id} inside case`);
-    return ([['wide', 1100], ['narrow', 360]] as const).map(([tier, width]) =>
+    return ([['wide', 1100], ['narrow', 500], ['tight', 360]] as const).map(([tier, width]) =>
       variant('dashboard', `inside-${stage}-menu-open-${tier}`, () => stateMessage(patch(c.state())), {
-        skipLayout: true,
         width,
         click: `[data-stage-menu="${key}"]`,
       }),
@@ -203,8 +206,8 @@ const stageMenuOpenVariants = (): Variant[] => {
 /** T1069 (B9): the live token pill at the wide, mid and narrow tiers. */
 const liveTokenVariants = (): Variant[] =>
   INSIDE_CASES.filter((c) => c.id === 'live-tokens').flatMap((c) =>
-    ([['wide', 1100], ['mid', 800], ['narrow', 500]] as const).map(([tier, width]) =>
-      variant('dashboard', `inside-live-tokens-${tier}`, () => stateMessage(c.state()), { skipLayout: true, width }),
+    ([['wide', 1100], ['mid', 800], ['narrow', 500], ['tight', 360]] as const).map(([tier, width]) =>
+      variant('dashboard', `inside-live-tokens-${tier}`, () => stateMessage(c.state()), { width }),
     ),
   );
 
@@ -483,7 +486,7 @@ const dashboardVariants = (): Variant[] => [
     sharedServers: sharedServerFixtures(),
   }))),
   ...insideCaseVariants(),
-  ...deliverAutoTierVariants(),
+  ...insideTierVariants(),
   ...stageMenuOpenVariants(),
   ...liveTokenVariants(),
   ...agentPopoverVariants(),

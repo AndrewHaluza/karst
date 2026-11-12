@@ -199,7 +199,7 @@
    a confirmation. */
 .track .seg .go{font:inherit;font-size:var(--k-text-2xs);border:var(--k-border-w) solid currentColor;
   border-radius:var(--k-radius-sm);background:transparent;color:inherit;
-  padding:var(--k-space-1) var(--k-space-4);cursor:pointer;flex:none;margin-left:auto}
+  padding:var(--k-space-1) var(--k-space-4);min-height:var(--k-hit-min);cursor:pointer;flex:none;margin-left:auto}
 .track .seg .go:hover{background:color-mix(in srgb,currentColor 18%,transparent)}
 .track .seg .go:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);
   outline-offset:var(--k-focus-offset)}

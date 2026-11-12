@@ -20,19 +20,28 @@ const CSS = ['Inside.css', 'InsideEvidence.css', 'InsideShipPreview.css', 'Insid
 const PAGE = readFileSync(join(HERE, '..', 'webview.html'), 'utf8');
 const INSIDE_TSX = read('Inside.tsx');
 
-/** One brace-balanced `@container (max-width: <w>)` block. */
+/** Every brace-balanced `@container (max-width: <w>)` block of that width, joined (a tier may be split in two). */
 function containerBlock(w: string): string {
-  const at = CSS.indexOf(`@container (max-width: ${w}){`);
-  expect(at, `missing @container (max-width: ${w})`).toBeGreaterThan(-1);
-  let depth = 0;
-  for (let i = CSS.indexOf('{', at); i < CSS.length; i += 1) {
-    if (CSS[i] === '{') depth += 1;
-    else if (CSS[i] === '}') {
-      depth -= 1;
-      if (depth === 0) return CSS.slice(at, i + 1);
+  const head = `@container (max-width: ${w}){`;
+  const blocks: string[] = [];
+  for (let at = CSS.indexOf(head); at > -1; at = CSS.indexOf(head, at + 1)) {
+    let depth = 0;
+    let end = -1;
+    for (let i = CSS.indexOf('{', at); i < CSS.length; i += 1) {
+      if (CSS[i] === '{') depth += 1;
+      else if (CSS[i] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
     }
+    if (end < 0) throw new Error(`unbalanced @container (max-width: ${w})`);
+    blocks.push(CSS.slice(at, end + 1));
   }
-  throw new Error(`unbalanced @container (max-width: ${w})`);
+  expect(blocks.length, `missing @container (max-width: ${w})`).toBeGreaterThan(0);
+  return blocks.join('\n');
 }
 
 describe('Inside CSS — where it lives', () => {
@@ -126,68 +135,68 @@ describe('Inside CSS — the container queries', () => {
     expect(root).not.toContain('overflow-x');
   });
 
-  it('covers the handoff breakpoints 300/360/430 with ledger rules (B7)', () => {
-    // ≤430: both the process detail and the evidence detail wrap instead of ellipsising to nothing (the §3.9 finding).
-    const wide = containerBlock('430px');
-    expect(wide).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\)/);
-    expect(wide).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{/);
-    // The glyph track leads even at 430px: the repo column is what drops, never the status. Four rendered children need four named tracks.
-    expect(wide).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\) var\(--ev-timing-w\)\}/);
-    expect(wide).toMatch(/#inside \.evidence-row\{grid-template-columns:18px minmax\(60px,80px\) minmax\(0,1fr\) auto var\(--ev-timing-w\)\}/);
-    // The pins that used to paper over a missing fourth track must not come back.
-    expect(wide).not.toMatch(/#inside \.gate-state\{grid-column/);
-    expect(wide).not.toMatch(/#inside \.ev-state\{grid-column/);
-    // The timeline keeps node/edge alignment (§10).
-    expect(wide).toMatch(/#inside \.timeline-row\{grid-template-columns:var\(--timeline-col\) minmax\(82px,104px\)/);
-    // ≤360: the block's chrome thins; ≤300: the floor, only row chrome thins and nothing is dropped.
-    expect(containerBlock('360px')).toMatch(/#inside \.op summary,#inside \.op-static\{/);
-    expect(containerBlock('360px')).toMatch(/#inside \.evidence-row,#inside \.gate-row\{/);
-    const floor = containerBlock('300px');
-    expect(floor).toMatch(/#inside \.inside\{/);
-    expect(floor).toMatch(/#inside \.op-body\{/);
-    expect(floor).toMatch(/#inside \.evidence-row,#inside \.gate-row,#inside \.finding,#inside \.done-line\{/);
-    expect(floor).not.toMatch(/display:none/);
+  it('covers the container tiers 999/699/399 and no ad-hoc breakpoint (RD-TIERS)', () => {
+    const rules = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    const widths = [...rules.matchAll(/@container \(max-width: (\d+)px\)/g)].map((m) => m[1]);
+    expect([...new Set(widths)].sort()).toEqual(['399', '699', '999']);
+    // Mid: the model drops first, the core name stays.
+    expect(containerBlock('999px')).toMatch(/#inside \.op-tail \.agent-model/);
+    // Narrow: row one is glyph, name, detail, duration, chevron; the tail takes ONE second line.
+    const narrow = containerBlock('699px');
+    expect(narrow).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(78px,110px\) minmax\(0,1fr\) var\(--inside-dur-w\) 16px/);
+    expect(narrow).toMatch(/#inside \.op summary>\.op-tail,#inside \.op-static>\.op-tail\{grid-column:2\/-1;grid-row:2/);
+    // The glyph track leads: the repo column is what drops, never the status.
+    expect(narrow).toMatch(/#inside \.gate-row\{grid-template-columns:18px 70px minmax\(0,1fr\) var\(--ev-timing-w\)\}/);
+    expect(narrow).toMatch(/#inside \.evidence-row\{grid-template-columns:18px minmax\(60px,80px\) minmax\(0,1fr\) auto var\(--ev-timing-w\)\}/);
+    expect(narrow).not.toMatch(/#inside \.gate-state\{grid-column/);
+    expect(narrow).not.toMatch(/#inside \.ev-state\{grid-column/);
+    expect(narrow).toMatch(/#inside \.timeline-row\{grid-template-columns:var\(--timeline-col\) minmax\(82px,104px\)/);
+    // Tight: chrome thins and nothing is dropped from a row.
+    const tight = containerBlock('399px');
+    expect(tight).toMatch(/#inside \.op summary,#inside \.op-static\{/);
+    expect(tight).toMatch(/#inside \.evidence-row,#inside \.gate-row\{/);
+    expect(tight).toMatch(/#inside \.op-body\{/);
+    expect(tight).toMatch(/#inside \.evidence-row,#inside \.gate-row,#inside \.finding,#inside \.done-line\{/);
   });
 
-  it('never introduces whole-component horizontal scrolling at the breakpoints (B7)', () => {
-    for (const w of ['300px', '360px', '430px']) {
+  it('never introduces whole-component horizontal scrolling at the tiers (B7)', () => {
+    for (const w of ['999px', '699px', '399px']) {
       expect(containerBlock(w), `@container (max-width: ${w}) scrolls horizontally`).not.toMatch(/overflow-x:\s*(?:scroll|auto)/);
     }
   });
 
   it('keeps the glyph and the process name leading the op grid at every width (Task 6)', () => {
     expect(CSS).toMatch(/#inside \.op summary,#inside \.op-static\{[\s\S]*?grid-template-columns:20px minmax\(78px,110px\) minmax\(96px,1fr\) auto var\(--inside-time-w\) var\(--inside-dur-w\) 16px/);
-    expect(containerBlock('430px')).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(68px,86px\) minmax\(0,1fr\) auto var\(--inside-dur-w\) 16px[;}]/);
+    expect(containerBlock('699px')).toMatch(/#inside \.op summary,#inside \.op-static\{grid-template-columns:20px minmax\(78px,110px\) minmax\(0,1fr\) var\(--inside-dur-w\) 16px[;}]/);
   });
 
-  it('thins row chrome at ≤360 without dropping a cell (Task 6)', () => {
-    const narrow = containerBlock('360px');
-    expect(narrow).toMatch(/#inside \.op summary,#inside \.op-static\{[^}]*padding-left/);
-    expect(narrow).not.toMatch(/display:none/);
+  it('thins row chrome at <=399 without dropping a cell (Task 6)', () => {
+    const tight = containerBlock('399px');
+    expect(tight).toMatch(/#inside \.op summary,#inside \.op-static\{[^}]*padding-left/);
+    expect(tight).not.toMatch(/#inside \.op summary[^{]*\{[^}]*display:none/);
   });
 
-  it('never hides the name, status, identity, disclosure, or action at any narrow width (Task 6)', () => {
+  it('never hides the name, status, disclosure, or action at any narrow width (Task 6)', () => {
     // handoff §10: "Do not hide the only status or action." A narrow rule may RE-AREA a cell, never display:none it.
-    for (const w of ['430px', '360px', '300px'] as const) {
+    // The identity run is the one legal degradation: its core name and model drop, the icon stays with an aria-label.
+    for (const w of ['999px', '699px', '399px'] as const) {
       const block = containerBlock(w);
       for (const [sel, what] of [
         ['.op-name', 'the process name'],
         ['.glyph', 'the status glyph'],
-        ['.agent-id', 'the identity run'],
         ['#inside .op-tail', 'the status/action cluster'],
         ['.ev-state', 'a row status'],
         ['.chev', 'the disclosure marker'],
         ['.timeline-slot', 'the timeline node cell'],
       ] as const) {
-        // The cell ITSELF may never be hidden; hiding one part of its contents (the model name inside an identity run) is a legal degradation.
         expect(new RegExp(`${escapeRegExp(sel)}\\{[^}]*display:none`).exec(block), `≤${w} hides ${what}`).toBeNull();
       }
     }
+    expect(containerBlock('399px')).toMatch(/#inside \.agent-id \.agent-core,#inside \.agent-id \.agent-sep,#inside \.agent-id \.agent-model\{display:none\}/);
   });
 
-  it('wraps unbounded paths and branches mid-token, but never the compact cells (Task 6)', () => {
-    // white-space:normal alone still cannot break an UNBROKEN token (a long branch name or SHA): overflow-wrap:anywhere does.
-    expect(containerBlock('430px')).toMatch(/#inside \.finding-title,#inside \.ev-detail,#inside \.done-copy,#inside \.op-detail\{[\s\S]*?overflow-wrap:anywhere/);
+  it('wraps unbounded paths mid-token in the live line, but never the compact cells (Task 6)', () => {
+    expect(containerBlock('399px')).toMatch(/#inside \.inside-live \*\{[^}]*overflow-wrap:anywhere/);
     for (const [sel, label] of [
       ['#inside .phase-time', 'the timestamp'],
       ['#inside .duration', 'the duration'],
@@ -198,8 +207,8 @@ describe('Inside CSS — the container queries', () => {
     }
   });
 
-  it('stacks the ship preview rows label-above-value below 700px (UI-R43), and keeps the page grid rule where it was', () => {
-    expect(CSS).toMatch(/@media \(max-width: 699px\)\{\s*#inside \.sp-row\{grid-template-columns:minmax\(0,1fr\)/);
+  it('stacks the ship preview rows label-above-value in the narrow tier (UI-R43), and keeps the page grid rule where it was', () => {
+    expect(containerBlock('699px')).toMatch(/#inside \.sp-row\{grid-template-columns:minmax\(0,1fr\)/);
     expect(PAGE).toMatch(/@media \(max-width: 699px\)\{\s*\.grid\{grid-template-columns:1fr\}/);
   });
 
@@ -217,7 +226,7 @@ describe('the thin round row', () => {
     expect(rule('#inside .attempt-tab[aria-selected="true"]')).toMatch(/box-shadow|border-bottom/);
   });
   it('drops the label and tail in the narrow tier', () => {
-    const block = containerBlock('430px');
+    const block = containerBlock('699px');
     expect(block).toContain('#inside .attempt-tabs-label');
     expect(block).toContain('#inside .attempt-tab-tail');
   });
@@ -251,8 +260,9 @@ describe('the nested error-text disclosure (T1072)', () => {
 });
 
 describe('the narrow Deliver row (T1072)', () => {
-  it('gives the Deliver body its own timing vars and moves the detail to a second row', () => {
-    expect(CSS).toContain('#inside .op[data-proc-id$=":deliver"] .op-body{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}');
-    expect(CSS).toContain('#inside .op[data-proc-id$=":deliver"] summary>.op-detail{grid-column:2/-1;grid-row:2}');
+  it('gives the Deliver body its own timing vars in the narrow tier, where the tail takes the second line', () => {
+    const narrow = containerBlock('699px');
+    expect(narrow).toContain('#inside .inside,#inside .op-body{--inside-time-w:0px;--ev-timing-w:var(--inside-dur-w)}');
+    expect(narrow).toMatch(/#inside \.op summary>\.op-tail,#inside \.op-static>\.op-tail\{grid-column:2\/-1;grid-row:2/);
   });
 });

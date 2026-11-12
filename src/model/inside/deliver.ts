@@ -19,6 +19,8 @@ export interface DeliverRunningFact {
   readonly n: number;
   readonly m: number;
   readonly gate: string;
+  /** The run re-runs the gates a manual Deliver skipped, on the pushed head: no push follows (D540). */
+  readonly afterTakeOver?: boolean;
 }
 
 export interface DeliverTakeOverFact {
@@ -42,18 +44,24 @@ export const shortSha = (sha: string | null): string => (sha === null ? 'unknown
 
 /** The one progress line, or null when no auto-deliver runs. */
 export function deliverProgressLine(f: DeliverFacts): string | null {
-  return f.running === null ? null : `Delivering resolved merge: gate ${f.running.n}/${f.running.m} (${f.running.gate}), push after the gates`;
+  if (f.running === null) return null;
+  if (f.running.afterTakeOver === true) return `Running the gates skipped by the manual Deliver: gate ${f.running.n}/${f.running.m} (${f.running.gate})`;
+  return `Delivering resolved merge: gate ${f.running.n}/${f.running.m} (${f.running.gate}), push after the gates`;
 }
 
 export function deliverFailureLine(x: DeliverFailureFact): string {
   return `Gate ${x.gate} failed (exit ${x.exitCode}) on ${shortSha(x.headSha)}`;
 }
 
+/** What the manual Deliver does while the auto-deliver runs its gates (D506, D540). */
+export const DELIVER_NOW_HINT = 'Deliver now pushes at once; the skipped gates run after the push.';
+
 /** The hint of the Deliver button; null when the plain button needs no hint. */
 export function deliverHint(f: DeliverFacts): string | null {
   const own = f.failures.find((x) => x.headSha === f.headSha) ?? null;
   if (own !== null) return `${deliverFailureLine(own)}. Deliver now pushes it anyway.`;
-  if (f.running !== null) return `Auto-deliver runs gate ${f.running.n}/${f.running.m} (${f.running.gate}). Deliver now skips the remaining gates.`;
+  if (f.running?.afterTakeOver === true) return null;
+  if (f.running !== null) return `Auto-deliver runs gate ${f.running.n}/${f.running.m} (${f.running.gate}). ${DELIVER_NOW_HINT}`;
   return null;
 }
 
