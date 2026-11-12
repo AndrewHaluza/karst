@@ -37,6 +37,7 @@ import {
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
+import { acquireLease } from '../../store/graph/leases.js';
 import { createRevision } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
 import { SUPERVISED_CLI_TRANSPORT_CAPABILITIES } from './transport/supervisedCliTransport.js';
@@ -906,6 +907,151 @@ describe('driveReadyNodeRuns', () => {
       .prepare('SELECT COUNT(*) AS n FROM approach_graph_tokens WHERE destination_end = 1')
       .get() as { n: number };
     expect(endToken.n).toBe(1);
+  });
+
+  it('releases the held domain lease of a command node when it completes', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    const doc = gateGraphJson({
+      entries: ['verify'],
+      nodes: [
+        {
+          id: 'verify',
+          kind: 'command',
+          label: 'Verify',
+          command: 'test',
+          repositories: ['api'],
+          outcomes: ['passed', 'failed', 'infrastructure-error'],
+          budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [
+        { id: 'e1', from: 'verify', on: 'passed', to: 'END' },
+        { id: 'e2', from: 'verify', on: 'failed', to: 'END' },
+      ],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: doc,
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const [tokenId] = insertEntryTokens(
+      h.db,
+      revisionId,
+      [{ edgeId: 'entry-verify', destinationNodeId: 'verify', destinationEnd: false }],
+      NOW,
+    );
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (?, ?, 'verify', 'command', 1, 'ready')`,
+        )
+        .run(graphRunId, revisionId)
+        .lastInsertRowid,
+    );
+    h.db
+      .prepare('UPDATE approach_graph_tokens SET status = \'claimed\', claiming_node_run_id = ? WHERE id = ?')
+      .run(nodeRunId, tokenId);
+
+    acquireLease(h.db, {
+      graphRunId,
+      ownerNodeRunId: nodeRunId,
+      physicalDomain: 'domain-api',
+      accessMode: 'write',
+      claimedPaths: null,
+      now: NOW,
+    });
+    await driveReadyNodeRuns(h.deps, graphRunId);
+    const leases = h.db
+      .prepare('SELECT status FROM approach_resource_leases WHERE owner_node_run_id = ?')
+      .all(nodeRunId) as Array<{ status: string }>;
+    expect(leases).toEqual([{ status: 'released' }]);
+  });
+
+  it('leaves an ambiguous-process lease of a command node alone on completion', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    const doc = gateGraphJson({
+      entries: ['verify'],
+      nodes: [
+        {
+          id: 'verify',
+          kind: 'command',
+          label: 'Verify',
+          command: 'test',
+          repositories: ['api'],
+          outcomes: ['passed', 'failed', 'infrastructure-error'],
+          budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [
+        { id: 'e1', from: 'verify', on: 'passed', to: 'END' },
+        { id: 'e2', from: 'verify', on: 'failed', to: 'END' },
+      ],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: doc,
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const [tokenId] = insertEntryTokens(
+      h.db,
+      revisionId,
+      [{ edgeId: 'entry-verify', destinationNodeId: 'verify', destinationEnd: false }],
+      NOW,
+    );
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (?, ?, 'verify', 'command', 1, 'ready')`,
+        )
+        .run(graphRunId, revisionId)
+        .lastInsertRowid,
+    );
+    h.db
+      .prepare('UPDATE approach_graph_tokens SET status = \'claimed\', claiming_node_run_id = ? WHERE id = ?')
+      .run(nodeRunId, tokenId);
+
+    acquireLease(h.db, {
+      graphRunId,
+      ownerNodeRunId: nodeRunId,
+      physicalDomain: 'domain-api',
+      accessMode: 'write',
+      claimedPaths: null,
+      now: NOW,
+    });
+    h.db
+      .prepare("UPDATE approach_resource_leases SET status = 'ambiguous-process' WHERE owner_node_run_id = ?")
+      .run(nodeRunId);
+    await driveReadyNodeRuns(h.deps, graphRunId);
+    const lease = h.db
+      .prepare('SELECT status FROM approach_resource_leases WHERE owner_node_run_id = ?')
+      .get(nodeRunId) as { status: string };
+    expect(lease.status).toBe('ambiguous-process');
+    const node = h.db.prepare('SELECT status FROM approach_node_runs WHERE id = ?').get(nodeRunId) as {
+      status: string;
+    };
+    expect(node.status).toBe('completed');
   });
 
   it('launches an agent node with an isolated workspace and stamps its capability', async () => {

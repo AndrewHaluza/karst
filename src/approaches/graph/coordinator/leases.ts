@@ -18,7 +18,8 @@
  *
  * Release rules, in one place:
  *  - `releaseLeaseForNodeRun` (no flag) — `held → released` after proven
- *    termination AND integration (the pipeline) or preserved-behind-a-blocker
+ *    termination AND integration (the pipeline), after a deterministic node's
+ *    completion (the driver's completeDeterministic), or preserved-behind-a-blocker
  *    resolution. An `ambiguous-process` lease is left STRICTLY alone.
  *  - `releaseLeaseForNodeRun(…, { allowAmbiguous: true })` — the discard
  *    action's exclusive `ambiguous-process → released` path.
