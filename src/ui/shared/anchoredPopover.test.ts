@@ -213,4 +213,19 @@ describe('attachAnchoredPopover', () => {
     expect(hidden).toHaveBeenCalledTimes(2);
     restore();
   });
+
+  it('leaves the popover where it is when the trigger is detached from the DOM', () => {
+    stubFrames();
+    const { trigger, popover } = setup(100);
+    const hidden = vi.fn();
+    attachAnchoredPopover({ popover, trigger, width: 200, onTriggerHidden: hidden });
+    expect(popover.style.top).toBe('124px');
+    trigger.remove();
+    trigger.getBoundingClientRect = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) });
+    window.dispatchEvent(new Event('scroll'));
+    frame();
+    expect([popover.style.top, popover.style.left]).toEqual(['124px', '20px']);
+    expect(hidden).not.toHaveBeenCalled();
+    restore();
+  });
 });

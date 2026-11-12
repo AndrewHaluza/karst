@@ -110,6 +110,8 @@ function naturalHeight(popover: HTMLElement): number {
 
 function place(opts: AttachOptions): boolean {
   const { popover, trigger } = opts;
+  // A detached trigger has no layout box: leave the popover where it is, not at the top-left corner.
+  if (!trigger.isConnected) return true;
   const r = trigger.getBoundingClientRect();
   // The cap is never cleared to measure: clearing it resets the popover's own scroll position to the top.
   const p = computePlacement({
