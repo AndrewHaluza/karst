@@ -20,7 +20,7 @@ import { latestStageRun, listStageRuns } from '../../store/stageRuns.js';
 import { openGateRun } from '../gates/evidence.js';
 import { commitGateOutcome } from '../gates/commit.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
-import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
+import { manifest, repo, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { regenerateGateName } from '../gates/regenerate.js';
@@ -29,11 +29,17 @@ import * as findingsLaneModule from '../review/findingsLane.js';
 import * as reviewSnapshotModule from '../reviewSnapshot.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { runUat, type UatDeps } from './uat.js';
-import { setDisabledGates } from '../../store/ticketGates.js';
+import { getGateSnapshot, setStageGateSnapshot, setDisabledGates } from '../../store/ticketGates.js';
 
 const now = (): string => '2026-08-01T10:00:00.000Z';
 
 /** A repository that answers every review gate. */
+const declaredReview = reviewConfig({
+  gates: [
+    { name: 'lint', kind: 'script', script: 'lint' },
+    { name: 'typecheck', kind: 'script', script: 'typecheck' },
+  ],
+});
 const ALL_SCRIPTS = {
   lint: 'eslint .',
   typecheck: 'tsc --noEmit',
@@ -1238,6 +1244,136 @@ describe('runReview', () => {
     // no gate outcome was proven (P2-18).
     const review = getTicket(store, id).stages.find((s) => s.stageKey === 'review')!;
     expect(review.status).toBe('bypassed');
+  });
+
+  const seedWorktree = (repoPath: string, path: string): void => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, ?, ?, 'b', 'develop', 'inherited')",
+      )
+      .run(id, repoPath, path);
+  };
+
+  it('bypasses the stage when every resolved gate is absent from the ticket snapshot, and records why', async () => {
+    seedWorktree('/web', '/wt/web');
+    setStageGateSnapshot(store, id, 'review', ['some-old-gate']);
+    const result = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({ web: repo({ repoPath: '/web' }) }, { review: declaredReview }) },
+      deps(),
+    );
+    expect(result).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'review')!.status).toBe('bypassed');
+    const skipped = listGateRuns(store, id).filter((r) => r.skipped);
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(skipped[0]!.summary).toContain('was added after this ticket started — "Rebase on base" to run it');
+  });
+
+  it('captures the snapshot at the first gate run of a ticket that has none', async () => {
+    seedWorktree('/web', '/wt/web');
+    expect(getGateSnapshot(store, id)).toBeNull();
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({ web: repo({ repoPath: '/web' }) }, { review: declaredReview }) },
+      deps(),
+    );
+    expect(getGateSnapshot(store, id)?.review).toEqual(expect.arrayContaining(['lint', 'typecheck']));
+  });
+
+  it('captures the gates of a repository that has no change yet, so a later change does not skip them', async () => {
+    seedWorktree('/web', '/wt/web');
+    seedWorktree('/api', '/wt/api');
+    const probe = (cwd: string) =>
+      cwd === '/wt/api' ? ({ kind: 'ok', scripts: { 'api-only': 'x', lint: 'eslint .', typecheck: 'tsc' } } as const) : ({ kind: 'ok', scripts: ALL_SCRIPTS } as const);
+    await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({ web: repo({ repoPath: '/web' }), api: repo({ repoPath: '/api' }) }, { review: declaredReview }),
+      },
+      // Only `web` is a target (the only changed repository); `api` is not.
+      deps({ probe }),
+    );
+    const snapshot = getGateSnapshot(store, id);
+    expect(snapshot?.review).toEqual(expect.arrayContaining(['lint', 'typecheck']));
+  });
+
+  // A git fake: the commit the branch was cut from has `cutScripts`, the base ref has `baseScripts`.
+  const scriptsGit = (cutScripts: Record<string, string>, baseScripts: Record<string, string>): GitRunner =>
+    (async (args: readonly string[]) => {
+      if (args[0] === 'merge-base') return { stdout: 'cut123\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'show') {
+        const scripts = String(args[1]).startsWith('cut123:') ? cutScripts : baseScripts;
+        return { stdout: JSON.stringify({ scripts }), stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    }) as unknown as GitRunner;
+  const layerRules = reviewConfig({ gates: [{ name: 'layer-rules', kind: 'script', script: 'lint:layers' }] });
+  const layerManifest = () => manifest({ web: repo({ repoPath: '/web' }) }, { review: layerRules });
+
+  it('applies the snapshot it captures: a gate whose script neither the cut nor the base has is skipped in the capturing run (T1106)', async () => {
+    seedWorktree('/web', '/wt/web');
+    const invoked: string[] = [];
+    const result = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: layerManifest() },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { lint: 'x' } }),
+        git: scriptsGit({ lint: 'x' }, { lint: 'x' }),
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return { kind: 'ran', results: [] };
+        },
+      }),
+    );
+    expect(invoked).not.toContain('layer-rules');
+    expect(result).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(reviewStage(store, id).status).toBe('bypassed');
+    expect(listGateRuns(store, id).find((r) => r.skipped)?.summary).toContain('was added after this ticket started');
+  });
+
+  it('still runs a gate whose script the branch was cut with when an agent edit removed it from the worktree', async () => {
+    seedWorktree('/web', '/wt/web');
+    const invoked: string[] = [];
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: layerManifest() },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { lint: 'x' } }),
+        git: scriptsGit({ lint: 'x', 'lint:layers': 'depcruise' }, { lint: 'x', 'lint:layers': 'depcruise' }),
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return { kind: 'ran', results: [] };
+        },
+      }),
+    );
+    expect(getGateSnapshot(store, id)?.review).toContain('layer-rules');
+    expect(invoked).toContain('layer-rules');
+  });
+
+  it('keeps running every gate for a pre-snapshot ticket that already ran gates', async () => {
+    const invoked: string[] = [];
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 1,
+      runAt: now(),
+      gates: [{ gateName: 'lint (web)', exitCode: 0, startedAt: now(), endedAt: now() }],
+    });
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return { kind: 'ran', results: gates.map((g) => ({ name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() })) };
+        },
+      }),
+    );
+    expect(invoked).toContain('lint');
+    expect(getGateSnapshot(store, id)).toBeNull();
   });
 });
 

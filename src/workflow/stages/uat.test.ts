@@ -25,7 +25,7 @@ import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { regenerateGateName } from '../gates/regenerate.js';
 import { runUat, resolveTargetGates, testerTargets, type UatDeps } from './uat.js';
-import { setDisabledGates } from '../../store/ticketGates.js';
+import { getGateSnapshot, setDisabledGates } from '../../store/ticketGates.js';
 import type { ServerView } from '../../store/dashboard.js';
 import type { ScriptProbe } from '../gates/probe.js';
 import type { ProcessOutcome } from '../gates/run.js';
@@ -103,6 +103,33 @@ describe('runUat', () => {
       'e2e (/wt/web)',
       'test (/wt/web)',
     ]);
+  });
+
+  it('captures the snapshot from every worktree, including one the plan did not select as a target', async () => {
+    for (const [r, p] of [['/web', '/wt/web'], ['/api', '/wt/api']] as const) {
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, ?, ?, 'b', 'develop', 'inherited')",
+        )
+        .run(id, r, p);
+    }
+    const probe = (cwd: string): ScriptProbe =>
+      cwd === '/wt/api' ? { kind: 'ok', scripts: { 'api-smoke': 'x', test: 'vitest' } } : { kind: 'ok', scripts: { test: 'vitest', e2e: 'pw' } };
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest(
+          { web: repo({ repoPath: '/web' }), api: repo({ repoPath: '/api' }) },
+          { uat: uatConfig({ gates: [{ name: 'test', kind: 'script', script: 'test' }, { name: 'e2e', kind: 'script', script: 'e2e' }] }) },
+        ),
+      },
+      // The plan selects only `web`; `api` has no change yet.
+      deps({ probe }),
+    );
+    expect(getGateSnapshot(store, id)?.uat).toEqual(expect.arrayContaining(['test', 'e2e']));
   });
 
   it('parks without a verdict when installed deps drifted from the lockfile', async () => {
@@ -1245,6 +1272,27 @@ describe('resolveTargetGates', () => {
     if (res.kind !== 'gates') throw new Error('unreachable');
     expect(res.gates.map((g) => g.name)).toEqual(['test']);
     expect(res.skipped.map((g) => g.name)).toEqual(['e2e']);
+  });
+
+  it('skips a gate absent from the ticket snapshot and marks it added-later', () => {
+    const config = uatConfig({
+      gates: [
+        { name: 'test', kind: 'script', script: 'test' },
+        { name: 'e2e', kind: 'script', script: 'e2e' },
+      ],
+    });
+    const res = resolveTargetGates(okProbe({ test: 'vitest', e2e: 'playwright' }), config, ['web'], [], undefined, ['test']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates.map((g) => g.name)).toEqual(['test']);
+    expect(res.skipped.map((g) => g.name)).toEqual(['e2e']);
+    expect(res.addedLater?.map((g) => g.name)).toEqual(['e2e']);
+  });
+
+  it('runs every gate when the snapshot is null', () => {
+    const probe = okProbe({ test: 'vitest', e2e: 'playwright' });
+    const res = resolveTargetGates(probe, undefined, ['web'], [], undefined, null);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates.map((g) => g.name)).toEqual(['test', 'e2e']);
   });
 
   it('reports an empty skipped list when nothing is disabled', () => {

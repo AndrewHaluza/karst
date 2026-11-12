@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { partitionDisabled } from './disable.js';
+import { partitionDisabled, partitionNotInSnapshot, gateAddedReason } from './disable.js';
 import type { ResolvedGate } from './resolve.js';
 
 function gate(name: string, required = false): ResolvedGate {
@@ -48,5 +48,37 @@ describe('partitionDisabled', () => {
     const snapshot = JSON.stringify(gates);
     partitionDisabled(gates, ['e2e']);
     expect(JSON.stringify(gates)).toBe(snapshot);
+  });
+});
+
+describe('partitionNotInSnapshot', () => {
+  it('runs every gate when the ticket has no snapshot (NULL)', () => {
+    const { kept, skipped } = partitionNotInSnapshot([gate('test'), gate('layer-rules')], null);
+    expect(kept.map((g) => g.name)).toEqual(['test', 'layer-rules']);
+    expect(skipped).toEqual([]);
+  });
+
+  it('skips a gate that is absent from the snapshot', () => {
+    const { kept, skipped } = partitionNotInSnapshot([gate('test'), gate('layer-rules', true)], ['test']);
+    expect(kept.map((g) => g.name)).toEqual(['test']);
+    expect(skipped.map((g) => g.name)).toEqual(['layer-rules']);
+  });
+
+  it('keeps a discovered gate absent from the snapshot: the branch own package.json defines it', () => {
+    const { kept, skipped } = partitionNotInSnapshot([gate('test'), gate('lint:layers', false)], ['test']);
+    expect(kept.map((g) => g.name)).toEqual(['test', 'lint:layers']);
+    expect(skipped).toEqual([]);
+  });
+
+  it('does not run a snapshot gate that the manifest no longer resolves', () => {
+    const { kept, skipped } = partitionNotInSnapshot([gate('test')], ['test', 'gone']);
+    expect(kept.map((g) => g.name)).toEqual(['test']);
+    expect(skipped).toEqual([]);
+  });
+
+  it('states the reason with the gate name and the way to run it', () => {
+    expect(gateAddedReason('layer-rules')).toBe(
+      'gate "layer-rules" was added after this ticket started — "Rebase on base" to run it',
+    );
   });
 });

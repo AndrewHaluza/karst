@@ -1,7 +1,7 @@
 import type { GateDef, ReviewConfig } from '../../manifest/types.js';
 import type { ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
-import { applyConfigSwitch, partitionDisabled, type StageGateResolution } from '../gates/disable.js';
+import { applyConfigSwitch, partitionDisabled, partitionNotInSnapshot, type StageGateResolution } from '../gates/disable.js';
 import { REVIEW_PROBE_SCRIPTS } from '../gates/scripts.js';
 
 /**
@@ -64,6 +64,8 @@ export function resolveReviewGates(
   names: readonly string[],
   disabledNames: readonly string[] = [],
   debug?: (message: string) => void,
+  /** The ticket's gate snapshot for this stage (@arch:GATE-SNAPSHOT); null = none, every gate runs. */
+  snapshotNames: readonly string[] | null = null,
 ): StageGateResolution {
   const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
   const byIdentity = new Map<string, ResolvedGate>();
@@ -95,9 +97,12 @@ export function resolveReviewGates(
   }
 
   const ticketCut = partitionDisabled([...byIdentity.values()], disabledNames, debug);
-  const kept = ticketCut.kept;
+  const snapshotCut = partitionNotInSnapshot(ticketCut.kept, snapshotNames, debug);
+  const kept = snapshotCut.kept;
+  const addedLater = snapshotCut.skipped;
   const skipped = [
     ...ticketCut.skipped,
+    ...addedLater,
     ...[...configOff].filter(([key]) => !byIdentity.has(key)).map(([, gate]) => gate),
   ];
   if (kept.length > 0 || skipped.length > 0) {
@@ -105,7 +110,7 @@ export function resolveReviewGates(
       `[gate] review resolve: ${kept.length} kept, ${skipped.length} disabled for this ticket ` +
         `(disabled: ${skipped.map((g) => g.name).join(', ') || 'none'})`,
     );
-    return { kind: 'gates', gates: kept, skipped };
+    return { kind: 'gates', gates: kept, skipped, ...(addedLater.length > 0 ? { addedLater } : {}) };
   }
   // Zero gates, nothing disabled, and no unavailability is the malformed-
   // package.json case, which the caller (`stages/review.ts`) turns into a

@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
   host_gates        TEXT,                 -- JSON ["unit"]: gates this ticket reruns on the host after an out-of-memory kill; NULL = none
   disabled_gates    TEXT,                 -- JSON {"uat":["e2e"],"review":["lint"]}; NULL = nothing disabled
+  -- v117 per-ticket gate-set snapshot (kept in sync with migrations.ts v117 ALTER):
+  gate_snapshot     TEXT,                 -- JSON {"uat":[names],"review":[names]}: the gates the branch was cut with (@arch:GATE-SNAPSHOT); NULL = no snapshot, every gate runs
   -- v44 provider-native priority label (kept in sync with migrations.ts v44 ALTER):
   priority          TEXT,                 -- 'urgent' | 'high' | 'normal' | ... ; NULL = provider did not expose it
   priority_override TEXT CHECK (priority_override IN ('urgent', 'high', 'normal', 'low')), -- v113: the priority the user set in karst; a fetch never writes it; NULL = none

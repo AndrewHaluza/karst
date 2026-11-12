@@ -61,6 +61,8 @@ export interface GateTarget {
   repo: string;
   /** The ticket's worktree for that repository — where the gates run. */
   path: string;
+  /** The base ref the worktree was cut from, when known (the gate snapshot asks it which scripts a rebase brings). */
+  baseRef?: string | null;
   /** Every manifest entry backed by this worktree (several for a monorepo). */
   names: string[];
 }
@@ -87,7 +89,7 @@ export function dedupeTargetsByRepoPath(targets: readonly ReviewTarget[]): GateT
       }
       continue;
     }
-    byPath.set(key, { repo: target.repo, path: target.path, names: [...target.names] });
+    byPath.set(key, { repo: target.repo, path: target.path, baseRef: target.baseRef, names: [...target.names] });
   }
   return [...byPath.values()];
 }
@@ -322,6 +324,35 @@ export interface SelectReviewTargetsOptions {
   pathExists?: (path: string) => boolean;
 }
 
+/** Enabled manifest entries per canonical repository path (several for a monorepo). */
+function manifestNamesByPath(manifest: Manifest): Map<string, string[]> {
+  const namesByPath = new Map<string, string[]>();
+  for (const [name, repository] of Object.entries(manifest.repositories)) {
+    if (repository.enabled === false) continue;
+    const key = canonicalPath(repository.repoPath);
+    const names = namesByPath.get(key) ?? [];
+    names.push(name);
+    namesByPath.set(key, names);
+  }
+  return namesByPath;
+}
+
+/**
+ * EVERY worktree that maps to a manifest entry, changed or not, one target per
+ * repository path. No git probe: the gate snapshot (@arch:GATE-SNAPSHOT) must list
+ * the gates of every repository the ticket owns, because a repository untouched
+ * now can change later. A worktree that matches no manifest entry is dropped.
+ */
+export function allWorktreeTargets(manifest: Manifest, worktrees: readonly ReviewWorktree[]): GateTarget[] {
+  const namesByPath = manifestNamesByPath(manifest);
+  return dedupeTargetsByRepoPath(
+    worktrees.flatMap((worktree) => {
+      const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
+      return names.length > 0 ? [{ ...worktree, names }] : [];
+    }),
+  );
+}
+
 /**
  * Select worktrees whose review checks can answer something about this ticket.
  *
@@ -336,14 +367,7 @@ export async function selectReviewTargets(
   git: GitRunner,
   options?: SelectReviewTargetsOptions,
 ): Promise<TargetSelection> {
-  const namesByPath = new Map<string, string[]>();
-  for (const [name, repository] of Object.entries(manifest.repositories)) {
-    if (repository.enabled === false) continue;
-    const key = canonicalPath(repository.repoPath);
-    const names = namesByPath.get(key) ?? [];
-    names.push(name);
-    namesByPath.set(key, names);
-  }
+  const namesByPath = manifestNamesByPath(manifest);
 
   const changed = new Set<string>();
   const unmapped: string[] = [];

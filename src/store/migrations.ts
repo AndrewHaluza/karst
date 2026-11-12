@@ -2980,5 +2980,12 @@ function migrateLocked(db: Database): void {
     if (cols116.size > 0 && !cols116.has('kind')) db.exec("ALTER TABLE deliver_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'auto'");
   }
 
+  if (current < 117) {
+    // v117: `tickets.gate_snapshot` — the resolved gate names per stage the ticket's branch was cut with
+    // (@arch:GATE-SNAPSHOT). Additive; NULL = no snapshot, every resolved gate runs (no backfill).
+    const cols117 = tableColumns(db, 'tickets');
+    if (cols117.size > 0 && !cols117.has('gate_snapshot')) db.exec('ALTER TABLE tickets ADD COLUMN gate_snapshot TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
