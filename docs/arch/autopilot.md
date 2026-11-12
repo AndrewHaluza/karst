@@ -44,14 +44,14 @@ flowchart TD
 - Mode: manifest `autopilot: { enabled, ci: { policy, maxAttempts, checks }, conflicts: { policy, maxRounds } }` (default off; `maxRounds` defaults to 2). A per-ticket override `inherit|on|off` is stored in `autopilot_tickets`. A sub-task inherits the effective mode of its parent.
 - Conflict rounds (T996): `@arch:AP-01`. Re-ship (T1095): `@arch:AP-06`.
 - A sandboxed ticket gets the same rounds, with fail-closed rules: see `@arch:AP-04`. Only the window that controls the ticket starts a round (`@arch:AC-37`).
-- CI uses Send CI failure to agent. A check that is not on the allowlist parks. A gh failure parks and does not move the ticket. An unknown or pending CI status is never a pass. A closed PR is never fixed.
+- CI uses Send CI failure to agent. A failing check that is not on the allowlist parks, unless it is known optional (`@arch:AP-07`). A gh failure parks and does not move the ticket. An unknown or pending CI status is never a pass. A closed PR is never fixed.
 - Transient CI re-run (T1019): one `gh run rerun --failed` per (ticket, repo, run, check) for a network failure, before the allowlist decision. Rules in `@arch:AP-03`.
 - Stale generated file (T1081): when every failing check failed only on `<path> is stale: run <command>` for a `ship.regenerate` command, a host ticket gets ONE Rebase on base, with no confirm prompt and no attempt, before the transient re-run. Rules in `@arch:AP-05`.
 - CI round with no commit (D564): when a failing check shows the same run head SHA that the last CI round recorded, the round made no commit. The engine re-runs the failed jobs ONCE with no attempt, then parks with `auto-fix stopped: ci round made no change`. Rules in `@arch:AP-03`.
 - The placement comes from the recorded backend: `host` runs on the host, any other backend runs in its sandbox (`@arch:AC-43`). An unknown placement gets no round and no attempt: it parks with `auto-fix not run: placement unknown` and a bulletin note.
-- A ticket that ran an implementation graph gets no round: it parks with `auto-fix not run: graph ticket`. A live session that runs, or waits on a prompt or a question, also blocks a round. A closing window releases its `session_owner` rows.
+- A ticket that ran an implementation graph gets no round: it parks with `auto-fix not run: graph ticket`. A live session that runs, or waits on a prompt or a question, also blocks a round.
 - A rollup with pending checks is not read: its failing list is partial, so the ticket waits. The allowlist covers every failing PR, because the action sends them all. Each failing PR spends its own attempt. A spent budget on any of them parks the round and gives back the attempts taken first.
-- If the stored failing list is cut short (`failed` is larger than the list), the ticket parks with `auto-fix not run: the list of failing ci checks is cut short`.
+- A cut-short failing list (`failed` is larger than the list) parks: `auto-fix not run: the list of failing ci checks is cut short`.
 - When a ticket ships again, the stored CI rollup and merge block of its open PRs are cleared, because they belong to the old head. A window that restores its sessions at start publishes them to `session_owner` again. Sub-tasks armed in one sweep count once against the concurrency limit.
 - Budget: `autopilot_budgets` keeps attempts, signature and extra attempts. A new signature (the failing check names) resets the counter. Approve one more adds one extra attempt and does not reset.
 - A round never starts while a session runs, while the ship saga runs, for a paused ticket, for a closed PR, or when the sub-task concurrency limit (@arch:CONCURRENCY) is full. A round counts against the limit. A sub-task in the ship stage holds a slot while its agent runs or while a sent conflict round has not ended (`autopilot_tickets.conflict_round_at` is set and under 30 minutes old; delivery, a drop, a park, a pause, off mode or "Stop now" clears or frees it, and the PR is open). The slot never reads the stored merge check: a probe of the local merge commit reads clean while the delivery runs. A round that does not deliver parks the ticket (`auto-fix stopped: conflict round did not deliver`), so a stale CI rollup of the old head starts no CI round. The park holds on every tick until a person acts or every PR is proven clean. Only a round the engine sent (`conflict_round_at`) can stall; a manual Resolve conflicts round is never dropped. The budget is checked before the slot wait; `HOLDS_SLOT_SQL` is the one rule for the autostart picker and the autopilot check.
@@ -130,3 +130,19 @@ Rule (T1095, see `@arch:AP-00`):
 
 a sent CI round sets `autopilot_tickets.ci_round_at` (v118). When the driver then stops at `ship-confirm`, `autoReship` runs ship without the Confirm click ONLY if the mark is set, the effective mode is on, the ticket is not paused and has no stop flag, paused or stopped reason, no block or running ship is on the ship stage, this window controls the ticket (`@arch:AC-37`), and every repo that ship would push has an open PR (a merged PR is not open; a repo that the preview shows as skipped keeps the click; the same facts as `@arch:SHIP-PREVIEW`: a repo with files to commit or a branch change and no PR keeps the click; an untouched repo does not). A first ship always keeps the click. The mark is taken by one UPDATE before ship starts, so one round gives one re-ship; a click, a park, a ticket pause, an autopilot pause, an override change, off mode and Stop (now or after the round) clear it. The ship runs the normal ship saga with no forced option: it delivers to an open PR by the rule the preview mirrors (`hasCompletedShipRun`). So the pre-push base check (`@arch:SHIP-CI-ACTIONS`) and every ship guard apply. The loop stays bounded by the per-(PR, kind) budget and the no-change park (D564). One bulletin note `Autopilot: re-shipped after ci round <n>/<max>`; the debug lines start with `[ship] autopilot`.
 END_DOC_BLOCK: [@arch:AP-06]
+
+## [@arch:AP-07] Optional failing checks
+covers: src/extension/ops/autopilotOps.ts, src/model/prChecks.ts, src/workflow/ciFailure.ts
+
+Rule (see `@arch:AP-00`):
+
+a failing check is known optional only when the stored rollup has the required split (`gh pr checks --required`), that split counts 0 required pending, and the check has `required === false`. A null or absent flag, or no split, is unknown: the old rules apply (unknown is never a pass).
+
+- A cut-short failing list still parks.
+- The allowlist park reads only the failing checks that are not known optional.
+- Every failure known optional and all on the allowlist: a CI round starts as usual.
+- Every failure known optional and one off the allowlist: no round and no park. A stale `auto-fix` block clears, and one note is written per signature.
+- Mixed with a required failure: the allowlist test covers the required and unknown ones. The round still sends all failures.
+- `provenClean` counts a rollup with only known optional failures and 0 pending as passing.
+
+END_DOC_BLOCK: [@arch:AP-07]

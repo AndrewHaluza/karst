@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import { parseChecks, type FailingCheck } from '../model/prChecks.js';
+import { isKnownOptional, parseChecks, type FailingCheck } from '../model/prChecks.js';
 import { sendBackState, type SendBackUnavailableReason } from './sendBack.js';
 
 /**
@@ -23,6 +23,8 @@ export interface CiFailurePr {
   failing: readonly FailingCheck[];
   /** All failing checks the rollup counted; `failing` is capped, so a larger count means the list is cut short. */
   failedTotal?: number;
+  /** Names of the failing checks that are known optional (GitHub's required split says so). */
+  optional?: readonly string[];
 }
 
 export type CiFailureState =
@@ -63,7 +65,7 @@ export function ciFailureState(store: Store, ticketId: number): CiFailureState {
     const checks = parseChecks(row.checks);
     if (checks?.state === 'pending') return { available: false, reason: 'pending' };
     if (checks?.state === 'failing' && row.cwd) {
-      prs.push({ repo: row.repo, number: row.number, url: row.url, cwd: row.cwd, failing: checks.failing, failedTotal: checks.failed });
+      prs.push({ repo: row.repo, number: row.number, url: row.url, cwd: row.cwd, failing: checks.failing, failedTotal: checks.failed, optional: checks.failing.filter((f) => isKnownOptional(checks, f)).map((f) => f.name) });
     }
   }
   return prs.length === 0 ? { available: false, reason: 'not-failing' } : { available: true, prs };

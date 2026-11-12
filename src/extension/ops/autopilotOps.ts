@@ -10,7 +10,7 @@ import { transientRerunStep, type FailedCheck, type RerunContext, type Transient
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
-import { parseChecks } from '../../model/prChecks.js';
+import { isKnownOptional, parseChecks } from '../../model/prChecks.js';
 import {
   clearConflictRound, effectiveAutopilot, markCiRound, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
   markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
@@ -161,7 +161,7 @@ function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'de
 /** One failing PR and the signature (its failing check names) its budget counts against. */
 interface BudgetTarget { readonly repo: string; readonly signature: string }
 
-interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly targets: readonly BudgetTarget[]; readonly failing?: readonly string[]; readonly cutShort?: boolean; readonly fails?: readonly FailedCheck[] }
+interface Problem { readonly kind: 'ci'; readonly repo: string; readonly signature: string; readonly targets: readonly BudgetTarget[]; readonly failing?: readonly string[]; readonly gating?: readonly string[]; readonly cutShort?: boolean; readonly fails?: readonly FailedCheck[] }
 // `failing` and `cutShort` cover EVERY failing PR (the action sends them all); `repo` and `signature` name the first PR in notes; `targets` holds the budget of EVERY failing PR.
 
 /** `wait` = CI status is not known yet (pending or unreadable): neither act nor clear a park. */
@@ -176,9 +176,11 @@ function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   const all = [...new Set(ci.prs.flatMap((p) => p.failing.map((f) => f.name)))].sort();
   // The stored list is capped: a larger failed count means a failing check may be hidden from the allowlist check.
   const cutShort = ci.prs.some((p) => (p.failedTotal ?? 0) > p.failing.length);
+  // Failing checks that are not known optional: only these can park the ticket (a known optional one never does).
+  const gating = [...new Set(ci.prs.flatMap((p) => p.failing.filter((f) => !(p.optional ?? []).includes(f.name)).map((f) => f.name)))].sort();
   const targets = ci.prs.map((p) => ({ repo: p.repo, signature: [...new Set(p.failing.map((f) => f.name))].sort().join('\n') }));
   const fails = ci.prs.flatMap((p) => p.failing.map((f) => ({ repo: p.repo, cwd: p.cwd, name: f.name, url: f.url })));
-  return { kind: 'ci', repo: first.repo, signature: own.join('\n'), targets, failing: all, cutShort, fails };
+  return { kind: 'ci', repo: first.repo, signature: own.join('\n'), targets, failing: all, gating, cutShort, fails };
 }
 
 /** An open PR whose stored CI rollup is missing, unreadable or unknown, or still has pending checks (its failing list is partial). */
@@ -188,6 +190,16 @@ function hasUnknownCi(d: AutopilotDeps): boolean {
     .all(d.ticketId) as Array<{ checks: string | null }>;
   return rows.some((r) => { const c = parseChecks(r.checks); return c === null || c.state === 'unknown' || c.pending > 0; });
 }
+
+/** A passing rollup, or a failing one with nothing pending whose every failure is known optional. */
+function ciPasses(c: ReturnType<typeof parseChecks>): boolean {
+  if (c === null) return false;
+  if (c.state === 'passing') return true;
+  return c.state === 'failing' && c.pending === 0 && c.failing.length >= c.failed && c.failing.length > 0 && c.failing.every((f) => isKnownOptional(c, f));
+}
+
+/** Notes already written for an optional-only failure, per ticket and signature (the park dedupe does not cover a non-park). */
+const optionalNoted = new Set<string>();
 
 /**
  * The problem is only GONE on positive evidence (arch:DONE, arch:GH-03): every open PR has a clean merge check
@@ -200,8 +212,8 @@ function provenClean(d: AutopilotDeps): boolean {
   const rows = d.store.db
     .prepare("SELECT repo, checks FROM prs WHERE ticket_id = ? AND status = 'open' AND url IS NOT NULL AND dismissed_at IS NULL")
     .all(d.ticketId) as Array<{ repo: string; checks: string | null }>;
-  const ci = new Map(rows.map((r) => [r.repo, parseChecks(r.checks)?.state]));
-  return open.every((repo) => merge.get(repo) === 'clean' && ci.get(repo) === 'passing');
+  const ci = new Map(rows.map((r) => [r.repo, ciPasses(parseChecks(r.checks))]));
+  return open.every((repo) => merge.get(repo) === 'clean' && ci.get(repo) === true);
 }
 
 /** One autopilot pass over a ship-stage ticket. Safe to call every tick: it acts at most once per signature attempt. */
@@ -269,6 +281,21 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   if (problem.cutShort) {
     return park(d, 'ci', 'auto-fix not run: the list of failing ci checks is cut short', 'the failing check list is cut short, so the allowlist cannot be checked; send the failure to the agent by hand.');
   }
+  // Only known optional checks fail, and one is off the allowlist: the PR can merge, so no round and no park (arch:AP-00).
+  const optionalOnly = (problem.gating ?? []).length === 0;
+  if (optionalOnly && !allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
+    const parked = stageBlock(d.store, d.ticketId, 'ship')?.reason.startsWith('auto-fix') === true;
+    if (state.stoppedReason !== null) setAutopilotStopped(d.store, d.ticketId, null);
+    clearParkBlock(d.store, d.ticketId);
+    const noteKey = `${flightKeyOf(d)}:${problem.signature}`;
+    if (!optionalNoted.has(noteKey)) {
+      optionalNoted.add(noteKey);
+      const names = (problem.failing ?? []).join(', ');
+      d.note('Autopilot: optional ci check failed, no auto-fix', `${d.key}: the failing check ${names} is optional and not on the autopilot allowlist, and the required checks passed. No round started and the ticket is not parked.`);
+      d.debug(`${LOG} ticket ${d.key} ci: optional check ${names} failed and is not on the allowlist; no round, no park`);
+    }
+    return parked ? { kind: 'cleared' } : { kind: 'nothing' };
+  }
   // A network fault is re-run once before any park or CI round (T1019). A graph ticket and an unreadable placement keep today's rules.
   // A stale generated file is fixed by one host rebase first (T1081); a host ticket only.
   const stale = await staleStep(d, problem);
@@ -277,8 +304,9 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   if (unchanged) return unchanged;
   const rerun = await transientStep(d, problem);
   if (rerun.kind === 'result') return rerun.result;
-  if (!allChecksAllowed(problem.failing ?? [], cfg.ci.checks)) {
-    const name = (problem.failing ?? []).find((n) => !cfg.ci.checks.includes(n)) ?? '(none)';
+  const gated = problem.gating ?? problem.failing ?? [];
+  if (gated.length > 0 && !allChecksAllowed(gated, cfg.ci.checks)) {
+    const name = gated.find((n) => !cfg.ci.checks.includes(n)) ?? '(none)';
     const again = stale.earlier.has(name) ? ' (rebased once for a stale generated file and it failed again)' : rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : '';
     const reason = `auto-fix not run: ci check ${name} is not on the allowlist${again}`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');

@@ -57,6 +57,15 @@ export type MergeBlock =
 
 export const MAX_FAILING_CHECKS = 10;
 
+/**
+ * A failing check is KNOWN optional only when GitHub gave the required split, that split counts no
+ * pending required check, and the check itself says `required === false`. Anything else is unknown
+ * and keeps today's rules (unknown is never a pass).
+ */
+export function isKnownOptional(checks: Pick<PrChecks, 'required'>, f: FailingCheck): boolean {
+  return checks.required != null && checks.required.pending === 0 && f.required === false;
+}
+
 export const UNKNOWN_PR_CHECKS: PrChecks = {
   state: 'unknown', total: 0, passed: 0, failed: 0, pending: 0, failing: [], failedShown: 0,
 };
