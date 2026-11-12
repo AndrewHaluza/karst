@@ -670,16 +670,20 @@ export function dispatchHook(
 
   // T1111: every accepted event, from every core, proves the session is alive.
   // It is progress for the fix stall watchdog, and it lifts a stalled-fix park.
-  // Best-effort: a defect here may not change what a hook does.
-  try {
-    const at = nowIso();
-    stampHookActivity(store, ticketId, at);
-    if (liftStalledFixPark(store, ticketId, at)) {
-      debug?.(`[hook] ticket ${ticketId}: session active again, lifted the stalled-fix park`);
-      notify?.(ticketId, payload);
+  // `SessionEnd` is the exception: the session is closing, and the branch below
+  // interrupts the fix again, so a lift here would spend interrupt budget for
+  // nothing. Best-effort: a defect here may not change what a hook does.
+  if (payload.hook_event_name !== 'SessionEnd') {
+    try {
+      const at = nowIso();
+      stampHookActivity(store, ticketId, at);
+      if (liftStalledFixPark(store, ticketId, at)) {
+        debug?.(`[hook] ticket ${ticketId}: session active again, lifted the stalled-fix park`);
+        notify?.(ticketId, payload);
+      }
+    } catch (error) {
+      debug?.(`[hook] ticket ${ticketId}: hook activity not recorded: ${String(error)}`);
     }
-  } catch (error) {
-    debug?.(`[hook] ticket ${ticketId}: hook activity not recorded: ${String(error)}`);
   }
 
   if (payload.hook_event_name === 'session.error') {

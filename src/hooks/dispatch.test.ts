@@ -1820,6 +1820,33 @@ describe('dispatchHook — hook activity (T1111)', () => {
     expect(lastHookAt(id)).toBeNull();
   });
 
+  it('does not stamp or lift on SessionEnd, so a closing session spends no interrupt budget', () => {
+    const t = createTicketFlow(store, { key: 'E', title: 'e' });
+    seedWorktree(store, t.id, WT);
+    const projectId = upsertProject(store, { slug: 'pe' }).id;
+    store.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(projectId, t.id);
+    transition(store, t.id, 'scope', { kind: 'passed' });
+    transition(store, t.id, 'impl', { kind: 'passed' });
+    transition(store, t.id, 'uat', { kind: 'failed', reason: 'exit 1' });
+    const started = '2020-01-01T10:00:00.000Z';
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(started, t.id);
+    const r = openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: null,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3, startedAt: started,
+    });
+    beginLiveFixExecution(store, { ticketId: t.id, roundId: r.id, startedAt: started });
+    sweepStalledFixRounds(store, { at: '2020-01-01T12:00:00.000Z', timeoutMs: 60 * 60_000, projectId });
+    const interrupts = () =>
+      (store.db.prepare('SELECT interrupt_count AS n FROM recovery_rounds WHERE id = ?').get(r.id) as { n: number }).n;
+    expect(interrupts()).toBe(1);
+
+    dispatchHook(store, { hook_event_name: 'SessionEnd', cwd: WT });
+
+    expect(interrupts()).toBe(1);
+    expect(listRecoveryRounds(store, t.id)[0]!.status).toBe('interrupted');
+    expect(lastHookAt(t.id)).toBeNull();
+  });
+
   it('lifts a stalled fix park on a new hook event and notifies', () => {
     const t = createTicketFlow(store, { key: 'F', title: 'f' });
     seedWorktree(store, t.id, WT);
