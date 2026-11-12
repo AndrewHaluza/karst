@@ -422,8 +422,9 @@ value-imports a webview or the extension entry points, and it reaches agent
 code only through the named agent-seam modules; agent/domain code never
 value-imports a webview.
 
-`.dependency-cruiser.cjs` is the enforcement; `npx depcruise src --config
-.dependency-cruiser.cjs` runs in CI. A violation is fixed, or its edge is named
+`.dependency-cruiser.cjs` is the enforcement; `npm run -s lint:layers` (which
+runs `depcruise src --config .dependency-cruiser.cjs`) runs in CI and as the
+`layer-rules` local review gate. A violation is fixed, or its edge is named
 in an explicit `pathNot` exception with a comment — a rule is never disabled.
 
 | rule | from | forbidden | accepted exception |
