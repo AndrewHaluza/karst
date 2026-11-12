@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 import { settingsRoutes } from './settingsRoutes.js';
-import { layoutTargets, MANDATORY_VARIANTS, VARIANTS } from './variants.js';
+import { layoutTargets, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
 
 const BASELINES = join(dirname(fileURLToPath(import.meta.url)), '__baselines__');
 /** Theme folders that hold per-variant view screenshots. */
@@ -76,5 +76,18 @@ describe('variant registry coverage (ui:UI-R57)', () => {
   it('opens every settings route through a variant', () => {
     const covered = new Set(VARIANTS.settings.flatMap((v) => (v.layoutRouteId === undefined ? [] : [v.layoutRouteId])));
     for (const r of settingsRoutes()) expect(covered.has(r.id), r.id).toBe(true);
+  });
+
+  it('maps the capture option to the Playwright fullPage flag', () => {
+    expect(screenshotFullPage({ capture: 'viewport' })).toBe(false);
+    expect(screenshotFullPage({})).toBe(true);
+  });
+
+  it('captures the viewport for the ticket-details drawer variants only', () => {
+    const viewport = VARIANTS.dashboard.filter((v) => v.capture === 'viewport');
+    expect(viewport).toHaveLength(24);
+    for (const v of viewport) expect(v.id.startsWith('ticket-details-'), v.id).toBe(true);
+    const all = Object.values(VARIANTS).flat();
+    for (const v of all.filter((x) => x.id.startsWith('ticket-details-'))) expect(v.capture, v.id).toBe('viewport');
   });
 });
