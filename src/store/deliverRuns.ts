@@ -41,10 +41,11 @@ export type DeliverRunState = 'running' | 'passed' | 'failed' | 'taken-over' | '
 
 /**
  * What started a run: `auto` = the auto-deliver of a resolved merge, `after-take-over` = the re-run of the gates a
- * manual Deliver skipped, on the pushed head (D540). A re-run stopped by a newer push ends `stopped`, never `failed`.
+ * manual Deliver skipped, on the pushed head (D540),
+ * `base-moved` = the gates of the branch merged with the moved base, before a push (D541). A re-run stopped by a newer push ends `stopped`, never `failed`.
  */
-export type DeliverRunKind = 'auto' | 'after-take-over';
-const KINDS: readonly string[] = ['auto', 'after-take-over'];
+export type DeliverRunKind = 'auto' | 'after-take-over' | 'base-moved';
+const KINDS: readonly string[] = ['auto', 'after-take-over', 'base-moved'];
 
 export interface DeliverRun {
   readonly id: number;

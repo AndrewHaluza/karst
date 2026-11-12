@@ -84,6 +84,12 @@ export interface AutoDeliverDeps extends Omit<DeliverDeps, 'verify'> {
   readonly verifyMerge: (pr: DeliverPr, round: ResolvedRound) => Promise<string | null>;
   /** `signal` aborts the running gate process when a manual Deliver takes over (T1018). */
   readonly runGates: (prs: readonly DeliverPr[], signal: AbortSignal) => Promise<string | null>;
+  /**
+   * Runs after the ship gates pass: the branch merged with the moved base, as CI tests it (D541, `baseMovedCheck.ts`).
+   * Null = nothing to stop the push (base unchanged, merge passed, or not checkable); else the reason, shown as a ship
+   * gate failure. `signal` aborts it when a manual Deliver takes over. Absent → no check.
+   */
+  readonly checkBase?: (pr: DeliverPr, signal: AbortSignal) => Promise<string | null>;
   /** The dashboard's transient "Delivering resolved merge to PR #n…" line. */
   readonly status: (message: string) => void;
   /** The INFO log line (not the user toast). */
@@ -176,6 +182,12 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
         if (failed !== null) {
           d.error(`Resolved merge not delivered: a ship-stage gate failed — ${failed}`);
           return failed;
+        }
+        const baseFailure = d.checkBase ? await d.checkBase(pr, entry.controller.signal) : null;
+        if (entry.takenOver) return TAKEN_OVER;
+        if (baseFailure !== null) {
+          d.error(`Resolved merge not delivered: ${baseFailure}`);
+          return baseFailure;
         }
         // The gates ran for a while: confirm the tree they checked is still the finished merge.
         const changed = await d.verifyMerge(pr, round);

@@ -11,8 +11,10 @@ import { rebaseState } from '../../workflow/rebaseState.js';
 import { sendCiFailureToAgent } from './ciFailureOps.js';
 import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
-import { deliverTargets } from '../../workflow/deliverState.js';
+import { deliverTargets, type DeliverPr } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
+import { checkBaseMoved } from './baseMovedCheck.js';
+import { baseCheckParent, readLastGreenBase, seedMergedState } from './baseMovedHost.js';
 import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
 import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
@@ -33,6 +35,8 @@ export interface CiActionsInput {
     hasUnsynced(ticketId: number): Promise<boolean>;
     /** The sandbox clone's branch fetched into the worktree at `cwd`; the ref, or null (no sandbox / unreadable). */
     cloneRef(ticketId: number, cwd: string): Promise<string | null>;
+    /** Whether the ticket has a sandbox; reads the sandbox list only, never fetches into the worktree. */
+    hasSandbox(ticketId: number): Promise<boolean>;
     /** Sandbox → host, fast-forward only. */
     ensureSynced(ticketId: number): Promise<EnsureSyncResult>;
     recreateNoSync(ticketId: number): Promise<void>;
@@ -290,6 +294,67 @@ function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
   });
 }
 
+/** True when the ticket has a sandbox clone (or its state cannot be read: then the check is skipped, never wrong). */
+async function inSandbox(i: Pick<CiActionsInput, 'sandbox' | 'ticketId' | 'debug'>): Promise<boolean> {
+  try {
+    return await i.sandbox.hasSandbox(i.ticketId);
+  } catch (err) {
+    i.debug(`[ship] sandbox lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+    return true;
+  }
+}
+
+/**
+ * The base-moved check of one PR before its push (D541): the branch merged with the current base, gated in a temporary
+ * worktree and recorded as a `base-moved` run. Null = nothing stops the push (base unchanged, no earlier green run,
+ * conflict (the merge-check path owns it), not checkable); else the CI reason.
+ */
+export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, pr: DeliverPr, signal: AbortSignal): Promise<string | null> {
+  const baseRef = gate.gateEnv?.(pr).baseRef;
+  if (baseRef === undefined) return null;
+  // A sandboxed ticket's gates run in its sandbox clone, which cannot see the host worktree of the merge: they would
+  // test the branch alone and report a false pass for the merge. No verdict is better than a wrong one (@arch:AC-39).
+  if (await inSandbox(i)) {
+    i.debug('[ship] base-moved check not run: the ticket has a sandbox, whose gates cannot see the merged worktree');
+    return null;
+  }
+  const gitDir = await i.git(['rev-parse', '--path-format=absolute', '--git-dir'], pr.cwd);
+  const dir = gitDir.stdout.trim();
+  const outcome = await checkBaseMoved({
+    git: i.git, cwd: pr.cwd, baseRef, debug: (m) => i.debug(m),
+    lastGreenBase: async () => (gitDir.exitCode === 0 && dir !== '' ? readLastGreenBase(dir) : null),
+    worktreeParent: baseCheckParent,
+    seedState: async ({ mergedCwd, baseSha }) => {
+      const merged = await i.git(['rev-parse', '--path-format=absolute', '--git-dir'], mergedCwd);
+      if (gitDir.exitCode !== 0 || dir === '' || merged.exitCode !== 0 || merged.stdout.trim() === '') return;
+      await seedMergedState(dir, merged.stdout.trim(), baseSha);
+    },
+    runGates: (merged) => runShipGates([{ ...pr, cwd: merged.cwd }], {
+      ...gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: async () => merged.sha,
+      onProgress: i.afterServerChange, uiChanged: merged.uiChanged, kind: 'base-moved',
+    }),
+  });
+  if (outcome.kind === 'failed') return outcome.reason;
+  if (outcome.kind === 'unknown') i.debug(`[ship] base-moved check not run: ${outcome.reason}`);
+  return null;
+}
+
+/**
+ * The `checkBase` seam of the ship stage (D541): every push of the saga (first push, re-ship, manual Deliver) runs the
+ * base-moved check first. `settled` flushes the gate console after the check.
+ */
+export function shipBaseCheck(
+  i: CiActionsInput, gate: ShipGatesDeps, settled: () => void,
+): (t: { repo: string; cwd: string; branch: string }) => Promise<string | null> {
+  return async (t) => {
+    try {
+      return await baseMovedFailure(i, gate, { repo: t.repo, number: null, branch: t.branch, cwd: t.cwd }, new AbortController().signal);
+    } finally {
+      settled();
+    }
+  };
+}
+
 /** Karst's own delivery of a resolved merge conflict, run when the Resolve-conflicts session goes idle (D247). */
 export function autoDeliverAction(
   i: CiActionsInput,
@@ -304,6 +369,7 @@ export function autoDeliverAction(
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
+    checkBase: (pr, signal) => baseMovedFailure(i, extra.gate, pr, signal),
     verifyMerge: (pr, round) => verifyMergeResolved(gitFor(i), pr.cwd, round),
     blocked: h.blocked,
     runShip: h.runShip,

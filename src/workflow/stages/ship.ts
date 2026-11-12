@@ -179,6 +179,12 @@ export interface ShipOpts {
    * commits.
    */
   deliverToOpenPr?: boolean;
+  /**
+   * The base-moved check run before each push (D541, @arch:GATE-REPEAT): the host merges the branch with the current
+   * base and gates that merge, because CI tests it. Null = push; else the CI reason, and the push does not run. The step
+   * fails with that reason and the ticket stays at ship. Absent → no check.
+   */
+  checkBase?: (target: { repo: string; cwd: string; branch: string }) => Promise<string | null>;
   /** Waits `ms` before the one push retry after a GitHub server error. Absent → a real timer; tests inject a fake. */
   wait?: (ms: number) => Promise<void>;
 }
@@ -1336,6 +1342,14 @@ export async function shipTicket(
             detail: ref,
             at: pushAt,
           });
+          // D541: the base-moved check runs BEFORE the intent is prepared and the force-push lease is taken, so a long
+          // gate run holds neither: a stop leaves a `failed` intent with nothing applied and the lease still armed.
+          const baseFailure = (await opts.checkBase?.({ repo: wt.repo, cwd: wt.path, branch: ref })) ?? null;
+          if (baseFailure !== null) {
+            reconcileShipOperation(store, pushOp.intentId, 'failed', { resolvedAt: nowIso(), detail: baseFailure });
+            finishShipRepoStep(store, pushOp.stepId, { status: 'failed', detail: baseFailure, endedAt: nowIso() });
+            throw new Error(baseFailure);
+          }
           finalizeShipOperationIntent(
             store,
             pushOp.intentId,

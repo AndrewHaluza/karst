@@ -12,6 +12,7 @@ import { finishDeliverRun, type DeliverRunKind, openDeliverRun, recordDeliverGat
 import { nowIso } from '../../model/time.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { cutGatesWithoutUiChange } from '../../workflow/gates/uiDiff.js';
+import { isUiGate } from '../../workflow/gates/uiScope.js';
 import { NO_UI_CHANGE_REASON } from '../../workflow/gates/uiScope.js';
 
 /**
@@ -22,6 +23,14 @@ import { NO_UI_CHANGE_REASON } from '../../workflow/gates/uiScope.js';
  * `deliver_runs` row opens before the first gate and one `deliver_gate_results` row
  * (with the head SHA) is appended as each gate finishes. A failure leaves the merge
  * undelivered with the reason shown, and its record stays.
+ *
+ * Base moved (D541, `baseMovedCheck.ts`): CI tests the PR head merged with the CURRENT base, a tree no karst gate
+ * saw when the base moved after the last green run. Before a push, that merge is built in a temporary worktree
+ * below `.karst/base-check` and this runner gates it with `kind: 'base-moved'`. The UI gates are cut by the BASE
+ * delta since the last green run (`uiChanged`), never by a diff of the merged tree, whose branch changes hold UI
+ * paths the earlier green run already covered. A test that also fails on the base alone is develop drift: the gate
+ * scripts (D313, D360) excuse it, so the run still passes.
+ * A ticket with a sandbox clone is not checked: its gate runner cannot see the merged worktree (@arch:AC-39).
  */
 export interface ShipGatesDeps {
   readonly uat: UatConfig | undefined;
@@ -54,6 +63,11 @@ export interface ShipGatesDeps {
    * (@arch:AP-01). Absent → every gate runs.
    */
   readonly git?: GitRunner;
+  /**
+   * The base delta of a base-moved merge holds a UI path (D541). Defined → the UI gates are cut by it and no diff is
+   * read; absent → cut by the merged diff against the base, as UAT does.
+   */
+  readonly uiChanged?: boolean;
   readonly gateEnv?: (pr: DeliverPr) => { readonly prBody: string; readonly baseRef?: string };
 }
 
@@ -78,7 +92,9 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
       return `${pr.repo}: ${resolution.reason}`;
     }
     const baseRef = d.gateEnv?.(pr).baseRef;
-    const cut = d.git && baseRef
+    const cut = d.uiChanged !== undefined
+      ? cutByBaseDelta(resolution.gates, d.uiChanged)
+      : d.git && baseRef
       ? await cutGatesWithoutUiChange(resolution.gates, d.git, pr.cwd, baseRef, d.debug)
       : { kept: [...resolution.gates], skipped: [] };
     const wanted = (g: ResolvedGate): boolean => d.only === undefined || d.only.includes(g.name);
@@ -102,6 +118,11 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
     }
   }
   return failure;
+}
+
+function cutByBaseDelta(gates: readonly ResolvedGate[], uiChanged: boolean): { kept: ResolvedGate[]; skipped: ResolvedGate[] } {
+  if (uiChanged) return { kept: [...gates], skipped: [] };
+  return { kept: gates.filter((g) => !isUiGate(g)), skipped: gates.filter(isUiGate) };
 }
 
 async function openRun(planned: readonly PlannedRepo[], d: ShipGatesDeps): Promise<number | null> {
