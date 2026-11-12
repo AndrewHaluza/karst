@@ -315,3 +315,27 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     expect(ran).toHaveLength(1);
   });
 });
+
+describe('runShipGates on a base-moved merge (D541)', () => {
+  const uat = { gates: [{ name: 'unit', kind: 'script', script: 'test' }, { name: 'visual', kind: 'script', script: 'test:visual:docker' }], repositories: {} } as never;
+  const scripts = { test: 'x', 'test:visual:docker': 'x' };
+  const run = async (uiChanged: boolean) => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-9', title: 't' }).id;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (_c, args) => { ran.push(args.find((a) => a === 'test' || a === 'test:visual:docker') ?? '?'); return { kind: 'completed', exitCode: 0, output: '' }; };
+    // No git runner: the cut must come from the base delta, never from a diff of the merged tree against the base.
+    await runShipGates([repoWith(scripts)], { uat, runProcess, uiChanged, kind: 'base-moved', evidence: { store, ticketId }, headSha: async () => 'd'.repeat(40) });
+    return { ran, store, ticketId };
+  };
+
+  it('cuts the visual gate when the base delta holds no UI path, and records the cut', async () => {
+    const { ran, store, ticketId } = await run(false);
+    expect(ran).toEqual(['test']);
+    expect(currentDeliverRun(store, ticketId)).toMatchObject({ kind: 'base-moved', headSha: 'd'.repeat(40), gates: ['unit', 'visual'] });
+    expect(listDeliverResults(store, ticketId).find((r) => r.gateName === 'visual')).toMatchObject({ exitCode: null, summary: NO_UI_CHANGE_REASON });
+  });
+  it('runs the visual gate when the base delta holds a UI path', async () => {
+    expect((await run(true)).ran).toEqual(['test', 'test:visual:docker']);
+  });
+});

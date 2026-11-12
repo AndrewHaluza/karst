@@ -11,8 +11,10 @@ import { rebaseState } from '../../workflow/rebaseState.js';
 import { sendCiFailureToAgent } from './ciFailureOps.js';
 import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
-import { deliverTargets } from '../../workflow/deliverState.js';
+import { deliverTargets, type DeliverPr } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
+import { checkBaseMoved } from './baseMovedCheck.js';
+import { baseCheckParent, readLastGreenBase } from './baseMovedHost.js';
 import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
 import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
@@ -287,6 +289,30 @@ function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
   });
 }
 
+/**
+ * The base-moved check of one PR before its push (D541): the branch merged with the current base, gated in a temporary
+ * worktree and recorded as a `base-moved` run. Null = nothing stops the push (base unchanged, no earlier green run,
+ * conflict (the merge-check path owns it), not checkable); else the CI reason.
+ */
+export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, pr: DeliverPr, signal: AbortSignal): Promise<string | null> {
+  const baseRef = gate.gateEnv?.(pr).baseRef;
+  if (baseRef === undefined) return null;
+  const gitDir = await i.git(['rev-parse', '--path-format=absolute', '--git-dir'], pr.cwd);
+  const dir = gitDir.stdout.trim();
+  const outcome = await checkBaseMoved({
+    git: i.git, cwd: pr.cwd, baseRef, debug: (m) => i.debug(m),
+    lastGreenBase: async () => (gitDir.exitCode === 0 && dir !== '' ? readLastGreenBase(dir) : null),
+    worktreeParent: baseCheckParent,
+    runGates: (merged) => runShipGates([{ ...pr, cwd: merged.cwd }], {
+      ...gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: async () => merged.sha,
+      onProgress: i.afterServerChange, uiChanged: merged.uiChanged, kind: 'base-moved',
+    }),
+  });
+  if (outcome.kind === 'failed') return outcome.reason;
+  if (outcome.kind === 'unknown') i.debug(`[ship] base-moved check not run: ${outcome.reason}`);
+  return null;
+}
+
 /** Karst's own delivery of a resolved merge conflict, run when the Resolve-conflicts session goes idle (D247). */
 export function autoDeliverAction(
   i: CiActionsInput,
@@ -301,6 +327,7 @@ export function autoDeliverAction(
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
+    checkBase: (pr, signal) => baseMovedFailure(i, extra.gate, pr, signal),
     verifyMerge: (pr, round) => verifyMergeResolved(gitFor(i), pr.cwd, round),
     blocked: h.blocked,
     runShip: h.runShip,

@@ -55,6 +55,32 @@ function rig(over: Partial<AutoDeliverDeps> = {}) {
 }
 
 describe('autoDeliverAfterConflict', () => {
+  it('does not push when the merge with the moved base fails, and shows the CI reason (D541)', async () => {
+    const { deps, rounds, log } = rig({ checkBase: async () => 'fails when merged with origin/develop abc; CI tests this merge' });
+    await autoDeliverAfterConflict(deps);
+    expect(log).not.toContain('ship');
+    expect(log.some((l) => l.startsWith('error:') && l.includes('CI tests this merge'))).toBe(true);
+    expect(rounds.armed(1)).not.toBeNull();
+  });
+
+  it('pushes when the merge with the moved base passes, and the check runs after the ship gates (D541)', async () => {
+    const order: string[] = [];
+    const { deps, log } = rig({
+      runGates: async () => { order.push('gates'); return null; },
+      checkBase: async () => { order.push('base'); return null; },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(order).toEqual(['gates', 'base']);
+    expect(log).toContain('ship');
+  });
+
+  it('does not run the base check when a ship gate failed (D541)', async () => {
+    let checked = false;
+    const { deps } = rig({ runGates: async () => 'r: gate "test" failed', checkBase: async () => { checked = true; return null; } });
+    await autoDeliverAfterConflict(deps);
+    expect(checked).toBe(false);
+  });
+
   it('syncs, verifies, gates, pushes once, and disarms', async () => {
     const { deps, rounds, log } = rig();
     await autoDeliverAfterConflict(deps);
