@@ -74,8 +74,8 @@ const BLOCKED = pr({
   repo: 'fixture:/repos/api', repoDisplay: 'api', number: 88, status: 'open', checks: checks('failing', '1 failing · 2 passed'),
   mergeBlockLabel: 'blocked', mergeBlockedReason: 'Required reviews are missing.',
   readiness: blocked(
-    { kind: 'checks', state: 'bad', label: 'Checks failing', detail: '1 failing · 2 passed', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } },
-    { kind: 'review', state: 'warn', label: 'Awaiting review', detail: 'no approvals yet', action: { act: 'open-pr', label: 'Open on GitHub', url: 'fixture:https://github.com/fixture-org/api/pull/88' } },
+    { kind: 'checks', state: 'bad', label: 'Checks failing', short: 'checks failing · 1', detail: '1 failing · 2 passed', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } },
+    { kind: 'review', state: 'warn', label: 'Awaiting review', short: 'awaiting review', detail: 'no approvals yet', action: { act: 'open-pr', label: 'Open on GitHub', url: 'fixture:https://github.com/fixture-org/api/pull/88' } },
   ),
 });
 const MERGED = pr({
@@ -87,10 +87,19 @@ const DISMISSED = pr({
   dismissedLabel: 'dismissed 3h ago', canDismiss: false,
 });
 
-const CHECKS_FAIL: Reason = { kind: 'checks', state: 'bad', label: 'Checks failing', detail: '1 failing · 2 passed', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } };
-const RULE = prOf(blocked({ kind: 'github-rule', state: 'warn', label: 'Blocked by a GitHub rule', detail: 'GitHub refuses the merge; karst cannot see which rule', action: { act: 'open-pr', label: 'Open on GitHub', url: 'fixture:https://github.com/fixture-org/api/pull/88' } }));
-const UNKNOWN = prOf(blocked({ kind: 'checks', state: 'run', label: 'Checks unknown', detail: 'karst has not read the checks yet', why: 'The last probe did not state the checks.', disclosure: 'why karst cannot tell' }));
-const FIX_RUNNING = prOf(blocked({ ...CHECKS_FAIL, state: 'run', detail: 'auto-fix round 1 is running', action: undefined }));
+const CHECKS_FAIL: Reason = { kind: 'checks', state: 'bad', label: 'Checks failing', short: 'checks failing · 2', detail: '1 failing · 2 passed', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } };
+const RULE = prOf(blocked({ kind: 'github-rule', state: 'warn', label: 'Blocked by a GitHub rule', short: 'GitHub rule', detail: 'GitHub refuses the merge; karst cannot see which rule', action: { act: 'open-pr', label: 'Open on GitHub', url: 'fixture:https://github.com/fixture-org/api/pull/88' } }));
+const UNKNOWN = prOf(blocked({ kind: 'checks', state: 'run', label: 'Checks unknown', short: 'checks unknown', detail: 'karst has not read the checks yet', why: 'The last probe did not state the checks.', disclosure: 'why karst cannot tell' }));
+const CONFLICTS: Reason = {
+  kind: 'conflicts', state: 'warn', label: 'Conflicts with main', short: 'conflicts · 3 files', detail: '3 files · checked just now',
+  action: { act: 'resolve-conflicts', label: 'Resolve', repo: 'fixture:/repos/api' },
+  list: [{ text: 'src/ui/usage/__snapshots__/render.test.ts.snap' }, { text: 'src/model/prChecks.ts' }, { text: 'tests/visual/layout-known-failures.json' }],
+};
+const CHECKS_LIST: Reason = { ...CHECKS_FAIL, list: [{ text: 'Typecheck, build, unit' }, { text: 'Visual regression (blocks new breaks)' }] };
+const BLOCKED_2 = prOf(blocked(CHECKS_LIST, CONFLICTS));
+const BLOCKED_1 = prOf(blocked(CHECKS_LIST));
+const FIX_RUNNING_2 = prOf(blocked({ ...CHECKS_LIST, state: 'run', short: 'auto-fix round 1 runs', detail: 'Auto-fix round 1 runs', action: undefined }, CONFLICTS));
+const FIX_RUNNING = prOf(blocked({ ...CHECKS_FAIL, state: 'run', short: 'auto-fix round 1 runs', detail: 'auto-fix round 1 is running', action: undefined }));
 const FIX_PARKED = prOf(blocked({ ...CHECKS_FAIL, extra: 'Auto-fix parked: it needs your decision.' }));
 
 const withServers = (servers: Servers) => (s: DashboardState): DashboardState => ({ ...s, servers });
@@ -122,5 +131,9 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
     patch: (s) => ({ ...withPrs([READY, FIX_RUNNING])(s), autopilot: { ...(s.autopilot ?? { override: 'inherit', projectDefault: true, effective: true, banner: null }), roundRunning: true } }),
   },
   { id: 'pr-autofix-parked', patch: withPrs([READY, FIX_PARKED]) },
+  { id: 'pr-blocked-2-closed', patch: withPrs([BLOCKED_2]) },
+  { id: 'pr-blocked-2-open', patch: withPrs([BLOCKED_2]), click: '.prblock-fold > summary' },
+  { id: 'pr-blocked-2-autofix', patch: withPrs([FIX_RUNNING_2]) },
+  { id: 'pr-blocked-1', patch: withPrs([BLOCKED_1]) },
   { id: 'pr-empty', patch: withPrs([]) },
 ];

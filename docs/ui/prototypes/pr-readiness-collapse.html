@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PR readiness collapse</title>
+<style>
+:root{--bg:#f3f3f3;--surface:#fff;--text:#1f1f1f;--dim:#5f6368;--faint:#80868b;--border:#d0d0d0;--link:#1a5fb4;--ok:#2e7d32;--ok-fg:#fff;--bad:#c0394b;--bad-fg:#fff;--warn:#9a6a12;--warn-fg:#fff;--focus:#1a73e8}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1e1e1e;--surface:#252526;--text:#e6e6e6;--dim:#a8a8a8;--faint:#8a8a8a;--border:#3c3c3c;--link:#6cb6ff;--ok:#2f8a3c;--bad:#c44456;--warn:#9a6a12}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px 16px}
+main{max-width:920px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:16px;margin:32px 0 6px}
+p.lead,p.note{color:var(--dim);margin:0 0 12px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin:8px 0}
+.pr{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.repo{font-size:15px}.num a{color:var(--link);font-family:ui-monospace,monospace;font-weight:600}
+.chip{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.4px;border-radius:999px;padding:2px 8px}
+.open{background:var(--ok);color:var(--ok-fg)}.fail{background:var(--bad);color:var(--bad-fg)}.blk{background:var(--warn);color:var(--warn-fg)}
+.stamp{color:var(--dim);font-size:12px}.acts{margin-left:auto;display:flex;gap:6px}
+.btn{font:inherit;font-size:12px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text);white-space:nowrap}
+.btn[disabled]{opacity:.45}
+.sub{margin:6px 0 0 26px;font-size:13px}
+.rl{border:1px solid var(--border);border-radius:6px}
+.rl>summary,.rl>.head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:6px 10px;cursor:pointer;list-style:none}
+.rl>summary::-webkit-details-marker{display:none}
+summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.chev{color:var(--link);display:inline-block;width:10px}
+.rl[open]>summary .chev{transform:rotate(90deg)}
+.hd{font-weight:600}.cnt{color:var(--dim)}
+.it{display:inline-flex;align-items:center;gap:5px;font-size:12px}
+.it.bad{color:var(--bad)}.it.warn{color:var(--warn)}
+.rlacts{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.rs{border-top:1px solid var(--border);padding:6px 10px;display:grid;grid-template-columns:18px 1fr auto;gap:2px 8px;align-items:start}
+.ic{font-weight:700}.ic.bad{color:var(--bad)}.ic.warn{color:var(--warn)}
+.lb{font-weight:600}.dt{color:var(--dim)}
+.ls{grid-column:2/4;margin-top:2px}
+.ls details>summary{color:var(--link);cursor:pointer;width:fit-content}
+.row{margin:3px 0 0;padding-left:8px;border-left:2px solid var(--border)}.row a{color:var(--link)}
+.file{font-family:ui-monospace,monospace;font-size:12px;color:var(--dim);word-break:break-all}
+.ready{display:flex;gap:8px;align-items:center;color:var(--ok)}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+th,td{text-align:left;border-bottom:1px solid var(--border);padding:6px 8px;vertical-align:top}th{color:var(--dim)}
+code{font-family:ui-monospace,monospace;font-size:12px}
+@media (max-width:560px){.acts{margin-left:0;width:100%}.sub{margin-left:8px}.rlacts{margin-left:0;width:100%}}
+</style></head><body><main>
+<h1>PR readiness list: collapsed summary</h1>
+<p class="lead">Builds on T1064 (one merge-readiness list per PR, prototype <code>docs/ui/prototypes/dashboard-polish-v1.html</code> tab 0). T1064 removes the duplicate check list. This change only makes the T1064 list collapse to one line. Example: PR #1037, 2 failing checks and 3 conflicting files.</p>
+
+<h2>1. T1064 as planned (always open)</h2>
+<div class="card">
+ <div class="pr"><span class="repo">extention</span><span class="num"><a href="#">#1037</a></span><span class="chip open">open</span><span class="chip fail">⊗ 2 failing · 12 passed</span><span class="chip blk">blocked · 2 reasons</span><span class="stamp">opened 1h ago</span><span class="acts"><button class="btn" disabled>Dismiss</button><button class="btn" disabled>Merge</button></span></div>
+ <div class="sub"><div class="rl">
+  <div class="head"><span>🔒</span><span class="hd">Merge blocked</span><span class="cnt">2 reasons</span></div>
+  <div class="rs"><span class="ic bad">⊗</span><span><span class="lb">Required checks failing</span> <span class="dt">· 2 checks failing</span></span><button class="btn">Send CI failure</button>
+   <div class="ls"><div class="row"><a href="#">Typecheck, build, unit</a></div><div class="row"><a href="#">Visual regression (blocks new breaks)</a></div></div></div>
+  <div class="rs"><span class="ic warn">⚠</span><span><span class="lb">Conflicts with develop</span> <span class="dt">· 3 files · checked just now</span></span><button class="btn">Resolve conflicts</button>
+   <div class="ls"><div class="file">src/ui/gettingStarted/__snapshots__/render.test.ts.snap</div><div class="file">src/ui/usage/__snapshots__/render.test.ts.snap</div><div class="file">tests/visual/layout-known-failures.json</div></div></div>
+ </div></div>
+</div>
+
+<h2>2. Proposed: closed by default (click the line to open)</h2>
+<p class="note">The header becomes the summary of one disclosure. Closed, it shows one item for each bad or warn reason: icon, short label and count. The reason actions stay on the summary line, so you can act with the list closed.</p>
+<div class="card">
+ <div class="pr"><span class="repo">extention</span><span class="num"><a href="#">#1037</a></span><span class="chip open">open</span><span class="chip fail">⊗ 2 failing · 12 passed</span><span class="chip blk">blocked · 2 reasons</span><span class="stamp">opened 1h ago</span><span class="acts"><button class="btn" disabled>Dismiss</button><button class="btn" disabled>Merge</button></span></div>
+ <div class="sub"><details class="rl">
+  <summary><span class="chev">▶</span><span class="hd">Merge blocked</span><span class="it bad">⊗ checks failing · 2</span><span class="it warn">⚠ conflicts · 3 files</span><span class="rlacts"><button class="btn" onclick="event.preventDefault()">Send CI failure</button><button class="btn" onclick="event.preventDefault()">Resolve conflicts</button></span></summary>
+  <div class="rs"><span class="ic bad">⊗</span><span><span class="lb">Required checks failing</span> <span class="dt">· 2 checks failing</span></span><span></span>
+   <div class="ls"><div class="row"><a href="#">Typecheck, build, unit</a></div><div class="row"><a href="#">Visual regression (blocks new breaks)</a></div></div></div>
+  <div class="rs"><span class="ic warn">⚠</span><span><span class="lb">Conflicts with develop</span> <span class="dt">· 3 files · checked just now</span></span><span></span>
+   <div class="ls"><div class="file">src/ui/gettingStarted/__snapshots__/render.test.ts.snap</div><div class="file">src/ui/usage/__snapshots__/render.test.ts.snap</div><div class="file">tests/visual/layout-known-failures.json</div></div></div>
+ </details></div>
+</div>
+
+<h2>3. One reason only: no disclosure (T1064 row, unchanged)</h2>
+<div class="card">
+ <div class="pr"><span class="repo">extention</span><span class="num"><a href="#">#1040</a></span><span class="chip open">open</span><span class="chip fail">⊗ 1 failing · 13 passed</span><span class="chip blk">blocked · 1 reason</span><span class="acts"><button class="btn" disabled>Dismiss</button><button class="btn" disabled>Merge</button></span></div>
+ <div class="sub"><div class="rl"><div class="head"><span>🔒</span><span class="hd">Merge blocked</span><span class="cnt">1 reason</span></div>
+  <div class="rs"><span class="ic bad">⊗</span><span><span class="lb">Required checks failing</span> <span class="dt">· 1 check failing</span></span><button class="btn">Send CI failure</button>
+   <div class="ls"><details><summary>1 failing check</summary><div class="row"><a href="#">Typecheck, build, unit</a></div></details></div></div></div></div>
+</div>
+
+<h2>4. Ready: unchanged</h2>
+<div class="card"><div class="pr"><span class="repo">extention</span><span class="num"><a href="#">#1041</a></span><span class="chip open">open</span><span class="acts"><button class="btn">Merge</button></span></div>
+ <div class="sub"><div class="ready">✓ <b>Ready to merge</b> <span style="color:var(--dim)">approved · 14 checks passed · GitHub: clean</span></div></div></div>
+
+<h2>Rules</h2>
+<table>
+<tr><th>Item</th><th>Rule</th></tr>
+<tr><td>When</td><td>2 or more bad/warn reasons: one closed disclosure. 1 reason: the T1064 row with no outer disclosure; its list collapses.</td></tr>
+<tr><td>Summary items</td><td>One for each bad/warn reason: state icon + short label + count. The host words the text (prMergeReadiness), the TSX only places it. The icon carries the state, not colour alone (UI-R28).</td></tr>
+<tr><td>Actions</td><td>Each reason action shows on the summary line, in reason order. A click on an action does not toggle the disclosure. Inside the open body, the action is not repeated.</td></tr>
+<tr><td>Auto-fix</td><td>A reason in a running auto-fix round shows its run state in the summary item and has no action (T1064 section 4).</td></tr>
+<tr><td>Open state</td><td>Closed by default. Keep the choice for each repo across re-renders (as mergeOpen does today).</td></tr>
+<tr><td>Narrow</td><td>Summary items wrap; the action group goes on its own line below the items.</td></tr>
+</table>
+</main></body></html>

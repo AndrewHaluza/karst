@@ -42,7 +42,7 @@ const withMenu = (state: DashboardState, stage: string): DashboardState =>
   ({ ...state, sendBack: { available: true, stage }, ciFailure: { available: true, repos: [REPO] } }) as DashboardState;
 const failingCi = (): DashboardState => {
   const s = populatedStateFor('ship');
-  return withMenu({ ...s, prs: [{ ...s.prs[0]!, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'checks', state: 'bad', label: 'CI failing', detail: '', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } }] } }] } as DashboardState, 'ship');
+  return withMenu({ ...s, prs: [{ ...s.prs[0]!, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'checks', state: 'bad', label: 'CI failing', short: 'ci failing', detail: '', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } }] } }] } as DashboardState, 'ship');
 };
 
 describe('React Inside / vanilla page — selection and persistence', () => {

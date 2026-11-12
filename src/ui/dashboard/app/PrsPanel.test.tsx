@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent } from '@testing-library/react';
+import type { Reason } from '../../../model/prMergeReadiness.js';
 import type { DashboardState } from '../state.js';
 import { blockedBy, failing, installRuntimeDoubles, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
 
@@ -253,7 +254,6 @@ describe('PrsPanel — the merge-readiness block', () => {
 
   it('lists one row per reason with a header count, and shows nothing for a merged PR', () => {
     mount(stateWith([pr({ readiness: blockedBy(['checks', 'bad'], ['review', 'warn']) })]));
-    expect(text('.prblock-count')).toBe('2 reasons');
     expect(document.querySelectorAll('li.prsn')).toHaveLength(2);
     expect(document.querySelector('li.prsn')!.className).toBe('prsn prsn-bad');
     expect(text('li.prsn .prsn-label')).toBe('checks label');
@@ -265,7 +265,7 @@ describe('PrsPanel — the merge-readiness block', () => {
 
   it('keeps the conflicts disclosure open across pushes', () => {
     const withWhy = (opened: string) =>
-      stateWith([pr({ opened, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'conflicts', state: 'bad', label: 'Conflicts', detail: '', why: 'git failed' }] } })]);
+      stateWith([pr({ opened, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [{ kind: 'conflicts', state: 'bad', label: 'Conflicts', short: 'conflicts', detail: '', why: 'git failed' }] } })]);
     const h = mount(withWhy('opened 2 days ago'));
     const d = document.querySelector<HTMLDetailsElement>('details.prsn-more')!;
     d.open = true;
@@ -273,6 +273,73 @@ describe('PrsPanel — the merge-readiness block', () => {
     h.emit({ type: 'state', state: withWhy('opened 3 days ago') });
     expect(document.querySelector<HTMLDetailsElement>('details.prsn-more')!.open).toBe(true);
     expect(text('.mgreason')).toBe('git failed');
+  });
+});
+
+describe('PrsPanel — the folded readiness list', () => {
+  type Readiness = DashboardState['prs'][number]['readiness'];
+  const act = (kind: 'checks' | 'conflicts', label: string): Partial<Reason> =>
+    kind === 'checks' ? { action: { act: 'send-ci-failure', label } } : { action: { act: 'resolve-conflicts', label, repo: REPO } };
+  const two = (over: Partial<Reason>[] = [{}, {}]): Readiness => {
+    const base = blockedBy(['checks', 'bad'], ['conflicts', 'warn']);
+    return { ...base, reasons: base.reasons.map((r, i) => ({ ...r, ...over[i] })) };
+  };
+  const fold = (): HTMLDetailsElement => document.querySelector<HTMLDetailsElement>('details.prblock-fold')!;
+
+  it('closes by default with the headline, one host-worded item per blocking reason, and no header count', () => {
+    mount(stateWith([pr({ readiness: two() })]));
+    expect(fold().open).toBe(false);
+    expect(text('.prblock-head b')).toBe('Merge blocked');
+    expect(texts('.prblock-item')).toEqual(['checks short', 'conflicts short']);
+    expect(document.querySelector('.prblock-count')).toBeNull();
+  });
+
+  it('shows the actions on the summary line in reason order and not again in the body', () => {
+    mount(stateWith([pr({ readiness: two([act('checks', 'Send CI failure'), act('conflicts', 'Resolve')]) })]));
+    expect(texts('.prblock-acts button')).toEqual(['Send CI failure', 'Resolve']);
+    expect(document.querySelectorAll('.prsn-line button')).toHaveLength(0);
+  });
+
+  it('does not toggle the disclosure when an action is clicked', () => {
+    mount(stateWith([pr({ readiness: two([act('checks', 'Send CI failure'), {}]) })]));
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    document.querySelector('.prblock-acts button')!.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(fold().open).toBe(false);
+  });
+
+  it('shows a running reason as its run state with no action', () => {
+    mount(stateWith([pr({ readiness: two([{ state: 'run', short: 'auto-fix round 1/3 runs' }, {}]) })]));
+    expect(texts('.prblock-item')[0]).toBe('auto-fix round 1/3 runs');
+    expect(document.querySelector('.prblock-item.prsn-run')).not.toBeNull();
+    expect(document.querySelector('.prblock-acts')).toBeNull();
+  });
+
+  it('keeps the open choice across a push and lists the reason bodies open', () => {
+    const state = (opened: string) => stateWith([pr({ opened, readiness: two([{ list: [{ text: 'unit' }] }, {}]) })]);
+    const h = mount(state('opened 2 days ago'));
+    fold().open = true;
+    fold().dispatchEvent(new Event('toggle'));
+    h.emit({ type: 'state', state: state('opened 3 days ago') });
+    expect(fold().open).toBe(true);
+    expect(text('.prsn-more .pck-row')).toBe('unit');
+    expect(document.querySelector('details.prsn-more')).toBeNull();
+  });
+
+  it('has no outer disclosure for one blocking reason, and its list is a collapsed details', () => {
+    mount(stateWith([pr({ readiness: blockedBy(['checks', 'bad']) })]));
+    expect(document.querySelector('details.prblock-fold')).toBeNull();
+    expect(text('.prblock-count')).toBe('1 reason');
+    cleanup();
+    const one1 = blockedBy(['checks', 'bad']);
+    mount(stateWith([pr({ readiness: { ...one1, reasons: [{ ...one1.reasons[0]!, list: [{ text: 'unit' }] }] } })]));
+    expect(document.querySelector('details.prblock-fold')).toBeNull();
+    expect(document.querySelector<HTMLDetailsElement>('details.prsn-more')!.open).toBe(false);
+  });
+
+  it('counts only blocking reasons: one blocker beside an ok row is not folded', () => {
+    mount(stateWith([pr({ readiness: blockedBy(['checks', 'ok'], ['conflicts', 'warn']) })]));
+    expect(document.querySelector('details.prblock-fold')).toBeNull();
   });
 });
 
