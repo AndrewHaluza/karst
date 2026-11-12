@@ -577,6 +577,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
     expect(rerunTitles()[0]).toMatch(new RegExp(`ran on ${SHA.slice(0, 9)}: failed: .+`));
     expect(rerunTitles()[0]).not.toContain('unknown');
     expect(rerunTitles()[0]).not.toContain('failed: none');
+    expect(rerunTitles()[0]).toContain('failed: r: cannot read package.json');
     void done;
   });
 
