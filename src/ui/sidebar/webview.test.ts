@@ -20,7 +20,7 @@ describe('sidebar webview.html', () => {
   it('fills a stage chip with its approved background pair, falling back to the wash (869ej2cfz)', () => {
     // The chip rule moved to the shared design-system sheet, which every webview injects.
     expect(DS_CSS).toMatch(
-      /\.stage\[class\*="stg-"\]\{[\s\S]*?background:var\(--stg-bg,color-mix\(in srgb, currentColor 16%, transparent\)\)\}/,
+      /\.stage\[class\*="stg-"\]\{[\s\S]*?background:var\(--stg-bg,color-mix\(in srgb,var\(--c\) var\(--k-chip-wash\),transparent\)\)/,
     );
   });
 

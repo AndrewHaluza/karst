@@ -45,7 +45,7 @@ describe('ticketRefView', () => {
       stage: 'impl',
       session: null,
     });
-    expect(view.accessibleName).toBe('Ticket T963 in impl');
+    expect(view.accessibleName).toBe('T963, Implementation');
     expect(formatTicketRefText(view, { prefix: 'Blocked by ' })).toBe('Blocked by ● T963 · FIX-101 · impl');
     expect(formatTicketRefText(view, { prefix: 'Blocked by ', showKey: false })).toBe('Blocked by ● T963 · impl');
   });
@@ -66,7 +66,7 @@ describe('ticketRefView', () => {
       stage: 'done',
       session: null,
     });
-    expect(view.accessibleName).toBe('Ticket T970 done');
+    expect(view.accessibleName).toBe('T970, Done');
   });
 
   it('builds view for a finished target at closed (kind: finished)', () => {
@@ -85,7 +85,7 @@ describe('ticketRefView', () => {
       stage: 'closed',
       session: null,
     });
-    expect(view.accessibleName).toBe('Ticket T971 closed');
+    expect(view.accessibleName).toBe('T971, Closed');
   });
 
   it('builds view for a pending planning draft (kind: draft)', () => {
@@ -122,7 +122,7 @@ describe('ticketRefView', () => {
       stage: 'review',
       session: null,
     });
-    expect(view.accessibleName).toBe('D445, ticket T970 in review');
+    expect(view.accessibleName).toBe('D445→T970, Review');
     expect(formatTicketRefText(view)).toBe('● D445→T970 · review');
   });
 
@@ -141,7 +141,7 @@ describe('ticketRefView', () => {
       stage: 'done',
       session: null,
     });
-    expect(view.accessibleName).toBe('D445, ticket T970 done');
+    expect(view.accessibleName).toBe('D445→T970, Done');
     expect(formatTicketRefText(view)).toBe('● D445→T970 · done');
   });
 
@@ -153,7 +153,7 @@ describe('ticketRefView', () => {
     expect(view.stage).toBe('impl');
     expect(view.glyph).toBe('blue');
     expect(view.displayTextParts.stage).toBe('impl');
-    expect(view.accessibleName).toBe('Ticket T972 in impl');
+    expect(view.accessibleName).toBe('T972, Implementation');
   });
 
   it('shows an archived done ticket as done with the finished dot', () => {
@@ -163,7 +163,7 @@ describe('ticketRefView', () => {
     expect(view.kind).toBe('finished');
     expect(view.stage).toBe('done');
     expect(view.glyph).toBe('green');
-    expect(view.accessibleName).toBe('Ticket T973 done');
+    expect(view.accessibleName).toBe('T973, Done');
   });
 
   it('shows a cross-session label on a pending draft dependency', () => {
@@ -198,7 +198,7 @@ describe('ticketRefView', () => {
       stage: null,
       session: null,
     });
-    expect(view.accessibleName).toBe('ABC-123');
+    expect(view.accessibleName).toBe('ABC-123, missing');
     expect(formatTicketRefText(view, { prefix: 'Blocked by ' })).toBe('Blocked by ● ABC-123');
   });
 
@@ -207,11 +207,13 @@ describe('ticketRefView', () => {
     const view = ticketRefView(t);
     const html = renderTicketRefHtml(view, { prefix: 'Blocked by ' });
 
-    expect(html).toContain('class="k-ticket-ref"');
-    expect(html).toContain('class="k-ticket-ref-dot g-blue"');
+    expect(html).toContain('class="k-ticket-ref stg-impl"');
+    expect(html).not.toContain('k-ticket-ref-dot');
     expect(html).toContain('Blocked by ');
-    expect(html).toContain('<a href="#" data-act="open-dependency" data-ticket="963">T963</a>');
-    expect(html).toContain(' · KEY · impl');
-    expect(html).toContain('aria-label="Ticket T963 in impl"');
+    expect(html).toContain('<a href="#" data-act="open-dependency" data-ticket="963" aria-label="T963, Implementation">T963</a>');
+    expect(html).toContain(' · KEY');
+    expect(html).toContain('<span class="k-ticket-ref-word" data-full="Implementation" data-short="impl" aria-hidden="true"></span>');
+    // The name sits on the link, not on the wrapper.
+    expect(html.match(/aria-label=/g)).toHaveLength(1);
   });
 });

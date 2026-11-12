@@ -799,36 +799,74 @@
     const parts = view.displayTextParts || { id: '', key: null, stage: null };
     const tooltip = !showKey && view.keyOrRef ? view.keyOrRef : null;
 
+    // The host builds the chip parts (state, stage class, word pair) with the shared view.
+    const cp = view.chip || { state: 'stage', stageClass: '', full: parts.stage || '', short: parts.stage || '' };
+    const isLink = link && view.ticketId !== null && view.ticketId !== undefined;
     const chip = document.createElement('span');
-    chip.className = 'k-ticket-ref';
-    chip.setAttribute('aria-label', view.accessibleName);
+    chip.className = 'k-ticket-ref' + (cp.stageClass ? ' ' + cp.stageClass : '') + (cp.state === 'stage' ? '' : ' is-' + cp.state);
+    if (!isLink) chip.setAttribute('aria-label', view.accessibleName);
     if (tooltip) chip.setAttribute('title', tooltip);
 
     if (prefix) {
       const p = document.createElement('span');
+      p.className = 'k-ticket-ref-prefix';
       p.textContent = prefix;
       chip.appendChild(p);
     }
 
-    const dot = document.createElement('span');
-    dot.className = 'k-ticket-ref-dot g-' + view.glyph;
-    dot.setAttribute('aria-hidden', 'true');
-    chip.appendChild(dot);
+    if (cp.state === 'needs') {
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('class', 'k-ticket-ref-pause');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('focusable', 'false');
+      [[5, 3], [14, 3]].forEach(function (xy) {
+        const r = document.createElementNS(ns, 'rect');
+        r.setAttribute('x', String(xy[0]));
+        r.setAttribute('y', String(xy[1]));
+        r.setAttribute('width', '5');
+        r.setAttribute('height', '18');
+        r.setAttribute('rx', '1');
+        svg.appendChild(r);
+      });
+      chip.appendChild(svg);
+    }
 
-    const body = document.createElement('span');
-    if (link && view.ticketId !== null && view.ticketId !== undefined) {
+    if (isLink) {
       const a = document.createElement('a');
       a.href = '#';
       a.setAttribute('data-act', dataAct);
       a.setAttribute(dataIdAttr, String(view.ticketId));
+      a.setAttribute('aria-label', view.accessibleName);
       a.textContent = parts.id;
-      body.appendChild(a);
+      chip.appendChild(a);
     } else {
-      body.appendChild(document.createTextNode(parts.id));
+      const id = document.createElement('span');
+      id.className = 'k-ticket-ref-id';
+      id.textContent = parts.id;
+      chip.appendChild(id);
     }
-    if (showKey && parts.key) body.appendChild(document.createTextNode(' · ' + parts.key));
-    if (parts.stage) body.appendChild(document.createTextNode(' · ' + parts.stage));
-    chip.appendChild(body);
+    if (showKey && parts.key) {
+      const k = document.createElement('span');
+      k.className = 'k-ticket-ref-x';
+      k.textContent = ' · ' + parts.key;
+      chip.appendChild(k);
+    }
+    if (cp.full) {
+      const w = document.createElement('span');
+      w.className = 'k-ticket-ref-word';
+      w.setAttribute('data-full', cp.full);
+      w.setAttribute('data-short', cp.short);
+      w.setAttribute('aria-hidden', 'true');
+      chip.appendChild(w);
+    }
+    if (parts.session) {
+      const x = document.createElement('span');
+      x.className = 'k-ticket-ref-x';
+      x.textContent = ' · ' + parts.session;
+      chip.appendChild(x);
+    }
     return chip;
   }
 

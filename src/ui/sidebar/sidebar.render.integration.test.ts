@@ -115,7 +115,7 @@ describe('sidebar render', () => {
 
     it('renders a host-flagged queued sub-task chip as Queued', async () => {
       const h = await render();
-      const chips = h.queryAll('.ticket .stage').map((el) => el.textContent);
+      const chips = h.queryAll('.ticket .stage').map((el) => el.getAttribute('data-short') ?? el.textContent);
       expect(chips).toEqual(['impl', 'impl', 'Queued', 'impl']);
     });
 

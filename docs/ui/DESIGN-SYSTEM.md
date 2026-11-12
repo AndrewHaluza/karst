@@ -314,6 +314,10 @@ Owned visually by `palette.ts`.
 | `--k-failed` | terminal failure |
 
 Workflow status is rendered by the icon-only `.k-status` primitive (§11.12).
+
+`--k-attention-fg` is the readable text tone of `--k-attention` (the needs-you chip). Each stage has a text tone
+`--stage-<key>-fg` beside `--stage-<key>`; a `stg-<key>` class sets `--stg-fg` to it (`stagePalette.ts`). Chip geometry
+tokens: `--k-chip-h`, `--k-chip-pad-x`, `--k-chip-lh`, `--k-chip-lh-caps`, `--k-chip-hit-bleed`, `--k-chip-tracking`, `--k-chip-wash`, `--k-chip-wash-needs` (§11.21).
 The glyph/shape carries the visible state; color reinforces it.
 
 `offline`, `skipped`, and other domain states remain explicit domain meanings.
@@ -1080,8 +1084,23 @@ Applicable states:
 - focus
 - active
 
-Displays a status dot (`.k-ticket-ref-dot`), ticket/draft identifier, optional key, and stage word.
+One pill on every surface, drawn like the dashboard rail (the ticket row stage pill `.stage` is the same pill without the id):
+18px high (`--k-chip-h`), radius 9px, padding 0 `--k-chip-pad-x`, a border in the stage color and a 20% wash
+(`--k-chip-wash`; scope uses its background pair). The id and the stage word share one baseline. Their text uses the stage
+text tone `--stg-fg` (`--stage-<key>-fg`), at least 4.6:1 on the wash, the panel and the row hover in both themes.
+Child elements set their own color, so an injected `.stg-<key>{color}` rule cannot win.
+
+- **No status dot.** The stage word and the color tell the state. `.k-ticket-ref-dot` is removed.
+- **Needs you**: attention border, 30% wash (`--k-chip-wash-needs`), text `--k-attention-fg`, and the pause icon, the only mark (UI-R28b).
+- **Draft**: dashed `--stage-unknown` border, chip background, word DRAFT. **Missing**: dashed `--stage-closed` border, muted text, word MISSING, no link.
+- **Stage word**: one span (`.k-ticket-ref-word`, or the `.stage` pill itself) with `data-full` (the stage title) and `data-short` (the stage key).
+  CSS `content: "· " attr(...)` shows the full title when the host region is wider than 400px and the key at 400px and less
+  (container query on the host region: the sidebar `.pane-body`, the dashboard `.dhead`, UI-R49). The word never drops.
+- **Accessible name** on the link itself: "T12, Implementation", "T1001, Review, needs you", "D497, draft pending". The word spans are `aria-hidden`.
+- **Hit area**: at least 24px, through `a::after`.
+
 Can render as an interactive link or button, or as plain text when nested inside another interactive control (UI-R09).
+Layout prototypes (UI-R39): `docs/ui/prototypes/ref-chip.html` and `docs/ui/prototypes/sidebar-ref-chip.html` (open with `?w=300&theme=light`, `?w=460&theme=dark`).
 END_DOC_BLOCK: [@ui:11.21]
 
 ---

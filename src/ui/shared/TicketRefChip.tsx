@@ -1,6 +1,6 @@
-import type { MouseEvent, ReactNode } from 'react';
+import type { MouseEvent } from 'react';
 import type { Glyph } from '../../model/glyph.js';
-import { ticketRefView, type TicketRefView } from './ticketRefView.js';
+import { chipClass, refChipParts, ticketRefView, type RefChipParts, type TicketRefView } from './ticketRefView.js';
 
 export interface TicketRefChipProps {
   /**
@@ -86,12 +86,23 @@ export function TicketRefChip({
   if (!refView) return null;
   const isLink = link;
   const tooltip = !showKey && refView.keyOrRef ? refView.keyOrRef : undefined;
-  const cls = `k-ticket-ref${className ? ` ${className}` : ''}`;
-  const dot = <span className={`k-ticket-ref-dot g-${refView.glyph}`} aria-hidden="true" />;
-  const keyPart = showKey && refView.displayTextParts.key ? ` · ${refView.displayTextParts.key}` : '';
-  const stagePart = refView.displayTextParts.stage ? ` · ${refView.displayTextParts.stage}` : '';
-  const sessionPart = refView.displayTextParts.session ? ` · ${refView.displayTextParts.session}` : '';
+  const parts = refChipParts(refView);
+  const cls = chipClass(parts, className);
+  const name = refView.accessibleName;
   const idText = refView.displayTextParts.id;
+  const key = showKey ? refView.displayTextParts.key : null;
+  const session = refView.displayTextParts.session;
+  const prefixNode = prefix ? <span className="k-ticket-ref-prefix">{prefix}</span> : null;
+  const pause = parts.state === 'needs' ? <PauseMark /> : null;
+  // `tail` is the part after the id: key, the stage word (one span, the host
+  // width picks full or short in CSS, @ui:UI-R51) and the cross-session label.
+  const tail = (
+    <>
+      {key ? <span className="k-ticket-ref-x">{` · ${key}`}</span> : null}
+      <StageWord parts={parts} />
+      {session ? <span className="k-ticket-ref-x">{` · ${session}`}</span> : null}
+    </>
+  );
 
   // Whole-chip link: the planning draft dependency reveals its draft card. Only
   // an explicit `linkTarget="chip"` takes this path, so a plain row chip can
@@ -102,39 +113,45 @@ export function TicketRefChip({
       ? { 'data-dep-draft': Number(refView.draftId) }
       : { 'data-act': dataAct, 'data-id': Number(refView.ticketId) };
     return (
-      <button type="button" className={cls} tabIndex={-1} {...dataProps} aria-label={refView.accessibleName} title={tooltip} onClick={onClick}>
-        {prefix ? <span>{prefix}</span> : null}
-        {dot}
-        <span>{`${idText}${keyPart}${stagePart}${sessionPart}`}</span>
+      <button type="button" className={cls} tabIndex={-1} {...dataProps} aria-label={name} title={tooltip} onClick={onClick}>
+        {prefixNode}
+        {pause}
+        <span className="k-ticket-ref-id">{idText}</span>
+        {tail}
       </button>
     );
   }
 
-  // Inline link: the id part opens the ticket; the rest is text inside the
-  // caller's click target (@ui:UI-R09c).
-  let idNode: ReactNode = idText;
-  if (isLink && refView.ticketId !== null) {
-    const linkProps = {
-      href: '#',
-      'data-act': dataAct,
-      ...(dataIdAttr === 'data-id'
-        ? { 'data-id': refView.ticketId }
-        : { 'data-ticket': refView.ticketId }),
-      onClick,
-    };
-    idNode = <a {...linkProps}>{idText}</a>;
-  }
-
+  // Inline link: the id part opens the ticket and carries the accessible name;
+  // the rest is text inside the caller's click target (@ui:UI-R09c).
+  const linked = isLink && refView.ticketId !== null;
+  const linkProps = {
+    href: '#',
+    'data-act': dataAct,
+    ...(dataIdAttr === 'data-id' ? { 'data-id': refView.ticketId } : { 'data-ticket': refView.ticketId }),
+    'aria-label': name,
+    onClick,
+  };
   return (
-    <span className={cls} aria-label={refView.accessibleName} title={tooltip}>
-      {prefix ? <span>{prefix}</span> : null}
-      {dot}
-      <span>
-        {idNode}
-        {keyPart}
-        {stagePart}
-        {sessionPart}
-      </span>
+    <span className={cls} aria-label={linked ? undefined : name} title={tooltip}>
+      {prefixNode}
+      {pause}
+      {linked ? <a {...linkProps}>{idText}</a> : <span className="k-ticket-ref-id">{idText}</span>}
+      {tail}
     </span>
   );
+}
+
+function PauseMark() {
+  return (
+    <svg className="k-ticket-ref-pause" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="5" y="3" width="5" height="18" rx="1" />
+      <rect x="14" y="3" width="5" height="18" rx="1" />
+    </svg>
+  );
+}
+
+function StageWord({ parts }: { readonly parts: RefChipParts }) {
+  if (!parts.full) return null;
+  return <span className="k-ticket-ref-word" data-full={parts.full} data-short={parts.short} aria-hidden="true" />;
 }

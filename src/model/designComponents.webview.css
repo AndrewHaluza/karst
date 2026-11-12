@@ -154,29 +154,40 @@ button.k-chip{cursor:pointer}
 .k-chip--success{border-color:var(--k-success);color:var(--k-success)}
 .k-chip.is-warning{border-color:var(--k-attention);color:var(--k-attention)}
 .k-chip.is-danger{border-color:var(--k-danger);color:var(--k-danger)}
+/* The reference chip (@ui:11.21): the dashboard rail look in one form. Border and wash come from the stage color
+   (.seg.passed wash: 20%; Scope its solid bg pair); the id and the stage word use --stg-fg, a same-hue tone that reaches
+   4.5:1 on the wash. Child elements set their own color, so an injected .stg-<key>{color} rule cannot win. No status
+   dot: the stage word and the color tell the state. Id and word share one baseline. */
 .k-ticket-ref{
-  min-height:var(--k-hit-min);display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;min-width:0;
-  padding:var(--k-space-1) var(--k-space-3);font:inherit;line-height:var(--k-leading-tight);
-  color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
-  background:transparent;overflow-wrap:anywhere;text-align:left;
-  transition:background var(--k-dur-fast) var(--k-ease-standard)}
-button.k-ticket-ref,a.k-ticket-ref{cursor:pointer}
-/* The wrapper span is the chip; the link is only its id part. Hover and
-   focus-within must match on the wrapper too, or the dashboard and ticket-form
-   surfaces (span + inner <a>) never show the documented chip state. */
-.k-ticket-ref:hover,button.k-ticket-ref:hover,a.k-ticket-ref:hover{background:var(--k-surface-hover);color:var(--k-text)}
-.k-ticket-ref:focus-within{color:var(--k-text)}
-button.k-ticket-ref:focus-visible,a.k-ticket-ref:focus-visible{
-  color:var(--k-text);outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-.k-ticket-ref a{color:inherit;text-decoration:none}
-.k-ticket-ref a:hover{text-decoration:underline;color:var(--k-text)}
-.k-ticket-ref a:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-.k-ticket-ref-dot{flex:none;width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:currentColor}
-.k-ticket-ref-dot.g-gray{background:transparent;border:calc(var(--k-border-w) * 1.5) solid currentColor;color:var(--k-pending)}
-.k-ticket-ref-dot.g-blue{color:var(--k-running)}
-.k-ticket-ref-dot.g-amber{color:var(--k-attention)}
-.k-ticket-ref-dot.g-red{color:var(--k-failed)}
-.k-ticket-ref-dot.g-green{color:var(--k-passed)}
+  --c:var(--stg-color,var(--stage-unknown));--fg:var(--stg-fg,var(--stage-unknown-fg));
+  position:relative;display:inline-flex;align-items:baseline;gap:var(--k-space-2);max-width:100%;min-width:0;
+  height:var(--k-chip-h);padding:0 var(--k-chip-pad-x);border-radius:var(--k-radius-lg);font:inherit;font-size:var(--k-text-md);line-height:var(--k-chip-lh);white-space:nowrap;
+  border:var(--k-border-w) solid var(--c);background:var(--stg-bg,color-mix(in srgb,var(--c) var(--k-chip-wash),transparent));
+  text-align:left;color:var(--fg)}
+button.k-ticket-ref{cursor:pointer}
+.k-ticket-ref > *{line-height:var(--k-chip-lh)}
+.k-ticket-ref a,.k-ticket-ref-id,.k-ticket-ref-word,.k-ticket-ref-x,.k-ticket-ref-prefix{color:var(--fg)}
+.k-ticket-ref a,.k-ticket-ref-id{font-weight:var(--k-weight-semibold);text-decoration:none}
+.k-ticket-ref a:hover{text-decoration:underline}
+.k-ticket-ref a:focus-visible,button.k-ticket-ref:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+/* The hit area stays at the minimum target: the link grows past the pill through ::after (@ui:UI-R29). */
+.k-ticket-ref a::after,button.k-ticket-ref::after{content:"";position:absolute;inset:calc(var(--k-chip-hit-bleed) * -1) calc(var(--k-space-1) * -1)}
+.k-ticket-ref-x{font-weight:var(--k-weight-normal,400)}
+/* One span, two words: the host width picks the attribute (no duplicated hidden spans, @ui:UI-R51). Full above the tier
+   step of the host region, the stage key at the step and less (@ui:UI-R49). The word never drops. */
+.k-ticket-ref-word::before{content:"· " attr(data-full)}
+.k-ticket-ref-word::before,.stage[data-full]::before{
+  text-transform:uppercase;letter-spacing:var(--k-chip-tracking);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold)}
+@container (max-width: 400px){
+  .k-ticket-ref-word::before{content:"· " attr(data-short)}
+  .stage[data-full]::before{content:attr(data-short)}
+}
+/* Needs you wins over the stage (rail order): attention border, 30% wash, attention text tone, and the pause mark,
+   the only mark in a chip (@ui:UI-R28b): amber alone is below 3:1. */
+.k-ticket-ref.is-needs{--c:var(--k-attention);--fg:var(--k-attention-fg);background:color-mix(in srgb,var(--k-attention) var(--k-chip-wash-needs),transparent)}
+.k-ticket-ref-pause{flex:none;align-self:center;width:var(--k-space-5);height:var(--k-space-5);fill:currentColor;stroke:none;color:var(--k-attention-fg)}
+.k-ticket-ref.is-draft{--fg:var(--k-text);--c:var(--stage-unknown);border-style:dashed;background:var(--k-surface-hover)}
+.k-ticket-ref.is-gone{--c:var(--stage-closed);--fg:var(--k-text-dim);border-style:dashed;background:none}
 .k-id{
   display:inline-block;flex:none;
   font-family:var(--k-font-mono);font-size:var(--k-text-2xs);line-height:var(--k-leading-tight);
@@ -193,11 +204,15 @@ button.k-ticket-ref:focus-visible,a.k-ticket-ref:focus-visible{
    sidebar row and the dashboard Sub-tasks panel both paint it. Keyed on the stg- class so an unrelated `.stage`
    caption (Resources ticket groups) stays plain. Uppercase + tracking match the rail's stage label. */
 .stage[class*="stg-"]{
-  font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-4);border-radius:var(--k-radius-lg);
-  flex:0 0 auto;font-weight:var(--k-weight-semibold);text-transform:uppercase;letter-spacing:calc(var(--k-text-2xs) * .06);
-  background:var(--stg-bg,color-mix(in srgb, currentColor 16%, transparent))}
+  --c:var(--stg-color,var(--stage-unknown));
+  font-size:var(--k-text-2xs);height:var(--k-chip-h);box-sizing:border-box;padding:0 var(--k-chip-pad-x) var(--k-border-w);border-radius:var(--k-radius-lg);line-height:var(--k-chip-lh-caps);
+  flex:0 0 auto;white-space:nowrap;font-weight:var(--k-weight-semibold);text-transform:uppercase;letter-spacing:var(--k-chip-tracking);
+  color:var(--stg-fg,var(--stage-unknown-fg));
+  border:var(--k-border-w) solid var(--c);background:var(--stg-bg,color-mix(in srgb,var(--c) var(--k-chip-wash),transparent))}
+/* One span, two words (data-full / data-short): the host width picks one, as in the chip. */
+.stage[data-full]::before{content:attr(data-full)}
 /* An unclassified stage reads as a dashed outline so "unknown" never masquerades as a real stage. */
-.stage.stg-unknown{border:var(--k-border-w) dashed currentColor}
+.stage.stg-unknown{border-style:dashed}
 @keyframes k-spin{to{transform:rotate(360deg)}}
 @keyframes k-progress{0%{transform:scaleX(0)}100%{transform:scaleX(1)}}
 .k-spinner{

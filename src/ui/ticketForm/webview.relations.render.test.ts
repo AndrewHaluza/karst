@@ -66,11 +66,15 @@ describe('ticket form — relations card', () => {
     const chip = v.query('#dependenciesList .k-ticket-ref')!;
 
     expect(chip).not.toBeNull();
-    expect(chip.textContent).toBe('T963 · FIX-101 · impl');
-    expect(chip.querySelector('.k-ticket-ref-dot')).not.toBeNull();
-    expect(chip.getAttribute('aria-label')).toBe(refView.accessibleName);
+    expect(chip.textContent).toBe('T963 · FIX-101');
+    expect(chip.querySelector('.k-ticket-ref-dot')).toBeNull();
+    const word = chip.querySelector('.k-ticket-ref-word')!;
+    expect(word.getAttribute('data-full')).toBe('Implementation');
+    expect(word.getAttribute('data-short')).toBe('impl');
+    expect(word.getAttribute('aria-hidden')).toBe('true');
 
     const link = chip.querySelector('a')!;
+    expect(link.getAttribute('aria-label')).toBe(refView.accessibleName);
     expect(link.textContent).toBe('T963');
     expect(link.getAttribute('data-act')).toBe('open-dependency');
     expect(link.getAttribute('data-id')).toBe('963');
@@ -86,7 +90,10 @@ describe('ticket form — relations card', () => {
     const expected = div.firstElementChild as HTMLElement;
 
     expect(chip.textContent).toBe(expected.textContent);
-    expect(chip.getAttribute('aria-label')).toBe(expected.getAttribute('aria-label'));
+    expect(chip.querySelector('a')!.getAttribute('aria-label')).toBe(expected.querySelector('a')!.getAttribute('aria-label'));
+    expect(chip.querySelector('.k-ticket-ref-word')!.getAttribute('data-full')).toBe(
+      expected.querySelector('.k-ticket-ref-word')!.getAttribute('data-full'),
+    );
     expect(chip.className).toBe(expected.className);
   });
 

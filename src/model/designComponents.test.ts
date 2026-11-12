@@ -28,7 +28,9 @@ describe('design system components', () => {
   it('uses only tokens — no raw colour, length, or duration (UI-R04)', () => {
     expect(CSS, 'a hex literal survived').not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     expect(CSS, 'an rgb/hsl literal survived').not.toMatch(/\b(?:rgba?|hsla?)\(/);
-    expect(CSS, 'a raw length survived').not.toMatch(/(?<![\w-])\d+(?:\.\d+)?(?:px|rem|em)\b/);
+    // A container query condition cannot hold a var(): the 400px tier step is the one allowed raw length (@ui:UI-R49).
+    const withoutQueryConditions = CSS.replace(/@container \(max-width: 400px\)/g, '@container');
+    expect(withoutQueryConditions, 'a raw length survived').not.toMatch(/(?<![\w-])\d+(?:\.\d+)?(?:px|rem|em)\b/);
     expect(CSS, 'a raw duration survived').not.toMatch(/(?<![\w-])\d+(?:\.\d+)?(?:ms|s)\b/);
   });
 
@@ -69,12 +71,21 @@ describe('design system components', () => {
     expect(reduced).toMatch(/\.k-ticket-ref[,\{]/);
   });
 
-  it('applies the ticket-reference hover/focus state on the wrapper span, not only on a button/link chip', () => {
-    // Three of the four surfaces render `<span class="k-ticket-ref">` with the
-    // link only on the id part; a `button.k-ticket-ref:hover` selector alone
-    // leaves them without the documented hover state.
-    expect(CSS).toMatch(/\.k-ticket-ref:hover/);
-    expect(CSS).toContain('.k-ticket-ref:focus-within');
+  it('draws the reference chip as the rail pill: stage border and wash, text tone, no status dot (@ui:11.21)', () => {
+    const chip = rulesFor('.k-ticket-ref');
+    expect(chip).toContain('border:var(--k-border-w) solid var(--c)');
+    expect(chip).toContain('var(--k-chip-wash)');
+    expect(chip).toContain('align-items:baseline');
+    expect(CSS).not.toContain('k-ticket-ref-dot');
+    // The word picks full/short from the host width: one span, no hidden duplicates (@ui:UI-R51).
+    expect(CSS).toContain('.k-ticket-ref-word::before{content:"· " attr(data-full)}');
+    expect(CSS).toContain('content:"· " attr(data-short)');
+    expect(rulesFor('.k-ticket-ref.is-needs')).toContain('var(--k-attention-fg)');
+  });
+
+  it('keeps the chip link hit area at 24px through ::after', () => {
+    expect(CSS).toContain('.k-ticket-ref a::after');
+    expect(CSS).toContain('var(--k-chip-hit-bleed)');
   });
 
   it('gives the danger variant its own look so destructive never reads as benign (UI-R10b)', () => {

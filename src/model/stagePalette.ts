@@ -22,16 +22,28 @@ import { ALL_STAGE_KEYS, type StageKey } from './types.js';
  * chip resolve the same token and can never diverge.
  */
 
+/** A value in each theme. */
+export interface ThemePair {
+  dark: string;
+  light: string;
+}
+
 /** One stage's color in each theme. */
 export interface StageColor {
   dark: string;
   light: string;
   /**
+   * Text tone of the same hue (`--stage-<key>-fg`). The stage color itself is a
+   * border/wash color; text on the 20% wash needs a tone that reaches 4.5:1
+   * (the unit test computes it on the wash, the panel and the row hover).
+   */
+  fg: ThemePair;
+  /**
    * Optional per-theme background. Only stages with an approved solid pair set
    * it — `scope` is the first (a steel fill). Consumers fall back to a
    * `color-mix` wash of the foreground when absent, which is every other stage.
    */
-  bg?: StageColor;
+  bg?: ThemePair;
 }
 
 /**
@@ -44,18 +56,18 @@ export const STAGE_COLORS: Readonly<Record<StageKey, StageColor>> = {
   // Implement's saturated indigo (869ej2cfz). The light foreground is
   // deliberately darker than the dark-theme one so the small rail label clears
   // the pale steel fill.
-  scope: { dark: '#8FA3B8', light: '#526A80', bg: { dark: '#29343D', light: '#EAEDF0' } },
-  impl: { dark: '#7f7bf5', light: '#4f46e5' },
-  uat: { dark: '#d18616', light: '#b45309' },
-  review: { dark: '#2ea8b5', light: '#0e7490' },
-  fix: { dark: '#f14c4c', light: '#c93636' },
-  ship: { dark: '#d162c4', light: '#bf3989' },
+  scope: { dark: '#8FA3B8', light: '#526A80', fg: { dark: '#8fa3b8', light: '#526a80' }, bg: { dark: '#29343D', light: '#EAEDF0' } },
+  impl: { dark: '#7f7bf5', light: '#4f46e5', fg: { dark: '#a8a6f8', light: '#3a30e2' } },
+  uat: { dark: '#d18616', light: '#b45309', fg: { dark: '#e99f31', light: '#883f07' } },
+  review: { dark: '#2ea8b5', light: '#0e7490', fg: { dark: '#3ec0ce', light: '#0b5e74' } },
+  fix: { dark: '#f14c4c', light: '#c93636', fg: { dark: '#f68989', light: '#9d2a2a' } },
+  ship: { dark: '#d162c4', light: '#bf3989', fg: { dark: '#df91d6', light: '#942c6a' } },
   // Exactly the status ramp's green (#4bb64b), not a second one: [[palette]]
   // asserts the product ships one green, and `done` is the case where the stage
   // and the status mean the same thing.
-  done: { dark: '#4bb64b', light: '#1a7f37' },
+  done: { dark: '#4bb64b', light: '#1a7f37', fg: { dark: '#6fc56f', light: '#14612a' } },
   // Neutral gray: closed asserts no delivery, so it must not borrow done's green.
-  closed: { dark: '#8b949e', light: '#57606a' },
+  closed: { dark: '#8b949e', light: '#57606a', fg: { dark: '#aab0b8', light: '#4e565f' } },
 };
 
 /**
@@ -66,7 +78,11 @@ export const STAGE_COLORS: Readonly<Record<StageKey, StageColor>> = {
  */
 export const STAGE_FALLBACK_KEY = 'unknown';
 
-const FALLBACK_COLOR: StageColor = { dark: '#7d8590', light: '#6e7681' };
+const FALLBACK_COLOR: StageColor = {
+  dark: '#7d8590',
+  light: '#6e7681',
+  fg: { dark: '#a6acb3', light: '#525860' },
+};
 
 /**
  * CSS class for a stored stage string. Takes `string | null` — never `StageKey` —
@@ -95,16 +111,16 @@ function entries(): [string, StageColor][] {
  * the higher contrast of the two.
  */
 export function stagePaletteCss(): string {
-  const decls = (pick: (c: StageColor) => string): string =>
+  const decls = (pick: (c: ThemePair) => string): string =>
     entries()
-      .map(([key, color]) => `--stage-${key}:${pick(color)};`)
+      .map(([key, color]) => `--stage-${key}:${pick(color)};--stage-${key}-fg:${pick(color.fg)};`)
       .join('');
   // A stage with an approved background pair emits a `--stage-<key>-bg` token;
   // stages without one emit nothing and consumers keep the color-mix wash.
   const withBg = entries().filter(
-    (e): e is [string, StageColor & { bg: StageColor }] => e[1].bg !== undefined,
+    (e): e is [string, StageColor & { bg: ThemePair }] => e[1].bg !== undefined,
   );
-  const bgDecls = (pick: (c: StageColor) => string): string =>
+  const bgDecls = (pick: (c: ThemePair) => string): string =>
     withBg.map(([key, color]) => `--stage-${key}-bg:${pick(color.bg)};`).join('');
   // Each class sets `color` (so text/currentColor read the stage hue),
   // `--stg-color` (a stable handle on the hue) and, when a background exists,
@@ -115,7 +131,7 @@ export function stagePaletteCss(): string {
   const classes = entries()
     .map(([key, color]) => {
       const bg = color.bg !== undefined ? `;--stg-bg:var(--stage-${key}-bg)` : '';
-      return `.stg-${key}{color:var(--stage-${key});--stg-color:var(--stage-${key})${bg}}`;
+      return `.stg-${key}{color:var(--stage-${key});--stg-color:var(--stage-${key});--stg-fg:var(--stage-${key}-fg)${bg}}`;
     })
     .join('');
   return (

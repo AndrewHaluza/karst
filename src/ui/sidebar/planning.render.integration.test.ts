@@ -256,15 +256,15 @@ describe('sidebar planning drafts', () => {
       const row = draft(h, 95).querySelector('.pt-deps-row')!;
       expect(row.firstElementChild!.textContent).toBe('needs');
       expect(chips(h, 95).map((c) => c.tagName)).toEqual(['BUTTON', 'BUTTON', 'BUTTON']);
-      expect(chips(h, 95).map((c) => c.textContent!.trim())).toEqual(['D94', 'D92→T605 · impl', 'D91→T604 · done']);
+      expect(chips(h, 95).map((c) => c.textContent!.trim())).toEqual(['D94', 'D92→T605', 'D91→T604']);
     });
 
     it('shows the session of a cross-session draft and a T<n> ticket chip with one id', async () => {
       const h = await renderSidebarApp();
       await withDeps(h);
-      expect(chips(h, 97).map((c) => c.textContent!.trim())).toEqual(['D498 · P43', 'T610 · impl']);
+      expect(chips(h, 97).map((c) => c.textContent!.trim())).toEqual(['D498 · P43', 'T610']);
       expect(chips(h, 97).map((c) => c.getAttribute('aria-label'))).toEqual([
-        'D498, draft pending', 'Ticket T610 in impl',
+        'D498, draft pending', 'T610, Implementation',
       ]);
     });
 
@@ -272,10 +272,12 @@ describe('sidebar planning drafts', () => {
       const h = await renderSidebarApp();
       await withDeps(h);
       expect(chips(h, 95).map((c) => c.getAttribute('aria-label'))).toEqual([
-        'D94, draft pending', 'D92, ticket T605 in impl', 'D91, ticket T604 done',
+        'D94, draft pending', 'D92→T605, Implementation', 'D91→T604, Done',
       ]);
-      expect(chips(h, 95).map((c) => c.querySelector('[class*="g-"]')!.className)).toEqual([
-        expect.stringContaining('g-gray'), expect.stringContaining('g-blue'), expect.stringContaining('g-green'),
+      // No status dot: the stage word (data-full) and the stage class tell the state.
+      expect(chips(h, 95).map((c) => c.querySelector('.k-ticket-ref-dot'))).toEqual([null, null, null]);
+      expect(chips(h, 95).map((c) => c.querySelector('.k-ticket-ref-word')!.getAttribute('data-full'))).toEqual([
+        'Draft', 'Implementation', 'Done',
       ]);
     });
 
@@ -303,12 +305,12 @@ describe('sidebar planning drafts', () => {
       expect((h.posted as { type: string }[]).filter((m) => m.type === 'open-dashboard')).toEqual([]);
     });
 
-    it('wraps instead of truncating or scrolling sideways', async () => {
+    it('wraps the row instead of truncating a chip or scrolling sideways', async () => {
       const h = await renderSidebarApp();
       await withDeps(h);
       const css = h.document.querySelector('style')!.textContent!;
       expect(css).toMatch(/\.pt-deps-row\{[^}]*flex-wrap:wrap/);
-      expect(css).toMatch(/\.k-ticket-ref\{[^}]*overflow-wrap:anywhere/);
+      expect(css).toMatch(/\.k-ticket-ref\{[^}]*white-space:nowrap/);
       expect(css).not.toMatch(/\.k-ticket-ref\{[^}]*text-overflow/);
     });
   });

@@ -29,6 +29,9 @@ export const PALETTE_TOKENS = {
   failed: 'var(--vscode-charts-red, #f14c4c)',
 } as const;
 
+/** `--k-attention-fg`: readable text tone of the attention amber, per theme. */
+export const ATTENTION_FG = { dark: '#f0c400', light: '#6f4f02' } as const;
+
 /** Placeholder swapped for the palette block; sits inside each webview's `<style>`. */
 export const PALETTE_MARKER = '/*KARST_PALETTE*/';
 
@@ -40,6 +43,9 @@ export function paletteCss(): string {
     `--k-pending:${t.pending};` +
     `--k-running:${t.running};` +
     `--k-attention:${t.attention};` +
+    // Text tone for amber on its own 30% wash (needs-you chip); the amber itself
+    // is a border/fill color and fails 4.5:1 as small text. Dark is the base.
+    `--k-attention-fg:${ATTENTION_FG.dark};` +
     `--k-passed:${t.passed};` +
     `--k-failed:${t.failed};` +
     // The findings severity ramp — ONE definition for the inside block's
@@ -63,6 +69,7 @@ export function paletteCss(): string {
     '}' +
     // The stage ramp ships through the same marker: one injection point, so a
     // webview cannot end up with status colors but no stage colors.
+    `body.vscode-light{--k-attention-fg:${ATTENTION_FG.light}}` +
     stagePaletteCss()
   );
 }

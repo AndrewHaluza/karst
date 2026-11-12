@@ -52,7 +52,10 @@ describe('ticket row', () => {
     const h = await mount(stateWith({ current: [row(1, { stageLabel: 'Implementing', stageChip: 'impl', stageClass: 'stg-impl' })] }));
     const chip = h.query('.ticket .row .stage')!;
     expect(chip.classList.contains('stg-impl')).toBe(true);
-    expect(text(chip)).toBe('impl');
+    // The word is drawn by CSS from data-full / data-short (full when wide, the key when narrow).
+    expect(chip.getAttribute('data-full')).toBe('Implementation');
+    expect(chip.getAttribute('data-short')).toBe('impl');
+    expect(chip.getAttribute('aria-label')).toBe('Implementing');
     expect(chip.getAttribute('title')).toBe('Implementing');
   });
 

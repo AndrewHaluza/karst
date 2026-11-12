@@ -84,7 +84,8 @@
   .pane-count{font-family:var(--k-font-mono)}
   .pane-acts{display:flex;gap:var(--k-space-1);align-items:center}
   .pane-acts .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
-  .pane-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0}
+  /* The pane body is the host region for the stage word tier: full when wide, the stage key when narrow (@ui:UI-R49). */
+  .pane-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0;container-type:inline-size}
   .pane-empty{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
   .pane-attention{min-height:var(--k-hit-min);display:block;width:calc(100% - 2 * var(--k-space-4));margin:0 var(--k-space-4) var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
     background:none;border:0;text-align:left;font:inherit;font-size:var(--k-text-xs);color:var(--k-text-dim);cursor:pointer;

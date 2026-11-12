@@ -38,14 +38,21 @@ describe('TicketRefChip', () => {
 
     const chip = container.querySelector('.k-ticket-ref')!;
     expect(chip).not.toBeNull();
-    expect(chip.querySelector('.k-ticket-ref-dot')).not.toBeNull();
-    expect(chip.textContent).toBe('Blocked by T963 · KEY · impl');
+    expect(chip.querySelector('.k-ticket-ref-dot')).toBeNull();
+    expect(chip.className).toBe('k-ticket-ref stg-impl');
+    expect(chip.textContent).toBe('Blocked by T963 · KEY');
+    const word = chip.querySelector('.k-ticket-ref-word')!;
+    expect(word.getAttribute('data-full')).toBe('Implementation');
+    expect(word.getAttribute('data-short')).toBe('impl');
+    expect(word.getAttribute('aria-hidden')).toBe('true');
 
     const link = chip.querySelector('a')!;
     expect(link).not.toBeNull();
     expect(link.textContent).toBe('T963');
     expect(link.getAttribute('data-act')).toBe('open-dependency');
     expect(link.getAttribute('data-ticket')).toBe('963');
+    expect(link.getAttribute('aria-label')).toBe('T963, Implementation');
+    expect(chip.getAttribute('aria-label')).toBeNull();
   });
 
   it('renders plain text when link={false}', () => {
@@ -53,8 +60,9 @@ describe('TicketRefChip', () => {
     const { container } = render(<TicketRefChip refView={view} link={false} prefix="Blocked by " showKey={false} />);
 
     const chip = container.querySelector('.k-ticket-ref')!;
-    expect(chip.querySelector('.k-ticket-ref-dot')).not.toBeNull();
-    expect(chip.textContent).toBe('Blocked by T963 · impl');
+    expect(chip.querySelector('.k-ticket-ref-dot')).toBeNull();
+    expect(chip.textContent).toBe('Blocked by T963');
+    expect(chip.getAttribute('aria-label')).toBe('T963, Implementation');
     expect(chip.querySelector('a')).toBeNull();
     expect(chip.getAttribute('title')).toBe('KEY');
   });
@@ -66,11 +74,12 @@ describe('TicketRefChip', () => {
 
     const btn = container.querySelector('button.k-ticket-ref')!;
     expect(btn).not.toBeNull();
-    expect(btn.querySelector('.k-ticket-ref-dot')).not.toBeNull();
-    expect(btn.textContent).toBe('D445→T970 · done');
+    expect(btn.querySelector('.k-ticket-ref-dot')).toBeNull();
+    expect(btn.textContent).toBe('D445→T970');
+    expect(btn.querySelector('.k-ticket-ref-word')!.getAttribute('data-full')).toBe('Done');
     expect(btn.getAttribute('data-act')).toBe('open-dashboard');
     expect(btn.getAttribute('data-id')).toBe('970');
-    expect(btn.getAttribute('aria-label')).toBe('D445, ticket T970 done');
+    expect(btn.getAttribute('aria-label')).toBe('D445→T970, Done');
   });
 
   it('renders a plain chip for a draft blocker when link={false}, never a nested button', () => {
@@ -82,6 +91,9 @@ describe('TicketRefChip', () => {
     expect(chip.querySelector('button')).toBeNull();
     expect(chip.querySelector('a')).toBeNull();
     expect(chip.textContent).toBe('Blocked by D445');
+    expect(chip.className).toBe('k-ticket-ref is-draft');
+    expect(chip.getAttribute('aria-label')).toBe('D445, draft pending');
+    expect(chip.querySelector('.k-ticket-ref-word')!.getAttribute('data-full')).toBe('Draft');
   });
 
   it('renders a draft-origin ticket blocker as plain text inside the row click target', () => {
@@ -92,7 +104,7 @@ describe('TicketRefChip', () => {
     const chip = container.querySelector('.k-ticket-ref')!;
     expect(chip.tagName).toBe('SPAN');
     expect(chip.querySelector('button')).toBeNull();
-    expect(chip.textContent).toBe('Blocked by D445→T970 · impl');
+    expect(chip.textContent).toBe('Blocked by D445→T970');
   });
 
   it('honours prefix when the whole chip is the link', () => {
@@ -101,7 +113,7 @@ describe('TicketRefChip', () => {
     const { container } = render(<TicketRefChip refView={view} linkTarget="chip" prefix="needs " dataAct="open-dashboard" />);
 
     const btn = container.querySelector('button.k-ticket-ref')!;
-    expect(btn.textContent).toBe('needs D445→T970 · review');
+    expect(btn.textContent).toBe('needs D445→T970');
   });
 
   it('does not throw for a pre-upgrade snapshot string blocker', () => {
@@ -110,6 +122,25 @@ describe('TicketRefChip', () => {
 
     const chip = container.querySelector('.k-ticket-ref')!;
     expect(chip.textContent).toBe('Blocked by BLOCK-7');
+  });
+
+  it('marks a needs-you ticket with the attention modifier and the pause mark, named "needs you"', () => {
+    const t = mockTicket({ id: 1001, key: 'K', stageCurrent: 'review' });
+    const view = ticketRefView({ ticket: t, glyph: 'amber' });
+    const { container } = render(<TicketRefChip refView={view} link />);
+    const chip = container.querySelector('.k-ticket-ref')!;
+    expect(chip.className).toBe('k-ticket-ref stg-review is-needs');
+    expect(chip.querySelector('svg.k-ticket-ref-pause')).not.toBeNull();
+    expect(chip.querySelector('a')!.getAttribute('aria-label')).toBe('T1001, Review, needs you');
+  });
+
+  it('draws a missing reference as a dashed chip with the word MISSING and no link', () => {
+    const { container } = render(<TicketRefChip refView={ticketRefView({ ref: 'EXT-123' })} link />);
+    const chip = container.querySelector('.k-ticket-ref')!;
+    expect(chip.className).toBe('k-ticket-ref is-gone');
+    expect(chip.querySelector('a')).toBeNull();
+    expect(chip.querySelector('.k-ticket-ref-word')!.getAttribute('data-full')).toBe('Missing');
+    expect(chip.getAttribute('aria-label')).toBe('EXT-123, missing');
   });
 
   describe('pre-upgrade planning dependencies', () => {
@@ -131,7 +162,7 @@ describe('TicketRefChip', () => {
       const { container } = render(<TicketRefChip refView={legacy} linkTarget="chip" dataAct="open-dashboard" />);
 
       const btn = container.querySelector('button.k-ticket-ref')!;
-      expect(btn.textContent).toBe('D92→T605 · impl');
+      expect(btn.textContent).toBe('D92→T605');
       expect(btn.getAttribute('data-id')).toBe('605');
     });
 
@@ -142,7 +173,7 @@ describe('TicketRefChip', () => {
       const { container } = render(<TicketRefChip refView={legacy} linkTarget="chip" dataAct="open-dashboard" />);
 
       const btn = container.querySelector('button.k-ticket-ref')!;
-      expect(btn.textContent).toBe('D91→T604 · done');
+      expect(btn.textContent).toBe('D91→T604');
       expect(btn.getAttribute('aria-label')).toBe('D91, ticket T604 done');
     });
   });
