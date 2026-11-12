@@ -71,6 +71,8 @@ describe('hook activity — fix stall watchdog', () => {
     return r;
   }
 
+  const lift = (at: string, canResume: (r: { id: number; round: number; maxRounds: number }) => boolean = () => true) =>
+    liftStalledFixPark(store, ticketId, at, canResume);
   const sweep = (at = T_SWEEP) => sweepStalledFixRounds(store, { at, timeoutMs: WINDOW_MS, projectId });
   const fixStage = () => getTicket(store, ticketId).stages.find((s) => s.stageKey === 'fix')!;
   const lastHookAt = () =>
@@ -156,7 +158,7 @@ describe('hook activity — fix stall watchdog', () => {
       const r = stallThenPark();
       expect(fixStage().status).toBe('failed');
 
-      expect(liftStalledFixPark(store, ticketId, T_SWEEP)).toBe(true);
+      expect(lift(T_SWEEP)).toBe(true);
 
       const round = listRecoveryRounds(store, ticketId).find((x) => x.id === r.id)!;
       expect(round.status).toBe('fixing');
@@ -166,21 +168,50 @@ describe('hook activity — fix stall watchdog', () => {
 
     it('does not lift twice', () => {
       stallThenPark();
-      expect(liftStalledFixPark(store, ticketId, T_SWEEP)).toBe(true);
-      expect(liftStalledFixPark(store, ticketId, T_SWEEP)).toBe(false);
+      expect(lift(T_SWEEP)).toBe(true);
+      expect(lift(T_SWEEP)).toBe(false);
     });
 
     it('stays parked when the interrupt budget is spent', () => {
       const r = stallThenPark();
       store.db.prepare('UPDATE recovery_rounds SET interrupt_count = max_rounds WHERE id = ?').run(r.id);
 
-      expect(liftStalledFixPark(store, ticketId, T_SWEEP)).toBe(false);
+      expect(lift(T_SWEEP)).toBe(false);
       expect(fixStage().status).toBe('failed');
+    });
+
+    it('stays parked when the driver would not resume the round', () => {
+      stallThenPark();
+      const seen: { id: number; round: number; maxRounds: number }[] = [];
+      expect(
+        lift(T_SWEEP, (r) => {
+          seen.push(r);
+          return false;
+        }),
+      ).toBe(false);
+      expect(seen).toEqual([expect.objectContaining({ round: 1, maxRounds: 3 })]);
+      expect(fixStage().status).toBe('failed');
+      expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('interrupted');
+    });
+
+    it('opens the new fix run with the provider, model and agent of the interrupted run', () => {
+      transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' });
+      store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(T0, ticketId);
+      const r = openRound();
+      beginLiveFixExecution(store, {
+        ticketId, roundId: r.id, startedAt: T0, provider: 'codex', model: 'gpt-x', agentName: 'uat-fix',
+      });
+      expect(sweep(T_PARK)).toHaveLength(1);
+
+      expect(lift(T_SWEEP)).toBe(true);
+
+      const live = listProcessRuns(store, ticketId).find((p) => p.processId === 'fix' && p.status === 'running')!;
+      expect(live).toMatchObject({ provider: 'codex', model: 'gpt-x', agentName: 'uat-fix' });
     });
 
     it('does nothing for a ticket that never parked', () => {
       liveFix();
-      expect(liftStalledFixPark(store, ticketId, T_SWEEP)).toBe(false);
+      expect(lift(T_SWEEP)).toBe(false);
       expect(fixStage().status).toBe('running');
     });
 
@@ -197,14 +228,14 @@ describe('hook activity — fix stall watchdog', () => {
         .run(T_PARK, r.id);
       expect(parkFixStage(store, ticketId, verdict, T_PARK)).toBe(true);
 
-      expect(liftStalledFixPark(store, ticketId, T_SWEEP)).toBe(false);
+      expect(lift(T_SWEEP)).toBe(false);
       expect(fixStage()).toMatchObject({ status: 'failed', verdict });
       expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('interrupted');
     });
 
     it('does not lift when the event is not after the park time', () => {
       stallThenPark();
-      expect(liftStalledFixPark(store, ticketId, minutesBefore(T_PARK, 1))).toBe(false);
+      expect(lift(minutesBefore(T_PARK, 1))).toBe(false);
     });
   });
 });

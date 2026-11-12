@@ -1,6 +1,7 @@
 import type { Store } from '../store/db.js';
 import { setAgentState, setSessionId } from '../store/tickets.js';
 import { stampHookActivity, liftStalledFixPark } from '../store/hookActivity.js';
+import { roundFixDecision } from '../workflow/fixAttempts.js';
 import { ticketIdForWorktreePath } from '../runtime/worktree.js';
 import type { AgentState } from '../model/types.js';
 import type { AgentProvider } from '../manifest/types.js';
@@ -616,6 +617,13 @@ function ingestUsageUpdate(
   return result.kind === 'recorded';
 }
 
+/** Hook events that do not prove the agent session works (T1111). */
+const NOT_LIVENESS_EVENTS: ReadonlySet<string> = new Set(['SessionEnd', 'UsageUpdate']);
+
+/** The driver's own test for resuming an interrupted round (`driveTicket`). */
+const resumableRound = (r: { id: number; round: number; maxRounds: number }): boolean =>
+  roundFixDecision({ roundId: r.id, round: r.round, maxRounds: r.maxRounds }).kind === 'resume';
+
 /**
  * Apply a hook event to the store: resolve `cwd → ticket`, patch `agent_state`
  * only, and fan out via `notify`. Unknown worktrees and no-signal events are
@@ -670,14 +678,15 @@ export function dispatchHook(
 
   // T1111: every accepted event, from every core, proves the session is alive.
   // It is progress for the fix stall watchdog, and it lifts a stalled-fix park.
-  // `SessionEnd` is the exception: the session is closing, and the branch below
-  // interrupts the fix again, so a lift here would spend interrupt budget for
-  // nothing. Best-effort: a defect here may not change what a hook does.
-  if (payload.hook_event_name !== 'SessionEnd') {
+  // Two events are not liveness: `SessionEnd` (the branch below interrupts the
+  // fix again, so a lift would spend interrupt budget for nothing) and
+  // `UsageUpdate` (a window reload can replay a sample with no agent activity).
+  // Best-effort: a defect here may not change what a hook does.
+  if (!NOT_LIVENESS_EVENTS.has(payload.hook_event_name ?? '')) {
     try {
       const at = nowIso();
       stampHookActivity(store, ticketId, at);
-      if (liftStalledFixPark(store, ticketId, at)) {
+      if (liftStalledFixPark(store, ticketId, at, resumableRound)) {
         debug?.(`[hook] ticket ${ticketId}: session active again, lifted the stalled-fix park`);
         notify?.(ticketId, payload);
       }

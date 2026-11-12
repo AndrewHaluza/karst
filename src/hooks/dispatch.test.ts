@@ -1808,6 +1808,12 @@ describe('dispatchHook — hook activity (T1111)', () => {
     },
   );
 
+  it('does not stamp for a UsageUpdate, which a window reload can replay', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'UsageUpdate', cwd: WT });
+    expect(lastHookAt(id)).toBeNull();
+  });
+
   it('does not stamp for an unknown worktree', () => {
     const id = ticketAt();
     expect(dispatchHook(store, { hook_event_name: 'Stop', cwd: '/elsewhere' }).admitted).toBe(false);
