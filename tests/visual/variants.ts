@@ -71,6 +71,8 @@ export interface Variant {
   readonly skipLayout?: boolean;
   /** Screenshot viewport width override (px); absent = the project default. */
   readonly width?: number;
+  /** Screenshot viewport height override (px): a short window puts an open popover's trigger near the bottom edge. */
+  readonly viewportHeight?: number;
   /** Dashboard drill-downs: pill names clicked, in order, after the page loads (the restored artifact index shows the pills). */
   readonly pills?: readonly string[];
   /** Dashboard agent popover: open it after load, then pick a core, type a query, pick a capability tab (in that order). */
@@ -110,6 +112,7 @@ function variant(
     themes?: readonly string[];
     skipLayout?: boolean;
     width?: number;
+    viewportHeight?: number;
     pills?: readonly string[];
     agentPopover?: AgentPopoverSteps;
     ticketDetails?: TicketDetailsSteps;
@@ -125,6 +128,7 @@ function variant(
     corpus,
     ...(opts.skipLayout ? { skipLayout: true } : {}),
     ...(opts.width === undefined ? {} : { width: opts.width }),
+    ...(opts.viewportHeight === undefined ? {} : { viewportHeight: opts.viewportHeight }),
     ...(opts.pills === undefined ? {} : { pills: opts.pills }),
     ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
     ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),
@@ -413,7 +417,20 @@ const panelStateVariants = (): Variant[] => [
     ),
   ),
   variant('dashboard', 'subtask-narrow', dashboardScenario('running', 2), { skipLayout: true, width: 400 }),
+  ...bottomEdgeVariants(),
 ];
+
+/** T1091: an open popover whose trigger sits at the bottom edge of a short window flips above it and stays inside the gutter. */
+const BOTTOM_EDGE_HEIGHT = 480;
+const bottomEdgeVariants = (): Variant[] =>
+  PANEL_VARIANTS.filter((v) => ['pr-ready-info', 'wt-base'].includes(v.id)).map((v) =>
+    variant('dashboard', `panel-${v.id}-bottom-edge`, dashboardScenario('running', 2, v.patch), {
+      skipLayout: true,
+      width: 800,
+      viewportHeight: BOTTOM_EDGE_HEIGHT,
+      ...(v.click === undefined ? {} : { click: v.click }),
+    }),
+  );
 
 /** T1071: the baseline review banner and overlay (ui:UI-R39), layout checks on. */
 const baselineReviewVariants = (): Variant[] =>

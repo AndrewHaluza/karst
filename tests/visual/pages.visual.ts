@@ -31,7 +31,9 @@ karstTest.describe('full-page screenshots', () => {
           testInfo.skip();
           return;
         }
-        if (v.width !== undefined) await page.setViewportSize({ width: v.width, height: (page.viewportSize()?.height ?? 720) });
+        if (v.width !== undefined || v.viewportHeight !== undefined) {
+          await page.setViewportSize({ width: v.width ?? page.viewportSize()?.width ?? 1100, height: v.viewportHeight ?? page.viewportSize()?.height ?? 720 });
+        }
         await gotoView(view, { variant: v.id, ...(v.route === undefined ? {} : { route: v.route }) });
         for (const pill of v.pills ?? []) await page.getByRole('button', { name: new RegExp(`^${pill}`) }).first().click();
         if (v.agentPopover !== undefined) {

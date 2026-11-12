@@ -69,7 +69,10 @@ const REQUIRED_ARTIFACTS = [
 // Raised 384 → 396 KB for the Agents Accounts tab (T1015: AccountsTab, the add
 // wizard with alias import, copy checklist and sign-in steps, the delete confirm;
 // ~19 KB of source, ~12 KB minified): bundle is 403891 bytes (~1.6 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 396 * 1024;
+// Raised 396 → 398 KB for the shared anchored-popover placement on the ticketing
+// provider menu (T1091: computePlacement, attachAnchoredPopover and the
+// useAnchoredPopover hook; ~3 KB minified): bundle is 406972 bytes (~0.6 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 398 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
