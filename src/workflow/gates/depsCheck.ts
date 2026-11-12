@@ -1,6 +1,5 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { runProcess, type ProcessOutcome } from './run.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 /**
  * Whether a target's installed dependency tree can serve its lockfile before
@@ -21,8 +20,7 @@ export type NodeDepsCheck =
   | { ok: false; kind: 'dependency-drift'; reason: string; dir?: string }
   | { ok: false; kind: 'unreadable'; reason: string; dir?: string };
 
-const DEP_CHECK_TIMEOUT_MS = 3 * 60 * 1_000;
-const DEP_CHECK_MAX_OUTPUT_BYTES = 128 * 1024;
+const MAX_LISTED_PROBLEMS = 3;
 /** Above this, an all-`missing:` tree is summarized by count instead of listed. */
 const MISSING_SUMMARY_THRESHOLD = 3;
 
@@ -45,66 +43,127 @@ export function classifyNpmProblems(output: string): NodeDepsCheck {
     const summary =
       missing.length === drift.length && missing.length > MISSING_SUMMARY_THRESHOLD
         ? `${missing.length} dependencies missing (run 'npm ci')`
-        : drift.slice(0, 3).join('; ');
+        : drift.slice(0, MAX_LISTED_PROBLEMS).join('; ');
     return { ok: false, kind: 'dependency-drift', reason: summary };
   } catch {
     return { ok: false, kind: 'unreadable', reason: 'npm ls output was not parseable JSON' };
   }
 }
 
+/** Parse a JSON file into an object; `undefined` when absent, a throw when malformed. */
+function readJsonObject(path: string): Record<string, unknown> | undefined {
+  if (!existsSync(path)) return undefined;
+  const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${path} is not a JSON object`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function stringKeys(value: unknown): string[] {
+  return typeof value === 'object' && value !== null ? Object.keys(value) : [];
+}
+
 /**
- * Verify the installed tree against the lockfile in `cwd`. Skipped when the
- * target declares no `package-lock.json` (nothing to compare) or has its own
- * local `node_modules` (drift there is per-worktree, not the systemic
- * resolve-up case). `run` is injectable for tests.
+ * The version the lockfile pins for `name`, or `undefined` when it pins none
+ * (a link, a workspace, an entry without a version). Reads the v2/v3 `packages`
+ * map, then the v1 `dependencies` map.
+ */
+function lockedVersion(lock: Record<string, unknown>, name: string): string | undefined {
+  const entry = (lock.packages as Record<string, { version?: unknown; link?: unknown }> | undefined)?.[
+    `node_modules/${name}`
+  ] ?? (lock.dependencies as Record<string, { version?: unknown }> | undefined)?.[name];
+  if (entry === undefined || (entry as { link?: unknown }).link === true) return undefined;
+  return typeof entry.version === 'string' ? entry.version : undefined;
+}
+
+/** Node's resolve-up: every `node_modules/<name>/package.json` from `cwd` to the root, then `extra`. */
+function resolveInstalledVersion(name: string, cwd: string, extra?: string): string | undefined | null {
+  const dirs: string[] = [];
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    dirs.push(dir);
+    if (dirname(dir) === dir) break;
+  }
+  if (extra !== undefined) dirs.push(extra);
+  for (const dir of dirs) {
+    const file = join(dir, 'node_modules', ...name.split('/'), 'package.json');
+    if (!existsSync(file)) continue;
+    const version = (JSON.parse(readFileSync(file, 'utf8')) as { version?: unknown }).version;
+    return typeof version === 'string' ? version : undefined;
+  }
+  return null;
+}
+
+/**
+ * Verify, per declared dependency, that what the worktree RESOLVES (its own
+ * `node_modules`, then every parent, then the main checkout) is the version its
+ * own `package-lock.json` pins. The worktree's partial local `node_modules`
+ * (`.vite`, `better-sqlite3`) says nothing about the rest, and `npm ls` in the
+ * main checkout compares that tree with its OWN lockfile, so neither sees a
+ * dependency the base added. Extraneous installs are never examined. Skipped
+ * when the target declares no `package-lock.json`.
  */
 export async function checkNodeDeps(
   cwd: string,
   opts: {
     signal?: AbortSignal;
     onDebug?: (message: string) => void;
-    /**
-     * The main checkout the worktree resolves up to. `npm ls` inspects ONLY the
-     * local tree — it never walks parents the way node's resolver does — so run
-     * from the worktree it reports every dependency missing in exactly the
-     * layout karst creates by design. The tree that actually serves the gates
-     * is the one under `repoRoot`; that is the tree to verify.
-     */
+    /** The main checkout the worktree resolves up to; named as the repair target. */
     repoRoot?: string;
   } = {},
-  run: typeof runProcess = runProcess,
 ): Promise<NodeDepsCheck> {
   if (!existsSync(join(cwd, 'package-lock.json'))) return { ok: true };
-  if (existsSync(join(cwd, 'node_modules'))) return { ok: true };
-  const probeDir =
-    opts.repoRoot !== undefined &&
-    opts.repoRoot !== cwd &&
-    existsSync(join(opts.repoRoot, 'node_modules'))
-      ? opts.repoRoot
-      : cwd;
-  opts.onDebug?.(
-    `[gate] deps: verifying installed tree against lockfile in ${probeDir}` +
-      (probeDir === cwd ? '' : ` (resolve-up tree for ${cwd})`),
-  );
-  const outcome: ProcessOutcome = await run('npm', ['ls', '--depth=0', '--json'], probeDir, {
-    signal: opts.signal,
-    onDebug: opts.onDebug,
-    timeoutMs: DEP_CHECK_TIMEOUT_MS,
-    maxOutputBytes: DEP_CHECK_MAX_OUTPUT_BYTES,
-  });
-  if (outcome.kind === 'completed' && outcome.exitCode === 0) return { ok: true };
-  // Exit code and parseability are INDEPENDENT signals: `npm ls --json` is
-  // designed to exit 1 while emitting well-formed JSON whose `problems` array is
-  // the answer. Parse stdout alone — the combined stream carries `npm error …`
-  // prose that no JSON parser accepts.
-  if (outcome.kind === 'completed') {
-    const classified = classifyNpmProblems(outcome.stdout ?? outcome.output);
-    return classified.ok ? classified : { ...classified, dir: probeDir };
+  const repoRoot = opts.repoRoot !== undefined && opts.repoRoot !== cwd ? opts.repoRoot : undefined;
+  const dir = repoRoot ?? cwd;
+  let names: string[];
+  let lock: Record<string, unknown>;
+  try {
+    const pkg = readJsonObject(join(cwd, 'package.json')) ?? {};
+    names = [...new Set([...stringKeys(pkg.dependencies), ...stringKeys(pkg.devDependencies)])];
+    lock = readJsonObject(join(cwd, 'package-lock.json')) ?? {};
+  } catch (e) {
+    return { ok: false, kind: 'unreadable', reason: e instanceof Error ? e.message : String(e), dir };
   }
-  return {
-    ok: false,
-    kind: 'unreadable',
-    reason: outcome.kind === 'spawnFailed' ? outcome.message : 'npm ls did not complete',
-    dir: probeDir,
-  };
+  opts.onDebug?.(`[gate] deps: checking ${names.length} dependencies of ${cwd} against its lockfile`);
+  const problems: string[] = [];
+  const missing: string[] = [];
+  try {
+    for (const name of names) {
+      const want = lockedVersion(lock, name);
+      const have = resolveInstalledVersion(name, cwd, repoRoot);
+      if (have === null) {
+        missing.push(`missing: ${name}${want === undefined ? '' : `@${want}`}`);
+      } else if (want !== undefined && have !== want) {
+        problems.push(`invalid: ${name}@${have ?? 'unknown'} installed, lockfile wants ${want}`);
+      }
+    }
+  } catch (e) {
+    return { ok: false, kind: 'unreadable', reason: e instanceof Error ? e.message : String(e), dir };
+  }
+  if (missing.length + problems.length === 0) return { ok: true };
+  const reason =
+    problems.length === 0 && missing.length > MISSING_SUMMARY_THRESHOLD
+      ? `${missing.length} dependencies missing`
+      : [...missing, ...problems].slice(0, MAX_LISTED_PROBLEMS).join('; ');
+  return { ok: false, kind: 'dependency-drift', reason, dir };
+}
+
+/**
+ * The park text for a failed check. Drift names two repairs: bring the main
+ * checkout to the base and `npm ci` there, or install in the worktree itself
+ * (`reinstallDeps`, which sets deps_mode='local'). Shared by review and UAT.
+ */
+export function describeDepsBlock(
+  check: Extract<NodeDepsCheck, { ok: false }>,
+  label: string,
+  targetPath: string,
+): string {
+  if (check.kind !== 'dependency-drift') {
+    return `${label}: could not verify installed dependencies — ${check.reason}`;
+  }
+  return (
+    `${label}: installed dependencies do not match package-lock.json — ${check.reason}. ` +
+    `Repair (a): update the main checkout to the base, then run 'npm ci' in ${check.dir ?? targetPath}. ` +
+    `Repair (b): run the local install ('npm install' in ${targetPath}, reinstallDeps, deps_mode='local').`
+  );
 }
