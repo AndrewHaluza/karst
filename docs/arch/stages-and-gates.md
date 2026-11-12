@@ -19,6 +19,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - Gate results and reported phases are append-only evidence
 - A repeat UAT pass runs only the test delta
 - Evidence is written WHEN IT HAPPENS
+- A gate failure with an environment signature re-runs on the host BEFORE the fix brief
 - Gate output is a LIVE stream and a post-run artifact
 - A gate may be switched off for ONE ticket
 - Auto-discovery is npm-shaped; gating is not
@@ -130,6 +131,15 @@ END_DOC_BLOCK: [@arch:GATE-REPEAT]
 A gate run used to collect every `gate_runs` row in memory and commit the lot inside `finish()`, so an extension-host restart mid-run discarded all of it and left the stage reading `running` from a timestamp belonging to a run that no longer existed. `stage_runs` (v25) exists only to resolve that ambiguity: `workflow/gates/evidence.ts`'s `openGateRun` opens a row BEFORE the first gate starts, and `uat.ts`/`review.ts` append to it the instant each piece of evidence is produced — **one `gate_runs` row per GATE as that gate finishes, appended from `runGateList`'s `onGateComplete`, never batched to the end of a target; and findings per TARGET as each lane call returns (`findingsLane.ts`'s `persistFindings`), before any aggregation rule reads them**. A host that dies mid-target-list or mid-lane keeps every gate that finished and every target that answered. `openStageRun` marks any still-`running` row of the same ticket+stage `stale` the moment it is SUPERSEDED — the driver single-flights per ticket, so a second open run can only mean the first one's host died — and the activation sweep (`reconcileStageRuns`, global like the server sweep) marks stale whatever a dead pid left behind; a row with NO pid, or one alive in another window, is left strictly alone. None of this loosens the VERDICT: it is still all-or-nothing, committed only by `commitGateOutcome`'s single transaction, and a throw there still leaves the ticket exactly where it was — only the EVIDENCE stopped being lost.
 The auto-deliver gate run of a resolved merge follows the same rule with its own tables: `shipGatesOps.ts` opens a `deliver_runs` row before the first gate and appends a `deliver_gate_results` row as each gate ends (@arch:AP-01). The UI gates (`visual`, `layout`) are cut by the same rule as UAT (`cutGatesWithoutUiChange`): when the merged diff has no UI path, each cut gate stays in `deliver_runs.gates` and gets one row with `exit_code` NULL and the summary `no UI change`. A skip is not a pass. Its live output goes to the Karst log channel, because no ship console exists.
 END_DOC_BLOCK: [@arch:EVIDENCE-WHEN]
+
+## [@arch:GATE-ENV-RERUN] A gate failure with an environment signature re-runs on the host BEFORE the fix brief
+
+covers: src/workflow/gates/environmentSignature.ts, src/workflow/fixHostRerun.ts#preBriefHostRerun, src/workflow/fixHostRerun.ts#runPreBriefRerun, src/extension/ops/fixRerunOps.ts#preBriefRerunFor
+
+When a gate output names an environment fault, the host re-runs the gate once before an agent spends a fix round. `environmentSignature(gateName, output)` is pure and returns a reason or null. The signatures are: a gate or test timeout (`exceeded the test timeout`, a webServer timeout), `base check skipped: some vitest failures are not parseable`, `not a screenshot mismatch`, the dockerGate skip above 40 failing screenshots, and the fixtures port-window error (`no free window of`). The runners store the result as the first line of the failed gate's summary (`environment signature: <reason>`), so the fix brief shows it and the check needs no new column.
+
+After `runUat` or `runReview` commits a failed gate verdict, the injected `preBriefRerun` runs `preBriefHostRerun`. It acts only when the round is a `gate-failure` round and EVERY failed gate of the latest batch carries a signature. A mixed round or a normal assertion failure goes to the agent with no delay. The re-run reuses `hostRerunFailedGates` and the `host_rerun_at` stamp, so it runs at most once for each round. It also closes at most one round for each ticket and source stage (`hostRerunPassedBefore`), so a repeating environment failure reaches the agent and the fix budget instead of looping. While it runs, the ticket shows the `fix` stage with a pending round. A pass closes the round with `HOST_RERUN_PASSED_REASON` and returns the ticket to the source stage with no brief and no new result kind. A failure leaves the round open (it does not park), so the brief arms as before, and a later no-change fix marker finds the re-run used.
+END_DOC_BLOCK: [@arch:GATE-ENV-RERUN]
 
 ## [@arch:GATE-OUTPUT] Gate output is a LIVE stream and a post-run artifact, and the artifact stays the record
 

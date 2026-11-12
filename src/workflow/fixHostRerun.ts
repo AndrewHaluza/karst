@@ -4,12 +4,13 @@ import { activeFixRound } from '../store/recoveryRounds.js';
 import { listGateRuns, type GateRun } from '../store/gateRuns.js';
 import { finishProcessRun } from '../store/processRuns.js';
 import { roundById } from '../store/recoveryRounds.js';
-import { claimHostRerun, closeRoundPassed, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
+import { claimHostRerun, closeRoundPassed, hostRerunPassedBefore, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
 import { parkFixStage } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
 import { setAgentState, setStageCurrent } from '../store/tickets.js';
 import { nowIso } from '../model/time.js';
 import { regenerateRepoOf } from './gates/regenerate.js';
+import { signatureOfSummary } from './gates/environmentSignature.js';
 
 /** Why a fix round closed when the host's re-run found the failed gates green. */
 export const HOST_RERUN_PASSED_REASON = 'no change: failed gates passed on re-run';
@@ -78,11 +79,14 @@ export interface HostRerunReply {
 }
 
 /** The gates of the source stage's LATEST batch that ran and exited non-zero. */
-export function failedGatesOf(runs: GateRun[], stage: StageKey): FailedGate[] {
+function failedRowsOf(runs: GateRun[], stage: StageKey): GateRun[] {
   const own = runs.filter((r) => r.stageKey === stage && r.command !== null);
   const latest = own.reduce((max, r) => (r.runAt > max ? r.runAt : max), '');
-  return own
-    .filter((r) => r.runAt === latest && !r.skipped && r.exitCode !== null && r.exitCode !== 0)
+  return own.filter((r) => r.runAt === latest && !r.skipped && r.exitCode !== null && r.exitCode !== 0);
+}
+
+export function failedGatesOf(runs: GateRun[], stage: StageKey): FailedGate[] {
+  return failedRowsOf(runs, stage)
     .map((r) => ({
       gateName: r.gateName,
       repo: r.repo,
@@ -133,13 +137,20 @@ function parkRound(store: Store, ticketId: number, roundId: number, verdict: str
  * refusal standing and parks the fix stage (Needs you) with the failures.
  * Never an agent override — the host decides from gate exit codes.
  */
-export async function hostRerunFailedGates(store: Store, ticketId: number, deps: HostRerunDeps): Promise<HostRerunOutcome> {
+export async function hostRerunFailedGates(
+  store: Store,
+  ticketId: number,
+  deps: HostRerunDeps,
+  options: { parkOnFailure?: boolean } = {},
+): Promise<HostRerunOutcome> {
+  const park = options.parkOnFailure !== false;
   const round = activeFixRound(store, ticketId);
   if (round === null || round.triggerKind !== 'gate-failure') return { kind: 'not-applicable' };
   const failed = failedGatesOf(listGateRuns(store, ticketId), round.sourceStage);
   if (failed.length === 0) return { kind: 'not-applicable' };
   const now = deps.now ?? nowIso;
   if (!claimHostRerun(store, round.id, now())) {
+    if (!park) return { kind: 'already-used' };
     parkRound(store, ticketId, round.id, `no new commit, and the host already re-ran the failed gates — ${HOST_RERUN_WAY_OUT}`, now());
     return { kind: 'already-used' };
   }
@@ -150,6 +161,7 @@ export async function hostRerunFailedGates(store: Store, ticketId: number, deps:
     returnToSource(store, ticketId, round.id, round.sourceStage, now());
     return { kind: 'passed', stage: round.sourceStage };
   }
+  if (!park) return { kind: 'failed', failures };
   const detail = describeFailures(failures);
   parkRound(store, ticketId, round.id, `no new commit, and the host re-run did not close the round — ${detail}. ${HOST_RERUN_WAY_OUT}`, now());
   return { kind: 'failed', failures };
@@ -167,5 +179,43 @@ export function describeHostRerun(outcome: HostRerunOutcome): HostRerunReply | u
     case 'failed': {
       return { ok: false, message: `the host re-ran the failed gates — the refusal stands (${describeFailures(outcome.failures)}). ${HOST_RERUN_WAY_OUT}` };
     }
+  }
+}
+
+/**
+ * The pre-brief re-run: a gate-failure round just opened, and EVERY failed gate carries an
+ * environment signature (`gates/environmentSignature.ts`). Run the one host re-run of the round
+ * before the fix brief is armed. All green closes the round with `HOST_RERUN_PASSED_REASON` and
+ * returns the ticket to the source stage — no brief. Any red leaves the round as it is, so the
+ * brief is armed as today (it already carries the signature line) and the stamp keeps this to once.
+ * It closes at most one round for each ticket and source stage: a repeat failure goes to the agent.
+ * A failure with no signature, or a mixed round, is `not-applicable`: a real defect goes to the agent.
+ */
+export async function preBriefHostRerun(store: Store, ticketId: number, deps: HostRerunDeps): Promise<HostRerunOutcome> {
+  const round = activeFixRound(store, ticketId);
+  if (round === null || round.triggerKind !== 'gate-failure') return { kind: 'not-applicable' };
+  // Bound a repeating environment failure: one pre-brief close for each ticket and source stage,
+  // then the next failure goes to the agent (a close returns the ticket to the stage with a fresh budget).
+  if (hostRerunPassedBefore(store, ticketId, round.sourceStage, HOST_RERUN_PASSED_REASON, round.id)) return { kind: 'not-applicable' };
+  const runs = listGateRuns(store, ticketId);
+  const failed = failedGatesOf(runs, round.sourceStage);
+  if (failed.length === 0) return { kind: 'not-applicable' };
+  const failedRows = failedRowsOf(runs, round.sourceStage);
+  if (!failedRows.every((r) => signatureOfSummary(r.summary) !== null)) return { kind: 'not-applicable' };
+  return hostRerunFailedGates(store, ticketId, deps, { parkOnFailure: false });
+}
+
+/** Run the injected pre-brief re-run after a failed verdict committed. A throw is logged, never fatal: the brief then arms as today. */
+export async function runPreBriefRerun(
+  rerun: ((ticketId: number) => Promise<HostRerunOutcome>) | undefined,
+  ticketId: number,
+  debug?: (message: string) => void,
+): Promise<void> {
+  if (rerun === undefined) return;
+  try {
+    const outcome = await rerun(ticketId);
+    debug?.(`[gate] ticket ${ticketId}: pre-brief host re-run ${outcome.kind}`);
+  } catch (err) {
+    debug?.(`[gate] ticket ${ticketId}: pre-brief host re-run threw: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

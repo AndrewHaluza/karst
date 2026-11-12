@@ -10,6 +10,7 @@ import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
 import {
   describeHostRerun,
   hostRerunFailedGates,
+  preBriefHostRerun,
   type FailedGate,
   type GateRerunResult,
   type HostRerunOutcome,
@@ -87,6 +88,12 @@ export function makeRecoverRefusal(
 export function hostRerunFor(deps: GateRerunDeps): (ticketId: number) => Promise<HostRerunOutcome> {
   const runGate = makeGateRerun(deps);
   return (ticketId) => hostRerunFailedGates(deps.store, ticketId, { runGate });
+}
+
+/** Production composition for the pre-brief re-run of an environment-signature gate failure. */
+export function preBriefRerunFor(deps: GateRerunDeps): (ticketId: number) => Promise<HostRerunOutcome> {
+  const runGate = makeGateRerun(deps);
+  return (ticketId) => preBriefHostRerun(deps.store, ticketId, { runGate });
 }
 
 export interface RequestedRerunSweepDeps extends GateRerunDeps {

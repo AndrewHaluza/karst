@@ -53,7 +53,7 @@ import { accountForLaunch, activeAccountLabel, sessionReaderEnv } from './agent/
 import { wireAccounts } from './extension/ops/accountsWiring.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
-import { hostRerunFor, makeRequestedRerunSweep } from './extension/ops/fixRerunOps.js';
+import { hostRerunFor, makeRequestedRerunSweep, preBriefRerunFor } from './extension/ops/fixRerunOps.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
@@ -3656,7 +3656,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
+          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, preBriefRerun: preBriefRerunFor({ store: localStore, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess, hostRunner: runProcess, regenerateFor: (repo) => regenerateOption(currentManifest(), { repo, names: [repo] }).regenerate }), // AC-32; D589 pre-brief re-run
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.

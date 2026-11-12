@@ -13,7 +13,8 @@ import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '.
 import { openGateRun } from '../gates/evidence.js';
 import { escalatedRefusalReason, hostRefusalRepeats } from '../gates/hostRefusalRepeat.js';
 import { nowIso } from '../../model/time.js';
-import { summarizeGateFailure } from '../../model/gateSummary.js';
+import { summarizeWithSignature } from '../gates/environmentSignature.js';
+import { runPreBriefRerun, type HostRerunOutcome } from '../fixHostRerun.js';
 import {
   listServersByTicket,
   listWorktreesByTicket,
@@ -188,6 +189,12 @@ export type UatSpin = (
 export type UatStopServers = (store: Store, ticketId: number) => Promise<void>;
 
 export interface UatDeps {
+  /**
+   * The one host re-run of a gate-failure round whose failed gates all carry an environment
+   * signature, run before the fix brief is armed (`preBriefHostRerun`). Absent → no pre-brief
+   * re-run. A pass closes the round and returns the ticket to this stage.
+   */
+  preBriefRerun?: (ticketId: number) => Promise<HostRerunOutcome>;
   planTargets?: typeof planUatTargets;
   probe?: (cwd: string, debug?: (message: string) => void) => ScriptProbe;
   runGates?: typeof runGateList;
@@ -490,7 +497,7 @@ export async function runUat(
           entry.result.hostRefused === true
             ? entry.result.output
             : entry.result.exitCode !== null && entry.result.exitCode !== 0
-              ? summarizeGateFailure(entry.result.output)
+              ? summarizeWithSignature(entry.result.name, entry.result.output)
               : null,
       })),
     );
@@ -766,7 +773,7 @@ export async function runUat(
           summary:
             // A null exit is a gate that never ran (a refused host gate): its reason is the summary,
             // so hostRefusalRepeats can see an identical refusal twice.
-            exitCode !== 0 && (output ?? '').trim() !== '' ? summarizeGateFailure(output ?? '') : null,
+            exitCode !== 0 && (output ?? '').trim() !== '' ? summarizeWithSignature(name, output ?? '') : null,
         }]);
         // A drift-passed gate exits 0 but prints the shared alert line (D360).
         try {
@@ -832,7 +839,9 @@ export async function runUat(
   // A failed gate verdict is decided and closed exactly as before — the Tester
   // never runs, because it only ever runs after the required gates PASS.
   if (outcome.verdict.kind === 'failed') {
-    return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+    const failed = finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+    await runPreBriefRerun(deps.preBriefRerun, opts.ticketId, opts.debug);
+    return failed;
   }
 
   // The gate list passed for THIS working tree: remember it so a re-entry after
