@@ -29,7 +29,7 @@ import * as findingsLaneModule from '../review/findingsLane.js';
 import * as reviewSnapshotModule from '../reviewSnapshot.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { runUat, type UatDeps } from './uat.js';
-import { setDisabledGates } from '../../store/ticketGates.js';
+import { getGateSnapshot, setStageGateSnapshot, setDisabledGates } from '../../store/ticketGates.js';
 
 const now = (): string => '2026-08-01T10:00:00.000Z';
 
@@ -1238,6 +1238,45 @@ describe('runReview', () => {
     // no gate outcome was proven (P2-18).
     const review = getTicket(store, id).stages.find((s) => s.stageKey === 'review')!;
     expect(review.status).toBe('bypassed');
+  });
+
+  it('bypasses the stage when every resolved gate is absent from the ticket snapshot, and records why', async () => {
+    setStageGateSnapshot(store, id, 'review', ['some-old-gate']);
+    const result = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(result).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'review')!.status).toBe('bypassed');
+    const skipped = listGateRuns(store, id).filter((r) => r.skipped);
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(skipped[0]!.summary).toContain('was added after this ticket started — "Rebase on base" to run it');
+  });
+
+  it('captures the snapshot at the first gate run of a ticket that has none', async () => {
+    expect(getGateSnapshot(store, id)).toBeNull();
+    await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(getGateSnapshot(store, id)?.review).toEqual(expect.arrayContaining(['lint', 'typecheck']));
+  });
+
+  it('keeps running every gate for a pre-snapshot ticket that already ran gates', async () => {
+    const invoked: string[] = [];
+    recordGateRun(store, {
+      ticketId: id,
+      stageKey: 'review',
+      attempt: 1,
+      runAt: now(),
+      gates: [{ gateName: 'lint (web)', exitCode: 0, startedAt: now(), endedAt: now() }],
+    });
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return { kind: 'ran', results: gates.map((g) => ({ name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() })) };
+        },
+      }),
+    );
+    expect(invoked).toContain('lint');
+    expect(getGateSnapshot(store, id)).toBeNull();
   });
 });
 

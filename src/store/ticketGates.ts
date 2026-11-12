@@ -132,3 +132,69 @@ export function addHostGates(store: Store, ticketId: number, names: readonly str
       .run(next.length === 0 ? null : JSON.stringify(next), ticketId);
   });
 }
+
+/**
+ * The gate names a ticket's branch was cut with, per stage (@arch:GATE-SNAPSHOT).
+ *
+ * A stage that is `null` was not captured (the first gate run of that stage takes
+ * it); every resolved gate of such a stage runs. An empty array is a real snapshot:
+ * the branch started with no gate for that stage. The whole column NULL reads as
+ * `null`.
+ */
+export interface GateSnapshot {
+  uat: readonly string[] | null;
+  review: readonly string[] | null;
+}
+
+export function getGateSnapshot(store: Store, ticketId: number): GateSnapshot | null {
+  const row = store.db
+    .prepare('SELECT gate_snapshot FROM tickets WHERE id = ?')
+    .get(ticketId) as { gate_snapshot: string | null } | undefined;
+  if (!row || row.gate_snapshot === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(row.gate_snapshot);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    const obj = parsed as Record<string, unknown>;
+    const pick = (stage: GateStage): string[] | null =>
+      Array.isArray(obj[stage]) ? normalizeNames(obj[stage] as unknown[]) : null;
+    return { uat: pick('uat'), review: pick('review') };
+  } catch {
+    // A corrupt column degrades to "no snapshot": more gates run, never fewer.
+    return null;
+  }
+}
+
+/** One stage's snapshot names; null when the ticket has none for that stage. */
+export function getStageGateSnapshot(store: Store, ticketId: number, stage: GateStage): readonly string[] | null {
+  return getGateSnapshot(store, ticketId)?.[stage] ?? null;
+}
+
+/** Replace the whole snapshot (a rebase re-states every stage at once). */
+export function setGateSnapshot(
+  store: Store,
+  ticketId: number,
+  snapshot: { uat: readonly string[]; review: readonly string[] },
+): void {
+  store.db
+    .prepare("UPDATE tickets SET gate_snapshot = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(
+      JSON.stringify({ uat: normalizeNames(snapshot.uat), review: normalizeNames(snapshot.review) }),
+      ticketId,
+    );
+}
+
+/** Capture ONE stage, leaving the other as it was (read-modify-write in one transaction, like `setDisabledGates`). */
+export function setStageGateSnapshot(
+  store: Store,
+  ticketId: number,
+  stage: GateStage,
+  names: readonly string[],
+): void {
+  runImmediateTransaction(store.db, () => {
+    const current = getGateSnapshot(store, ticketId) ?? { uat: null, review: null };
+    const next = { ...current, [stage]: normalizeNames(names) };
+    store.db
+      .prepare("UPDATE tickets SET gate_snapshot = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(JSON.stringify(next), ticketId);
+  });
+}

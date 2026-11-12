@@ -2973,5 +2973,12 @@ function migrateLocked(db: Database): void {
     if (cols115.size > 0 && !cols115.has('round_head_sha')) db.exec('ALTER TABLE autopilot_budgets ADD COLUMN round_head_sha TEXT');
   }
 
+  if (current < 116) {
+    // v116: `tickets.gate_snapshot` — the resolved gate names per stage the ticket's branch was cut with
+    // (@arch:GATE-SNAPSHOT). Additive; NULL = no snapshot, every resolved gate runs (no backfill).
+    const cols116 = tableColumns(db, 'tickets');
+    if (cols116.size > 0 && !cols116.has('gate_snapshot')) db.exec('ALTER TABLE tickets ADD COLUMN gate_snapshot TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

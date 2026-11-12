@@ -28,7 +28,7 @@ import { NO_UI_CHANGE_REASON } from '../gates/uiScope.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
-import { applyConfigSwitch, partitionDisabled, type StageGateResolution } from '../gates/disable.js';
+import { applyConfigSwitch, gateAddedReason, partitionDisabled, partitionNotInSnapshot, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
 import { listArchCitations } from '../../store/archCitations.js';
 import { renderCitationText } from '../../model/archCitations.js';
@@ -53,7 +53,7 @@ import {
   type TesterGateRunner,
 } from '../uat/testerVerifier.js';
 import type { WarnFn } from '../review/findings.js';
-import { getDisabledGates, getHostGates } from '../../store/ticketGates.js';
+import { getDisabledGates, getGateSnapshot, getHostGates, getStageGateSnapshot, setStageGateSnapshot } from '../../store/ticketGates.js';
 import { withHostOverride } from '../gates/resourceKill.js';
 import { capForGate } from '../fixAttempts.js';
 import { getTicket } from '../../store/tickets.js';
@@ -283,6 +283,8 @@ export function resolveTargetGates(
   names: readonly string[],
   disabledNames: readonly string[] = [],
   debug?: (message: string) => void,
+  /** The ticket's gate snapshot for this stage (@arch:GATE-SNAPSHOT); null = none, every gate runs. */
+  snapshotNames: readonly string[] | null = null,
 ): StageGateResolution {
   const keys: (string | null)[] = names.length > 0 ? [...names] : [null];
   const byIdentity = new Map<string, ResolvedGate>();
@@ -314,9 +316,12 @@ export function resolveTargetGates(
   }
 
   const ticketCut = partitionDisabled([...byIdentity.values()], disabledNames, debug);
-  const kept = ticketCut.kept;
+  const snapshotCut = partitionNotInSnapshot(ticketCut.kept, snapshotNames, debug);
+  const kept = snapshotCut.kept;
+  const addedLater = snapshotCut.skipped;
   const skipped = [
     ...ticketCut.skipped,
+    ...addedLater,
     ...[...configOff].filter(([key]) => !byIdentity.has(key)).map(([, gate]) => gate),
   ];
   if (kept.length > 0 || skipped.length > 0) {
@@ -324,7 +329,7 @@ export function resolveTargetGates(
       `[gate] uat resolve: ${kept.length} kept, ${skipped.length} disabled for this ticket ` +
         `(disabled: ${skipped.map((g) => g.name).join(', ') || 'none'})`,
     );
-    return { kind: 'gates', gates: kept, skipped };
+    return { kind: 'gates', gates: kept, skipped, ...(addedLater.length > 0 ? { addedLater } : {}) };
   }
   // Zero gates, nothing disabled, and no unavailability is the malformed-
   // package.json case, which the caller turns into a named failure rather than
@@ -378,6 +383,12 @@ export async function runUat(
   // which is the same live-read property `opts.manifest`'s getter gives the
   // manifest itself.
   const disabledNames = getDisabledGates(store, opts.ticketId).uat;
+  // The gates this ticket's branch was cut with (@arch:GATE-SNAPSHOT). A ticket that has run no gate and
+  // has no snapshot at all takes it from this run's resolution; a pre-snapshot ticket keeps running every gate.
+  const snapshotNames = getStageGateSnapshot(store, opts.ticketId, 'uat');
+  const captureSnapshot =
+    snapshotNames === null && (getGateSnapshot(store, opts.ticketId) !== null || listGateRuns(store, opts.ticketId).length === 0);
+  const capturedNames = new Set<string>();
   // The BARE gate names, kept beside the evidence rows rather than recovered
   // from them: a row's `gateName` is repo-decorated ("test (web)") because that
   // is what identifies an invocation, and the block reason already parenthesizes
@@ -584,7 +595,7 @@ export async function runUat(
   for (const target of skipGates || rerun ? [] : targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path, opts.debug);
-    let resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames, opts.debug);
+    let resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames, opts.debug, snapshotNames);
 
     if (resolution.kind === 'unavailable') {
       // The zero-gate verdict is decided ACROSS every target, so "this
@@ -619,6 +630,12 @@ export async function runUat(
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
     }
 
+    if (captureSnapshot) {
+      for (const g of [...resolution.gates, ...resolution.skipped]) capturedNames.add(g.name);
+      setStageGateSnapshot(store, opts.ticketId, 'uat', [...capturedNames]);
+    }
+    const addedLater = new Set(resolution.addedLater ?? []);
+
     // A branch with no UI path in its diff has nothing for the container-pinned
     // visual/layout gates to say: they record `skipped` (evidence, not a pass).
     // No manifest means no real base ref (HEAD would diff as empty): keep every gate.
@@ -633,6 +650,8 @@ export async function runUat(
       : { kept: [...resolution.gates], skipped: [] as ResolvedGate[] };
     resolution = { ...resolution, gates: uiCut.kept, skipped: [...resolution.skipped, ...uiCut.skipped] };
     const uiSkipped = new Set(uiCut.skipped);
+    const skipReason = (gate: ResolvedGate): string =>
+      uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : addedLater.has(gate) ? gateAddedReason(gate.name) : 'disabled for this ticket';
 
     // One row per gate the user switched off, carrying the identity it WOULD
     // have been invoked with. No timing and no exit code, because none exists —
@@ -650,10 +669,11 @@ export async function runUat(
         command: gate.command,
         args: gate.args,
         skipped: true,
+        ...(addedLater.has(gate) ? { summary: gateAddedReason(gate.name) } : {}),
       }]);
       skippedNames.push(gate.name);
       sections.push(
-        `# ${gate.name} (${label}, skipped)\n${uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : 'disabled for this ticket'}`,
+        `# ${gate.name} (${label}, skipped)\n${skipReason(gate)}`,
       );
     }
 

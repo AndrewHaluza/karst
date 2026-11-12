@@ -52,6 +52,36 @@ export function partitionDisabled(
   return { kept, skipped };
 }
 
+/** The skip reason recorded for a gate that is not in the ticket's gate snapshot. */
+export function gateAddedReason(name: string): string {
+  return `gate "${name}" was added after this ticket started — "Rebase on base" to run it`;
+}
+
+/**
+ * Split a RESOLVED gate list by the ticket's gate snapshot (@arch:GATE-SNAPSHOT).
+ *
+ * `null` = no snapshot: every gate runs (today's behaviour). A gate whose name is
+ * not in the snapshot did not exist when the ticket's branch got its code, so the
+ * branch cannot satisfy it; it is skipped, not failed. A name in the snapshot that
+ * the manifest no longer resolves is simply absent from `gates`, so it never runs.
+ * Matching is by exact name, like `partitionDisabled`; `required` is not respected.
+ */
+export function partitionNotInSnapshot(
+  gates: readonly ResolvedGate[],
+  snapshotNames: readonly string[] | null,
+  debug?: (message: string) => void,
+): GatePartition {
+  if (snapshotNames === null) return { kept: [...gates], skipped: [] };
+  const known = new Set(snapshotNames);
+  const kept: ResolvedGate[] = [];
+  const skipped: ResolvedGate[] = [];
+  for (const gate of gates) (known.has(gate.name) ? kept : skipped).push(gate);
+  if (skipped.length > 0) {
+    debug?.(`[gate] snapshot: ${skipped.length} gate(s) added after the ticket started (${skipped.map((g) => g.name).join(', ')})`);
+  }
+  return { kept, skipped };
+}
+
 /**
  * What a STAGE-level resolver answers, once the ticket's own disables are
  * applied. `GateResolution` (`gates/resolve.ts`) stays the config/probe answer;
@@ -62,7 +92,14 @@ export function partitionDisabled(
  * ASK this repository anything, which no per-ticket preference can alter.
  */
 export type StageGateResolution =
-  | { kind: 'gates'; gates: ResolvedGate[]; skipped: ResolvedGate[] }
+  | {
+      kind: 'gates';
+      gates: ResolvedGate[];
+      /** Every gate that did not run: user-disabled, config-off, no UI change, or added after the ticket started. */
+      skipped: ResolvedGate[];
+      /** The subset of `skipped` that is absent from the ticket's gate snapshot (same objects). Absent = none. */
+      addedLater?: ResolvedGate[];
+    }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
 
 /**

@@ -1247,6 +1247,22 @@ describe('resolveTargetGates', () => {
     expect(res.skipped.map((g) => g.name)).toEqual(['e2e']);
   });
 
+  it('skips a gate absent from the ticket snapshot and marks it added-later', () => {
+    const probe = okProbe({ test: 'vitest', e2e: 'playwright' });
+    const res = resolveTargetGates(probe, undefined, ['web'], [], undefined, ['test']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates.map((g) => g.name)).toEqual(['test']);
+    expect(res.skipped.map((g) => g.name)).toEqual(['e2e']);
+    expect(res.addedLater?.map((g) => g.name)).toEqual(['e2e']);
+  });
+
+  it('runs every gate when the snapshot is null', () => {
+    const probe = okProbe({ test: 'vitest', e2e: 'playwright' });
+    const res = resolveTargetGates(probe, undefined, ['web'], [], undefined, null);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates.map((g) => g.name)).toEqual(['test', 'e2e']);
+  });
+
   it('reports an empty skipped list when nothing is disabled', () => {
     const probe = okProbe({ test: 'vitest' });
     const res = resolveTargetGates(probe, undefined, ['web']);

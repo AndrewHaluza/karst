@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from './db.js';
 import { createTicket } from './tickets.js';
-import { getDisabledGates, setDisabledGates } from './ticketGates.js';
+import { getDisabledGates, setDisabledGates, getGateSnapshot, setGateSnapshot, setStageGateSnapshot, getStageGateSnapshot } from './ticketGates.js';
 
 function ticket(store: ReturnType<typeof openStore>): number {
   return createTicket(store, { key: 'K-1', title: 'A ticket', source: 'manual' }).id;
@@ -102,5 +102,45 @@ describe('ticketGates', () => {
       b.close();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('gate snapshot', () => {
+  it('reads null for a ticket with no snapshot', () => {
+    const store = openStore(':memory:');
+    expect(getGateSnapshot(store, ticket(store))).toBeNull();
+  });
+
+  it('round-trips and replaces the whole snapshot', () => {
+    const store = openStore(':memory:');
+    const id = ticket(store);
+    setGateSnapshot(store, id, { uat: ['unit'], review: ['lint'] });
+    expect(getGateSnapshot(store, id)).toEqual({ uat: ['unit'], review: ['lint'] });
+    setGateSnapshot(store, id, { uat: ['unit', 'e2e'], review: ['lint', 'layer-rules'] });
+    expect(getGateSnapshot(store, id)).toEqual({ uat: ['unit', 'e2e'], review: ['lint', 'layer-rules'] });
+  });
+
+  it('keeps an empty snapshot distinct from no snapshot', () => {
+    const store = openStore(':memory:');
+    const id = ticket(store);
+    setGateSnapshot(store, id, { uat: [], review: [] });
+    expect(getGateSnapshot(store, id)).toEqual({ uat: [], review: [] });
+  });
+
+  it('reads a corrupt column as no snapshot (runs more gates, never fewer)', () => {
+    const store = openStore(':memory:');
+    const id = ticket(store);
+    store.db.prepare('UPDATE tickets SET gate_snapshot = ? WHERE id = ?').run('{not json', id);
+    expect(getGateSnapshot(store, id)).toBeNull();
+  });
+
+  it('captures one stage without touching the other; an uncaptured stage reads null', () => {
+    const store = openStore(':memory:');
+    const id = ticket(store);
+    setStageGateSnapshot(store, id, 'review', ['lint']);
+    expect(getGateSnapshot(store, id)).toEqual({ uat: null, review: ['lint'] });
+    expect(getStageGateSnapshot(store, id, 'uat')).toBeNull();
+    setStageGateSnapshot(store, id, 'uat', ['unit']);
+    expect(getGateSnapshot(store, id)).toEqual({ uat: ['unit'], review: ['lint'] });
   });
 });

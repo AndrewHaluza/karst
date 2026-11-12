@@ -37,6 +37,11 @@ export interface RebaseDeps {
   /** Autopilot (T1081): push only when the rebase and the generators changed the branch; otherwise nothing is pushed and the result is false. */
   readonly requireMove?: boolean;
   readonly armLease?: () => void;
+  /**
+   * The branch now holds the base tip's code (a rebase succeeded and was not undone): retake the
+   * ticket's gate snapshot so gates added to the manifest since the branch was cut now apply (@arch:GATE-SNAPSHOT).
+   */
+  readonly onRebased?: () => Promise<void>;
   readonly removeSandbox: () => Promise<void>;
   readonly reopenSandbox: () => Promise<void>;
   readonly reprobe: () => Promise<void>;
@@ -85,11 +90,13 @@ async function run(d: RebaseDeps): Promise<void> {
   const origHead = orig.stdout.trim();
   if (!(await rebased(d))) return;
   if (d.preShip && (await upToDate(d, origHead))) {
+    await snapshotRetaken(d);
     return d.info(`Rebase on base: ${d.branch} is already on origin/${d.baseRef}; nothing to do.`);
   }
   if (!(await regenerated(d, origHead))) return;
   if (d.preShip) return finishPreShip(d, origHead);
   if (d.requireMove && (await upToDate(d, origHead))) {
+    await snapshotRetaken(d);
     return d.info(`Rebase on base: ${d.branch} is already on origin/${d.baseRef} and the generated files are current; nothing pushed.`);
   }
 
@@ -116,8 +123,18 @@ async function run(d: RebaseDeps): Promise<void> {
       `Rebase on base: push rejected (lease: the remote branch moved, or push failed): ${push.stderr.trim()}. Sandbox left as is.`,
     );
   }
+  await snapshotRetaken(d);
   await recreate(d);
   await d.reprobe();
+}
+
+/** Retake the gate snapshot; a failure is logged and never undoes the rebase. */
+async function snapshotRetaken(d: RebaseDeps): Promise<void> {
+  try {
+    await d.onRebased?.();
+  } catch (err) {
+    d.logError('rebaseOnBase gate snapshot failed', err);
+  }
 }
 
 /** True when the rebase moved nothing: the branch already contained the base tip. */
@@ -136,6 +153,7 @@ async function finishPreShip(d: RebaseDeps, origHead: string): Promise<void> {
     await d.git(d.cwd, ['reset', '--hard', origHead]);
     return d.error(UNSYNCED);
   }
+  await snapshotRetaken(d);
   try {
     await d.removeSandbox();
     await d.reopenSandbox();

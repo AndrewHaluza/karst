@@ -396,4 +396,34 @@ describe('rebaseOnBase result', () => {
     expect(await rebaseOnBase(rig({ reprobe: async () => { throw new Error('gh down'); }, error }).deps)).toBe(true);
     expect(error).toHaveBeenCalledWith(expect.stringMatching(/Rebase on base failed: gh down/));
   });
+
+  describe('gate snapshot (@arch:GATE-SNAPSHOT)', () => {
+    it('retakes the snapshot after a successful push', async () => {
+      const onRebased = vi.fn(async () => {});
+      const r = rig({ onRebased });
+      await rebaseOnBase(r.deps);
+      expect(onRebased).toHaveBeenCalledTimes(1);
+    });
+
+    it('retakes the snapshot after a successful pre-ship rebase', async () => {
+      const onRebased = vi.fn(async () => {});
+      const r = rig({ onRebased, preShip: true });
+      await rebaseOnBase(r.deps);
+      expect(onRebased).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the old snapshot when the rebase conflicts', async () => {
+      const onRebased = vi.fn(async () => {});
+      const r = rig({ onRebased, failGit: (a) => a[0] === 'rebase' && a[1] !== '--abort' });
+      await rebaseOnBase(r.deps);
+      expect(onRebased).not.toHaveBeenCalled();
+    });
+
+    it('keeps the old snapshot when the push is rejected', async () => {
+      const onRebased = vi.fn(async () => {});
+      const r = rig({ onRebased, failGit: (a) => a[0] === 'push' });
+      await rebaseOnBase(r.deps);
+      expect(onRebased).not.toHaveBeenCalled();
+    });
+  });
 });

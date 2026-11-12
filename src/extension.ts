@@ -79,6 +79,7 @@ import { DashboardManager } from './ui/dashboard/panel.js';
 import { makeDashboardPanelHost } from './ui/dashboard/host.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
+import { takeGateSnapshot } from './extension/ops/gateSnapshotOps.js';
 import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
 import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
@@ -2922,7 +2923,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(storedArtifacts);
   const undelivered = createUndeliveredTracker();
   const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => launches.open(ticketId, seedPrompt, seedRepo) });
+  // @arch:GATE-SNAPSHOT: a ticket's gate set is captured once its worktrees exist and retaken after "Rebase on base".
+  const snapshotGateOptions = buildGateOptionsLoader({ store: localStore, manifest: currentManifest });
+  const gateSnapshotDeps = { store: localStore, loadGateOptions: (id: number) => snapshotGateOptions(id, new AbortController().signal), debug: (m: string) => logger.debug(m) };
+  const spinWithGateSnapshot: typeof spinTicket = async (...args) => {
+    const result = await spinTicket(...args);
+    void takeGateSnapshot(gateSnapshotDeps, args[2], { onlyIfMissing: true });
+    return result;
+  };
   const ciHost = (ticketId: number): CiHost => ({
+    retakeGateSnapshot: async () => { await takeGateSnapshot(gateSnapshotDeps, ticketId); },
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), ...sessionSeams(ticketId) }),
     deliver: { tracker: undelivered, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
@@ -2937,7 +2947,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     withDriverRun: driverLockedRun(driver), // same single-flight lock + Stop signal as a stage run
     adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
     assignmentFor: (ticketId, stageKey, provider, model) => processFor(ticketId, stageKey === 'review' ? 'review' : 'uat-tester', { provider, model })?.assignment,
-    artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), projectId: () => currentProject()?.id, spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), // D155/AC-32: a parked re-run boots inside the SANDBOX, sees the sandbox's tree and verifies there — exactly like the stage (never a host stack or host worktree under a sandbox row)
+    artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), projectId: () => currentProject()?.id, spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), // D155/AC-32: a parked re-run boots inside the SANDBOX, sees the sandbox's tree and verifies there — exactly like the stage (never a host stack or host worktree under a sandbox row)
     cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
   });
   const stall = createStallBinding({ store: localStore, git: defaultGitRunner, manifest: currentManifest, processFor: (id) => processFor(id, 'stall-suggestion'), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, startPlanning: (t, k) => planning.create(t, k), debug: (m) => logger.debug(m) }); // T1001
@@ -3630,7 +3640,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
+          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
@@ -6758,7 +6768,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // threads down into the health wait + child processes.
             const ctrl = new AbortController();
             token.onCancellationRequested(() => ctrl.abort());
-            return withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id))(localStore, manifest, ticketId, hot, { signal: ctrl.signal, // AC-32
+            return withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id))(localStore, manifest, ticketId, hot, { signal: ctrl.signal, // AC-32
               debug: (message) => logger.debug(message),
             });
           },

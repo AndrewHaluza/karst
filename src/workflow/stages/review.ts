@@ -24,6 +24,7 @@ import { resolveTicketBaseRef } from '../baseRef.js';
 import { cutGatesWithoutUiChange } from '../gates/uiDiff.js';
 import { NO_UI_CHANGE_REASON } from '../gates/uiScope.js';
 import type { ResolvedGate } from '../gates/resolve.js';
+import { gateAddedReason } from '../gates/disable.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
@@ -33,7 +34,7 @@ import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { declaredCheckGates } from '../review/declaredGates.js';
-import { getDisabledGates, getHostGates } from '../../store/ticketGates.js';
+import { getDisabledGates, getGateSnapshot, getHostGates, getStageGateSnapshot, setStageGateSnapshot } from '../../store/ticketGates.js';
 import { withHostOverride } from '../gates/resourceKill.js';
 import { capForGate } from '../fixAttempts.js';
 import {
@@ -246,6 +247,12 @@ export async function runReview(
   // which is the same live-read property `opts.manifest`'s getter gives the
   // manifest itself.
   const disabledNames = getDisabledGates(store, opts.ticketId).review;
+  // The gates this ticket's branch was cut with (@arch:GATE-SNAPSHOT). A ticket that has run no gate and
+  // has no snapshot at all takes it from this run's resolution; a pre-snapshot ticket keeps running every gate.
+  const snapshotNames = getStageGateSnapshot(store, opts.ticketId, 'review');
+  const captureSnapshot =
+    snapshotNames === null && (getGateSnapshot(store, opts.ticketId) !== null || listGateRuns(store, opts.ticketId).length === 0);
+  const capturedNames = new Set<string>();
   // The BARE gate names, kept beside the evidence rows rather than recovered
   // from them: a row's `gateName` is repo-decorated ("test (web)") because that
   // is what identifies an invocation, and the block reason already parenthesizes
@@ -443,6 +450,7 @@ export async function runReview(
       target.names,
       disabledNames,
       opts.debug,
+      snapshotNames,
     );
 
     if (resolution.kind === 'unavailable') {
@@ -477,6 +485,12 @@ export async function runReview(
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
     }
 
+    if (captureSnapshot) {
+      for (const g of [...resolution.gates, ...resolution.skipped]) capturedNames.add(g.name);
+      setStageGateSnapshot(store, opts.ticketId, 'review', [...capturedNames]);
+    }
+    const addedLater = new Set(resolution.addedLater ?? []);
+
     // A branch with no UI path in its diff has nothing for the container-pinned
     // visual/layout gates to say: they record `skipped` (evidence, not a pass).
     // No manifest means no real base ref (HEAD would diff as empty): keep every gate.
@@ -491,6 +505,8 @@ export async function runReview(
       : { kept: [...resolution.gates], skipped: [] as ResolvedGate[] };
     resolution = { ...resolution, gates: uiCut.kept, skipped: [...resolution.skipped, ...uiCut.skipped] };
     const uiSkipped = new Set(uiCut.skipped);
+    const skipReason = (gate: ResolvedGate): string =>
+      uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : addedLater.has(gate) ? gateAddedReason(gate.name) : 'disabled for this ticket';
 
     // One row per gate the user switched off, carrying the identity it WOULD
     // have been invoked with. No timing and no exit code, because none exists —
@@ -505,6 +521,7 @@ export async function runReview(
         command: gate.command,
         args: gate.args,
         skipped: true,
+        ...(addedLater.has(gate) ? { summary: gateAddedReason(gate.name) } : {}),
       };
       // Kept OUT of `entries`: a skipped gate must not reach `aggregateReview`
       // as an entry, where an exit-code-null row reads as "the repo has no such
@@ -512,7 +529,7 @@ export async function runReview(
       evidence.append([skippedRow]);
       skippedNames.push(gate.name);
       sections.push(
-        `# ${gate.name} (${label}, skipped)\n${uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : 'disabled for this ticket'}`,
+        `# ${gate.name} (${label}, skipped)\n${skipReason(gate)}`,
       );
     }
 

@@ -48,6 +48,8 @@ export interface CiActionsInput {
   readonly handOff: (prompt: string) => string | null;
   readonly deliver: DeliverHost;
   readonly afterServerChange: () => void;
+  /** Retake the ticket's gate snapshot after a successful rebase on base (@arch:GATE-SNAPSHOT). */
+  readonly retakeGateSnapshot?: () => Promise<void>;
 }
 
 /** Runs a repo-declared generator through the shell; async so the extension host never blocks. */
@@ -61,7 +63,7 @@ export function runShellCommand(cwd: string, command: string): Promise<{ code: n
 }
 
 /** The host-specific half of `CiActionsInput` (everything `extension.ts` binds to vscode, gh, git and the sandbox). */
-export type CiHost = Pick<CiActionsInput, 'gh' | 'git' | 'artifactDir' | 'sandbox' | 'reprobe' | 'confirm' | 'info' | 'error' | 'deliver' | 'handOff'>;
+export type CiHost = Pick<CiActionsInput, 'gh' | 'git' | 'artifactDir' | 'sandbox' | 'reprobe' | 'confirm' | 'info' | 'error' | 'deliver' | 'handOff' | 'retakeGateSnapshot'>;
 
 export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
   return sendCiFailureToAgent({
@@ -115,6 +117,7 @@ export async function rebaseOnBaseAction(
         sandboxUnsynced: () => i.sandbox.hasUnsynced(i.ticketId),
         preShip: pr.preShip === true,
         requireMove: auto !== undefined,
+        onRebased: i.retakeGateSnapshot,
         armLease: pr.number === null ? undefined : () => armForcePushLease(i.store, i.ticketId, pr.repo),
         prHeadSha: async () => {
           if (pr.number === null) throw new Error('no pull request to read');
