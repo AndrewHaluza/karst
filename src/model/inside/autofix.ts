@@ -199,7 +199,7 @@ function waitingRow(f: AutofixFacts): AutofixRowView | null {
   const base = { attempts: finishedAttempts(f, null), steps: [], stopAfterRequested: false } as const;
   if (f.unknownCi.length === 0) return { ...base, state: 'pending', message: `${pendingMessage(f.pendingCi)}. Auto-fix waits.` };
   const unknown = `CI status unknown for ${f.unknownCi.join(', ')}. Auto-fix waits; not counted as pass.`;
-  return { ...base, state: 'unknown', message: f.pendingCi.length === 0 ? unknown : `${unknown}; CI running for ${f.pendingCi.map((p) => p.label).join(', ')}` };
+  return { ...base, state: 'unknown', message: f.pendingCi.length === 0 ? unknown : `${unknown.slice(0, -1)}; CI running for ${f.pendingCi.map((p) => p.label).join(', ')}.` };
 }
 
 /**

@@ -156,6 +156,8 @@ describe('readAutofix', () => {
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, '/work/karst', 5, 'https://x/5', 'open')").run(id);
     markConflictRound(store, id, Date.now());
     expect(readAutofix(store, id, CONFIG, names).row?.message).toBe('conflict on extention #5 · round 1 of 2');
+    // The PR panel matches the round to its PR by the recorded path, never by the display name.
+    expect(readAutofix(store, id, CONFIG, names).input.running?.repo).toBe('/work/karst');
     takeAutopilotAttempt(store, id, '/work/karst', 'ci', 'lint', 3);
     park(store, id, 'auto-fix stopped: ci 3/3');
     const r = readAutofix(store, id, CONFIG, names);

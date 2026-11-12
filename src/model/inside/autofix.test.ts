@@ -126,7 +126,7 @@ describe('autofixRow', () => {
     const row = autofixRow({ ...BASE, unknownCi: ['api #88'], pendingCi: [{ label: 'web #2', pending: 1, total: 2 }] });
     expect(row).toMatchObject({
       state: 'unknown',
-      message: 'CI status unknown for api #88. Auto-fix waits; not counted as pass.; CI running for web #2',
+      message: 'CI status unknown for api #88. Auto-fix waits; not counted as pass; CI running for web #2.',
     });
   });
 

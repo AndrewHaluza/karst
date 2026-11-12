@@ -166,7 +166,7 @@ function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | 
   const max = maxFor('conflicts', config) + Math.max(...budgets.map((b) => b.budget.extra));
   const only = budgets.length === 1 ? budgets[0]! : null;
   const pr = only ? (store.db.prepare('SELECT number FROM prs WHERE ticket_id = ? AND repo = ?').get(ticketId, only.repo) as { number: number | null } | undefined) : undefined;
-  return { kind: 'conflicts', repo: only ? nameOf(only.repo) : '', pr: pr?.number ?? null, check: null, used, max };
+  return { kind: 'conflicts', repo: only?.repo ?? '', ...(only ? { repoLabel: nameOf(only.repo) } : {}), pr: pr?.number ?? null, check: null, used, max };
 }
 
 /**
@@ -191,7 +191,7 @@ function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig 
   if (hits.length === 0) return null;
   const only = hits.length === 1 ? hits[0]! : null;
   return {
-    kind: 'ci', repo: only ? nameOf(only.repo) : '', pr: only?.number ?? null, check: only?.check ?? null,
+    kind: 'ci', repo: only?.repo ?? '', ...(only ? { repoLabel: nameOf(only.repo) } : {}), pr: only?.number ?? null, check: only?.check ?? null,
     used: Math.max(...hits.map((h) => h.attempts)), max: maxFor('ci', config) + Math.max(...hits.map((h) => h.extra)),
   };
 }
