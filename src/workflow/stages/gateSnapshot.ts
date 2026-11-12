@@ -30,14 +30,13 @@ export function snapshotGitFor(git: GitRunner): SnapshotGit {
 
 /**
  * The declared gates the worktree can run now. A discovered gate is left out: the
- * branch can add its own package.json script later. A declared script gate whose
- * script the branch was cut without is left out, whether or not the base has it yet:
+ * branch can add its own package.json script later. A declared script gate is left out
+ * only when neither the commit the branch was cut from nor the worktree defines its script:
  * a gate added to the manifest before its script reached the base is the T1106 incident, and
- * "Rebase on base" takes the gate into a later snapshot once the script is there.
- * "The branch lacks the script" is read from the commit the branch was cut from, not from the
- * worktree files: the first snapshot can be taken after the agent edited the branch, and an edit that
- * removes a script must not hide the gate. The worktree files are the fallback when the cut point or
- * the base ref is unknown.
+ * "Rebase on base" takes the gate into a later snapshot once the script is there. A script the
+ * ticket adds itself keeps its gate. The cut commit is read, not only the worktree files: the first
+ * snapshot can be taken after the agent edited the branch, and an edit that removes a script must
+ * not hide the gate. The worktree files stand alone when the cut point or the base ref is unknown.
  * `declared` counts the declared gates seen, left out or not: a stage whose only declared gate is new has
  * an empty name list but still needs a snapshot, or the new gate would run.
  * An unreadable package.json throws: a transient fault must not write a partial snapshot.
@@ -58,8 +57,8 @@ async function snapshotNames(
       if (probe.kind === 'io-error') throw new Error(`cannot read package.json: ${probe.message}`);
       const onWorktree = probe.kind === 'ok' && probe.scripts[g.script] !== undefined;
       const onCut = target.baseRef != null ? await git.cutDefines(target.path, target.baseRef, g.script) : null;
-      const cutWith = onCut ?? onWorktree;
-      if (!cutWith) continue;
+      // A script the ticket adds itself (worktree has it, the cut lacks it) is not a missing script.
+      if (!(onCut === true || onWorktree)) continue;
     }
     out.push(g.name);
   }

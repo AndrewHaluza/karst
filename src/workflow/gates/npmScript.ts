@@ -63,7 +63,9 @@ export async function cutDefinesScript(
   script: string,
 ): Promise<boolean | null> {
   try {
-    const mb = await git(['merge-base', 'HEAD', baseRef], cwd);
+    // "Rebase on base" fetches and rebases onto origin/<base>; the local base branch can lag behind it.
+    let mb = await git(['merge-base', 'HEAD', `origin/${baseRef}`], cwd);
+    if (mb.exitCode !== 0 || mb.stdout.trim() === '') mb = await git(['merge-base', 'HEAD', baseRef], cwd);
     const sha = mb.stdout.trim();
     if (mb.exitCode !== 0 || sha === '') return null;
     const shown = await git(['show', `${sha}:./package.json`], cwd);

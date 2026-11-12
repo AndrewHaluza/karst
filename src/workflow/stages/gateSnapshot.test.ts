@@ -55,10 +55,10 @@ describe('collectGateSnapshot', () => {
     expect(snap.review).toEqual(['layer-rules']);
   });
 
-  it('leaves out a gate the cut lacks, whatever the worktree holds now', async () => {
+  it('keeps a gate whose script the ticket itself added (the cut lacks it, the worktree has it)', async () => {
     const worktreeHas = (): ScriptProbe => ({ kind: 'ok', scripts: { 'lint:layers': 'agent added it' } });
     const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, worktreeHas, undefined, git(async () => false));
-    expect(snap.review).toEqual([]);
+    expect(snap.review).toEqual(['layer-rules']);
   });
 
   it('falls back to the worktree files when the cut point cannot be read', async () => {
