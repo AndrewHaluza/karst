@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
+import { createTicketFlow } from '../workflow/stages/create.js';
+import { transition } from '../workflow/machine.js';
+import { upsertProject } from '../store/projects.js';
 import { dispatchHook, expireBackgroundWaits, parseHookPayload } from './dispatch.js';
 import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
@@ -18,6 +21,7 @@ import {
   recordFixLaunchIntent,
   beginLiveFixExecution,
   listRecoveryRounds,
+  sweepStalledFixRounds,
 } from '../store/recoveryRounds.js';
 import { getSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 
@@ -1776,5 +1780,102 @@ describe('dispatchHook — background wait survives Stop (T993)', () => {
     send(monitor, 'codex');
     send(stop, 'codex');
     expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+});
+
+describe('dispatchHook — hook activity (T1111)', () => {
+  let store: Store;
+  const WT = '/repo/.karst/worktrees/h';
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function ticketAt(): number {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    seedWorktree(store, t.id, WT);
+    return t.id;
+  }
+
+  const lastHookAt = (id: number): string | null =>
+    (store.db.prepare('SELECT last_hook_at AS v FROM tickets WHERE id = ?').get(id) as { v: string | null }).v;
+
+  it.each(['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'ModelSelected', 'session.idle'])(
+    'stamps last_hook_at for an accepted %s event',
+    (name) => {
+      const id = ticketAt();
+      expect(lastHookAt(id)).toBeNull();
+      expect(dispatchHook(store, { hook_event_name: name, cwd: WT }).admitted).toBe(true);
+      expect(lastHookAt(id)).not.toBeNull();
+    },
+  );
+
+  it('does not stamp for a UsageUpdate, which a window reload can replay', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'UsageUpdate', cwd: WT });
+    expect(lastHookAt(id)).toBeNull();
+  });
+
+  it('does not stamp for an unknown worktree', () => {
+    const id = ticketAt();
+    expect(dispatchHook(store, { hook_event_name: 'Stop', cwd: '/elsewhere' }).admitted).toBe(false);
+    expect(lastHookAt(id)).toBeNull();
+  });
+
+  it('does not stamp an event the generation guard rejects', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, () => false);
+    expect(lastHookAt(id)).toBeNull();
+  });
+
+  it('does not stamp or lift on SessionEnd, so a closing session spends no interrupt budget', () => {
+    const t = createTicketFlow(store, { key: 'E', title: 'e' });
+    seedWorktree(store, t.id, WT);
+    const projectId = upsertProject(store, { slug: 'pe' }).id;
+    store.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(projectId, t.id);
+    transition(store, t.id, 'scope', { kind: 'passed' });
+    transition(store, t.id, 'impl', { kind: 'passed' });
+    transition(store, t.id, 'uat', { kind: 'failed', reason: 'exit 1' });
+    const started = '2020-01-01T10:00:00.000Z';
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(started, t.id);
+    const r = openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: null,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3, startedAt: started,
+    });
+    beginLiveFixExecution(store, { ticketId: t.id, roundId: r.id, startedAt: started });
+    sweepStalledFixRounds(store, { at: '2020-01-01T12:00:00.000Z', timeoutMs: 60 * 60_000, projectId });
+    const interrupts = () =>
+      (store.db.prepare('SELECT interrupt_count AS n FROM recovery_rounds WHERE id = ?').get(r.id) as { n: number }).n;
+    expect(interrupts()).toBe(1);
+
+    dispatchHook(store, { hook_event_name: 'SessionEnd', cwd: WT });
+
+    expect(interrupts()).toBe(1);
+    expect(listRecoveryRounds(store, t.id)[0]!.status).toBe('interrupted');
+    expect(lastHookAt(t.id)).toBeNull();
+  });
+
+  it('lifts a stalled fix park on a new hook event and notifies', () => {
+    const t = createTicketFlow(store, { key: 'F', title: 'f' });
+    seedWorktree(store, t.id, WT);
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    store.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(projectId, t.id);
+    transition(store, t.id, 'scope', { kind: 'passed' });
+    transition(store, t.id, 'impl', { kind: 'passed' });
+    transition(store, t.id, 'uat', { kind: 'failed', reason: 'exit 1' });
+    const started = '2020-01-01T10:00:00.000Z';
+    store.db.prepare("UPDATE stages SET started_at = ? WHERE ticket_id = ? AND stage_key = 'fix'").run(started, t.id);
+    const r = openRecoveryRound(store, {
+      ticketId: t.id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: null,
+      sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3, startedAt: started,
+    });
+    beginLiveFixExecution(store, { ticketId: t.id, roundId: r.id, startedAt: started });
+    sweepStalledFixRounds(store, { at: '2020-01-01T12:00:00.000Z', timeoutMs: 60 * 60_000, projectId });
+    const fix = () => getTicket(store, t.id).stages.find((x) => x.stageKey === 'fix')!;
+    expect(fix().status).toBe('failed');
+
+    const notify = vi.fn();
+    dispatchHook(store, { hook_event_name: 'PostToolUse', cwd: WT }, notify);
+
+    expect(fix()).toMatchObject({ status: 'running', verdict: null });
+    expect(notify).toHaveBeenCalledWith(t.id, expect.objectContaining({ hook_event_name: 'PostToolUse' }));
   });
 });

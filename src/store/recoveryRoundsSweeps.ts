@@ -165,10 +165,11 @@ export interface SweepStalledFixOpts {
  * stays `running` and the ticket sits at fix forever.
  *
  * We cannot prove an interactive agent is idle — no such signal exists. We CAN prove nothing has
- * changed. Progress is the NEWEST of: the Fix run's `started_at` and the newest GUIDE-PULL the
- * ticket recorded. `karst guide` opens a `guide-pull` run per pull from the agent's own session
- * (`cli/guideTelemetry.ts`) and attributes it to the ticket — it is the fix agent's only stored
- * activity signal. When that newest moment is older than `at - timeoutMs`, the fix is parked.
+ * changed. Progress is the NEWEST of: the Fix run's `started_at`, the newest GUIDE-PULL the
+ * ticket recorded, and the ticket's last HOOK event (`tickets.last_hook_at`, stamped by
+ * `dispatchHook` for every core — a prompt, a tool use, a Stop all prove a live session).
+ * `karst guide` opens a `guide-pull` run per pull from the agent's own session
+ * (`cli/guideTelemetry.ts`) and attributes it to the ticket. When that newest moment is older than `at - timeoutMs`, the fix is parked.
  *
  * Progress is deliberately NOT "the newest `process_runs` row for the ticket": every other run is
  * PIPELINE activity (a gate, the tester, review, a ship step) that the driver never starts while a
@@ -208,7 +209,8 @@ export function sweepStalledFixRounds(
       `SELECT r.id, r.ticket_id, r.source_stage, r.round, r.fix_process_run_id,
               run.started_at AS run_started_at,
               (SELECT MAX(started_at) FROM process_runs
-                WHERE ticket_id = r.ticket_id AND process_id = 'guide-pull') AS latest_guide_pull_at
+                WHERE ticket_id = r.ticket_id AND process_id = 'guide-pull') AS latest_guide_pull_at,
+              (SELECT last_hook_at FROM tickets WHERE id = r.ticket_id) AS last_hook_at
          FROM recovery_rounds r
          JOIN process_runs run ON run.id = r.fix_process_run_id
         WHERE r.status = 'fixing' AND run.status = 'running'
@@ -223,11 +225,12 @@ export function sweepStalledFixRounds(
     fix_process_run_id: number;
     run_started_at: string;
     latest_guide_pull_at: string | null;
+    last_hook_at: string | null;
   }[];
 
   const stalled: StrandedFixRound[] = [];
   for (const row of rows) {
-    const moments = [row.run_started_at, row.latest_guide_pull_at].filter(
+    const moments = [row.run_started_at, row.latest_guide_pull_at, row.last_hook_at].filter(
       (v): v is string => v !== null,
     );
     const progress = moments.reduce((a, b) => (a >= b ? a : b));

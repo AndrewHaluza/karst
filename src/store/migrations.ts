@@ -2993,5 +2993,11 @@ function migrateLocked(db: Database): void {
     if (cols118.size > 0 && !cols118.has('ci_round_at')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN ci_round_at INTEGER');
   }
 
+  if (current < 119) {
+    // v119: `tickets.last_hook_at` — the newest hook event dispatch accepted for the ticket (T1111). Additive; NULL = none seen (no backfill).
+    const cols119 = tableColumns(db, 'tickets');
+    if (cols119.size > 0 && !cols119.has('last_hook_at')) db.exec('ALTER TABLE tickets ADD COLUMN last_hook_at TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
