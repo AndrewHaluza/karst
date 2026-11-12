@@ -414,7 +414,8 @@
   "src/extension/ops/autopilotOps.ts": [
     "arch:AP-00",
     "arch:AP-01",
-    "arch:AP-04"
+    "arch:AP-04",
+    "arch:AP-07"
   ],
   "src/extension/ops/autopilotRerun.ts": [
     "arch:AP-03"
@@ -562,6 +563,9 @@
   ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
+  ],
+  "src/model/prChecks.ts": [
+    "arch:AP-07"
   ],
   "src/model/prMergeReadiness.ts#prMergeReadiness": [
     "arch:GH-03"
@@ -991,6 +995,9 @@
   "src/workflow/changeBaseRef.ts#changeBaseRef": [
     "arch:BASE-PER",
     "arch:BASEBRANCH"
+  ],
+  "src/workflow/ciFailure.ts": [
+    "arch:AP-07"
   ],
   "src/workflow/conventionContext.ts#resolveRepoConventions": [
     "arch:RENDERERS"
