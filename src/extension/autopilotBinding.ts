@@ -155,6 +155,8 @@ export interface AutopilotBindingDeps {
  */
 export function startAutopilot(d: AutopilotBindingDeps): {
   dispose(): void;
+  /** This window controls the ticket (arch:AC-37): it holds the session, or the store shows that no window does. No lease is taken. */
+  controlsTicket(ticketId: number): boolean;
   /** A round's session died right after launch (reported by the launch-failure path): undo the round, pause, no retry. */
   roundDied(ticketId: number, detail: string): void;
 } {
@@ -249,6 +251,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
   };
   const timer = setInterval(sweep, d.intervalMs);
   return {
+    controlsTicket: (id) => (d.canLaunch?.(id) ?? true) && ['self', 'none'].includes(holder(id)),
     roundDied: (id, detail) => {
       const projectId = d.projectId();
       const key = getTicket(d.store, id).key ?? String(id);

@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   claim_owner   TEXT,
   claim_until   INTEGER,
   session_owner TEXT,
-  conflict_round_at INTEGER
+  conflict_round_at INTEGER,
+  ci_round_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -72,13 +73,14 @@ function ensureRow(store: Store, ticketId: number): void {
 export function setAutopilotOverride(store: Store, ticketId: number, mode: AutopilotOverride): void {
   if (!AUTOPILOT_OVERRIDES.includes(mode)) throw new Error(`autopilot override must be one of ${AUTOPILOT_OVERRIDES.join(', ')}`);
   ensureRow(store, ticketId);
-  store.db.prepare('UPDATE autopilot_tickets SET mode = ?, stop_after = 0, paused_reason = NULL, stopped_reason = NULL WHERE ticket_id = ?').run(mode, ticketId);
+  store.db.prepare('UPDATE autopilot_tickets SET mode = ?, stop_after = 0, paused_reason = NULL, stopped_reason = NULL, ci_round_at = NULL WHERE ticket_id = ?').run(mode, ticketId);
 }
 
 /** Remember the park reason last written, so a repeat tick does not repeat the note. Null clears it. */
 export function setAutopilotStopped(store: Store, ticketId: number, reason: string | null): void {
   ensureRow(store, ticketId);
-  store.db.prepare('UPDATE autopilot_tickets SET stopped_reason = ? WHERE ticket_id = ?').run(reason, ticketId);
+  // A park reason (non-null) voids the mark; a null clear (a new round) must not.
+  store.db.prepare(`UPDATE autopilot_tickets SET stopped_reason = ?${reason === null ? '' : ', ci_round_at = NULL'} WHERE ticket_id = ?`).run(reason, ticketId);
 }
 
 /** A conflict round was sent at `atMs`: it holds a sub-task slot until it delivers, stops or is dropped (`HOLDS_SLOT_SQL`). */
@@ -98,6 +100,26 @@ export function clearConflictRound(store: Store, ticketId: number): void {
   store.db.prepare('UPDATE autopilot_tickets SET conflict_round_at = NULL WHERE ticket_id = ?').run(ticketId);
 }
 
+/**
+ * An Autopilot CI round was sent at `atMs` (v118, T1095): the ticket may re-ship to its open PRs without the Confirm click
+ * (`autoReship`). Cleared when ship starts, on a park, a pause, a change of the override and on Stop.
+ */
+export function markCiRound(store: Store, ticketId: number, atMs: number): void {
+  ensureRow(store, ticketId);
+  store.db.prepare('UPDATE autopilot_tickets SET ci_round_at = ? WHERE ticket_id = ?').run(atMs, ticketId);
+}
+
+/** When the engine sent its last CI round (ms), or null. A manual Send CI failure click leaves it null. */
+export function getCiRoundAt(store: Store, ticketId: number): number | null {
+  const row = store.db.prepare('SELECT ci_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { at: number | null } | undefined;
+  return row?.at ?? null;
+}
+
+/** The mark is spent or void: no more automatic re-ship until the next CI round. */
+export function clearCiRound(store: Store, ticketId: number): boolean {
+  return store.db.prepare('UPDATE autopilot_tickets SET ci_round_at = NULL WHERE ticket_id = ? AND ci_round_at IS NOT NULL').run(ticketId).changes > 0;
+}
+
 /** Give back an attempt that never reached the agent (a failed action). Never below zero. */
 export function refundAutopilotAttempt(store: Store, ticketId: number, repo: string, kind: AutopilotKind): void {
   store.db.prepare('UPDATE autopilot_budgets SET attempts = MAX(attempts - 1, 0) WHERE ticket_id = ? AND repo = ? AND kind = ?').run(ticketId, repo, kind);
@@ -106,12 +128,13 @@ export function refundAutopilotAttempt(store: Store, ticketId: number, repo: str
 /** "Stop after this round": no new round is armed until a person changes the override. */
 export function setAutopilotStopAfter(store: Store, ticketId: number): void {
   ensureRow(store, ticketId);
-  store.db.prepare('UPDATE autopilot_tickets SET stop_after = 1 WHERE ticket_id = ?').run(ticketId);
+  store.db.prepare('UPDATE autopilot_tickets SET stop_after = 1, ci_round_at = NULL WHERE ticket_id = ?').run(ticketId);
 }
 
 export function setAutopilotPaused(store: Store, ticketId: number, reason: string | null): void {
   ensureRow(store, ticketId);
-  store.db.prepare('UPDATE autopilot_tickets SET paused_reason = ? WHERE ticket_id = ?').run(reason, ticketId);
+  // A pause is a person's call to look first: no automatic re-ship (T1095). A cleared pause keeps the mark as it is.
+  store.db.prepare(`UPDATE autopilot_tickets SET paused_reason = ?${reason === null ? '' : ', ci_round_at = NULL'} WHERE ticket_id = ?`).run(reason, ticketId);
 }
 
 /**

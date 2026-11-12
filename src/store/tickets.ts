@@ -922,6 +922,8 @@ export function pauseTicket(store: Store, ticketId: number): void {
   store.db
     .prepare("UPDATE tickets SET paused_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
+  // A pause is a person's call to look first: a resume must not re-ship on its own (T1095, @arch:AP-06).
+  store.db.prepare('UPDATE autopilot_tickets SET ci_round_at = NULL WHERE ticket_id = ?').run(ticketId);
 }
 
 /**
