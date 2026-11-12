@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { runGateList } from './runList.js';
+import { UI_GATE_TIMEOUT_MS } from './run.js';
 
 describe('runGateList', () => {
   const now = () => '2026-07-30T10:00:00.000Z';
@@ -571,5 +572,23 @@ describe('runGateList gate concurrency lease', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('runGateList gate timeout', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const timeoutOf = async (script: string | null): Promise<number | undefined> => {
+    let seen: number | undefined;
+    const gates = [{ name: 'g', command: 'npm', args: ['run', 'x'], script, required: true }];
+    await runGateList(gates, process.cwd(), { now, runProcess: async (_c, _a, _w, o) => (seen = o?.timeoutMs, { kind: 'completed', exitCode: 0, output: '' }) });
+    return seen;
+  };
+  it('gives the visual and layout sweeps a timeout above the 31 minute sweep', async () => {
+    expect(await timeoutOf('test:visual:docker')).toBe(UI_GATE_TIMEOUT_MS);
+    expect(await timeoutOf('test:layout:docker')).toBe(UI_GATE_TIMEOUT_MS);
+    expect(UI_GATE_TIMEOUT_MS).toBeGreaterThan(31 * 60 * 1_000);
+  });
+  it('leaves another gate on the default timeout', async () => {
+    expect(await timeoutOf('test')).toBeUndefined();
   });
 });

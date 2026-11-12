@@ -9,7 +9,7 @@ const TREE = 't'.repeat(40);
 const MERGED = 'm'.repeat(40);
 const ok = (stdout = ''): GitResult => ({ stdout, stderr: '', exitCode: 0 });
 
-interface Script { fork?: string; probe?: GitResult; fetch?: GitResult; uiPaths?: string[] }
+interface Script { fork?: string; probe?: GitResult; fetch?: GitResult; uiPaths?: string[]; ticketPaths?: string[] }
 
 /** A fake git: answers by the first argument(s) and records every call. */
 const fakeGit = (s: Script = {}) => {
@@ -24,7 +24,7 @@ const fakeGit = (s: Script = {}) => {
     if (a === 'merge-base') return ok(s.fork ?? FORK);
     if (a === 'merge-tree') return s.probe ?? ok(`${TREE}\n`);
     if (a === 'commit-tree') return ok(MERGED);
-    if (a === 'diff') return ok((s.uiPaths ?? ['src/a.ts']).join('\0'));
+    if (a === 'diff') return ok((args.includes(HEAD) ? s.ticketPaths ?? ['src/a.ts'] : s.uiPaths ?? ['src/a.ts']).join('\0'));
     if (a === 'worktree' && (b === 'add' || b === 'remove')) return ok();
     return { stdout: '', stderr: `unexpected ${args.join(' ')}`, exitCode: 128 };
   };
@@ -104,11 +104,25 @@ describe('checkBaseMoved', () => {
     });
   });
 
-  it('tells the gates when the base delta holds a UI path', async () => {
-    const g = fakeGit({ uiPaths: ['src/ui/dashboard/app/Drawer.tsx'] });
-    let ui: boolean | undefined;
-    await checkBaseMoved(deps(g, { runGates: async (m) => { ui = m.uiChanged; return null; } }));
-    expect(ui).toBe(true);
+  const UI = 'src/ui/dashboard/app/Drawer.tsx';
+  const uiOf = async (s: Script) => {
+    let seen: MergedTree | undefined;
+    await checkBaseMoved(deps(fakeGit(s), { runGates: async (m) => { seen = m; return null; } }));
+    return seen;
+  };
+
+  it('runs the UI gates when the ticket diff and the base delta both hold a UI path', async () => {
+    expect(await uiOf({ uiPaths: [UI], ticketPaths: [UI] })).toMatchObject({ uiChanged: true, uiSkipReason: null });
+  });
+
+  it('cuts the UI gates when only the base delta holds a UI path (D592)', async () => {
+    expect(await uiOf({ uiPaths: [UI], ticketPaths: ['src/approaches/graph/a.ts'] }))
+      .toMatchObject({ uiChanged: false, uiSkipReason: 'skipped: no UI path in the ticket diff' });
+  });
+
+  it('cuts the UI gates when only the ticket diff holds a UI path', async () => {
+    expect(await uiOf({ uiPaths: ['src/a.ts'], ticketPaths: [UI] }))
+      .toMatchObject({ uiChanged: false, uiSkipReason: 'skipped: no UI path in the base delta' });
   });
 
   it('keeps every UI gate when the base delta cannot be read', async () => {

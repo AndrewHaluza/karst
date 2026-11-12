@@ -22,8 +22,13 @@ export interface MergedTree {
   readonly cwd: string;
   readonly sha: string;
   readonly baseSha: string;
-  /** Whether the base delta since the last green gate run holds a UI path; true when it could not be read. */
+  /**
+   * Whether the UI gates run: the base delta since the last green gate run AND the ticket diff both hold a UI path
+   * (D592). Each side that cannot be read counts as a UI change.
+   */
   readonly uiChanged: boolean;
+  /** Why the UI gates are cut; null when they run. */
+  readonly uiSkipReason: string | null;
 }
 
 export type BaseMovedOutcome =
@@ -49,6 +54,10 @@ export interface BaseMovedDeps {
   readonly runGates: (merged: MergedTree) => Promise<string | null>;
   readonly debug?: (message: string) => void;
 }
+
+/** The reasons the UI gates of a base-moved run are cut (recorded as the skipped gate summary). */
+export const NO_UI_IN_TICKET_REASON = 'skipped: no UI path in the ticket diff';
+export const NO_UI_IN_BASE_REASON = 'skipped: no UI path in the base delta';
 
 const REMOTE = 'origin';
 const SHA_SHOWN = 9;
@@ -97,13 +106,17 @@ async function run(d: BaseMovedDeps): Promise<BaseMovedOutcome> {
   const mergedSha = commit.stdout.trim();
   if (commit.exitCode !== 0 || mergedSha === '') return { kind: 'unknown', reason: words(commit) };
 
-  const uiChanged = await baseDeltaHoldsUi(git, cwd, seen, baseSha, d.debug);
+  const baseUi = await diffHoldsUi(git, cwd, seen, baseSha, 'base delta', d.debug);
+  // The ticket side is read only when the base side holds UI: a base without UI cuts the gates alone.
+  const ticketUi = baseUi ? await diffHoldsUi(git, cwd, fork.stdout.trim(), headSha, 'ticket diff', d.debug) : true;
+  const uiChanged = baseUi && ticketUi;
+  const uiSkipReason = uiChanged ? null : baseUi ? NO_UI_IN_TICKET_REASON : NO_UI_IN_BASE_REASON;
   const path = join(await d.worktreeParent(cwd), `merged-${randomBytes(4).toString('hex')}`);
   const added = await git(['worktree', 'add', '--detach', path, mergedSha], cwd);
   if (added.exitCode !== 0) return { kind: 'unknown', reason: words(added) };
   try {
     await seed(d, path, baseSha);
-    const failure = await d.runGates({ cwd: path, sha: mergedSha, baseSha, uiChanged });
+    const failure = await d.runGates({ cwd: path, sha: mergedSha, baseSha, uiChanged, uiSkipReason });
     return failure === null
       ? { kind: 'passed', mergedSha }
       : { kind: 'failed', mergedSha, reason: baseMovedReason(baseRef, baseSha, failure) };
@@ -135,11 +148,11 @@ function conflictFiles(stdout: string): string[] {
   return files;
 }
 
-/** Not knowing the delta must never remove a check: an unreadable diff counts as a UI change. */
-async function baseDeltaHoldsUi(git: GitRunner, cwd: string, from: string, to: string, debug?: (m: string) => void): Promise<boolean> {
+/** Not knowing a diff must never remove a check: an unreadable diff counts as a UI change. */
+async function diffHoldsUi(git: GitRunner, cwd: string, from: string, to: string, what: string, debug?: (m: string) => void): Promise<boolean> {
   const diff = await git(['diff', '--name-only', '-z', from, to], cwd);
-  if (diff.exitCode !== 0) {
-    debug?.(`[ship] base delta unreadable (${words(diff)}): keeping every UI gate`);
+  if (diff.exitCode !== 0 || from === '') {
+    debug?.(`[ship] ${what} unreadable (${words(diff)}): keeping every UI gate`);
     return true;
   }
   return hasUiChange(diff.stdout.split('\0').filter((p) => p !== ''));
