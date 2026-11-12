@@ -3,6 +3,7 @@ import { getTicket, updateTicketFields } from '../../store/tickets.js';
 import type { PriorityLevel } from '../../planning/proposal.js';
 import { formatId } from '../../model/entityId.js';
 import type { Notify } from './notify.js';
+import { offerLowerDependents, queueOwnLevel } from './priorityCascade.js';
 
 /** A ticket takes a local priority only while it has not started. */
 export const PRIORITY_EDITABLE_STAGE = 'scope';
@@ -12,6 +13,8 @@ export interface TicketPriorityDeps {
   readonly projectId: () => number | undefined;
   readonly notify: Notify;
   readonly onChange: () => void;
+  /** Rewrite a planning session's proposal index; the cascade calls it after it lowers a draft. */
+  readonly refreshIndex?: (sessionId: number) => void;
 }
 
 /** Why a ticket cannot take a priority from the sidebar, or null when it can. */
@@ -50,6 +53,8 @@ export async function setTicketPriorityOp(
     await deps.notify.error(`Ticket ${label} ${refusal}; its priority was not changed.`);
     return;
   }
+  const before = queueOwnLevel(deps, label);
   updateTicketFields(deps.store, ticketId, { priorityOverride: level });
   deps.onChange();
+  await offerLowerDependents(deps, label, before);
 }

@@ -199,7 +199,7 @@ A proposal may carry `dependsOn`, an array of host proposal ids (the `#N` `draft
 END_DOC_BLOCK: [@arch:PLANNING-DEPS]
 
 ## [@arch:PLANNING-PRIORITY] Draft and ticket priority, and the user override (v111, v113)
-covers: src/planning/proposal.ts#validateProposal, src/store/planningProposals.ts#effectiveProposalPriority, src/store/planningProposals.ts#markProposalAccepted, src/extension/ops/ticketPriorityOps.ts#setTicketPriorityOp, src/model/priority.ts#effectiveTicketPriority
+covers: src/planning/proposal.ts#validateProposal, src/store/planningProposals.ts#effectiveProposalPriority, src/store/planningProposals.ts#markProposalAccepted, src/extension/ops/ticketPriorityOps.ts#setTicketPriorityOp, src/model/priority.ts#effectiveTicketPriority, src/model/queueDependents.ts#dependentsAbove, src/extension/ops/priorityCascade.ts#offerLowerDependents
 
 The levels are `urgent`, `high`, `normal`, `low` (`PRIORITY_LEVELS` in `planning/proposal.ts`), the labels `tickets.priority` already stores from a provider. A proposal may carry `priority` and a one-line `priorityReason` (at most 200 chars, controls stripped). A reason without a priority is rejected. Both live in `payload_json`, so they are agent content. A missing priority reads as `normal` for ordering and stays NULL in storage.
 
@@ -210,6 +210,8 @@ A ticket has two priority columns. `tickets.priority` is the provider column: th
 `markProposalAccepted` writes in the same transaction. A draft with a user override writes that level to `tickets.priority_override`, so a later fetch keeps it. A draft with only a planner priority writes to `tickets.priority`, and only when the ticket has none, so a provider value wins and a later fetch replaces it. The reason goes into the seeded brief as one `Priority:` line and into no column.
 
 A user sets the priority of a top-level ticket at stage `scope` with `setTicketPriorityOp` (`ticketPriorityOps.ts`; the host re-checks project, archived, sub-task and stage). It writes `priority_override`, and Clear writes NULL, so the provider value shows again. Nothing is written back to the provider. The sidebar tooltip names the source (`High · set by you`, `Low · ClickUp`) and, when the user value and the provider value differ, both (`High · set by you (ClickUp: Low)`).
+
+A lowered level can leave the item in place: a waiting item keeps a higher own level, and priority inheritance (@arch:QUEUE-ORDER rule 1) raises the item again. After `setPriority` on a draft or `setTicketPriorityOp` lowers the own level of a queue item (a lower level, or a Clear that gives a lower effective level), `offerLowerDependents` (`ops/priorityCascade.ts`) asks the pure walk `dependentsAbove` (`src/model/queueDependents.ts`) for the items that wait on it, transitively, with a higher own level. The edges come from the rows of `readProjectQueue`, so accepted drafts, tickets past `scope` and sub-tasks are never touched. The walk does not sort. The first change is written before the prompt. When the user picks `Lower all`, each waiting item gets the same level as a user override (a pending draft, or a ticket that passes `priorityRefusal`). An item that changed in the meantime is skipped and named in one warning. `Keep`, a dismissed prompt and a raise write nothing more.
 END_DOC_BLOCK: [@arch:PLANNING-PRIORITY]
 
 ## [@arch:RELATIONS] Ticket relations (v69–v71)

@@ -462,6 +462,9 @@
   "src/extension/ops/planningProposalOps.ts#createPlanningProposalOps": [
     "arch:CLI-17"
   ],
+  "src/extension/ops/priorityCascade.ts#offerLowerDependents": [
+    "arch:PLANNING-PRIORITY"
+  ],
   "src/extension/ops/rebaseOnBaseOps.ts": [
     "arch:AP-05"
   ],
@@ -573,6 +576,9 @@
   "src/model/priority.ts#effectiveTicketPriority": [
     "arch:PLANNING-PRIORITY",
     "arch:QUEUE-ORDER"
+  ],
+  "src/model/queueDependents.ts#dependentsAbove": [
+    "arch:PLANNING-PRIORITY"
   ],
   "src/model/queueOrder.ts": [
     "arch:QUEUE-ORDER"

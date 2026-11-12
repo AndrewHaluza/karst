@@ -13,6 +13,7 @@ import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
 import type { PriorityLevel } from '../../planning/proposal.js';
 import { formatId } from '../../model/entityId.js';
 import type { Notify } from './notify.js';
+import { offerLowerDependents, queueOwnLevel } from './priorityCascade.js';
 
 /**
  * The human confirmation of planning proposals (vscode-free). A proposal is
@@ -157,10 +158,13 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     async setPriority(id, level) {
       const p = await pending(id);
       if (!p) return;
+      const itemId = formatId('draft', id);
+      const before = queueOwnLevel(deps, itemId);
       await guarded('set the priority of', id, () => {
         setProposalPriorityOverride(deps.store, id, level);
         refresh(p.sessionId);
       });
+      await offerLowerDependents({ ...deps, refreshIndex: refresh }, itemId, before);
     },
   };
   return ops;

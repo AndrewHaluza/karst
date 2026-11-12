@@ -709,13 +709,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (m) => logger.debug(m), planningHistory: (m) => gatherPlanningHistory(m, { runGit: execGit, debug: (msg) => logger.debug(msg) }),
     onChange: () => provider.refresh(), offerRestart: offerPlannerRestart,
   });
+  const refreshPlanningIndex = (sessionId: number): void =>
+    refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId)));
   const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
     choose: async (text) => ({ Review: 'review', Discard: 'discard' } as Record<string, ProposalChoice>)[
       (await vscode.window.showInformationMessage(text, 'Review', 'Discard')) ?? ''],
     archDocs: (repos, constraints) => archDocFiles(constraints, repoPathsOf(currentManifest(), repos)),
     openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
-    refreshIndex: (sessionId) =>
-      refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId))),
+    refreshIndex: refreshPlanningIndex,
     notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m) });
   // Onboarding setup sessions (§ ONBOARDING-SETUP-AGENT): a read-only agent
   // terminal that discovers the workspace and proposes a manifest + consented
@@ -796,7 +797,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
     planProposalPriority: (id, level) => proposalOps.setPriority(id, level),
-    setPriority: (id, level) => setTicketPriorityOp({ store: localStore, projectId: () => currentProject()?.id, notify, onChange: () => mgr.refresh() }, id, level),
+    setPriority: (id, level) => setTicketPriorityOp({ store: localStore, projectId: () => currentProject()?.id, notify, onChange: () => mgr.refresh(), refreshIndex: refreshPlanningIndex }, id, level),
     ...makeCloudSidebarActions({ store: localStore, projectId: () => currentProject()?.id, notify, openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)), promptUrl: () => vscode.window.showInputBox({ prompt: 'Cloud session URL', placeHolder: 'https://claude.ai/code/session_…', ignoreFocusOut: true }), refresh: () => mgr.refresh() }),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
