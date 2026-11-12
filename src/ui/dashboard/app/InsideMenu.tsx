@@ -65,6 +65,9 @@ const MAIN: Readonly<Record<MainAction, { readonly act: string; readonly icon: s
   rebase: { act: 'rebase-on-base', icon: 'arrows-down-up', label: 'Rebase', description: 'rebase onto the base branch, regenerate files, push with a lease', name: 'rebase' },
 };
 
+/** The menu's own width in px: a fixed menu would otherwise shrink to the room right of its first position, so its width would depend on timing. */
+const STAGE_MENU_WIDTH = 360;
+
 export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string; readonly menu: MenuFlags; readonly main: MainAction | null }) {
   const send = useDashboardSend();
   const ops = usePendingOps();
@@ -73,7 +76,7 @@ export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string;
   const wrap = useRef<HTMLSpanElement>(null);
   const menuBtn = useRef<HTMLButtonElement>(null);
   const menuPop = useRef<HTMLDivElement>(null);
-  useAnchoredPopover(open, menuPop, menuBtn, () => setOpen(false));
+  useAnchoredPopover(open, menuPop, menuBtn, () => setOpen(false), STAGE_MENU_WIDTH);
 
   useEffect(() => {
     if (!open) return undefined;
