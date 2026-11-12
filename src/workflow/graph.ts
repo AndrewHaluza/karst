@@ -96,6 +96,11 @@ export const MAIN_LINE: readonly StageKey[] = STAGE_KEYS.filter((k) => !isBranch
  *    stage of its own to park at; `ship` itself carries the wait, via the
  *    `awaiting-merge` block described in `mergeGate.ts`.
  *
+ *    The one exception is a RE-ship after an Autopilot CI round (T1095): every
+ *    PR it pushes to is already open, so nothing outward opens, and the host
+ *    runs ship without the click (`extension/ops/autoReship.ts`, @arch:AP-00).
+ *    A first ship, and a ship that would open a new PR, keep the click.
+ *
  * This is the ONE place that fact is written down. The driver already treats
  * ship as a human boundary (`ship-confirm`) and the dashboard already offers the
  * button, but neither told the glyph/badge/facet derivation — which is why a

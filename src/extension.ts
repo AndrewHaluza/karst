@@ -411,6 +411,8 @@ import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriverOn, ticketsToSweep } from './workflow/driverController.js';
+import { reshipAtShipConfirm } from './extension/ops/autoReship.js';
+import { clearCiRound } from './store/autopilot.js';
 import { shipTicket as runShipTicket, hasCompletedShipRun } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent } from './model/inside/progress.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
@@ -3565,8 +3567,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // A new run's first gate re-announces itself in the console, rather than
     // continuing under the previous run's last gate header.
     gateConsole.resetTicket(ticketId);
+    let outcome: Awaited<ReturnType<typeof driveTicketRun>> | null = null;
     try {
-      await driveTicketRun(
+      outcome = await driveTicketRun(
         {
           store: localStore,
           manifest: currentManifest, hostContext: () => `manifest ${cliEntryAndManifest(context).manifestPath ?? 'unknown'}, project ${currentProject()?.slug ?? 'unknown'}`,
@@ -3686,6 +3689,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // A ticket that parked as review-stalled gets its written suggestion now (T1001).
       void stall.service.ensure(ticketId);
     }
+    // After a CI round the PRs already exist: the ship boundary needs no click (T1095, @arch:AP-06).
+    void reshipAtShipConfirm(outcome, {
+      store: localStore, ticketId, key: formatId('ticket', ticketId), config: () => currentManifest()?.autopilot,
+      controls: () => guardCapability.known('sessions', ticketId), projectId: () => currentProject()?.id,
+      preview: () => makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync)(ticketId),
+      ship: (o) => runShipSaga(ticketId, false, o), debug: (m) => logger.debug(m), warn: (m) => logger.warn(m), error: logError,
+    });
   }
 
   // A failed gate parks the ticket at `fix` with nothing running: karst never
@@ -5714,6 +5724,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // uncommitted in the worktree and pushes it to a branch under human review.
     // So the sweep delivers only while a ship-sourced recovery round is live —
     // the case where the new work is exactly what the round was opened to make.
+    clearCiRound(localStore, ticketId); // a click or an auto re-ship spends the mark (T1095)
     await sandboxLife.assertInSync(ticketId, false); // F12: the agent's commits after its marker reach the host before ship
     const deliverToOpenPr = shipOpts.deliver === true || (shipOpts.unattended
       ? activeRecoverySeries(localStore, ticketId, 'ship') !== null

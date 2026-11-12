@@ -5,7 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { clearConflictRound, getAutopilotRerun, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
@@ -127,6 +127,19 @@ describe('autopilotTick gating', () => {
 });
 
 describe('ci', () => {
+  it('marks the ticket when a ci round is sent, so the driver can re-ship without the click (T1095)', async () => {
+    seedPr(failing('build'));
+    expect(getCiRoundAt(store, id)).toBeNull();
+    await autopilotTick(rig().deps);
+    expect(getCiRoundAt(store, id)).not.toBeNull();
+  });
+
+  it('does not mark the ticket when the ci action failed', async () => {
+    seedPr(failing('build'));
+    await autopilotTick(rig({}, { kind: 'failed', reason: 'x' }).deps);
+    expect(getCiRoundAt(store, id)).toBeNull();
+  });
+
   it('sends the failure to the agent for an allowlisted check, with a note and an autopilot debug line', async () => {
     seedPr(failing('build'));
     const r = rig();
