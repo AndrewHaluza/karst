@@ -79,9 +79,10 @@ describe('autoReship', () => {
     expect((await autoReship(deps().d)).kind).toBe('waits');
   });
 
-  it('(c) waits when the mode inherits an off manifest', async () => {
+  it('(c) waits when the mode inherits an off manifest, and spends the mark', async () => {
     const x = deps({ cfg: { ...CFG, enabled: false } });
     expect(await autoReship(x.d)).toMatchObject({ kind: 'waits', reason: 'autopilot is off' });
+    expect(getCiRoundAt(store, id)).toBeNull();
   });
 
   it('(c) waits on a stop flag, a paused reason and a stopped reason', async () => {

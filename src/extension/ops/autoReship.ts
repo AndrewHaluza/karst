@@ -15,6 +15,7 @@ import { clearCiRound, effectiveAutopilot, getAutopilotBudget, getAutopilotTicke
  */
 
 const LOG = '[ship] autopilot';
+const OFF_REASON = 'autopilot is off';
 
 /** Ship options of an auto re-ship: push to the open PRs (the delivery branch). */
 export const RESHIP_SHIP_OPTS = { deliver: true } as const;
@@ -78,7 +79,7 @@ function waitReason(d: AutoReshipDeps, cfg: AutopilotConfig | undefined): string
   if (getCiRoundAt(d.store, d.ticketId) === null) return 'no ci round was sent';
   const ticket = getTicket(d.store, d.ticketId);
   if (ticket.stageCurrent !== 'ship') return 'the ticket is not at ship';
-  if (!effectiveAutopilot(d.store, d.ticketId, cfg.enabled)) return 'autopilot is off';
+  if (!effectiveAutopilot(d.store, d.ticketId, cfg.enabled)) return OFF_REASON;
   const state = getAutopilotTicket(d.store, d.ticketId);
   if (state.stopAfter || state.pausedReason !== null || state.stoppedReason !== null || ticket.pausedAt !== null) return 'the ticket is paused or stopped';
   if (stageBlock(d.store, d.ticketId, 'ship') !== null) return 'the ship stage has a block';
@@ -96,6 +97,8 @@ export async function autoReship(d: AutoReshipDeps): Promise<AutoReshipResult> {
   const wait = (reason: string): AutoReshipResult => {
     // A ticket that never had a round is the normal Confirm wait: no line.
     if (getCiRoundAt(d.store, d.ticketId) !== null) d.debug(`${LOG} ticket ${d.key}: no automatic re-ship, ${reason}`);
+    // Off mode (by override or by the manifest) spends the mark: a later switch-on must not re-ship an old round.
+    if (reason === OFF_REASON) clearCiRound(d.store, d.ticketId);
     return { kind: 'waits', reason };
   };
   const policy = waitReason(d, cfg);

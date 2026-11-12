@@ -3692,7 +3692,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // After a CI round the PRs already exist: the ship boundary needs no click (T1095, @arch:AP-06).
     void reshipAtShipConfirm(outcome, {
       store: localStore, ticketId, key: formatId('ticket', ticketId), config: () => currentManifest()?.autopilot,
-      controls: () => guardCapability.known('sessions', ticketId), projectId: () => currentProject()?.id,
+      controls: () => autopilot.controlsTicket(ticketId), projectId: () => currentProject()?.id,
       preview: () => makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync)(ticketId),
       ship: (o) => runShipSaga(ticketId, false, o), debug: (m) => logger.debug(m), warn: (m) => logger.warn(m), error: logError,
     });
