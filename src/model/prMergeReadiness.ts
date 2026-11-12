@@ -294,7 +294,9 @@ export function prMergeReadiness(
   }
 
   const problem = reasons.some((r) => isBad(r) || r.state === 'run');
-  if (pr.canMerge && pr.mergeBlock !== 'clean' && !problem) {
+  // GitHub answers `unstable` when only optional checks fail: the checks note explains it, and GitHub merges it.
+  const unstableNoted = pr.mergeBlock === 'unstable' && reasons.some((r) => r.kind === 'checks' && r.state === 'note');
+  if (pr.canMerge && pr.mergeBlock !== 'clean' && !problem && !unstableNoted) {
     // GitHub did not say "clean" (it answered unknown, unstable or has_hooks) and nothing else explains it:
     // never claim it, never count it ready.
     return {
@@ -304,7 +306,7 @@ export function prMergeReadiness(
       reasons: [],
     };
   }
-  if (pr.canMerge && pr.mergeBlock === 'clean') {
+  if (pr.canMerge && (pr.mergeBlock === 'clean' || unstableNoted)) {
     const passed = pr.checks && pr.checks.state === 'passing' ? ` · ${plural(pr.checks.passed, 'check')} passed` : '';
     const approved = pr.reviewDecision === 'APPROVED' ? 'approved' : 'no review required';
     const clean =
@@ -314,7 +316,7 @@ export function prMergeReadiness(
     return {
       ready: true,
       headline: 'Ready to merge',
-      facts: `${approved}${passed} · GitHub: clean${clean}`,
+      facts: `${approved}${passed} · GitHub: ${pr.mergeBlock}${clean}`,
       reasons: reasons.filter((r) => r.state === 'note'),
     };
   }

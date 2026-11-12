@@ -340,6 +340,20 @@ describe('blocking helpers', () => {
       expect(blockingReasonsTitle(r)).toBe('');
     });
 
+    it('is ready with the note when GitHub answers unstable (its real state for optional-only failures)', () => {
+      const r = read(pr({ canMerge: true, mergeBlock: 'unstable', checks: optional }), undefined, offers);
+      expect(r.ready).toBe(true);
+      expect(r.facts).toContain('GitHub: unstable');
+      expect(of('checks', r).state).toBe('note');
+      expect(of('checks', r).action).toEqual({ act: 'send-ci-failure', label: 'Send CI failure' });
+    });
+
+    it('still reports unstable as not confirmed when no note explains it', () => {
+      const r = read(pr({ canMerge: true, mergeBlock: 'unstable', checks: passing }));
+      expect(r.ready).toBe(false);
+      expect(r.headline).toBe('Merge not confirmed');
+    });
+
     it('stays blocking when a required check fails', () => {
       const r = read(pr({ checks: failing }), undefined, offers);
       expect(r.ready).toBe(false);
