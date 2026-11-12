@@ -265,6 +265,25 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     expect(opened).toEqual([currentDeliverRun(store, ticketId)!.id]);
   });
 
+  it('opens no run and runs no gate when the signal aborted while the run was planned', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-4', title: 't' }).id;
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (cmd) => { ran.push(cmd); return { kind: 'completed', exitCode: 0, output: '' }; };
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const ac = new AbortController();
+    const opened: number[] = [];
+    const out = await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], {
+      uat, runProcess, evidence: { store, ticketId }, signal: ac.signal, onRunOpened: (id) => opened.push(id),
+      headSha: async () => { ac.abort(); return 'd'.repeat(40); },
+    });
+    expect(out).not.toBeNull();
+    expect(ran).toEqual([]);
+    expect(opened).toEqual([]);
+    expect(currentDeliverRun(store, ticketId)).toBeNull();
+  });
+
   it('does not report a run id when no run is opened (no evidence target)', async () => {
     const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
     const runProcess: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 0, output: '' });

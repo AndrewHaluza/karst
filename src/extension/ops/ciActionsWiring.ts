@@ -253,6 +253,7 @@ async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: reado
           headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange, only: gates, kind: 'after-take-over', onRunOpened: (id) => { runId = id; },
         });
         const run = runId === null ? null : getDeliverRun(i.store, runId);
+        if (signal.aborted) return { kind: 'stopped', headSha: run?.headSha ?? null };
         const first = targets.prs[0];
         const headSha = run?.headSha ?? (first === undefined ? null : await headShaOf(i, first.cwd));
         if (failure === null) return { kind: 'passed', headSha };

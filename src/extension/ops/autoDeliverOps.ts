@@ -159,8 +159,8 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
   if (!targets.available) return; // not at ship, no open PR, or a ship run is in flight: the manual button decides
   const entry: InFlight = { controller: new AbortController(), phase: 'gates', takenOver: false };
   inFlight.set(d.ticketId, entry);
-  void supersedeRerun(d.ticketId); // the auto-deliver makes a newer head: a re-run on the older head stops
   try {
+    await supersedeRerun(d.ticketId); // the auto-deliver makes a newer head: a re-run on the older head stops and closes first
     const pr = targets.prs.find((p) => p.repo === round.repo) ?? targets.prs[0]!;
     d.status(`Delivering resolved merge to PR #${pr.number ?? '?'}…`);
     const outcome = await deliverToPr({

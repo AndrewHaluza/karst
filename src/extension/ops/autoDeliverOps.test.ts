@@ -498,12 +498,17 @@ describe('rerunSkippedGates (after a manual Deliver took over)', () => {
     let release!: (r: RerunResult) => void;
     const re = rerigRerun({ ticketId: 1, key: 'T1', runGates: (_g, s) => new Promise<RerunResult>((r) => { signalOf = s; release = r; }) });
     const running = rerunSkippedGates(re.deps);
-    let seen = false;
-    const { deps } = rig({ runGates: async () => { seen = signalOf.aborted; return null; } });
-    await autoDeliverAfterConflict(deps);
-    expect(seen).toBe(true);
+    let started = false;
+    const { deps } = rig({ runGates: async () => { started = true; return null; } });
+    const auto = autoDeliverAfterConflict(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(signalOf.aborted).toBe(true);
+    // The auto-deliver waits until the older re-run unwound: its gates and run row come after the stale run closed.
+    expect(started).toBe(false);
     release({ kind: 'stopped', headSha: 'abcdef1234567890' });
     expect(await running).toBe('superseded');
+    await auto;
+    expect(started).toBe(true);
   });
 
   it('refuses a re-run while an auto-deliver runs its gates, and logs why', async () => {
