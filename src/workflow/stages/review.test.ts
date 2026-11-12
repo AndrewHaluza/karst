@@ -1032,6 +1032,27 @@ describe('runReview', () => {
     }
   });
 
+  it('stores the environment signature and calls the pre-brief re-run once after a gate failure; a pass never calls it', async () => {
+    const preBriefRerun = vi.fn(async () => ({ kind: 'not-applicable' as const }));
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        preBriefRerun,
+        runGates: async (gates, _cwd, opts) => ({
+          kind: 'ran',
+          results: gates.map((g, i) => {
+            const output = 'Timed out waiting 120000ms from config.webServer.';
+            opts?.onGateComplete?.(g.name, 1, now(), now(), i, output);
+            return { name: g.name, exitCode: 1, output, startedAt: now(), endedAt: now() };
+          }),
+        }),
+      }),
+    );
+    expect(preBriefRerun).toHaveBeenCalledTimes(1);
+    expect(listGateRuns(store, id)[0]!.summary).toMatch(/^environment signature: a gate or test timeout\n/);
+  });
+
   it('a gate failure commits a review-origin recovery round attributed to the gates source', async () => {
     await runReview(
       store,

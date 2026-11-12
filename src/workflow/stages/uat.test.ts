@@ -257,6 +257,41 @@ describe('runUat', () => {
     expect(rounds[0]!.sourceStageRunId).toBe(listStageRuns(store, id)[0]!.id);
   });
 
+  it('stores the environment signature on a failed gate and calls the pre-brief re-run once, after the round opened', async () => {
+    const seen: string[] = [];
+    const preBriefRerun = vi.fn(async (ticketId: number) => {
+      seen.push(`${listRecoveryRounds(store, ticketId).length} round(s)`);
+      return { kind: 'not-applicable' as const };
+    });
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        preBriefRerun,
+        runGates: async (gates, _cwd, opts) => ({
+          kind: 'ran',
+          results: gates.map((g, i) => {
+            const exitCode = g.name === 'e2e' ? 1 : 0;
+            const output = g.name === 'e2e' ? 'Error: Test exceeded the test timeout of 60000ms' : 'ok';
+            opts?.onGateComplete?.(g.name, exitCode, now(), now(), i, output);
+            return { name: g.name, exitCode, output, startedAt: now(), endedAt: now() };
+          }),
+        }),
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(preBriefRerun).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual(['1 round(s)']);
+    const failed = listGateRuns(store, id).find((r) => r.exitCode === 1)!;
+    expect(failed.summary).toMatch(/^environment signature: a gate or test timeout\n/);
+  });
+
+  it('does not call the pre-brief re-run when the gates pass', async () => {
+    const preBriefRerun = vi.fn(async () => ({ kind: 'not-applicable' as const }));
+    await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps({ preBriefRerun }));
+    expect(preBriefRerun).not.toHaveBeenCalled();
+  });
+
   it('snapshots the manifest cap into the round — a later manifest edit cannot widen it', async () => {
     await runUat(
       store,

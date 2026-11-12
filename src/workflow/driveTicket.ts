@@ -4,6 +4,7 @@ import type { Manifest } from '../manifest/types.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
 import { sandboxGateDeps } from './gates/sandboxGates.js';
+import type { HostRerunOutcome } from './fixHostRerun.js';
 import type { UatDeps } from './stages/uat.js';
 import type { GateProcessRunner } from './gates/run.js';
 import type { HeadlessOutputChunk } from '../agent/headlessSpawn.js';
@@ -187,6 +188,8 @@ export interface DriveTicketDeps {
    */
   provisionSandbox?: (ticketId: number, signal?: AbortSignal) => Promise<{ ok: true } | { ok: false; reason: string }>;
   /** arch:AC-32 decisions 7-8, threaded into the UAT stage verbatim (see `UatDeps`). */
+  /** The one host re-run of an environment-signature gate failure, before the fix brief is armed. */
+  preBriefRerun?: (ticketId: number) => Promise<HostRerunOutcome>;
   userUat?: Pick<UatDeps, 'keepStackForUserUat' | 'prepareUserUat' | 'agentUatPhase'>;
   /**
    * The composed `karst context` prefix (Prompt 17, § context loader) — the
@@ -439,6 +442,7 @@ export async function driveTicket(
               spin: deps.spin ?? spinTicket,
               stopServers: deps.stopServers ?? stopTicketServers,
               ...sandboxGateDeps(deps.gateProcessFor?.(id), deps.hostGateFor?.(id)),
+              preBriefRerun: deps.preBriefRerun,
               ...deps.userUat,
             },
           );
@@ -528,6 +532,7 @@ export async function driveTicket(
             },
             {
               ...reviewGateDeps(deps.gateProcessFor?.(id), deps.hostGateFor?.(id)),
+              preBriefRerun: deps.preBriefRerun,
               openDiff: deps.openDiff,
               findingsAdapter: reviewProcess?.adapter,
               reviewProcess,
