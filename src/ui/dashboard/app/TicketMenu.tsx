@@ -5,7 +5,8 @@
  * `renderPause`, `renderFollowUp`, `renderBind` and `renderMenuGates` it replaced. The open state lives in
  * `Header` (one popover at a time).
  */
-import { memo } from 'react';
+import { memo, useRef } from 'react';
+import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import { HideableButton } from './HideableButton.js';
@@ -106,6 +107,9 @@ function LinkViewsSwitch() {
 
 export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonly open: boolean; readonly onToggle: () => void }) {
   const send = useDashboardSend();
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  useAnchoredPopover(open, popRef, moreRef, onToggle);
   const controls = useSlice(selectControls);
   const paused = !!controls?.paused;
   const onEdit = usePendingAction((requestId) => send.editTicket(requestId));
@@ -119,6 +123,7 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
     <div className="menuWrap">
       <button
         id="moreBtn"
+        ref={moreRef}
         type="button"
         className="k-iconbtn"
         aria-expanded={open ? 'true' : 'false'}
@@ -129,7 +134,7 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
       >
         <Icon name="dots" />
       </button>
-      <div id="menuPopover" className={open ? 'popover menuPopover open' : 'popover menuPopover hidden'} role="menu" aria-label="Ticket controls">
+      <div id="menuPopover" ref={popRef} className={open ? 'popover menuPopover open' : 'popover menuPopover hidden'} role="menu" aria-label="Ticket controls">
         <div className="menuHeading">Ticket</div>
         <button type="button" className="menuButton" data-act="edit-ticket" role="menuitem" onClick={onEdit}>
           <Icon name="pencil" />

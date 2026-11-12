@@ -14,6 +14,7 @@ import { AgentSwitchForm } from './AgentSwitchForm.js';
 import { useDashboardSend, useDashboardState } from './DashboardAppContext.js';
 import { selectAgent } from './headerSlices.js';
 import { Icon } from './Icon.js';
+import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
 import './RuntimeStrip.css';
@@ -31,6 +32,9 @@ function networkText(network: string): string {
   if (network.includes('allowlist')) return 'Allowlist proxy';
   return network.charAt(0).toUpperCase() + network.slice(1);
 }
+
+/** The popover widths in px; the shared placement shrinks each to the viewport. Keep in step with `.rs-pop--*` in RuntimeStrip.css. */
+const POP_WIDTH = { agent: 360, sandbox: 320, more: 260 } as const;
 
 /** The strip's secondary text for the sandbox dropdown: the host protection state, or the workspace and network. */
 function secondaryText(sandbox: DashboardSandboxView): { readonly text: string; readonly tone: 'ok' | 'warn' | null } {
@@ -195,10 +199,17 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
   const [open, setOpen] = useState<Which | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const agentPopRef = useRef<HTMLDivElement>(null);
+  const sandboxPopRef = useRef<HTMLDivElement>(null);
   const triggers = { agent: useRef<HTMLButtonElement>(null), sandbox: useRef<HTMLButtonElement>(null), more: useRef<HTMLButtonElement>(null) };
 
   const toggle = useCallback((which: Which) => setOpen((cur) => (cur === which ? null : which)), []);
   const close = useCallback(() => setOpen(null), []);
+  // The popovers are position:fixed and follow their trigger. The agent form keeps its choices when the trigger scrolls away.
+  const keepOpen = useCallback(() => undefined, []);
+  useAnchoredPopover(open === 'agent', agentPopRef, triggers.agent, keepOpen, POP_WIDTH.agent);
+  useAnchoredPopover(open === 'sandbox', sandboxPopRef, triggers.sandbox, close, POP_WIDTH.sandbox);
+  useAnchoredPopover(open === 'more', menuRef, triggers.more, close, POP_WIDTH.more);
   // Close and hand focus back to the trigger that opened the popover (Esc, a picker commit or cancel, a menu pick).
   const closeToTrigger = useCallback((which: Which | null) => {
     setOpen(null);
@@ -272,7 +283,7 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
               {canSwitch ? <Icon name="chevron-down" /> : <Icon name="lock" />}
             </button>
             {!canSwitch ? <span className="rs-lock">fix recovery running</span> : null}
-            <div id="agentPopover" className={open === 'agent' ? 'rs-pop rs-pop--agent open' : 'rs-pop rs-pop--agent'} role="dialog" aria-label="Switch active agent">
+            <div id="agentPopover" ref={agentPopRef} className={open === 'agent' ? 'rs-pop rs-pop--agent open' : 'rs-pop rs-pop--agent'} role="dialog" aria-label="Switch active agent">
               <AgentSwitchForm agent={agent} open={open === 'agent'} close={() => closeToTrigger('agent')} />
             </div>
           </div>
@@ -296,7 +307,7 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
               <span className={secondary.tone ? `rs-sub rs-sub--sandbox rs-sub--${secondary.tone}` : 'rs-sub rs-sub--sandbox'}>{secondary.text}</span>
               <Icon name="chevron-down" />
             </button>
-            <div className={open === 'sandbox' ? 'rs-pop rs-pop--sandbox open' : 'rs-pop rs-pop--sandbox'} role="dialog" aria-label="Sandbox details">
+            <div ref={sandboxPopRef} className={open === 'sandbox' ? 'rs-pop rs-pop--sandbox open' : 'rs-pop rs-pop--sandbox'} role="dialog" aria-label="Sandbox details">
               <SandboxDetails sandbox={sandbox} onSettings={() => { send.openSettings(); closeToTrigger('sandbox'); }} />
             </div>
           </div>
