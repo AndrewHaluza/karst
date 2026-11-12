@@ -1300,6 +1300,59 @@ describe('runReview', () => {
     expect(snapshot?.review).toEqual(expect.arrayContaining(['lint', 'typecheck']));
   });
 
+  // A git fake: the commit the branch was cut from has `cutScripts`, the base ref has `baseScripts`.
+  const scriptsGit = (cutScripts: Record<string, string>, baseScripts: Record<string, string>): GitRunner =>
+    (async (args: readonly string[]) => {
+      if (args[0] === 'merge-base') return { stdout: 'cut123\n', stderr: '', exitCode: 0 };
+      if (args[0] === 'show') {
+        const scripts = String(args[1]).startsWith('cut123:') ? cutScripts : baseScripts;
+        return { stdout: JSON.stringify({ scripts }), stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    }) as unknown as GitRunner;
+  const layerRules = reviewConfig({ gates: [{ name: 'layer-rules', kind: 'script', script: 'lint:layers' }] });
+  const layerManifest = () => manifest({ web: repo({ repoPath: '/web' }) }, { review: layerRules });
+
+  it('applies the snapshot it captures: a gate added to the manifest after the cut is skipped in the capturing run (T1106)', async () => {
+    seedWorktree('/web', '/wt/web');
+    const invoked: string[] = [];
+    const result = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: layerManifest() },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { lint: 'x' } }),
+        git: scriptsGit({ lint: 'x' }, { lint: 'x', 'lint:layers': 'depcruise' }),
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return { kind: 'ran', results: [] };
+        },
+      }),
+    );
+    expect(invoked).not.toContain('layer-rules');
+    expect(result).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(reviewStage(store, id).status).toBe('bypassed');
+    expect(listGateRuns(store, id).find((r) => r.skipped)?.summary).toContain('was added after this ticket started');
+  });
+
+  it('still runs a gate whose script the branch was cut with when an agent edit removed it from the worktree', async () => {
+    seedWorktree('/web', '/wt/web');
+    const invoked: string[] = [];
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: layerManifest() },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { lint: 'x' } }),
+        git: scriptsGit({ lint: 'x', 'lint:layers': 'depcruise' }, { lint: 'x', 'lint:layers': 'depcruise' }),
+        runGates: async (gates) => {
+          invoked.push(...gates.map((g) => g.name));
+          return { kind: 'ran', results: [] };
+        },
+      }),
+    );
+    expect(getGateSnapshot(store, id)?.review).toContain('layer-rules');
+    expect(invoked).toContain('layer-rules');
+  });
+
   it('keeps running every gate for a pre-snapshot ticket that already ran gates', async () => {
     const invoked: string[] = [];
     recordGateRun(store, {

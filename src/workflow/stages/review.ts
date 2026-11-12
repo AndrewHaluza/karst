@@ -35,7 +35,7 @@ import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { declaredCheckGates } from '../review/declaredGates.js';
 import { getDisabledGates, getGateSnapshot, getHostGates, getStageGateSnapshot } from '../../store/ticketGates.js';
-import { captureGateSnapshot } from './gateSnapshot.js';
+import { captureGateSnapshot, snapshotGitFor } from './gateSnapshot.js';
 import { withHostOverride } from '../gates/resourceKill.js';
 import { capForGate } from '../fixAttempts.js';
 import {
@@ -250,10 +250,14 @@ export async function runReview(
   const disabledNames = getDisabledGates(store, opts.ticketId).review;
   // The gates this ticket's branch was cut with (@arch:GATE-SNAPSHOT). A ticket that has run no gate and
   // has no snapshot at all takes it from this run's resolution; a pre-snapshot ticket keeps running every gate.
-  const snapshotNames = getStageGateSnapshot(store, opts.ticketId, 'review');
+  let snapshotNames = getStageGateSnapshot(store, opts.ticketId, 'review');
   const captureSnapshot =
     snapshotNames === null && (getGateSnapshot(store, opts.ticketId) !== null || listGateRuns(store, opts.ticketId).length === 0);
-  if (captureSnapshot && opts.manifest) await captureGateSnapshot(store, opts.ticketId, opts.manifest, worktrees, probe, opts.debug);
+  if (captureSnapshot && opts.manifest) {
+    await captureGateSnapshot(store, opts.ticketId, opts.manifest, worktrees, probe, opts.debug, snapshotGitFor(git));
+    // This run applies the snapshot it just took: a gate added later must not fail the run that captured it.
+    snapshotNames = getStageGateSnapshot(store, opts.ticketId, 'review');
+  }
   // The BARE gate names, kept beside the evidence rows rather than recovered
   // from them: a row's `gateName` is repo-decorated ("test (web)") because that
   // is what identifies an invocation, and the block reason already parenthesizes

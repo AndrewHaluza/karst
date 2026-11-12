@@ -3,8 +3,11 @@ import type { Manifest } from '../../manifest/types.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { getGateSnapshot, setGateSnapshot } from '../../store/ticketGates.js';
-import { collectGateSnapshot, type BaseDefines } from '../../workflow/stages/gateSnapshot.js';
+import { collectGateSnapshot, snapshotGitFor, type BaseDefines, type CutDefines } from '../../workflow/stages/gateSnapshot.js';
+import { defaultGitRunner } from '../../integrations/git.js';
 import type { ScriptProbe } from '../../workflow/gates/probe.js';
+
+const DEFAULT = snapshotGitFor(defaultGitRunner);
 
 /**
  * Take a ticket's gate-set snapshot (@arch:GATE-SNAPSHOT): the RESOLVED gate names
@@ -17,14 +20,15 @@ export interface GateSnapshotDeps {
   readonly manifest: () => Manifest | undefined;
   readonly probe?: (cwd: string) => ScriptProbe;
   readonly baseDefines?: BaseDefines;
+  readonly cutDefines?: CutDefines;
   readonly debug?: (message: string) => void;
 }
 
 /**
  * True when a snapshot was written. Best effort and never rejects: every read is
  * inside the guard, so a fire-and-forget caller cannot leak an unhandled
- * rejection. An answer with no gate in either stage is treated as a failed read —
- * an empty snapshot would skip every gate of the ticket.
+ * rejection. An answer with no declared gate in either stage is treated as a failed read —
+ * a stage whose declared gates were all left out is still written (empty).
  */
 export async function takeGateSnapshot(
   d: GateSnapshotDeps,
@@ -39,10 +43,13 @@ export async function takeGateSnapshot(
       d.debug?.(`[gate] snapshot ticket ${ticketId}: no manifest, snapshot not written`);
       return false;
     }
-    const snapshot = await collectGateSnapshot(manifest, listWorktreesByTicket(d.store, ticketId), d.probe, d.debug, d.baseDefines);
+    const snapshot = await collectGateSnapshot(manifest, listWorktreesByTicket(d.store, ticketId), d.probe, d.debug, {
+      baseDefines: d.baseDefines ?? DEFAULT.baseDefines,
+      cutDefines: d.cutDefines ?? DEFAULT.cutDefines,
+    });
     const uat = snapshot.uat ?? [];
     const review = snapshot.review ?? [];
-    if (uat.length === 0 && review.length === 0) {
+    if (snapshot.uat === null && snapshot.review === null) {
       d.debug?.(`[gate] snapshot ticket ${ticketId}: no gate resolved, snapshot not written`);
       return false;
     }

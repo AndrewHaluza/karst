@@ -103,7 +103,7 @@ describe('takeGateSnapshot', () => {
     const { store, id } = seed([]);
     store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)').run(id, '/repo/api', '/wt/repo/api', 'karst/K-1', 'develop');
     const branchLacks = () => ({ kind: 'ok', scripts: {} }) as ScriptProbe;
-    await takeGateSnapshot(deps(store, { probe: branchLacks, baseDefines: async (_c, _r, script) => script === 'lint' }), id);
+    await takeGateSnapshot(deps(store, { probe: branchLacks, baseDefines: async (_c, _r, script) => script === 'lint', cutDefines: async () => null }), id);
     expect(getGateSnapshot(store, id)).toEqual({ uat: ['test'], review: [] });
   });
 
