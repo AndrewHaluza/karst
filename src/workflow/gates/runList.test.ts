@@ -577,9 +577,9 @@ describe('runGateList gate concurrency lease', () => {
 
 describe('runGateList gate timeout', () => {
   const now = () => '2026-07-30T10:00:00.000Z';
-  const timeoutOf = async (script: string | null): Promise<number | undefined> => {
+  const timeoutOf = async (script: string | null, timeoutMinutes?: number): Promise<number | undefined> => {
     let seen: number | undefined;
-    const gates = [{ name: 'g', command: 'npm', args: ['run', 'x'], script, required: true }];
+    const gates = [{ name: 'g', command: 'npm', args: ['run', 'x'], script, required: true, ...(timeoutMinutes ? { timeoutMinutes } : {}) }];
     await runGateList(gates, process.cwd(), { now, runProcess: async (_c, _a, _w, o) => (seen = o?.timeoutMs, { kind: 'completed', exitCode: 0, output: '' }) });
     return seen;
   };
@@ -587,6 +587,10 @@ describe('runGateList gate timeout', () => {
     expect(await timeoutOf('test:visual:docker')).toBe(UI_GATE_TIMEOUT_MS);
     expect(await timeoutOf('test:layout:docker')).toBe(UI_GATE_TIMEOUT_MS);
     expect(UI_GATE_TIMEOUT_MS).toBeGreaterThan(31 * 60 * 1_000);
+  });
+  it('a gate timeoutMinutes from the manifest wins over the default', async () => {
+    expect(await timeoutOf('test:visual:docker', 60)).toBe(60 * 60 * 1_000);
+    expect(await timeoutOf('test', 5)).toBe(5 * 60 * 1_000);
   });
   it('leaves another gate on the default timeout', async () => {
     expect(await timeoutOf('test')).toBeUndefined();
