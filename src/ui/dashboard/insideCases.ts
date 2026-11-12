@@ -644,6 +644,12 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   },
   {
     stage: 'ship',
+    id: 'auto-status-pending',
+    allThemes: true,
+    state: autofixShip({ ...PARKED, state: 'pending', message: 'CI running for api #88 (4 of 14 pending). Auto-fix waits.' }, {}),
+  },
+  {
+    stage: 'ship',
     id: 'auto-status-unknown',
     allThemes: true,
     state: autofixShip({ ...PARKED, state: 'unknown', message: 'CI status unknown for api #88. Waits; not counted as pass.' }, {}),

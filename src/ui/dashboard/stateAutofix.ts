@@ -14,6 +14,7 @@ import {
   type AutofixAttempt,
   type AutofixFacts,
   type AutofixKind,
+  type AutofixPendingCi,
   type AutofixRowView,
   type AutofixTarget,
 } from '../../model/inside/autofix.js';
@@ -29,6 +30,10 @@ import {
 import type { Store } from '../../store/db.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { getTicket } from '../../store/tickets.js';
+
+/** Resolves a recorded repo value (a path) to its manifest name; a value the manifest does not know stays as recorded. */
+export type RepoNameOf = (repo: string) => string;
+const keepRepo: RepoNameOf = (repo) => repo;
 
 const NOTE_PREFIX = 'Autopilot:';
 /** The note "Stop after this round" posts: the round still runs, so it must not hide the round note. */
@@ -67,7 +72,7 @@ export function autofixInputOf(facts: AutofixFacts): AutofixInput {
     effective: facts.effective,
     running: round === null ? null : { kind: round.kind, repo: round.repo === '' ? null : round.repo, round: `${round.used}/${round.max}` },
     parked: round === null && facts.reason !== null && kind !== null ? { kind, reason: facts.reason } : null,
-    unknownCi: facts.unknownCi.length > 0,
+    unknownCi: facts.unknownCi.length > 0 || facts.pendingCi.length > 0,
   };
 }
 
@@ -116,7 +121,7 @@ function parkedKind(reason: string): AutofixKind | null {
  * answers for it. A budget that is no longer spent (the limit was raised after the park) still names its repo,
  * and a spent one wins over it.
  */
-function resolveTarget(store: Store, ticketId: number, config: AutopilotConfig | undefined, kind: AutofixKind): AutofixTarget | null {
+function resolveTarget(store: Store, ticketId: number, config: AutopilotConfig | undefined, kind: AutofixKind, nameOf: RepoNameOf): AutofixTarget | null {
   const repos = listAutopilotBudgets(store, ticketId).filter((b) => b.kind === kind).map((b) => b.repo);
   const isSpent = (repo: string): boolean => {
     const b = getAutopilotBudget(store, ticketId, repo, kind);
@@ -127,24 +132,32 @@ function resolveTarget(store: Store, ticketId: number, config: AutopilotConfig |
   const pr = store.db.prepare('SELECT repo, number, checks FROM prs WHERE ticket_id = ? AND repo = ?').get(ticketId, repo) as PrRow | undefined;
   const failing = kind === 'ci' ? parseChecks(pr?.checks)?.failing[0] : undefined;
   const logUrl = safeUrl(failing?.url);
-  return { kind, repo, pr: pr?.number ?? null, check: failing?.name ?? null, ...(logUrl ? { logUrl } : {}) };
+  return { kind, repo, repoLabel: nameOf(repo), pr: pr?.number ?? null, check: failing?.name ?? null, ...(logUrl ? { logUrl } : {}) };
 }
 
-/** `repo #n` of every open PR whose CI status is missing, unreadable, unknown or still pending: the engine waits on these. */
-function unknownCiLabels(store: Store, ticketId: number): string[] {
+/** `repo #n`, with the repo shown by its manifest name. */
+const prLabelOf = (r: PrRow, nameOf: RepoNameOf): string => (r.number === null ? nameOf(r.repo) : `${nameOf(r.repo)} #${r.number}`);
+
+/** The open PRs the engine waits on: CI status missing, unreadable or unknown, or readable with checks still pending. */
+function waitingCi(store: Store, ticketId: number, nameOf: RepoNameOf): { unknownCi: string[]; pendingCi: AutofixPendingCi[] } {
   const rows = store.db
     .prepare("SELECT repo, number, checks FROM prs WHERE ticket_id = ? AND status = 'open' AND url IS NOT NULL AND dismissed_at IS NULL ORDER BY repo")
     .all(ticketId) as PrRow[];
-  return rows
-    .filter((r) => { const c = parseChecks(r.checks); return c === null || c.state === 'unknown' || c.pending > 0; })
-    .map((r) => (r.number === null ? r.repo : `${r.repo} #${r.number}`));
+  const unknownCi: string[] = [];
+  const pendingCi: AutofixPendingCi[] = [];
+  for (const r of rows) {
+    const c = parseChecks(r.checks);
+    if (c === null || c.state === 'unknown') unknownCi.push(prLabelOf(r, nameOf));
+    else if (c.pending > 0) pendingCi.push({ label: prLabelOf(r, nameOf), pending: c.pending, total: c.total });
+  }
+  return { unknownCi, pendingCi };
 }
 
 /**
  * The armed conflict round. The store keeps the arm time but not the repo, so the repo is named only when exactly
  * one conflicts budget exists. With several, the row says no repo rather than a wrong one, and counts the highest used.
  */
-function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixFacts['round'] {
+function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | undefined, nameOf: RepoNameOf): AutofixFacts['round'] {
   if (getConflictRoundAt(store, ticketId) === null) return null;
   const entries = listAutopilotBudgets(store, ticketId).filter((b) => b.kind === 'conflicts');
   if (entries.length === 0) return null;
@@ -153,7 +166,7 @@ function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | 
   const max = maxFor('conflicts', config) + Math.max(...budgets.map((b) => b.budget.extra));
   const only = budgets.length === 1 ? budgets[0]! : null;
   const pr = only ? (store.db.prepare('SELECT number FROM prs WHERE ticket_id = ? AND repo = ?').get(ticketId, only.repo) as { number: number | null } | undefined) : undefined;
-  return { kind: 'conflicts', repo: only?.repo ?? '', pr: pr?.number ?? null, check: null, used, max };
+  return { kind: 'conflicts', repo: only ? nameOf(only.repo) : '', pr: pr?.number ?? null, check: null, used, max };
 }
 
 /**
@@ -161,7 +174,7 @@ function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | 
  * read from its effects: the ticket is out of ship, no park is on record, and a CI budget with attempts holds the
  * signature of the checks that still fail in the stored rollup. The repo is named only when one budget matches.
  */
-function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixFacts['round'] {
+function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig | undefined, nameOf: RepoNameOf): AutofixFacts['round'] {
   if (getTicket(store, ticketId).stageCurrent === 'ship') return null;
   // A manual send-back takes no attempt and posts no note. The engine posts `Autopilot: ci round n/m` when it arms a round; the stop-after note is skipped, as the round still runs.
   const last = store.db.prepare("SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE 'Autopilot:%' AND title <> ? ORDER BY id DESC LIMIT 1").get(ticketId, STOP_AFTER_NOTE) as { title: string } | undefined;
@@ -178,7 +191,7 @@ function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig 
   if (hits.length === 0) return null;
   const only = hits.length === 1 ? hits[0]! : null;
   return {
-    kind: 'ci', repo: only?.repo ?? '', pr: only?.number ?? null, check: only?.check ?? null,
+    kind: 'ci', repo: only ? nameOf(only.repo) : '', pr: only?.number ?? null, check: only?.check ?? null,
     used: Math.max(...hits.map((h) => h.attempts)), max: maxFor('ci', config) + Math.max(...hits.map((h) => h.extra)),
   };
 }
@@ -191,7 +204,13 @@ function ciOpenOf(store: Store, ticketId: number): boolean {
   return rows.some((r) => { const c = parseChecks(r.checks); return c === null || c.state === 'failing' || c.state === 'unknown' || c.pending > 0; });
 }
 
-export function readAutofix(store: Store, ticketId: number, config: AutopilotConfig | undefined): AutofixReading {
+export function readAutofix(
+  store: Store,
+  ticketId: number,
+  config: AutopilotConfig | undefined,
+  repoNameFor: (repo: string) => string | undefined = () => undefined,
+): AutofixReading {
+  const nameOf: RepoNameOf = (repo) => repoNameFor(repo) ?? keepRepo(repo);
   const ticket = getAutopilotTicket(store, ticketId);
   const projectDefault = config?.enabled === true;
   const effective = effectiveAutopilot(store, ticketId, projectDefault);
@@ -199,15 +218,16 @@ export function readAutofix(store: Store, ticketId: number, config: AutopilotCon
   // `stoppedReason` only remembers the last park note (no repeat note), so it outlives the park: it is not a source here.
   const reason = [block, ticket.pausedReason].find((r) => typeof r === 'string' && r.startsWith('auto-fix')) ?? null;
   const kind = reason === null ? null : parkedKind(reason);
-  const target = kind === null ? null : resolveTarget(store, ticketId, config, kind);
+  const target = kind === null ? null : resolveTarget(store, ticketId, config, kind, nameOf);
+  const waiting = waitingCi(store, ticketId, nameOf);
   const facts: AutofixFacts = {
     override: ticket.mode,
     projectDefault,
     effective,
     reason,
-    round: reason === null ? (resolveRound(store, ticketId, config) ?? resolveCiRound(store, ticketId, config)) : resolveRound(store, ticketId, config),
+    round: reason === null ? (resolveRound(store, ticketId, config, nameOf) ?? resolveCiRound(store, ticketId, config, nameOf)) : resolveRound(store, ticketId, config, nameOf),
     stopAfter: ticket.stopAfter,
-    unknownCi: unknownCiLabels(store, ticketId),
+    ...waiting,
     target,
     attempts: readAttempts(store, ticketId),
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),

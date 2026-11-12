@@ -268,7 +268,7 @@ export function buildDashboardState(
     deliverAuto,
     openPrFeedback,
   } = readActionStates(store, ticketId, agentContext);
-  const autofixReading = readAutofix(store, ticketId, autopilotConfig);
+  const autofixReading = readAutofix(store, ticketId, autopilotConfig, repoNameFor);
   const {
     worktrees,
     prs,
