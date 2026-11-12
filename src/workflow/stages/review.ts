@@ -34,7 +34,8 @@ import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { declaredCheckGates } from '../review/declaredGates.js';
-import { getDisabledGates, getGateSnapshot, getHostGates, getStageGateSnapshot, setStageGateSnapshot } from '../../store/ticketGates.js';
+import { getDisabledGates, getGateSnapshot, getHostGates, getStageGateSnapshot } from '../../store/ticketGates.js';
+import { captureGateSnapshot } from './gateSnapshot.js';
 import { withHostOverride } from '../gates/resourceKill.js';
 import { capForGate } from '../fixAttempts.js';
 import {
@@ -252,7 +253,7 @@ export async function runReview(
   const snapshotNames = getStageGateSnapshot(store, opts.ticketId, 'review');
   const captureSnapshot =
     snapshotNames === null && (getGateSnapshot(store, opts.ticketId) !== null || listGateRuns(store, opts.ticketId).length === 0);
-  const capturedNames = new Set<string>();
+  if (captureSnapshot && opts.manifest) captureGateSnapshot(store, opts.ticketId, opts.manifest, worktrees, probe, opts.debug);
   // The BARE gate names, kept beside the evidence rows rather than recovered
   // from them: a row's `gateName` is repo-decorated ("test (web)") because that
   // is what identifies an invocation, and the block reason already parenthesizes
@@ -485,10 +486,6 @@ export async function runReview(
       return finish({ kind: 'blocked', blocker: resolution.blocker, reason }, [reason]);
     }
 
-    if (captureSnapshot) {
-      for (const g of [...resolution.gates, ...resolution.skipped]) capturedNames.add(g.name);
-      setStageGateSnapshot(store, opts.ticketId, 'review', [...capturedNames]);
-    }
     const addedLater = new Set(resolution.addedLater ?? []);
 
     // A branch with no UI path in its diff has nothing for the container-pinned

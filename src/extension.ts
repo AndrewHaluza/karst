@@ -2924,8 +2924,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const undelivered = createUndeliveredTracker();
   const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => launches.open(ticketId, seedPrompt, seedRepo) });
   // @arch:GATE-SNAPSHOT: a ticket's gate set is captured once its worktrees exist and retaken after "Rebase on base".
-  const snapshotGateOptions = buildGateOptionsLoader({ store: localStore, manifest: currentManifest });
-  const gateSnapshotDeps = { store: localStore, loadGateOptions: (id: number) => snapshotGateOptions(id, new AbortController().signal), debug: (m: string) => logger.debug(m) };
+  const gateSnapshotDeps = { store: localStore, manifest: currentManifest, debug: (m: string) => logger.debug(m) };
   const spinWithGateSnapshot: typeof spinTicket = async (...args) => {
     const result = await spinTicket(...args);
     void takeGateSnapshot(gateSnapshotDeps, args[2], { onlyIfMissing: true });

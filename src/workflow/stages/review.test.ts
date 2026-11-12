@@ -20,7 +20,7 @@ import { latestStageRun, listStageRuns } from '../../store/stageRuns.js';
 import { openGateRun } from '../gates/evidence.js';
 import { commitGateOutcome } from '../gates/commit.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
-import { manifest, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
+import { manifest, repo, uat as uatConfig, review as reviewConfig } from '../../manifest/fixtures.js';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { regenerateGateName } from '../gates/regenerate.js';
@@ -1250,10 +1250,43 @@ describe('runReview', () => {
     expect(skipped[0]!.summary).toContain('was added after this ticket started — "Rebase on base" to run it');
   });
 
+  const seedWorktree = (repoPath: string, path: string): void => {
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, ?, ?, 'b', 'develop', 'inherited')",
+      )
+      .run(id, repoPath, path);
+  };
+
   it('captures the snapshot at the first gate run of a ticket that has none', async () => {
+    seedWorktree('/web', '/wt/web');
     expect(getGateSnapshot(store, id)).toBeNull();
-    await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({ web: repo({ repoPath: '/web' }) }) },
+      deps(),
+    );
     expect(getGateSnapshot(store, id)?.review).toEqual(expect.arrayContaining(['lint', 'typecheck']));
+  });
+
+  it('captures the gates of a repository that has no change yet, so a later change does not skip them', async () => {
+    seedWorktree('/web', '/wt/web');
+    seedWorktree('/api', '/wt/api');
+    const probe = (cwd: string) =>
+      cwd === '/wt/api' ? ({ kind: 'ok', scripts: { 'api-only': 'x', lint: 'eslint .', typecheck: 'tsc' } } as const) : ({ kind: 'ok', scripts: ALL_SCRIPTS } as const);
+    await runReview(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({ web: repo({ repoPath: '/web' }), api: repo({ repoPath: '/api' }) }),
+      },
+      // Only `web` is a target (the only changed repository); `api` is not.
+      deps({ probe }),
+    );
+    const snapshot = getGateSnapshot(store, id);
+    expect(snapshot?.review).toEqual(expect.arrayContaining(['lint', 'typecheck', 'build']));
   });
 
   it('keeps running every gate for a pre-snapshot ticket that already ran gates', async () => {
