@@ -64,7 +64,9 @@ export function gateAddedReason(name: string): string {
  * not in the snapshot did not exist when the ticket's branch got its code, so the
  * branch cannot satisfy it; it is skipped, not failed. A name in the snapshot that
  * the manifest no longer resolves is simply absent from `gates`, so it never runs.
- * Matching is by exact name, like `partitionDisabled`; `required` is not respected.
+ * Matching is by exact name, like `partitionDisabled`. Only a `required` gate (declared
+ * in the manifest) can be "added later": a discovered gate (`required: false`) comes from
+ * the branch's own package.json, so the branch can define it and it always runs.
  */
 export function partitionNotInSnapshot(
   gates: readonly ResolvedGate[],
@@ -75,7 +77,7 @@ export function partitionNotInSnapshot(
   const known = new Set(snapshotNames);
   const kept: ResolvedGate[] = [];
   const skipped: ResolvedGate[] = [];
-  for (const gate of gates) (known.has(gate.name) ? kept : skipped).push(gate);
+  for (const gate of gates) (!gate.required || known.has(gate.name) ? kept : skipped).push(gate);
   if (skipped.length > 0) {
     debug?.(`[gate] snapshot: ${skipped.length} gate(s) added after the ticket started (${skipped.map((g) => g.name).join(', ')})`);
   }

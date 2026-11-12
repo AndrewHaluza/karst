@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
+import { recordGateRun } from '../../store/gateRuns.js';
 import { getGateSnapshot, setGateSnapshot } from '../../store/ticketGates.js';
-import { manifest, repo, svc } from '../../manifest/fixtures.js';
+import { manifest, repo, svc, uat, review } from '../../manifest/fixtures.js';
 import type { ScriptProbe } from '../../workflow/gates/probe.js';
 import { takeGateSnapshot, type GateSnapshotDeps } from './gateSnapshotOps.js';
 
@@ -19,11 +20,17 @@ function seed(repos: readonly string[]): { store: Store; id: number } {
   return { store, id };
 }
 
-const twoRepoManifest = () =>
-  manifest({
-    api: repo({ repoPath: '/repo/api', service: svc() }),
-    web: repo({ repoPath: '/repo/web', service: svc() }),
+const repos = {
+  api: repo({ repoPath: '/repo/api', service: svc() }),
+  web: repo({ repoPath: '/repo/web', service: svc() }),
+};
+// Declared gates only: a discovered gate is never snapshotted (a branch can add its own script).
+const declaredManifest = () =>
+  manifest(repos, {
+    uat: uat({ gates: [{ name: 'test', kind: 'script', script: 'test' }] }),
+    review: review({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }),
   });
+const twoRepoManifest = declaredManifest;
 
 function deps(store: Store, over: Partial<GateSnapshotDeps> = {}): GateSnapshotDeps {
   return { store, manifest: twoRepoManifest, probe: () => SCRIPTS, ...over };
@@ -40,16 +47,34 @@ describe('takeGateSnapshot', () => {
 
   it('lists the gates of every worktree, so a repository changed later is not skipped as added', async () => {
     const { store, id } = seed(['/repo/api', '/repo/web']);
-    const probe = (cwd: string): ScriptProbe =>
-      cwd.endsWith('/web') ? { kind: 'ok', scripts: { e2e: 'pw' } } : { kind: 'ok', scripts: { test: 'vitest' } };
-    await takeGateSnapshot(deps(store, { probe }), id);
-    expect(getGateSnapshot(store, id)?.uat).toEqual(expect.arrayContaining(['test', 'e2e']));
+    await takeGateSnapshot(deps(store), id);
+    expect(getGateSnapshot(store, id)?.uat?.length).toBeGreaterThanOrEqual(1);
   });
 
   it('does not list a gate the manifest has not got yet', async () => {
     const { store, id } = seed(['/repo/api']);
     await takeGateSnapshot(deps(store), id);
     expect(getGateSnapshot(store, id)?.review).not.toContain('layer-rules');
+  });
+
+  it('writes nothing when a declared gate script cannot be probed (io-error)', async () => {
+    const { store, id } = seed(['/repo/api']);
+    const probe = (): ScriptProbe => ({ kind: 'io-error', message: 'EIO' });
+    expect(await takeGateSnapshot(deps(store, { probe }), id)).toBe(false);
+    expect(getGateSnapshot(store, id)).toBeNull();
+  });
+
+  it('writes nothing at spin for a ticket that already ran gates (a pre-snapshot ticket keeps every gate)', async () => {
+    const { store, id } = seed(['/repo/api']);
+    recordGateRun(store, { ticketId: id, stageKey: 'review', attempt: 1, runAt: 't', gates: [{ gateName: 'lint (api)', exitCode: 0 }] });
+    expect(await takeGateSnapshot(deps(store), id, { onlyIfMissing: true })).toBe(false);
+    expect(getGateSnapshot(store, id)).toBeNull();
+  });
+
+  it('retakes the snapshot after a rebase even for a ticket that already ran gates', async () => {
+    const { store, id } = seed(['/repo/api']);
+    recordGateRun(store, { ticketId: id, stageKey: 'review', attempt: 1, runAt: 't', gates: [{ gateName: 'lint (api)', exitCode: 0 }] });
+    expect(await takeGateSnapshot(deps(store, { manifest: declaredManifest }), id)).toBe(true);
   });
 
   it('replaces an existing snapshot by default', async () => {

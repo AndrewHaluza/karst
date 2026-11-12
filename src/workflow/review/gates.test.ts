@@ -142,12 +142,25 @@ describe('resolveReviewGates', () => {
     expect(res.skipped.map((g) => g.name)).toEqual(['lint']);
   });
   it('skips a gate absent from the ticket snapshot and marks it added-later', () => {
-    const probe = okProbe({ lint: 'eslint .', typecheck: 'tsc' });
-    const res = resolveReviewGates(probe, undefined, ['api'], [], undefined, ['lint']);
+    const config = review({
+      gates: [
+        { name: 'lint', kind: 'script', script: 'lint' },
+        { name: 'typecheck', kind: 'script', script: 'typecheck' },
+      ],
+    });
+    const res = resolveReviewGates(okProbe({ lint: 'eslint .', typecheck: 'tsc' }), config, ['api'], [], undefined, ['lint']);
     if (res.kind !== 'gates') throw new Error('unreachable');
     expect(res.gates.map((g) => g.name)).toEqual(['lint']);
     expect(res.skipped.map((g) => g.name)).toEqual(['typecheck']);
     expect(res.addedLater?.map((g) => g.name)).toEqual(['typecheck']);
+  });
+
+  it('runs a discovered gate that the snapshot does not list: the branch own script is not "added later"', () => {
+    const probe = okProbe({ lint: 'eslint .', typecheck: 'tsc' });
+    const res = resolveReviewGates(probe, undefined, ['api'], [], undefined, ['lint']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.gates.map((g) => g.name)).toEqual(['lint', 'typecheck']);
+    expect(res.addedLater ?? []).toEqual([]);
   });
 
   it('runs every gate when the snapshot is null', () => {

@@ -117,7 +117,15 @@ describe('runUat', () => {
       cwd === '/wt/api' ? { kind: 'ok', scripts: { 'api-smoke': 'x', test: 'vitest' } } : { kind: 'ok', scripts: { test: 'vitest', e2e: 'pw' } };
     await runUat(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({ web: repo({ repoPath: '/web' }), api: repo({ repoPath: '/api' }) }) },
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest(
+          { web: repo({ repoPath: '/web' }), api: repo({ repoPath: '/api' }) },
+          { uat: uatConfig({ gates: [{ name: 'test', kind: 'script', script: 'test' }, { name: 'e2e', kind: 'script', script: 'e2e' }] }) },
+        ),
+      },
       // The plan selects only `web`; `api` has no change yet.
       deps({ probe }),
     );
@@ -1267,8 +1275,13 @@ describe('resolveTargetGates', () => {
   });
 
   it('skips a gate absent from the ticket snapshot and marks it added-later', () => {
-    const probe = okProbe({ test: 'vitest', e2e: 'playwright' });
-    const res = resolveTargetGates(probe, undefined, ['web'], [], undefined, ['test']);
+    const config = uatConfig({
+      gates: [
+        { name: 'test', kind: 'script', script: 'test' },
+        { name: 'e2e', kind: 'script', script: 'e2e' },
+      ],
+    });
+    const res = resolveTargetGates(okProbe({ test: 'vitest', e2e: 'playwright' }), config, ['web'], [], undefined, ['test']);
     if (res.kind !== 'gates') throw new Error('unreachable');
     expect(res.gates.map((g) => g.name)).toEqual(['test']);
     expect(res.skipped.map((g) => g.name)).toEqual(['e2e']);

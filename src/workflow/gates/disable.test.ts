@@ -64,6 +64,12 @@ describe('partitionNotInSnapshot', () => {
     expect(skipped.map((g) => g.name)).toEqual(['layer-rules']);
   });
 
+  it('keeps a discovered gate absent from the snapshot: the branch own package.json defines it', () => {
+    const { kept, skipped } = partitionNotInSnapshot([gate('test'), gate('lint:layers', false)], ['test']);
+    expect(kept.map((g) => g.name)).toEqual(['test', 'lint:layers']);
+    expect(skipped).toEqual([]);
+  });
+
   it('does not run a snapshot gate that the manifest no longer resolves', () => {
     const { kept, skipped } = partitionNotInSnapshot([gate('test')], ['test', 'gone']);
     expect(kept.map((g) => g.name)).toEqual(['test']);

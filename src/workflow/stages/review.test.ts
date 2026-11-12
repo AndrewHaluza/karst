@@ -34,6 +34,12 @@ import { getGateSnapshot, setStageGateSnapshot, setDisabledGates } from '../../s
 const now = (): string => '2026-08-01T10:00:00.000Z';
 
 /** A repository that answers every review gate. */
+const declaredReview = reviewConfig({
+  gates: [
+    { name: 'lint', kind: 'script', script: 'lint' },
+    { name: 'typecheck', kind: 'script', script: 'typecheck' },
+  ],
+});
 const ALL_SCRIPTS = {
   lint: 'eslint .',
   typecheck: 'tsc --noEmit',
@@ -1240,16 +1246,6 @@ describe('runReview', () => {
     expect(review.status).toBe('bypassed');
   });
 
-  it('bypasses the stage when every resolved gate is absent from the ticket snapshot, and records why', async () => {
-    setStageGateSnapshot(store, id, 'review', ['some-old-gate']);
-    const result = await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
-    expect(result).toEqual({ kind: 'advanced', next: 'ship' });
-    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'review')!.status).toBe('bypassed');
-    const skipped = listGateRuns(store, id).filter((r) => r.skipped);
-    expect(skipped.length).toBeGreaterThan(0);
-    expect(skipped[0]!.summary).toContain('was added after this ticket started — "Rebase on base" to run it');
-  });
-
   const seedWorktree = (repoPath: string, path: string): void => {
     store.db
       .prepare(
@@ -1258,12 +1254,27 @@ describe('runReview', () => {
       .run(id, repoPath, path);
   };
 
+  it('bypasses the stage when every resolved gate is absent from the ticket snapshot, and records why', async () => {
+    seedWorktree('/web', '/wt/web');
+    setStageGateSnapshot(store, id, 'review', ['some-old-gate']);
+    const result = await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({ web: repo({ repoPath: '/web' }) }, { review: declaredReview }) },
+      deps(),
+    );
+    expect(result).toEqual({ kind: 'advanced', next: 'ship' });
+    expect(getTicket(store, id).stages.find((s) => s.stageKey === 'review')!.status).toBe('bypassed');
+    const skipped = listGateRuns(store, id).filter((r) => r.skipped);
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(skipped[0]!.summary).toContain('was added after this ticket started — "Rebase on base" to run it');
+  });
+
   it('captures the snapshot at the first gate run of a ticket that has none', async () => {
     seedWorktree('/web', '/wt/web');
     expect(getGateSnapshot(store, id)).toBeNull();
     await runReview(
       store,
-      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({ web: repo({ repoPath: '/web' }) }) },
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({ web: repo({ repoPath: '/web' }) }, { review: declaredReview }) },
       deps(),
     );
     expect(getGateSnapshot(store, id)?.review).toEqual(expect.arrayContaining(['lint', 'typecheck']));
@@ -1280,13 +1291,13 @@ describe('runReview', () => {
         ticketId: id,
         cwd: '/wt/web',
         artifactDir,
-        manifest: manifest({ web: repo({ repoPath: '/web' }), api: repo({ repoPath: '/api' }) }),
+        manifest: manifest({ web: repo({ repoPath: '/web' }), api: repo({ repoPath: '/api' }) }, { review: declaredReview }),
       },
       // Only `web` is a target (the only changed repository); `api` is not.
       deps({ probe }),
     );
     const snapshot = getGateSnapshot(store, id);
-    expect(snapshot?.review).toEqual(expect.arrayContaining(['lint', 'typecheck', 'build']));
+    expect(snapshot?.review).toEqual(expect.arrayContaining(['lint', 'typecheck']));
   });
 
   it('keeps running every gate for a pre-snapshot ticket that already ran gates', async () => {

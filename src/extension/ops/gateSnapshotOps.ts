@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { listGateRuns } from '../../store/gateRuns.js';
 import { getGateSnapshot, setGateSnapshot } from '../../store/ticketGates.js';
 import { collectGateSnapshot } from '../../workflow/stages/gateSnapshot.js';
 import type { ScriptProbe } from '../../workflow/gates/probe.js';
@@ -30,7 +31,8 @@ export async function takeGateSnapshot(
   opts: { readonly onlyIfMissing?: boolean } = {},
 ): Promise<boolean> {
   try {
-    if (opts.onlyIfMissing === true && getGateSnapshot(d.store, ticketId) !== null) return false;
+    // A ticket that already ran gates predates the snapshot: it keeps every gate (@arch:GATE-SNAPSHOT).
+    if (opts.onlyIfMissing === true && (getGateSnapshot(d.store, ticketId) !== null || listGateRuns(d.store, ticketId).length > 0)) return false;
     const manifest = d.manifest();
     if (!manifest) {
       d.debug?.(`[gate] snapshot ticket ${ticketId}: no manifest, snapshot not written`);
