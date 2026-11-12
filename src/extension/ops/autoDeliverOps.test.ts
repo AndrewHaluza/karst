@@ -450,10 +450,10 @@ describe('rerunSkippedGates (after a manual Deliver took over)', () => {
     expect(log).toContain('[ship] ticket T5 skipped-gate re-run: passed');
   });
 
-  it('a stop that no push caused writes no note and words the stopped line', async () => {
+  it('a stop that no push caused writes a note and words the stopped line', async () => {
     const { deps, notes } = rerigRerun({ runGates: async () => ({ kind: 'stopped', headSha: 'abcdef1234567890' }) });
     expect(await rerunSkippedGates(deps)).toBe('stopped');
-    expect(notes).toHaveLength(0);
+    expect(notes).toHaveLength(1);
     expect(deliverRerunNote({ kind: 'stopped', headSha: 'abcdef1234567890' })).toBe('Autopilot: the gates skipped by the manual Deliver ran on abcdef123: stopped');
   });
 

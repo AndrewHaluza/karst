@@ -246,7 +246,7 @@ async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: reado
       refused: (why) => i.info(`Deliver to PR: the skipped gates did not run after the push: ${why}.`),
       runGates: async (gates, signal): Promise<RerunResult> => {
         const targets = deliverTargets(i.store, i.ticketId);
-        if (!targets.available) return { kind: 'stopped', headSha: null };
+        if (!targets.available || signal.aborted) return { kind: 'stopped', headSha: null }; // an aborted re-run opens no run: it would close the newer one
         let runId: number | null = null;
         const failure = await runShipGates(targets.prs, {
           ...seam.deps, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId },
@@ -257,10 +257,11 @@ async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: reado
         const headSha = run?.headSha ?? (first === undefined ? null : await headShaOf(i, first.cwd));
         if (failure === null) return { kind: 'passed', headSha };
         // No run row: a gate could not be resolved before the run opened; the note names that reason.
-        const failed = run === null
-          ? [failure]
+        const failedGates = run === null
+          ? []
           : listDeliverResults(i.store, i.ticketId).filter((r) => r.runId === run.id && r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName);
-        return { kind: 'failed', headSha, failed };
+        // A failure with no non-zero exit code (a gate that could not run) still names its reason.
+        return { kind: 'failed', headSha, failed: failedGates.length === 0 ? [failure] : failedGates };
       },
     });
   } finally {

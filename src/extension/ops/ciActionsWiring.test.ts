@@ -428,7 +428,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
     expect(i.debug).toHaveBeenCalledWith('[ship] ticket W-1 skipped-gate re-run not started: an agent turn is active');
   });
 
-  it('a re-run whose targets vanish records no failure and writes no note', async () => {
+  it('a re-run whose targets vanish records no failure and writes a stopped note', async () => {
     const { i, auto, ran, settled } = await takeOver();
     const done = new Promise<void>((r) => { settled.mockImplementation(r); });
     (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(id); });
@@ -437,7 +437,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
     await done;
     await new Promise((r) => { setTimeout(r, 20); });
     expect(ran).toEqual([]);
-    expect(rerunTitles()).toEqual([]);
+    expect(rerunTitles()).toEqual([expect.stringMatching(/: stopped$/)]);
     expect(i.logError).not.toHaveBeenCalled();
     expect(i.debug).toHaveBeenCalledWith('[ship] ticket W-1 skipped-gate re-run: stopped');
     expect(currentDeliverRun(store, id)?.kind).toBe('auto');
