@@ -268,6 +268,15 @@ describe('aggregateUat — stale branch', () => {
     expect(out).toMatchObject({ kind: 'blocked', blocker: 'capability-missing', reason });
   });
 
+  it('parks a kind: script gate stale branch the same way', () => {
+    const reason = 'gate "layer-rules" needs npm script "lint:layers", which develop defines but this branch does not — rebase onto develop ("Rebase on base")';
+    const out = aggregateUat(
+      [{ result: { name: 'layer-rules', exitCode: 1, output: reason, staleBranch: reason }, identity: npmE2e }],
+      [],
+    );
+    expect(out).toMatchObject({ kind: 'blocked', blocker: 'capability-missing', reason });
+  });
+
   it('does not swallow an ordinary failure in the same run', () => {
     const out = aggregateUat(
       [
