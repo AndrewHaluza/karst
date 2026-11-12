@@ -76,6 +76,8 @@ export interface Variant {
    * whose full-page shot would also record the height of the page below it (@ui:VISUAL-VARIANTS).
    */
   readonly capture?: CaptureMode;
+  /** Screenshot viewport height override (px): a short window puts an open popover's trigger near the bottom edge. */
+  readonly viewportHeight?: number;
   /** Dashboard drill-downs: pill names clicked, in order, after the page loads (the restored artifact index shows the pills). */
   readonly pills?: readonly string[];
   /** Dashboard agent popover: open it after load, then pick a core, type a query, pick a capability tab (in that order). */
@@ -123,6 +125,7 @@ function variant(
     skipLayout?: boolean;
     width?: number;
     capture?: CaptureMode;
+    viewportHeight?: number;
     pills?: readonly string[];
     agentPopover?: AgentPopoverSteps;
     ticketDetails?: TicketDetailsSteps;
@@ -139,6 +142,7 @@ function variant(
     ...(opts.skipLayout ? { skipLayout: true } : {}),
     ...(opts.width === undefined ? {} : { width: opts.width }),
     ...(opts.capture === undefined ? {} : { capture: opts.capture }),
+    ...(opts.viewportHeight === undefined ? {} : { viewportHeight: opts.viewportHeight }),
     ...(opts.pills === undefined ? {} : { pills: opts.pills }),
     ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
     ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),
@@ -431,6 +435,48 @@ const panelStateVariants = (): Variant[] => [
     ),
   ),
   variant('dashboard', 'subtask-narrow', dashboardScenario('running', 2), { skipLayout: true, width: 400 }),
+  ...bottomEdgeVariants(),
+  ...dashboardBottomEdgeVariants(),
+];
+
+/** T1091: an open popover whose trigger sits at the bottom edge of a short window flips above it and stays inside the gutter. */
+const BOTTOM_EDGE_HEIGHT = 480;
+const bottomEdgeVariants = (): Variant[] =>
+  PANEL_VARIANTS.filter((v) => ['pr-ready-info', 'wt-base'].includes(v.id)).map((v) =>
+    variant('dashboard', `panel-${v.id}-bottom-edge`, dashboardScenario('running', 2, v.patch), {
+      skipLayout: true,
+      width: 800,
+      viewportHeight: BOTTOM_EDGE_HEIGHT,
+      ...(v.click === undefined ? {} : { click: v.click }),
+    }),
+  );
+
+/** T1091: the runtime strip menus, the ticket menu and the stage menu near the bottom edge of a short window. */
+const dashboardBottomEdgeVariants = (): Variant[] => [
+  ...(['sandbox', 'more'] as const).map((open) =>
+    variant('dashboard', `runtime-${open}-open-bottom-edge`, dashboardScenario('running', 2, (s) => ({ ...s, sandbox: SBX_VIEW })), {
+      skipLayout: true,
+      width: 800,
+      viewportHeight: BOTTOM_EDGE_HEIGHT,
+      runtimeOpen: open,
+    }),
+  ),
+  variant('dashboard', 'ticket-menu-bottom-edge', dashboardScenario('running', 2), {
+    skipLayout: true,
+    width: 800,
+    viewportHeight: BOTTOM_EDGE_HEIGHT,
+    click: '[aria-label="Ticket controls"]',
+  }),
+  variant(
+    'dashboard',
+    'stage-menu-bottom-edge',
+    () => {
+      const c = INSIDE_CASES.find((x) => x.stage === 'review' && x.id === 'menu-retry-send-back');
+      if (!c) throw new Error('dashboard: no review/menu-retry-send-back inside case');
+      return stateMessage(c.state());
+    },
+    { skipLayout: true, width: 800, viewportHeight: BOTTOM_EDGE_HEIGHT, click: '[data-stage-menu="review"]' },
+  ),
 ];
 
 /** T1071: the baseline review banner and overlay (ui:UI-R39), layout checks on. */
@@ -661,6 +707,16 @@ const settingsVariants = (): Variant[] => [
   qualityKillVariant('quality-oom-disabled', { enabled: false }),
   ...autopilotVariants(),
   qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 }),
+  // T1091: the provider select near the bottom edge of a short window.
+  {
+    ...variant('settings', 'provider-menu-bottom-edge', () => stateMessage(REALISTIC_SETTINGS), {
+      skipLayout: true,
+      width: 800,
+      viewportHeight: BOTTOM_EDGE_HEIGHT,
+      click: '#provSelectWrap .provselect-trigger',
+    }),
+    route: { section: 'ticketing' },
+  },
 ];
 
 // ----------------------------------------------------------------- others
@@ -711,6 +767,13 @@ const sidebarVariants = (): Variant[] => {
     variant('sidebar', 'subtasks', s('subtasks')),
     variant('sidebar', 'filtered', s('filtered')),
     variant('sidebar', 'cloud-sessions', s('cloud-sessions')),
+    // T1091: the filter menu in a short window.
+    variant('sidebar', 'filter-menu-bottom-edge', () => getCorpus('sidebar'), {
+      skipLayout: true,
+      width: 360,
+      viewportHeight: 260,
+      click: '.filter-menu .k-iconbtn',
+    }),
   ];
 };
 
@@ -999,6 +1062,19 @@ const ticketFormVariants = (): Variant[] => {
       ],
     })),
     variant('ticketForm', 'approach-picker', () => withState(REALISTIC_TICKET_FORM)),
+    // T1091: the approach, agent and base popovers near the bottom edge of a short window.
+    variant('ticketForm', 'approach-picker-bottom-edge', () => withState(REALISTIC_TICKET_FORM), {
+      skipLayout: true,
+      width: 800,
+      viewportHeight: BOTTOM_EDGE_HEIGHT,
+      click: '#approachBtn',
+    }),
+    variant('ticketForm', 'agent-picker-bottom-edge', editCoreModel, {
+      skipLayout: true,
+      width: 800,
+      viewportHeight: BOTTOM_EDGE_HEIGHT,
+      click: '[data-ap-trigger="core"]',
+    }),
     variant('ticketForm', 'manual-provider', () => withState({ ...REALISTIC_TICKET_FORM, provider: 'manual', sourceRef: '' })),
     variant('ticketForm', 'attachments', () =>
       withState({

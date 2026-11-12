@@ -46,6 +46,11 @@ export const WEBVIEW_BUNDLE_ENTRIES = [
     minifyFromProd: true,
   },
   {
+    // The shared popover placement for the vanilla ticket form (exposes `karstAnchoredPopover`).
+    input: 'src/ui/shared/anchoredPopover.entry.ts',
+    output: 'src/ui/shared/anchoredPopover.webview.js',
+  },
+  {
     // The Servers & resources page (React). Same pipeline, same production React.
     input: 'src/ui/resources/app/main.tsx',
     output: 'src/ui/resources/app.webview.js',

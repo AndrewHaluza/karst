@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type Ke
 import type { AutofixBannerAction, AutofixBannerView } from '../../../model/inside/autofix.js';
 import type { AutopilotSlice } from '../stateAutofix.js';
 import { useDashboardSend } from './DashboardAppContext.js';
+import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { Icon } from './Icon.js';
 import { insideActionSentence } from './insideText.js';
 import { usePendingAction } from './usePendingAction.js';
@@ -83,6 +84,7 @@ export function AutofixOverride({ autopilot }: { readonly autopilot: AutopilotSl
     setOpen(false);
     trigger.current?.focus();
   }, []);
+  useAnchoredPopover(open, menu, trigger, () => setOpen(false));
   const onKey = (e: KeyboardEvent<HTMLElement>): void => {
     // A closed chip leaves every key to the page (arrows, Home and End scroll or move a caret).
     if (!open) return;

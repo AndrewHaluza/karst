@@ -8,7 +8,7 @@
 #inside .autofix-chip:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 #inside .autofix-chip .k-icon{width:var(--p-s3);height:var(--p-s3);flex:none;color:var(--p-muted2)}
 #inside .autofix-dot{width:var(--p-s2);height:var(--p-s2);border-radius:50%;background:var(--p-running);flex:none}
-#inside .autofix-menu{position:absolute;left:0;top:calc(100% + var(--p-s1));z-index:40;min-width:calc(var(--k-control-h-lg) * 7);
+#inside .autofix-menu{position:fixed;z-index:40;min-width:calc(var(--k-control-h-lg) * 7);
   padding:var(--p-s1);background:var(--p-surface);border:var(--k-border-w) solid var(--p-border);border-radius:var(--k-radius-md)}
 #inside .autofix-choice{align-items:flex-start;min-height:var(--k-control-h-lg)}
 #inside .autofix-check{display:inline-flex;width:var(--p-s4);flex:none}

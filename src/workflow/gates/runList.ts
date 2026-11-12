@@ -5,7 +5,8 @@ import { regenerateGateName, runRegenerate, type RegenerateSpec } from './regene
 import { GATE_MAX_WORKERS_ENV, isResourceKill, resourceKillReason } from './resourceKill.js';
 import { leasePortSlot, PORT_OFFSET_ENV, type PortSlotLease } from '../../runtime/portSlots.js';
 import { leaseGateSlot } from './gateLease.js';
-import { runProcess, type GateOutputChunk, type GateProcessRunner, type ProcessOutcome } from './run.js';
+import { isUiGate } from './uiScope.js';
+import { gateTimeoutMs, runProcess, type GateOutputChunk, type GateProcessRunner, type ProcessOutcome } from './run.js';
 
 /**
  * Run a resolved gate list sequentially in one worktree.
@@ -184,8 +185,10 @@ export async function runGateList(
       continue;
     }
 
+    const timeoutMs = gateTimeoutMs(gate, isUiGate(gate));
     const runOpts = {
       signal: opts.signal,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
       onDebug,
       onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
       onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid, cwd) : undefined,

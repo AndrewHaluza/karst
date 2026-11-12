@@ -558,6 +558,8 @@ export interface GateDef {
   onResourceKill?: 'retry-then-park' | 'park' | 'host';
   /** Most runs of this gate that may go at once on this host, across tickets; absent = no limit (arch:GATE-CONCURRENCY). */
   maxConcurrent?: number;
+  /** Minutes the gate may run before it is killed; absent = the default (30; 45 for the visual and layout gates). */
+  timeoutMinutes?: number;
   /** `false` keeps the definition but skips the gate project-wide; absent = on. */
   enabled?: boolean;
 }

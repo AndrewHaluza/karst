@@ -68,6 +68,8 @@ export interface ShipGatesDeps {
    * read; absent → cut by the merged diff against the base, as UAT does.
    */
   readonly uiChanged?: boolean;
+  /** The summary a gate cut by `uiChanged` records; absent → `NO_UI_CHANGE_REASON`. */
+  readonly uiSkipReason?: string | null;
   readonly gateEnv?: (pr: DeliverPr) => { readonly prBody: string; readonly baseRef?: string };
 }
 
@@ -145,7 +147,7 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
   if (store && runId !== null) {
     for (const g of p.skipped) {
       const at = nowIso();
-      recordDeliverGate(store, runId, { gateName: g.name, repo: pr.repo, exitCode: null, headSha: head, summary: NO_UI_CHANGE_REASON, startedAt: at, endedAt: at });
+      recordDeliverGate(store, runId, { gateName: g.name, repo: pr.repo, exitCode: null, headSha: head, summary: d.uiSkipReason ?? NO_UI_CHANGE_REASON, startedAt: at, endedAt: at });
     }
   }
   const ran = await runGateList(p.gates, pr.cwd, {

@@ -331,7 +331,7 @@ export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, p
     },
     runGates: (merged) => runShipGates([{ ...pr, cwd: merged.cwd }], {
       ...gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: async () => merged.sha,
-      onProgress: i.afterServerChange, uiChanged: merged.uiChanged, kind: 'base-moved',
+      onProgress: i.afterServerChange, uiChanged: merged.uiChanged, uiSkipReason: merged.uiSkipReason, kind: 'base-moved',
     }),
   });
   if (outcome.kind === 'failed') return outcome.reason;

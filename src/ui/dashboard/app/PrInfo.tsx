@@ -4,11 +4,11 @@
  * merge-block reason; its footer reuses the `open-pr` and `copy-pr-url` acts. Esc or a click outside closes
  * it and returns focus to the toggle.
  */
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CopyUrl, OpenLink } from './PrActionButtons.js';
 import { Icon } from './Icon.js';
-import { placeBelow } from './placeBelow.js';
+import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 
 const POPOVER_WIDTH = 300;
 
@@ -67,9 +67,7 @@ export function PrInfo({ p, open, onToggle }: PrInfoProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const repo = p.repo;
-  useLayoutEffect(() => {
-    if (open && popRef.current && buttonRef.current) placeBelow(popRef.current, buttonRef.current, POPOVER_WIDTH);
-  }, [open]);
+  useAnchoredPopover(open, popRef, buttonRef, () => onToggle(repo, false), POPOVER_WIDTH);
   useEffect(() => {
     if (!open) return undefined;
     const close = (): void => {

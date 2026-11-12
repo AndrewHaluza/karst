@@ -34,7 +34,7 @@ import { listArchCitations } from '../../store/archCitations.js';
 import { renderCitationText } from '../../model/archCitations.js';
 import { regenerateOption } from '../gates/regenerateOption.js';
 import type { GateOutputChunk } from '../gates/run.js';
-import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
+import { checkNodeDeps, describeDepsBlock, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { usageLimitReason } from '../../agent/cliFailure.js';
 import { declaredCheckGates } from '../review/declaredGates.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
@@ -708,12 +708,7 @@ export async function runUat(
         repoRoot: target.repo,
       });
       if (!depsCheck.ok) {
-        const repairDir = depsCheck.dir ?? target.path;
-        const reason =
-          depsCheck.kind === 'dependency-drift'
-            ? `${label}: installed dependencies are inconsistent with package-lock.json — ` +
-              `${depsCheck.reason} — run 'npm install' (or 'npm ci') in ${repairDir}`
-            : `${label}: could not verify installed dependencies — ${depsCheck.reason}`;
+        const reason = describeDepsBlock(depsCheck, label, target.path);
         opts.debug?.(
           `[gate] uat ticket ${opts.ticketId}: target ${label} ${depsCheck.kind} (${depsCheck.reason})`,
         );

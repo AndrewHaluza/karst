@@ -1114,10 +1114,8 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
     }
   });
 
-  // DEFECT: a command node's domain lease (`write` access on the repo) is never
-  // released when the deterministic node completes, so a LATER agent node that
-  // writes the same repository is deferred forever with `resource-conflict`.
-  it.fails('lets an agent node run after a write-access command node (command lease leaks)', async () => {
+  // Regression: a command node's write lease releases on completion, so a later agent node can run.
+  it('lets an agent node run after a write-access command node (command lease leaks)', async () => {
     const h = makeHarness();
     try {
       const doc = topologyJson(

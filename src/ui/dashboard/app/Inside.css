@@ -88,7 +88,7 @@
    ticket-controls menu, from the same tokens. Groups carry a title; each item carries a one-line description. */
 #inside .stageMenuWrap{position:relative;display:flex;align-items:center;gap:var(--p-s2)}
 #inside .stageMenuBtn[aria-expanded="true"]{background:var(--k-surface-hover);color:var(--k-text)}
-#inside .stageMenu{position:absolute;left:0;top:calc(100% + var(--p-s1));z-index:40;min-width:calc(var(--k-control-h-lg) * 10);
+#inside .stageMenu{position:fixed;z-index:40;min-width:calc(var(--k-control-h-lg) * 10);
   max-width:calc(100vw - var(--p-s5));padding:var(--p-s2);border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--p-r2);
   background:var(--k-surface);box-shadow:var(--k-elev-2)}
 #inside .stageMenu .menuGroup + .menuGroup{margin-top:var(--p-s2);padding-top:var(--p-s2);border-top:var(--k-border-w) solid var(--p-border)}

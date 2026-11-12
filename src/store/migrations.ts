@@ -2987,5 +2987,11 @@ function migrateLocked(db: Database): void {
     if (cols117.size > 0 && !cols117.has('gate_snapshot')) db.exec('ALTER TABLE tickets ADD COLUMN gate_snapshot TEXT');
   }
 
+  if (current < 118) {
+    // v118: `autopilot_tickets.ci_round_at` — when an Autopilot CI round was sent (T1095). Additive; NULL = no round pending a re-ship.
+    const cols118 = tableColumns(db, 'autopilot_tickets');
+    if (cols118.size > 0 && !cols118.has('ci_round_at')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN ci_round_at INTEGER');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

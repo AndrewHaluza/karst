@@ -30,7 +30,7 @@ import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
 import { regenerateOption } from '../gates/regenerateOption.js';
 import type { GateOutputChunk } from '../gates/run.js';
-import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
+import { checkNodeDeps, describeDepsBlock, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planReviewTargets, type ReviewGateTarget } from '../review/targets.js';
 import { resolveReviewGates } from '../review/gates.js';
 import { declaredCheckGates } from '../review/declaredGates.js';
@@ -555,12 +555,7 @@ export async function runReview(
         repoRoot: target.repo,
       });
       if (!depsCheck.ok) {
-        const repairDir = depsCheck.dir ?? target.path;
-        const reason =
-          depsCheck.kind === 'dependency-drift'
-            ? `${label}: installed dependencies are inconsistent with package-lock.json — ` +
-              `${depsCheck.reason} — run 'npm install' (or 'npm ci') in ${repairDir}`
-            : `${label}: could not verify installed dependencies — ${depsCheck.reason}`;
+        const reason = describeDepsBlock(depsCheck, label, target.path);
         opts.debug?.(
           `[gate] review ticket ${opts.ticketId}: target ${label} ${depsCheck.kind} (${depsCheck.reason})`,
         );

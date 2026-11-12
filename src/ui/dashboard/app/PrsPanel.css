@@ -89,7 +89,7 @@
 /* Stamp and branch ride the main line: the stamp never shrinks, the branch ellipsizes first. */
 .pr .pstamp{flex:none;font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
 .pr .pbranch{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
-/* The ⓘ popover: fixed to the viewport (placed by placeBelow) so the panel's overflow cannot clip it. */
+/* The ⓘ popover: fixed to the viewport (placed by the shared anchored popover placement) so the panel's overflow cannot clip it. */
 .pinfo-pop{position:fixed;z-index:50;box-sizing:border-box;padding:var(--k-space-4);border:var(--k-border-w) solid var(--k-border-strong);
   border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2);font-size:var(--k-text-sm)}
 .pinfo-fact{display:flex;gap:var(--k-space-4);padding:var(--k-space-1) 0}

@@ -21,7 +21,7 @@
 .ap-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:auto;
   background:var(--chevron) no-repeat center/var(--k-space-6)}
 .ap-menu{
-  position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
+  position:fixed;box-sizing:border-box;z-index:var(--k-z-drawer);
   background:var(--vscode-dropdown-background,var(--k-bg));
   border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
   border-radius:var(--k-radius-md);box-shadow:var(--k-elev-2);padding:var(--k-space-2)}

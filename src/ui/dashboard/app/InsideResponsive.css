@@ -20,8 +20,6 @@
   /* has-actions outranks the rule above: keep the menu in its own track on row one. */
   #inside .inside-head.has-actions{grid-template-columns:minmax(0,auto) minmax(0,1fr) auto}
   #inside .inside-head .stageMenuWrap{grid-column:3;grid-row:1}
-  /* The menu button now sits at the right edge, so the popover opens leftward from it. */
-  #inside .stageMenu{left:auto;right:0}
   /* N2: the time sits under the title, on its own line; it wraps rather than pushing the card wider. */
   #inside .inside-meta{grid-column:1/-1;min-width:0;white-space:normal;overflow-wrap:anywhere}
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) var(--inside-dur-w) 16px;

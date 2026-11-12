@@ -182,7 +182,7 @@
      agent-core custom select above — tokens only. */
   .searchbox{position:relative;flex:1;min-width:0}
   .searchbox input{width:100%}
-  .searchmenu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
+  .searchmenu{position:fixed;box-sizing:border-box;z-index:var(--k-z-drawer);
     background:var(--vscode-dropdown-background,var(--k-bg));
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2);
@@ -226,7 +226,7 @@
   .repochip:focus-visible,.repo-caret:focus-visible,.repo-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .repo-branch{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .repo-branch.is-overridden{color:var(--k-warning)}
-  .repo-pop{position:absolute;top:calc(100% + var(--k-space-2));left:0;z-index:var(--k-z-drawer);
+  .repo-pop{position:fixed;z-index:var(--k-z-drawer);
     min-width:calc(var(--k-space-8) * 7);max-width:calc(100vw - var(--k-space-8));
     background:var(--vscode-dropdown-background,var(--k-bg));
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
@@ -263,8 +263,7 @@
   .aname{font-weight:var(--k-weight-semibold);display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
   .adesc{color:var(--k-text-dim);font-size:var(--k-text-sm)}
   /* The popover is capped to the viewport so it never spills at tight width. */
-  .approach-pop{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;max-width:100%;
-    z-index:var(--k-z-drawer);box-sizing:border-box;
+  .approach-pop{position:fixed;z-index:var(--k-z-drawer);box-sizing:border-box;
     background:var(--vscode-dropdown-background,var(--k-bg));
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2);
@@ -641,6 +640,10 @@
   // src/model/agentIdentity.ts, injected here at load. Defines
   // AGENT_PROVIDER_LABELS, agentBadgeHtml, agentIconHtml.
   /*KARST_AGENT_JS*/
+
+  // The shared popover placement (src/ui/shared/anchoredPopover.ts), injected here at load. Defines
+  // karstAnchoredPopover.attach: below the trigger, flips above, clamps in the viewport, follows scroll and resize.
+  /*KARST_ANCHORED_POPOVER_JS*/
 
   // The UNIFIED agent identity picker (agent core + model + effort/variant) —
   // the same element every surface mounts. Single source in
@@ -1471,6 +1474,18 @@
 
   // Repo whose base-branch popover is open (null = none). UI-only.
   let openBasePop = null;
+  // Every trigger-anchored popover of this page is position:fixed and placed by the shared placement
+  // (karstAnchoredPopover, src/ui/shared/anchoredPopover.ts): below its trigger, above when it does not fit,
+  // clamped in the viewport, and it follows the trigger on scroll and resize. One detach per surface key.
+  const popDetach = {};
+  function anchorPop(key, popover, trigger, width, onHidden) {
+    if (popDetach[key]) { popDetach[key](); delete popDetach[key]; }
+    if (!popover || !trigger) return;
+    popDetach[key] = karstAnchoredPopover.attach({ popover, trigger, width, onTriggerHidden: onHidden });
+  }
+  function unanchorPop(key) {
+    if (popDetach[key]) { popDetach[key](); delete popDetach[key]; }
+  }
 
   /** Effective override for a repo: the session edit wins, else the stored (edit-mode) value. */
   function baseValueFor(repo, row) { return (draft.baseRefs[repo] ?? (row && row.value) ?? '').trim(); }
@@ -1518,6 +1533,7 @@
     lastRepos = repos || [];
     lastRepoBases = repoBases || [];
     if (!repos || !repos.length) {
+      unanchorPop('base');
       el('repoList').innerHTML = '<p class="setempty">No repositories. Add one in <a href="#" data-act="open-settings" data-section="repositories">Settings → Repositories</a>.</p>';
       syncStepper();
       return;
@@ -1539,6 +1555,10 @@
         + `<span>${esc(r.service)}</span></button>`;
     }).join('');
     if (openBasePop && !el('repoList').querySelector('[data-base-pop]')) openBasePop = null;
+    // The base-branch popover holds a filter input: when its caret scrolls out of view it stays (pinned in the
+    // viewport) until the user closes it, so a typed branch is never lost.
+    if (openBasePop) anchorPop('base', el('repoList').querySelector('[data-base-pop]'), caretFor(openBasePop), undefined, () => undefined);
+    else unanchorPop('base');
     syncStepper();
   }
 
@@ -1618,6 +1638,7 @@
   function renderApproaches(approaches, selected) {
     syncAnalyzeBtn();
     if (!approaches || !approaches.length) {
+      unanchorPop('approach');
       el('approachList').innerHTML = '<p class="setempty">No approaches installed. Install one in <a href="#" data-act="open-settings" data-section="approaches">Settings → Approaches</a>.</p>';
       syncStepper();
       return;
@@ -1654,6 +1675,8 @@
       + '<div id="approachListbox" role="listbox" tabindex="-1" aria-labelledby="approachHeading" aria-activedescendant="' + activeId + '"'
       + (approachOpen ? '' : ' class="hidden"') + '>' + opts + '</div>'
       + '<button type="button" class="k-btn k-btn--link k-btn--sm approach-manage' + (approachActive === approaches.length ? ' is-active' : '') + '" id="approachManage">Manage approaches…</button></div>';
+    if (approachOpen) anchorPop('approach', el('approachPop'), el('approachBtn'), 'trigger', () => closeApproach(false));
+    else unanchorPop('approach');
     syncStepper();
   }
 
@@ -2284,8 +2307,11 @@
   function openSearchMenu() {
     el('searchMenu').classList.remove('hidden');
     el('ref').setAttribute('aria-expanded', 'true');
+    // Results only: nothing typed in the menu itself, so it closes when the key field scrolls out of view.
+    anchorPop('search', el('searchMenu'), el('ref'), 'trigger', closeSearchMenu);
   }
   function closeSearchMenu() {
+    unanchorPop('search');
     el('searchMenu').classList.add('hidden');
     el('ref').setAttribute('aria-expanded', 'false');
     searchPending = null;

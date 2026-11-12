@@ -53,6 +53,22 @@ describe('startAutopilot', () => {
     expect(sendCiFailureAction).toHaveBeenCalledTimes(1);
   });
 
+  it('controlsTicket: true for this window or no holder, false for another holder or a missing capability, and takes no lease', () => {
+    const r = rig();
+    const handle = startAutopilot(r.deps);
+    expect(handle.controlsTicket(r.id)).toBe(true);
+    expect(r.store.db.prepare('SELECT claim_owner AS o FROM autopilot_tickets WHERE ticket_id = ?').get(r.id)).toBeUndefined();
+    syncAutopilotSessionOwner(r.store, 'OTHER', [r.id]);
+    expect(handle.controlsTicket(r.id)).toBe(false);
+    handle.dispose();
+    const self = startAutopilot({ ...rig({ isLive: () => true }).deps });
+    expect(self.controlsTicket(1)).toBe(true);
+    self.dispose();
+    const noCap = startAutopilot(rig({ canLaunch: () => false }).deps);
+    expect(noCap.controlsTicket(1)).toBe(false);
+    noCap.dispose();
+  });
+
   it('does not start a round while the sessions capability is missing', async () => {
     const r = rig({ canLaunch: () => false });
     const handle = startAutopilot(r.deps);
