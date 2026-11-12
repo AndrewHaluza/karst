@@ -35,6 +35,8 @@ export interface CiActionsInput {
     hasUnsynced(ticketId: number): Promise<boolean>;
     /** The sandbox clone's branch fetched into the worktree at `cwd`; the ref, or null (no sandbox / unreadable). */
     cloneRef(ticketId: number, cwd: string): Promise<string | null>;
+    /** Whether the ticket has a sandbox; reads the sandbox list only, never fetches into the worktree. */
+    hasSandbox(ticketId: number): Promise<boolean>;
     /** Sandbox → host, fast-forward only. */
     ensureSynced(ticketId: number): Promise<EnsureSyncResult>;
     recreateNoSync(ticketId: number): Promise<void>;
@@ -290,9 +292,9 @@ function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
 }
 
 /** True when the ticket has a sandbox clone (or its state cannot be read: then the check is skipped, never wrong). */
-async function inSandbox(i: Pick<CiActionsInput, 'sandbox' | 'ticketId' | 'debug'>, cwd: string): Promise<boolean> {
+async function inSandbox(i: Pick<CiActionsInput, 'sandbox' | 'ticketId' | 'debug'>): Promise<boolean> {
   try {
-    return (await i.sandbox.cloneRef(i.ticketId, cwd)) !== null;
+    return await i.sandbox.hasSandbox(i.ticketId);
   } catch (err) {
     i.debug(`[ship] sandbox lookup failed: ${err instanceof Error ? err.message : String(err)}`);
     return true;
@@ -309,7 +311,7 @@ export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, p
   if (baseRef === undefined) return null;
   // A sandboxed ticket's gates run in its sandbox clone, which cannot see the host worktree of the merge: they would
   // test the branch alone and report a false pass for the merge. No verdict is better than a wrong one (@arch:AC-39).
-  if (await inSandbox(i, pr.cwd)) {
+  if (await inSandbox(i)) {
     i.debug('[ship] base-moved check not run: the ticket has a sandbox, whose gates cannot see the merged worktree');
     return null;
   }

@@ -26,7 +26,7 @@ function seedPr(extra: { checks?: string | null; block?: string | null } = {}): 
 function sandbox(unsynced = false): CiActionsInput['sandbox'] {
   return {
     hasUnsynced: vi.fn(async () => unsynced), recreateNoSync: vi.fn(async () => {}),
-    cloneRef: vi.fn(async () => null), ensureSynced: vi.fn(async () => ({ ok: true }) as never),
+    cloneRef: vi.fn(async () => null), hasSandbox: vi.fn(async () => false), ensureSynced: vi.fn(async () => ({ ok: true }) as never),
   };
 }
 
@@ -859,10 +859,11 @@ describe('shipBaseCheck (D541)', () => {
 
   it('runs nothing for a sandboxed ticket: its gates cannot see the merged worktree, so no verdict is claimed', async () => {
     const git = vi.fn(async () => ({ stdout: '', stderr: '', exitCode: 0 })) as CiActionsInput['git'];
-    const sb = { ...sandbox(), cloneRef: vi.fn(async () => 'FETCH_HEAD') };
+    const sb = { ...sandbox(), hasSandbox: vi.fn(async () => true) };
     const i = input({ git, sandbox: sb });
     expect(await shipBaseCheck(i, gate, vi.fn())(target)).toBeNull();
-    expect(sb.cloneRef).toHaveBeenCalledWith(id, '/w/r');
+    expect(sb.hasSandbox).toHaveBeenCalledWith(id);
+    expect(sb.cloneRef).not.toHaveBeenCalled();
     expect(git).not.toHaveBeenCalledWith(expect.arrayContaining(['merge-tree']), expect.anything());
     expect(git).not.toHaveBeenCalledWith(expect.arrayContaining(['worktree', 'add']), expect.anything());
     expect(i.debug).toHaveBeenCalledWith(expect.stringMatching(/base-moved check not run.*sandbox/));
