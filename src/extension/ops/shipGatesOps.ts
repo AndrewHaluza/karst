@@ -30,6 +30,7 @@ import { NO_UI_CHANGE_REASON } from '../../workflow/gates/uiScope.js';
  * delta since the last green run (`uiChanged`), never by a diff of the merged tree, whose branch changes hold UI
  * paths the earlier green run already covered. A test that also fails on the base alone is develop drift: the gate
  * scripts (D313, D360) excuse it, so the run still passes.
+ * A ticket with a sandbox clone is not checked: its gate runner cannot see the merged worktree (@arch:AC-39).
  */
 export interface ShipGatesDeps {
   readonly uat: UatConfig | undefined;
