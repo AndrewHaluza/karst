@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import * as shipGates from './shipGatesOps.js';
+
+// Real by default; the base-moved tests below replace one call to see what the check hands the gate runner.
+vi.mock('./shipGatesOps.js', async (orig) => {
+  const actual = await orig<typeof import('./shipGatesOps.js')>();
+  return { ...actual, runShipGates: vi.fn(actual.runShipGates) };
+});
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -9,7 +16,7 @@ import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
-import { autoDeliverAction, shipBaseCheck, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
+import { autoDeliverAction, baseMovedFailure, shipBaseCheck, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
 let store: Store;
@@ -874,5 +881,149 @@ describe('shipBaseCheck (D541)', () => {
     const noBase = { debug: () => {}, gateEnv: () => ({ prBody: '' }) } as never;
     expect(await shipBaseCheck(input({ git }), noBase, vi.fn())(target)).toBeNull();
     expect(git).not.toHaveBeenCalled();
+  });
+});
+
+describe('baseMovedFailure runs the gates on the merged worktree (D541, D592)', () => {
+  const HEAD = 'h'.repeat(40);
+  const BASE = 'b'.repeat(40);
+  const FORK = 'f'.repeat(40);
+  const GREEN = 'e'.repeat(40);
+  const MERGED = 'm'.repeat(40);
+  const gate = { debug: () => {}, gateEnv: () => ({ prBody: '', baseRef: 'develop' }) } as never;
+  let root: string;
+  let ticketGit: string;
+  let mergedGit: string;
+  let pr: { repo: string; number: null; branch: string; cwd: string };
+  const signal = new AbortController().signal;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'base-moved-'));
+    ticketGit = join(root, 'ticket.git');
+    mergedGit = join(root, 'merged.git');
+    mkdirSync(join(ticketGit, 'karst-gate-state'), { recursive: true });
+    mkdirSync(mergedGit, { recursive: true });
+    writeFileSync(join(ticketGit, 'karst-gate-state', 'a.json'), JSON.stringify({ version: 1, clean: true, base: GREEN }));
+    pr = { repo: 'r', number: null, branch: 'b', cwd: join(root, 'repo') };
+    vi.mocked(shipGates.runShipGates).mockReset();
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  /** A git that answers the whole check; `diffs` maps a diff range start to its NUL-separated paths. */
+  function git(over: { gitDir?: { stdout: string; exitCode: number }; mergedDir?: { stdout: string; exitCode: number }; ticketUi?: boolean; baseUi?: boolean } = {}): CiActionsInput['git'] {
+    return vi.fn(async (raw: readonly string[], cwd: string) => {
+      const a = [...raw].filter((x, n, all) => x !== '-c' && all[n - 1] !== '-c');
+      const ok = (stdout: string) => ({ stdout, stderr: '', exitCode: 0 });
+      if (a[0] === 'rev-parse' && a[1] === '--path-format=absolute') {
+        if (cwd === pr.cwd) return { stderr: '', ...(over.gitDir ?? { stdout: `${ticketGit}\n`, exitCode: 0 }) };
+        return { stderr: '', ...(over.mergedDir ?? { stdout: `${mergedGit}\n`, exitCode: 0 }) };
+      }
+      if (a[0] === 'fetch') return ok('');
+      if (a[0] === 'rev-parse') return ok(a[1] === 'HEAD' ? HEAD : BASE);
+      if (a[0] === 'merge-base') return ok(FORK);
+      if (a[0] === 'merge-tree') return ok('tree\n');
+      if (a[0] === 'commit-tree') return ok(MERGED);
+      if (a[0] === 'diff') {
+        const ui = a.includes(HEAD) ? over.ticketUi : over.baseUi;
+        return ok(ui === false ? 'src/a.ts' : 'src/ui/x.tsx');
+      }
+      return ok('');
+    }) as CiActionsInput['git'];
+  }
+
+  it('hands the merged worktree, its SHA, the UI verdict and the run kind to the gate runner, and returns null on a pass', async () => {
+    vi.mocked(shipGates.runShipGates).mockResolvedValueOnce(null);
+    const i = input({ git: git({ ticketUi: false }) });
+    expect(await baseMovedFailure(i, gate, pr, signal)).toBeNull();
+    const [prs, deps] = vi.mocked(shipGates.runShipGates).mock.calls[0]!;
+    expect(prs).toHaveLength(1);
+    expect(prs[0]).toMatchObject({ repo: 'r', branch: 'b' });
+    expect(prs[0]!.cwd).not.toBe(pr.cwd);
+    expect(deps).toMatchObject({ uiChanged: false, uiSkipReason: 'skipped: no UI path in the ticket diff', kind: 'base-moved', signal, git: i.git, onProgress: i.afterServerChange });
+    expect(deps.evidence).toEqual({ store, ticketId: id });
+    expect(await deps.headSha!(pr.cwd)).toBe(MERGED);
+  });
+
+  it('runs the UI gates when the ticket and the base both change a UI path', async () => {
+    vi.mocked(shipGates.runShipGates).mockResolvedValueOnce(null);
+    await baseMovedFailure(input({ git: git() }), gate, pr, signal);
+    expect(vi.mocked(shipGates.runShipGates).mock.calls[0]![1]).toMatchObject({ uiChanged: true, uiSkipReason: null });
+  });
+
+  it('returns the CI reason when a gate fails on the merge', async () => {
+    vi.mocked(shipGates.runShipGates).mockResolvedValueOnce('r: gate "unit" failed (exit 1)');
+    const reason = await baseMovedFailure(input({ git: git() }), gate, pr, signal);
+    expect(reason).toBe(`fails when merged with origin/develop ${BASE.slice(0, 9)}; CI tests this merge — r: gate "unit" failed (exit 1)`);
+  });
+
+  it('seeds the merged git directory with the clean gate states, set to the base tip', async () => {
+    vi.mocked(shipGates.runShipGates).mockResolvedValueOnce(null);
+    await baseMovedFailure(input({ git: git() }), gate, pr, signal);
+    const seeded = JSON.parse(readFileSync(join(mergedGit, 'karst-gate-state', 'a.json'), 'utf8'));
+    expect(seeded).toMatchObject({ version: 1, clean: true, base: BASE });
+  });
+
+  it('asks git for the absolute git directory of the ticket worktree and of the merged worktree', async () => {
+    vi.mocked(shipGates.runShipGates).mockResolvedValueOnce(null);
+    const g = git();
+    await baseMovedFailure(input({ git: g }), gate, pr, signal);
+    expect(g).toHaveBeenCalledWith(['rev-parse', '--path-format=absolute', '--git-dir'], pr.cwd);
+    const mergedCwd = vi.mocked(shipGates.runShipGates).mock.calls[0]![0][0]!.cwd;
+    expect(g).toHaveBeenCalledWith(['rev-parse', '--path-format=absolute', '--git-dir'], mergedCwd);
+  });
+
+  it('runs no gate when no green gate state left a base (the git directory is unreadable)', async () => {
+    const g = git({ gitDir: { stdout: `${ticketGit}\n`, exitCode: 128 } });
+    expect(await baseMovedFailure(input({ git: g }), gate, pr, signal)).toBeNull();
+    expect(shipGates.runShipGates).not.toHaveBeenCalled();
+  });
+
+  it('runs no gate when the git directory is empty', async () => {
+    const g = git({ gitDir: { stdout: '\n', exitCode: 0 } });
+    expect(await baseMovedFailure(input({ git: g }), gate, pr, signal)).toBeNull();
+    expect(shipGates.runShipGates).not.toHaveBeenCalled();
+  });
+
+  it('runs the gates in full, unseeded, when the merged git directory cannot be read', async () => {
+    vi.mocked(shipGates.runShipGates).mockResolvedValueOnce(null);
+    const g = git({ mergedDir: { stdout: '', exitCode: 128 } });
+    expect(await baseMovedFailure(input({ git: g }), gate, pr, signal)).toBeNull();
+    expect(shipGates.runShipGates).toHaveBeenCalledOnce();
+    expect(existsSync(join(mergedGit, 'karst-gate-state'))).toBe(false);
+  });
+
+  it('runs the gates unseeded when the merged git directory prints nothing', async () => {
+    vi.mocked(shipGates.runShipGates).mockResolvedValueOnce(null);
+    const g = git({ mergedDir: { stdout: '  \n', exitCode: 0 } });
+    await baseMovedFailure(input({ git: g }), gate, pr, signal);
+    expect(shipGates.runShipGates).toHaveBeenCalledOnce();
+  });
+
+  it('runs the gates unseeded when the ticket git directory cannot be read at seed time', async () => {
+    // The first read (for the green base) succeeds; the seed read of the same directory must not run on a failed one.
+    vi.mocked(shipGates.runShipGates).mockResolvedValueOnce(null);
+    await baseMovedFailure(input({ git: git() }), gate, pr, signal);
+    expect(existsSync(join(mergedGit, 'karst-gate-state', 'a.json'))).toBe(true);
+  });
+
+  it('writes the unknown outcome to the debug log and lets the push run', async () => {
+    const i = input({ git: vi.fn(async () => ({ stdout: '', stderr: 'no remote', exitCode: 128 })) as CiActionsInput['git'] });
+    expect(await baseMovedFailure(i, gate, pr, signal)).toBeNull();
+    expect(i.debug).toHaveBeenCalledWith('[ship] base-moved check not run: no remote');
+  });
+
+  it('logs a failed sandbox lookup and runs nothing (no verdict beats a wrong one)', async () => {
+    const sb = { ...sandbox(), hasSandbox: vi.fn(async () => { throw new Error('sbx down'); }) };
+    const i = input({ git: git(), sandbox: sb });
+    expect(await baseMovedFailure(i, gate, pr, signal)).toBeNull();
+    expect(i.debug).toHaveBeenCalledWith('[ship] sandbox lookup failed: sbx down');
+    expect(shipGates.runShipGates).not.toHaveBeenCalled();
+  });
+
+  it('logs a non-Error sandbox lookup failure by its value', async () => {
+    const sb = { ...sandbox(), hasSandbox: vi.fn(async () => { throw 'gone'; }) };
+    const i = input({ git: git(), sandbox: sb });
+    await baseMovedFailure(i, gate, pr, signal);
+    expect(i.debug).toHaveBeenCalledWith('[ship] sandbox lookup failed: gone');
   });
 });
