@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -7,7 +7,7 @@ import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
-import { conflictRounds, autoDeliverAfterConflict } from './autoDeliverOps.js';
+import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
 import { autoDeliverAction, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
@@ -313,6 +313,307 @@ describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
   });
 });
 
+describe('deliverToPrAction re-runs the skipped gates after a take-over push (D540)', () => {
+  it('runs exactly the skipped gates on the pushed head, records an after-take-over run and writes one note', async () => {
+    seedPr();
+    openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['unit', 'lint', 'types'], pid: 1, now: 'T0' });
+    recordDeliverGate(store, currentDeliverRun(store, id)!.id, { gateName: 'unit', repo: 'r', exitCode: 0, summary: null, startedAt: null, endedAt: null });
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    const cwd = mkdtempSync(join(tmpdir(), 'rerun-'));
+    const ran: string[] = [];
+    const uat = { gates: ['unit', 'lint', 'types'].map((name) => ({ name, kind: 'command', command: name })), repositories: {} } as never;
+    const settled = vi.fn();
+    const i = input({ git: vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `${SHA}\n` : '', stderr: '', exitCode: 0 })) });
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(cwd, id);
+    const done = new Promise<void>((resolve) => { settled.mockImplementation(resolve); });
+    await deliverToPrAction({ ...i, deliver: { ...i.deliver, shipGates: () => ({ settled, deps: { uat, runProcess: async (cmd: string) => { ran.push(cmd); return { kind: 'completed', exitCode: cmd === 'types' ? 2 : 0, output: 'x' }; } } }) } });
+    await auto;
+    await done;
+    expect(ran).toEqual(['lint', 'types']);
+    const run = currentDeliverRun(store, id)!;
+    expect(run).toMatchObject({ kind: 'after-take-over', state: 'failed', gates: ['lint', 'types'] });
+    expect(listDeliverResults(store, id).filter((r) => r.runId === run.id).map((r) => [r.gateName, r.exitCode, r.headSha])).toEqual([['lint', 0, SHA], ['types', 2, SHA]]);
+    const notes = (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+    expect(notes).toContain(`Autopilot: the gates skipped by the manual Deliver ran on ${SHA.slice(0, 9)}: failed: types`);
+  });
+});
+
+describe('the re-run after a take-over: edges (D540)', () => {
+  const titles = (): string[] => (store.db.prepare('SELECT title FROM bulletin_notes').all() as Array<{ title: string }>).map((n) => n.title);
+  const rerunTitles = (): string[] => titles().filter((t) => t.includes('skipped by the manual Deliver ran'));
+
+  /** A running auto-deliver the manual Deliver takes over; `exit` is the exit code each re-run gate returns. */
+  async function takeOver(opts: { exit?: (cmd: string) => number; shipGates?: boolean; over?: Partial<CiActionsInput>; seam?: () => { deps: never; settled?: () => void } } = {}) {
+    seedPr();
+    openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['unit', 'lint'], pid: 1, now: 'T0' });
+    recordDeliverGate(store, currentDeliverRun(store, id)!.id, { gateName: 'unit', repo: 'r', exitCode: 0, summary: null, startedAt: null, endedAt: null });
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    const cwd = mkdtempSync(join(tmpdir(), 'rerun-'));
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(cwd, id);
+    const uat = { gates: ['unit', 'lint'].map((name) => ({ name, kind: 'command', command: name })), repositories: {} } as never;
+    const settled = vi.fn();
+    const ran: string[] = [];
+    const base = input({ git: vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `${SHA}\n` : '', stderr: '', exitCode: 0 })), ...opts.over });
+    const shipGates = vi.fn(() => ({ settled, deps: { uat, runProcess: async (cmd: string) => { ran.push(cmd); return { kind: 'completed', exitCode: (opts.exit ?? (() => 0))(cmd), output: 'x' }; } } }));
+    const i: CiActionsInput = opts.shipGates === false ? base : { ...base, deliver: { ...base.deliver, shipGates: opts.seam ? (opts.seam as never) : (shipGates as never) } };
+    return { i, auto, ran, settled, shipGates };
+  }
+
+  it('a passed re-run writes the passed note, settles the console and tells the dashboard', async () => {
+    const { i, auto, ran, settled } = await takeOver();
+    const done = new Promise<void>((r) => { settled.mockImplementation(r); });
+    await deliverToPrAction(i);
+    await auto;
+    await done;
+    expect(ran).toEqual(['lint']);
+    expect(currentDeliverRun(store, id)).toMatchObject({ kind: 'after-take-over', state: 'passed' });
+    expect(rerunTitles()).toEqual([`Autopilot: the gates skipped by the manual Deliver ran on ${SHA.slice(0, 9)}: passed`]);
+    expect(i.afterServerChange).toHaveBeenCalled();
+    expect(i.logError).not.toHaveBeenCalled();
+  });
+
+  it('a manual Deliver with no auto-deliver to take over runs no gate', async () => {
+    seedPr();
+    const shipGates = vi.fn(() => ({ deps: {} as never }));
+    const base = input();
+    await deliverToPrAction({ ...base, deliver: { ...base.deliver, shipGates } });
+    expect(shipGates).not.toHaveBeenCalled();
+    expect(rerunTitles()).toEqual([]);
+  });
+
+  it('a push that did not deliver runs no gate', async () => {
+    const t = await takeOver({ over: {} });
+    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(id);
+    await deliverToPrAction(t.i);
+    await t.auto;
+    expect(t.shipGates).not.toHaveBeenCalled();
+    expect(t.i.deliver.runShip).not.toHaveBeenCalled();
+  });
+
+  it('without a ship-gates seam nothing runs and nothing is logged as an error', async () => {
+    const { i, auto } = await takeOver({ shipGates: false });
+    await deliverToPrAction(i);
+    await auto;
+    await new Promise((r) => { setTimeout(r, 20); });
+    expect(i.logError).not.toHaveBeenCalled();
+    expect(rerunTitles()).toEqual([]);
+    expect(currentDeliverRun(store, id)?.kind).toBe('auto');
+  });
+
+  it('refuses the re-run while an agent turn runs and logs why', async () => {
+    const { i, auto, ran, settled } = await takeOver();
+    const refused = new Promise<void>((r) => { settled.mockImplementation(r); });
+    const realDeliver = i.deliver.runShip as ReturnType<typeof vi.fn>;
+    realDeliver.mockImplementation(async () => { store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(id); });
+    await deliverToPrAction(i);
+    await auto;
+    await refused;
+    expect(ran).toEqual([]);
+    expect(i.debug).toHaveBeenCalledWith('[ship] ticket W-1 skipped-gate re-run not started: an agent turn is active');
+  });
+
+  it('a re-run whose targets vanish records no failure and writes a stopped note', async () => {
+    const { i, auto, ran, settled } = await takeOver();
+    const done = new Promise<void>((r) => { settled.mockImplementation(r); });
+    (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(id); });
+    await deliverToPrAction(i);
+    await auto;
+    await done;
+    await new Promise((r) => { setTimeout(r, 20); });
+    expect(ran).toEqual([]);
+    expect(rerunTitles()).toEqual([expect.stringMatching(/: stopped$/)]);
+    expect(i.logError).not.toHaveBeenCalled();
+    expect(i.debug).toHaveBeenCalledWith('[ship] ticket W-1 skipped-gate re-run: stopped');
+    expect(currentDeliverRun(store, id)?.kind).toBe('auto');
+  });
+
+  const tick = (): Promise<void> => new Promise((r) => { setTimeout(r, 20); });
+
+  it('the failed note names only the gates of this re-run, not an older failure', async () => {
+    const { i, auto, settled } = await takeOver({
+      exit: (cmd) => {
+        // a gate cut by the UI-path rule leaves a result with no exit code; it is not a failure
+        recordDeliverGate(store, currentDeliverRun(store, id)!.id, { gateName: 'visual', repo: 'r', exitCode: null, summary: 'no UI change', startedAt: null, endedAt: null });
+        return cmd === 'lint' ? 3 : 0;
+      },
+    });
+    store.db.prepare("UPDATE deliver_gate_results SET exit_code = 1 WHERE gate_name = 'unit'").run();
+    const done = new Promise<void>((r) => { settled.mockImplementation(r); });
+    await deliverToPrAction(i);
+    await auto;
+    await done;
+    expect(rerunTitles()).toEqual([`Autopilot: the gates skipped by the manual Deliver ran on ${SHA.slice(0, 9)}: failed: lint`]);
+  });
+
+  it('a newer push during the re-run records it as stopped and writes no failed note', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { i, auto, settled } = await takeOver();
+    const seamOf = (settledFn: () => void) => () => ({ settled: settledFn, deps: { uat: { gates: [{ name: 'lint', kind: 'command', command: 'lint' }, { name: 'unit', kind: 'command', command: 'unit' }], repositories: {} }, runProcess: async () => { await gate; return { kind: 'completed', exitCode: 1, output: 'x' }; } } });
+    const done = new Promise<void>((r) => { settled.mockImplementation(r); });
+    const withGate: CiActionsInput = { ...i, deliver: { ...i.deliver, shipGates: seamOf(settled) as never } };
+    await deliverToPrAction(withGate);
+    await auto;
+    await vi.waitFor(() => expect(currentDeliverRun(store, id)?.kind).toBe('after-take-over'));
+    void supersedeRerun(id);
+    release();
+    await done;
+    expect(currentDeliverRun(store, id)?.state).not.toBe('failed');
+    expect(rerunTitles()).toEqual([`Autopilot: the gates skipped by the manual Deliver ran on ${SHA.slice(0, 9)}: superseded by a newer push`]);
+    expect(i.debug).toHaveBeenCalledWith('[ship] ticket W-1 skipped-gate re-run: superseded');
+  });
+
+  it('a seam without a settled hook still ends cleanly and refreshes the dashboard once more', async () => {
+    const { i, auto } = await takeOver({ seam: () => ({ deps: { uat: { gates: [{ name: 'lint', kind: 'command', command: 'lint' }], repositories: {} }, runProcess: async () => ({ kind: 'completed', exitCode: 0, output: 'x' }) } as never }) });
+    await deliverToPrAction(i);
+    await auto;
+    await vi.waitFor(() => expect(i.debug).toHaveBeenCalledWith(expect.stringContaining('skipped-gate re-run')));
+    const before = (i.afterServerChange as ReturnType<typeof vi.fn>).mock.calls.length;
+    await tick();
+    expect(i.logError).not.toHaveBeenCalled();
+    expect((i.afterServerChange as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(before);
+    expect(before).toBeGreaterThan(0);
+  });
+
+  it('the final dashboard refresh comes after the console settles', async () => {
+    const { i, auto, settled } = await takeOver();
+    const order: string[] = [];
+    settled.mockImplementation(() => { order.push('settled'); });
+    (i.afterServerChange as ReturnType<typeof vi.fn>).mockImplementation(() => { order.push('refresh'); });
+    await deliverToPrAction(i);
+    await auto;
+    await vi.waitFor(() => expect(order).toContain('settled'));
+    await tick();
+    expect(order.slice(order.indexOf('settled'))).toEqual(['settled', 'refresh']);
+  });
+
+  it('a take-over with no recorded run has no skipped gate: nothing runs', async () => {
+    seedPr();
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    const base = input();
+    const settled = vi.fn();
+    const runProcess = vi.fn(async () => ({ kind: 'completed', exitCode: 0, output: 'x' }));
+    await deliverToPrAction({ ...base, deliver: { ...base.deliver, shipGates: (() => ({ settled, deps: { uat: { gates: [], repositories: {} }, runProcess } })) as never } });
+    await auto;
+    await vi.waitFor(() => expect(settled).toHaveBeenCalled());
+    expect(runProcess).not.toHaveBeenCalled();
+    expect(rerunTitles()).toEqual([]);
+    expect(base.logError).not.toHaveBeenCalled();
+  });
+
+  it('words the note from the run it opened, not from a newer run of the ticket', async () => {
+    const { i, auto, settled } = await takeOver({
+      exit: () => {
+        openDeliverRun(store, { ticketId: id, headSha: 'f'.repeat(40), gates: ['unit'], pid: 1, now: 'T9' });
+        return 0;
+      },
+    });
+    const done = new Promise<void>((r) => { settled.mockImplementation(r); });
+    await deliverToPrAction(i);
+    await auto;
+    await done;
+    expect(rerunTitles()).toEqual([`Autopilot: the gates skipped by the manual Deliver ran on ${SHA.slice(0, 9)}: passed`]);
+  });
+
+  it('a second Deliver click that pushes nothing leaves a running re-run alone', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { i, auto, settled } = await takeOver();
+    const seam = () => ({ settled, deps: { uat: { gates: [{ name: 'lint', kind: 'command', command: 'lint' }, { name: 'unit', kind: 'command', command: 'unit' }], repositories: {} }, runProcess: async () => { await gate; return { kind: 'completed', exitCode: 0, output: 'x' }; } } });
+    const done = new Promise<void>((r) => { settled.mockImplementation(r); });
+    await deliverToPrAction({ ...i, deliver: { ...i.deliver, shipGates: seam as never } });
+    await auto;
+    await vi.waitFor(() => expect(currentDeliverRun(store, id)?.kind).toBe('after-take-over'));
+    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(id);
+    await deliverToPrAction(i);
+    store.db.prepare("UPDATE tickets SET agent_state = 'idle' WHERE id = ?").run(id);
+    release();
+    await done;
+    expect(rerunTitles()).toEqual([`Autopilot: the gates skipped by the manual Deliver ran on ${SHA.slice(0, 9)}: passed`]);
+  });
+
+  it('tells the user when the re-run is refused', async () => {
+    const { i, auto, settled } = await takeOver();
+    const refused = new Promise<void>((r) => { settled.mockImplementation(r); });
+    (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(id); });
+    await deliverToPrAction(i);
+    await auto;
+    await refused;
+    expect(i.info).toHaveBeenCalledWith('Deliver to PR: the skipped gates did not run after the push: an agent turn is active.');
+  });
+
+  it('a gate that cannot be resolved names its reason in the note, with the head from git', async () => {
+    const { i, auto, settled } = await takeOver({ seam: () => ({ deps: { uat: { gates: [], repositories: {} } } as never }) });
+    const done = new Promise<void>((r) => { settled.mockImplementation(r); });
+    const cwd = (store.db.prepare('SELECT path FROM worktrees WHERE ticket_id = ?').get(id) as { path: string }).path;
+    mkdirSync(join(cwd, 'package.json')); // an unreadable package.json: the gates cannot be resolved
+    await deliverToPrAction(i);
+    await auto;
+    await vi.waitFor(() => expect(rerunTitles()).toHaveLength(1));
+    expect(rerunTitles()[0]).toMatch(new RegExp(`ran on ${SHA.slice(0, 9)}: failed: .+`));
+    expect(rerunTitles()[0]).not.toContain('unknown');
+    expect(rerunTitles()[0]).not.toContain('failed: none');
+    expect(rerunTitles()[0]).toContain('failed: r: cannot read package.json');
+    void done;
+  });
+
+  it('a throwing ship-gates seam is logged, not thrown', async () => {
+    const { i, auto } = await takeOver({ seam: () => { throw new Error('no console'); } });
+    await deliverToPrAction(i);
+    await auto;
+    await vi.waitFor(() => expect(i.logError).toHaveBeenCalledWith('skipped-gate re-run after a take-over failed', expect.any(Error)));
+  });
+
+  it('the auto-deliver already pushing says so, tells the dashboard and does not block a later re-run', async () => {
+    seedPr();
+    const entry = conflictRounds;
+    let release!: () => void;
+    const hold = new Promise<void>((r) => { release = r; });
+    entry.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: async () => null, blocked: async () => {}, runShip: () => hold, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    await vi.waitFor(() => expect(autoDeliverPhase(id)).toBe('pushing'));
+    const i = input();
+    await deliverToPrAction(i);
+    expect(i.info).toHaveBeenCalledWith('Deliver to PR: the auto-deliver pushes now; nothing more to do.');
+    expect(i.afterServerChange).toHaveBeenCalledOnce();
+    release();
+    await auto;
+    const deps = { ticketId: id, key: 'W-1', skipped: ['lint'], agentActive: () => false, note: () => {}, log: () => {}, runGates: async () => ({ kind: 'passed', headSha: null }) as const };
+    expect(await rerunSkippedGates(deps)).toBe('passed');
+    beginManualPush(id)();
+  });
+});
+
 describe('headShaOf (T1018)', () => {
   const git = (stdout: string, exitCode = 0) => ({ git: vi.fn(async () => ({ stdout, stderr: '', exitCode })) });
   it('returns a full sha, trimmed, and asks git for HEAD in the worktree', async () => {
@@ -457,6 +758,9 @@ describe('takeover note limits (T1018)', () => {
     await deliverToPrAction(input());
     await auto;
     expect(conflictRounds.armed(id)).toBeNull();
+    const bodies = (store.db.prepare('SELECT body FROM bulletin_notes').all() as Array<{ body: string }>).map((n) => n.body);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatch(/^T\d+: delivery taken over/);
   });
 });
 

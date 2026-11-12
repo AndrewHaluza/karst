@@ -2973,5 +2973,12 @@ function migrateLocked(db: Database): void {
     if (cols115.size > 0 && !cols115.has('round_head_sha')) db.exec('ALTER TABLE autopilot_budgets ADD COLUMN round_head_sha TEXT');
   }
 
+  if (current < 116) {
+    // v116: `deliver_runs.kind` — what started a run: `auto` (the auto-deliver) or `after-take-over` (the re-run
+    // of the gates a manual Deliver skipped, D540). Additive; every pre-v116 run is an `auto` run.
+    const cols116 = tableColumns(db, 'deliver_runs');
+    if (cols116.size > 0 && !cols116.has('kind')) db.exec("ALTER TABLE deliver_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'auto'");
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

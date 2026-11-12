@@ -235,4 +235,83 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     await runShipGates([pr], { uat: uiGates, runProcess, git: gitDiff(['src/store/a.ts']) });
     expect(ran).toEqual(names);
   });
+
+  it('runs only the named gates and records the run as after-take-over', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-1', title: 't' }).id;
+    const uat = { gates: [
+      { name: 'unit', kind: 'command', command: 'a' }, { name: 'lint', kind: 'command', command: 'b' }, { name: 'types', kind: 'command', command: 'c' },
+    ], repositories: {} } as never;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (cmd) => { ran.push(cmd); return { kind: 'completed', exitCode: 0, output: '' }; };
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const r = await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], {
+      uat, runProcess, evidence: { store, ticketId }, headSha: async () => 'c'.repeat(40), only: ['lint', 'types'], kind: 'after-take-over',
+    });
+    expect(r).toBeNull();
+    expect(ran).toEqual(['b', 'c']);
+    expect(currentDeliverRun(store, ticketId)).toMatchObject({ kind: 'after-take-over', state: 'passed', gates: ['lint', 'types'], headSha: 'c'.repeat(40) });
+    expect(listDeliverResults(store, ticketId).map((x) => [x.gateName, x.headSha])).toEqual([['lint', 'c'.repeat(40)], ['types', 'c'.repeat(40)]]);
+  });
+
+  it('reports the id of the run it opened, and none when no gate is planned', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-2', title: 't' }).id;
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const runProcess: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 0, output: '' });
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const opened: number[] = [];
+    await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], { uat, runProcess, evidence: { store, ticketId }, onRunOpened: (id) => opened.push(id) });
+    expect(opened).toEqual([currentDeliverRun(store, ticketId)!.id]);
+  });
+
+  it('opens no run and runs no gate when the signal aborted while the run was planned', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-4', title: 't' }).id;
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (cmd) => { ran.push(cmd); return { kind: 'completed', exitCode: 0, output: '' }; };
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const ac = new AbortController();
+    const opened: number[] = [];
+    const out = await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], {
+      uat, runProcess, evidence: { store, ticketId }, signal: ac.signal, onRunOpened: (id) => opened.push(id),
+      headSha: async () => { ac.abort(); return 'd'.repeat(40); },
+    });
+    expect(out).not.toBeNull();
+    expect(ran).toEqual([]);
+    expect(opened).toEqual([]);
+    expect(currentDeliverRun(store, ticketId)).toBeNull();
+  });
+
+  it('does not report a run id when no run is opened (no evidence target)', async () => {
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const runProcess: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 0, output: '' });
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const opened: number[] = [];
+    await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], { uat, runProcess, onRunOpened: (id) => opened.push(id) });
+    expect(opened).toEqual([]);
+  });
+
+  it('keeps only the named gates among the skipped ones too', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-3', title: 't' }).id;
+    const runProcess: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 0, output: '' });
+    await runShipGates([repoWith(scripts)], {
+      uat: uiGates, runProcess, git: gitDiff(['src/store/a.ts']), gateEnv: () => ({ prBody: '', baseRef: 'develop' }),
+      evidence: { store, ticketId }, only: ['unit', 'visual'],
+    });
+    expect(currentDeliverRun(store, ticketId)?.gates).toEqual(['unit', 'visual']);
+    expect(listDeliverResults(store, ticketId).map((r) => r.gateName).sort()).toEqual(['unit', 'visual']);
+  });
+  it('stops at the first failing repository and runs no later one', async () => {
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (cmd) => { ran.push(cmd); return { kind: 'completed', exitCode: 1, output: '' }; };
+    const a = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const b = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const r = await runShipGates([{ repo: 'r1', number: 1, branch: 'b', cwd: a }, { repo: 'r2', number: 2, branch: 'b', cwd: b }], { uat, runProcess });
+    expect(r).not.toBeNull();
+    expect(ran).toHaveLength(1);
+  });
 });
