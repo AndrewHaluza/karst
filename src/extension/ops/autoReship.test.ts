@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, pauseTicket, setStageCurrent } from '../../store/tickets.js';
+import { createTicket, pauseTicket, setStageCurrent, unpauseTicket } from '../../store/tickets.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { setStage } from '../../store/stages.js';
 import {
@@ -208,11 +208,11 @@ describe('reshipAtShipConfirm', () => {
   };
   const atConfirm = { stage: 'ship', status: 'blocked', reason: 'ship-confirm' };
 
-  it('runs the re-ship with the delivery option when the driver stopped at ship-confirm', async () => {
+  it('runs the re-ship with the ship options when the driver stopped at ship-confirm', async () => {
     const x = deps();
     await reshipAtShipConfirm(atConfirm, host(x));
     expect(x.ship).toHaveBeenCalledWith(RESHIP_SHIP_OPTS);
-    expect(RESHIP_SHIP_OPTS).toEqual({ deliver: true });
+    expect(RESHIP_SHIP_OPTS).toEqual({});
   });
 
   it.each([
@@ -276,8 +276,8 @@ describe('autoReship wait reasons and lines', () => {
     markCiRound(store, id, 1000);
     expect(await waits(deps())).toMatchObject({ reason: 'the ticket is paused or stopped' });
     setAutopilotStopped(store, id, null);
-    markCiRound(store, id, 1000);
     pauseTicket(store, id);
+    markCiRound(store, id, 1000);
     expect(await waits(deps())).toMatchObject({ reason: 'the ticket is paused or stopped' });
   });
 
@@ -341,9 +341,13 @@ describe('reshipBlocker reasons', () => {
     const bare: Partial<ShipPreviewRepo> = { prNumber: null, commitFiles: [], changedFromBase: false };
     expect(reshipBlocker(preview(repo(), repo({ repo: 'b', status: 'will-commit', ...bare })))).toBe('b has no open PR: a new PR needs the Confirm click');
     expect(reshipBlocker(preview(repo(), repo({ repo: 'b', status: 'nothing-to-commit', ...bare, commitFiles: ['x'] })))).toBe('b has no open PR: a new PR needs the Confirm click');
-    expect(reshipBlocker(preview(repo(), repo({ repo: 'b', status: 'already-shipped', ...bare, changedFromBase: true })))).toBe('b has no open PR: a new PR needs the Confirm click');
+    expect(reshipBlocker(preview(repo(), repo({ repo: 'b', status: 'nothing-to-commit', ...bare, changedFromBase: true })))).toBe('b has no open PR: a new PR needs the Confirm click');
     expect(reshipBlocker(preview(repo(), repo({ repo: 'b', status: 'nothing-to-commit', ...bare })))).toBeNull();
     expect(reshipBlocker(preview(repo(), repo({ repo: 'b', status: 'already-merged', ...bare, changedFromBase: true })))).toBeNull();
+    // A merged PR is no open PR: a ticket whose only PR is merged is a first ship.
+    expect(reshipBlocker(preview(repo({ status: 'already-merged', prNumber: 7 })))).toBe('no open PR: a first ship needs the Confirm click');
+    // The preview shows an open PR as skipped: ship would push nothing.
+    expect(reshipBlocker(preview(repo({ status: 'already-shipped' })))).toBe('the preview shows the open PR of karst as skipped, so ship would push nothing');
   });
 });
 
@@ -366,5 +370,14 @@ describe('reshipAtShipConfirm note', () => {
     const error = vi.fn();
     await reshipAtShipConfirm({ stage: 'ship', status: 'blocked', reason: 'ship-confirm' }, { ...rest, config: () => { throw new Error('cfg'); }, projectId: () => 1, warn: vi.fn(), error });
     expect(error).toHaveBeenCalledWith('autopilot re-ship failed', expect.any(Error));
+  });
+});
+
+describe('ticket pause', () => {
+  it('spends the mark, so a resume does not re-ship', async () => {
+    pauseTicket(store, id);
+    expect(getCiRoundAt(store, id)).toBeNull();
+    unpauseTicket(store, id);
+    expect(await autoReship(deps().d)).toMatchObject({ kind: 'waits', reason: 'no ci round was sent' });
   });
 });

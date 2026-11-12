@@ -17,8 +17,8 @@ import { clearCiRound, effectiveAutopilot, getAutopilotBudget, getAutopilotTicke
 const LOG = '[ship] autopilot';
 const OFF_REASON = 'autopilot is off';
 
-/** Ship options of an auto re-ship: push to the open PRs (the delivery branch). */
-export const RESHIP_SHIP_OPTS = { deliver: true } as const;
+/** Ship options of an auto re-ship: none. Ship decides delivery to an open PR with the rule the preview mirrors (hasCompletedShipRun). */
+export const RESHIP_SHIP_OPTS = {} as const;
 
 export interface AutoReshipDeps {
   readonly store: Store;
@@ -50,10 +50,11 @@ const inFlight = new Set<string>();
  * PR at all, wait for a person.
  */
 export function reshipBlocker(preview: ShipPreview): string | null {
-  if (!preview.repos.some((r) => r.prNumber !== null)) return 'no open PR: a first ship needs the Confirm click';
+  if (!preview.repos.some((r) => r.prNumber !== null && r.status !== 'already-merged')) return 'no open PR: a first ship needs the Confirm click';
   for (const r of preview.repos) {
     if (r.error !== undefined) return `the ship preview of ${r.repo} failed`;
     if (r.status === 'blocked') return `ship would park ${r.repo}`;
+    if (r.status === 'already-shipped') return `the preview shows the open PR of ${r.repo} as skipped, so ship would push nothing`;
     const pushed = r.status === 'will-commit' || r.commitFiles.length > 0 || r.changedFromBase;
     if (r.status === 'already-merged') continue;
     if (pushed && r.prNumber === null) return `${r.repo} has no open PR: a new PR needs the Confirm click`;
