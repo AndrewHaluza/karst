@@ -4,7 +4,7 @@ import { activeFixRound } from '../store/recoveryRounds.js';
 import { listGateRuns, type GateRun } from '../store/gateRuns.js';
 import { finishProcessRun } from '../store/processRuns.js';
 import { roundById } from '../store/recoveryRounds.js';
-import { claimHostRerun, closeRoundPassed, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
+import { claimHostRerun, closeRoundPassed, hostRerunPassedBefore, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
 import { parkFixStage } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
 import { setAgentState, setStageCurrent } from '../store/tickets.js';
@@ -188,11 +188,15 @@ export function describeHostRerun(outcome: HostRerunOutcome): HostRerunReply | u
  * before the fix brief is armed. All green closes the round with `HOST_RERUN_PASSED_REASON` and
  * returns the ticket to the source stage — no brief. Any red leaves the round as it is, so the
  * brief is armed as today (it already carries the signature line) and the stamp keeps this to once.
+ * It closes at most one round for each ticket and source stage: a repeat failure goes to the agent.
  * A failure with no signature, or a mixed round, is `not-applicable`: a real defect goes to the agent.
  */
 export async function preBriefHostRerun(store: Store, ticketId: number, deps: HostRerunDeps): Promise<HostRerunOutcome> {
   const round = activeFixRound(store, ticketId);
   if (round === null || round.triggerKind !== 'gate-failure') return { kind: 'not-applicable' };
+  // Bound a repeating environment failure: one pre-brief close for each ticket and source stage,
+  // then the next failure goes to the agent (a close returns the ticket to the stage with a fresh budget).
+  if (hostRerunPassedBefore(store, ticketId, round.sourceStage, HOST_RERUN_PASSED_REASON, round.id)) return { kind: 'not-applicable' };
   const runs = listGateRuns(store, ticketId);
   const failed = failedGatesOf(runs, round.sourceStage);
   if (failed.length === 0) return { kind: 'not-applicable' };

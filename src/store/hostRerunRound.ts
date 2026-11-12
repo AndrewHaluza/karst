@@ -62,3 +62,15 @@ export function ticketsWithRequestedHostRerun(store: Store, projectId: number): 
     .all(projectId) as { ticket_id: number }[];
   return rows.map((r) => r.ticket_id);
 }
+
+/**
+ * Whether an earlier round of this ticket and source stage already closed because the host's
+ * re-run found the gates green. The pre-brief re-run uses it to bound a repeating environment
+ * failure: after one such close, the next failure goes to the agent.
+ */
+export function hostRerunPassedBefore(store: Store, ticketId: number, sourceStage: string, reason: string, exceptRoundId: number): boolean {
+  const row = store.db
+    .prepare("SELECT 1 FROM recovery_rounds WHERE ticket_id = ? AND source_stage = ? AND status = 'passed' AND end_reason = ? AND id <> ? LIMIT 1")
+    .get(ticketId, sourceStage, reason, exceptRoundId);
+  return row !== undefined;
+}

@@ -97,4 +97,16 @@ describe('pre-brief host re-run', () => {
     expect((await hostRerunFailedGates(store, ticketId, deps(0))).kind).toBe('already-used');
     expect(ran).toHaveLength(1);
   });
+
+  it('closes at most one round for each ticket and stage: a repeat failure goes to the agent', async () => {
+    open([{ name: 'visual', summary: SIGNED }]);
+    expect((await preBriefHostRerun(store, ticketId, deps(0))).kind).toBe('passed');
+    setStage(store, ticketId, 'uat', { status: 'failed', verdict: 'gates failed', startedAt: AT, endedAt: AT, attempt: 2 });
+    setStageCurrent(store, ticketId, 'fix');
+    recordGateRun(store, { ticketId, stageKey: 'uat', attempt: 2, runAt: '2026-01-03T00:00:00Z', gates: [{ gateName: 'visual', exitCode: 1, repo: 'web', command: 'npm', args: ['run', 'visual'], summary: SIGNED }] });
+    openRecoveryRound(store, { ticketId, sourceStage: 'uat', sourceProcessId: 'gates', triggerKind: 'gate-failure', triggerDetail: 'x', maxRounds: 3, startedAt: AT } as never);
+    expect(await preBriefHostRerun(store, ticketId, deps(0))).toEqual({ kind: 'not-applicable' });
+    expect(ran).toHaveLength(1);
+    expect(activeFixRound(store, ticketId)).not.toBeNull();
+  });
 });
