@@ -1,9 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { classifyNpmProblems, checkNodeDeps } from './depsCheck.js';
-import type { ProcessOutcome } from './run.js';
+import { classifyNpmProblems, checkNodeDeps, describeDepsBlock } from './depsCheck.js';
 
 describe('classifyNpmProblems', () => {
   it('passes a clean tree', () => {
@@ -51,123 +50,125 @@ describe('classifyNpmProblems', () => {
   });
 });
 
+function lock(deps: Record<string, string>): string {
+  const packages: Record<string, { version: string }> = { '': { version: '1.0.0' } };
+  for (const [name, version] of Object.entries(deps)) packages[`node_modules/${name}`] = { version };
+  return JSON.stringify({ lockfileVersion: 3, packages });
+}
+
+function install(dir: string, name: string, version: string): void {
+  const pkgDir = join(dir, 'node_modules', ...name.split('/'));
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({ name, version }));
+}
+
+function manifest(dir: string, deps: string[], devDeps: string[] = []): void {
+  const toMap = (names: string[]): Record<string, string> =>
+    Object.fromEntries(names.map((n) => [n, '*']));
+  writeFileSync(
+    join(dir, 'package.json'),
+    JSON.stringify({ dependencies: toMap(deps), devDependencies: toMap(devDeps) }),
+  );
+}
+
 describe('checkNodeDeps', () => {
+  let root: string;
+  let worktree: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'karst-deps-'));
+    worktree = join(root, '.karst', 'worktrees', 'tkt');
+    mkdirSync(worktree, { recursive: true });
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
   it('skips when the target has no package-lock.json', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'karst-deps-skip-'));
-    try {
-      const run = vi.fn();
-      const result = await checkNodeDeps(dir, {}, run as never);
-      expect(result).toEqual({ ok: true });
-      expect(run).not.toHaveBeenCalled();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    expect(await checkNodeDeps(worktree)).toEqual({ ok: true });
   });
 
-  it('skips when the target has its own node_modules', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'karst-deps-local-'));
-    try {
-      writeFileSync(join(dir, 'package-lock.json'), '{}');
-      mkdirSync(join(dir, 'node_modules'));
-      const run = vi.fn();
-      const result = await checkNodeDeps(dir, {}, run as never);
-      expect(result).toEqual({ ok: true });
-      expect(run).not.toHaveBeenCalled();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it('parks when the lockfile names a package the main checkout lacks, despite a partial local node_modules', async () => {
+    manifest(worktree, ['a'], ['eslint-plugin-regexp']);
+    writeFileSync(join(worktree, 'package-lock.json'), lock({ a: '1.0.0', 'eslint-plugin-regexp': '2.0.0' }));
+    mkdirSync(join(worktree, 'node_modules', '.vite'), { recursive: true });
+    install(root, 'a', '1.0.0');
+    const result = await checkNodeDeps(worktree, { repoRoot: root });
+    expect(result).toEqual({
+      ok: false,
+      kind: 'dependency-drift',
+      reason: 'missing: eslint-plugin-regexp@2.0.0',
+      dir: root,
+    });
   });
 
-  it('passes when npm ls exits 0', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'karst-deps-ok-'));
-    try {
-      writeFileSync(join(dir, 'package-lock.json'), '{}');
-      const run = async (): Promise<ProcessOutcome> => ({
-        kind: 'completed',
-        exitCode: 0,
-        output: JSON.stringify({ problems: [] }),
-      });
-      const result = await checkNodeDeps(dir, {}, run);
-      expect(result).toEqual({ ok: true });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it('passes when every dependency resolves at the lockfile version', async () => {
+    manifest(worktree, ['a', '@s/b'], ['c']);
+    writeFileSync(join(worktree, 'package-lock.json'), lock({ a: '1.0.0', '@s/b': '2.1.0', c: '3.0.0' }));
+    install(root, 'a', '1.0.0');
+    install(root, '@s/b', '2.1.0');
+    install(worktree, 'c', '3.0.0');
+    expect(await checkNodeDeps(worktree, { repoRoot: root })).toEqual({ ok: true });
   });
 
-  it('reports drift when npm ls exits nonzero with problems', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'karst-deps-drift-'));
-    try {
-      writeFileSync(join(dir, 'package-lock.json'), '{}');
-      const run = async (): Promise<ProcessOutcome> => ({
-        kind: 'completed',
-        exitCode: 1,
-        output: JSON.stringify({ problems: ['invalid: x@0.1.0 node_modules/x'] }),
-      });
-      const result = await checkNodeDeps(dir, {}, run);
-      expect(result).toEqual(expect.objectContaining({ ok: false, kind: 'dependency-drift' }));
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it('parks on a version mismatch', async () => {
+    manifest(worktree, ['a']);
+    writeFileSync(join(worktree, 'package-lock.json'), lock({ a: '2.0.0' }));
+    install(root, 'a', '1.0.0');
+    const result = await checkNodeDeps(worktree, { repoRoot: root });
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, kind: 'dependency-drift', reason: 'invalid: a@1.0.0 installed, lockfile wants 2.0.0' }),
+    );
   });
 
-  it('parses stdout alone — interleaved npm error lines are not parse input', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'karst-deps-stdout-'));
-    try {
-      writeFileSync(join(dir, 'package-lock.json'), '{}');
-      const json = JSON.stringify({ problems: [] });
-      const run = async (): Promise<ProcessOutcome> => ({
-        kind: 'completed',
-        exitCode: 1,
-        output: `npm error code ELSPROBLEMS\n${json}`,
-        stdout: json,
-      });
-      const result = await checkNodeDeps(dir, {}, run);
-      expect(result).toEqual({ ok: true });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it('ignores an extraneous package that is installed but not declared', async () => {
+    manifest(worktree, ['a']);
+    writeFileSync(join(worktree, 'package-lock.json'), lock({ a: '1.0.0' }));
+    install(root, 'a', '1.0.0');
+    install(root, 'stray', '9.9.9');
+    expect(await checkNodeDeps(worktree, { repoRoot: root })).toEqual({ ok: true });
   });
 
-  it('probes the main checkout when the worktree resolves up to it', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'karst-deps-root-'));
-    const worktree = join(root, '.karst', 'worktrees', 'tkt');
-    try {
-      mkdirSync(worktree, { recursive: true });
-      mkdirSync(join(root, 'node_modules'));
-      writeFileSync(join(root, 'package-lock.json'), '{}');
-      writeFileSync(join(worktree, 'package-lock.json'), '{}');
-      const seen: string[] = [];
-      const run = async (
-        _command: string,
-        _args: readonly string[],
-        cwd: string,
-      ): Promise<ProcessOutcome> => {
-        seen.push(cwd);
-        return { kind: 'completed', exitCode: 0, output: '{}', stdout: '{}' };
-      };
-      const result = await checkNodeDeps(worktree, { repoRoot: root }, run);
-      expect(result).toEqual({ ok: true });
-      expect(seen).toEqual([root]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+  it('skips the version compare for a linked or unversioned lock entry but still requires it to resolve', async () => {
+    manifest(worktree, ['linked']);
+    writeFileSync(
+      join(worktree, 'package-lock.json'),
+      JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/linked': { link: true, resolved: '../x' } } }),
+    );
+    install(root, 'linked', '0.0.1');
+    expect(await checkNodeDeps(worktree, { repoRoot: root })).toEqual({ ok: true });
   });
 
-  it('reports unreadable when npm could not be spawned', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'karst-deps-unread-'));
-    try {
-      writeFileSync(join(dir, 'package-lock.json'), '{}');
-      const run = async (): Promise<ProcessOutcome> => ({
-        kind: 'spawnFailed',
-        message: 'npm not found',
-        output: '',
-      });
-      const result = await checkNodeDeps(dir, {}, run);
-      expect(result).toEqual(
-        expect.objectContaining({ ok: false, kind: 'unreadable', reason: 'npm not found' }),
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it('summarizes a whole missing tree by count', async () => {
+    const names = ['a', 'b', 'c', 'd', 'e'];
+    manifest(worktree, names);
+    writeFileSync(join(worktree, 'package-lock.json'), lock(Object.fromEntries(names.map((n) => [n, '1.0.0']))));
+    const result = await checkNodeDeps(worktree, { repoRoot: root });
+    expect(result).toEqual(expect.objectContaining({ ok: false, reason: expect.stringContaining('5 dependencies missing') }));
+  });
+
+  it('reports unreadable when package.json is not valid JSON', async () => {
+    writeFileSync(join(worktree, 'package.json'), '{nope');
+    writeFileSync(join(worktree, 'package-lock.json'), lock({}));
+    expect(await checkNodeDeps(worktree)).toEqual(
+      expect.objectContaining({ ok: false, kind: 'unreadable' }),
+    );
+  });
+});
+
+describe('describeDepsBlock', () => {
+  it('names both repairs for drift', () => {
+    const text = describeDepsBlock(
+      { ok: false, kind: 'dependency-drift', reason: 'missing: x@1.0.0', dir: '/main' },
+      'web',
+      '/wt/web',
+    );
+    expect(text).toContain('missing: x@1.0.0');
+    expect(text).toContain("npm ci' in /main");
+    expect(text).toContain("deps_mode='local'");
+    expect(text).toContain('npm install');
+  });
+
+  it('reports unreadable without repairs', () => {
+    expect(describeDepsBlock({ ok: false, kind: 'unreadable', reason: 'bad' }, 'web', '/wt')).toBe(
+      'web: could not verify installed dependencies — bad',
+    );
   });
 });
