@@ -3,7 +3,7 @@ import type { Manifest } from '../../manifest/types.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { getGateSnapshot, setGateSnapshot } from '../../store/ticketGates.js';
-import { collectGateSnapshot } from '../../workflow/stages/gateSnapshot.js';
+import { collectGateSnapshot, type BaseDefines } from '../../workflow/stages/gateSnapshot.js';
 import type { ScriptProbe } from '../../workflow/gates/probe.js';
 
 /**
@@ -16,6 +16,7 @@ export interface GateSnapshotDeps {
   readonly store: Store;
   readonly manifest: () => Manifest | undefined;
   readonly probe?: (cwd: string) => ScriptProbe;
+  readonly baseDefines?: BaseDefines;
   readonly debug?: (message: string) => void;
 }
 
@@ -38,7 +39,7 @@ export async function takeGateSnapshot(
       d.debug?.(`[gate] snapshot ticket ${ticketId}: no manifest, snapshot not written`);
       return false;
     }
-    const snapshot = collectGateSnapshot(manifest, listWorktreesByTicket(d.store, ticketId), d.probe, d.debug);
+    const snapshot = await collectGateSnapshot(manifest, listWorktreesByTicket(d.store, ticketId), d.probe, d.debug, d.baseDefines);
     const uat = snapshot.uat ?? [];
     const review = snapshot.review ?? [];
     if (uat.length === 0 && review.length === 0) {

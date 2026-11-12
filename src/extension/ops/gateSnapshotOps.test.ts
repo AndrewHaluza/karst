@@ -94,9 +94,17 @@ describe('takeGateSnapshot', () => {
   it('writes nothing when no gate resolves (a failed read must not skip every gate)', async () => {
     const { store, id } = seed(['/repo/api']);
     setGateSnapshot(store, id, { uat: ['old'], review: ['old'] });
-    const ok = await takeGateSnapshot(deps(store, { probe: () => ({ kind: 'absent' }) }), id);
+    const ok = await takeGateSnapshot(deps(store, { manifest: () => manifest(repos) }), id);
     expect(ok).toBe(false);
     expect(getGateSnapshot(store, id)).toEqual({ uat: ['old'], review: ['old'] });
+  });
+
+  it('leaves a gate out of the snapshot when the base defines its missing script, and keeps it when the base lacks it', async () => {
+    const { store, id } = seed([]);
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)').run(id, '/repo/api', '/wt/repo/api', 'karst/K-1', 'develop');
+    const branchLacks = () => ({ kind: 'ok', scripts: {} }) as ScriptProbe;
+    await takeGateSnapshot(deps(store, { probe: branchLacks, baseDefines: async (_c, _r, script) => script === 'lint' }), id);
+    expect(getGateSnapshot(store, id)).toEqual({ uat: ['test'], review: [] });
   });
 
   it('writes nothing when no manifest is loaded', async () => {

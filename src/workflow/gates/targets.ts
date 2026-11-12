@@ -61,6 +61,8 @@ export interface GateTarget {
   repo: string;
   /** The ticket's worktree for that repository — where the gates run. */
   path: string;
+  /** The base ref the worktree was cut from, when known (the gate snapshot asks it which scripts a rebase brings). */
+  baseRef?: string | null;
   /** Every manifest entry backed by this worktree (several for a monorepo). */
   names: string[];
 }
@@ -87,7 +89,7 @@ export function dedupeTargetsByRepoPath(targets: readonly ReviewTarget[]): GateT
       }
       continue;
     }
-    byPath.set(key, { repo: target.repo, path: target.path, names: [...target.names] });
+    byPath.set(key, { repo: target.repo, path: target.path, baseRef: target.baseRef, names: [...target.names] });
   }
   return [...byPath.values()];
 }

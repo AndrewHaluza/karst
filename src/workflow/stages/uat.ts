@@ -389,7 +389,7 @@ export async function runUat(
   const snapshotNames = getStageGateSnapshot(store, opts.ticketId, 'uat');
   const captureSnapshot =
     snapshotNames === null && (getGateSnapshot(store, opts.ticketId) !== null || listGateRuns(store, opts.ticketId).length === 0);
-  if (captureSnapshot && opts.manifest) captureGateSnapshot(store, opts.ticketId, opts.manifest, worktrees, probe, opts.debug);
+  if (captureSnapshot && opts.manifest) await captureGateSnapshot(store, opts.ticketId, opts.manifest, worktrees, probe, opts.debug);
   // The BARE gate names, kept beside the evidence rows rather than recovered
   // from them: a row's `gateName` is repo-decorated ("test (web)") because that
   // is what identifies an invocation, and the block reason already parenthesizes

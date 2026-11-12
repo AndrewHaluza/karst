@@ -24,29 +24,53 @@ const declared = (script: string) =>
     { review: reviewConfig({ gates: [{ name: 'layer-rules', kind: 'script', script }] }) },
   );
 const apiTree = [{ repo: '/repo/api', path: '/wt/api', baseRef: null }];
+const apiTreeOnBase = [{ repo: '/repo/api', path: '/wt/api', baseRef: 'develop' }];
+const branchLacks = (): ScriptProbe => ({ kind: 'ok', scripts: { test: 'vitest' } });
 
 describe('collectGateSnapshot', () => {
-  it('lists the manifest-declared gates of every worktree', () => {
-    const snap = collectGateSnapshot(declared('lint:layers'), apiTree, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }));
+  it('lists the manifest-declared gates of every worktree', async () => {
+    const snap = await collectGateSnapshot(declared('lint:layers'), apiTree, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }));
     expect(snap.review).toEqual(['layer-rules']);
   });
 
-  it('leaves out a discovered gate: the ticket own branch can add a package.json script', () => {
-    const snap = collectGateSnapshot(m(), trees, probe);
+  it('leaves out a discovered gate: the ticket own branch can add a package.json script', async () => {
+    const snap = await collectGateSnapshot(m(), trees, probe);
     expect(snap).toEqual({ uat: [], review: [] });
   });
 
-  it('leaves out a declared script gate the worktree cannot run yet, so a later rebase can add it', () => {
-    const snap = collectGateSnapshot(declared('lint:layers'), apiTree, () => ({ kind: 'ok', scripts: { test: 'vitest' } }));
+  it('leaves out a declared script gate the branch lacks when the base defines it, so a rebase can add it', async () => {
+    const seen: string[] = [];
+    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, branchLacks, undefined, async (cwd, ref, script) => {
+      seen.push(`${cwd}|${ref}|${script}`);
+      return true;
+    });
     expect(snap.review).toEqual([]);
+    expect(seen).toContain('/wt/api|develop|lint:layers');
   });
 
-  it('throws on an unreadable package.json, so a transient fault never writes a partial snapshot', () => {
-    expect(() => collectGateSnapshot(declared('lint:layers'), apiTree, () => ({ kind: 'io-error', message: 'EIO' }))).toThrow('EIO');
+  it('keeps a declared script gate that neither the branch nor the base defines, so it fails with the real reason', async () => {
+    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, branchLacks, undefined, async () => false);
+    expect(snap.review).toEqual(['layer-rules']);
   });
 
-  it('ignores a worktree that matches no manifest entry', () => {
-    const snap = collectGateSnapshot(declared('lint:layers'), [{ repo: '/elsewhere', path: '/wt/x', baseRef: null }], probe);
+  it('keeps a missing-script gate when the base ref is unknown: nothing proves a rebase brings it', async () => {
+    const snap = await collectGateSnapshot(declared('lint:layers'), apiTree, branchLacks, undefined, async () => true);
+    expect(snap.review).toEqual(['layer-rules']);
+  });
+
+  it('does not ask the base when the branch already defines the script', async () => {
+    let asked = false;
+    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }), undefined, async () => { asked = true; return true; });
+    expect(snap.review).toEqual(['layer-rules']);
+    expect(asked).toBe(false);
+  });
+
+  it('throws on an unreadable package.json, so a transient fault never writes a partial snapshot', async () => {
+    await expect(collectGateSnapshot(declared('lint:layers'), apiTree, () => ({ kind: 'io-error', message: 'EIO' }))).rejects.toThrow('EIO');
+  });
+
+  it('ignores a worktree that matches no manifest entry', async () => {
+    const snap = await collectGateSnapshot(declared('lint:layers'), [{ repo: '/elsewhere', path: '/wt/x', baseRef: null }], probe);
     expect(snap).toEqual({ uat: [], review: [] });
   });
 });
@@ -57,30 +81,30 @@ describe('captureGateSnapshot', () => {
     return { store, id: createTicket(store, { key: 'K-1', title: 'T', source: 'manual' }).id };
   };
 
-  it('writes both stages for a ticket with none', () => {
+  it('writes both stages for a ticket with none', async () => {
     const { store, id } = seed();
-    captureGateSnapshot(store, id, declared('lint:layers'), apiTree, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }));
+    await captureGateSnapshot(store, id, declared('lint:layers'), apiTree, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }));
     expect(getGateSnapshot(store, id)?.review).toEqual(['layer-rules']);
   });
 
-  it('never overwrites a stage that already has a snapshot', () => {
+  it('never overwrites a stage that already has a snapshot', async () => {
     const { store, id } = seed();
     setStageGateSnapshot(store, id, 'review', ['kept']);
-    captureGateSnapshot(store, id, declared('lint:layers'), apiTree, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }));
+    await captureGateSnapshot(store, id, declared('lint:layers'), apiTree, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }));
     expect(getGateSnapshot(store, id)?.review).toEqual(['kept']);
   });
 
-  it('writes nothing when no gate resolves', () => {
+  it('writes nothing when no gate resolves', async () => {
     const { store, id } = seed();
-    captureGateSnapshot(store, id, m(), trees, () => ({ kind: 'absent' }));
+    await captureGateSnapshot(store, id, m(), trees, () => ({ kind: 'absent' }));
     expect(getGateSnapshot(store, id)).toBeNull();
   });
 
-  it('swallows a failed read, logs it, and leaves the snapshot unset', () => {
+  it('swallows a failed read, logs it, and leaves the snapshot unset', async () => {
     const { store, id } = seed();
     const debug: string[] = [];
     const broken = { ...m(), repositories: undefined } as unknown as ReturnType<typeof m>;
-    expect(() => captureGateSnapshot(store, id, broken, trees, probe, (x) => debug.push(x))).not.toThrow();
+    await expect(captureGateSnapshot(store, id, broken, trees, probe, (x) => debug.push(x))).resolves.toBeUndefined();
     expect(getGateSnapshot(store, id)).toBeNull();
     expect(debug.join('\n')).toContain('not captured');
   });
