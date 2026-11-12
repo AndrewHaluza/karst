@@ -1,5 +1,6 @@
 import type { Store } from '../store/db.js';
 import { setAgentState, setSessionId } from '../store/tickets.js';
+import { stampHookActivity, liftStalledFixPark } from '../store/hookActivity.js';
 import { ticketIdForWorktreePath } from '../runtime/worktree.js';
 import type { AgentState } from '../model/types.js';
 import type { AgentProvider } from '../manifest/types.js';
@@ -665,6 +666,20 @@ export function dispatchHook(
   if (applyVerdict !== true) {
     observe(applyVerdict === 'foreign-project' ? 'foreign-project' : 'stale-generation');
     return { admitted: false };
+  }
+
+  // T1111: every accepted event, from every core, proves the session is alive.
+  // It is progress for the fix stall watchdog, and it lifts a stalled-fix park.
+  // Best-effort: a defect here may not change what a hook does.
+  try {
+    const at = nowIso();
+    stampHookActivity(store, ticketId, at);
+    if (liftStalledFixPark(store, ticketId, at)) {
+      debug?.(`[hook] ticket ${ticketId}: session active again, lifted the stalled-fix park`);
+      notify?.(ticketId, payload);
+    }
+  } catch (error) {
+    debug?.(`[hook] ticket ${ticketId}: hook activity not recorded: ${String(error)}`);
   }
 
   if (payload.hook_event_name === 'session.error') {

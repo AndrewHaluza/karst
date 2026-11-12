@@ -291,6 +291,8 @@ END_DOC_BLOCK: [@arch:CLOUD-01]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
+**Last hook activity (v119).** `tickets.last_hook_at TEXT NULL` holds the ISO time of the newest hook event that `dispatchHook` accepted for the ticket, for every core. Additive, NULL = none seen (no backfill). The fix stall watchdog counts it as progress, and a new hook event lifts a `FIX_PARKED_STALLED` park.
+
 **Autopilot CI round mark (v118).** `autopilot_tickets.ci_round_at INTEGER NULL` holds the epoch ms an Autopilot CI round was sent. Additive, NULL = none (no backfill). It lets the driver re-ship to open PRs without the Confirm click (`@arch:AP-00`).
 
 **Gate snapshot (v117).** `tickets.gate_snapshot TEXT NULL` holds the resolved gate names per stage the ticket's branch was cut with. Additive, NULL = no snapshot (no backfill). The rules live in `@arch:GATE-SNAPSHOT`.
