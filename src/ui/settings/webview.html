@@ -232,7 +232,7 @@
   .provselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .provselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
     background:var(--chevron) no-repeat center/var(--k-space-6)}
-  .provselect-menu{position:fixed;min-width:calc(var(--k-space-8) * 8);z-index:var(--k-z-drawer);
+  .provselect-menu{position:fixed;box-sizing:border-box;z-index:var(--k-z-drawer);
     background:var(--vscode-dropdown-background,var(--k-bg));
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
@@ -879,6 +879,8 @@
 
   /*KARST_AGENT_JS*/
 
+  // Shared popover placement (src/ui/shared/anchoredPopover.ts): the picker's menus use it. Defines karstAnchoredPopover.
+  /*KARST_ANCHORED_POPOVER_JS*/
   /*KARST_AGENT_PICKER_JS*/
 
   /*KARST_SETTINGS_APP*/

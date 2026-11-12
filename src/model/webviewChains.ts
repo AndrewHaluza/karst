@@ -28,6 +28,7 @@ import { injectProviderIdentity } from './providerIdentity.js';
 import { injectAgentPicker } from './agentPicker.js';
 import { injectServerLogsView } from './serverLogsView.js';
 import { injectWebviewSend } from './webviewSendInjector.js';
+import { injectAnchoredPopover } from './anchoredPopoverInjector.js';
 import { injectSettingsApp } from './settingsAppInjector.js';
 import { injectDashboardApp } from './dashboardAppInjector.js';
 import { injectResourcesApp } from './resourcesAppInjector.js';
@@ -58,10 +59,12 @@ type Chain = (html: string) => string;
 
 const DS_PALETTE: Chain = (html) => injectPalette(injectDesignSystem(html));
 
+// The picker's menus are position:fixed and placed by the shared popover placement bundle, so every view that
+// mounts the picker also receives that bundle (marker `/*KARST_ANCHORED_POPOVER_JS*/`, before the picker runtime).
 const DS_PALETTE_PROVIDER_AGENT_PICKER: Chain = (html) =>
   injectServerLogsView(
     injectAgentPicker(
-      injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(html)))),
+      injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(injectAnchoredPopover(html))))),
     ),
   );
 

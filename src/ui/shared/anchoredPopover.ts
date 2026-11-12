@@ -18,6 +18,11 @@ export interface PlacementInput {
   readonly trigger: Box;
   readonly popover: { readonly width: number; readonly height: number };
   readonly viewport: { readonly width: number; readonly height: number };
+  /**
+   * The part of the viewport an ancestor scroll container leaves visible to the trigger (a box in viewport
+   * coordinates). Omit it when no ancestor clips: the viewport itself is the clip.
+   */
+  readonly clip?: Box;
   readonly gutter?: number;
   readonly gap?: number;
 }
@@ -48,12 +53,13 @@ export function computePlacement(input: PlacementInput): Placement {
   const spaceAbove = trigger.top - gap - gutter;
   // A trigger with no layout box (display:none, not yet measurable) is not "scrolled out": leave the popover be.
   const unmeasured = trigger.width === 0 && trigger.height === 0;
+  const clip = input.clip ?? { left: 0, top: 0, width: viewport.width, height: viewport.height };
   const triggerVisible =
     unmeasured ||
-    trigger.top + trigger.height > 0 &&
-    trigger.top < viewport.height &&
-    trigger.left + trigger.width > 0 &&
-    trigger.left < viewport.width;
+    (trigger.top + trigger.height > clip.top &&
+      trigger.top < clip.top + clip.height &&
+      trigger.left + trigger.width > clip.left &&
+      trigger.left < clip.left + clip.width);
 
   const placed = placeOnSide({ left, width, height, belowTop, spaceBelow, spaceAbove, triggerTop: trigger.top, gutter, gap, triggerVisible });
   return triggerVisible ? placed : pinToViewport(placed, height, viewport.height, gutter);
@@ -94,8 +100,11 @@ function pinToViewport(p: Placement, height: number, viewportHeight: number, gut
 export interface AttachOptions {
   readonly popover: HTMLElement;
   readonly trigger: HTMLElement;
-  /** Preferred width in px (shrunk to fit the viewport). Omit to keep the popover's own width. */
-  readonly width?: number;
+  /**
+   * Preferred width in px (shrunk to fit the viewport), or `'trigger'` to match the trigger's own width on every
+   * placement (a select menu). Omit to keep the popover's own width.
+   */
+  readonly width?: number | 'trigger';
   /**
    * Called once per episode when the trigger is fully out of view; the owner may close the popover or keep it.
    * While the trigger stays out of view the popover is pinned inside the viewport.
@@ -108,20 +117,46 @@ function naturalHeight(popover: HTMLElement): number {
   return Math.max(popover.offsetHeight, popover.scrollHeight + popover.offsetHeight - popover.clientHeight);
 }
 
+/**
+ * The viewport box narrowed by every ancestor that clips its overflow (an `overflow` other than `visible` on
+ * either axis): a trigger scrolled out of such a container is hidden even while it is inside the viewport.
+ */
+export function visibleClip(trigger: HTMLElement, viewport: { width: number; height: number }): Box {
+  let left = 0;
+  let top = 0;
+  let right = viewport.width;
+  let bottom = viewport.height;
+  // The body's overflow propagates to the viewport, so the body never clips on its own.
+  for (let el = trigger.parentElement; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+    const cs = getComputedStyle(el);
+    const clips = (v: string): boolean => v !== '' && v !== 'visible';
+    if (!clips(cs.overflowX) && !clips(cs.overflowY)) continue;
+    const r = el.getBoundingClientRect();
+    left = Math.max(left, r.left);
+    top = Math.max(top, r.top);
+    right = Math.min(right, r.right);
+    bottom = Math.min(bottom, r.bottom);
+  }
+  return { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+}
+
 function place(opts: AttachOptions): boolean {
   const { popover, trigger } = opts;
   // A detached trigger has no layout box: leave the popover where it is, not at the top-left corner.
   if (!trigger.isConnected) return true;
   const r = trigger.getBoundingClientRect();
   // The cap is never cleared to measure: clearing it resets the popover's own scroll position to the top.
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const wanted = opts.width === 'trigger' ? r.width : opts.width;
   const p = computePlacement({
     trigger: { left: r.left, top: r.top, width: r.width, height: r.height },
-    popover: { width: opts.width ?? (popover.offsetWidth || 176), height: naturalHeight(popover) },
-    viewport: { width: window.innerWidth, height: window.innerHeight },
+    popover: { width: wanted ?? (popover.offsetWidth || 176), height: naturalHeight(popover) },
+    viewport,
+    clip: visibleClip(trigger, viewport),
   });
   popover.style.left = `${p.left}px`;
   popover.style.top = `${p.top}px`;
-  if (opts.width !== undefined) popover.style.width = `${p.width}px`;
+  if (wanted !== undefined) popover.style.width = `${p.width}px`;
   const cap = p.maxHeight === null ? '' : `${p.maxHeight}px`;
   if (popover.style.maxHeight !== cap) popover.style.maxHeight = cap;
   const overflow = p.maxHeight === null ? '' : 'auto';
@@ -151,7 +186,12 @@ export function attachAnchoredPopover(opts: AttachOptions): () => void {
   sync();
   window.addEventListener('scroll', schedule, true);
   window.addEventListener('resize', schedule);
+  // The popover's own height changes when its content does (a filter narrows a list, a form row appears):
+  // the flip side and the cap depend on the measured height, so the placement runs again.
+  const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+  observer?.observe(opts.popover);
   return () => {
+    observer?.disconnect();
     window.removeEventListener('scroll', schedule, true);
     window.removeEventListener('resize', schedule);
     if (frame !== null) cancelAnimationFrame(frame);

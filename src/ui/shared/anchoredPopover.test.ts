@@ -85,6 +85,28 @@ describe('computePlacement', () => {
   });
 });
 
+describe('computePlacement with an ancestor clip', () => {
+  it('reports the trigger hidden when it is inside the viewport but outside the clip box', () => {
+    const p = computePlacement({
+      trigger: box(20, 300, 30, 20),
+      popover: { width: 200, height: 100 },
+      viewport: VIEW,
+      clip: box(0, 0, 400, 200),
+    });
+    expect(p.triggerVisible).toBe(false);
+  });
+
+  it('reports the trigger visible when it overlaps the clip box', () => {
+    const p = computePlacement({
+      trigger: box(20, 190, 30, 20),
+      popover: { width: 200, height: 100 },
+      viewport: VIEW,
+      clip: box(0, 0, 400, 200),
+    });
+    expect(p.triggerVisible).toBe(true);
+  });
+});
+
 describe('attachAnchoredPopover', () => {
   function setup(triggerTop: number) {
     const trigger = document.createElement('button');
@@ -226,6 +248,57 @@ describe('attachAnchoredPopover', () => {
     frame();
     expect([popover.style.top, popover.style.left]).toEqual(['124px', '20px']);
     expect(hidden).not.toHaveBeenCalled();
+    restore();
+  });
+
+  it('calls onTriggerHidden when an ancestor scroll container clips the trigger while it is inside the viewport', () => {
+    stubFrames();
+    const { trigger, popover, move } = setup(100);
+    const scroller = document.createElement('div');
+    scroller.style.overflowY = 'auto';
+    document.body.append(scroller);
+    scroller.append(trigger);
+    scroller.getBoundingClientRect = () => ({ left: 0, top: 50, right: 400, bottom: 250, width: 400, height: 200, x: 0, y: 50, toJSON: () => ({}) });
+    const hidden = vi.fn();
+    attachAnchoredPopover({ popover, trigger, width: 200, onTriggerHidden: hidden });
+    expect(hidden).not.toHaveBeenCalled();
+    move(400);
+    scroller.dispatchEvent(new Event('scroll'));
+    frame();
+    expect(hidden).toHaveBeenCalledTimes(1);
+    restore();
+  });
+
+  it('places again when the popover content changes its height', () => {
+    stubFrames();
+    let notify: () => void = () => undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          notify = cb;
+        }
+        observe(): void {}
+        disconnect(): void {}
+      },
+    );
+    const { trigger, popover } = setup(450);
+    const height = { value: 100 };
+    Object.defineProperty(popover, 'offsetHeight', { configurable: true, get: () => height.value });
+    attachAnchoredPopover({ popover, trigger, width: 200, onTriggerHidden: () => undefined });
+    expect(popover.style.top).toBe('474px');
+    height.value = 200;
+    notify();
+    frame();
+    expect(popover.style.top).toBe(`${450 - 4 - 200}px`);
+    restore();
+  });
+
+  it("matches the trigger's width on every placement when width is 'trigger'", () => {
+    stubFrames();
+    const { trigger, popover } = setup(100);
+    attachAnchoredPopover({ popover, trigger, width: 'trigger', onTriggerHidden: () => undefined });
+    expect(popover.style.width).toBe('30px');
     restore();
   });
 });

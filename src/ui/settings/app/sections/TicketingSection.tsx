@@ -572,7 +572,7 @@ function ProviderPicker({
     triggerRef.current?.focus();
   }, []);
   useDismiss({ active: open, onClose: close, refs: [menuRef, triggerRef] });
-  useAnchoredPopover(open, menuRef, triggerRef, () => setOpen(false));
+  useAnchoredPopover(open, menuRef, triggerRef, () => setOpen(false), 'trigger');
   const options = (): HTMLElement[] => [...(menuRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])];
   // Vanilla parity: opening lands on the selected option (or the first).
   useEffect(() => {

@@ -16,6 +16,10 @@ const SURFACES: ReadonlyArray<readonly [file: string, selector: string]> = [
   ['src/ui/dashboard/app/WorktreesPanel.css', '.wbase-popover'],
   ['src/ui/sidebar/webview.html', '.filter-pop'],
   ['src/ui/settings/webview.html', '.provselect-menu'],
+  ['src/ui/ticketForm/webview.html', '.repo-pop'],
+  ['src/ui/ticketForm/webview.html', '.searchmenu'],
+  ['src/ui/ticketForm/webview.html', '.approach-pop'],
+  ['src/model/agentPicker.webview.css', '.ap-menu'],
 ];
 
 function declarations(file: string, selector: string): string {

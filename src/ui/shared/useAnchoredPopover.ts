@@ -7,7 +7,7 @@ export function useAnchoredPopover(
   popoverRef: RefObject<HTMLElement | null>,
   triggerRef: RefObject<HTMLElement | null>,
   onTriggerHidden: () => void,
-  width?: number,
+  width?: number | 'trigger',
 ): void {
   const hidden = useRef(onTriggerHidden);
   hidden.current = onTriggerHidden;
