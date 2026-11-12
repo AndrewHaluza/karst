@@ -179,6 +179,12 @@ export interface ShipOpts {
    * commits.
    */
   deliverToOpenPr?: boolean;
+  /**
+   * The base-moved check run before each push (D541, @arch:GATE-REPEAT): the host merges the branch with the current
+   * base and gates that merge, because CI tests it. Null = push; else the CI reason, and the push does not run. The step
+   * fails with that reason and the ticket stays at ship. Absent → no check.
+   */
+  checkBase?: (target: { repo: string; cwd: string; branch: string }) => Promise<string | null>;
   /** Waits `ms` before the one push retry after a GitHub server error. Absent → a real timer; tests inject a fake. */
   wait?: (ms: number) => Promise<void>;
 }
@@ -1351,6 +1357,8 @@ export async function shipTicket(
           const lease = took && preRemoteHead ? { ref, expected: preRemoteHead } : undefined;
           let diverged: { originSha: string; commits: ForeignCommit[] } | undefined;
           try {
+            const baseFailure = (await opts.checkBase?.({ repo: wt.repo, cwd: wt.path, branch: ref })) ?? null;
+            if (baseFailure !== null) throw new Error(baseFailure);
             try {
               await pushWithServerErrorRetry(
                 git,

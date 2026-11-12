@@ -16,22 +16,22 @@ const state = (dir: string, name: string, body: unknown, mtime: number): void =>
 };
 
 describe('readLastGreenBase', () => {
-  it('is null when no gate state exists', () => {
-    expect(readLastGreenBase(mkdtempSync(join(tmpdir(), 'base-moved-')))).toBeNull();
+  it('is null when no gate state exists', async () => {
+    expect(await readLastGreenBase(mkdtempSync(join(tmpdir(), 'base-moved-')))).toBeNull();
   });
-  it('reads the base of the newest clean state', () => {
+  it('reads the base of the newest clean state', async () => {
     const dir = gitDir();
     state(dir, 'old', { version: 1, clean: true, base: 'a'.repeat(40) }, 1000);
     state(dir, 'new', { version: 1, clean: true, base: 'b'.repeat(40) }, 2000);
-    expect(readLastGreenBase(dir)).toBe('b'.repeat(40));
+    expect(await readLastGreenBase(dir)).toBe('b'.repeat(40));
   });
-  it('ignores a state that was not clean, unreadable, or has no base', () => {
+  it('ignores a state that was not clean, unreadable, or has no base', async () => {
     const dir = gitDir();
     state(dir, 'red', { version: 1, clean: false, base: 'c'.repeat(40) }, 3000);
     state(dir, 'junk', '{not json', 3000);
     state(dir, 'nobase', { version: 1, clean: true }, 3000);
     state(dir, 'green', { version: 1, clean: true, base: 'd'.repeat(40) }, 1000);
-    expect(readLastGreenBase(dir)).toBe('d'.repeat(40));
+    expect(await readLastGreenBase(dir)).toBe('d'.repeat(40));
   });
 });
 

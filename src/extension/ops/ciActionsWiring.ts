@@ -313,6 +313,22 @@ export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, p
   return null;
 }
 
+/**
+ * The `checkBase` seam of the ship stage (D541): every push of the saga (first push, re-ship, manual Deliver) runs the
+ * base-moved check first. `settled` flushes the gate console after the check.
+ */
+export function shipBaseCheck(
+  i: CiActionsInput, gate: ShipGatesDeps, settled: () => void,
+): (t: { repo: string; cwd: string; branch: string }) => Promise<string | null> {
+  return async (t) => {
+    try {
+      return await baseMovedFailure(i, gate, { repo: t.repo, number: null, branch: t.branch, cwd: t.cwd }, new AbortController().signal);
+    } finally {
+      settled();
+    }
+  };
+}
+
 /** Karst's own delivery of a resolved merge conflict, run when the Resolve-conflicts session goes idle (D247). */
 export function autoDeliverAction(
   i: CiActionsInput,

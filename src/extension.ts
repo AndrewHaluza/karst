@@ -61,7 +61,7 @@ import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import type { ShipGatesDeps } from './extension/ops/shipGatesOps.js';
-import { autoDeliverAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import { autoDeliverAction, shipBaseCheck, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { sendBackBriefForTicket } from './extension/ops/sendBackBriefForTicket.js';
@@ -2938,6 +2938,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     confirm: async (title, detail, action) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, action)) === action,
     info: (m) => void vscode.window.showInformationMessage(m), error: (m) => void vscode.window.showErrorMessage(m),
   });
+  /** The CI-actions input of a ticket: the auto-deliver and the ship-stage base check share it. */
+  const ciInput = (ticketId: number): CiActionsInput => ({
+    ...ciHost(ticketId), store: localStore, ticketId, logError, debug: (m) => logger.debug(m),
+    drive: () => maybeDrive(ticketId, 'stage-resume'),
+    afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); },
+  });
   let serverLifecycleDeps!: ServerLifecycleDeps;
   const usageLimitParks = createUsageLimitParkBinding({
     store: localStore, notify: vscodeNotify, catalog: () => modelCatalog, manifest: currentManifest, redrive: (id) => maybeDrive(id, 'stage-resume'), refresh: (id) => dashboard.pushState(id),
@@ -3896,7 +3902,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     maybeDrive(ticketId, 'hook');
     if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) {
       const gate = shipGateDeps(ticketId);
-      const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
+      const input = ciInput(ticketId);
       gateConsole.reset(ticketId, 'ship');
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e)).finally(() => gateConsole.flush(ticketId, 'ship'));
     }
@@ -5714,6 +5720,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         syncParent: (pid) => sandboxLife.ensureInSync(pid, false), prDescriptionProcess: prDescriptionProcess(ticketId),
         ...(shipOpts.repos ? { repos: shipOpts.repos } : {}),
         ...(deliverToOpenPr ? { deliverToOpenPr: true } : {}),
+        // D541: CI tests the branch merged with the current base, so every push tests that merge first.
+        checkBase: shipBaseCheck(ciInput(ticketId), shipGateDeps(ticketId), () => gateConsole.flush(ticketId, 'ship')),
       },
       undefined,
       undefined,

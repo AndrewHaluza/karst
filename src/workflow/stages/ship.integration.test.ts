@@ -3690,6 +3690,49 @@ setTimeout(() => {
       expect(calls.some((args) => args[0] === 'push')).toBe(true);
     });
 
+    it('checkBase failure (D541): the push never runs and the step reads the CI reason', async () => {
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'left.txt'), 'work');
+      seedLivePr('/repo/frontend');
+      const calls: string[][] = [];
+      const reason = 'fails when merged with origin/develop abcdef123; CI tests this merge — gate "test" failed';
+      const seen: string[] = [];
+
+      await expect(
+        shipTicket(
+          store,
+          { ticketId: id, deliverToOpenPr: true, checkBase: async (t) => { seen.push(t.repo); return reason; } },
+          fakeGh().gh,
+          fakeAdapter(),
+          dirtyRealRepo(calls),
+        ),
+      ).rejects.toThrow(reason);
+
+      expect(seen).toEqual(['/repo/frontend']);
+      expect(calls.some((args) => args[0] === 'push')).toBe(false);
+    });
+
+    it('checkBase passing (D541): the push runs as today', async () => {
+      const worktree = join(dir, 'fe');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+      await initRealRepo(worktree);
+      writeFileSync(join(worktree, 'left.txt'), 'work');
+      seedLivePr('/repo/frontend');
+      const calls: string[][] = [];
+
+      await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true, checkBase: async () => null },
+        fakeGh().gh,
+        fakeAdapter(),
+        dirtyRealRepo(calls),
+      );
+
+      expect(calls.some((args) => args[0] === 'push')).toBe(true);
+    });
+
     it('deliverToOpenPr, live PR: never calls gh pr create', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
       seedLivePr('/repo/frontend');

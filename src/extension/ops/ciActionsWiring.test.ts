@@ -9,7 +9,7 @@ import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
-import { autoDeliverAction, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
+import { autoDeliverAction, shipBaseCheck, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
 let store: Store;
@@ -841,5 +841,26 @@ describe('deliverBlockedPrompt: sandbox CLI unknown (arch:AC-39)', () => {
     expect(warn.mock.calls[0]![0]).toMatch(/sbx CLI not runnable.*PATH.*Nothing was pushed/);
     expect(warn.mock.calls[0]!.slice(1)).toEqual([]);
     expect(open).not.toHaveBeenCalled();
+  });
+});
+
+describe('shipBaseCheck (D541)', () => {
+  const gate = { runProcess: undefined, debug: () => {}, gateEnv: () => ({ prBody: '', baseRef: 'develop' }) } as never;
+  const target = { repo: 'r', cwd: '/w/r', branch: 'b' };
+
+  it('lets the push run (null) and flushes the gate console when the check cannot run', async () => {
+    const git = vi.fn(async () => ({ stdout: '', stderr: 'no remote', exitCode: 128 })) as CiActionsInput['git'];
+    const settled = vi.fn();
+    const i = input({ git });
+    expect(await shipBaseCheck(i, gate, settled)(target)).toBeNull();
+    expect(settled).toHaveBeenCalledOnce();
+    expect(i.debug).toHaveBeenCalledWith(expect.stringMatching(/base-moved check not run/));
+  });
+
+  it('runs nothing when the gate env names no base', async () => {
+    const git = vi.fn(async () => ({ stdout: '', stderr: '', exitCode: 0 })) as CiActionsInput['git'];
+    const noBase = { debug: () => {}, gateEnv: () => ({ prBody: '' }) } as never;
+    expect(await shipBaseCheck(input({ git }), noBase, vi.fn())(target)).toBeNull();
+    expect(git).not.toHaveBeenCalled();
   });
 });

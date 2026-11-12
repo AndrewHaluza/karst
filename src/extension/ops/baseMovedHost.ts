@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -15,11 +16,11 @@ const STATE_VERSION = 1;
  * The merge base the newest CLEAN gate state saw, or null. `gitDir` is the git directory of the ticket worktree.
  * A state that is unreadable, not clean or without a base is ignored: not knowing means "no baseline".
  */
-export function readLastGreenBase(gitDir: string): string | null {
+export async function readLastGreenBase(gitDir: string): Promise<string | null> {
   const dir = join(gitDir, STATE_DIR);
   let names: string[];
   try {
-    names = readdirSync(dir).filter((n) => n.endsWith('.json'));
+    names = (await readdir(dir)).filter((n) => n.endsWith('.json'));
   } catch {
     return null;
   }
@@ -27,11 +28,11 @@ export function readLastGreenBase(gitDir: string): string | null {
   for (const name of names) {
     const path = join(dir, name);
     try {
-      const state: unknown = JSON.parse(readFileSync(path, 'utf8'));
+      const state: unknown = JSON.parse(await readFile(path, 'utf8'));
       if (typeof state !== 'object' || state === null) continue;
       const s = state as { version?: unknown; clean?: unknown; base?: unknown };
       if (s.version !== STATE_VERSION || s.clean !== true || typeof s.base !== 'string' || s.base === '') continue;
-      const mtime = statSync(path).mtimeMs;
+      const mtime = (await stat(path)).mtimeMs;
       if (best === null || mtime > best.mtime) best = { base: s.base, mtime };
     } catch {
       continue;
