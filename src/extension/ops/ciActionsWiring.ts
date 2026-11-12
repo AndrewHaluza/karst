@@ -11,10 +11,12 @@ import { rebaseState } from '../../workflow/rebaseState.js';
 import { sendCiFailureToAgent } from './ciFailureOps.js';
 import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
-import { deliverTargets } from '../../workflow/deliverState.js';
+import { deliverTargets, type DeliverPr } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
-import { autoDeliverAfterConflict, conflictRounds, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps } from './autoDeliverOps.js';
-import { takeOverDeliverRun } from '../../store/deliverRuns.js';
+import { checkBaseMoved } from './baseMovedCheck.js';
+import { baseCheckParent, readLastGreenBase, seedMergedState } from './baseMovedHost.js';
+import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
+import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
 import { formatId } from '../../model/entityId.js';
 import { nowIso } from '../../model/time.js';
@@ -33,6 +35,8 @@ export interface CiActionsInput {
     hasUnsynced(ticketId: number): Promise<boolean>;
     /** The sandbox clone's branch fetched into the worktree at `cwd`; the ref, or null (no sandbox / unreadable). */
     cloneRef(ticketId: number, cwd: string): Promise<string | null>;
+    /** Whether the ticket has a sandbox; reads the sandbox list only, never fetches into the worktree. */
+    hasSandbox(ticketId: number): Promise<boolean>;
     /** Sandbox → host, fast-forward only. */
     ensureSynced(ticketId: number): Promise<EnsureSyncResult>;
     recreateNoSync(ticketId: number): Promise<void>;
@@ -48,6 +52,8 @@ export interface CiActionsInput {
   readonly handOff: (prompt: string) => string | null;
   readonly deliver: DeliverHost;
   readonly afterServerChange: () => void;
+  /** Retake the ticket's gate snapshot after a successful rebase on base (@arch:GATE-SNAPSHOT). */
+  readonly retakeGateSnapshot?: () => Promise<void>;
 }
 
 /** Runs a repo-declared generator through the shell; async so the extension host never blocks. */
@@ -61,7 +67,7 @@ export function runShellCommand(cwd: string, command: string): Promise<{ code: n
 }
 
 /** The host-specific half of `CiActionsInput` (everything `extension.ts` binds to vscode, gh, git and the sandbox). */
-export type CiHost = Pick<CiActionsInput, 'gh' | 'git' | 'artifactDir' | 'sandbox' | 'reprobe' | 'confirm' | 'info' | 'error' | 'deliver' | 'handOff'>;
+export type CiHost = Pick<CiActionsInput, 'gh' | 'git' | 'artifactDir' | 'sandbox' | 'reprobe' | 'confirm' | 'info' | 'error' | 'deliver' | 'handOff' | 'retakeGateSnapshot'>;
 
 export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
   return sendCiFailureToAgent({
@@ -115,6 +121,7 @@ export async function rebaseOnBaseAction(
         sandboxUnsynced: () => i.sandbox.hasUnsynced(i.ticketId),
         preShip: pr.preShip === true,
         requireMove: auto !== undefined,
+        onRebased: i.retakeGateSnapshot,
         armLease: pr.number === null ? undefined : () => armForcePushLease(i.store, i.ticketId, pr.repo),
         prHeadSha: async () => {
           if (pr.number === null) throw new Error('no pull request to read');
@@ -154,6 +161,11 @@ export interface DeliverHost {
   /** The sync blocker prompt (Open sync diff / Carry). */
   readonly blocked: (reason: string, rewritten: boolean, cliUnknown?: boolean) => Promise<void>;
   readonly tracker: UndeliveredTracker;
+  /**
+   * The ship gate deps of this ticket (manifest `uat`, sandbox process runners, gate env, console output). The re-run
+   * of the gates a manual Deliver skipped uses them (D540). Absent → no re-run. `settled` runs when the re-run ends.
+   */
+  readonly shipGates?: () => { readonly deps: ShipGatesDeps; readonly settled?: () => void };
 }
 
 /** The HEAD sha of a worktree, or null when git cannot read it. */
@@ -193,18 +205,82 @@ function postTakeOverNote(i: CiActionsInput, title: string, body: string): void 
  */
 export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   const h = i.deliver;
+  const key = getTicket(i.store, i.ticketId).key ?? formatId('ticket', i.ticketId);
+  const endPush = beginManualPush(i.ticketId); // no re-run starts while this push is in flight
+  let skipped: readonly string[] | null = null;
   const taken = takeOverAutoDeliver(i.ticketId, {
     rounds: conflictRounds,
-    key: getTicket(i.store, i.ticketId).key ?? formatId('ticket', i.ticketId),
-    recordTakeOver: () => takeOverDeliverRun(i.store, i.ticketId, nowIso()),
+    key,
+    recordTakeOver: () => {
+      const t = takeOverDeliverRun(i.store, i.ticketId, nowIso());
+      skipped = t?.skipped ?? null;
+      return t;
+    },
     note: (title, body) => postTakeOverNote(i, title, body),
   });
   if (taken === 'pushing') {
+    endPush();
     i.info('Deliver to PR: the auto-deliver pushes now; nothing more to do.');
     i.afterServerChange();
     return;
   }
-  await deliverToPr({
+  let outcome: Awaited<ReturnType<typeof deliverToPr>>;
+  try {
+    outcome = await pushToPr(i);
+  } finally {
+    endPush();
+  }
+  // A click that pushed nothing leaves a running re-run alone. A delivered push makes a newer head: the older re-run stops.
+  if (outcome.kind !== 'delivered') return;
+  const rerun = (async () => {
+    await supersedeRerun(i.ticketId);
+    // D506: the push went at once. D540: the gates it skipped run now, on the pushed head, in the background.
+    if (taken === 'taken-over') await rerunAfterTakeOver(i, key, skipped ?? []);
+  })();
+  void rerun.catch((e: unknown) => i.logError('skipped-gate re-run after a take-over failed', e));
+}
+
+/** The ship gates a manual Deliver skipped, run on the pushed head and recorded as an `after-take-over` run (D540). */
+async function rerunAfterTakeOver(i: CiActionsInput, key: string, skipped: readonly string[]): Promise<void> {
+  const seam = i.deliver.shipGates?.();
+  if (seam === undefined) return;
+  try {
+    await rerunSkippedGates({
+      ticketId: i.ticketId, key, skipped,
+      agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
+      note: (title, body) => postTakeOverNote(i, title, body),
+      log: (m) => i.debug(m),
+      refused: (why) => i.info(`Deliver to PR: the skipped gates did not run after the push: ${why}.`),
+      runGates: async (gates, signal): Promise<RerunResult> => {
+        const targets = deliverTargets(i.store, i.ticketId);
+        if (!targets.available || signal.aborted) return { kind: 'stopped', headSha: null }; // an aborted re-run opens no run: it would close the newer one
+        let runId: number | null = null;
+        const failure = await runShipGates(targets.prs, {
+          ...seam.deps, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId },
+          headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange, only: gates, kind: 'after-take-over', onRunOpened: (id) => { runId = id; },
+        });
+        const run = runId === null ? null : getDeliverRun(i.store, runId);
+        if (signal.aborted) return { kind: 'stopped', headSha: run?.headSha ?? null };
+        const first = targets.prs[0];
+        const headSha = run?.headSha ?? (first === undefined ? null : await headShaOf(i, first.cwd));
+        if (failure === null) return { kind: 'passed', headSha };
+        // No run row: a gate could not be resolved before the run opened; the note names that reason.
+        const failedGates = run === null
+          ? []
+          : listDeliverResults(i.store, i.ticketId).filter((r) => r.runId === run.id && r.exitCode !== null && r.exitCode !== 0).map((r) => r.gateName);
+        // A failure with no non-zero exit code (a gate that could not run) still names its reason.
+        return { kind: 'failed', headSha, failed: failedGates.length === 0 ? [failure] : failedGates };
+      },
+    });
+  } finally {
+    seam.settled?.();
+    i.afterServerChange();
+  }
+}
+
+function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
+  const h = i.deliver;
+  return deliverToPr({
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
@@ -216,6 +292,67 @@ export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
     },
     info: i.info, error: i.error, logError: i.logError, afterServerChange: i.afterServerChange,
   });
+}
+
+/** True when the ticket has a sandbox clone (or its state cannot be read: then the check is skipped, never wrong). */
+async function inSandbox(i: Pick<CiActionsInput, 'sandbox' | 'ticketId' | 'debug'>): Promise<boolean> {
+  try {
+    return await i.sandbox.hasSandbox(i.ticketId);
+  } catch (err) {
+    i.debug(`[ship] sandbox lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+    return true;
+  }
+}
+
+/**
+ * The base-moved check of one PR before its push (D541): the branch merged with the current base, gated in a temporary
+ * worktree and recorded as a `base-moved` run. Null = nothing stops the push (base unchanged, no earlier green run,
+ * conflict (the merge-check path owns it), not checkable); else the CI reason.
+ */
+export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, pr: DeliverPr, signal: AbortSignal): Promise<string | null> {
+  const baseRef = gate.gateEnv?.(pr).baseRef;
+  if (baseRef === undefined) return null;
+  // A sandboxed ticket's gates run in its sandbox clone, which cannot see the host worktree of the merge: they would
+  // test the branch alone and report a false pass for the merge. No verdict is better than a wrong one (@arch:AC-39).
+  if (await inSandbox(i)) {
+    i.debug('[ship] base-moved check not run: the ticket has a sandbox, whose gates cannot see the merged worktree');
+    return null;
+  }
+  const gitDir = await i.git(['rev-parse', '--path-format=absolute', '--git-dir'], pr.cwd);
+  const dir = gitDir.stdout.trim();
+  const outcome = await checkBaseMoved({
+    git: i.git, cwd: pr.cwd, baseRef, debug: (m) => i.debug(m),
+    lastGreenBase: async () => (gitDir.exitCode === 0 && dir !== '' ? readLastGreenBase(dir) : null),
+    worktreeParent: baseCheckParent,
+    seedState: async ({ mergedCwd, baseSha }) => {
+      const merged = await i.git(['rev-parse', '--path-format=absolute', '--git-dir'], mergedCwd);
+      if (gitDir.exitCode !== 0 || dir === '' || merged.exitCode !== 0 || merged.stdout.trim() === '') return;
+      await seedMergedState(dir, merged.stdout.trim(), baseSha);
+    },
+    runGates: (merged) => runShipGates([{ ...pr, cwd: merged.cwd }], {
+      ...gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: async () => merged.sha,
+      onProgress: i.afterServerChange, uiChanged: merged.uiChanged, kind: 'base-moved',
+    }),
+  });
+  if (outcome.kind === 'failed') return outcome.reason;
+  if (outcome.kind === 'unknown') i.debug(`[ship] base-moved check not run: ${outcome.reason}`);
+  return null;
+}
+
+/**
+ * The `checkBase` seam of the ship stage (D541): every push of the saga (first push, re-ship, manual Deliver) runs the
+ * base-moved check first. `settled` flushes the gate console after the check.
+ */
+export function shipBaseCheck(
+  i: CiActionsInput, gate: ShipGatesDeps, settled: () => void,
+): (t: { repo: string; cwd: string; branch: string }) => Promise<string | null> {
+  return async (t) => {
+    try {
+      return await baseMovedFailure(i, gate, { repo: t.repo, number: null, branch: t.branch, cwd: t.cwd }, new AbortController().signal);
+    } finally {
+      settled();
+    }
+  };
 }
 
 /** Karst's own delivery of a resolved merge conflict, run when the Resolve-conflicts session goes idle (D247). */
@@ -232,6 +369,7 @@ export function autoDeliverAction(
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
+    checkBase: (pr, signal) => baseMovedFailure(i, extra.gate, pr, signal),
     verifyMerge: (pr, round) => verifyMergeResolved(gitFor(i), pr.cwd, round),
     blocked: h.blocked,
     runShip: h.runShip,

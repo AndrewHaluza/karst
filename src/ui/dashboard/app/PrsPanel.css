@@ -137,7 +137,7 @@
 .prsn-warn .prsn-icon{color:var(--k-attention)}
 .prsn-run .prsn-icon{color:var(--k-warning)}
 .prsn-ok .prsn-icon{color:var(--k-success)}
-.prsn-text{flex:1;min-width:0;overflow-wrap:anywhere}
+.prsn-text{flex:1;min-width:0;overflow-wrap:anywhere;display:flex;flex-wrap:wrap;align-items:baseline}
 .prsn-label{font-weight:var(--k-weight-semibold)}
 .prsn-detail{margin-left:var(--k-space-3);color:var(--k-text-dim)}
 .prsn-extra,.prsn-note{margin:var(--k-space-1) 0 0 calc(var(--k-space-6) - var(--k-space-1));color:var(--k-text-dim);font-size:var(--k-text-xs)}

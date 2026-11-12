@@ -401,6 +401,9 @@
   "src/extension/ops/autoDeliverOps.ts": [
     "arch:AP-01"
   ],
+  "src/extension/ops/autoReship.ts": [
+    "arch:AP-06"
+  ],
   "src/extension/ops/autopilotCommandOps.ts": [
     "arch:AP-00"
   ],
@@ -421,6 +424,12 @@
   ],
   "src/extension/ops/autopilotWiring.ts": [
     "arch:AP-00"
+  ],
+  "src/extension/ops/baseMovedCheck.ts": [
+    "arch:GATE-REPEAT"
+  ],
+  "src/extension/ops/baseMovedHost.ts": [
+    "arch:GATE-REPEAT"
   ],
   "src/extension/ops/ciActionsWiring.ts": [
     "arch:AP-05"
@@ -729,7 +738,8 @@
   ],
   "src/store/autopilot.ts": [
     "arch:AP-00",
-    "arch:AP-03"
+    "arch:AP-03",
+    "arch:AP-06"
   ],
   "src/store/autostart.ts": [
     "arch:AP-01"

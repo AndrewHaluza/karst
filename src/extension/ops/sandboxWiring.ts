@@ -387,6 +387,18 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const result = await runner.diff({ hostWorktreePath: cwd, branch });
       return result.ok ? result.ref : null;
     },
+    /** Does the ticket have a sandbox? Reads the sandbox list only: no fetch, nothing in the host worktree. Unreadable counts as yes. */
+    hasSandbox: async (ticketId: number): Promise<boolean> => {
+      if (recordedHost(ticketId)) return false;
+      const { d, t } = await manualDeps(ticketId);
+      const runner = sandboxRunnerFor(d, t.core, ticketId);
+      if (runner === undefined) return false;
+      try {
+        return (await runner.hasSandbox?.()) ?? true;
+      } catch {
+        return true;
+      }
+    },
     /** "Rebase on base": recreate the clone from the rebased branch (no pre-remove sync), then reopen. Throws on failure. */
     recreateNoSync: async (ticketId: number): Promise<void> => {
       const { d, t } = await manualDeps(ticketId);

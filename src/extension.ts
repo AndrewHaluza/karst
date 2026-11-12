@@ -60,7 +60,8 @@ import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
 import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
-import { autoDeliverAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import type { ShipGatesDeps } from './extension/ops/shipGatesOps.js';
+import { autoDeliverAction, shipBaseCheck, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { sendBackBriefForTicket } from './extension/ops/sendBackBriefForTicket.js';
@@ -79,6 +80,7 @@ import { DashboardManager } from './ui/dashboard/panel.js';
 import { makeDashboardPanelHost } from './ui/dashboard/host.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
+import { takeGateSnapshot } from './extension/ops/gateSnapshotOps.js';
 import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
 import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
@@ -409,6 +411,8 @@ import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
 import { DriverController, shouldStartDriverOn, ticketsToSweep } from './workflow/driverController.js';
+import { reshipAtShipConfirm } from './extension/ops/autoReship.js';
+import { clearCiRound } from './store/autopilot.js';
 import { shipTicket as runShipTicket, hasCompletedShipRun } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent } from './model/inside/progress.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
@@ -2922,14 +2926,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(storedArtifacts);
   const undelivered = createUndeliveredTracker();
   const sessionSeams = (ticketId: number) => ({ isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op', nudge: (prompt: string) => sessions.nudge(ticketId, prompt), focus: () => sessions.focusSession(ticketId), open: (seedPrompt: string, seedRepo: string) => launches.open(ticketId, seedPrompt, seedRepo) });
+  // @arch:GATE-SNAPSHOT: a ticket's gate set is captured once its worktrees exist and retaken after "Rebase on base".
+  const gateSnapshotDeps = { store: localStore, manifest: currentManifest, debug: (m: string) => logger.debug(m) };
+  const spinWithGateSnapshot: typeof spinTicket = async (...args) => {
+    const result = await spinTicket(...args);
+    void takeGateSnapshot(gateSnapshotDeps, args[2], { onlyIfMissing: true });
+    return result;
+  };
+  /** The ship gate deps of a ticket: the auto-deliver and the re-run of the gates a manual Deliver skipped share them (D540). */
+  const shipGateDeps = (ticketId: number): ShipGatesDeps => ({
+    uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m),
+    onOutput: (g: string, c: GateOutputChunk) => gateConsole.append(ticketId, 'ship', g, c),
+    gateEnv: (pr: { repo: string }) => { const m = currentManifest(); return { prBody: renderCitationText(listArchCitations(localStore, ticketId)), ...(m ? { baseRef: resolveTicketBaseRef(localStore, ticketId, pr.repo, m) } : {}) }; },
+  });
   const ciHost = (ticketId: number): CiHost => ({
+    retakeGateSnapshot: async () => { await takeGateSnapshot(gateSnapshotDeps, ticketId); },
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), ...sessionSeams(ticketId) }),
-    deliver: { tracker: undelivered, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
+    deliver: { tracker: undelivered, shipGates: () => { gateConsole.reset(ticketId, 'ship'); return { deps: shipGateDeps(ticketId), settled: () => gateConsole.flush(ticketId, 'ship') }; }, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
     gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
     reprobe: async () => { await runPrSync(true); },
     confirm: async (title, detail, action) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, action)) === action,
     info: (m) => void vscode.window.showInformationMessage(m), error: (m) => void vscode.window.showErrorMessage(m),
+  });
+  /** The CI-actions input of a ticket: the auto-deliver and the ship-stage base check share it. */
+  const ciInput = (ticketId: number): CiActionsInput => ({
+    ...ciHost(ticketId), store: localStore, ticketId, logError, debug: (m) => logger.debug(m),
+    drive: () => maybeDrive(ticketId, 'stage-resume'),
+    afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); },
   });
   let serverLifecycleDeps!: ServerLifecycleDeps;
   const usageLimitParks = createUsageLimitParkBinding({
@@ -2937,7 +2961,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     withDriverRun: driverLockedRun(driver), // same single-flight lock + Stop signal as a stage run
     adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
     assignmentFor: (ticketId, stageKey, provider, model) => processFor(ticketId, stageKey === 'review' ? 'review' : 'uat-tester', { provider, model })?.assignment,
-    artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), projectId: () => currentProject()?.id, spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), // D155/AC-32: a parked re-run boots inside the SANDBOX, sees the sandbox's tree and verifies there — exactly like the stage (never a host stack or host worktree under a sandbox row)
+    artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), projectId: () => currentProject()?.id, spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), // D155/AC-32: a parked re-run boots inside the SANDBOX, sees the sandbox's tree and verifies there — exactly like the stage (never a host stack or host worktree under a sandbox row)
     cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
   });
   const stall = createStallBinding({ store: localStore, git: defaultGitRunner, manifest: currentManifest, processFor: (id) => processFor(id, 'stall-suggestion'), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, startPlanning: (t, k) => planning.create(t, k), debug: (m) => logger.debug(m) }); // T1001
@@ -3543,8 +3567,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // A new run's first gate re-announces itself in the console, rather than
     // continuing under the previous run's last gate header.
     gateConsole.resetTicket(ticketId);
+    let outcome: Awaited<ReturnType<typeof driveTicketRun>> | null = null;
     try {
-      await driveTicketRun(
+      outcome = await driveTicketRun(
         {
           store: localStore,
           manifest: currentManifest, hostContext: () => `manifest ${cliEntryAndManifest(context).manifestPath ?? 'unknown'}, project ${currentProject()?.slug ?? 'unknown'}`,
@@ -3630,7 +3655,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
+          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
@@ -3664,6 +3689,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // A ticket that parked as review-stalled gets its written suggestion now (T1001).
       void stall.service.ensure(ticketId);
     }
+    // After a CI round the PRs already exist: the ship boundary needs no click (T1095, @arch:AP-06).
+    void reshipAtShipConfirm(outcome, {
+      store: localStore, ticketId, key: formatId('ticket', ticketId), config: () => currentManifest()?.autopilot,
+      controls: () => autopilot.controlsTicket(ticketId), projectId: () => currentProject()?.id,
+      preview: () => makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync)(ticketId),
+      ship: (o) => runShipSaga(ticketId, false, o), debug: (m) => logger.debug(m), warn: (m) => logger.warn(m), error: logError,
+    });
   }
 
   // A failed gate parks the ticket at `fix` with nothing running: karst never
@@ -3888,9 +3920,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dashboard.pushStoreState(ticketId);
     maybeDrive(ticketId, 'hook');
     if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) {
-      const gate = { uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m), onOutput: (g: string, c: GateOutputChunk) => gateConsole.append(ticketId, 'ship', g, c),
-        gateEnv: (pr: { repo: string }) => { const m = currentManifest(); return { prBody: renderCitationText(listArchCitations(localStore, ticketId)), ...(m ? { baseRef: resolveTicketBaseRef(localStore, ticketId, pr.repo, m) } : {}) }; } };
-      const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
+      const gate = shipGateDeps(ticketId);
+      const input = ciInput(ticketId);
       gateConsole.reset(ticketId, 'ship');
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e)).finally(() => gateConsole.flush(ticketId, 'ship'));
     }
@@ -5693,6 +5724,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // uncommitted in the worktree and pushes it to a branch under human review.
     // So the sweep delivers only while a ship-sourced recovery round is live —
     // the case where the new work is exactly what the round was opened to make.
+    clearCiRound(localStore, ticketId); // a click or an auto re-ship spends the mark (T1095)
     await sandboxLife.assertInSync(ticketId, false); // F12: the agent's commits after its marker reach the host before ship
     const deliverToOpenPr = shipOpts.deliver === true || (shipOpts.unattended
       ? activeRecoverySeries(localStore, ticketId, 'ship') !== null
@@ -5708,6 +5740,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         syncParent: (pid) => sandboxLife.ensureInSync(pid, false), prDescriptionProcess: prDescriptionProcess(ticketId),
         ...(shipOpts.repos ? { repos: shipOpts.repos } : {}),
         ...(deliverToOpenPr ? { deliverToOpenPr: true } : {}),
+        // D541: CI tests the branch merged with the current base, so every push tests that merge first.
+        checkBase: shipBaseCheck(ciInput(ticketId), shipGateDeps(ticketId), () => gateConsole.flush(ticketId, 'ship')),
       },
       undefined,
       undefined,
@@ -6758,7 +6792,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // threads down into the health wait + child processes.
             const ctrl = new AbortController();
             token.onCancellationRequested(() => ctrl.abort());
-            return withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id))(localStore, manifest, ticketId, hot, { signal: ctrl.signal, // AC-32
+            return withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id))(localStore, manifest, ticketId, hot, { signal: ctrl.signal, // AC-32
               debug: (message) => logger.debug(message),
             });
           },

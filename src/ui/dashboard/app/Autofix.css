@@ -3,7 +3,7 @@
 #inside .autofix-chipwrap{position:relative;display:inline-flex;align-items:center;min-width:0}
 #inside .autofix-chip{display:inline-flex;align-items:center;gap:var(--p-s2);min-height:var(--k-hit-min);padding:0 var(--p-s3);
   border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--p-text);
-  font:inherit;font-size:var(--p-xs);cursor:pointer;white-space:nowrap}
+  font:inherit;font-size:var(--p-xs);cursor:pointer;white-space:nowrap;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis}
 #inside .autofix-chip:hover,#inside .autofix-chip[aria-expanded="true"]{background:var(--p-hover);border-color:var(--p-border)}
 #inside .autofix-chip:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 #inside .autofix-chip .k-icon{width:var(--p-s3);height:var(--p-s3);flex:none;color:var(--p-muted2)}
@@ -28,5 +28,6 @@
 /* Blocked banner body for an auto-fix park. */
 .fault .autofix-check-link{color:inherit;text-decoration:underline}
 .fault .autofix-history{flex:1 1 100%;font-size:var(--k-text-sm);color:var(--k-text-dim)}
-.fault .autofix-history ul{margin:var(--k-space-2) 0 0;padding-left:var(--k-space-5)}
+.fault .autofix-history ul{margin:var(--k-space-2) 0 0;padding-left:var(--k-space-5);min-width:0;overflow-wrap:anywhere}
+.fault .autofix-check-link{display:inline-flex;align-items:center;min-height:var(--k-hit-min)}
 .fault .autofix-banner{display:contents}

@@ -2973,5 +2973,25 @@ function migrateLocked(db: Database): void {
     if (cols115.size > 0 && !cols115.has('round_head_sha')) db.exec('ALTER TABLE autopilot_budgets ADD COLUMN round_head_sha TEXT');
   }
 
+  if (current < 116) {
+    // v116: `deliver_runs.kind` — what started a run: `auto` (the auto-deliver) or `after-take-over` (the re-run
+    // of the gates a manual Deliver skipped, D540). Additive; every pre-v116 run is an `auto` run.
+    const cols116 = tableColumns(db, 'deliver_runs');
+    if (cols116.size > 0 && !cols116.has('kind')) db.exec("ALTER TABLE deliver_runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'auto'");
+  }
+
+  if (current < 117) {
+    // v117: `tickets.gate_snapshot` — the resolved gate names per stage the ticket's branch was cut with
+    // (@arch:GATE-SNAPSHOT). Additive; NULL = no snapshot, every resolved gate runs (no backfill).
+    const cols117 = tableColumns(db, 'tickets');
+    if (cols117.size > 0 && !cols117.has('gate_snapshot')) db.exec('ALTER TABLE tickets ADD COLUMN gate_snapshot TEXT');
+  }
+
+  if (current < 118) {
+    // v118: `autopilot_tickets.ci_round_at` — when an Autopilot CI round was sent (T1095). Additive; NULL = no round pending a re-ship.
+    const cols118 = tableColumns(db, 'autopilot_tickets');
+    if (cols118.size > 0 && !cols118.has('ci_round_at')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN ci_round_at INTEGER');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

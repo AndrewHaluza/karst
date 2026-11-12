@@ -21,8 +21,8 @@ interface ListItem {
   readonly children: readonly string[];
 }
 
-const HEADING_RE = /^(#{1,4}) +(.*)$/;
-const ITEM_RE = /^( *)([-*]|\d+\.) +(.*)$/;
+const HEADING_RE = /^(#{1,4}) +([^ ].*|)$/;
+const ITEM_RE = /^( *)([-*]|\d+\.) +([^ ].*|)$/;
 const FENCE_RE = /^ {0,3}(`{3,})/;
 const NEST_INDENT = 2;
 

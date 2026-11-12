@@ -39,7 +39,7 @@ export function ConsoleButton({ owner, p }: { readonly owner: string; readonly p
     [overlays, owner, gates, p.id],
   );
   return (
-    <button type="button" className="k-iconbtn ib t-open" data-act="console" data-console={owner} data-console-proc={gates ? undefined : p.id} aria-label={label} title={label} onClick={onClick}>
+    <button type="button" className="k-iconbtn ib t-open" data-act="console" data-console={owner} data-console-proc={gates ? undefined : p.id} aria-label={label} title={label} data-tip={label} onClick={onClick}>
       <Icon name="terminal-2" />
     </button>
   );
@@ -132,7 +132,7 @@ const ProcessRow = memo(
     const glyph = <span className={`glyph ${p.status}`} role="img" aria-label={p.statusLabel || statusWord(p.status)} />;
     const name = (
       <span className="op-name" title={p.label}>
-        <span className="op-name-text">{p.label}</span>
+        <span className="op-name-text" role="group" aria-label={p.label}>{p.label}</span>
         {p.execution || p.configuredExecution || p.aiMark ? <span className="ai-mark">AI</span> : null}
       </span>
     );
@@ -140,8 +140,8 @@ const ProcessRow = memo(
     // run happened and a tail exists): that is the process's own availability and does not depend on the stage's.
     const owner = p.id === 'gates' ? consoleStage : p.console ? stageKey || consoleStage : null;
     const detail = (
-      <span className={`op-detail ${p.status}${owner ? ' detail-console' : ''}`} role={p.id === DELIVER_ID ? 'status' : undefined}>
-        {p.detail ? <span className="op-detail-text">{p.detail}</span> : null}
+      <span className={`op-detail ${p.status}${owner ? ' detail-console' : ''}`} role={p.id === DELIVER_ID ? 'status' : p.detail ? 'group' : undefined} aria-label={p.detail || undefined}>
+        {p.detail ? <span className="op-detail-text" role="group" aria-label={p.detail}>{p.detail}</span> : null}
         {owner ? <ConsoleButton owner={owner} p={p} /> : null}
         {p.paused ? <UnpauseButton /> : null}
       </span>
@@ -225,6 +225,7 @@ const ProcessRow = memo(
           <span className="chev" aria-hidden="true" />
         </summary>
         <div className="op-body">
+          {p.detail ? <p className="op-detail-full">{p.detail}</p> : null}
           {ev && hasEvidenceBody(ev) ? <EvidenceBody ev={ev} p={p} stageKey={stageKey} /> : null}
           {footer}
         </div>

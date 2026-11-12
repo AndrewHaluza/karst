@@ -215,7 +215,7 @@
 #inside .switch-label{display:flex;align-items:center;gap:var(--p-s1);min-width:0;color:var(--p-muted);
   font-size:var(--p-sm);white-space:nowrap}
 #inside .switch-arrow{display:inline-flex;align-items:center;justify-content:center;width:14px;height:16px;
-  margin-left:-10px;margin-right:2px;color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-sm);
+  margin-left:0;margin-right:2px;color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-sm);
   line-height:16px;flex:none}
 #inside .switch-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #inside .session-foot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--p-s2);min-height:27px;
@@ -253,7 +253,7 @@
   font-weight:var(--k-weight-semibold);line-height:1.35}
 #inside .receipt-detail{margin-top:var(--k-space-1);color:var(--p-muted);font-size:var(--p-sm);line-height:1.35}
 #inside .ai-usage-breakdown{display:flex;flex-wrap:wrap;gap:var(--p-s1) var(--p-s2);margin-top:var(--p-s1)}
-#inside .ai-usage-item{color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);white-space:nowrap}
+#inside .ai-usage-item{color:var(--p-muted);font-family:var(--p-mono);font-size:var(--p-xs);white-space:normal;overflow-wrap:anywhere;min-width:0}
 #inside .ai-usage-item strong{color:var(--p-text);font-weight:var(--k-weight-medium)}
 
 /* The receipt is a STATIC row with an always-visible body: the overview
@@ -276,7 +276,10 @@
   border-right:var(--k-border-w) solid currentColor;border-bottom:var(--k-border-w) solid currentColor;
   transform:rotate(-45deg);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
 #inside .done-details[open] .done-chev:before{transform:rotate(45deg)}
-#inside .done-detail-body{display:grid;gap:var(--p-s1);padding:var(--p-s1) 0 var(--p-s2) var(--p-s2)}
+#inside .done-details{min-width:0}
+#inside .done-lines{min-width:0}
+#inside .done-line>*{min-width:0}
+#inside .done-detail-body{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;gap:var(--p-s1);padding:var(--p-s1) 0 var(--p-s2) var(--p-s2)}
 
 /* The Timing strip: the ticket's work-stage spans and their host-computed
    total — the displayed sum is the displayed total by construction. */
@@ -285,7 +288,7 @@
   padding:var(--p-s1) var(--p-s2);border:var(--k-border-w) solid var(--p-border);
   border-radius:var(--p-r1);background:var(--p-surface)}
 #inside .done-timing-label{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
-  text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+  text-transform:uppercase;letter-spacing:.04em;white-space:normal;overflow-wrap:anywhere;min-width:0}
 #inside .done-timing-value{color:var(--p-strong);font-size:var(--p-sm);
   font-weight:var(--k-weight-semibold);white-space:nowrap}
 #inside .done-timing-items{min-width:0;color:var(--p-muted);font-family:var(--p-mono);
@@ -374,4 +377,4 @@
 /* The row rule `#inside .op summary` (grid columns, padding, hover) reaches this nested disclosure too: reset it so 'Show' is one inline word. */
 #inside .op .ev-output summary{display:inline-block;grid-template-columns:none;min-height:0;padding:0;border-radius:0;cursor:pointer;color:var(--p-muted2);white-space:nowrap;overflow-wrap:normal}
 #inside .op .ev-output summary:hover{background:none;color:var(--p-text)}
-#inside .ev-output pre{margin:var(--p-s1) 0 0;font-family:var(--p-mono);color:var(--p-muted2);white-space:pre-wrap;overflow-wrap:anywhere}
+#inside .ev-output pre{box-sizing:border-box;max-width:100%;margin:var(--p-s1) 0 0;font-family:var(--p-mono);color:var(--p-muted2);white-space:pre-wrap;overflow-wrap:anywhere}

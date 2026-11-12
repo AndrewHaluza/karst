@@ -4,10 +4,10 @@
  * (`TimelineTokens`), so a token count advancing does not re-render the rail.
  */
 import type { EvidenceRow } from '../../../model/inside/types.js';
-import { RuntimeIcon } from './AgentIcon.js';
+import { agentName } from './AgentIcon.js';
 import { TimelineTokens } from './InsideClocks.js';
 import { Overflow } from './EvidenceParts.js';
-import { InsideActionButton, OverflowButton } from './InsideParts.js';
+import { CoreMark, InsideActionButton, OverflowButton } from './InsideParts.js';
 import { statusWord } from './insideText.js';
 
 function Tail({ r, stage, id, index }: { readonly r: EvidenceRow; readonly stage: string; readonly id: string; readonly index: number }) {
@@ -41,7 +41,7 @@ function IdentityCell({ r }: { readonly r: EvidenceRow }) {
     <span className="switch-value">
       {r.provider ? (
         <span className="agent-id">
-          <RuntimeIcon kind="agent" provider={r.provider} />
+          <CoreMark provider={r.provider} core={agentName(r.provider)} tip={r.detail || agentName(r.provider)} />
           <span className="agent-core">{r.detail || ''}</span>
         </span>
       ) : (

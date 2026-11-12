@@ -8,10 +8,11 @@ import type { UatConfig } from '../../manifest/types.js';
 import type { DeliverPr } from '../../workflow/deliverState.js';
 import type { GateOutputChunk } from '../../workflow/gates/run.js';
 import type { Store } from '../../store/db.js';
-import { finishDeliverRun, openDeliverRun, recordDeliverGate, setDeliverProgress } from '../../store/deliverRuns.js';
+import { finishDeliverRun, type DeliverRunKind, openDeliverRun, recordDeliverGate, setDeliverProgress } from '../../store/deliverRuns.js';
 import { nowIso } from '../../model/time.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { cutGatesWithoutUiChange } from '../../workflow/gates/uiDiff.js';
+import { isUiGate } from '../../workflow/gates/uiScope.js';
 import { NO_UI_CHANGE_REASON } from '../../workflow/gates/uiScope.js';
 
 /**
@@ -22,6 +23,14 @@ import { NO_UI_CHANGE_REASON } from '../../workflow/gates/uiScope.js';
  * `deliver_runs` row opens before the first gate and one `deliver_gate_results` row
  * (with the head SHA) is appended as each gate finishes. A failure leaves the merge
  * undelivered with the reason shown, and its record stays.
+ *
+ * Base moved (D541, `baseMovedCheck.ts`): CI tests the PR head merged with the CURRENT base, a tree no karst gate
+ * saw when the base moved after the last green run. Before a push, that merge is built in a temporary worktree
+ * below `.karst/base-check` and this runner gates it with `kind: 'base-moved'`. The UI gates are cut by the BASE
+ * delta since the last green run (`uiChanged`), never by a diff of the merged tree, whose branch changes hold UI
+ * paths the earlier green run already covered. A test that also fails on the base alone is develop drift: the gate
+ * scripts (D313, D360) excuse it, so the run still passes.
+ * A ticket with a sandbox clone is not checked: its gate runner cannot see the merged worktree (@arch:AC-39).
  */
 export interface ShipGatesDeps {
   readonly uat: UatConfig | undefined;
@@ -33,6 +42,12 @@ export interface ShipGatesDeps {
   readonly evidence?: { readonly store: Store; readonly ticketId: number };
   /** The HEAD sha of the merged tree in `cwd`; absent or null → the result carries no sha. */
   readonly headSha?: (cwd: string) => Promise<string | null>;
+  /** Run only the gates with these names (the re-run of the gates a manual Deliver skipped); absent → every gate. */
+  readonly only?: readonly string[];
+  /** Called with the id of the run this call opened. */
+  readonly onRunOpened?: (runId: number) => void;
+  /** What started the run; recorded on the run row. Default `auto`. */
+  readonly kind?: DeliverRunKind;
   /** Aborts the running gate process (a manual Deliver takes over). */
   readonly signal?: AbortSignal;
   /** Live gate output for the ship console (@arch:GATE-OUTPUT). */
@@ -48,6 +63,11 @@ export interface ShipGatesDeps {
    * (@arch:AP-01). Absent → every gate runs.
    */
   readonly git?: GitRunner;
+  /**
+   * The base delta of a base-moved merge holds a UI path (D541). Defined → the UI gates are cut by it and no diff is
+   * read; absent → cut by the merged diff against the base, as UAT does.
+   */
+  readonly uiChanged?: boolean;
   readonly gateEnv?: (pr: DeliverPr) => { readonly prBody: string; readonly baseRef?: string };
 }
 
@@ -58,6 +78,8 @@ interface PlannedRepo {
   /** Gates cut by the UI-path rule: kept in the run plan, recorded as skipped, never run. */
   readonly skipped: readonly ResolvedGate[];
 }
+
+const STOPPED = 'stopped: a newer push superseded this run';
 
 /** Null when every gate passed (or there is nothing to run); else the first failure. */
 export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps): Promise<string | null> {
@@ -70,12 +92,19 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
       return `${pr.repo}: ${resolution.reason}`;
     }
     const baseRef = d.gateEnv?.(pr).baseRef;
-    const cut = d.git && baseRef
+    const cut = d.uiChanged !== undefined
+      ? cutByBaseDelta(resolution.gates, d.uiChanged)
+      : d.git && baseRef
       ? await cutGatesWithoutUiChange(resolution.gates, d.git, pr.cwd, baseRef, d.debug)
       : { kept: [...resolution.gates], skipped: [] };
-    planned.push({ pr, probe, gates: cut.kept, skipped: cut.skipped });
+    const wanted = (g: ResolvedGate): boolean => d.only === undefined || d.only.includes(g.name);
+    planned.push({ pr, probe, gates: cut.kept.filter(wanted), skipped: cut.skipped.filter(wanted) });
   }
+  // An abort during planning (a newer push superseded this run): open no run, or it would close the newer one.
+  if (d.signal?.aborted) return STOPPED;
   const runId = await openRun(planned, d);
+  if (runId === null && d.signal?.aborted) return STOPPED; // aborted while the head was read: no run, no gate
+  if (runId !== null) d.onRunOpened?.(runId);
   let failure: string | null = null;
   try {
     for (const p of planned) {
@@ -91,11 +120,17 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
   return failure;
 }
 
+function cutByBaseDelta(gates: readonly ResolvedGate[], uiChanged: boolean): { kept: ResolvedGate[]; skipped: ResolvedGate[] } {
+  if (uiChanged) return { kept: [...gates], skipped: [] };
+  return { kept: gates.filter((g) => !isUiGate(g)), skipped: gates.filter(isUiGate) };
+}
+
 async function openRun(planned: readonly PlannedRepo[], d: ShipGatesDeps): Promise<number | null> {
   if (!d.evidence || planned.length === 0) return null;
   const head = planned[0] && d.headSha ? await d.headSha(planned[0].pr.cwd) : null;
+  if (d.signal?.aborted) return null; // aborted while the head was read
   const id = openDeliverRun(d.evidence.store, {
-    ticketId: d.evidence.ticketId, headSha: head, pid: process.pid, now: nowIso(),
+    ticketId: d.evidence.ticketId, headSha: head, pid: process.pid, now: nowIso(), ...(d.kind ? { kind: d.kind } : {}),
     gates: planned.flatMap((p) => [...p.gates, ...p.skipped].map((g) => g.name)),
   });
   d.onProgress?.();

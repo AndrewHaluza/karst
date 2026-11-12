@@ -339,6 +339,26 @@ describe('openStore', () => {
     expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
+  it('migrates a pre-v116 database by adding deliver_runs.kind as auto, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE deliver_runs (id INTEGER PRIMARY KEY, ticket_id INTEGER, head_sha TEXT, gates TEXT NOT NULL, current_gate TEXT, state TEXT NOT NULL, pid INTEGER, started_at TEXT NOT NULL, ended_at TEXT)');
+    legacy.exec("INSERT INTO deliver_runs (id, ticket_id, gates, state, started_at) VALUES (1, 1, '[]', 'passed', 'T')");
+    legacy.pragma('user_version = 115');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(migrated.db.prepare('SELECT kind FROM deliver_runs WHERE id = 1').get()).toEqual({ kind: 'auto' });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.prepare('SELECT kind FROM deliver_runs WHERE id = 1').get()).toEqual({ kind: 'auto' });
+  });
+
   it('migrates a pre-v114 database by adding the PR fact columns to prs, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -477,6 +497,29 @@ describe('openStore', () => {
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
+  });
+
+  it('migrates a pre-v117 database by adding tickets.gate_snapshot, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT NOT NULL)');
+    legacy.exec("INSERT INTO tickets (key, title) VALUES ('K-1', 'old')");
+    legacy.pragma('user_version = 116');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('gate_snapshot');
+    expect(migrated.db.prepare('SELECT gate_snapshot FROM tickets').get()).toEqual({ gate_snapshot: null });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'gate_snapshot')).toHaveLength(1);
   });
 
   it('migrates a pre-v113 database by adding tickets.priority_override, idempotently, without a backfill', () => {

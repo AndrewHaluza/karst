@@ -12,7 +12,7 @@ import { ciFailureState } from '../../workflow/ciFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { parseChecks } from '../../model/prChecks.js';
 import {
-  clearConflictRound, effectiveAutopilot, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
+  clearConflictRound, effectiveAutopilot, markCiRound, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
   markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind,
 } from '../../store/autopilot.js';
@@ -423,6 +423,8 @@ async function settleRound(d: AutopilotDeps, r: Settle, outcome: FixOutcome): Pr
     if (r.kind === 'conflicts') { clearOpenPrProbe(d.store, d.ticketId, r.repo); markConflictRound(d.store, d.ticketId, Date.now()); }
     queuedNoted(d.store).clear();
     setAutopilotStopped(d.store, d.ticketId, null);
+    // A CI round ends at the ship boundary: the mark lets the driver re-ship to the open PRs without the click (T1095).
+    if (r.kind === 'ci') markCiRound(d.store, d.ticketId, Date.now());
     clearParkBlock(d.store, d.ticketId);
     d.note(`Autopilot: ${r.kind} round ${r.used}/${r.max}`, `${d.key}: ran ${r.action} for ${r.repo} (round ${r.used}/${r.max}).`);
     d.debug(`${LOG} ticket ${d.key} ${r.kind} round ${r.used}/${r.max} armed for ${r.repo}`);

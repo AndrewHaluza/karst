@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
   host_gates        TEXT,                 -- JSON ["unit"]: gates this ticket reruns on the host after an out-of-memory kill; NULL = none
   disabled_gates    TEXT,                 -- JSON {"uat":["e2e"],"review":["lint"]}; NULL = nothing disabled
+  -- v117 per-ticket gate-set snapshot (kept in sync with migrations.ts v117 ALTER):
+  gate_snapshot     TEXT,                 -- JSON {"uat":[names],"review":[names]}: the gates the branch was cut with (@arch:GATE-SNAPSHOT); NULL = no snapshot, every gate runs
   -- v44 provider-native priority label (kept in sync with migrations.ts v44 ALTER):
   priority          TEXT,                 -- 'urgent' | 'high' | 'normal' | ... ; NULL = provider did not expose it
   priority_override TEXT CHECK (priority_override IN ('urgent', 'high', 'normal', 'low')), -- v113: the priority the user set in karst; a fetch never writes it; NULL = none
@@ -1524,6 +1526,7 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   claim_owner TEXT,                           -- window that holds the arming lease (two windows share one db)
   claim_until INTEGER,                        -- lease end, epoch ms
   session_owner TEXT,                         -- window that holds the ticket's session; set at session open, cleared at close
+  ci_round_at INTEGER,                        -- v118 (T1095): epoch ms an Autopilot CI round was sent; NULL once ship starts, a park, a pause, off mode or Stop now. It lets the driver re-ship to open PRs without the Confirm click
   conflict_round_at INTEGER                   -- v101 (T996): epoch ms a conflict round was sent; NULL once it delivered, stopped or was dropped. It holds a slot
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
@@ -1581,7 +1584,8 @@ CREATE TABLE IF NOT EXISTS deliver_runs (
   state       TEXT NOT NULL CHECK (state IN ('running', 'passed', 'failed', 'taken-over', 'stopped')),
   pid         INTEGER,
   started_at  TEXT NOT NULL,
-  ended_at    TEXT
+  ended_at    TEXT,
+  kind        TEXT NOT NULL DEFAULT 'auto'  -- v116 (D540): auto | after-take-over | base-moved (D541)
 );
 CREATE INDEX IF NOT EXISTS idx_deliver_runs_ticket ON deliver_runs(ticket_id, id);
 CREATE TABLE IF NOT EXISTS deliver_gate_results (
