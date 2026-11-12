@@ -456,6 +456,59 @@ describe('stopAutopilot', () => {
   });
 });
 
+const optionalFail = (names: string[], required: boolean | null, split: { total: number; failed: number; pending: number } | null = { total: 2, failed: 0, pending: 0 }) => ({
+  ...failing(...names), required: split,
+  failing: names.map((name) => ({ name, url: null, required })),
+});
+
+describe('optional failing checks (known required split)', () => {
+  it('does not park, and clears a stale park, when only a non-allowlisted optional check fails', async () => {
+    seedPr(optionalFail(['Mutation score'], false));
+    cleanMerge();
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix not run: ci check Mutation score is not on the allowlist', runAt: 'x', gates: [] });
+    setAutopilotStopped(store, id, 'auto-fix not run: ci check Mutation score is not on the allowlist');
+    const r = rig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'cleared' });
+    expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(r.notes).toHaveLength(1);
+    expect(r.debug).toHaveBeenCalledWith(expect.stringMatching(/^\[ship\] autopilot /));
+    await autopilotTick(r.deps);
+    expect(r.notes).toHaveLength(1);
+  });
+
+  it('starts a round when the only failing optional check is on the allowlist', async () => {
+    seedPr(optionalFail(['build'], false));
+    const r = rig();
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(r.sendCi).toHaveBeenCalled();
+  });
+
+  it('starts a round when a required allowlisted check fails beside a non-allowlisted optional one', async () => {
+    seedPr({ ...optionalFail(['build'], true), failing: [{ name: 'build', url: null, required: true }, { name: 'Mutation score', url: null, required: false }], failed: 2, failedShown: 2 });
+    const r = rig();
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+  });
+
+  it('parks as today when the required flag is unknown or the split is absent or pending', async () => {
+    for (const c of [optionalFail(['Mutation score'], null), optionalFail(['Mutation score'], false, null), optionalFail(['Mutation score'], false, { total: 2, failed: 0, pending: 1 })]) {
+      store.db.prepare('DELETE FROM prs').run();
+      seedPr(c);
+      expect(await autopilotTick(rig().deps)).toMatchObject({ kind: 'parked', reason: expect.stringContaining('is not on the allowlist') });
+      clearParkBlock(store, id);
+      setAutopilotStopped(store, id, null);
+    }
+  });
+
+  it('provenClean accepts optional-only failures, so a stalled park clears', async () => {
+    seedPr(optionalFail(['Mutation score'], false));
+    cleanMerge();
+    setAutopilotStopped(store, id, 'auto-fix stopped: conflict round did not deliver');
+    const r = rig();
+    expect(await autopilotTick(r.deps)).not.toEqual({ kind: 'idle' });
+  });
+});
+
 describe('notes and debug lines (the history matches a manual click)', () => {
   it('records an armed CI round as Send CI failure to agent', async () => {
     seedPr(failing('build'));
