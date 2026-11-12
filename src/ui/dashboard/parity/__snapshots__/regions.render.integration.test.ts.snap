@@ -285,7 +285,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -350,7 +350,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T0 · (untitled)"> "(untitled)"
+  <h1#title.ticketTitle aria-label="T0 · (untitled)" title="T0 · (untitled)"> "(untitled)"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -415,7 +415,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -482,7 +482,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -547,7 +547,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -612,7 +612,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T0 · (untitled)"> "(untitled)"
+  <h1#title.ticketTitle aria-label="T0 · (untitled)" title="T0 · (untitled)"> "(untitled)"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -677,7 +677,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -742,7 +742,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.shipWait role="status" title="Waiting for 2 repos to be merged">
@@ -807,7 +807,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
       <svg.k-icon aria-hidden="true">
     <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
       <svg.k-icon aria-hidden="true">
-  <h1#title.ticketTitle title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
+  <h1#title.ticketTitle aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
@@ -904,10 +904,10 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
         <summary>
           <span.glyph.run aria-label="running" role="img">
           <span.op-name title="Session">
-            <span.op-name-text> "Session"
+            <span.op-name-text aria-label="Session" role="group"> "Session"
             <span.ai-mark> "AI"
-          <span.op-detail.run>
-            <span.op-detail-text> "session k-9f2e"
+          <span.op-detail.run aria-label="session k-9f2e" role="group">
+            <span.op-detail-text aria-label="session k-9f2e" role="group"> "session k-9f2e"
           <span.op-tail>
             <span.agent-id>
               <span.agent-mark aria-label="Claude Code" data-tip="Claude Code · Claude Opus 4.1" role="img" tabindex="0">
@@ -1000,10 +1000,10 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
         <summary>
           <span.glyph.pass aria-label="Completed" role="img">
           <span.op-name title="Session">
-            <span.op-name-text> "Session"
+            <span.op-name-text aria-label="Session" role="group"> "Session"
             <span.ai-mark> "AI"
-          <span.op-detail.pass>
-            <span.op-detail-text> "session c7f1 · completed"
+          <span.op-detail.pass aria-label="session c7f1 · completed" role="group">
+            <span.op-detail-text aria-label="session c7f1 · completed" role="group"> "session c7f1 · completed"
           <span.op-tail>
             <span.agent-id>
               <span.agent-mark aria-label="Claude Code" data-tip="Claude Code · Sonnet" role="img" tabindex="0">
@@ -1153,7 +1153,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Commit">
-            <span.op-name-text> "Commit"
+            <span.op-name-text aria-label="Commit" role="group"> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1193,7 +1193,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Push">
-            <span.op-name-text> "Push"
+            <span.op-name-text aria-label="Push" role="group"> "Push"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1203,7 +1203,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed" role="img">
-            <span.ev-key> "web"
+            <span.ev-key aria-label="web" role="group"> "web"
             <span.ev-detail> "pushed"
             <span.ev-tail>
             <span.ev-state.pass>
@@ -1212,7 +1212,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed" role="img">
-            <span.ev-key> "api"
+            <span.ev-key aria-label="api" role="group"> "api"
             <span.ev-detail> "pushed"
             <span.ev-tail>
             <span.ev-state.pass>
@@ -1222,7 +1222,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Pull request">
-            <span.op-name-text> "Pull request"
+            <span.op-name-text aria-label="Pull request" role="group"> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1262,9 +1262,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.wait aria-label="waiting" role="img">
           <span.op-name title="Merge">
-            <span.op-name-text> "Merge"
-          <span.op-detail.wait>
-            <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
+            <span.op-name-text aria-label="Merge" role="group"> "Merge"
+          <span.op-detail.wait aria-label="Ship is waiting: resolve the merge conflict before the ticket can be done." role="group">
+            <span.op-detail-text aria-label="Ship is waiting: resolve the merge conflict before the ticket can be done." role="group"> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
           <span.op-time>
           <span.duration>
@@ -1274,7 +1274,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
-            <span.ev-key> "conflict"
+            <span.ev-key aria-label="conflict" role="group"> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
             <span.ev-tail>
             <span.ev-state.wait>
@@ -1283,7 +1283,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
-            <span.ev-key> "open"
+            <span.ev-key aria-label="open" role="group"> "open"
             <span.ev-detail> "api #121 · not merged yet"
             <span.ev-tail>
             <span.ev-state.wait>
@@ -1328,7 +1328,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Commit">
-            <span.op-name-text> "Commit"
+            <span.op-name-text aria-label="Commit" role="group"> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1368,7 +1368,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Push">
-            <span.op-name-text> "Push"
+            <span.op-name-text aria-label="Push" role="group"> "Push"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1378,7 +1378,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed" role="img">
-            <span.ev-key> "web"
+            <span.ev-key aria-label="web" role="group"> "web"
             <span.ev-detail> "pushed"
             <span.ev-tail>
             <span.ev-state.pass>
@@ -1387,7 +1387,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed" role="img">
-            <span.ev-key> "api"
+            <span.ev-key aria-label="api" role="group"> "api"
             <span.ev-detail> "pushed"
             <span.ev-tail>
             <span.ev-state.pass>
@@ -1397,7 +1397,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Pull request">
-            <span.op-name-text> "Pull request"
+            <span.op-name-text aria-label="Pull request" role="group"> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1437,9 +1437,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.wait aria-label="waiting" role="img">
           <span.op-name title="Merge">
-            <span.op-name-text> "Merge"
-          <span.op-detail.wait>
-            <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
+            <span.op-name-text aria-label="Merge" role="group"> "Merge"
+          <span.op-detail.wait aria-label="Ship is waiting: resolve the merge conflict before the ticket can be done." role="group">
+            <span.op-detail-text aria-label="Ship is waiting: resolve the merge conflict before the ticket can be done." role="group"> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
           <span.op-time>
           <span.duration>
@@ -1449,7 +1449,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
-            <span.ev-key> "conflict"
+            <span.ev-key aria-label="conflict" role="group"> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
             <span.ev-tail>
             <span.ev-state.wait>
@@ -1458,7 +1458,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
-            <span.ev-key> "open"
+            <span.ev-key aria-label="open" role="group"> "open"
             <span.ev-detail> "api #121 · not merged yet"
             <span.ev-tail>
             <span.ev-state.wait>
@@ -1528,7 +1528,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Commit">
-            <span.op-name-text> "Commit"
+            <span.op-name-text aria-label="Commit" role="group"> "Commit"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1568,7 +1568,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Push">
-            <span.op-name-text> "Push"
+            <span.op-name-text aria-label="Push" role="group"> "Push"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1578,7 +1578,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed" role="img">
-            <span.ev-key> "web"
+            <span.ev-key aria-label="web" role="group"> "web"
             <span.ev-detail> "pushed"
             <span.ev-tail>
             <span.ev-state.pass>
@@ -1587,7 +1587,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.pass aria-label="passed" role="img">
-            <span.ev-key> "api"
+            <span.ev-key aria-label="api" role="group"> "api"
             <span.ev-detail> "pushed"
             <span.ev-tail>
             <span.ev-state.pass>
@@ -1597,7 +1597,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.pass aria-label="passed" role="img">
           <span.op-name title="Pull request">
-            <span.op-name-text> "Pull request"
+            <span.op-name-text aria-label="Pull request" role="group"> "Pull request"
           <span.op-detail.pass>
           <span.op-tail>
           <span.op-time>
@@ -1637,9 +1637,9 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <summary>
           <span.glyph.wait aria-label="waiting" role="img">
           <span.op-name title="Merge">
-            <span.op-name-text> "Merge"
-          <span.op-detail.wait>
-            <span.op-detail-text> "Ship is waiting: resolve the merge conflict before the ticket can be done."
+            <span.op-name-text aria-label="Merge" role="group"> "Merge"
+          <span.op-detail.wait aria-label="Ship is waiting: resolve the merge conflict before the ticket can be done." role="group">
+            <span.op-detail-text aria-label="Ship is waiting: resolve the merge conflict before the ticket can be done." role="group"> "Ship is waiting: resolve the merge conflict before the ticket can be done."
           <span.op-tail>
           <span.op-time>
           <span.duration>
@@ -1649,7 +1649,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
-            <span.ev-key> "conflict"
+            <span.ev-key aria-label="conflict" role="group"> "conflict"
             <span.ev-detail> "web #120 · resolve the merge conflict"
             <span.ev-tail>
             <span.ev-state.wait>
@@ -1658,7 +1658,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <div.evidence-row>
             <span.ev-glyph>
               <span.glyph.wait aria-label="waiting" role="img">
-            <span.ev-key> "open"
+            <span.ev-key aria-label="open" role="group"> "open"
             <span.ev-detail> "api #121 · not merged yet"
             <span.ev-tail>
             <span.ev-state.wait>
@@ -1985,7 +1985,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <span.idle.rs-dot aria-hidden="true">
           <span.rs-name> "Claude Code"
           <span.rs-state> "idle"
-          <span.rs-sub> "Agent default"
+          <span.rs-sub aria-label="Agent default"> "Agent default"
           <svg.k-icon aria-hidden="true">
         <span.rs-lock> "fix recovery running"
         <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
@@ -2065,7 +2065,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <span.idle.rs-dot aria-hidden="true">
           <span.rs-name> "Claude Code"
           <span.rs-state> "idle"
-          <span.rs-sub> "Agent default"
+          <span.rs-sub aria-label="Agent default"> "Agent default"
           <svg.k-icon aria-hidden="true">
         <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
           <div.agentForm>
@@ -2128,7 +2128,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <span.idle.rs-dot aria-hidden="true">
           <span.rs-name> "Claude Code"
           <span.rs-state> "idle"
-          <span.rs-sub> "Agent default"
+          <span.rs-sub aria-label="Agent default"> "Agent default"
           <svg.k-icon aria-hidden="true">
         <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
           <div.agentForm>
@@ -2188,7 +2188,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <span.idle.rs-dot aria-hidden="true">
           <span.rs-name> "Claude Code"
           <span.rs-state> "idle"
-          <span.rs-sub> "Agent default"
+          <span.rs-sub aria-label="Agent default"> "Agent default"
           <svg.k-icon aria-hidden="true">
         <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
           <div.agentForm>
@@ -2248,7 +2248,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <span.rs-dot.running aria-hidden="true">
           <span.rs-name> "Claude Code"
           <span.rs-state.running> "running"
-          <span.rs-sub> "Agent default · high"
+          <span.rs-sub aria-label="Agent default · high"> "Agent default · high"
           <svg.k-icon aria-hidden="true">
         <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
           <div.agentForm>
@@ -2327,7 +2327,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <span.idle.rs-dot aria-hidden="true">
           <span.rs-name> "Claude Code"
           <span.rs-state> "idle"
-          <span.rs-sub> "Agent default"
+          <span.rs-sub aria-label="Agent default"> "Agent default"
           <svg.k-icon aria-hidden="true">
         <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
           <div.agentForm>
@@ -2412,7 +2412,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <span.idle.rs-dot aria-hidden="true">
           <span.rs-name> "Claude Code"
           <span.rs-state> "idle"
-          <span.rs-sub> "Agent default"
+          <span.rs-sub aria-label="Agent default"> "Agent default"
           <svg.k-icon aria-hidden="true">
         <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
           <div.agentForm>
@@ -2491,7 +2491,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <span.idle.rs-dot aria-hidden="true">
           <span.rs-name> "Claude Code"
           <span.rs-state> "idle"
-          <span.rs-sub> "Agent default"
+          <span.rs-sub aria-label="Agent default"> "Agent default"
           <svg.k-icon aria-hidden="true">
         <div#agentPopover.rs-pop.rs-pop--agent aria-label="Switch active agent" role="dialog">
           <div.agentForm>
