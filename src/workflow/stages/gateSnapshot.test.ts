@@ -4,7 +4,7 @@ import { createTicket } from '../../store/tickets.js';
 import { getGateSnapshot, setStageGateSnapshot } from '../../store/ticketGates.js';
 import { manifest, repo, svc, review as reviewConfig } from '../../manifest/fixtures.js';
 import type { ScriptProbe } from '../gates/probe.js';
-import { captureGateSnapshot, collectGateSnapshot, type BaseDefines, type CutDefines } from './gateSnapshot.js';
+import { captureGateSnapshot, collectGateSnapshot, type CutDefines } from './gateSnapshot.js';
 
 const m = () =>
   manifest({
@@ -25,8 +25,8 @@ const declared = (script: string) =>
   );
 const apiTree = [{ repo: '/repo/api', path: '/wt/api', baseRef: null }];
 const apiTreeOnBase = [{ repo: '/repo/api', path: '/wt/api', baseRef: 'develop' }];
-// The git seams: what the base defines now, and (null = unreadable) what the branch was cut with.
-const git = (baseDefines: BaseDefines, cutDefines: CutDefines = async () => null) => ({ baseDefines, cutDefines });
+// The git seam: (null = unreadable) what the branch was cut with.
+const git = (cutDefines: CutDefines = async () => null) => ({ cutDefines });
 const branchLacks = (): ScriptProbe => ({ kind: 'ok', scripts: { test: 'vitest' } });
 
 describe('collectGateSnapshot', () => {
@@ -40,47 +40,32 @@ describe('collectGateSnapshot', () => {
     expect(snap).toEqual({ uat: null, review: null });
   });
 
-  it('leaves out a declared script gate the branch lacks when the base defines it, so a rebase can add it', async () => {
+  it('leaves out a declared script gate the cut lacks, whether or not the base has it (the T1106 incident window)', async () => {
     const seen: string[] = [];
     const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, branchLacks, undefined, git(async (cwd, ref, script) => {
       seen.push(`${cwd}|${ref}|${script}`);
-      return true;
+      return false;
     }));
     expect(snap.review).toEqual([]);
     expect(seen).toContain('/wt/api|develop|lint:layers');
   });
 
-  it('keeps a declared script gate that neither the branch nor the base defines, so it fails with the real reason', async () => {
-    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, branchLacks, undefined, git(async () => false));
-    expect(snap.review).toEqual(['layer-rules']);
-  });
-
-  it('keeps a missing-script gate when the base ref is unknown: nothing proves a rebase brings it', async () => {
-    const snap = await collectGateSnapshot(declared('lint:layers'), apiTree, branchLacks, undefined, git(async () => true));
-    expect(snap.review).toEqual(['layer-rules']);
-  });
-
-  it('does not ask the base when the branch already defines the script', async () => {
-    let asked = false;
-    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }), undefined, git(async () => { asked = true; return true; }, async () => true));
-    expect(snap.review).toEqual(['layer-rules']);
-    expect(asked).toBe(false);
-  });
-
   it('keeps a gate whose script the branch was cut with even when the worktree lost it (an agent edit must not hide the gate)', async () => {
-    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, branchLacks, undefined, git(async () => true, async () => true));
+    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, branchLacks, undefined, git(async () => true));
     expect(snap.review).toEqual(['layer-rules']);
   });
 
-  it('leaves out a gate the cut lacks and the base defines, whatever the worktree holds now', async () => {
+  it('leaves out a gate the cut lacks, whatever the worktree holds now', async () => {
     const worktreeHas = (): ScriptProbe => ({ kind: 'ok', scripts: { 'lint:layers': 'agent added it' } });
-    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, worktreeHas, undefined, git(async () => true, async () => false));
+    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, worktreeHas, undefined, git(async () => false));
     expect(snap.review).toEqual([]);
   });
 
   it('falls back to the worktree files when the cut point cannot be read', async () => {
-    const snap = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, branchLacks, undefined, git(async () => true, async () => null));
-    expect(snap.review).toEqual([]);
+    const lacks = await collectGateSnapshot(declared('lint:layers'), apiTreeOnBase, branchLacks, undefined, git(async () => null));
+    expect(lacks.review).toEqual([]);
+    const has = await collectGateSnapshot(declared('lint:layers'), apiTree, () => ({ kind: 'ok', scripts: { 'lint:layers': 'x' } }), undefined, git(async () => null));
+    expect(has.review).toEqual(['layer-rules']);
   });
 
   it('throws on an unreadable package.json, so a transient fault never writes a partial snapshot', async () => {

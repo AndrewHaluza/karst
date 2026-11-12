@@ -6,31 +6,24 @@ import type { Store } from '../../store/db.js';
 import { getStageGateSnapshot, setStageGateSnapshot, type GateSnapshot } from '../../store/ticketGates.js';
 import { resolveTargetGates } from './uat.js';
 import type { ResolvedGate } from '../gates/resolve.js';
-import { baseDefinesScript, cutDefinesScript } from '../gates/npmScript.js';
+import { cutDefinesScript } from '../gates/npmScript.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
-
-/** True when the base branch of a worktree defines the npm script (so a rebase would bring it). */
-export type BaseDefines = (cwd: string, baseRef: string, script: string) => Promise<boolean>;
 
 /** True/false when the commit the branch was cut from defines the script; null when it cannot be read. */
 export type CutDefines = (cwd: string, baseRef: string, script: string) => Promise<boolean | null>;
 
 const gitCutDefines: CutDefines = (cwd, baseRef, script) => cutDefinesScript(defaultGitRunner, cwd, baseRef, script);
 
-/** The git seams of the snapshot: what the base defines now, and what the branch was cut with. */
+/** The git seam of the snapshot: what the branch was cut with. */
 export interface SnapshotGit {
-  readonly baseDefines: BaseDefines;
   readonly cutDefines: CutDefines;
 }
 
-const gitBaseDefines: BaseDefines = (cwd, baseRef, script) => baseDefinesScript(defaultGitRunner, cwd, baseRef, script);
-
-const DEFAULT_GIT: SnapshotGit = { baseDefines: gitBaseDefines, cutDefines: gitCutDefines };
+const DEFAULT_GIT: SnapshotGit = { cutDefines: gitCutDefines };
 
 /** The snapshot's git seams over one `GitRunner` (a stage runs every git call through its own). */
 export function snapshotGitFor(git: GitRunner): SnapshotGit {
   return {
-    baseDefines: (cwd, baseRef, script) => baseDefinesScript(git, cwd, baseRef, script),
     cutDefines: (cwd, baseRef, script) => cutDefinesScript(git, cwd, baseRef, script),
   };
 }
@@ -38,11 +31,10 @@ export function snapshotGitFor(git: GitRunner): SnapshotGit {
 /**
  * The declared gates the worktree can run now. A discovered gate is left out: the
  * branch can add its own package.json script later. A declared script gate whose
- * script the worktree lacks is left out only when the base branch defines it: then
- * "Rebase on base" brings the script and takes the gate into a later snapshot. When
- * the base lacks the script too (or the base is unknown), the gate stays in, so it
- * fails with the real reason instead of a false "added after this ticket started".
- * "The worktree lacks the script" is read from the commit the branch was cut from, not from the
+ * script the branch was cut without is left out, whether or not the base has it yet:
+ * a gate added to the manifest before its script reached the base is the T1106 incident, and
+ * "Rebase on base" takes the gate into a later snapshot once the script is there.
+ * "The branch lacks the script" is read from the commit the branch was cut from, not from the
  * worktree files: the first snapshot can be taken after the agent edited the branch, and an edit that
  * removes a script must not hide the gate. The worktree files are the fallback when the cut point or
  * the base ref is unknown.
@@ -67,7 +59,7 @@ async function snapshotNames(
       const onWorktree = probe.kind === 'ok' && probe.scripts[g.script] !== undefined;
       const onCut = target.baseRef != null ? await git.cutDefines(target.path, target.baseRef, g.script) : null;
       const cutWith = onCut ?? onWorktree;
-      if (!cutWith && target.baseRef != null && (await git.baseDefines(target.path, target.baseRef, g.script))) continue;
+      if (!cutWith) continue;
     }
     out.push(g.name);
   }

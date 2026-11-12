@@ -2,8 +2,8 @@ import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { listGateRuns } from '../../store/gateRuns.js';
-import { getGateSnapshot, setGateSnapshot } from '../../store/ticketGates.js';
-import { collectGateSnapshot, snapshotGitFor, type BaseDefines, type CutDefines } from '../../workflow/stages/gateSnapshot.js';
+import { getGateSnapshot, setStageGateSnapshot } from '../../store/ticketGates.js';
+import { collectGateSnapshot, snapshotGitFor, type CutDefines } from '../../workflow/stages/gateSnapshot.js';
 import { defaultGitRunner } from '../../integrations/git.js';
 import type { ScriptProbe } from '../../workflow/gates/probe.js';
 
@@ -19,7 +19,6 @@ export interface GateSnapshotDeps {
   readonly store: Store;
   readonly manifest: () => Manifest | undefined;
   readonly probe?: (cwd: string) => ScriptProbe;
-  readonly baseDefines?: BaseDefines;
   readonly cutDefines?: CutDefines;
   readonly debug?: (message: string) => void;
 }
@@ -44,7 +43,6 @@ export async function takeGateSnapshot(
       return false;
     }
     const snapshot = await collectGateSnapshot(manifest, listWorktreesByTicket(d.store, ticketId), d.probe, d.debug, {
-      baseDefines: d.baseDefines ?? DEFAULT.baseDefines,
       cutDefines: d.cutDefines ?? DEFAULT.cutDefines,
     });
     const uat = snapshot.uat ?? [];
@@ -53,7 +51,11 @@ export async function takeGateSnapshot(
       d.debug?.(`[gate] snapshot ticket ${ticketId}: no gate resolved, snapshot not written`);
       return false;
     }
-    setGateSnapshot(d.store, ticketId, { uat, review });
+    // Re-check with no await between check and write: a concurrent first-run capture must not be overwritten.
+    if (opts.onlyIfMissing === true && getGateSnapshot(d.store, ticketId) !== null) return false;
+    // A stage with no declared gate stays as it was, like the first-run capture leaves it unset.
+    if (snapshot.uat !== null) setStageGateSnapshot(d.store, ticketId, 'uat', uat);
+    if (snapshot.review !== null) setStageGateSnapshot(d.store, ticketId, 'review', review);
     d.debug?.(`[gate] snapshot ticket ${ticketId}: uat ${uat.length}, review ${review.length} gate(s)`);
     return true;
   } catch (err) {

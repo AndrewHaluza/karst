@@ -1313,7 +1313,7 @@ describe('runReview', () => {
   const layerRules = reviewConfig({ gates: [{ name: 'layer-rules', kind: 'script', script: 'lint:layers' }] });
   const layerManifest = () => manifest({ web: repo({ repoPath: '/web' }) }, { review: layerRules });
 
-  it('applies the snapshot it captures: a gate added to the manifest after the cut is skipped in the capturing run (T1106)', async () => {
+  it('applies the snapshot it captures: a gate whose script neither the cut nor the base has is skipped in the capturing run (T1106)', async () => {
     seedWorktree('/web', '/wt/web');
     const invoked: string[] = [];
     const result = await runReview(
@@ -1321,7 +1321,7 @@ describe('runReview', () => {
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: layerManifest() },
       deps({
         probe: () => ({ kind: 'ok', scripts: { lint: 'x' } }),
-        git: scriptsGit({ lint: 'x' }, { lint: 'x', 'lint:layers': 'depcruise' }),
+        git: scriptsGit({ lint: 'x' }, { lint: 'x' }),
         runGates: async (gates) => {
           invoked.push(...gates.map((g) => g.name));
           return { kind: 'ran', results: [] };

@@ -99,12 +99,31 @@ describe('takeGateSnapshot', () => {
     expect(getGateSnapshot(store, id)).toEqual({ uat: ['old'], review: ['old'] });
   });
 
-  it('leaves a gate out of the snapshot when the base defines its missing script, and keeps it when the base lacks it', async () => {
+  it('leaves a gate out of the snapshot when the cut lacks its script, and keeps it when the cut has it', async () => {
     const { store, id } = seed([]);
     store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)').run(id, '/repo/api', '/wt/repo/api', 'karst/K-1', 'develop');
     const branchLacks = () => ({ kind: 'ok', scripts: {} }) as ScriptProbe;
-    await takeGateSnapshot(deps(store, { probe: branchLacks, baseDefines: async (_c, _r, script) => script === 'lint', cutDefines: async () => null }), id);
-    expect(getGateSnapshot(store, id)).toEqual({ uat: ['test'], review: [] });
+    await takeGateSnapshot(deps(store, { probe: branchLacks, cutDefines: async (_c, _r, script) => script === 'lint' }), id);
+    expect(getGateSnapshot(store, id)).toEqual({ uat: [], review: ['lint'] });
+  });
+
+  it('does not overwrite a snapshot a concurrent capture wrote during the read (onlyIfMissing)', async () => {
+    const { store, id } = seed([]);
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)').run(id, '/repo/api', '/wt/repo/api', 'karst/K-1', 'develop');
+    const cutDefines = async () => {
+      setGateSnapshot(store, id, { uat: ['first'], review: ['first'] });
+      return true;
+    };
+    expect(await takeGateSnapshot(deps(store, { cutDefines }), id, { onlyIfMissing: true })).toBe(false);
+    expect(getGateSnapshot(store, id)).toEqual({ uat: ['first'], review: ['first'] });
+  });
+
+  it('keeps the old snapshot of a stage that resolved no declared gate (a retake)', async () => {
+    const { store, id } = seed(['/repo/api']);
+    setGateSnapshot(store, id, { uat: ['old'], review: ['old'] });
+    const reviewOnly = () => manifest(repos, { review: review({ gates: [{ name: 'lint', kind: 'script', script: 'lint' }] }) });
+    await takeGateSnapshot(deps(store, { manifest: reviewOnly }), id);
+    expect(getGateSnapshot(store, id)).toEqual({ uat: ['old'], review: ['lint'] });
   });
 
   it('writes nothing when no manifest is loaded', async () => {
