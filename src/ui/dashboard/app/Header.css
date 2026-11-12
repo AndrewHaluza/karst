@@ -34,7 +34,7 @@
 .dhead .k-icon{width:var(--k-space-7);height:var(--k-space-7)}
 /* The two popovers — agent switch form + ticket-controls menu (UI-R04: composed
    from control-height tokens, no raw widths). */
-.popover{display:none;position:absolute;z-index:50;top:calc(100% + var(--k-space-3));right:0;border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
+.popover{display:none;position:fixed;z-index:50;border:var(--k-border-w) solid var(--k-border-strong);border-radius:var(--k-radius-lg);background:var(--k-surface);box-shadow:var(--k-elev-2)}
 .popover.hidden{display:none}
 .popover.open{display:block}
 /* 26 control-heights: model ids are long, and at 20 every model row

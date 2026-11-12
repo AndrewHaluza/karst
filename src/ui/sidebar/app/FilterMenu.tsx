@@ -6,6 +6,7 @@
  * existing facet messages (SidebarContext.applyPreset).
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { ToolbarGlyph } from './Icon.js';
 import { activePreset, PRESETS, type PresetId } from './presets.js';
 import { useSidebar } from './SidebarContext.js';
@@ -17,6 +18,8 @@ export function FilterMenu() {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement | null>(null);
   const button = useRef<HTMLButtonElement | null>(null);
+  const pop = useRef<HTMLDivElement | null>(null);
+  useAnchoredPopover(open, pop, button, () => setOpen(false));
   const current = activePreset(state.facets || ['all']);
   const filtered = current?.id !== 'all';
 
@@ -77,7 +80,7 @@ export function FilterMenu() {
         {filtered ? <span className="filter-dot" data-filter-dot="1" aria-hidden="true" /> : null}
       </button>
       {open ? (
-        <div className="filter-pop" role="menu" aria-label="Ticket filter" onKeyDown={onKeyDown}>
+        <div className="filter-pop" ref={pop} role="menu" aria-label="Ticket filter" onKeyDown={onKeyDown}>
           {PRESETS.map((p) => (
             <button
               type="button"

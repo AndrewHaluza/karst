@@ -1281,6 +1281,17 @@ function mountAgentPicker(root, opts) {
     shell.classList.add('is-open');
     menu.hidden = false;
     trigger.setAttribute('aria-expanded', 'true');
+    // The menu is position:fixed: the shared placement opens it below the trigger, flips it above when it does not
+    // fit, keeps it in the viewport and follows the trigger on scroll and resize (src/ui/shared/anchoredPopover.ts).
+    if (shell.__apDetach) shell.__apDetach();
+    shell.__apDetach = window.karstAnchoredPopover
+      ? window.karstAnchoredPopover.attach({
+          popover: menu,
+          trigger: trigger,
+          width: 'trigger',
+          onTriggerHidden: function () { closeMenu(shell, false); },
+        })
+      : null;
     if (kind === 'core') renderCoreActive();
     if (kind === 'model') {
       var list = $('[data-ap-list="model"]');
@@ -1299,6 +1310,7 @@ function mountAgentPicker(root, opts) {
     var idx = AP_MENU_STACK.indexOf(shell);
     if (idx >= 0) AP_MENU_STACK.splice(idx, 1);
     shell.classList.remove('is-open');
+    if (shell.__apDetach) { shell.__apDetach(); shell.__apDetach = null; }
     var menu = shell.querySelector('[data-ap-menu]');
     if (menu) menu.hidden = true;
     var trigger = shell.querySelector('[data-ap-trigger]');

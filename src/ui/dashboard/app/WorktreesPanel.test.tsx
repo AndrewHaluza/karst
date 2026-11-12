@@ -319,6 +319,47 @@ describe('WorktreesPanel — base-branch form', () => {
     expect(form()).not.toBeNull();
   });
 
+  describe('when its trigger scrolls out of view', () => {
+    // The trigger is the pill's edit button; jsdom has no layout, so the test owns its rect.
+    function moveTrigger(): (top: number) => void {
+      const trigger = document.querySelector<HTMLElement>('[data-act="toggle-base-form"][data-repo="web"]')!;
+      let top = 100;
+      trigger.getBoundingClientRect = () => ({ left: 20, top, right: 50, bottom: top + 20, width: 30, height: 20, x: 20, y: top, toJSON: () => ({}) });
+      return (next) => {
+        top = next;
+        act(() => {
+          window.dispatchEvent(new Event('scroll'));
+        });
+      };
+    }
+    beforeEach(() => {
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('keeps the form open and the typed value, pinned inside the viewport', () => {
+      mount(stateWith([wt('web')]));
+      const move = moveTrigger();
+      open();
+      fireEvent.input(input(), { target: { value: 'origin/develop' } });
+      move(-300);
+      expect(form()).not.toBeNull();
+      expect(input().value).toBe('origin/develop');
+      expect(parseFloat((form() as HTMLElement).style.top)).toBeGreaterThanOrEqual(8);
+    });
+
+    it('closes a pristine form', () => {
+      mount(stateWith([wt('web')]));
+      const move = moveTrigger();
+      open();
+      move(-300);
+      expect(form()).toBeNull();
+    });
+  });
+
   it('discards the draft when the form closes', () => {
     mount(stateWith([wt('web')]));
     open();

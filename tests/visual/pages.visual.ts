@@ -31,7 +31,9 @@ karstTest.describe('full-page screenshots', () => {
           testInfo.skip();
           return;
         }
-        if (v.width !== undefined) await page.setViewportSize({ width: v.width, height: (page.viewportSize()?.height ?? 720) });
+        if (v.width !== undefined || v.viewportHeight !== undefined) {
+          await page.setViewportSize({ width: v.width ?? page.viewportSize()?.width ?? 1100, height: v.viewportHeight ?? page.viewportSize()?.height ?? 720 });
+        }
         await gotoView(view, { variant: v.id, ...(v.route === undefined ? {} : { route: v.route }) });
         for (const pill of v.pills ?? []) await page.getByRole('button', { name: new RegExp(`^${pill}`) }).first().click();
         if (v.agentPopover !== undefined) {
@@ -52,6 +54,9 @@ karstTest.describe('full-page screenshots', () => {
         }
         if (v.click !== undefined) await page.locator(v.click).first().click();
         for (const sel of v.clicks ?? []) await page.locator(sel).first().click();
+        // T1091: an anchored popover is placed in a requestAnimationFrame after it opens; wait two frames so the shot never
+        // catches it before its first placement.
+        await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
         if (v.id.startsWith('drill-')) {
           // UI-R43: no sideways page scroll at any tier.
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

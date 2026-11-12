@@ -13,8 +13,8 @@ describe('ViewPills.css — the stream menu is never clipped', () => {
     expect(CSS).toMatch(/@container \(max-width:699px\)\{[^@]*\.vp-bar\{overflow-x:auto/);
   });
 
-  it('fixes the menu to the frame wherever the row scrolls', () => {
-    expect(CSS).toMatch(/@container \(max-width:699px\)\{[^@]*\.vp-menu\{position:fixed/);
+  it('fixes the menu to the viewport at every tier, so no row clips it and the shared placement can flip it', () => {
+    expect(/\.vp-menu\{([^}]*)\}/.exec(CSS)?.[1] ?? '').toMatch(/position:fixed/);
   });
 });
 

@@ -41,10 +41,11 @@ describe('dashboard static guards — non-vacuity', () => {
 const RAW_HTML_ALLOWED = ['AgentIcon.tsx', 'Icon.tsx'];
 
 /**
- * The sanctioned imperative-style sites: placeBelow.ts positions a `position:fixed` popover from its
- * trigger's measured rect, and kTooltip.ts does the same for the one k-tooltip node. CSS cannot express either.
+ * The dashboard app writes no element style imperatively, except kTooltip.ts: `position:fixed` popovers are placed by
+ * the shared `src/ui/shared/anchoredPopover.ts` primitive (from the trigger's measured rect, which CSS cannot express),
+ * and kTooltip.ts does the same for the one k-tooltip node.
  */
-const IMPERATIVE_STYLE_ALLOWED = ['kTooltip.ts', 'placeBelow.ts'];
+const IMPERATIVE_STYLE_ALLOWED = ['kTooltip.ts'];
 
 /**
  * kTooltip.ts is one delegated document listener (not a React view): it wires `aria-describedby` on whichever
@@ -97,7 +98,7 @@ describe('raw HTML allowance is scoped to the sanctioned files', () => {
     expect(users.sort()).toEqual([...RAW_HTML_ALLOWED].sort());
   });
 
-  it('only placeBelow.ts and kTooltip.ts write element styles imperatively', () => {
+  it('only kTooltip.ts writes element styles imperatively', () => {
     const users = APP_SOURCE.filter((f) => /\.style\./.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
     expect(users).toEqual(IMPERATIVE_STYLE_ALLOWED);
   });

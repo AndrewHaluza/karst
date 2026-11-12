@@ -4,7 +4,8 @@
  * streams when there are several; Server logs opens the combined view directly; Env opens the editor. A pill with no
  * target is not rendered (`drillTargets.ts`). Every open goes through the overlay stack, so it lands on the history.
  */
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
+import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { useOverlay, useOverlays } from './DashboardAppContext.js';
 import { DASHBOARD } from './overlayStack.js';
 import { Icon } from './Icon.js';
@@ -15,8 +16,15 @@ import './ViewPills.css';
 
 const streamKey = (s: ConsoleStream): string => `${s.stage}:${s.processId ?? ''}`;
 
-function StreamMenu({ streams, onPick }: { readonly streams: readonly ConsoleStream[]; readonly onPick: (s: ConsoleStream) => void }) {
+function StreamMenu({ streams, onPick, trigger, onHidden }: {
+  readonly streams: readonly ConsoleStream[];
+  readonly onPick: (s: ConsoleStream) => void;
+  readonly trigger: RefObject<HTMLElement | null>;
+  readonly onHidden: () => void;
+}) {
   const first = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  useAnchoredPopover(true, pop, trigger, onHidden);
   useEffect(() => first.current?.focus(), []);
   const onKey = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -26,7 +34,7 @@ function StreamMenu({ streams, onPick }: { readonly streams: readonly ConsoleStr
     items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
   };
   return (
-    <div className="vp-menu" role="menu" aria-label="Console" onKeyDown={onKey}>
+    <div className="vp-menu" role="menu" aria-label="Console" ref={pop} onKeyDown={onKey}>
       {streams.map((s, i) => (
         <button key={streamKey(s)} ref={i === 0 ? first : undefined} type="button" role="menuitem" className="vp-item" onClick={() => onPick(s)}>
           <span className={`vp-dot ${s.status}`} aria-hidden="true" />
@@ -97,7 +105,7 @@ export function ViewPills() {
               {p.count !== null ? <span className="vp-count">{p.count}</span> : null}
               {menu ? <Icon name="chevron-down" size={11} /> : null}
             </button>
-            {menu && menuOpen ? <StreamMenu streams={p.streams} onPick={pick} /> : null}
+            {menu && menuOpen ? <StreamMenu streams={p.streams} onPick={pick} trigger={consolePill} onHidden={() => overlays.setPillMenuOpen(false)} /> : null}
           </span>
         );
       })}
