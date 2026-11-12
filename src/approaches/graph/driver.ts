@@ -72,6 +72,7 @@ import {
 import { parseGraphDocument, type GraphDocument } from './parse.js';
 import type { CompileContext } from './compile.js';
 import { completeActivation } from './coordinator/completion.js';
+import { releaseLeaseForNodeRun } from './coordinator/leases.js';
 import { runJoinNode } from './executors/join.js';
 import { evaluateGate, gateStateFromStore } from './executors/gate.js';
 import { runCommandNode, type CommandNodeOutcome } from './executors/command.js';
@@ -1086,7 +1087,7 @@ export function nodePromptWithReporter(
 
 /** Complete a deterministic node (gate/command): one transaction transitions
  *  `ready → completing → integrating → completed`, records the effective
- *  outcome, releases the command's process slot, and emits the outcome
+ *  outcome, releases the command's process slot and its held domain leases, and emits the outcome
  *  successors through `completeActivation` (pass-through transaction). */
 function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effectiveOutcome: string): void {
   deps.transaction(() => {
@@ -1103,6 +1104,12 @@ function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effecti
     // A command node reserved a process slot at claim; release it on its
     // deterministic completion. The guarded update touches only command runs.
     releaseCommandProcessSlot(deps.db, nodeRunId, deps.now());
+    // The deterministic node's process (if any) provably ended before this
+    // completion ran, so its `held` domain leases release in the same
+    // transaction that records the completion. An `ambiguous-process` lease is
+    // left strictly alone (only the discard action may move one). A gate holds
+    // no lease, so the call moves no row for it.
+    releaseLeaseForNodeRun(deps.db, nodeRunId);
   });
 }
 
