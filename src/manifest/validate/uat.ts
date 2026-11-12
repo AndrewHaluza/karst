@@ -135,6 +135,12 @@ export function validateGate(raw: unknown, index: number, where: string): UatGat
     }
     gate.maxConcurrent = raw.maxConcurrent;
   }
+  if (raw.timeoutMinutes !== undefined) {
+    if (typeof raw.timeoutMinutes !== 'number' || !Number.isInteger(raw.timeoutMinutes) || raw.timeoutMinutes < 1) {
+      throw new ManifestError(`${where} "${name}".timeoutMinutes must be a whole number >= 1`);
+    }
+    gate.timeoutMinutes = raw.timeoutMinutes;
+  }
   if (raw.enabled !== undefined) {
     if (typeof raw.enabled !== 'boolean') {
       throw new ManifestError(`${where} "${name}".enabled must be a boolean`);

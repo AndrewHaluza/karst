@@ -3993,6 +3993,13 @@ ${extra}`;
   it('leaves the field absent when not set', () => {
     expect(load('').uat?.gates?.[0]).not.toHaveProperty('maxConcurrent');
   });
+  it('parses timeoutMinutes as a whole number >= 1 and leaves it absent when not set', () => {
+    expect(load('      timeoutMinutes: 60\n').uat?.gates?.[0]?.timeoutMinutes).toBe(60);
+    expect(load('').uat?.gates?.[0]).not.toHaveProperty('timeoutMinutes');
+  });
+  it.each(['0', '-1', '1.5', '"2"', 'true'])('rejects timeoutMinutes %s with a ManifestError', (v) => {
+    expect(() => load(`      timeoutMinutes: ${v}\n`)).toThrow(/timeoutMinutes must be a whole number >= 1/);
+  });
   it.each(['0', '-1', '1.5', '"2"', 'true'])('rejects %s with a ManifestError', (v) => {
     expect(() => load(`      maxConcurrent: ${v}\n`)).toThrow(/maxConcurrent must be a whole number >= 1/);
   });

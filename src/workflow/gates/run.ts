@@ -14,6 +14,21 @@ import { killTree } from '../../runtime/processTree.js';
  * bounded while not racing a legitimate heavy gate.
  */
 export const DEFAULT_GATE_TIMEOUT_MS = 30 * 60 * 1_000;
+/**
+ * The visual and layout sweeps need about 31 minutes (the CI `visual` job budget), so the 30-minute backstop killed
+ * a full sweep that CI would have passed. 45 minutes keeps a margin and still bounds a hung container.
+ */
+export const UI_GATE_TIMEOUT_MS = 45 * 60 * 1_000;
+const MS_PER_MINUTE = 60 * 1_000;
+
+/**
+ * The timeout of a gate: its `timeoutMinutes` from the manifest, else the visual and layout default, else undefined
+ * (the process runner then applies `DEFAULT_GATE_TIMEOUT_MS`).
+ */
+export function gateTimeoutMs(gate: { timeoutMinutes?: number }, isUi: boolean): number | undefined {
+  if (gate.timeoutMinutes !== undefined) return gate.timeoutMinutes * MS_PER_MINUTE;
+  return isUi ? UI_GATE_TIMEOUT_MS : undefined;
+}
 export const DEFAULT_GATE_MAX_OUTPUT_BYTES = 1024 * 1024;
 export const DEFAULT_GATE_TERMINATION_GRACE_MS = 5_000;
 

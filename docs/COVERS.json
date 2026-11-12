@@ -1013,6 +1013,9 @@
   "src/workflow/gates/gateLease.ts#leaseGateSlot": [
     "arch:GATE-CONCURRENCY"
   ],
+  "src/workflow/gates/run.ts": [
+    "arch:GATE-REPEAT"
+  ],
   "src/workflow/gates/runList.ts#runGateList": [
     "arch:GATE-CONCURRENCY"
   ],
