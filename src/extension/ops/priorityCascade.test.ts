@@ -7,7 +7,7 @@ import { addRelation } from '../../store/ticketRelations.js';
 import { createTicket, getTicket, setStageCurrent } from '../../store/tickets.js';
 import { createPlanningProposalOps } from './planningProposalOps.js';
 import { setTicketPriorityOp } from './ticketPriorityOps.js';
-import { KEEP, LOWER_ALL, MAX_LISTED_IDS } from './priorityCascade.js';
+import { KEEP, LOWER_ALL, MAX_LISTED_IDS, offerLowerDependents, queueOwnLevel } from './priorityCascade.js';
 
 describe('priority cascade', () => {
   let store: Store;
@@ -131,5 +131,143 @@ describe('priority cascade', () => {
     expect(own(a)).toBe('low');
     expect(warns).toHaveLength(1);
     expect(warns[0]).toContain(`T${w.id}`);
+  });
+
+  it('names the exact prompt text, calls onChange once for the cascade and refreshes a session once', async () => {
+    const a = draft('A');
+    const b = draft('B', [a], 'high');
+    const c = draft('C', [a], 'urgent');
+    await draftOps().setPriority(a, 'low');
+    expect(prompts[0]!.text).toBe(
+      `D${a} is now Low. D${c}, D${b} wait on it at a higher level, so the queue keeps D${a} at Urgent. Lower them to Low too?`,
+    );
+    expect(changes).toBe(2); // the first write + one for the cascade
+    expect(refreshed).toEqual([sessionId, sessionId]);
+  });
+
+  it('writes nothing and does not call onChange for the cascade on Keep', async () => {
+    const a = draft('A');
+    draft('B', [a], 'high');
+    answer = KEEP;
+    await draftOps().setPriority(a, 'low');
+    expect(changes).toBe(1);
+    expect(refreshed).toEqual([sessionId]);
+  });
+
+  it('does not prompt without a project', async () => {
+    const a = draft('A');
+    draft('B', [a], 'high');
+    await createPlanningProposalOps({ ...common(), projectId: () => undefined, choose: async () => undefined, openForm: () => {} }).setPriority(a, 'low');
+    expect(prompts).toHaveLength(0);
+  });
+
+  it('a failed index refresh never undoes the cascade, and a throwing write is skipped with one warn', async () => {
+    const a = draft('A');
+    const b = draft('B', [a], 'high');
+    const c = draft('C', [a], 'high');
+    const ops = createPlanningProposalOps({
+      ...common(),
+      refreshIndex: (s) => { refreshed.push(s); if (refreshed.length > 1) throw new Error('disk'); },
+      choose: async () => undefined,
+      openForm: () => {},
+    });
+    store.db.exec(`CREATE TRIGGER block_c BEFORE UPDATE OF priority_override ON planning_proposals WHEN NEW.id = ${c} BEGIN SELECT RAISE(ABORT, 'locked'); END;`);
+    await ops.setPriority(a, 'low');
+    expect(own(b)).toBe('low');
+    expect(own(c)).toBeNull();
+    expect(warns).toEqual([`D${c} changed in the meantime and stayed at their level.`]);
+  });
+
+  it('skips a discarded draft or a draft of another project and names it', async () => {
+    const other = upsertProject(store, { slug: 'q' }).id;
+    const foreign = createPlanningSession(store, { projectId: other, title: 'F', core: 'claude', model: null }).id;
+    const a = draft('A');
+    const b = draft('B', [a], 'high');
+    const f = insertProposal(store, foreign, { title: 'F', description: 'd'.repeat(40), summary: 's', repos: ['api'], dependsOn: [a], priority: 'high' });
+    await draftOps().setPriority(a, 'low');
+    expect(own(b)).toBe('low');
+    expect(own(f)).toBeNull();
+  });
+
+  it('names exactly five ids without +N, and six ids with +1', async () => {
+    const a = draft('A');
+    const five = Array.from({ length: 5 }, (_, i) => draft(`W${i}`, [a], 'high'));
+    await draftOps().setPriority(a, 'low');
+    expect(prompts[0]!.text).toContain(`D${a} is now Low. ${five.map((i) => `D${i}`).join(', ')} wait on it`);
+    expect(prompts[0]!.text).not.toContain('+');
+    const b = draft('B');
+    const six = Array.from({ length: 6 }, (_, i) => draft(`V${i}`, [b], 'high'));
+    await draftOps().setPriority(b, 'low');
+    expect(prompts[1]!.text).toContain(`${six.slice(0, 5).map((i) => `D${i}`).join(', ')} +1 wait on it`);
+  });
+
+  it('queueOwnLevel reads the own level of a queue item and undefined for an absent item or no project', () => {
+    const a = draft('A', undefined, 'high');
+    expect(queueOwnLevel(common(), `D${a}`)).toBe('high');
+    expect(queueOwnLevel(common(), 'D9999')).toBeUndefined();
+    expect(queueOwnLevel({ ...common(), projectId: () => undefined }, `D${a}`)).toBeUndefined();
+  });
+
+  it('offerLowerDependents does nothing for an unknown before, an absent item, no project or an unchanged level', async () => {
+    const a = draft('A');
+    draft('B', [a], 'high');
+    await offerLowerDependents(common(), `D${a}`, undefined);
+    await offerLowerDependents(common(), 'D9999', 'high');
+    await offerLowerDependents({ ...common(), projectId: () => undefined }, `D${a}`, 'high');
+    await offerLowerDependents(common(), `D${a}`, 'normal'); // own level is still normal: not a lower
+    expect(prompts).toHaveLength(0);
+  });
+
+  it('skips a draft that was discarded, deleted or moved to another project while the prompt was open, with one warn', async () => {
+    const a = draft('A');
+    const gone = draft('G', [a], 'high');
+    const done = draft('X', [a], 'high');
+    const moved = draft('M', [a], 'high');
+    const ok = draft('K', [a], 'high');
+    const otherProject = upsertProject(store, { slug: 'q' }).id;
+    const otherSession = createPlanningSession(store, { projectId: otherProject, title: 'O', core: 'claude', model: null }).id;
+    const n = { ...notify(), infoActions: async () => {
+      store.db.prepare('DELETE FROM planning_proposals WHERE id = ?').run(gone);
+      store.db.prepare("UPDATE planning_proposals SET status = 'discarded' WHERE id = ?").run(done);
+      store.db.prepare('UPDATE planning_proposals SET session_id = ? WHERE id = ?').run(otherSession, moved);
+      return LOWER_ALL;
+    } };
+    await createPlanningProposalOps({ ...common(), notify: n, choose: async () => undefined, openForm: () => {} }).setPriority(a, 'low');
+    expect(own(ok)).toBe('low');
+    expect(own(done)).toBeNull();
+    expect(own(moved)).toBeNull();
+    expect(warns).toEqual([`D${gone}, D${done}, D${moved} changed in the meantime and stayed at their level.`]);
+  });
+
+  it('works when refreshIndex is absent', async () => {
+    const a = draft('A');
+    const b = draft('B', [a], 'high');
+    const { refreshIndex: _unused, ...rest } = common();
+    await createPlanningProposalOps({ ...rest, choose: async () => undefined, openForm: () => {} }).setPriority(a, 'low');
+    expect(own(b)).toBe('low');
+  });
+
+  it('lowers a waiting ticket with a user override and an unrelated urgent item does not set the named top level', async () => {
+    const base = createTicket(store, { key: 'B', title: 'B', projectId });
+    const w = createTicket(store, { key: 'W', title: 'W', projectId });
+    for (const t of [base, w]) setStageCurrent(store, t.id, 'scope');
+    store.db.prepare('UPDATE tickets SET priority_override = ? WHERE id = ?').run('high', w.id);
+    addRelation(store, { ticketId: w.id, kind: 'blocked-by', targetTicketId: base.id, source: 'user' });
+    const other = createTicket(store, { key: 'O', title: 'O', projectId });
+    setStageCurrent(store, other.id, 'scope');
+    store.db.prepare('UPDATE tickets SET priority_override = ? WHERE id = ?').run('urgent', other.id);
+    await setTicketPriorityOp(common(), base.id, 'low');
+    expect(prompts[0]!.text).toBe(`T${base.id} is now Low. T${w.id} wait on it at a higher level, so the queue keeps T${base.id} at High. Lower them to Low too?`);
+    expect(getTicket(store, w.id).priorityOverride).toBe('low');
+    expect(getTicket(store, other.id).priorityOverride).toBe('urgent');
+    expect(warns).toEqual([]);
+  });
+
+  it('an unknown before level never prompts, even when the item sits below normal', async () => {
+    const a = draft('A');
+    draft('B', [a], 'urgent');
+    setProposalPriorityOverride(store, a, 'low');
+    await offerLowerDependents(common(), `D${a}`, undefined);
+    expect(prompts).toHaveLength(0);
   });
 });

@@ -17,6 +17,11 @@ const rank = (level: PriorityLevel | null): number => PRIORITY_LEVELS.indexOf(le
 /** True when `a` is a strictly higher level than `b`; null reads as `normal`. */
 export const isHigherLevel = (a: PriorityLevel | null, b: PriorityLevel | null): boolean => rank(a) < rank(b);
 
+/** The highest of `levels` (null reads as `normal`); `normal` for an empty list. */
+export function highestLevel(levels: readonly (PriorityLevel | null)[]): PriorityLevel {
+  return levels.length === 0 ? DEFAULT_LEVEL : PRIORITY_LEVELS[Math.min(...levels.map(rank))]!;
+}
+
 /**
  * The items that wait on `rootId`, directly or transitively, whose OWN level is higher
  * than `level`. Pure (no store, no vscode) and it does not sort: the result keeps the
@@ -30,16 +35,20 @@ export function dependentsAbove(
 ): string[] {
   const waiters = new Map<string, string[]>();
   for (const item of items) {
-    for (const to of item.waitsOn) waiters.set(to, [...(waiters.get(to) ?? []), item.id]);
+    for (const to of item.waitsOn) {
+      const list = waiters.get(to);
+      if (list) list.push(item.id);
+      else waiters.set(to, [item.id]);
+    }
   }
-  const seen = new Set<string>([rootId]);
+  const reached = new Set<string>();
   const stack = [rootId];
-  while (stack.length > 0) {
-    for (const from of waiters.get(stack.pop()!) ?? []) {
-      if (seen.has(from)) continue;
-      seen.add(from);
+  for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
+    for (const from of waiters.get(id) ?? []) {
+      if (from === rootId || reached.has(from)) continue;
+      reached.add(from);
       stack.push(from);
     }
   }
-  return items.filter((i) => i.id !== rootId && seen.has(i.id) && isHigherLevel(i.ownPriority, level)).map((i) => i.id);
+  return items.filter((i) => reached.has(i.id) && isHigherLevel(i.ownPriority, level)).map((i) => i.id);
 }

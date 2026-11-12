@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dependentsAbove, isHigherLevel, type DependentNode } from './queueDependents.js';
+import { dependentsAbove, highestLevel, isHigherLevel, type DependentNode } from './queueDependents.js';
 
 const n = (id: string, ownPriority: DependentNode['ownPriority'], ...waitsOn: string[]): DependentNode => ({ id, ownPriority, waitsOn });
 
@@ -48,5 +48,15 @@ describe('dependentsAbove', () => {
 
   it('ignores items that do not wait on the root', () => {
     expect(dependentsAbove([n('D1', 'low'), n('D2', 'high')], 'D1', 'low')).toEqual([]);
+  });
+});
+
+describe('highestLevel', () => {
+  it('picks the highest level, reads null as normal and gives normal for none', () => {
+    expect(highestLevel(['low', 'urgent', 'high'])).toBe('urgent');
+    expect(highestLevel(['low', 'high'])).toBe('high');
+    expect(highestLevel(['low', null])).toBe('normal');
+    expect(highestLevel(['low'])).toBe('low');
+    expect(highestLevel([])).toBe('normal');
   });
 });

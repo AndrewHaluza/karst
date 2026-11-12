@@ -4,7 +4,7 @@ import { getProposal, setProposalPriorityOverride } from '../../store/planningPr
 import { getPlanningSession } from '../../store/planningSessions.js';
 import { updateTicketFields } from '../../store/tickets.js';
 import { parseId } from '../../model/entityId.js';
-import { dependentsAbove, isHigherLevel } from '../../model/queueDependents.js';
+import { dependentsAbove, highestLevel, isHigherLevel } from '../../model/queueDependents.js';
 import type { PriorityLevel } from '../../model/priority.js';
 import { priorityRefusal } from './ticketPriorityOps.js';
 import type { Notify } from './notify.js';
@@ -44,22 +44,20 @@ export function queueOwnLevel(deps: PriorityCascadeDeps, itemId: string): Priori
   return readProjectQueue(deps.store, projectId).entries.find((e) => e.id === itemId)?.ownPriority;
 }
 
-/** Write one dependent's override; returns why it was skipped, or null when it was written. */
-function writeOverride(deps: PriorityCascadeDeps, id: string, level: PriorityLevel, sessions: Set<number>): string | null {
+/** Write one dependent's override; false when the item changed since the walk and was skipped. */
+function lowerOne(deps: PriorityCascadeDeps, id: string, level: PriorityLevel, sessions: Set<number>): boolean {
   const { kind, n } = parseId(id);
   if (kind === 'ticket') {
-    const refusal = priorityRefusal(deps.store, n, deps.projectId());
-    if (refusal !== null) return refusal;
+    if (priorityRefusal(deps.store, n, deps.projectId()) !== null) return false;
     updateTicketFields(deps.store, n, { priorityOverride: level });
-    return null;
+    return true;
   }
   const p = getProposal(deps.store, n);
-  const session = p ? getPlanningSession(deps.store, p.sessionId) : undefined;
-  if (!p || !session || session.projectId !== deps.projectId()) return 'was not found';
-  if (p.status !== 'pending') return `is already ${p.status}`;
+  if (p?.status !== 'pending') return false;
+  if (getPlanningSession(deps.store, p.sessionId)?.projectId !== deps.projectId()) return false;
   setProposalPriorityOverride(deps.store, n, level);
   sessions.add(p.sessionId);
-  return null;
+  return true;
 }
 
 /**
@@ -80,7 +78,7 @@ export async function offerLowerDependents(
   const ids = dependentsAbove(entries, itemId, level);
   if (ids.length === 0) return;
 
-  const top = entries.filter((e) => ids.includes(e.id)).map((e) => e.ownPriority ?? 'normal').sort((a, b) => (isHigherLevel(a, b) ? -1 : 1))[0]!;
+  const top = highestLevel(entries.filter((e) => ids.includes(e.id)).map((e) => e.ownPriority));
   const choice = await deps.notify.infoActions(
     `${itemId} is now ${label(level)}. ${listIds(ids)} wait on it at a higher level, so the queue keeps ${itemId} at ${label(top)}. Lower them to ${label(level)} too?`,
     [LOWER_ALL, KEEP],
@@ -91,9 +89,9 @@ export async function offerLowerDependents(
   const skipped: string[] = [];
   for (const id of ids) {
     try {
-      if (writeOverride(deps, id, level, sessions) !== null) skipped.push(id);
+      if (!lowerOne(deps, id, level, sessions)) skipped.push(id);
     } catch {
-      skipped.push(id);
+      skipped.push(id); // a write that raced with another change
     }
   }
   for (const sessionId of sessions) {
