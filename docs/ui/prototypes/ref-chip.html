@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference Chip</title>
+<style>
+:root{color-scheme:light dark;
+  --bg:#f3f3f3;--panel:#ffffff;--text:#1f1f1f;--muted:#5c5c5c;--line:#d4d4d4;--hover:#e8e8e8;--focus:#005fb8;--chip:#eef1f5;--bad:#b42318;
+  --urg-bg:#fde7e4;--urg:#9f1c14;--high-bg:#fff1cc;--high:#6e4700;
+  --k-attention:#bf8803;
+  --stage-scope:#526A80;--stage-scope-bg:#EAEDF0;--stage-impl:#4f46e5;--stage-uat:#b45309;--stage-review:#0e7490;--stage-fix:#c93636;--stage-ship:#bf3989;--stage-done:#1a7f37;--stage-closed:#57606a;--stage-unknown:#6e7681;--stage-scope-fg:#526a80;--stage-impl-fg:#3a30e2;--stage-uat-fg:#883f07;--stage-review-fg:#0b5e74;--stage-fix-fg:#9d2a2a;--stage-ship-fg:#942c6a;--stage-done-fg:#14612a;--stage-closed-fg:#4e565f;--stage-unknown-fg:#525860;--attention-fg:#6f4f02;
+  --fs-sm:12px;--fs-md:13px;--row-h:28px;--hit:24px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#181818;--panel:#1f1f1f;--text:#d4d4d4;--muted:#a0a0a0;--line:#3a3a3a;--hover:#2a2d2e;--focus:#5cb3ff;--chip:#2a2f37;--bad:#ff7b72;
+  --urg-bg:#4a1f1b;--urg:#ffa198;--high-bg:#3d3215;--high:#ffd479;--k-attention:#cca700;
+  --stage-scope:#8FA3B8;--stage-scope-bg:#29343D;--stage-impl:#7f7bf5;--stage-uat:#d18616;--stage-review:#2ea8b5;--stage-fix:#f14c4c;--stage-ship:#d162c4;--stage-done:#4bb64b;--stage-closed:#8b949e;--stage-unknown:#7d8590;--stage-scope-fg:#8fa3b8;--stage-impl-fg:#a8a6f8;--stage-uat-fg:#e99f31;--stage-review-fg:#3ec0ce;--stage-fix-fg:#f68989;--stage-ship-fg:#df91d6;--stage-done-fg:#6fc56f;--stage-closed-fg:#aab0b8;--stage-unknown-fg:#a6acb3;--attention-fg:#f0c400;}}
+:root[data-theme="light"]{color-scheme:light}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#181818;--panel:#1f1f1f;--text:#d4d4d4;--muted:#a0a0a0;--line:#3a3a3a;--hover:#2a2d2e;--focus:#5cb3ff;--chip:#2a2f37;--bad:#ff7b72;
+  --urg-bg:#4a1f1b;--urg:#ffa198;--high-bg:#3d3215;--high:#ffd479;--k-attention:#cca700;
+  --stage-scope:#8FA3B8;--stage-scope-bg:#29343D;--stage-impl:#7f7bf5;--stage-uat:#d18616;--stage-review:#2ea8b5;--stage-fix:#f14c4c;--stage-ship:#d162c4;--stage-done:#4bb64b;--stage-closed:#8b949e;--stage-unknown:#7d8590;--stage-scope-fg:#8fa3b8;--stage-impl-fg:#a8a6f8;--stage-uat-fg:#e99f31;--stage-review-fg:#3ec0ce;--stage-fix-fg:#f68989;--stage-ship-fg:#df91d6;--stage-done-fg:#6fc56f;--stage-closed-fg:#aab0b8;--stage-unknown-fg:#a6acb3;--attention-fg:#f0c400;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:var(--fs-md)/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:16px}
+h1{font-size:18px;margin:0 0 4px}h2{font-size:15px;margin:0 0 6px}
+h3{font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:12px 0 6px;font-weight:600}
+h3:first-child{margin-top:0}
+p{margin:0 0 8px;max-width:80ch}ul{margin:0 0 8px;padding-left:18px;max-width:80ch}
+.muted{color:var(--muted)}code{font-size:var(--fs-sm)}
+.theme{position:fixed;top:12px;right:16px;font:inherit;font-size:var(--fs-sm);padding:0 10px;min-height:var(--hit);border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--text);cursor:pointer}
+section.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin:0 0 18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px}
+.surface{border:1px solid var(--line);border-radius:6px;padding:8px;min-width:0}
+:focus-visible{outline:2px solid var(--focus);outline-offset:1px;border-radius:3px}
+svg.i{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+table{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
+td,th{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left;vertical-align:top}
+
+/* The host region is the container; tiers use the 400px step of UI-R49. */
+.tierhost{container-type:inline-size}
+
+/* Queue row: main button, relation and menu are siblings (@ui:UI-R09). */
+.row{display:flex;align-items:center;gap:6px;min-height:var(--row-h);padding:0 4px;border-radius:4px;min-width:0}
+.qrow:hover,.row:not(.qrow .row):hover{background:var(--hover)}
+.qrow{border-radius:4px}
+.main{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:6px;min-height:var(--hit);padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.pos{color:var(--muted);font-variant-numeric:tabular-nums;width:2ch;text-align:right;flex:none}
+.id{font-weight:600;flex:none;white-space:nowrap}
+.sx{color:var(--muted);font-weight:400}
+.title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pri{display:inline-flex;align-items:center;gap:1px;font-size:11px;font-weight:700;padding:0 4px;border-radius:3px;border:1px solid currentColor;flex:none}
+.pri.urg{background:var(--urg-bg);color:var(--urg)}.pri.high{background:var(--high-bg);color:var(--high)}
+.pri .up{width:10px;height:10px;stroke-width:2.5}
+.rel{display:flex;align-items:center;gap:6px;flex:none;white-space:nowrap}
+.verb{font-size:var(--fs-sm);color:var(--muted)}
+.verb.bad{color:var(--bad);font-weight:600;display:inline-flex;align-items:center;gap:3px}
+.verb.bad svg.i{width:12px;height:12px}
+.kebab{flex:none;width:var(--hit);height:var(--hit);display:grid;place-items:center;border:0;border-radius:4px;background:none;color:var(--muted);cursor:pointer}
+.kebab:hover{background:var(--hover);color:var(--text)}
+.more{display:inline-flex;align-items:center;min-height:var(--hit);min-width:var(--hit);padding:0 2px;border:0;border-radius:10px;background:none;cursor:pointer;font:inherit}
+.more .pill{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:9px;border:1px solid var(--stage-unknown);background:var(--chip);color:var(--text);font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
+.more:hover .pill,.more[aria-expanded="true"] .pill{border-color:var(--focus)}
+/* The +N list opens in flow below its row: the Queue body scrolls and would clip a flyout. */
+.more-list{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:2px 0 4px calc(2ch + 10px);padding:4px 6px;border-left:2px solid var(--line)}
+.more-list[hidden]{display:none}
+@container (max-width: 400px){
+  .row{flex-wrap:wrap;row-gap:0;padding-bottom:3px}
+  .main{flex-basis:0}
+  .rel{order:3;flex:1 0 100%;min-height:22px;padding-left:var(--rel-ind,calc(2ch + 6px))}
+  .kebab{order:2}
+}
+
+/* ---- Reference chip ----
+   Border and wash: the rail stage color (stagePalette STAGE_COLORS, .seg.passed wash).
+   Text: --stage-<key>-fg, a tone of the same hue that reaches 4.5:1 on the wash. The child elements
+   set their own color, so an injected .stg-<key>{color} rule on the chip cannot win. */
+.sref{position:relative;display:inline-flex;align-items:baseline;gap:4px;height:18px;padding:0 7px;border-radius:9px;line-height:16px;white-space:nowrap;font-size:var(--fs-sm);
+  --c:var(--stg-color,var(--stage-unknown));
+  border:1px solid var(--c);background:var(--stg-bg,color-mix(in srgb,var(--c) 20%,transparent))}
+.stg-scope{--stg-color:var(--stage-scope);--stg-bg:var(--stage-scope-bg);--stg-fg:var(--stage-scope-fg)}.stg-impl{--stg-color:var(--stage-impl);--stg-fg:var(--stage-impl-fg)}.stg-uat{--stg-color:var(--stage-uat);--stg-fg:var(--stage-uat-fg)}.stg-review{--stg-color:var(--stage-review);--stg-fg:var(--stage-review-fg)}.stg-fix{--stg-color:var(--stage-fix);--stg-fg:var(--stage-fix-fg)}.stg-ship{--stg-color:var(--stage-ship);--stg-fg:var(--stage-ship-fg)}.stg-done{--stg-color:var(--stage-done);--stg-fg:var(--stage-done-fg)}.stg-closed{--stg-color:var(--stage-closed);--stg-fg:var(--stage-closed-fg)}
+.sref a,.sref .id-t,.sref .sw{color:var(--stg-fg,var(--stage-unknown-fg))}
+.sref a{font-weight:600;text-decoration:none}
+.sref a::after{content:"";position:absolute;inset:-4px -2px}
+.sref a:hover{text-decoration:underline}
+.sref a:focus-visible{outline-offset:2px}
+.sref .id-t{font-weight:600}
+/* One span, two words: the tier picks the attribute (no duplicated hidden spans, UI-R51). */
+.sref .sw::before{content:"· " attr(data-full);text-transform:uppercase;letter-spacing:.05em;font-size:10px;font-weight:600}
+@container (max-width: 400px){.sref .sw::before{content:"· " attr(data-short)}}
+.mk{width:10px;height:10px;flex:none;display:inline-block;align-self:center}
+/* The id (12px) and the word (10px) share one baseline, so the caps sit on one line. */
+.sref > *{line-height:16px}
+.mk.dot{border-radius:50%;background:var(--c)}
+.stg-done .mk{color:var(--stage-done);stroke-width:3}
+.mk.ring{border-radius:50%;border:2px solid var(--stage-closed)}
+.mk.dring{border-radius:50%;border:2px dashed var(--stage-unknown)}
+/* Needs you wins over the stage (rail order): attention border and 30% wash, the pause mark (UI-R28b). */
+.sref.needs{--c:var(--k-attention);--stg-fg:var(--attention-fg);background:color-mix(in srgb,var(--k-attention) 30%,transparent)}
+.sref.needs .pause{color:var(--attention-fg);fill:currentColor;stroke:none}
+.sref.draft{border:1px dashed var(--stage-unknown);background:var(--chip)}
+.sref.gone{border:1px dashed var(--stage-closed);background:none}
+.sref.gone .id-t,.sref.gone .sw,.sref.gone .mk{color:var(--muted)}
+.sref.cyc{border:1px solid var(--bad)}
+
+.ctxmenu{position:fixed;z-index:20;min-width:180px;padding:4px 0;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.28);font-size:var(--fs-md)}
+.ctxmenu[hidden]{display:none}
+.ctxitem{display:flex;align-items:center;gap:8px;width:100%;min-height:24px;padding:0 12px;border:0;background:none;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.ctxitem:hover,.ctxitem:focus-visible{background:var(--focus);color:#fff;outline:none;border-radius:0}
+.ctxitem .k{margin-left:auto;color:inherit;opacity:.7}
+.ctxitem[aria-checked="true"]::before{content:"✓";width:12px}.ctxitem[role="menuitemradio"]:not([aria-checked="true"])::before{content:"";width:12px}
+.ctxsub{border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:2px 0;padding:2px 0 2px 8px}
+.ctxsub[hidden]{display:none}
+.ctxdiv{height:1px;background:var(--line);margin:4px 0}
+.kebab[aria-expanded="true"]{background:var(--hover);color:var(--text)}
+.card{border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.line{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;align-items:center;margin:0}
+.kv dt{color:var(--muted);font-size:var(--fs-sm);min-height:24px;display:flex;align-items:center}
+.kv dd{margin:0;display:flex;gap:6px;flex-wrap:wrap}
+pre.cli{margin:0;font-size:var(--fs-sm);white-space:pre;overflow-x:auto;padding:6px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--line)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tiers{display:grid;gap:10px}
+.tiers .tierhost{border:1px solid var(--line);border-radius:6px;padding:6px}
+.w-560{width:min(100%,560px)}.w-400{width:min(100%,400px)}.w-300{width:min(100%,340px)}
+.resizer{resize:horizontal;overflow:auto;width:560px;min-width:220px;max-width:100%;border:1px dashed var(--line);border-radius:6px;padding:6px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:var(--fs-sm);margin:0 0 14px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.ok{color:var(--stage-done);font-weight:600}.mid{color:var(--high);font-weight:600}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-cycle" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.3L3 16M3 21v-5h5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="5" y="3" width="5" height="18" rx="1"/><rect x="14" y="3" width="5" height="18" rx="1"/></symbol>
+  <symbol id="i-slash" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+</svg>
+<button class="theme" type="button" id="themeBtn" aria-label="Switch light or dark theme">Theme</button>
+<h1>One display for a reference, a dependency and a block</h1>
+<p class="muted">Variant A, revised after the review. T12 is in implementation, T1001 needs you, D497 is a pending draft, T40 is done, T41 is closed, T77 no longer exists, D500 and D501 wait on each other. Use Tab, Enter, Space and Escape: every control works without a mouse.</p>
+<div class="legend" aria-label="Chip states">
+  <span>The chip has no status mark. The stage word and the rail color tell the state.</span>
+  <span><svg class="i mk" style="color:var(--text);fill:currentColor;stroke:none" aria-hidden="true"><use href="#i-pause"/></svg>needs you: the only mark, because it asks you to act</span>
+</div>
+
+<section class="box" aria-labelledby="h-today">
+  <h2 id="h-today">Today (develop): four words and two styles for one relation</h2>
+  <table>
+    <tr><th scope="col">Surface</th><th scope="col">Text</th><th scope="col">Element</th></tr>
+    <tr><td>Sidebar ticket row</td><td><code>Blocked by</code> + chip</td><td><code>TicketRefChip</code></td></tr>
+    <tr><td>Dashboard header</td><td><code>Blocked by</code> + chip</td><td><code>TicketRefChip</code></td></tr>
+    <tr><td>Planning draft card</td><td><code>needs</code> + chip</td><td><code>TicketRefChip</code> (whole-chip link)</td></tr>
+    <tr><td>Ticket form Relations</td><td><code>Blocked by / Blocks / Parent / Child</code> + chip</td><td>vanilla DOM chip</td></tr>
+    <tr><td>Queue pane</td><td><code>waits D497 +1</code>, <code>↑ D498</code>, <code>cycle</code></td><td>muted text, no mark, no link</td></tr>
+    <tr><td>CLI <code>karst queue</code></td><td><code>waits on T12</code>, <code>↑ from D498</code></td><td>text</td></tr>
+  </table>
+</section>
+
+<section class="box" id="A" aria-labelledby="h-a">
+  <h2 id="h-a">A · One verb pair, one chip on every surface</h2>
+  <p>All surfaces use one chip and one pair of words: <b>Waits on</b> (incoming) and <b>Unblocks</b> (outgoing). A cycle uses <b>Cycle with</b>. The ticket form keeps <b>Parent</b> and <b>Child</b>. "Blocked by" and "needs" go away. The GUI uses sentence case. The CLI uses lower case.</p>
+  <p>The chip keeps the pill form. The border and the wash use the rail stage color, and the chip has no status mark. The id and the uppercase stage word use a text tone of the same stage hue (<code>--stage-&lt;key&gt;-fg</code>), darker in light themes and lighter in dark themes, so the text reaches 4.5:1. A dense row shows one chip and a <code>+N</code> button. The button opens the other chips in a list below the row.</p>
+  <div class="grid">
+    <div class="surface tierhost" data-region="queue"><h3>Queue pane</h3><div class="qrow"><div class="row"><button class="main" type="button" title="1. D498 Fix the data loss on a failed accept, urg. Open review" aria-label="1. D498 Fix the data loss on a failed accept, urg. Open review"><span class="pos">1</span><span class="pri urg">URG</span><span class="id">D498<span class="sx"> · P17</span></span><span class="title">Fix the data loss on a failed accept</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref draft"><a href="#" aria-label="D497, draft pending">D497</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="urg" data-kind="review" aria-label="More actions for D498" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="2. D497 Store a draft write as one transaction, high, raised to high because D498 waits on it. Open review" aria-label="2. D497 Store a draft write as one transaction, high, raised to high because D498 waits on it. Open review"><span class="pos">2</span><span class="pri high">HIGH<svg class="i up" aria-hidden="true"><use href="#i-up"/></svg></span><span class="id">D497</span><span class="title">Store a draft write as one transaction</span></button><span class="rel"><span class="verb">Unblocks</span><span class="sref draft"><a href="#" aria-label="D498, draft pending">D498</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="high" data-kind="review" aria-label="More actions for D497" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="3. T997 Cut the cold start of the sidebar. Open dashboard" aria-label="3. T997 Cut the cold start of the sidebar. Open dashboard"><span class="pos">3</span><span class="id">T997</span><span class="title">Cut the cold start of the sidebar</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref stg-impl"><a href="#" aria-label="T12, Implementation">T12</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span><button class="more" type="button" aria-expanded="false" aria-controls="more3" aria-label="Show 1 more: waits on"><span class="pill">+1</span></button></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="dash" aria-label="More actions for T997" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div><div class="more-list" id="more3" hidden><span class="verb">Waits on</span><span class="sref stg-done"><a href="#" aria-label="T40, Done">T40</a><span class="sw" data-full="Done" data-short="DONE" aria-hidden="true"></span></span></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="4. T1002 Show the merge reason on the PR row. Open dashboard" aria-label="4. T1002 Show the merge reason on the PR row. Open dashboard"><span class="pos">4</span><span class="id">T1002</span><span class="title">Show the merge reason on the PR row</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref stg-review needs"><svg class="i mk pause" aria-hidden="true"><use href="#i-pause"/></svg><a href="#" aria-label="T1001, Review, needs you">T1001</a><span class="sw" data-full="Review" data-short="REVIEW" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="dash" aria-label="More actions for T1002" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="5. D500 Two drafts that wait on each other. Open review" aria-label="5. D500 Two drafts that wait on each other. Open review"><span class="pos">5</span><span class="id">D500</span><span class="title">Two drafts that wait on each other</span></button><span class="rel"><span class="verb bad"><svg class="i" aria-hidden="true"><use href="#i-cycle"/></svg>Cycle with</span><span class="sref draft cyc"><a href="#" aria-label="D501, draft pending">D501</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="review" aria-label="More actions for D500" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div></div>
+    <div class="surface tierhost"><h3>Sidebar ticket row</h3>
+      <div class="row"><button class="main" type="button" aria-label="T997 Cut the cold start of the sidebar. Open dashboard"><span class="id">T997</span><span class="title">Cut the cold start of the sidebar</span></button></div>
+      <div class="line" style="padding-left:18px"><span class="verb">Waits on</span><span class="sref stg-impl"><a href="#" aria-label="T12, Implementation">T12</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span><span class="sref stg-done"><a href="#" aria-label="T40, Done">T40</a><span class="sw" data-full="Done" data-short="DONE" aria-hidden="true"></span></span></div>
+      <h3>Planning draft card</h3>
+      <div class="card"><b>D498</b> Fix the data loss on a failed accept
+        <div class="line"><span class="verb">Waits on</span><span class="sref draft"><a href="#" aria-label="D497, draft pending">D497</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span><span class="sref gone"><span class="sr">T77, missing</span><span class="id-t" aria-hidden="true">T77</span><span class="sw" data-full="Missing" data-short="MISSING" aria-hidden="true"></span></span></div></div>
+      <h3>Dashboard header</h3>
+      <div class="line"><b>T997</b> Cut the cold start <span class="muted">·</span> <span class="verb">Waits on</span><span class="sref stg-impl"><a href="#" aria-label="T12, Implementation">T12</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span></div>
+    </div>
+    <div class="surface tierhost"><h3>Ticket form · Relations</h3>
+      <dl class="kv"><dt>Waits on</dt><dd><span class="sref stg-impl"><a href="#" aria-label="T12, Implementation">T12</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span><span class="sref stg-closed"><a href="#" aria-label="T41, Closed">T41</a><span class="sw" data-full="Closed" data-short="CLOSED" aria-hidden="true"></span></span></dd>
+        <dt>Unblocks</dt><dd><span class="sref stg-review needs"><svg class="i mk pause" aria-hidden="true"><use href="#i-pause"/></svg><a href="#" aria-label="T1001, Review, needs you">T1001</a><span class="sw" data-full="Review" data-short="REVIEW" aria-hidden="true"></span></span></dd>
+        <dt>Parent</dt><dd><span class="sref stg-impl"><a href="#" aria-label="T900, Implementation">T900</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span></dd>
+        <dt>Child</dt><dd><span class="sref stg-scope"><a href="#" aria-label="T998, Scope">T998</a><span class="sw" data-full="Scope" data-short="SCOPE" aria-hidden="true"></span></span></dd></dl>
+      <h3>CLI karst queue</h3><pre class="cli">1  D498  urgent  Fix the data…   waits on D497
+2  D497  high ↑  Store a draft…  unblocks D498
+3  T997  normal  Cut the cold…   waits on T12 +1
+5  D500  normal  Two drafts…     cycle with D501</pre>
+    </div>
+  </div>
+
+  <h3>Room tiers (container query on the host region, 400px step of UI-R49)</h3>
+  <table style="margin-bottom:10px">
+    <tr><th scope="col">Room of the host region</th><th scope="col">Chip text</th><th scope="col">Queue row</th></tr>
+    <tr><td>wider than 400px</td><td>id · full stage title (<code>STAGE_TITLE</code>), uppercase: <code>T12 · IMPLEMENTATION</code></td><td>one line</td></tr>
+    <tr><td>400px and less</td><td>id · stage key, uppercase, as the rail <code>.abbr</code>: <code>T12 · IMPL</code></td><td>the verb and the chip go to a second line, so the title keeps the full width</td></tr>
+  </table>
+  <div class="tiers">
+    <div class="tierhost w-560"><span class="verb">560px · full</span><div class="chips"><span class="sref stg-scope"><a href="#" aria-label="T31, Scope">T31</a><span class="sw" data-full="Scope" data-short="SCOPE" aria-hidden="true"></span></span><span class="sref stg-impl"><a href="#" aria-label="T12, Implementation">T12</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span><span class="sref stg-uat"><a href="#" aria-label="T15, UAT">T15</a><span class="sw" data-full="UAT" data-short="UAT" aria-hidden="true"></span></span><span class="sref stg-review"><a href="#" aria-label="T18, Review">T18</a><span class="sw" data-full="Review" data-short="REVIEW" aria-hidden="true"></span></span><span class="sref stg-fix"><a href="#" aria-label="T21, Fix">T21</a><span class="sw" data-full="Fix" data-short="FIX" aria-hidden="true"></span></span><span class="sref stg-ship"><a href="#" aria-label="T24, Ship">T24</a><span class="sw" data-full="Ship" data-short="SHIP" aria-hidden="true"></span></span><span class="sref stg-done"><a href="#" aria-label="T40, Done">T40</a><span class="sw" data-full="Done" data-short="DONE" aria-hidden="true"></span></span><span class="sref stg-closed"><a href="#" aria-label="T41, Closed">T41</a><span class="sw" data-full="Closed" data-short="CLOSED" aria-hidden="true"></span></span><span class="sref stg-review needs"><svg class="i mk pause" aria-hidden="true"><use href="#i-pause"/></svg><a href="#" aria-label="T1001, Review, needs you">T1001</a><span class="sw" data-full="Review" data-short="REVIEW" aria-hidden="true"></span></span><span class="sref draft"><a href="#" aria-label="D497, draft pending">D497</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span><span class="sref gone"><span class="sr">T77, missing</span><span class="id-t" aria-hidden="true">T77</span><span class="sw" data-full="Missing" data-short="MISSING" aria-hidden="true"></span></span></div></div>
+    <div class="tierhost w-400"><span class="verb">400px · short</span><div class="chips"><span class="sref stg-scope"><a href="#" aria-label="T31, Scope">T31</a><span class="sw" data-full="Scope" data-short="SCOPE" aria-hidden="true"></span></span><span class="sref stg-impl"><a href="#" aria-label="T12, Implementation">T12</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span><span class="sref stg-uat"><a href="#" aria-label="T15, UAT">T15</a><span class="sw" data-full="UAT" data-short="UAT" aria-hidden="true"></span></span><span class="sref stg-review"><a href="#" aria-label="T18, Review">T18</a><span class="sw" data-full="Review" data-short="REVIEW" aria-hidden="true"></span></span><span class="sref stg-fix"><a href="#" aria-label="T21, Fix">T21</a><span class="sw" data-full="Fix" data-short="FIX" aria-hidden="true"></span></span><span class="sref stg-ship"><a href="#" aria-label="T24, Ship">T24</a><span class="sw" data-full="Ship" data-short="SHIP" aria-hidden="true"></span></span><span class="sref stg-done"><a href="#" aria-label="T40, Done">T40</a><span class="sw" data-full="Done" data-short="DONE" aria-hidden="true"></span></span><span class="sref stg-closed"><a href="#" aria-label="T41, Closed">T41</a><span class="sw" data-full="Closed" data-short="CLOSED" aria-hidden="true"></span></span><span class="sref stg-review needs"><svg class="i mk pause" aria-hidden="true"><use href="#i-pause"/></svg><a href="#" aria-label="T1001, Review, needs you">T1001</a><span class="sw" data-full="Review" data-short="REVIEW" aria-hidden="true"></span></span><span class="sref draft"><a href="#" aria-label="D497, draft pending">D497</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span><span class="sref gone"><span class="sr">T77, missing</span><span class="id-t" aria-hidden="true">T77</span><span class="sw" data-full="Missing" data-short="MISSING" aria-hidden="true"></span></span></div></div>
+    <div class="tierhost w-300" data-region="queue"><span class="verb">340px · Queue rows wrap</span><div class="qrow"><div class="row"><button class="main" type="button" title="1. D498 Fix the data loss on a failed accept, urg. Open review" aria-label="1. D498 Fix the data loss on a failed accept, urg. Open review"><span class="pos">1</span><span class="pri urg">URG</span><span class="id">D498<span class="sx"> · P17</span></span><span class="title">Fix the data loss on a failed accept</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref draft"><a href="#" aria-label="D497, draft pending">D497</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="urg" data-kind="review" aria-label="More actions for D498" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="2. D497 Store a draft write as one transaction, high, raised to high because D498 waits on it. Open review" aria-label="2. D497 Store a draft write as one transaction, high, raised to high because D498 waits on it. Open review"><span class="pos">2</span><span class="pri high">HIGH<svg class="i up" aria-hidden="true"><use href="#i-up"/></svg></span><span class="id">D497</span><span class="title">Store a draft write as one transaction</span></button><span class="rel"><span class="verb">Unblocks</span><span class="sref draft"><a href="#" aria-label="D498, draft pending">D498</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="high" data-kind="review" aria-label="More actions for D497" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="3. T997 Cut the cold start of the sidebar. Open dashboard" aria-label="3. T997 Cut the cold start of the sidebar. Open dashboard"><span class="pos">3</span><span class="id">T997</span><span class="title">Cut the cold start of the sidebar</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref stg-impl"><a href="#" aria-label="T12, Implementation">T12</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span><button class="more" type="button" aria-expanded="false" aria-controls="more8" aria-label="Show 1 more: waits on"><span class="pill">+1</span></button></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="dash" aria-label="More actions for T997" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div><div class="more-list" id="more8" hidden><span class="verb">Waits on</span><span class="sref stg-done"><a href="#" aria-label="T40, Done">T40</a><span class="sw" data-full="Done" data-short="DONE" aria-hidden="true"></span></span></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="4. T1002 Show the merge reason on the PR row. Open dashboard" aria-label="4. T1002 Show the merge reason on the PR row. Open dashboard"><span class="pos">4</span><span class="id">T1002</span><span class="title">Show the merge reason on the PR row</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref stg-review needs"><svg class="i mk pause" aria-hidden="true"><use href="#i-pause"/></svg><a href="#" aria-label="T1001, Review, needs you">T1001</a><span class="sw" data-full="Review" data-short="REVIEW" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="dash" aria-label="More actions for T1002" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="5. D500 Two drafts that wait on each other. Open review" aria-label="5. D500 Two drafts that wait on each other. Open review"><span class="pos">5</span><span class="id">D500</span><span class="title">Two drafts that wait on each other</span></button><span class="rel"><span class="verb bad"><svg class="i" aria-hidden="true"><use href="#i-cycle"/></svg>Cycle with</span><span class="sref draft cyc"><a href="#" aria-label="D501, draft pending">D501</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="review" aria-label="More actions for D500" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div></div>
+  </div>
+  <h3>Try it: drag the bottom-right corner</h3>
+  <div class="resizer tierhost" data-region="queue"><div class="qrow"><div class="row"><button class="main" type="button" title="1. D498 Fix the data loss on a failed accept, urg. Open review" aria-label="1. D498 Fix the data loss on a failed accept, urg. Open review"><span class="pos">1</span><span class="pri urg">URG</span><span class="id">D498<span class="sx"> · P17</span></span><span class="title">Fix the data loss on a failed accept</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref draft"><a href="#" aria-label="D497, draft pending">D497</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="urg" data-kind="review" aria-label="More actions for D498" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="2. D497 Store a draft write as one transaction, high, raised to high because D498 waits on it. Open review" aria-label="2. D497 Store a draft write as one transaction, high, raised to high because D498 waits on it. Open review"><span class="pos">2</span><span class="pri high">HIGH<svg class="i up" aria-hidden="true"><use href="#i-up"/></svg></span><span class="id">D497</span><span class="title">Store a draft write as one transaction</span></button><span class="rel"><span class="verb">Unblocks</span><span class="sref draft"><a href="#" aria-label="D498, draft pending">D498</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="high" data-kind="review" aria-label="More actions for D497" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="3. T997 Cut the cold start of the sidebar. Open dashboard" aria-label="3. T997 Cut the cold start of the sidebar. Open dashboard"><span class="pos">3</span><span class="id">T997</span><span class="title">Cut the cold start of the sidebar</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref stg-impl"><a href="#" aria-label="T12, Implementation">T12</a><span class="sw" data-full="Implementation" data-short="IMPL" aria-hidden="true"></span></span><button class="more" type="button" aria-expanded="false" aria-controls="more13" aria-label="Show 1 more: waits on"><span class="pill">+1</span></button></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="dash" aria-label="More actions for T997" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div><div class="more-list" id="more13" hidden><span class="verb">Waits on</span><span class="sref stg-done"><a href="#" aria-label="T40, Done">T40</a><span class="sw" data-full="Done" data-short="DONE" aria-hidden="true"></span></span></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="4. T1002 Show the merge reason on the PR row. Open dashboard" aria-label="4. T1002 Show the merge reason on the PR row. Open dashboard"><span class="pos">4</span><span class="id">T1002</span><span class="title">Show the merge reason on the PR row</span></button><span class="rel"><span class="verb">Waits on</span><span class="sref stg-review needs"><svg class="i mk pause" aria-hidden="true"><use href="#i-pause"/></svg><a href="#" aria-label="T1001, Review, needs you">T1001</a><span class="sw" data-full="Review" data-short="REVIEW" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="dash" aria-label="More actions for T1002" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div><div class="qrow"><div class="row"><button class="main" type="button" title="5. D500 Two drafts that wait on each other. Open review" aria-label="5. D500 Two drafts that wait on each other. Open review"><span class="pos">5</span><span class="id">D500</span><span class="title">Two drafts that wait on each other</span></button><span class="rel"><span class="verb bad"><svg class="i" aria-hidden="true"><use href="#i-cycle"/></svg>Cycle with</span><span class="sref draft cyc"><a href="#" aria-label="D501, draft pending">D501</a><span class="sw" data-full="Draft" data-short="DRAFT" aria-hidden="true"></span></span></span><button class="kebab" type="button" data-menu data-pri="normal" data-kind="review" aria-label="More actions for D500" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-dots"/></svg></button></div></div></div>
+  <p class="muted" style="margin-top:6px">Above 400px the row is one line and the stage word is full. At 400px and less the stage word is the key, and the relation goes to a second line, so the title keeps its room. The verb and the stage word stay at every width.</p>
+</section>
+
+<section class="box" aria-labelledby="h-rules">
+  <h2 id="h-rules">State rules (the same order as the rail)</h2>
+  <ul>
+    <li><b>Needs you</b> wins over the stage: the attention border (<code>--k-attention</code>), the rail 30% needs wash, and the pause mark. This is the only chip with a mark: it asks the reader to act, and the amber border alone is below 3:1 in light themes.</li>
+    <li><b>In progress</b> (scope … ship): the stage border, the 20% wash and the stage word. Scope uses the rail scope fill pair.</li>
+    <li><b>Done</b>: the done green and the word DONE. <b>Closed</b>: the closed gray and the word CLOSED.</li>
+    <li><b>Draft</b>: a dashed outline and the word DRAFT. The accessible name is "D497, draft pending", as <code>ticketRefView</code> gives it.</li>
+    <li><b>Missing</b>: a dashed outline, muted text, the word MISSING, and no link.</li>
+    <li><b>Cycle</b>: the red verb with the cycle icon, and a red chip border.</li>
+    <li><b>Raised priority</b>: the priority chip gets an up arrow. The row name keeps the fact "raised to high because D498 waits on it".</li>
+  </ul>
+</section>
+
+<section class="box" aria-labelledby="h-audit">
+  <h2 id="h-audit">UI/UX audit</h2>
+  <table>
+    <tr><th scope="col">Rule</th><th scope="col">How variant A meets it</th><th scope="col">Result</th></tr>
+    <tr><td>Color is not the only signal</td><td>Every chip shows its state as a word at every tier (full title above 400px, stage key at 400px and less). Draft and missing also have a dashed border; needs you has the pause mark</td><td class="ok">yes</td></tr>
+    <tr><td>Text contrast ≥ 4.5:1</td><td>The id and the stage word use <code>--stage-&lt;key&gt;-fg</code> on the wash. The minimum is 4.6:1 in both themes, on the panel and on the row hover</td><td class="ok">yes</td></tr>
+    <tr><td>Non-text contrast ≥ 3:1</td><td>Stage and dashed borders ≥ 3.7:1. The light needs-you border is 2.5:1 on hover, but the pause mark (text color) carries the meaning</td><td class="mid">yes, 1 note</td></tr>
+    <tr><td>No hover-only content</td><td><code>+N</code> is a <code>button[aria-expanded]</code>. Click, Enter and Space open the list. Escape closes it and returns focus. The list also closes when focus leaves the row</td><td class="ok">yes</td></tr>
+    <tr><td>No clipped popup</td><td>The <code>+N</code> list opens in flow below its row, as the row menu of the Queue body does</td><td class="ok">yes</td></tr>
+    <tr><td>No nested controls (<code>@ui:UI-R09</code>)</td><td>The row button, the chips, <code>+N</code> and ⋯ are siblings</td><td class="ok">yes</td></tr>
+    <tr><td>Target size ≥ 24×24</td><td>The chip link grows to 24px with a pseudo-element. <code>+N</code> and ⋯ are 24×24</td><td class="ok">yes</td></tr>
+    <tr><td>Accessible name</td><td>The link holds the full name ("T12, Implementation"; "T1001, Review, needs you"), so a list of links keeps the stage</td><td class="ok">yes</td></tr>
+    <tr><td>Title keeps its room (UI-R44)</td><td>The relation is one chip and <code>+N</code>. The title shrinks with an ellipsis, and at 400px and less the relation wraps</td><td class="ok">yes</td></tr>
+    <tr><td>No duplicated hidden spans (UI-R51)</td><td>One span holds both words in data attributes, and the tier selects one with CSS <code>content</code></td><td class="ok">yes</td></tr>
+    <tr><td>One word per meaning</td><td>The same verb pair on rows, cards, header, form and CLI</td><td class="ok">yes</td></tr>
+  </table>
+  <p class="muted" style="margin-top:8px">Not applied: the 44×44px touch target. The surfaces are VS Code webviews for a pointer and a keyboard, so the WCAG 2.2 AA 24×24px target applies. This file copies the stage hex values only to run alone. The real views use the injected <code>--stage-*</code> tokens (UI-R06).</p>
+</section>
+
+<script>
+(function(){
+  var root=document.documentElement;
+  var qt=new URLSearchParams(location.search).get('theme'); if(qt==='light'||qt==='dark') root.dataset.theme=qt;
+  document.getElementById('themeBtn').addEventListener('click',function(){
+    var dark=root.dataset.theme? root.dataset.theme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme=dark?'light':'dark';
+  });
+  function listOf(b){return document.getElementById(b.getAttribute('aria-controls'));}
+  function close(b,focus){b.setAttribute('aria-expanded','false');var l=listOf(b);if(l)l.hidden=true;if(focus)b.focus();}
+  document.querySelectorAll('button.more').forEach(function(b){
+    b.addEventListener('click',function(){
+      var open=b.getAttribute('aria-expanded')==='true';
+      if(open){close(b,false);return;}
+      b.setAttribute('aria-expanded','true');var l=listOf(b);if(l){l.hidden=false;var a=l.querySelector('a');if(a)a.focus();}
+    });
+    // Close when focus leaves the row and its list, so an open list never covers later rows.
+    b.closest('.qrow').addEventListener('focusout',function(e){
+      if(b.getAttribute('aria-expanded')!=='true')return;
+      if(e.relatedTarget && e.currentTarget.contains(e.relatedTarget))return;
+      close(b,false);
+    });
+  });
+  document.addEventListener('click',function(e){document.querySelectorAll('button.more[aria-expanded="true"]').forEach(function(b){if(!b.closest('.qrow').contains(e.target))close(b,false);});});
+  document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;var b=document.querySelector('button.more[aria-expanded="true"]');if(b)close(b,true);});
+
+  // Row menu: ONE fixed popup placed at its trigger, so a scrolling pane cannot clip it.
+  // The trigger carries [data-menu], so the outside-click rule ignores the click that opened it (D557).
+  var menu=document.createElement('div');menu.className='ctxmenu';menu.id='ctxMenu';menu.setAttribute('role','menu');menu.hidden=true;document.body.appendChild(menu);
+  var owner=null;
+  var LEVELS=[['urgent','Urgent','URG','urg'],['high','High','HIGH','high'],['normal','Normal','',''],['low','Low','LOW','low']];
+  function items(){return Array.prototype.slice.call(menu.querySelectorAll('.ctxitem')).filter(function(i){return !i.closest('[hidden]');});}
+  function place(){if(!owner)return;var r=owner.getBoundingClientRect(),w=menu.offsetWidth,hgt=menu.offsetHeight;
+    menu.style.left=Math.max(8,Math.min(r.right-w,innerWidth-w-8))+'px';
+    menu.style.top=((innerHeight-r.bottom>hgt+8)?r.bottom+4:Math.max(8,r.top-hgt-4))+'px';}
+  function closeMenu(focus){if(!owner)return;owner.setAttribute('aria-expanded','false');menu.hidden=true;var o=owner;owner=null;if(focus)o.focus();}
+  function setPri(btn,lv){btn.dataset.pri=lv[0];var main=btn.closest('.row').querySelector('.main');var old=main.querySelector('.pri');
+    if(old&&!old.querySelector('.up'))old.remove(); else if(old) old.remove();
+    if(lv[2]){var s=document.createElement('span');s.className='pri '+lv[3];s.textContent=lv[2];var id=main.querySelector('.id');main.insertBefore(s,id);}}
+  function openMenu(btn){
+    var kind=btn.dataset.kind==='dash'||/^T/.test((btn.getAttribute('aria-label')||'').split(' ').pop())?'ticket':'draft';
+    var cur=btn.dataset.pri||'normal';
+    menu.innerHTML='';
+    function add(label,key,fn){var b=document.createElement('button');b.type='button';b.className='ctxitem';b.setAttribute('role','menuitem');b.innerHTML=label+(key?'<span class="k">'+key+'</span>':'');b.addEventListener('click',fn);menu.appendChild(b);return b;}
+    add(kind==='ticket'?'Open dashboard':'Open review','',function(){closeMenu(true);});
+    var pr=add('Priority','▸',function(){var o=pr.getAttribute('aria-expanded')==='true';pr.setAttribute('aria-expanded',String(!o));sub.hidden=o;place();if(!o)sub.querySelector('[aria-checked="true"]').focus();});
+    pr.setAttribute('aria-haspopup','menu');pr.setAttribute('aria-expanded','false');
+    var sub=document.createElement('div');sub.className='ctxsub';sub.setAttribute('role','menu');sub.setAttribute('aria-label','Priority');sub.hidden=true;menu.appendChild(sub);
+    LEVELS.forEach(function(lv){var b=document.createElement('button');b.type='button';b.className='ctxitem';b.setAttribute('role','menuitemradio');b.setAttribute('aria-checked',String(lv[0]===cur));b.textContent=lv[1];
+      b.addEventListener('click',function(){setPri(btn,lv);closeMenu(true);});sub.appendChild(b);});
+    var d=document.createElement('div');d.className='ctxdiv';d.setAttribute('role','separator');menu.appendChild(d);
+    add(kind==='ticket'?'Copy ticket id':'Copy draft id','',function(){closeMenu(true);});
+    owner=btn;btn.setAttribute('aria-expanded','true');menu.hidden=false;place();items()[0].focus();
+  }
+  document.querySelectorAll('[data-menu]').forEach(function(btn){btn.addEventListener('click',function(){if(owner===btn)closeMenu(true);else{closeMenu(false);openMenu(btn);}});});
+  document.addEventListener('click',function(e){if(!owner)return;var t=e.target;if(t.closest('#ctxMenu')||t.closest('[data-menu]'))return;closeMenu(false);});
+  menu.addEventListener('keydown',function(e){var l=items(),i=l.indexOf(document.activeElement);
+    if(e.key==='ArrowDown'){l[(i+1)%l.length].focus();e.preventDefault();}
+    else if(e.key==='ArrowUp'){l[(i-1+l.length)%l.length].focus();e.preventDefault();}
+    else if(e.key==='ArrowRight'&&document.activeElement.getAttribute('aria-haspopup')){document.activeElement.click();e.preventDefault();}
+    else if(e.key==='ArrowLeft'&&document.activeElement.closest('.ctxsub')){var p=menu.querySelector('[aria-haspopup]');p.click();p.focus();e.preventDefault();}
+    else if(e.key==='Tab'){closeMenu(false);}});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&owner){closeMenu(true);e.stopPropagation();}},true);
+  document.addEventListener('scroll',function(){place();},true);
+  addEventListener('resize',place);
+  document.querySelectorAll('a[href="#"]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();});});
+})();
+</script>
+</body>
+</html>
