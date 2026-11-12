@@ -435,7 +435,8 @@ jobs:
     # tag must stay in lockstep with the pinned @playwright/test version —
     # a different tag ships a different Chromium and invalidates all 82 PNGs.
     container: mcr.microsoft.com/playwright:v1.63.0-noble
-    timeout-minutes: 20
+    # 7166 tests since the Inside ladder (T1090: 400/399/320 layout probes and mid/narrow/tight shots); 4635 ran in 20 min, so the sweep needs about 31.
+    timeout-minutes: 40
     steps:
       # Depth 2, not the default 1: on a pull_request the checkout is the merge
       # commit, and scripts/visual-sweep-gate.mjs diffs HEAD^1..HEAD (the base
