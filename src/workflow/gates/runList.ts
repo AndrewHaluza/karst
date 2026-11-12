@@ -83,9 +83,10 @@ export interface RunGatesOptions {
   onGateSpawned?: (gateName: string, pid: number, cwd: string) => (() => void) | void;
   /**
    * Whether the base branch's package.json defines `script` (rebase target of a
-   * stale ticket branch). Absent → the branch is never treated as stale.
+   * stale ticket branch). Absent or `undefined` (base unreadable) → the branch is
+   * never treated as stale and the failure text makes no claim about the base.
    */
-  baseDefinesScript?: (script: string) => Promise<boolean>;
+  baseDefinesScript?: (script: string) => Promise<boolean | undefined>;
   /** The base ref named in the stale-branch reason. */
   baseRef?: string;
   /**
@@ -161,10 +162,11 @@ export async function runGateList(
       // the repository. Caught here rather than by spawning `npm run`, whose
       // "Missing script" exit 1 would read as a verdict about the ticket's code.
       const endedAt = now();
-      if (gate.derivedScript === true && (await opts.baseDefinesScript?.(gate.script)) === true) {
+      const baseDefines = await opts.baseDefinesScript?.(gate.script);
+      if (baseDefines === true) {
         const base = opts.baseRef ?? 'the base branch';
         const reason =
-          `gate "${gate.name}" runs npm script "${gate.script}", which ${base} defines but this branch does not — ` +
+          `gate "${gate.name}" ${gate.derivedScript === true ? 'runs' : 'needs'} npm script "${gate.script}", which ${base} defines but this branch does not — ` +
           `rebase onto ${base} ("Rebase on base")`;
         onDebug?.(`[gate] ${gate.name}: ${reason}`);
         results.push({ name: gate.name, exitCode: 1, output: reason, staleBranch: reason, startedAt, endedAt });
@@ -177,7 +179,7 @@ export async function runGateList(
       results.push({
         name: gate.name,
         exitCode: 1,
-        output: `configured gate "${gate.name}" needs a "${gate.script}" script, which package.json does not define (nor does the base branch)`,
+        output: `configured gate "${gate.name}" needs a "${gate.script}" script, which package.json does not define${baseDefines === false ? ' (nor does the base branch)' : ''}`,
         startedAt,
         endedAt,
       });

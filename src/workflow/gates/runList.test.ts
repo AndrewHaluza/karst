@@ -344,14 +344,46 @@ describe('runGateList: refused host gate (arch:SANDBOX-HOST)', () => {
     expect(out.results[0]).toMatchObject({ exitCode: 0 });
   });
 
-  it('never consults the base for a kind: script gate', async () => {
-    const out = await runGateList(
-      [{ name: 'lint', command: 'npm', args: ['run', 'lint'], script: 'lint', required: true }],
-      process.cwd(),
-      { now, scriptsAvailable: () => false, baseDefinesScript: async () => true },
+  const scriptGate = { name: 'layer-rules', command: 'npm', args: ['run', 'lint:layers'], script: 'lint:layers', required: true };
+
+  it('parks a kind: script gate as stale when the base defines the missing script', async () => {
+    const out = await runGateList([scriptGate], process.cwd(), {
+      now,
+      scriptsAvailable: () => false,
+      baseRef: 'develop',
+      baseDefinesScript: async () => true,
+    });
+    if (out.kind !== 'ran') throw new Error('expected ran');
+    expect(out.results[0]).toMatchObject({ exitCode: 1 });
+    expect(out.results[0]!.staleBranch).toBe(
+      'gate "layer-rules" needs npm script "lint:layers", which develop defines but this branch does not — rebase onto develop ("Rebase on base")',
     );
+  });
+
+  it('fails a kind: script gate with the base claim when neither defines the script', async () => {
+    const out = await runGateList([scriptGate], process.cwd(), {
+      now,
+      scriptsAvailable: () => false,
+      baseDefinesScript: async () => false,
+    });
     if (out.kind !== 'ran') throw new Error('expected ran');
     expect(out.results[0]!.staleBranch).toBeUndefined();
+    expect(out.results[0]!.output).toContain('(nor does the base branch)');
+  });
+
+  it('makes no base claim when the base was not checked or cannot be read', async () => {
+    for (const baseDefinesScript of [undefined, async () => undefined]) {
+      const out = await runGateList([scriptGate], process.cwd(), {
+        now,
+        scriptsAvailable: () => false,
+        ...(baseDefinesScript ? { baseDefinesScript } : {}),
+      });
+      if (out.kind !== 'ran') throw new Error('expected ran');
+      expect(out.results[0]!.staleBranch).toBeUndefined();
+      expect(out.results[0]!.output).toBe(
+        'configured gate "layer-rules" needs a "lint:layers" script, which package.json does not define',
+      );
+    }
   });
 
   it('gives a failing gate with no output a synthetic explanation', async () => {
