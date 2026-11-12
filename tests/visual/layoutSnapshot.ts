@@ -1,6 +1,6 @@
 /**
  * Browser-side collector for the layout-sanity gate: serializes every RENDERED
- * element (display != none, visibility != hidden, opacity > 0, non-zero box)
+ * element (display != none, visibility != hidden, opacity > 0, non-zero box, not inside a closed details)
  * into the `LayoutSnapshot` the pure checks judge. Self-contained on purpose —
  * Playwright serializes the function into the page.
  */
@@ -50,6 +50,8 @@ export function collectSnapshot(page: Page): Promise<LayoutSnapshot> {
       const cs = getComputedStyle(e);
       if (cs.display === 'none' || cs.display === 'contents') continue;
       if (cs.visibility === 'hidden' || Number(cs.opacity) <= 0) continue;
+      // Content of a CLOSED <details> keeps a box (content-visibility:hidden) but is not rendered: it is no layout defect.
+      if (typeof e.checkVisibility === 'function' && !e.checkVisibility()) continue;
       const r = e.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) continue;
       const id = elements.length;

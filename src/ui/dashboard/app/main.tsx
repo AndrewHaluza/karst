@@ -14,6 +14,7 @@ import { createSender } from '../webviewSend.js';
 import type { HostMessage } from '../messages.js';
 import { App } from './App.js';
 import { pageHostBridge } from './hostBridge.js';
+import { installTooltip } from './kTooltip.js';
 
 interface VsCodeApi {
   postMessage(message: unknown): void;
@@ -77,4 +78,5 @@ if (!container) {
   throw new Error('dashboard app: #root element is missing from the document');
 }
 
+installTooltip(document);
 createRoot(container).render(<App bridge={pageHostBridge()} />);

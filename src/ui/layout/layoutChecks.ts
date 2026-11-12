@@ -115,6 +115,15 @@ function intersection(a: Rect, b: Rect): { w: number; h: number } {
   };
 }
 
+/** The stage rail's segments are chevrons that nest by the notch (`--trk-notch` = `--k-space-6` = 12px), so their boxes overlap by design. */
+const RAIL_NOTCH_PX = 12;
+const RAIL_SEGMENT = /^div#rail > .* > div\.seg(\.[\w-]+)*(:nth-child\(\d+\))?$/;
+
+/** The deliberate chevron overlap: two ADJACENT `.seg` siblings of `#rail`, overlapping by no more than the notch. */
+function isRailChevronNesting(a: ElementSnap, b: ElementSnap, adjacent: boolean, overlapW: number): boolean {
+  return adjacent && overlapW <= RAIL_NOTCH_PX + TOLERANCE && RAIL_SEGMENT.test(a.path) && RAIL_SEGMENT.test(b.path);
+}
+
 /** A sticky element floats over its siblings by design while the page is taller than the viewport. */
 function siblingOverlap(s: LayoutSnapshot): Found[] {
   const groups = new Map<number | null, ElementSnap[]>();
@@ -131,6 +140,7 @@ function siblingOverlap(s: LayoutSnapshot): Found[] {
         if (a.position === 'sticky' || b.position === 'sticky') continue;
         const hit = intersection(a.rect, b.rect);
         if (hit.w <= TOLERANCE || hit.h <= TOLERANCE) continue;
+        if (isRailChevronNesting(a, b, j === i + 1, hit.w)) continue;
         out.push({
           check: 'sibling-overlap',
           selector: `${a.path} | ${b.path}`,

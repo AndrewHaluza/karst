@@ -9,7 +9,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { LAYOUT_WIDTHS } from '../../src/ui/layout/layoutBreakpoints.js';
+import { LAYOUT_WIDTHS, layoutWidthsFor } from '../../src/ui/layout/layoutBreakpoints.js';
 import type { LayoutFailure } from '../../src/ui/layout/layoutChecks.js';
 import { grepSelectsNoRoute, isFullRun, matchLedger, prune, runKey, seed } from '../../src/ui/layout/layoutLedger.js';
 import { readLedger, readShards, REPORT_PATH, writeLedger, type Shard } from './layoutShards.js';
@@ -24,13 +24,15 @@ function expectedRunKeys(): string[] {
       ...LAYOUT_WIDTHS.map((w) => runKey(r.id, w)),
       ...(r.section === 'agents' ? [runKey(resizeRouteId(r.id), RESIZE_WIDTH)] : []),
     ]),
-    ...extraLayoutTargets().flatMap((t) => LAYOUT_WIDTHS.map((w) => runKey(t.id, w))),
+    ...extraLayoutTargets().flatMap((t) => layoutWidthsFor(t.view, t.variant.id).map((w) => runKey(t.id, w))),
   ];
 }
 
 function layoutTitles(): string[] {
-  const ids = [...settingsRoutes().map((r) => r.id), ...extraLayoutTargets().map((t) => t.id)];
-  return ids.flatMap((id) => LAYOUT_WIDTHS.map((w) => `${id} @${w}`));
+  return [
+    ...settingsRoutes().flatMap((r) => LAYOUT_WIDTHS.map((w) => `${r.id} @${w}`)),
+    ...extraLayoutTargets().flatMap((t) => layoutWidthsFor(t.view, t.variant.id).map((w) => `${t.id} @${w}`)),
+  ];
 }
 
 function formatGrouped(failures: readonly LayoutFailure[]): string {

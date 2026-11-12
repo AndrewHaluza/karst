@@ -41,10 +41,16 @@ describe('dashboard static guards — non-vacuity', () => {
 const RAW_HTML_ALLOWED = ['AgentIcon.tsx', 'Icon.tsx'];
 
 /**
- * The one sanctioned imperative-style site: placeBelow.ts positions a `position:fixed` popover from its
- * trigger's measured rect, which CSS cannot express.
+ * The sanctioned imperative-style sites: placeBelow.ts positions a `position:fixed` popover from its
+ * trigger's measured rect, and kTooltip.ts does the same for the one k-tooltip node. CSS cannot express either.
  */
-const IMPERATIVE_STYLE_ALLOWED = ['placeBelow.ts'];
+const IMPERATIVE_STYLE_ALLOWED = ['kTooltip.ts', 'placeBelow.ts'];
+
+/**
+ * kTooltip.ts is one delegated document listener (not a React view): it wires `aria-describedby` on whichever
+ * `[data-tip]` control is hovered or focused, and only while the tooltip shows. React state cannot own that.
+ */
+const IMPERATIVE_ARIA_ALLOWED = ['kTooltip.ts'];
 
 describe('R-X6 — no inline style, no raw HTML', () => {
   const BANNED: ReadonlyArray<readonly [string, RegExp]> = [
@@ -78,6 +84,7 @@ describe('R-X5/R26/R09b — imperative DOM and unstable keys', () => {
     for (const file of APP_SOURCE) {
       const text = stripBlockComments(readFileSync(file, 'utf8'));
       for (const [name, pattern] of BANNED) {
+        if (name === 'imperative aria' && IMPERATIVE_ARIA_ALLOWED.includes(basename(file))) continue;
         expect(pattern.test(text), `${name} in ${rel(file)}`).toBe(false);
       }
     }
@@ -90,7 +97,7 @@ describe('raw HTML allowance is scoped to the sanctioned files', () => {
     expect(users.sort()).toEqual([...RAW_HTML_ALLOWED].sort());
   });
 
-  it('only placeBelow.ts writes element styles imperatively', () => {
+  it('only placeBelow.ts and kTooltip.ts write element styles imperatively', () => {
     const users = APP_SOURCE.filter((f) => /\.style\./.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
     expect(users).toEqual(IMPERATIVE_STYLE_ALLOWED);
   });

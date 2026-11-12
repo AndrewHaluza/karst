@@ -6,7 +6,7 @@
 import { memo, useCallback, type MouseEvent } from 'react';
 import type { AgentExecutionView, InsideProcessView, TokenUsageView, TypedInsideAction } from '../../../model/inside/types.js';
 import { useDashboardSend } from './DashboardAppContext.js';
-import { RuntimeIcon } from './AgentIcon.js';
+import { RuntimeIcon, agentName } from './AgentIcon.js';
 import { Icon } from './Icon.js';
 import { INSIDE_ACTION_DANGER, INSIDE_ACTION_ICON, INSIDE_ACTION_LABEL, INSIDE_ACTION_OVERFLOW, INSIDE_ACTION_TITLE, insideActionSentence } from './insideText.js';
 import { usePendingAction } from './usePendingAction.js';
@@ -94,6 +94,19 @@ function ObjAnchor({ text, action, cls, title }: { readonly text: string; readon
   );
 }
 
+/**
+ * The core's mark as a named, focusable control: `aria-label` is the canonical core name at every tier, and the k-tooltip
+ * (`data-tip`) says "core · model". At a tight container (<400 px) the visible core and model text drop and this mark is
+ * all that is left (UI-R10c tight exception, RD-A11Y). The tooltip adds nothing the open row does not already show.
+ */
+export function CoreMark({ provider, core, tip }: { readonly provider: string; readonly core: string; readonly tip: string }) {
+  return (
+    <span className="agent-mark" role="img" aria-label={core} data-tip={tip} tabIndex={0}>
+      <RuntimeIcon kind="agent" provider={provider} />
+    </span>
+  );
+}
+
 /** [agent name ·] core mark + core · model. The mark is the canonical provider icon, so a provider with no mark degrades to text. */
 export const AgentId = memo(function AgentId({ x }: { readonly x: AgentExecutionView }) {
   return (
@@ -104,7 +117,7 @@ export const AgentId = memo(function AgentId({ x }: { readonly x: AgentExecution
           <span className="agent-sep">·</span>
         </>
       ) : null}
-      {x.provider ? <RuntimeIcon kind="agent" provider={x.provider} /> : null}
+      {x.provider ? <CoreMark provider={x.provider} core={x.providerLabel || agentName(x.provider)} tip={[x.providerLabel || agentName(x.provider), x.modelLabel].filter(Boolean).join(' · ')} /> : null}
       {x.providerLabel ? <span className="agent-core">{x.providerLabel}</span> : null}
       {x.modelLabel ? (
         <>

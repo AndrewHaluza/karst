@@ -39,6 +39,8 @@ describe('Inside — the stage menu', () => {
   it('closed: one icon button with aria-haspopup/expanded; has-actions follows every menu action, retry included', () => {
     mountInside(menuState());
     expect(trigger().getAttribute('aria-label')).toBe('Actions — more actions for this stage');
+    // The k-tooltip text IS the aria-label, so the icon-only trigger (tight tier) is named the same on hover and focus (RD-A11Y).
+    expect(trigger().getAttribute('data-tip')).toBe('Actions — more actions for this stage');
     expect(trigger().title).toBe(trigger().getAttribute('aria-label'));
     expect(text(trigger())).toBe('Actions');
     expect(trigger().getAttribute('aria-haspopup')).toBe('menu');
