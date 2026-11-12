@@ -162,7 +162,12 @@ export interface WorktreeRowProps {
 export function WorktreeRow({ w, stats, headerBranch, send, formOpen, rebaseOn, onToggleForm, onToggleRebase, onChangeRequested }: WorktreeRowProps) {
   const editRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  useAnchoredPopover(formOpen, popRef, editRef, () => onToggleForm(w.repo), POPOVER_WIDTH);
+  // A form that holds a typed base stays open (pinned in view) until the user closes it; a pristine one closes with its trigger.
+  const closeUnlessTyped = useCallback((): void => {
+    const typed = popRef.current?.querySelector<HTMLInputElement>('[data-base-input]')?.value.trim() ?? '';
+    if (typed === '') onToggleForm(w.repo);
+  }, [onToggleForm, w.repo]);
+  useAnchoredPopover(formOpen, popRef, editRef, closeUnlessTyped, POPOVER_WIDTH);
 
   const openTerminal = usePendingAction(useCallback((requestId: string) => send.openWorktreeTerminal(w.path, requestId), [send, w.path]));
   const openFolder = usePendingAction(useCallback((requestId: string) => send.openWorktreeFolder(w.path, requestId), [send, w.path]));

@@ -66,6 +66,19 @@ describe('computePlacement', () => {
     expect(p.triggerVisible).toBe(true);
   });
 
+  it('pins the popover inside the viewport while the trigger is out of view', () => {
+    const above = computePlacement({ trigger: box(20, -40, 30, 20), popover: { width: 200, height: 50 }, viewport: VIEW });
+    const below = computePlacement({ trigger: box(20, 620, 30, 20), popover: { width: 200, height: 50 }, viewport: VIEW });
+    expect([above.triggerVisible, above.top]).toEqual([false, 8]);
+    expect([below.triggerVisible, below.top]).toEqual([false, 600 - 8 - 50]);
+  });
+
+  it('caps a tall popover to the viewport when its trigger is out of view', () => {
+    const p = computePlacement({ trigger: box(20, -40, 30, 20), popover: { width: 200, height: 900 }, viewport: VIEW });
+    expect(p.top).toBe(8);
+    expect(p.maxHeight).toBe(600 - 16);
+  });
+
   it('keeps the popover while the trigger is partly visible', () => {
     const p = computePlacement({ trigger: box(20, -10, 30, 20), popover: { width: 200, height: 50 }, viewport: VIEW });
     expect(p.triggerVisible).toBe(true);
@@ -132,5 +145,72 @@ describe('attachAnchoredPopover', () => {
     expect(document.activeElement).toBe(input);
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  const stubFrames = (): void => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => cb(0), 0));
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+    vi.stubGlobal('innerWidth', VIEW.width);
+    vi.stubGlobal('innerHeight', VIEW.height);
+  };
+  const restore = (): void => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  };
+
+  it('keeps the scroll position of a capped popover: it never clears the cap between placements', () => {
+    stubFrames();
+    const { trigger, popover } = setup(300);
+    Object.defineProperty(popover, 'offsetHeight', { configurable: true, value: 288 });
+    Object.defineProperty(popover, 'clientHeight', { configurable: true, value: 288 });
+    Object.defineProperty(popover, 'scrollHeight', { configurable: true, value: 700 });
+    const writes: string[] = [];
+    let cap = '';
+    let scrollTop = 0;
+    // A browser clamps scrollTop to 0 when the cap is cleared and the box grows to its natural height.
+    Object.defineProperty(popover.style, 'maxHeight', {
+      configurable: true,
+      get: () => cap,
+      set: (v: string) => {
+        writes.push(v);
+        if (v === '') scrollTop = 0;
+        cap = v;
+      },
+    });
+    Object.defineProperty(popover, 'scrollTop', { configurable: true, get: () => scrollTop, set: (v: number) => { scrollTop = v; } });
+    attachAnchoredPopover({ popover, trigger, width: 200, onTriggerHidden: () => undefined });
+    expect(cap).toBe('288px');
+    popover.scrollTop = 40;
+    window.dispatchEvent(new Event('scroll'));
+    frame();
+    expect(popover.scrollTop).toBe(40);
+    expect(cap).toBe('288px');
+    expect(writes).not.toContain('');
+    restore();
+  });
+
+  it('pins the popover in the viewport and calls onTriggerHidden again only after the trigger returned', () => {
+    stubFrames();
+    const { trigger, popover, move } = setup(100);
+    const hidden = vi.fn();
+    attachAnchoredPopover({ popover, trigger, width: 200, onTriggerHidden: hidden });
+    move(-200);
+    window.dispatchEvent(new Event('scroll'));
+    frame();
+    expect(popover.style.top).toBe('8px');
+    move(900);
+    window.dispatchEvent(new Event('scroll'));
+    frame();
+    expect(popover.style.top).toBe(`${600 - 8 - 100}px`);
+    expect(hidden).toHaveBeenCalledTimes(1);
+    move(100);
+    window.dispatchEvent(new Event('scroll'));
+    frame();
+    move(-200);
+    window.dispatchEvent(new Event('scroll'));
+    frame();
+    expect(hidden).toHaveBeenCalledTimes(2);
+    restore();
   });
 });

@@ -71,13 +71,13 @@ export function ContextMenu() {
   }, [menu]);
 
   const isOpen = menu !== null;
-  const trigger = menu?.trigger ?? null;
-  // Follow the trigger on scroll/resize; close (focus stays put) once it is out of view.
+  // Follow the trigger on scroll/resize; close (focus stays put) once it is out of view. It re-places for every
+  // new `menu` (the same trigger can open a different list) and when an inline submenu changes the window height.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!el || !trigger) return undefined;
-    return attachAnchoredPopover({ popover: el, trigger, onTriggerHidden: () => closeMenu(false) });
-  }, [trigger, closeMenu]);
+    if (!el || !menu) return undefined;
+    return attachAnchoredPopover({ popover: el, trigger: menu.trigger, onTriggerHidden: () => closeMenu(false) });
+  }, [menu, sub, closeMenu]);
   useEffect(() => {
     if (!isOpen) return undefined;
     const onClick = (e: MouseEvent): void => {

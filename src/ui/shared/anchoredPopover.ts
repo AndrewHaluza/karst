@@ -55,10 +55,40 @@ export function computePlacement(input: PlacementInput): Placement {
     trigger.left + trigger.width > 0 &&
     trigger.left < viewport.width;
 
+  const placed = placeOnSide({ left, width, height, belowTop, spaceBelow, spaceAbove, triggerTop: trigger.top, gutter, gap, triggerVisible });
+  return triggerVisible ? placed : pinToViewport(placed, height, viewport.height, gutter);
+}
+
+interface SideInput {
+  readonly left: number;
+  readonly width: number;
+  readonly height: number;
+  readonly belowTop: number;
+  readonly spaceBelow: number;
+  readonly spaceAbove: number;
+  readonly triggerTop: number;
+  readonly gutter: number;
+  readonly gap: number;
+  readonly triggerVisible: boolean;
+}
+
+function placeOnSide(i: SideInput): Placement {
+  const { left, width, height, belowTop, spaceBelow, spaceAbove, triggerVisible } = i;
   if (height <= spaceBelow) return { left, top: belowTop, width, maxHeight: null, side: 'below', triggerVisible };
-  if (height <= spaceAbove) return { left, top: trigger.top - gap - height, width, maxHeight: null, side: 'above', triggerVisible };
+  if (height <= spaceAbove) return { left, top: i.triggerTop - i.gap - height, width, maxHeight: null, side: 'above', triggerVisible };
   if (spaceBelow >= spaceAbove) return { left, top: belowTop, width, maxHeight: Math.max(0, spaceBelow), side: 'below', triggerVisible };
-  return { left, top: gutter, width, maxHeight: Math.max(0, spaceAbove), side: 'above', triggerVisible };
+  return { left, top: i.gutter, width, maxHeight: Math.max(0, spaceAbove), side: 'above', triggerVisible };
+}
+
+/**
+ * The trigger is out of view: an owner that keeps the popover open (it holds typed input) must still reach it,
+ * so the popover stays on screen instead of following the trigger off the page.
+ */
+function pinToViewport(p: Placement, height: number, viewportHeight: number, gutter: number): Placement {
+  const room = Math.max(0, viewportHeight - 2 * gutter);
+  const shown = Math.min(p.maxHeight ?? height, room);
+  const top = Math.max(gutter, Math.min(p.top, viewportHeight - gutter - shown));
+  return { ...p, top, maxHeight: shown < height ? shown : p.maxHeight };
 }
 
 export interface AttachOptions {
@@ -66,28 +96,34 @@ export interface AttachOptions {
   readonly trigger: HTMLElement;
   /** Preferred width in px (shrunk to fit the viewport). Omit to keep the popover's own width. */
   readonly width?: number;
-  /** Called once when the trigger is fully out of view. */
+  /**
+   * Called once per episode when the trigger is fully out of view; the owner may close the popover or keep it.
+   * While the trigger stays out of view the popover is pinned inside the viewport.
+   */
   readonly onTriggerHidden: () => void;
+}
+
+/** The popover's height without its own cap: a capped box scrolls, so its content height is `scrollHeight`. */
+function naturalHeight(popover: HTMLElement): number {
+  return Math.max(popover.offsetHeight, popover.scrollHeight + popover.offsetHeight - popover.clientHeight);
 }
 
 function place(opts: AttachOptions): boolean {
   const { popover, trigger } = opts;
   const r = trigger.getBoundingClientRect();
-  // Release a previous cap so the natural height is measured.
-  popover.style.maxHeight = '';
-  popover.style.overflowY = '';
+  // The cap is never cleared to measure: clearing it resets the popover's own scroll position to the top.
   const p = computePlacement({
     trigger: { left: r.left, top: r.top, width: r.width, height: r.height },
-    popover: { width: opts.width ?? (popover.offsetWidth || 176), height: popover.offsetHeight },
+    popover: { width: opts.width ?? (popover.offsetWidth || 176), height: naturalHeight(popover) },
     viewport: { width: window.innerWidth, height: window.innerHeight },
   });
   popover.style.left = `${p.left}px`;
   popover.style.top = `${p.top}px`;
   if (opts.width !== undefined) popover.style.width = `${p.width}px`;
-  if (p.maxHeight !== null) {
-    popover.style.maxHeight = `${p.maxHeight}px`;
-    popover.style.overflowY = 'auto';
-  }
+  const cap = p.maxHeight === null ? '' : `${p.maxHeight}px`;
+  if (popover.style.maxHeight !== cap) popover.style.maxHeight = cap;
+  const overflow = p.maxHeight === null ? '' : 'auto';
+  if (popover.style.overflowY !== overflow) popover.style.overflowY = overflow;
   return p.triggerVisible;
 }
 
@@ -95,20 +131,22 @@ function place(opts: AttachOptions): boolean {
 export function attachAnchoredPopover(opts: AttachOptions): () => void {
   let frame: number | null = null;
   let hidden = false;
-  const update = (): void => {
-    frame = null;
-    if (!place(opts) && !hidden) {
+  const sync = (): void => {
+    const visible = place(opts);
+    if (visible) hidden = false;
+    else if (!hidden) {
       hidden = true;
       opts.onTriggerHidden();
     }
   };
+  const update = (): void => {
+    frame = null;
+    sync();
+  };
   const schedule = (): void => {
     if (frame === null) frame = requestAnimationFrame(update);
   };
-  if (!place(opts)) {
-    hidden = true;
-    opts.onTriggerHidden();
-  }
+  sync();
   window.addEventListener('scroll', schedule, true);
   window.addEventListener('resize', schedule);
   return () => {
