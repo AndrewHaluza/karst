@@ -42,7 +42,9 @@ export interface BaseMovedDeps {
   /** The merge base the last green gate run saw (the gate state file); null when no green run left one. */
   readonly lastGreenBase: (cwd: string) => Promise<string | null>;
   /** The directory that holds the temporary worktree (`<deps root>/.karst/base-check`). */
-  readonly worktreeParent: (cwd: string) => string;
+  readonly worktreeParent: (cwd: string) => Promise<string>;
+  /** Carries the last green gate states into the merged worktree so the gates scope to the delta; a failure only means a full run. */
+  readonly seedState?: (seed: { cwd: string; mergedCwd: string; baseSha: string }) => Promise<void>;
   /** Runs the gates on the merged tree; null = passed, else the failure. */
   readonly runGates: (merged: MergedTree) => Promise<string | null>;
   readonly debug?: (message: string) => void;
@@ -96,10 +98,11 @@ async function run(d: BaseMovedDeps): Promise<BaseMovedOutcome> {
   if (commit.exitCode !== 0 || mergedSha === '') return { kind: 'unknown', reason: words(commit) };
 
   const uiChanged = await baseDeltaHoldsUi(git, cwd, seen, baseSha, d.debug);
-  const path = join(d.worktreeParent(cwd), `merged-${randomBytes(4).toString('hex')}`);
+  const path = join(await d.worktreeParent(cwd), `merged-${randomBytes(4).toString('hex')}`);
   const added = await git(['worktree', 'add', '--detach', path, mergedSha], cwd);
   if (added.exitCode !== 0) return { kind: 'unknown', reason: words(added) };
   try {
+    await seed(d, path, baseSha);
     const failure = await d.runGates({ cwd: path, sha: mergedSha, baseSha, uiChanged });
     return failure === null
       ? { kind: 'passed', mergedSha }
@@ -107,6 +110,16 @@ async function run(d: BaseMovedDeps): Promise<BaseMovedOutcome> {
   } finally {
     const removed = await git(['worktree', 'remove', '--force', path], cwd);
     if (removed.exitCode !== 0) d.debug?.(`[ship] base-check worktree ${path} not removed: ${words(removed)}`);
+  }
+}
+
+/** Seeding is an optimisation: a failure keeps the gates full, never blocks. */
+async function seed(d: BaseMovedDeps, mergedCwd: string, baseSha: string): Promise<void> {
+  if (d.seedState === undefined) return;
+  try {
+    await d.seedState({ cwd: d.cwd, mergedCwd, baseSha });
+  } catch (err) {
+    d.debug?.(`[ship] base-check gate state not seeded (gates run in full): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

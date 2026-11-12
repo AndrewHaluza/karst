@@ -34,7 +34,7 @@ const fakeGit = (s: Script = {}) => {
 const deps = (g: ReturnType<typeof fakeGit>, over: Partial<BaseMovedDeps> = {}): BaseMovedDeps => ({
   git: g.git, cwd: '/repo', baseRef: 'develop',
   lastGreenBase: async () => 'g'.repeat(40),
-  worktreeParent: () => '/repo/.karst/base-check',
+  worktreeParent: async () => '/repo/.karst/base-check',
   runGates: async () => null,
   ...over,
 });
@@ -121,6 +121,30 @@ describe('checkBaseMoved', () => {
     let ui: boolean | undefined;
     await checkBaseMoved(deps(base, { git, runGates: async (m) => { ui = m.uiChanged; return null; } }));
     expect(ui).toBe(true);
+  });
+
+  it('seeds the gate state of the merged worktree before the gates run', async () => {
+    const g = fakeGit();
+    const order: string[] = [];
+    await checkBaseMoved(deps(g, {
+      seedState: async (s) => { order.push(`seed ${s.baseSha === BASE} ${s.mergedCwd.startsWith('/repo/.karst/base-check/')}`); },
+      runGates: async () => { order.push('gates'); return null; },
+    }));
+    expect(order).toEqual(['seed true true', 'gates']);
+  });
+
+  it('runs the gates in full, never blocks, when the seeding throws', async () => {
+    const g = fakeGit();
+    const debug: string[] = [];
+    let ran = false;
+    const r = await checkBaseMoved(deps(g, {
+      seedState: async () => { throw new Error('disk'); },
+      runGates: async () => { ran = true; return null; },
+      debug: (m) => debug.push(m),
+    }));
+    expect(r.kind).toBe('passed');
+    expect(ran).toBe(true);
+    expect(debug.join()).toMatch(/not seeded.*disk/);
   });
 
   it('is unknown (push allowed) when the fetch fails', async () => {

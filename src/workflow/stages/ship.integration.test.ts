@@ -3712,6 +3712,10 @@ setTimeout(() => {
 
       expect(seen).toEqual(['/repo/frontend']);
       expect(calls.some((args) => args[0] === 'push')).toBe(false);
+      const step = store.db.prepare("SELECT status, detail FROM ship_repo_steps WHERE step = 'push'").get() as { status: string; detail: string };
+      expect(step).toEqual({ status: 'failed', detail: reason });
+      const intent = store.db.prepare("SELECT status FROM ship_operation_intents WHERE step = 'push'").get() as { status: string };
+      expect(intent.status).toBe('failed');
     });
 
     it('checkBase passing (D541): the push runs as today', async () => {

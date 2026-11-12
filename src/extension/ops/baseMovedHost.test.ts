@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { baseCheckParent, readLastGreenBase } from './baseMovedHost.js';
+import { readFileSync } from 'node:fs';
+import { baseCheckParent, readLastGreenBase, seedMergedState } from './baseMovedHost.js';
 
 const gitDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'base-moved-'));
@@ -36,14 +37,31 @@ describe('readLastGreenBase', () => {
 });
 
 describe('baseCheckParent', () => {
-  it('sits below the nearest ancestor that holds vitest, under .karst/base-check', () => {
+  it('sits below the nearest ancestor that holds vitest, under .karst/base-check', async () => {
     const root = mkdtempSync(join(tmpdir(), 'deps-root-'));
     mkdirSync(join(root, 'node_modules', 'vitest'), { recursive: true });
     const cwd = join(root, '.karst', 'worktrees', 't1');
     mkdirSync(cwd, { recursive: true });
-    expect(baseCheckParent(cwd)).toBe(join(root, '.karst', 'base-check'));
+    expect(await baseCheckParent(cwd)).toBe(join(root, '.karst', 'base-check'));
   });
-  it('falls back to the temp directory with no deps root', () => {
-    expect(baseCheckParent(mkdtempSync(join(tmpdir(), 'no-deps-')), () => null)).toBe(tmpdir());
+  it('falls back to the temp directory with no deps root', async () => {
+    expect(await baseCheckParent(mkdtempSync(join(tmpdir(), 'no-deps-')), async () => null)).toBe(tmpdir());
+  });
+});
+
+describe('seedMergedState', () => {
+  it('carries the clean states with the base moved to the merged base tip', async () => {
+    const from = gitDir();
+    state(from, 'green', { version: 1, clean: true, base: 'a'.repeat(40), tree: 't1', failed: ['x.test.ts'] }, 1000);
+    state(from, 'red', { version: 1, clean: false, base: 'a'.repeat(40), tree: 't2', failed: [] }, 1000);
+    state(from, 'junk', '{not json', 1000);
+    const to = mkdtempSync(join(tmpdir(), 'base-moved-to-'));
+    expect(await seedMergedState(from, to, 'b'.repeat(40))).toBe(1);
+    const seeded = JSON.parse(readFileSync(join(to, 'karst-gate-state', 'green.json'), 'utf8'));
+    expect(seeded).toEqual({ version: 1, clean: true, base: 'b'.repeat(40), tree: 't1', failed: ['x.test.ts'] });
+    expect(() => readFileSync(join(to, 'karst-gate-state', 'red.json'))).toThrow();
+  });
+  it('seeds nothing when the ticket worktree has no gate state', async () => {
+    expect(await seedMergedState(mkdtempSync(join(tmpdir(), 'base-moved-')), mkdtempSync(join(tmpdir(), 'base-moved-to-')), 'b'.repeat(40))).toBe(0);
   });
 });

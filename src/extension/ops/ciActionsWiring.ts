@@ -14,7 +14,7 @@ import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deli
 import { deliverTargets, type DeliverPr } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
 import { checkBaseMoved } from './baseMovedCheck.js';
-import { baseCheckParent, readLastGreenBase } from './baseMovedHost.js';
+import { baseCheckParent, readLastGreenBase, seedMergedState } from './baseMovedHost.js';
 import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
 import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
@@ -303,6 +303,11 @@ export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, p
     git: i.git, cwd: pr.cwd, baseRef, debug: (m) => i.debug(m),
     lastGreenBase: async () => (gitDir.exitCode === 0 && dir !== '' ? readLastGreenBase(dir) : null),
     worktreeParent: baseCheckParent,
+    seedState: async ({ mergedCwd, baseSha }) => {
+      const merged = await i.git(['rev-parse', '--path-format=absolute', '--git-dir'], mergedCwd);
+      if (gitDir.exitCode !== 0 || dir === '' || merged.exitCode !== 0 || merged.stdout.trim() === '') return;
+      await seedMergedState(dir, merged.stdout.trim(), baseSha);
+    },
     runGates: (merged) => runShipGates([{ ...pr, cwd: merged.cwd }], {
       ...gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: async () => merged.sha,
       onProgress: i.afterServerChange, uiChanged: merged.uiChanged, kind: 'base-moved',

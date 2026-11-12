@@ -1342,6 +1342,14 @@ export async function shipTicket(
             detail: ref,
             at: pushAt,
           });
+          // D541: the base-moved check runs BEFORE the intent is prepared and the force-push lease is taken, so a long
+          // gate run holds neither: a stop leaves a `failed` intent with nothing applied and the lease still armed.
+          const baseFailure = (await opts.checkBase?.({ repo: wt.repo, cwd: wt.path, branch: ref })) ?? null;
+          if (baseFailure !== null) {
+            reconcileShipOperation(store, pushOp.intentId, 'failed', { resolvedAt: nowIso(), detail: baseFailure });
+            finishShipRepoStep(store, pushOp.stepId, { status: 'failed', detail: baseFailure, endedAt: nowIso() });
+            throw new Error(baseFailure);
+          }
           finalizeShipOperationIntent(
             store,
             pushOp.intentId,
@@ -1357,8 +1365,6 @@ export async function shipTicket(
           const lease = took && preRemoteHead ? { ref, expected: preRemoteHead } : undefined;
           let diverged: { originSha: string; commits: ForeignCommit[] } | undefined;
           try {
-            const baseFailure = (await opts.checkBase?.({ repo: wt.repo, cwd: wt.path, branch: ref })) ?? null;
-            if (baseFailure !== null) throw new Error(baseFailure);
             try {
               await pushWithServerErrorRetry(
                 git,
