@@ -289,6 +289,16 @@ function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
   });
 }
 
+/** True when the ticket has a sandbox clone (or its state cannot be read: then the check is skipped, never wrong). */
+async function inSandbox(i: Pick<CiActionsInput, 'sandbox' | 'ticketId' | 'debug'>, cwd: string): Promise<boolean> {
+  try {
+    return (await i.sandbox.cloneRef(i.ticketId, cwd)) !== null;
+  } catch (err) {
+    i.debug(`[ship] sandbox lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+    return true;
+  }
+}
+
 /**
  * The base-moved check of one PR before its push (D541): the branch merged with the current base, gated in a temporary
  * worktree and recorded as a `base-moved` run. Null = nothing stops the push (base unchanged, no earlier green run,
@@ -297,6 +307,12 @@ function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
 export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, pr: DeliverPr, signal: AbortSignal): Promise<string | null> {
   const baseRef = gate.gateEnv?.(pr).baseRef;
   if (baseRef === undefined) return null;
+  // A sandboxed ticket's gates run in its sandbox clone, which cannot see the host worktree of the merge: they would
+  // test the branch alone and report a false pass for the merge. No verdict is better than a wrong one (@arch:AC-39).
+  if (await inSandbox(i, pr.cwd)) {
+    i.debug('[ship] base-moved check not run: the ticket has a sandbox, whose gates cannot see the merged worktree');
+    return null;
+  }
   const gitDir = await i.git(['rev-parse', '--path-format=absolute', '--git-dir'], pr.cwd);
   const dir = gitDir.stdout.trim();
   const outcome = await checkBaseMoved({

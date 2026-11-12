@@ -857,6 +857,17 @@ describe('shipBaseCheck (D541)', () => {
     expect(i.debug).toHaveBeenCalledWith(expect.stringMatching(/base-moved check not run/));
   });
 
+  it('runs nothing for a sandboxed ticket: its gates cannot see the merged worktree, so no verdict is claimed', async () => {
+    const git = vi.fn(async () => ({ stdout: '', stderr: '', exitCode: 0 })) as CiActionsInput['git'];
+    const sb = { ...sandbox(), cloneRef: vi.fn(async () => 'FETCH_HEAD') };
+    const i = input({ git, sandbox: sb });
+    expect(await shipBaseCheck(i, gate, vi.fn())(target)).toBeNull();
+    expect(sb.cloneRef).toHaveBeenCalledWith(id, '/w/r');
+    expect(git).not.toHaveBeenCalledWith(expect.arrayContaining(['merge-tree']), expect.anything());
+    expect(git).not.toHaveBeenCalledWith(expect.arrayContaining(['worktree', 'add']), expect.anything());
+    expect(i.debug).toHaveBeenCalledWith(expect.stringMatching(/base-moved check not run.*sandbox/));
+  });
+
   it('runs nothing when the gate env names no base', async () => {
     const git = vi.fn(async () => ({ stdout: '', stderr: '', exitCode: 0 })) as CiActionsInput['git'];
     const noBase = { debug: () => {}, gateEnv: () => ({ prBody: '' }) } as never;
