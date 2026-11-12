@@ -250,7 +250,7 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     });
     expect(r).toBeNull();
     expect(ran).toEqual(['b', 'c']);
-    expect(currentDeliverRun(store, ticketId)).toMatchObject({ kind: 'after-take-over', state: 'passed', gates: ['lint', 'types'] });
+    expect(currentDeliverRun(store, ticketId)).toMatchObject({ kind: 'after-take-over', state: 'passed', gates: ['lint', 'types'], headSha: 'c'.repeat(40) });
     expect(listDeliverResults(store, ticketId).map((x) => [x.gateName, x.headSha])).toEqual([['lint', 'c'.repeat(40)], ['types', 'c'.repeat(40)]]);
   });
 
@@ -284,5 +284,15 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     });
     expect(currentDeliverRun(store, ticketId)?.gates).toEqual(['unit', 'visual']);
     expect(listDeliverResults(store, ticketId).map((r) => r.gateName).sort()).toEqual(['unit', 'visual']);
+  });
+  it('stops at the first failing repository and runs no later one', async () => {
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (cmd) => { ran.push(cmd); return { kind: 'completed', exitCode: 1, output: '' }; };
+    const a = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const b = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const r = await runShipGates([{ repo: 'r1', number: 1, branch: 'b', cwd: a }, { repo: 'r2', number: 2, branch: 'b', cwd: b }], { uat, runProcess });
+    expect(r).not.toBeNull();
+    expect(ran).toHaveLength(1);
   });
 });
