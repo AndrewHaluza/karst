@@ -78,6 +78,14 @@ const BLOCKED = pr({
     { kind: 'review', state: 'warn', label: 'Awaiting review', short: 'awaiting review', detail: 'no approvals yet', action: { act: 'open-pr', label: 'Open on GitHub', url: 'fixture:https://github.com/fixture-org/api/pull/88' } },
   ),
 });
+const READY_OPTIONAL_FAILING = pr({
+  repo: 'fixture:/repos/api', repoDisplay: 'api', number: 90, status: 'open', canMerge: true, checks: checks('failing', '1 failing · 3 passed'),
+  readiness: {
+    ready: true, headline: 'Ready to merge', facts: 'checks passed · no conflicts · approved',
+    reasons: [{ kind: 'checks', state: 'note', label: 'Optional checks failing', short: 'optional checks failing · 1', detail: '1 optional check failing',
+      action: { act: 'send-ci-failure', label: 'Send CI failure to agent' }, list: [{ text: 'lint' }] }],
+  },
+});
 const MERGED = pr({
   repo: 'fixture:/repos/web', repoDisplay: 'web', number: 421, status: 'merged', canDismiss: false,
   merged: 'merged 1h ago', mergedTitle: 'merged Aug 13, 2026, 9:00 AM',
@@ -122,6 +130,7 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   { id: 'wt-empty', patch: withWorktrees(() => []) },
   { id: 'pr-mixed', patch: withPrs([READY, BLOCKED, DISMISSED]) },
   { id: 'pr-ready', patch: withPrs([READY]) },
+  { id: 'pr-optional-failing', patch: withPrs([READY_OPTIONAL_FAILING]) },
   { id: 'pr-ready-info', patch: withPrs([READY]), click: '[data-act="toggle-pr-info"]' },
   { id: 'pr-rule', patch: withPrs([RULE]) },
   { id: 'pr-unknown', patch: withPrs([UNKNOWN]) },

@@ -137,6 +137,8 @@
 .prsn-warn .prsn-icon{color:var(--k-attention)}
 .prsn-run .prsn-icon{color:var(--k-warning)}
 .prsn-ok .prsn-icon{color:var(--k-success)}
+.prsn-note .prsn-icon{color:var(--k-text-dim)}
+.prblock-notes{margin-top:var(--k-space-2)}
 .prsn-text{flex:1;min-width:0;overflow-wrap:anywhere;display:flex;flex-wrap:wrap;align-items:baseline}
 .prsn-label{font-weight:var(--k-weight-semibold)}
 .prsn-detail{margin-left:var(--k-space-3);color:var(--k-text-dim)}

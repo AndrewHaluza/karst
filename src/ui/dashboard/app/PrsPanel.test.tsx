@@ -470,3 +470,33 @@ describe('PrsPanel — summary, the details popover and the blocked reason', () 
     expect(document.querySelector('.pinfo-pop')).toBeNull();
   });
 });
+
+describe('PrsPanel — a non-blocking optional-checks note', () => {
+  const note = (): DashboardState['prs'][number]['readiness'] => ({
+    ready: true,
+    headline: 'Ready to merge',
+    facts: 'no review required',
+    reasons: [
+      {
+        kind: 'checks',
+        state: 'note',
+        label: 'Optional checks failing',
+        short: 'optional checks failing · 1',
+        detail: '1 optional check failing',
+        action: { act: 'send-ci-failure', label: 'Send CI failure' },
+        list: [{ text: 'lint', url: 'https://ci/2' }],
+      },
+    ],
+  });
+
+  it('shows the ready line, the note row with its list and action, and no blocked count', () => {
+    mount(stateWith([pr({ canMerge: true, readiness: note() })]));
+    expect(text('.prready b')).toBe('Ready to merge');
+    expect(document.querySelector('li.prsn.prsn-note[data-kind="checks"]')).not.toBeNull();
+    expect(text('.prsn-label')).toBe('Optional checks failing');
+    expect(texts('.prsn-line button')).toEqual(['Send CI failure']);
+    expect(text('.pck-row')).toBe('lint');
+    expect(document.querySelector('.prblock')).toBeNull();
+    expect(document.body.textContent).not.toContain('blocked ·');
+  });
+});

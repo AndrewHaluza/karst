@@ -93,7 +93,7 @@ describe('prMergeReadiness', () => {
 
   it('names optional checks when the required split has no failed required check', () => {
     const c = { ...failing, failed: 1, failing: [{ name: 'lint', url: null, required: false }], failedShown: 1, required: { total: 3, failed: 0, pending: 0 } };
-    const r = read(pr({ checks: c })).reasons.find((x) => x.kind === 'checks')!;
+    const r = read(pr({ canMerge: true, mergeBlock: 'clean', checks: c })).reasons.find((x) => x.kind === 'checks')!;
     expect(r.label).toBe('Optional checks failing');
     expect(r.detail).toBe('1 optional check failing');
   });
@@ -286,7 +286,7 @@ describe('short summary text', () => {
     expect(shortOf(read(pr({ checks: { ...failing, required: null } })))).toEqual(['checks failing · 2']);
     expect(shortOf(read(pr({ checks: failing })))).toEqual(['required checks failing · 1']);
     const optional = { ...failing, failed: 1, failing: [{ name: 'lint', url: null, required: false }], failedShown: 1, required: { total: 3, failed: 0, pending: 0 } };
-    expect(shortOf(read(pr({ checks: optional })))).toEqual(['optional checks failing · 1']);
+    expect(shortOf(read(pr({ canMerge: true, mergeBlock: 'clean', checks: optional })))).toEqual(['optional checks failing · 1']);
   });
 
   it('words pending checks and a running auto-fix round as the run state', () => {
@@ -315,5 +315,48 @@ describe('blocking helpers', () => {
     const r = read(pr({ reviewDecision: 'APPROVED', approvals: 1, checks: failing, mergeBlock: 'behind' }));
     expect(blockingCount(r)).toBe(2);
     expect(blockingReasonsTitle(r)).toBe('Required checks failing — 1 of 3 required failing · 1 optional pending · Behind develop — the branch is out of date');
+  });
+  describe('optional-only failing checks', () => {
+    const optional: PrChecks = {
+      ...failing,
+      failed: 1,
+      pending: 0,
+      failing: [{ name: 'lint', url: 'https://ci/2', required: false }],
+      failedShown: 1,
+      required: { total: 3, failed: 0, pending: 0 },
+    };
+    const clean = { canMerge: true, mergeBlock: 'clean' as const, reviewDecision: 'APPROVED' as const };
+
+    it('is ready and keeps the failure as a non-blocking note with its list and action', () => {
+      const r = read(pr({ ...clean, checks: optional }), check(), offers);
+      expect(r.ready).toBe(true);
+      expect(r.headline).toBe('Ready to merge');
+      const c = of('checks', r);
+      expect(c.state).toBe('note');
+      expect(c.label).toBe('Optional checks failing');
+      expect(c.list).toEqual([{ text: 'lint', url: 'https://ci/2' }]);
+      expect(c.action).toEqual({ act: 'send-ci-failure', label: 'Send CI failure' });
+      expect(blockingCount(r)).toBe(0);
+      expect(blockingReasonsTitle(r)).toBe('');
+    });
+
+    it('stays blocking when a required check fails', () => {
+      const r = read(pr({ checks: failing }), undefined, offers);
+      expect(r.ready).toBe(false);
+      expect(of('checks', r).state).toBe('bad');
+    });
+
+    it('stays blocking when a required check is still pending', () => {
+      const r = read(pr({ checks: { ...optional, pending: 1, required: { total: 3, failed: 0, pending: 1 } } }));
+      expect(of('checks', r).state).toBe('bad');
+    });
+
+    it('does not count the note beside another blocking reason', () => {
+      const r = read(pr({ checks: optional, mergeBlock: 'behind' }));
+      expect(r.ready).toBe(false);
+      expect(kinds(pr({ checks: optional, mergeBlock: 'behind' }))).toEqual(['checks:note', 'behind:warn']);
+      expect(blockingCount(r)).toBe(1);
+      expect(blockingReasonsTitle(r)).toBe('Behind develop — the branch is out of date');
+    });
   });
 });

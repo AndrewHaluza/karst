@@ -6,6 +6,7 @@
  * that a PR is mergeable. An action is rendered only when the host attached it to the reason.
  */
 import { memo } from 'react';
+import { isBlocking } from '../../../model/prMergeReadiness.js';
 import type { Reason, ReasonAction, ReasonListItem } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CiButton, OpenButton, OpenLink, ResolveButton, SingleFlightButton } from './PrActionButtons.js';
@@ -16,6 +17,7 @@ const STATE_ICON: Readonly<Record<Reason['state'], string>> = {
   warn: 'alert-triangle',
   run: 'loader-2',
   ok: 'circle-check',
+  note: 'info-circle',
 };
 
 /** Items with no identity of their own get a content key made unique by its occurrence count. */
@@ -113,8 +115,6 @@ function ReasonRow({ r, folded = false, repo, ciBusy, open, onToggle }: ReasonRo
   );
 }
 
-const isBlocking = (r: Reason): boolean => r.state !== 'ok';
-
 /** The summary line of the folded list: chevron, headline, one brief item per blocking reason, then the actions. */
 function FoldSummary({ headline, blockers, repo, ciBusy }: { readonly headline: string; readonly blockers: readonly Reason[]; readonly repo: string; readonly ciBusy: boolean }) {
   const acting = blockers.filter((r) => r.action !== undefined);
@@ -159,13 +159,22 @@ export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onM
   if (p.status === 'merged' || p.dismissed) return null;
   if (readiness.ready) {
     return (
-      <div className="prready" data-state="ready">
-        <span className="prready-icon" aria-hidden="true">
-          <Icon name="circle-check" size={13} />
-        </span>
-        <b>{readiness.headline}</b>
-        <span className="prready-facts">{readiness.facts}</span>
-      </div>
+      <>
+        <div className="prready" data-state="ready">
+          <span className="prready-icon" aria-hidden="true">
+            <Icon name="circle-check" size={13} />
+          </span>
+          <b>{readiness.headline}</b>
+          <span className="prready-facts">{readiness.facts}</span>
+        </div>
+        {readiness.reasons.length > 0 ? (
+          <ul className="prblock-list prblock-notes">
+            {readiness.reasons.map((r) => (
+              <ReasonRow key={r.kind} r={r} repo={p.repo} ciBusy={ciBusy} open={mergeOpen} onToggle={onMergeToggle} />
+            ))}
+          </ul>
+        ) : null}
+      </>
     );
   }
   if (readiness.reasons.length === 0) return null;
