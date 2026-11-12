@@ -16,13 +16,14 @@
   #inside .sp-row{grid-template-columns:minmax(0,1fr);gap:var(--k-border-w)}
   #inside .sp-label{text-transform:none}
   #inside .inside{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
-  #inside .inside-head{grid-template-columns:auto minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
+  #inside .inside-head{grid-template-columns:minmax(0,auto) minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
   /* has-actions outranks the rule above: keep the menu in its own track on row one. */
-  #inside .inside-head.has-actions{grid-template-columns:auto minmax(0,1fr) auto}
+  #inside .inside-head.has-actions{grid-template-columns:minmax(0,auto) minmax(0,1fr) auto}
   #inside .inside-head .stageMenuWrap{grid-column:3;grid-row:1}
   /* The menu button now sits at the right edge, so the popover opens leftward from it. */
   #inside .stageMenu{left:auto;right:0}
-  #inside .inside-meta{grid-column:2}
+  /* N2: the time sits under the title, on its own line; it wraps rather than pushing the card wider. */
+  #inside .inside-meta{grid-column:1/-1;min-width:0;white-space:normal;overflow-wrap:anywhere}
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) var(--inside-dur-w) 16px;
     padding-left:var(--p-s2);padding-right:var(--p-s2)}
   #inside .op summary>:not(.op-tail),#inside .op-static>:not(.op-tail){grid-row:1}
@@ -30,7 +31,7 @@
     overflow:hidden;padding-right:0}
   #inside .op-tail:empty{display:none}
   #inside .op summary>.op-detail,#inside .op-static>.op-detail{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #inside .op summary>.op-detail.detail-console,#inside .op-static>.op-detail.detail-console{display:flex}
+  #inside .op summary>.op-detail.detail-console,#inside .op-static>.op-detail.detail-console{display:flex;min-width:0;max-width:100%}
   #inside .op summary>.op-detail.detail-console .op-detail-text,#inside .op-static>.op-detail.detail-console .op-detail-text{
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
   /* UI-R44: the cut detail is whole in the open body. */
@@ -99,7 +100,9 @@
   #inside .stageMenuBtn .stageMenuLabel{display:none}
   /* The live line wraps here: it ticks, so it cannot carry a static aria-label for an ellipsis (layout clipped-text). */
   #inside .inside-live{white-space:normal;overflow-wrap:anywhere;flex-wrap:wrap}
-  #inside .inside-live>*{min-width:0;white-space:normal;overflow-wrap:anywhere}
+  #inside .inside-live *{min-width:0;white-space:normal;overflow-wrap:anywhere}
+  #inside .inside-live .agent-id{flex-wrap:wrap}
+  #inside .inside-live strong{flex:0 1 auto}
 }
 @media (prefers-reduced-motion: reduce){
   #inside .glyph.run:before{animation:none}

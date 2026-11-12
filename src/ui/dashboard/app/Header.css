@@ -134,4 +134,4 @@
 @container ticket-head (max-width: 999px){ .ticketKey{max-width:calc(var(--k-space-8) * 5);overflow:hidden;text-overflow:ellipsis} }
 /* RD-NEVER #4: the ticket id never hides. Only the priority chip drops; the title always shows on one line with an ellipsis (it shrinks first, the id keeps its own ellipsis box). */
 @container ticket-head (max-width: 699px){ .ticketIdentity .prio{display:none} }
-@container ticket-head (max-width: 399px){ .ticketKey{max-width:calc(var(--k-space-8) * 3)} .dhead h1.ticketTitle{margin:0 var(--k-space-2)} }
+@container ticket-head (max-width: 399px){ .ticketKey{max-width:calc(var(--k-space-8) * 3)} .dhead h1.ticketTitle{margin:0 var(--k-space-2)} .dhead{gap:var(--k-space-2)} .ticketIdentity{flex:0 1 auto;min-width:0} }
