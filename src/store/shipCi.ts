@@ -27,6 +27,7 @@ export interface ShipCiPr {
  * `required === false`, and the failing list is complete. Anything unknown keeps the PR amber (@arch:GH-03).
  * `isKnownOptional` needs 0 required pending, so it cannot answer here.
  */
+// A rollup that lists fewer failures than `failed` is cut short, so an unlisted failure may be required.
 function optionalFailureOnly(p: ShipCiPr): boolean {
   const c = p.rollup;
   if (!c || c.state !== 'failing' || c.required == null) return false;
