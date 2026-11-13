@@ -2256,7 +2256,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           },
           'Run',
         );
-        return choice === 'Run';
+        // The same approval covers the runner's consent check: no second modal.
+        if (choice !== 'Run') return false;
+        approvedNpmCommands.add(command);
+        return true;
       },
       uninstallApproach: (id: string): boolean => {
         try {

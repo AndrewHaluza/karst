@@ -68,14 +68,15 @@ export function stripPermissionFrontmatter(body: string): string {
 }
 
 function filterFrontmatter(body: string, keepKey: (key: string | undefined) => boolean): string {
-  const text = body.startsWith(BOM) ? body.slice(BOM.length) : body;
+  const text = body.replace(/^(?:\uFEFF|\s)+(?=---)/, '');
+  if (text !== body && text.length === 0) return body;
   const lines = text.split('\n');
   const eol = (l: string): string => (l.endsWith('\r') ? '\r' : '');
   if (lines[0]!.trimEnd() !== '---') return body;
 
   let closeIdx = -1;
   for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === '---') {
+    if (lines[i]!.trimEnd() === '---') {
       closeIdx = i;
       break;
     }

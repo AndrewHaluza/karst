@@ -74,4 +74,16 @@ describe('sanitizeFrontmatter', () => {
     const input = '---\r\nname: x\r\nhooks:\r\n  a: b\r\n---\r\nbody\r\n';
     expect(sanitizeFrontmatter(input)).toBe('---\r\nname: x\r\n---\r\nbody\r\n');
   });
+
+  it('does not let an indented --- inside an allowlisted block end the frontmatter', () => {
+    const input = ['---', 'description: |', '  text', '  ---', 'hooks:', '  a: b', '---', 'body'].join('\n');
+    const out = sanitizeFrontmatter(input);
+    expect(out).not.toContain('hooks');
+    expect(out).toContain('  text');
+  });
+
+  it('strips leading blank lines and whitespace before the opening ---', () => {
+    const input = '\n  \n---\nname: x\nhooks:\n  a: b\n---\nbody';
+    expect(sanitizeFrontmatter(input)).toBe('---\nname: x\n---\nbody');
+  });
 });
