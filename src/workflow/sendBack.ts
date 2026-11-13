@@ -180,6 +180,8 @@ export function sendBackToImplement(
       });
     }
     setStageCurrent(store, ticketId, 'impl');
+    // A person decided: an autopilot stop or pause of the old ship no longer holds. Budgets, round_head_sha and stop_after stay (T1122).
+    store.db.prepare('UPDATE autopilot_tickets SET stopped_reason = NULL, paused_reason = NULL WHERE ticket_id = ?').run(ticketId);
     if (opts?.reason !== undefined) {
       postMessage(store, {
         projectId: getTicket(store, ticketId).projectId,

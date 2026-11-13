@@ -330,3 +330,25 @@ export function markStaleRebaseStopped(store: Store, ticketId: number, repo: str
     .prepare("UPDATE autopilot_reruns SET pattern = pattern || ? WHERE ticket_id = ? AND repo = ? AND run_id = ? AND check_name = ? AND pattern LIKE 'stale-generated:%' AND pattern NOT LIKE '%' || ?")
     .run(STALE_STOPPED_SUFFIX, ticketId, repo, runId, checkName, STALE_STOPPED_SUFFIX);
 }
+
+/**
+ * One-time repair of a stale autopilot park (T1122): a park that landed after a send-back left an `auto-fix` awaiting-merge block
+ * on a ship row that is not shipped, and a stop reason its ship block no longer carries. Idempotent. Returns the ticket count touched.
+ */
+export function repairStaleAutopilotParks(store: Store): number {
+  const run = store.db.transaction((): number => {
+    const blocks = store.db.prepare(
+      `UPDATE stages SET blocked_kind = NULL, blocked_reason = NULL, blocked_at = NULL
+        WHERE stage_key = 'ship' AND blocked_kind = 'awaiting-merge' AND blocked_reason LIKE 'auto-fix%'
+          AND status NOT IN ('passed', 'running')`,
+    ).run().changes;
+    const stops = store.db.prepare(
+      `UPDATE autopilot_tickets SET stopped_reason = NULL
+        WHERE stopped_reason LIKE 'auto-fix%'
+          AND NOT EXISTS (SELECT 1 FROM stages s WHERE s.ticket_id = autopilot_tickets.ticket_id AND s.stage_key = 'ship'
+                            AND s.blocked_kind = 'awaiting-merge' AND s.blocked_reason = autopilot_tickets.stopped_reason)`,
+    ).run().changes;
+    return blocks + stops;
+  });
+  return run();
+}

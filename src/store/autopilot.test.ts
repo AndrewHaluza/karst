@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { openStore } from './db.js';
 import { createTicket } from './tickets.js';
+import { setStage } from './stages.js';
+import { stageBlock } from './stageBlocks.js';
 import {
   claimAutopilotTicket,
   decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, grantAutopilotExtra, getAutopilotSessionOwner,
-  getAutopilotRerun, markAutopilotRerun, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
+  getAutopilotRerun, markAutopilotRerun, repairStaleAutopilotParks, setAutopilotStopped, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
 } from './autopilot.js';
 
 describe('decideBudget', () => {
@@ -148,5 +150,45 @@ describe('autopilot re-run marker (T1019)', () => {
     // A new run (a new push) and another check get their own re-run.
     expect(markAutopilotRerun(store, id, { ...rerun, runId: '43' })).toBe(true);
     expect(markAutopilotRerun(store, id, { ...rerun, checkName: 'CodeQL' })).toBe(true);
+  });
+});
+
+describe('repairStaleAutopilotParks (T1122)', () => {
+  const STOP = 'auto-fix stopped: ci round made no change';
+  function seed(status: 'pending' | 'running' | 'passed', reason: string | null, stop: string | null = STOP) {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'R-1', title: 't' }).id;
+    setStage(store, id, 'ship', { status, blockedKind: reason === null ? null : 'awaiting-merge', blockedReason: reason, blockedAt: reason === null ? null : 'x' });
+    if (stop !== null) setAutopilotStopped(store, id, stop);
+    return { store, id };
+  }
+
+  it('clears an auto-fix block on a pending ship row and the stop reason', () => {
+    const { store, id } = seed('pending', STOP);
+    repairStaleAutopilotParks(store);
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+  });
+
+  it('leaves a block on a running or passed ship row, and a normal block', () => {
+    for (const status of ['running', 'passed'] as const) {
+      const { store, id } = seed(status, STOP);
+      repairStaleAutopilotParks(store);
+      expect(stageBlock(store, id, 'ship')?.reason).toBe(STOP);
+      expect(getAutopilotTicket(store, id).stoppedReason).toBe(STOP);
+    }
+    const n = seed('pending', 'blocked: not merged yet', null);
+    repairStaleAutopilotParks(n.store);
+    expect(stageBlock(n.store, n.id, 'ship')?.reason).toBe('blocked: not merged yet');
+  });
+
+  it('clears a stop reason that its ship block no longer matches, keeping stop_after', () => {
+    const { store, id } = seed('passed', 'blocked: not merged yet');
+    setAutopilotStopAfter(store, id);
+    repairStaleAutopilotParks(store);
+    const t = getAutopilotTicket(store, id);
+    expect(t.stoppedReason).toBeNull();
+    expect(t.stopAfter).toBe(true);
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('blocked: not merged yet');
   });
 });

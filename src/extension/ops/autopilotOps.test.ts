@@ -7,6 +7,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
+import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 
 const NORMAL_BLOCK = 'blocked: the pull request for "r" has changes and is not merged yet.';
@@ -1467,5 +1468,37 @@ describe('autopilotTick CI round with no commit after a network re-run (D564)', 
     expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci round made no change' });
     expect(r.rerun).not.toHaveBeenCalled();
     expect(r.sendCi).not.toHaveBeenCalled();
+  });
+});
+
+describe('a park that lands after a send-back (T1122)', () => {
+  /** A tick that starts at ship; the send-back lands while the placement read awaits, then the read fails and the tick parks. */
+  const sentBackWhileAwaiting = (): Rig => rig({
+    placement: async () => { sendBackToImplement(store, id); throw new Error('placement lost'); },
+  });
+
+  it('writes no block and no stop reason on a ticket that left ship', async () => {
+    seedPr(failing('build'));
+    const r = sentBackWhileAwaiting();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'idle' });
+    expect(getTicket(store, id).stageCurrent).toBe('impl');
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+    expect(r.notes).toEqual([]);
+    expect(r.debug).toHaveBeenCalledWith(expect.stringContaining('left ship'));
+  });
+
+  it('writes no block while the ship stage is not shipped (status pending)', async () => {
+    seedPr(failing('build'));
+    const r = rig({ placement: async () => { setStage(store, id, 'ship', { status: 'pending', blockedKind: null, blockedReason: null, blockedAt: null }); throw new Error('x'); } });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'idle' });
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+  });
+
+  it('returns idle on ship:pending with no block (unchanged)', async () => {
+    seedPr(failing('build'));
+    setStage(store, id, 'ship', { status: 'pending', blockedKind: null, blockedReason: null, blockedAt: null });
+    expect(await autopilotTick(rig().deps)).toEqual({ kind: 'idle' });
   });
 });

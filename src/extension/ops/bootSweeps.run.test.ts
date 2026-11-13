@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   reconcileProcessRuns: vi.fn(),
   reconcileShipRuns: vi.fn(),
   reconcileStrandedFixRounds: vi.fn(),
+  repairStaleAutopilotParks: vi.fn(() => 0),
   compactArchivedWorktrees: vi.fn(),
   reapClosedGraphSubtrees: vi.fn(),
   reapOrphanedArtifactDirs: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('../../store/stageRuns.js', () => ({ reconcileStageRuns: m.reconcileStag
 vi.mock('../../store/processRuns.js', () => ({ reconcileProcessRuns: m.reconcileProcessRuns, describeStaleProcessRun: (s: string) => `proc:${s}` }));
 vi.mock('../../store/shipRuns.js', () => ({ reconcileShipRuns: m.reconcileShipRuns, describeStaleShipRun: (s: string) => `ship:${s}` }));
 vi.mock('../../store/recoveryRounds.js', () => ({ reconcileStrandedFixRounds: m.reconcileStrandedFixRounds, describeStrandedFixRound: (s: { n: string }) => `fix:${s.n}` }));
+vi.mock('../../store/autopilot.js', () => ({ repairStaleAutopilotParks: m.repairStaleAutopilotParks }));
 vi.mock('../../runtime/archiveBulk.js', () => ({ compactArchivedWorktrees: m.compactArchivedWorktrees }));
 vi.mock('../../approaches/graph/retention.js', () => ({ reapClosedGraphSubtrees: m.reapClosedGraphSubtrees, describeGraphReap: (s: string) => `graph:${s}` }));
 vi.mock('../../runtime/artifactOrphans.js', () => ({ reapOrphanedArtifactDirs: m.reapOrphanedArtifactDirs, describeArtifactReap: (s: number) => `art:${s}` }));
