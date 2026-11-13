@@ -1,4 +1,5 @@
 import type { Store } from '../db.js';
+import { HOST_RERUN_SOURCE } from '../gateRuns.js';
 import { ratio, scopeSql, type MetricsScope } from './scope.js';
 
 /**
@@ -49,7 +50,7 @@ export function gateKillDistribution(store: Store, scope: MetricsScope): GateKil
               SUM(COALESCE(g.skipped IS NOT 1 AND g.exit_code IS NULL, 0)) AS no_script
          FROM gate_runs g
          JOIN tickets t ON t.id = g.ticket_id
-        WHERE 1 = 1${clause}
+        WHERE g.source IS NOT '${HOST_RERUN_SOURCE}'${clause}
         GROUP BY g.gate_name
         ORDER BY g.gate_name`,
     )
@@ -67,7 +68,7 @@ export function gateKillDistribution(store: Store, scope: MetricsScope): GateKil
       `SELECT g.exit_code AS exit_code, COUNT(*) AS count
          FROM gate_runs g
          JOIN tickets t ON t.id = g.ticket_id
-        WHERE g.exit_code > 0 AND g.skipped IS NOT 1${clause}
+        WHERE g.exit_code > 0 AND g.skipped IS NOT 1 AND g.source IS NOT '${HOST_RERUN_SOURCE}'${clause}
         GROUP BY g.exit_code
         ORDER BY g.exit_code`,
     )

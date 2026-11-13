@@ -57,6 +57,20 @@ describe('quality metrics', () => {
     ]);
   });
 
+  it('leaves the host re-run rows out of the gate kill counts', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const ins = store.db.prepare(
+      `INSERT INTO gate_runs (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, source)
+       VALUES (?, 'uat', 0, '2026-07-20T00:00:00.000Z', 'visual', ?, ?)`,
+    );
+    ins.run(t.id, 1, null);
+    ins.run(t.id, 1, 'host-rerun');
+    const result = gateKillDistribution(store, {});
+    expect(result.runs).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.byExitCode).toEqual([{ exitCode: 1, count: 1 }]);
+  });
+
   it('summarises recovery rounds, including exhausted episodes', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     const round = (

@@ -69,6 +69,21 @@ describe('readTickets', () => {
   });
 });
 
+describe('readTickets host re-run rows', () => {
+  it('leaves the host re-run gate rows out of the evidence', () => {
+    const store = openStore(':memory:');
+    seedStore(store, fixtureSpec('blocked'));
+    const id = (store.db.prepare('SELECT id FROM tickets').get() as { id: number }).id;
+    const ins = store.db.prepare(
+      `INSERT INTO gate_runs (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, source)
+       VALUES (?, 'uat', 1, '2026-07-20T00:00:00.000Z', 'visual', 1, ?)`,
+    );
+    ins.run(id, null);
+    ins.run(id, 'host-rerun');
+    expect(readTickets(store)[0]?.gateRuns).toEqual([{ stage: 'uat', attempt: 1, gate: 'visual', exitCode: 1 }]);
+  });
+});
+
 describe('readTickets engine state', () => {
   it('shows gate runs, process runs, review findings and merge checks, byte-stable', () => {
     const spec = parseFixtureFile({
