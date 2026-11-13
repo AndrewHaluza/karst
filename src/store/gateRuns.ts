@@ -1,3 +1,4 @@
+import { HOST_RERUN_SOURCE } from './hostRerunSource.js';
 import type { Store } from './db.js';
 import type { StageKey } from '../model/types.js';
 
@@ -58,8 +59,7 @@ export interface GateRun {
   source?: string | null;
 }
 
-/** `gate_runs.source` of a row the host's gate re-run wrote: evidence, never a UAT batch verdict. */
-export const HOST_RERUN_SOURCE = 'host-rerun';
+export { HOST_RERUN_SOURCE };
 
 /** One gate as a runner reports it, before it has an id or a batch stamp. */
 export interface GateRunInput {
