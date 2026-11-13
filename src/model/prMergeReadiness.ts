@@ -296,7 +296,7 @@ export function prMergeReadiness(
   const notes = reasons.filter((r) => r.state === 'note');
   const problem = reasons.some((r) => isBad(r) || r.state === 'run');
   // GitHub answers `unstable` when only optional checks fail: the checks note explains it, and GitHub merges it.
-  const unstableNoted = pr.mergeBlock === 'unstable' && reasons.some((r) => r.kind === 'checks' && r.state === 'note');
+  const unstableNoted = pr.mergeBlock === 'unstable' && !problem && reasons.some((r) => r.kind === 'checks' && r.state === 'note');
   if (pr.canMerge && pr.mergeBlock !== 'clean' && !problem && !unstableNoted) {
     // GitHub did not say "clean" (it answered unknown, unstable or has_hooks) and nothing else explains it:
     // never claim it, never count it ready.

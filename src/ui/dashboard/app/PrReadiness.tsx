@@ -66,7 +66,7 @@ function ActionButton({ action, repo, ciBusy }: { readonly action: ReasonAction;
 
 interface ReasonRowProps {
   readonly r: Reason;
-  /** True inside the folded body: the action rides on the summary line, and the list is already open. */
+  /** True inside the folded body: a blocking reason's action rides on the summary line (a note has none there), and the list is already open. */
   readonly folded?: boolean;
   readonly repo: string;
   readonly ciBusy: boolean;
@@ -88,7 +88,7 @@ function ReasonRow({ r, folded = false, repo, ciBusy, open, onToggle }: ReasonRo
           <b className="prsn-label">{r.label}</b>
           {r.detail ? <span className="prsn-detail">{r.detail}</span> : null}
         </span>
-        {r.action && !folded ? <ActionButton action={r.action} repo={repo} ciBusy={ciBusy} /> : null}
+        {r.action && (!folded || r.state === 'note') ? <ActionButton action={r.action} repo={repo} ciBusy={ciBusy} /> : null}
       </div>
       {r.extra ? <div className="prsn-extra">{r.extra}</div> : null}
       {hasBody && folded ? (

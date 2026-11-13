@@ -508,4 +508,13 @@ describe('PrsPanel — a non-blocking optional-checks note', () => {
     expect(document.querySelector('.prblock')).toBeNull();
     expect(document.querySelector('.prready')).toBeNull();
   });
+
+  it('keeps the note action on its own row inside the folded list, beside the summary actions', () => {
+    const base = note();
+    const blockers = blockedBy(['review', 'bad'], ['conflicts', 'warn']).reasons;
+    mount(stateWith([pr({ readiness: { ...base, ready: false, headline: 'Merge blocked', facts: '', reasons: [...base.reasons, ...blockers] } })]));
+    expect(document.querySelector('details.prblock-fold')).not.toBeNull();
+    expect(texts('.prsn-line button')).toEqual(['Send CI failure']);
+    expect(texts('.prblock-item')).toEqual(['review short', 'conflicts short']);
+  });
 });

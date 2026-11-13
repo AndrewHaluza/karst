@@ -364,6 +364,12 @@ describe('blocking helpers', () => {
       expect(blockingCount(r)).toBe(0);
     });
 
+    it('does not read unstable as ready when another reason blocks', () => {
+      const r = read(pr({ canMerge: true, mergeBlock: 'unstable', checks: optional, reviewDecision: 'CHANGES_REQUESTED' }));
+      expect(r.ready).toBe(false);
+      expect(blockingCount(r)).toBe(1);
+    });
+
     it('stays blocking when a required check fails', () => {
       const r = read(pr({ checks: failing }), undefined, offers);
       expect(r.ready).toBe(false);
