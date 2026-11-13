@@ -376,6 +376,7 @@ import { installApproach } from './approaches/fetch.js';
 import {
   cancelAllNpmCommands,
   runNpmCommand,
+  withCommandConsent,
 } from './approaches/npmCommand.js';
 import { resolveApproachPrompt } from './approaches/resolve.js';
 import { resolveGraphPrompt } from './agent/graphPrompts.js';
@@ -1773,10 +1774,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Bound installer for the approaches picker (Phase E). `approachesDirOrThrow`
   // is resolved at call time, not here, so it reflects the current
   // workspace/setting and doesn't throw at activation when there's no folder.
+  const approvedNpmCommands = new Set<string>();
+  const approvedNpmRunner = withCommandConsent(
+    (command, cwd) => runNpmCommand(command, cwd),
+    async (command) =>
+      (await vscode.window.showWarningMessage(
+        'Run this approach install command? It comes from the approach source and runs in a shell.',
+        { modal: true, detail: command },
+        'Run',
+      )) === 'Run',
+    approvedNpmCommands,
+  );
   const installApproachHere = (def: ApproachDef): Promise<ApproachPackage> => {
     const baseDir = approachesDirOrThrow(), getSession = () => vscode.authentication.getSession('github', ['repo'], { silent: true });
     const install = resolveInstallToken(async () => (await getSession())?.accessToken).then((githubToken) =>
-      installApproach(def, { fetchFn: fetch, baseDir, runCommand: runNpmCommand, githubToken }),
+      installApproach(def, { fetchFn: fetch, baseDir, runCommand: approvedNpmRunner, githubToken }),
     );
     if (def.source?.type === 'npm') {
       pendingApproachInstalls.add(install);
@@ -2244,7 +2256,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           },
           'Run',
         );
-        return choice === 'Run';
+        // The same approval covers the runner's consent check: no second modal.
+        if (choice !== 'Run') return false;
+        approvedNpmCommands.add(command);
+        return true;
       },
       uninstallApproach: (id: string): boolean => {
         try {
