@@ -132,6 +132,14 @@ function intentByLaunchId(store: Store, launchId: string): SessionLaunchIntent |
   return row === undefined ? undefined : rowToIntent(row);
 }
 
+/** The newest launch intent of a ticket (any status), or undefined when it has none. */
+export function latestSessionLaunchIntent(store: Store, ticketId: number): SessionLaunchIntent | undefined {
+  const row = store.db.prepare(`${INTENT_SELECT} WHERE ticket_id = ? ORDER BY id DESC LIMIT 1`).get(ticketId) as
+    | SessionLaunchIntentRow
+    | undefined;
+  return row === undefined ? undefined : rowToIntent(row);
+}
+
 /** Read a launch intent back from the store (its CURRENT status, not a snapshot). */
 export function getSessionLaunchIntent(
   store: Store,
