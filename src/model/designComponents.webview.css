@@ -160,16 +160,20 @@ button.k-chip{cursor:pointer}
    dot: the stage word and the color tell the state. Id and word share one baseline. */
 .k-ticket-ref{
   --c:var(--stg-color,var(--stage-unknown));--fg:var(--stg-fg,var(--stage-unknown-fg));
+  --k-ref-bg:var(--stg-bg,color-mix(in srgb,var(--c) var(--k-chip-wash),transparent));
   position:relative;display:inline-flex;align-items:baseline;gap:var(--k-space-2);max-width:100%;min-width:0;
   height:var(--k-chip-h);padding:0 var(--k-chip-pad-x);border-radius:var(--k-radius-lg);font:inherit;font-size:var(--k-text-md);line-height:var(--k-chip-lh);white-space:nowrap;
-  border:var(--k-border-w) solid var(--c);background:var(--stg-bg,color-mix(in srgb,var(--c) var(--k-chip-wash),transparent));
+  border:var(--k-border-w) solid var(--c);background:var(--k-ref-bg);
   text-align:left;color:var(--fg)}
 button.k-ticket-ref{cursor:pointer}
+/* A button chip is two borders taller than the pill (the layout minimum for a control); the pill is drawn by ::before inside it, so the look is unchanged. */
+button.k-ticket-ref{height:calc(var(--k-chip-h) + var(--k-border-w) * 2);margin-block:calc(var(--k-border-w) * -1);padding-top:var(--k-border-w);border-color:transparent;background:none;isolation:isolate}
+button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w) 0;z-index:-1;border:var(--k-border-w) solid var(--c);border-style:inherit;border-radius:inherit;background:var(--k-ref-bg)}
 .k-ticket-ref > *{line-height:var(--k-chip-lh)}
 .k-ticket-ref a,.k-ticket-ref-id,.k-ticket-ref-word,.k-ticket-ref-x,.k-ticket-ref-prefix{color:var(--fg)}
 .k-ticket-ref a,.k-ticket-ref-id{font-weight:var(--k-weight-semibold);text-decoration:none}
-/* The link box is 20px high (layout min for a text control); the negative margin keeps the 18px pill and the shared baseline. */
-.k-ticket-ref a{padding-block:2px;margin-block:-2px}
+/* The link box is the layout minimum high; the negative margin keeps the pill height and the shared baseline. */
+.k-ticket-ref a{padding-block:calc(var(--k-border-w) * 2);margin-block:calc(var(--k-border-w) * -2)}
 .k-ticket-ref a:hover{text-decoration:underline}
 .k-ticket-ref a:focus-visible,button.k-ticket-ref:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 /* The hit area stays at the minimum target: the link grows past the pill through ::after (@ui:UI-R29). */
@@ -186,10 +190,10 @@ button.k-ticket-ref{cursor:pointer}
 }
 /* Needs you wins over the stage (rail order): attention border, 30% wash, attention text tone, and the pause mark,
    the only mark in a chip (@ui:UI-R28b): amber alone is below 3:1. */
-.k-ticket-ref.is-needs{--c:var(--k-attention);--fg:var(--k-attention-fg);background:color-mix(in srgb,var(--k-attention) var(--k-chip-wash-needs),transparent)}
+.k-ticket-ref.is-needs{--c:var(--k-attention);--fg:var(--k-attention-fg);--k-ref-bg:color-mix(in srgb,var(--k-attention) var(--k-chip-wash-needs),transparent)}
 .k-ticket-ref-pause{flex:none;align-self:center;width:var(--k-space-5);height:var(--k-space-5);fill:currentColor;stroke:none;color:var(--k-attention-fg)}
-.k-ticket-ref.is-draft{--fg:var(--k-text);--c:var(--stage-unknown);border-style:dashed;background:var(--k-surface-hover)}
-.k-ticket-ref.is-gone{--c:var(--stage-closed);--fg:var(--k-text-dim);border-style:dashed;background:none}
+.k-ticket-ref.is-draft{--fg:var(--k-text);--c:var(--stage-unknown);border-style:dashed;--k-ref-bg:var(--k-surface-hover)}
+.k-ticket-ref.is-gone{--c:var(--stage-closed);--fg:var(--k-text-dim);border-style:dashed;--k-ref-bg:none}
 .k-id{
   display:inline-block;flex:none;
   font-family:var(--k-font-mono);font-size:var(--k-text-2xs);line-height:var(--k-leading-tight);
