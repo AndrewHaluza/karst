@@ -168,6 +168,8 @@ button.k-ticket-ref{cursor:pointer}
 .k-ticket-ref > *{line-height:var(--k-chip-lh)}
 .k-ticket-ref a,.k-ticket-ref-id,.k-ticket-ref-word,.k-ticket-ref-x,.k-ticket-ref-prefix{color:var(--fg)}
 .k-ticket-ref a,.k-ticket-ref-id{font-weight:var(--k-weight-semibold);text-decoration:none}
+/* The link box is 20px high (layout min for a text control); the negative margin keeps the 18px pill and the shared baseline. */
+.k-ticket-ref a{padding-block:2px;margin-block:-2px}
 .k-ticket-ref a:hover{text-decoration:underline}
 .k-ticket-ref a:focus-visible,button.k-ticket-ref:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 /* The hit area stays at the minimum target: the link grows past the pill through ::after (@ui:UI-R29). */
