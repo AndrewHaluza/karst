@@ -52,6 +52,9 @@
   "scripts/gateScope.mjs": [
     "arch:GATE-SCOPED"
   ],
+  "scripts/gateSlot.mjs#acquireGateSlot": [
+    "arch:GATE-CONCURRENCY"
+  ],
   "scripts/gateState.mjs": [
     "arch:GATE-REPEAT"
   ],
