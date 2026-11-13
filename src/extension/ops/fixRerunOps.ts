@@ -8,13 +8,14 @@ import type { ResolvedGate } from '../../workflow/gates/resolve.js';
 import { recordGateRun, HOST_RERUN_SOURCE } from '../../store/gateRuns.js';
 import { stageAttempt } from '../../store/stages.js';
 import { listArchCitations } from '../../store/archCitations.js';
+import { resolveReviewGates } from '../../workflow/review/gates.js';
 import { renderCitationText } from '../../model/archCitations.js';
 import type { StageKey } from '../../model/types.js';
 import { probeScripts } from '../../workflow/gates/probe.js';
 import { resolveTargetGates } from '../../workflow/stages/uat.js';
 import { withHostOverride } from '../../workflow/gates/resourceKill.js';
 import { getHostGates } from '../../store/ticketGates.js';
-import type { UatConfig } from '../../manifest/types.js';
+import type { ReviewConfig, UatConfig } from '../../manifest/types.js';
 import { nowIso } from '../../model/time.js';
 import type { MarkerStage } from '../../agent/markerStage.js';
 import { runRequestedHostReruns } from '../../workflow/fixHostRerunRequest.js';
@@ -42,7 +43,7 @@ export interface GateRerunDeps {
   /** The manifest `ship.regenerate` spec of a repo key; undefined when it declares none. */
   readonly regenerateFor?: (repo: string) => RegenerateSpec | undefined;
   /** The manifest gates of a repo worktree, as UAT resolves them; undefined → the repo has none to answer with. */
-  readonly gatesFor?: (ticketId: number, repo: string, cwd: string) => readonly ResolvedGate[] | undefined;
+  readonly gatesFor?: (ticketId: number, repo: string, cwd: string, stage: StageKey) => readonly ResolvedGate[] | undefined;
   /** The ticket's base ref of a repo, for `KARST_BASE_REF` (the D360 drift check). */
   readonly baseRefFor?: (ticketId: number, repo: string) => string | undefined;
   /** Live output of a gate, tagged with the ticket and the source stage. */
@@ -124,9 +125,9 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
       results[regenIdx] = { exitCode: null, cannotRerun: true, summary: `${regenGate.gateName} has no ship.regenerate commands in the manifest` };
     } else regenerate = spec;
   }
-  const manifestGates = deps.gatesFor?.(ticketId, group.repo, group.path) ?? [];
+  const manifestGates = deps.gatesFor?.(ticketId, group.repo, group.path, stage) ?? [];
   const toRun: ResolvedGate[] = [];
-  const rowOfGate = new Map<string, number>();
+  const rowsOfGate = new Map<string, number[]>();
   group.entries.forEach((e, i) => {
     if (e.gate.kind === 'regenerate') return;
     const match = manifestGates.find((g) => g.command === e.gate.command && g.args.join('\u0000') === e.gate.args.join('\u0000'));
@@ -134,15 +135,16 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
       results[i] = { exitCode: null, cannotRerun: true, summary: `${e.gate.gateName} is no longer a manifest gate` };
       return;
     }
-    if (!rowOfGate.has(match.name)) {
+    const rows = rowsOfGate.get(match.name);
+    if (rows) rows.push(i);
+    else {
       toRun.push(match);
-      rowOfGate.set(match.name, i);
+      rowsOfGate.set(match.name, [i]);
     }
   });
   if (toRun.length === 0 && regenerate === undefined) return fill(results, 'not run');
   const now = deps.now ?? nowIso;
   const attempt = stageAttempt(deps.store, ticketId, stage);
-  const done: RerunDone[] = [];
   const baseRef = deps.baseRefFor?.(ticketId, group.repo);
   const run = deps.runGates ?? runGateList;
   const res = await run(toRun, group.path, {
@@ -161,12 +163,11 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
     onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(ticketId, name, pid, cwd),
     onGateComplete: (name, exitCode, startedAt, endedAt, index, rawOutput) => {
       const output = rawOutput ?? '';
-      const row = index < 0 ? regenIdx : (rowOfGate.get(name) ?? -1);
-      done.push({ name, exitCode, startedAt, endedAt, output, row });
-      if (row >= 0) results[row] = resultOf(exitCode, output);
+      const rows = index < 0 ? (regenIdx >= 0 ? [regenIdx] : []) : (rowsOfGate.get(name) ?? []);
+      recordRerunRow(deps, ticketId, stage, attempt, now(), group, { name, exitCode, startedAt, endedAt, output, row: rows[0] ?? -1 });
+      for (const row of rows) results[row] = resultOf(exitCode, output);
     },
   });
-  recordRerunRows(deps, ticketId, stage, attempt, now(), group, done);
   const reason = res.kind === 'stopped' ? 'aborted' : 'not run: regenerate failed';
   return fill(results, reason);
 }
@@ -175,26 +176,25 @@ function fill(results: (GateRerunResult | undefined)[], reason: string): GateRer
   return results.map((r) => r ?? { exitCode: null, summary: reason });
 }
 
-/** Write the re-run's gate rows, marked so no reader takes them as a UAT batch verdict. */
-function recordRerunRows(
+/** Write one gate row when the gate completes, marked so no reader takes it as a UAT batch verdict. */
+function recordRerunRow(
   deps: GateRerunDeps,
   ticketId: number,
   stage: StageKey,
   attempt: number,
   runAt: string,
   group: RerunGroup,
-  done: readonly RerunDone[],
+  d: RerunDone,
 ): void {
-  if (done.length === 0) return;
+  const entry = d.row >= 0 ? group.entries[d.row]?.gate : undefined;
   recordGateRun(deps.store, {
     ticketId,
     stageKey: stage,
     attempt,
     runAt,
     source: HOST_RERUN_SOURCE,
-    gates: done.map((d) => {
-      const entry = d.row >= 0 ? group.entries[d.row]?.gate : undefined;
-      return {
+    gates: [
+      {
         gateName: entry?.gateName ?? d.name,
         exitCode: d.exitCode,
         startedAt: d.startedAt ?? undefined,
@@ -203,23 +203,30 @@ function recordRerunRows(
         command: entry?.command ?? d.name,
         args: entry?.args ?? [],
         summary: d.exitCode === 0 ? undefined : summarizeGateFailure(d.output),
-      };
-    }),
+      },
+    ],
   });
 }
 
 export interface ManifestGatesDeps {
   readonly store: Store;
   readonly uat: () => UatConfig | undefined;
+  /** The review config: a review-stage fix round re-runs the gates review resolves, not UAT's. */
+  readonly review?: () => ReviewConfig | undefined;
   /** The enabled manifest entry names of a worktree repo; absent → the repo itself names the entry. */
   readonly namesFor?: (repo: string) => readonly string[] | undefined;
   readonly debug?: (message: string) => void;
 }
 
-/** The `gatesFor` binding: the gates UAT would resolve for a repo worktree, with the ticket's host override. */
+/** The `gatesFor` binding: the gates the source stage (UAT or review) would resolve for a repo worktree, with the ticket's host override. */
 export function makeManifestGatesFor(deps: ManifestGatesDeps): NonNullable<GateRerunDeps['gatesFor']> {
-  return (ticketId, repo, cwd) => {
-    const resolution = resolveTargetGates(probeScripts(cwd, deps.debug), deps.uat(), deps.namesFor?.(repo) ?? [repo], [], deps.debug);
+  return (ticketId, repo, cwd, stage) => {
+    const probe = probeScripts(cwd, deps.debug);
+    const names = deps.namesFor?.(repo) ?? [repo];
+    const resolution =
+      stage === 'review'
+        ? resolveReviewGates(probe, deps.review?.(), names, [], deps.debug)
+        : resolveTargetGates(probe, deps.uat(), names, [], deps.debug);
     if (resolution.kind !== 'gates') return undefined;
     return withHostOverride(resolution.gates, getHostGates(deps.store, ticketId));
   };

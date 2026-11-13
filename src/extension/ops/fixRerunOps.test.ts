@@ -166,6 +166,29 @@ describe('makeGateRerun through runGateList', () => {
     expect(rows[0]).toMatchObject({ source: HOST_RERUN_SOURCE, stageKey: 'uat' });
     expect(JSON.stringify(rows[0])).toContain('unit (web)');
   });
+
+  it('writes each gate row when the gate completes, so a later throw keeps the earlier rows', async () => {
+    const runGates = vi.fn(async (_g: readonly ResolvedGate[], _cwd: string, opts: { onGateComplete?: (...a: never[]) => void }) => {
+      (opts.onGateComplete as (n: string, e: number, s: string, t: string, i: number, o: string) => void)('unit', 1, 'a', 'b', 0, 'boom');
+      throw new Error('crash');
+    });
+    const res = await make(vi.fn(), { runGates: runGates as never })(ticketId, [failed()], 'uat');
+    expect(res[0]?.summary).toMatch(/re-run error: crash/);
+    expect(listGateRuns(store, ticketId, { includeHostRerun: true })).toHaveLength(1);
+  });
+
+  it('gives every failed row of one manifest gate the result of that gate', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ok());
+    const res = await make(run)(ticketId, [failed(), failed({ gateName: 'unit again (web)' })], 'uat');
+    expect(res).toEqual([{ exitCode: 0, summary: null }, { exitCode: 0, summary: null }]);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the resolver for the stage of the failed round', async () => {
+    const gatesFor = vi.fn(() => [resolved()]);
+    await make(vi.fn<GateProcessRunner>(async () => ok()), { gatesFor })(ticketId, [failed()], 'review');
+    expect(gatesFor).toHaveBeenCalledWith(ticketId, 'web', '/wt/web', 'review');
+  });
 });
 
 describe('makeRecoverRefusal', () => {
@@ -234,7 +257,7 @@ describe('makeManifestGatesFor', () => {
     const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
     const seen: string[][] = [];
     const gatesFor = makeManifestGatesFor({ store, uat: probing, namesFor: (repo) => (seen.push([repo]), ['web']) });
-    const gates = gatesFor(id, '/repo/web', worktree({ test: 'vitest' }));
+    const gates = gatesFor(id, '/repo/web', worktree({ test: 'vitest' }), 'uat');
     expect(seen).toEqual([['/repo/web']]);
     expect(gates?.map((g) => g.name)).toEqual(['test']);
   });
@@ -243,16 +266,26 @@ describe('makeManifestGatesFor', () => {
     const store = openStore(':memory:');
     const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
     const wt = worktree({ test: 'vitest' });
-    const base = makeManifestGatesFor({ store, uat: probing })(id, 'web', wt)!;
+    const base = makeManifestGatesFor({ store, uat: probing })(id, 'web', wt, 'uat')!;
     const name = base.find((g) => g.name === 'test')!.name;
     addHostGates(store, id, [name]);
-    const over = makeManifestGatesFor({ store, uat: probing })(id, 'web', wt)!;
+    const over = makeManifestGatesFor({ store, uat: probing })(id, 'web', wt, 'uat')!;
     expect(over.find((g) => g.name === name)?.onResourceKill).toBe('host');
+  });
+
+  it('resolves a review-stage round from the review config, not from the uat config', () => {
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    const wt = worktree({ test: 'vitest', lint: 'eslint' });
+    const review = { gates: [{ name: 'lint', command: 'npm', args: ['run', 'lint'] }], repositories: {} } as never;
+    const gatesFor = makeManifestGatesFor({ store, uat: probing, review: () => review });
+    expect(gatesFor(id, 'web', wt, 'review')?.map((g) => g.name)).toEqual(['lint']);
+    expect(gatesFor(id, 'web', wt, 'uat')?.map((g) => g.name)).toEqual(['test']);
   });
 
   it('answers undefined when the worktree has no package.json to resolve from', () => {
     const store = openStore(':memory:');
     const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
-    expect(makeManifestGatesFor({ store, uat: probing })(id, 'web', mkdtempSync(join(tmpdir(), 'karst-rerun-empty-')))).toBeUndefined();
+    expect(makeManifestGatesFor({ store, uat: probing })(id, 'web', mkdtempSync(join(tmpdir(), 'karst-rerun-empty-')), 'uat')).toBeUndefined();
   });
 });

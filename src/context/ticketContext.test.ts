@@ -7,7 +7,7 @@ import { addRelation } from '../store/ticketRelations.js';
 import { listInbox, markRead, postMessage } from '../store/ticketMessages.js';
 import { insertAttachment } from '../store/attachments.js';
 import { markNotesRead, postAgentNote, recordTicketMerged } from '../store/bulletinNotes.js';
-import { recordGateRun } from '../store/gateRuns.js';
+import { recordGateRun, HOST_RERUN_SOURCE } from '../store/gateRuns.js';
 import { recordFindings } from '../store/reviewFindings.js';
 import { setStage } from '../store/stages.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
@@ -515,6 +515,19 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
+
+  it('shows the host re-run rows apart from the gates, and keeps them out of the latest batch', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('uat', t.id);
+    setStage(store, t.id, 'uat', { status: 'failed' });
+    const base = { ticketId: t.id, stageKey: 'uat' as const, attempt: 1, runAt: '2026-08-01T10:00:00.000Z' };
+    recordGateRun(store, { ...base, gates: [{ gateName: 'visual', exitCode: 1 }] });
+    recordGateRun(store, { ...base, source: HOST_RERUN_SOURCE, gates: [{ gateName: 'visual', exitCode: 0 }] });
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage?.gates).toEqual([{ name: 'visual', exitCode: 1, skipped: false, summary: null }]);
+    expect(ctx.stage?.hostRerunGates).toEqual([{ name: 'visual', exitCode: 0, skipped: false, summary: null }]);
+    expect(renderTicketContext(ctx)).toContain('- host re-run gates:\n  - visual: exit 0');
+  });
 
   it('carries the current stage, its latest gates and its findings when at review', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 't' });

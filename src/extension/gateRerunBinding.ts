@@ -35,6 +35,7 @@ export function bindGateRerunDeps(host: GateRerunHost): GateRerunDeps {
     gatesFor: makeManifestGatesFor({
       store: host.store,
       uat: () => host.manifest()?.uat,
+      review: () => host.manifest()?.review,
       namesFor: (repo) => {
         const manifest = host.manifest();
         return manifest ? manifestNamesByPath(manifest).get(canonicalPath(repo)) : undefined;
