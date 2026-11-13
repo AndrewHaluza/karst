@@ -226,6 +226,9 @@
   "src/approaches/sanitize.ts#sanitizeFrontmatter": [
     "arch:APP-06"
   ],
+  "src/approaches/sanitize.ts#stripPermissionFrontmatter": [
+    "arch:APP-06"
+  ],
   "src/artifacts/**": [
     "arch:APP-00"
   ],
