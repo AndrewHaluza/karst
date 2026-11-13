@@ -459,11 +459,18 @@ export function planSessionRecovery(
  */
 export function shouldApplySessionHookState(
   sessions: SessionLiveness,
-  lifecycle: Pick<SessionRecoveryLifecycle, 'isCurrentHook'>,
+  lifecycle: Pick<SessionRecoveryLifecycle, 'isCurrentHook' | 'currentLaunchId'>,
   ticketId: number,
   payload: { hook_event_name?: string; launchId?: string },
+  opts?: { adopt?: (ticketId: number) => void; onRefused?: (ticketId: number, launchId: string | undefined, activeLaunchId: string | undefined) => void },
 ): boolean {
-  if (!lifecycle.isCurrentHook(ticketId, payload.launchId)) return false;
+  const current = opts?.adopt === undefined
+    ? lifecycle.isCurrentHook(ticketId, payload.launchId)
+    : isCurrentHookAfterAdopt(lifecycle, opts.adopt, ticketId, payload.launchId);
+  if (!current) {
+    opts?.onRefused?.(ticketId, payload.launchId, lifecycle.currentLaunchId(ticketId));
+    return false;
+  }
   return payload.hook_event_name !== 'SessionEnd' || !sessions.isOpen(ticketId);
 }
 

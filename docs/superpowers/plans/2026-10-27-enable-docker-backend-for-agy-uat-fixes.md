@@ -9,8 +9,8 @@
 2. `src/agent/docker/dockerNames.test.ts`: Guards against non-docker cores and tested `it.each(['null', 'antigravity', 'claude', 'codex'])`; now that `antigravity` is in `DOCKER_CORES`, `antigravity` is valid and should be removed from that negative test list.
 3. `src/agent/docker/resolveDocker.test.ts`: Asserted `resolveDocker` refuses `claude`, `codex`, and `antigravity`; now `antigravity` and `agy` are valid docker cores and should be prepared and returned (or handled as supported docker runners), not rejected as unsupported.
 4. `src/extension/ops/sandboxDiffOp.test.ts`: Used `core: 'antigravity'` expecting "K-7 has no sandbox (core antigravity)"; but `antigravity` is now a Docker core, triggering Docker runner creation without mock docker image/process. The test should use a true non-sandbox core (e.g. `core: 'none'`).
-5. `src/extension/ops/sandboxLifecycleOps.test.ts`: Tested that `sandboxKindOfCore('agy')` is `'host'`, `stopSandboxOp` does nothing for `core: 'agy'`, and `reconcileSandboxes` ignores `agy`; now that `agy` is in `DOCKER_CORES`, `sandboxKindOfCore('agy')` is `'docker'`. The tests must be updated to reflect that `agy`/`antigravity` are Docker cores and use a non-docker/non-sbx core for the host test.
-6. `src/extension/ops/sandboxWiring.test.ts`: Tested host ticket detachment with `setSessionId(..., 'antigravity')` expecting no sandbox listing; now that `antigravity` is a docker core, `sandboxKindOfCore('antigravity')` is `'docker'`, so session close checks the sandbox listing unless recorded as host placement (`recordPlacement(store, a, { kind: 'host' }, 'antigravity')`).
+5. `src/extension/ops/sandboxLifecycleOps.test.ts`: Tested that `backendKindOf('agy')` is `'host'`, `stopSandboxOp` does nothing for `core: 'agy'`, and `reconcileSandboxes` ignores `agy`; now that `agy` is in `DOCKER_CORES`, `backendKindOf('agy')` is `'docker'`. The tests must be updated to reflect that `agy`/`antigravity` are Docker cores and use a non-docker/non-sbx core for the host test.
+6. `src/extension/ops/sandboxWiring.test.ts`: Tested host ticket detachment with `setSessionId(..., 'antigravity')` expecting no sandbox listing; now that `antigravity` is a docker core, `backendKindOf('antigravity')` is `'docker'`, so session close checks the sandbox listing unless recorded as host placement (`recordPlacement(store, a, { kind: 'host' }, 'antigravity')`).
 7. `src/extension/ops/ratchet.test.ts`: `src/extension.ts` grew by 1 line (from 8769 to 8770) due to wiring `sandboxAppDataDir`. The ratchet ceiling needs to be raised by 1 line with its explanatory comment.
 8. `docs/INDEX.md`: `npm run -s docs:index` updates the index title of `[@arch:AC-33]` to match `docs/arch/agent-cores.md`.
 
@@ -137,7 +137,7 @@ git commit -m "test(docker): assert resolveDocker prepares runner for antigravit
 - Modify: `src/extension/ops/sandboxLifecycleOps.test.ts:56-63, 162-168, 200-214`
 
 **Interfaces:**
-- Consumes: `sandboxKindOfCore(core: string | null): BackendKind`
+- Consumes: `backendKindOf(core: string | null): BackendKind`
 - Produces: Passing unit tests for diff and lifecycle ops
 
 - [ ] **Step 1: Update `sandboxDiffOp.test.ts`**
@@ -155,16 +155,16 @@ Update it to use a true non-sandbox core (e.g. `'none'`):
 - [ ] **Step 2: Update `sandboxLifecycleOps.test.ts`**
 
 In `src/extension/ops/sandboxLifecycleOps.test.ts`:
-1. In `describe('sandboxKindOfCore')`:
+1. In `describe('backendKindOf')`:
 ```typescript
   it('maps cores to runners', () => {
-    expect(sandboxKindOfCore('claude')).toBe('sbx');
-    expect(sandboxKindOfCore('codex')).toBe('sbx');
-    expect(sandboxKindOfCore('opencode2')).toBe('docker');
-    expect(sandboxKindOfCore('antigravity')).toBe('docker');
-    expect(sandboxKindOfCore('agy')).toBe('docker');
-    expect(sandboxKindOfCore('none')).toBe('host');
-    expect(sandboxKindOfCore(null)).toBe('host');
+    expect(backendKindOf('claude')).toBe('sbx');
+    expect(backendKindOf('codex')).toBe('sbx');
+    expect(backendKindOf('opencode2')).toBe('docker');
+    expect(backendKindOf('antigravity')).toBe('docker');
+    expect(backendKindOf('agy')).toBe('docker');
+    expect(backendKindOf('none')).toBe('host');
+    expect(backendKindOf(null)).toBe('host');
   });
 ```
 2. In `describe('stopSandboxOp')`:
@@ -230,7 +230,7 @@ Line 347:
     expect(proc.calls).toEqual([]);
   });
 ```
-When `sessionProvider` is `'antigravity'`, `sandboxKindOfCore('antigravity')` is now `'docker'`, not `'host'`.
+When `sessionProvider` is `'antigravity'`, `backendKindOf('antigravity')` is now `'docker'`, not `'host'`.
 If the ticket is placed on `'host'` (either via `recordPlacement(store, a, { kind: 'host' }, 'antigravity')` or because its provider is a non-sandbox core like `'unsupported'`), it is a host ticket and detaches without running `sbx ls` or `docker ps`.
 Record host placement:
 ```typescript

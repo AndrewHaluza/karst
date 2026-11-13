@@ -263,6 +263,26 @@ describe('fixDeliveryWiring', () => {
       expect(lines).toHaveLength(1);
       expect(lines[0]).toContain('no live agent session');
     });
+    it('a window that does not control the ticket never escalates it', () => {
+      state.live = false;
+      const w = make({ debug, owns: () => false });
+      setAgentState(store, ticketId, 'idle');
+      w.deliver(ticketId, null);
+      const row = currentFixDelivery(store, ticketId)!;
+      store.db.prepare('UPDATE fix_deliveries SET created_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', row.id);
+      w.sweep.sweep();
+      expect(getFixDelivery(store, row.id)!.pointerFailedAt).toBeNull();
+      expect(getTicket(store, ticketId).agentState).toBe('idle');
+    });
+    it('an escalated host row is typed once the agent is live again', () => {
+      const id = stuckHost('idle');
+      expect(getFixDelivery(store, id)!.pointerFailedAt).not.toBeNull();
+      store.db.prepare("UPDATE fix_deliveries SET armed_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(id);
+      state.live = true;
+      nudge.mockClear();
+      make({ debug }).sweep.sweep();
+      expect(nudge).toHaveBeenCalledTimes(1);
+    });
     it.each(['running', 'waiting'] as const)('agent %s: claims pointer_failed but never overwrites the live hook state', (agent) => {
       const id = stuckHost(agent);
       expect(getFixDelivery(store, id)!.pointerFailedAt).not.toBeNull();

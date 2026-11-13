@@ -225,6 +225,18 @@ describe('recovery lifecycle ordering', () => {
     ).toBe(false);
   });
 
+  it('adopts a restored launch before it refuses a state hook, and reports a refusal', () => {
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    const lifecycle = new SessionRecoveryLifecycle();
+    const adopt = vi.fn((t: number) => lifecycle.adoptLaunch(t, id));
+    const onRefused = vi.fn();
+    expect(shouldApplySessionHookState({ isOpen: () => false }, lifecycle, 7, { hook_event_name: 'Stop', launchId: id }, { adopt, onRefused })).toBe(true);
+    expect(onRefused).not.toHaveBeenCalled();
+    const other = '223e4567-e89b-42d3-a456-426614174000';
+    expect(shouldApplySessionHookState({ isOpen: () => false }, lifecycle, 7, { hook_event_name: 'Stop', launchId: other }, { adopt, onRefused })).toBe(false);
+    expect(onRefused).toHaveBeenCalledWith(7, other, id);
+  });
+
   it('allows SessionEnd after the replacement terminal has closed', () => {
     const lifecycle = new SessionRecoveryLifecycle();
     lifecycle.adoptLaunch(7, '123e4567-e89b-42d3-a456-426614174000');

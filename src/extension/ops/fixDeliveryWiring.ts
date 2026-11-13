@@ -75,6 +75,8 @@ export interface FixDeliveryWiringDeps {
   store: Store;
   projectId: () => number | undefined;
   isLive: (ticketId: number) => boolean;
+  /** This window controls the ticket (arch:GLOBAL). Absent = every ticket of the project. Only the controlling window escalates: `isLive` is false for a session another window holds. */
+  owns?: (ticketId: number) => boolean;
   isGraphTicket: (ticketId: number) => boolean;
   /** The live session's core, from in-memory identity only. */
   sessionProvider: (ticketId: number) => string | null | undefined;
@@ -156,6 +158,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       return !isSandboxChannel(deps.sessionChannel(id)) || writeFixBrief(deps, id, deliveryId);
     },
     unsendableInbox: (id, deliveryId) => {
+      if (deps.owns?.(id) === false) return null;
       if (!isSandboxChannel(deps.sessionChannel(id))) return null;
       const row = getFixDelivery(deps.store, deliveryId);
       const stuck = !deps.isLive(id) || deps.agyBusy(id) || (row !== null && hasPendingFixIntent(deps.store, row.launchId));
@@ -163,12 +166,14 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       return `inbox/${inboxRef(fixPointer(deliveryId))}.md`;
     },
     hostUnsendable: (id, deliveryId) => {
+      if (deps.owns?.(id) === false) return null;
       if (isSandboxChannel(deps.sessionChannel(id))) return null;
       if (!deps.isLive(id)) return 'no live agent session in this window';
       const row = getFixDelivery(deps.store, deliveryId);
       return row !== null && hasPendingFixIntent(deps.store, row.launchId) ? 'the fix launch is still starting' : null;
     },
-    retryAfterFailure: (id) => isSandboxChannel(deps.sessionChannel(id)),
+    // Host and sandbox alike: an escalated pointer must still reach the agent once it is live again (arch:AC-37).
+    retryAfterFailure: () => true,
     needsYou: (id, reason) => {
       // Only a quiet or idle agent is flagged: `running`/`waiting` are live
       // hook state that must never be overwritten with needs-you.

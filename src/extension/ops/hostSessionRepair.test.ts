@@ -52,6 +52,14 @@ describe('repairHostSessions (T1121)', () => {
     expect(run()).toEqual([]);
     expect(getTicket(store, ticketId).sessionId).toBeNull();
   });
+  it('does not restore a session whose recorded provider is unknown', () => {
+    confirmed('L1', 'S1', '2026-01-01T00:00:00.000Z');
+    store.db.prepare("UPDATE session_launch_intents SET provider = 'bogus' WHERE launch_id = 'L1'").run();
+    setSessionId(store, ticketId, null, null);
+    expect(run()).toEqual([]);
+    expect(getTicket(store, ticketId).sessionId).toBeNull();
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('unknown provider'));
+  });
   it('does nothing when no launch was ever confirmed', () => {
     expect(run()).toEqual([]);
   });

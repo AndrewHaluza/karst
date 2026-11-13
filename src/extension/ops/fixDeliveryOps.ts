@@ -76,7 +76,7 @@ export interface FixDeliveryHost {
    */
   hostUnsendable?: (ticketId: number, deliveryId: number) => string | null;
   /**
-   * Sandboxed ticket: a `pointer_failed_at` claim (Needs you already raised) does
+   * A `pointer_failed_at` claim (Needs you already raised) does
    * not end delivery; the sweep keeps trying the pointer once the agent recovers.
    */
   retryAfterFailure?: (ticketId: number) => boolean;

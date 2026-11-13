@@ -474,6 +474,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const d = deps();
       return d && !recordedHost(ticketId) ? switchProviderOp({ ...d, clearSession: (id) => { clearSession(id); markRemoved(id); } }, await resolved(ticketId, d.projectRoot), newCore) : true;
     },
+    /** This window controls the ticket (arch:GLOBAL): the fix-delivery escalation acts only for it. */
+    controls,
     reconcile: async (): Promise<void> => {
       const d = deps();
       if (!d || w.projectId() === undefined) return;
