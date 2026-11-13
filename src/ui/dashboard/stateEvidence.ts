@@ -4,7 +4,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { listFindings } from '../../store/reviewFindings.js';
 import { listImplementationTimeline, readSegmentTokenTotals } from '../../store/implementationRuns.js';
-import { listGateRuns } from '../../store/gateRuns.js';
+import { listGateRuns, HOST_RERUN_SOURCE } from '../../store/gateRuns.js';
 import { listPhaseMarks } from '../../store/phaseMarks.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { listStageRuns } from '../../store/stageRuns.js';
@@ -119,7 +119,8 @@ export function readEvidence(store: Store, ticketId: number) {
   // ONE read of each inside evidence source, shared by every view that renders
   // it — two reads of one table is how two panels disagree about one fact.
   const gateRuns = listGateRuns(store, ticketId);
-  // `listGateRuns` leaves out the host re-run rows (@arch:AC-45); no dashboard view shows them, `karst context` does.
+  // The host re-run's rows (@arch:AC-45), read apart from the batches: the gates list shows them after its batch.
+  const hostRerunRuns = listGateRuns(store, ticketId, { includeHostRerun: true }).filter((g) => g.source === HOST_RERUN_SOURCE);
   const findings = listFindings(store, ticketId);
   const processRuns = listProcessRuns(store, ticketId);
   const uatFindings = listUatFindings(store, ticketId);
@@ -131,7 +132,7 @@ export function readEvidence(store: Store, ticketId: number) {
   // that has recorded nothing yet — the fix cycle's round 2, which every
   // finished-work table still answers with round 1's rows.
   const stageRuns = listStageRuns(store, ticketId);
-  return { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns };
+  return { marks, gateRuns, hostRerunRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns };
 }
 
 // The Services process rows: one per server row, with the boot-failure reason

@@ -178,6 +178,21 @@ describe('makeGateRerun through runGateList', () => {
     expect(listGateRuns(store, ticketId, { includeHostRerun: true })).toHaveLength(1);
   });
 
+  it('runs two manifest gates of one name with different commands, and gives each row its own result', async () => {
+    const run = vi.fn<GateProcessRunner>(async (_c, args) =>
+      args.includes('b') ? { kind: 'completed', exitCode: 1, output: 'FAIL second broke' } : ok());
+    const gatesFor = () => [resolved({ name: 'unit', args: ['run', 'a'] }), resolved({ name: 'unit', args: ['run', 'b'] })];
+    const res = await make(run, { gatesFor })(
+      ticketId,
+      [failed({ args: ['run', 'a'] }), failed({ args: ['run', 'b'] })],
+      'uat',
+    );
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(res[0]).toEqual({ exitCode: 0, summary: null });
+    expect(res[1]?.exitCode).toBe(1);
+    expect(listGateRuns(store, ticketId, { includeHostRerun: true })).toHaveLength(2);
+  });
+
   it('gives every failed row of one manifest gate the result of that gate', async () => {
     const run = vi.fn<GateProcessRunner>(async () => ok());
     const res = await make(run)(ticketId, [failed(), failed({ gateName: 'unit again (web)' })], 'uat');

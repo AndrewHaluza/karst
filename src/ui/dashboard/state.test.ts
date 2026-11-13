@@ -3,7 +3,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, getTicket, updateTicketFields, setAgentState } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
-import { recordGateRun } from '../../store/gateRuns.js';
+import { recordGateRun, HOST_RERUN_SOURCE } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
@@ -2070,6 +2070,17 @@ describe('insideViews (the six-stage inside presentation)', () => {
       'high',
     );
     expect(state.insideViews.ship.processes.find((p) => p.id === 'ship-findings')).toBeUndefined();
+  });
+
+  it('lists the host re-run rows of a gate stage after its batch, with the batch count unchanged', () => {
+    const ticketId = ticketAt('uat');
+    const base = { ticketId, stageKey: 'uat' as const, attempt: 0 };
+    recordGateRun(store, { ...base, runAt: '2026-08-08T10:00:00.000Z', gates: [{ gateName: 'test (web)', exitCode: 1 }] });
+    recordGateRun(store, { ...base, runAt: '2026-08-08T10:30:00.000Z', source: HOST_RERUN_SOURCE, gates: [{ gateName: 'test (web)', exitCode: 0 }] });
+    const gates = buildDashboardState(store, ticketId).insideViews.uat.processes.find((p) => p.id === 'gates')!;
+    const rows = gates.evidence?.kind === 'gates' ? gates.evidence.rows : [];
+    expect(rows.map((r) => r.detail)).toEqual(['exit 1', 'host re-run · exit 0']);
+    expect(gates.count).toBe('0/1');
   });
 
   it('mints opaque actions onto evidence rows only when a registry is supplied', () => {

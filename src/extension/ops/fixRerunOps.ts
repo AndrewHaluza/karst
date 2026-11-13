@@ -127,7 +127,8 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
   }
   const manifestGates = deps.gatesFor?.(ticketId, group.repo, group.path, stage) ?? [];
   const toRun: ResolvedGate[] = [];
-  const rowsOfGate = new Map<string, number[]>();
+  // Keyed by the gate's position in `toRun`, not by its name: two manifest gates may share a name.
+  const rowsOfGate = new Map<number, number[]>();
   group.entries.forEach((e, i) => {
     if (e.gate.kind === 'regenerate') return;
     const match = manifestGates.find((g) => g.command === e.gate.command && g.args.join('\u0000') === e.gate.args.join('\u0000'));
@@ -135,11 +136,12 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
       results[i] = { exitCode: null, cannotRerun: true, summary: `${e.gate.gateName} is no longer a manifest gate` };
       return;
     }
-    const rows = rowsOfGate.get(match.name);
+    const at = toRun.indexOf(match);
+    const rows = at >= 0 ? rowsOfGate.get(at) : undefined;
     if (rows) rows.push(i);
     else {
       toRun.push(match);
-      rowsOfGate.set(match.name, [i]);
+      rowsOfGate.set(toRun.length - 1, [i]);
     }
   });
   if (toRun.length === 0 && regenerate === undefined) return fill(results, 'not run');
@@ -163,7 +165,7 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
     onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(ticketId, name, pid, cwd),
     onGateComplete: (name, exitCode, startedAt, endedAt, index, rawOutput) => {
       const output = rawOutput ?? '';
-      const rows = index < 0 ? (regenIdx >= 0 ? [regenIdx] : []) : (rowsOfGate.get(name) ?? []);
+      const rows = index < 0 ? (regenIdx >= 0 ? [regenIdx] : []) : (rowsOfGate.get(index) ?? []);
       recordRerunRow(deps, ticketId, stage, attempt, now(), group, { name, exitCode, startedAt, endedAt, output, row: rows[0] ?? -1 });
       for (const row of rows) results[row] = resultOf(exitCode, output);
     },

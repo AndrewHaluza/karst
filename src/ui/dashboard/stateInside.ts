@@ -85,6 +85,8 @@ export interface InsideViewsInput {
   tokensForRuns?: (runs: readonly ProcessRun[]) => SessionTokensInput | null;
   attach: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
   gateRuns: QualityProcessesInput['gateRuns'];
+  /** The host gate re-run rows (@arch:AC-45), listed after the gates batch. */
+  hostRerunRuns?: QualityProcessesInput['gateRuns'];
   findings: QualityProcessesInput['findings'];
   uatFindings: QualityProcessesInput['uatFindings'];
   rounds: QualityProcessesInput['rounds'];
@@ -156,6 +158,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     tokensForRuns,
     attach,
     gateRuns,
+    hostRerunRuns,
     findings,
     uatFindings,
     rounds,
@@ -234,6 +237,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
       uatProcesses({
         cell: cellOf('uat'),
         gateRuns,
+        ...(hostRerunRuns ? { hostRerunRuns } : {}),
         findings: [],
         uatFindings,
         processRuns,
@@ -263,6 +267,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
       reviewProcesses({
         cell: cellOf('review'),
         gateRuns,
+        ...(hostRerunRuns ? { hostRerunRuns } : {}),
         findings,
         uatFindings: [],
         processRuns,
