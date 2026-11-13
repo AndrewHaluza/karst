@@ -131,6 +131,9 @@ export default defineConfig({
       grep: UI_GREP ?? ALL_TITLES,
       testMatch: '**/*.layout.ts',
       dependencies: ['layout-setup'],
+      // One spec file holds the whole chain. Each test writes its own shard and the verdict is the separate teardown
+      // project, so the tests are independent: let more than one worker take them (@ui:WORKERS).
+      fullyParallel: true,
       use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
     },
     {
