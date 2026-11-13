@@ -4040,7 +4040,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       settleGraphRun(gs.db, graphRunId);
     } catch (err) {
+      // A busy settle must not fall through to the sweep: it would read the
+      // `replan` request as a fault and park the run. The next tick retries.
       logError(`karst: graph pre-tick settle failed for run ${graphRunId}`, err);
+      return;
     }
     try {
       runCoordinatorTick(

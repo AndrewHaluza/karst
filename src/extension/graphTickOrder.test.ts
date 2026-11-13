@@ -21,4 +21,13 @@ describe('runGraphCoordinatorTick order', () => {
     expect(tick).toBeGreaterThan(-1);
     expect(settle).toBeLessThan(tick);
   });
+
+  it('skips the sweep when the pre-tick settle fails, so a busy settle cannot park a replan request', () => {
+    const catchAt = body.indexOf('graph pre-tick settle failed');
+    const returnAt = body.indexOf('return;', catchAt);
+    const tick = body.indexOf('runCoordinatorTick(');
+    expect(catchAt).toBeGreaterThan(-1);
+    expect(returnAt).toBeGreaterThan(catchAt);
+    expect(returnAt).toBeLessThan(tick);
+  });
 });
