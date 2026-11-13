@@ -325,7 +325,7 @@ export interface SelectReviewTargetsOptions {
 }
 
 /** Enabled manifest entries per canonical repository path (several for a monorepo). */
-function manifestNamesByPath(manifest: Manifest): Map<string, string[]> {
+export function manifestNamesByPath(manifest: Manifest): Map<string, string[]> {
   const namesByPath = new Map<string, string[]>();
   for (const [name, repository] of Object.entries(manifest.repositories)) {
     if (repository.enabled === false) continue;

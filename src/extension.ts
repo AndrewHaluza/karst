@@ -54,6 +54,7 @@ import { wireAccounts } from './extension/ops/accountsWiring.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
 import { hostRerunFor, makeRequestedRerunSweep, preBriefRerunFor } from './extension/ops/fixRerunOps.js';
+import { bindGateRerunDeps } from './extension/gateRerunBinding.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
@@ -1178,6 +1179,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return manifest;
   };
   sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id) }); // AC-32
+  // The host gate re-run (@arch:AC-45): one dependency set for its three call sites, run through `runGateList`.
+  const gateRerunDeps = bindGateRerunDeps({
+    store: localStore, manifest: currentManifest, runProcess, gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id),
+    onGateOutput: (id, stage, gateName, chunk) => { if (stage === 'uat' || stage === 'review' || stage === 'ship') gateConsole.append(id, stage, gateName, chunk); },
+    onGateSpawned: (id, gateName, pid, cwd) => gateRuns.spawned({ ticketId: id, gateName, pid, cwd }, () => resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName })),
+    debug: (m) => logger.debug(m),
+  });
   let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;
   const artifactCapture = wireArtifactCapture({
     store: localStore,
@@ -2022,7 +2030,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (message) => logger.debug(message),
   });
   // Host CLI fix markers (@arch:AC-45): a refused `stage fix pass` stored a re-run request; the one host gate re-run runs here.
-  const requestedRerunSweep = makeRequestedRerunSweep({ store: localStore, projectId: () => currentProject()?.id, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess, hostRunner: runProcess, regenerateFor: (repo) => regenerateOption(currentManifest(), { repo, names: [repo] }).regenerate, debug: (m) => logger.debug(m) });
+  const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, projectId: () => currentProject()?.id });
   const requestedRerunTimer = setInterval(() => void requestedRerunSweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(requestedRerunTimer) });
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
@@ -3671,7 +3679,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, preBriefRerun: preBriefRerunFor({ store: localStore, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess, hostRunner: runProcess, regenerateFor: (repo) => regenerateOption(currentManifest(), { repo, names: [repo] }).regenerate }), // AC-32; D589 pre-brief re-run
+          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, preBriefRerun: preBriefRerunFor(gateRerunDeps), // AC-32; D589 pre-brief re-run
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
@@ -3986,7 +3994,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   bridges = createBridgeRegistry({ root: (bridgeRoot = join(settingsDir, 'bridge')), debug: (m) => logger.debug(m), build: makeBridgeBuild({
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath,
-    rerunFailedGates: hostRerunFor({ store: localStore, runnerFor: (id) => sandboxB?.gateProcessFor(id) ?? runProcess, hostRunner: runProcess, regenerateFor: (repo) => regenerateOption(currentManifest(), { repo, names: [repo] }).regenerate }), // D403: one host gate re-run for a refused no-commit fix marker
+    rerunFailedGates: hostRerunFor(gateRerunDeps), // D403: one host gate re-run for a refused no-commit fix marker
     debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-45 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },

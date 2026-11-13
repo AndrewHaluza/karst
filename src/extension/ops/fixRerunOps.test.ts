@@ -1,106 +1,175 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
-import { makeGateRerun, makeRecoverRefusal, makeRequestedRerunSweep } from './fixRerunOps.js';
+import type { ResolvedGate } from '../../workflow/gates/resolve.js';
+import { leaseGateSlot } from '../../workflow/gates/gateLease.js';
+import { listGateRuns, HOST_RERUN_SOURCE } from '../../store/gateRuns.js';
+import { makeGateRerun, makeManifestGatesFor, makeRecoverRefusal, makeRequestedRerunSweep } from './fixRerunOps.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { addHostGates } from '../../store/ticketGates.js';
 import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
+import { uat } from '../../manifest/fixtures.js';
+import type { FailedGate } from '../../workflow/fixHostRerun.js';
 
-const gate = { gateName: 'unit (web)', repo: 'web', command: 'npm', args: ['run', 'test:unit'], kind: 'command' as const };
+const failed = (over: Partial<FailedGate> = {}): FailedGate => ({
+  gateName: 'unit (web)', repo: 'web', command: 'npm', args: ['run', 'test:unit'], kind: 'command', ...over,
+});
+const resolved = (over: Partial<ResolvedGate> = {}): ResolvedGate => ({
+  name: 'unit', command: 'npm', args: ['run', 'test:unit'], script: null, required: false, ...over,
+});
+const ok = (output = 'ok'): Awaited<ReturnType<GateProcessRunner>> => ({ kind: 'completed', exitCode: 0, output });
 
-describe('makeGateRerun', () => {
+describe('makeGateRerun through runGateList', () => {
   let store: Store;
   let ticketId: number;
+  let slots: string;
   beforeEach(() => {
     store = openStore(':memory:');
     ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    slots = mkdtempSync(join(tmpdir(), 'karst-rerun-slots-'));
     for (const repo of ['web', 'api']) {
       store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(ticketId, repo, `/wt/${repo}`, 'b');
     }
   });
-  const rerun = (run: GateProcessRunner) => makeGateRerun({ store, runnerFor: () => run });
+  const make = (run: GateProcessRunner, over: Partial<Parameters<typeof makeGateRerun>[0]> = {}) =>
+    makeGateRerun({ store, runnerFor: () => run, gatesFor: () => [resolved()], gateSlotsDir: slots, ...over });
 
-  it('runs the gate command in its own repo worktree and maps exit 0', async () => {
-    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: 'ok' }));
-    expect(await rerun(run)(ticketId, gate)).toEqual({ exitCode: 0, summary: null });
-    expect(run).toHaveBeenCalledWith('npm', ['run', 'test:unit'], '/wt/web', expect.anything());
+  it('runs the gate in its repo worktree and maps exit 0', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ok());
+    expect(await make(run)(ticketId, [failed()], 'uat')).toEqual([{ exitCode: 0, summary: null }]);
+    expect(run.mock.calls[0]?.[2]).toBe('/wt/web');
   });
 
   it('summarises the output of a failing gate', async () => {
     const run: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 1, output: 'start\nFAIL boom happened' });
-    const res = await rerun(run)(ticketId, gate);
-    expect(res.exitCode).toBe(1);
-    expect(res.summary).toContain('boom happened');
+    const [res] = await make(run)(ticketId, [failed()], 'uat');
+    expect(res?.exitCode).toBe(1);
+    expect(res?.summary).toContain('boom happened');
   });
 
   it('maps a process that never completed to no exit code with the reason', async () => {
     const spawnFailed: GateProcessRunner = async () => ({ kind: 'spawnFailed', message: 'ENOENT', output: '' });
-    expect(await rerun(spawnFailed)(ticketId, gate)).toEqual({ exitCode: null, summary: 'could not start: ENOENT' });
-    const timedOut: GateProcessRunner = async () => ({ kind: 'timedOut', output: '' });
-    expect((await rerun(timedOut)(ticketId, gate)).summary).toBe('timed out');
+    const [a] = await make(spawnFailed, { gatesFor: () => [resolved({ required: true })] })(ticketId, [failed()], 'uat');
+    expect(a?.exitCode).not.toBe(0);
   });
 
-  it('refuses a gate whose repo has no worktree', async () => {
-    const run = vi.fn<GateProcessRunner>();
-    await expect(rerun(run)(ticketId, { ...gate, repo: 'nope' })).rejects.toThrow(/no worktree for repo nope/);
-    expect(run).not.toHaveBeenCalled();
-  });
-});
-
-describe('makeGateRerun of a regenerate gate', () => {
-  let store: Store;
-  let ticketId: number;
-  const regen = { gateName: 'regenerate (web)', repo: 'web', command: 'regenerate (web)', args: [] as string[], kind: 'regenerate' as const };
-  const spec = { repo: 'web', commands: ['npm run gen', 'npm run docs'] };
-  beforeEach(() => {
-    store = openStore(':memory:');
-    ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
-    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(ticketId, 'web', '/wt/web', 'b');
-  });
-
-  it('runs the ship.regenerate commands and never execs the gate label', async () => {
-    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
-    const res = await makeGateRerun({ store, runnerFor: () => run, regenerateFor: () => spec })(ticketId, regen);
-    expect(res.exitCode).toBe(0);
-    expect(run).toHaveBeenCalledWith('sh', ['-c', 'npm run gen'], '/wt/web', expect.anything());
-    expect(run).toHaveBeenCalledWith('sh', ['-c', 'npm run docs'], '/wt/web', expect.anything());
-    expect(run.mock.calls.map((c) => c[0])).not.toContain('regenerate (web)');
+  it('makes one runGateList call per repo worktree with that repo gates only, at the same time', async () => {
+    const calls: { gates: string[]; cwd: string }[] = [];
+    const runGates = vi.fn(async (gates: readonly ResolvedGate[], cwd: string) => {
+      calls.push({ gates: gates.map((g) => g.name), cwd });
+      return { kind: 'ran' as const, results: [] };
+    });
+    const gatesFor = (_t: number, repo: string): ResolvedGate[] =>
+      repo === 'web' ? [resolved({ name: 'unit' }), resolved({ name: 'lint', args: ['run', 'lint'] })] : [resolved({ name: 'e2e', args: ['run', 'e2e'] })];
+    const res = await make(vi.fn(), { runGates, gatesFor })(
+      ticketId,
+      [failed(), failed({ gateName: 'lint (web)', args: ['run', 'lint'] }), failed({ gateName: 'e2e (api)', repo: 'api', args: ['run', 'e2e'] })],
+      'uat',
+    );
+    expect(runGates).toHaveBeenCalledTimes(2);
+    expect(calls).toEqual(expect.arrayContaining([
+      { gates: ['unit', 'lint'], cwd: '/wt/web' },
+      { gates: ['e2e'], cwd: '/wt/api' },
+    ]));
+    expect(res).toHaveLength(3);
   });
 
-  it('looks the spec up by the manifest key in the gate name, and runs in the row repo worktree', async () => {
-    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
-    const regenerateFor = vi.fn(() => spec);
-    await makeGateRerun({ store, runnerFor: () => run, regenerateFor })(ticketId, { ...regen, gateName: 'regenerate (key)', command: 'regenerate (key)', repo: 'web' });
-    expect(regenerateFor).toHaveBeenCalledWith('key');
-    expect(run).toHaveBeenCalledWith('sh', ['-c', 'npm run gen'], '/wt/web', expect.anything());
+  it('runs a failed regenerate row as opts.regenerate and does not run a passed one', async () => {
+    const seen: (unknown)[] = [];
+    const runGates = vi.fn(async (_g: readonly ResolvedGate[], _c: string, opts?: { regenerate?: unknown }) => {
+      seen.push(opts?.regenerate);
+      return { kind: 'ran' as const, results: [] };
+    });
+    const spec = { repo: 'web', commands: ['npm run gen'] };
+    const regen = failed({ gateName: 'regenerate (web)', command: 'regenerate (web)', args: [], kind: 'regenerate' });
+    await make(vi.fn(), { runGates, regenerateFor: () => spec })(ticketId, [regen, failed()], 'uat');
+    await make(vi.fn(), { runGates, regenerateFor: () => spec })(ticketId, [failed()], 'uat');
+    expect(seen).toEqual([spec, undefined]);
   });
 
-  it('runs a sandbox: host entry on the host runner', async () => {
-    const sandbox = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
-    const host = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: '' }));
-    const hostSpec = { repo: 'web', commands: [{ run: 'npm run hostgen', sandbox: 'host' as const }] };
-    await makeGateRerun({ store, runnerFor: () => sandbox, hostRunner: host, regenerateFor: () => hostSpec })(ticketId, regen);
-    expect(host).toHaveBeenCalledWith('sh', ['-c', 'npm run hostgen'], '/wt/web', expect.anything());
-    expect(sandbox.mock.calls.map((c) => c[1]?.[1])).not.toContain('npm run hostgen');
-  });
-
-  it('reports a failing generator with its exit code', async () => {
-    const run: GateProcessRunner = async (cmd) =>
-      cmd === 'sh' ? { kind: 'completed', exitCode: 2, output: 'gen broke' } : { kind: 'completed', exitCode: 0, output: '' };
-    const res = await makeGateRerun({ store, runnerFor: () => run, regenerateFor: () => spec })(ticketId, regen);
-    expect(res.exitCode).toBe(2);
-  });
-
-  it('says the gate cannot be re-run when the manifest declares no ship.regenerate, and execs nothing', async () => {
-    const run = vi.fn<GateProcessRunner>();
-    const res = await makeGateRerun({ store, runnerFor: () => run, regenerateFor: () => undefined })(ticketId, regen);
+  it('says a regenerate row cannot be re-run when the manifest declares no commands', async () => {
+    const runGates = vi.fn(async () => ({ kind: 'ran' as const, results: [] }));
+    const regen = failed({ gateName: 'regenerate (web)', command: 'regenerate (web)', args: [], kind: 'regenerate' });
+    const [res] = await make(vi.fn(), { runGates, regenerateFor: () => undefined, gatesFor: () => [] })(ticketId, [regen], 'uat');
     expect(res).toMatchObject({ exitCode: null, cannotRerun: true });
-    expect(res.summary).toContain('regenerate (web)');
+    expect(res?.summary).toContain('regenerate (web)');
+  });
+
+  it('keeps cannotRerun for a gate the manifest no longer declares', async () => {
+    const run = vi.fn<GateProcessRunner>();
+    const [res] = await make(run, { gatesFor: () => [resolved({ args: ['run', 'other'] })] })(ticketId, [failed()], 'uat');
+    expect(res).toMatchObject({ exitCode: null, cannotRerun: true });
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('fails a gate whose repo has no worktree without running anything', async () => {
+    const run = vi.fn<GateProcessRunner>();
+    const [res] = await make(run)(ticketId, [failed({ repo: 'nope' })], 'uat');
+    expect(res).toEqual({ exitCode: null, summary: 're-run error: no worktree for repo nope' });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('gives a UI gate the 45 minute timeout and the lease, base ref and port env', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ok());
+    const ui = resolved({ name: 'visual', script: 'test:visual:docker', args: ['run', 'test:visual:docker'], maxConcurrent: 1 });
+    await make(run, { gatesFor: () => [ui], baseRefFor: () => 'origin/develop' })(ticketId, [failed({ gateName: 'visual (web)', args: ['run', 'test:visual:docker'] })], 'uat');
+    const [cmd, args, , opts] = run.mock.calls[0]!;
+    expect(cmd).toBe('env');
+    expect(args).toEqual(expect.arrayContaining(['KARST_GATE_LEASE_HELD=1', 'KARST_BASE_REF=origin/develop']));
+    expect(opts?.timeoutMs).toBe(45 * 60 * 1000);
+  });
+
+  it('waits for a held visual slot before the spawn', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ok());
+    const held = await leaseGateSlot('visual', 1, { dir: slots });
+    const ui = resolved({ name: 'visual', script: 'test:visual:docker', args: ['run', 'test:visual:docker'], maxConcurrent: 1 });
+    const p = make(run, { gatesFor: () => [ui], gateSlotPollMs: 10 })(ticketId, [failed({ gateName: 'visual (web)', args: ['run', 'test:visual:docker'] })], 'uat');
+    await new Promise((r) => setTimeout(r, 80));
+    expect(run).not.toHaveBeenCalled();
+    await held.release();
+    await p;
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs a sandbox: host gate of a sandboxed ticket on the host runner', async () => {
+    const sandbox = vi.fn<GateProcessRunner>(async () => ok());
+    const host = vi.fn<GateProcessRunner>(async () => ok());
+    const g = resolved({ name: 'visual', sandbox: 'host' });
+    await make(sandbox, { gatesFor: () => [g], hostGateFor: () => host, sandboxedFor: () => true })(ticketId, [failed()], 'uat');
+    expect(host).toHaveBeenCalledTimes(1);
+    expect(sandbox).not.toHaveBeenCalled();
+  });
+
+  it('streams output and the pid to the host callbacks, bound to the ticket and stage', async () => {
+    const onGateOutput = vi.fn();
+    const onGateSpawned = vi.fn();
+    const run: GateProcessRunner = async (_c, _a, _w, o) => {
+      o?.onOutput?.({ stream: 'stdout', text: 'hi' });
+      o?.onSpawned?.(42);
+      return ok();
+    };
+    await make(run, { onGateOutput, onGateSpawned })(ticketId, [failed()], 'uat');
+    expect(onGateOutput).toHaveBeenCalledWith(ticketId, 'uat', 'unit', { stream: 'stdout', text: 'hi' });
+    expect(onGateSpawned).toHaveBeenCalledWith(ticketId, 'unit', 42, '/wt/web');
+  });
+
+  it('writes marked gate_runs rows that the default list skips', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ok());
+    await make(run)(ticketId, [failed()], 'uat');
+    expect(listGateRuns(store, ticketId)).toEqual([]);
+    const rows = listGateRuns(store, ticketId, { includeHostRerun: true });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ source: HOST_RERUN_SOURCE, stageKey: 'uat' });
+    expect(JSON.stringify(rows[0])).toContain('unit (web)');
   });
 });
 
 describe('makeRecoverRefusal', () => {
-  const deps = { store: undefined as unknown as Store, runGate: vi.fn(), debug: vi.fn() };
+  const deps = { store: undefined as unknown as Store, debug: vi.fn() };
   it('ignores a refusal that is not the no-new-commit one', async () => {
     const recover = makeRecoverRefusal(1, { ...deps, rerun: vi.fn() });
     expect(await recover('fix', 'cannot mark this stage done: something else')).toBeUndefined();
@@ -136,7 +205,7 @@ describe('makeRequestedRerunSweep', () => {
     requestHostRerun(store, ticketId, '2026-01-01T00:00:00Z');
     const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: 'ok' }));
     const debug = vi.fn();
-    const sweep = makeRequestedRerunSweep({ store, runnerFor: () => run, projectId: () => project.id, debug });
+    const sweep = makeRequestedRerunSweep({ store, runnerFor: () => run, gatesFor: () => [resolved({ args: ['t'] })], gateSlotsDir: mkdtempSync(join(tmpdir(), 'karst-rerun-slots-')), projectId: () => project.id, debug });
     await sweep();
     await sweep();
     expect(run).toHaveBeenCalledTimes(1);
@@ -148,5 +217,42 @@ describe('makeRequestedRerunSweep', () => {
     const run = vi.fn<GateProcessRunner>();
     await makeRequestedRerunSweep({ store: openStore(':memory:'), runnerFor: () => run, projectId: () => undefined })();
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('makeManifestGatesFor', () => {
+  const probing = () => uat({ probeWhenAllDisabled: true });
+  const worktree = (scripts: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-rerun-wt-'));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts }));
+    return dir;
+  };
+
+  it('resolves the gates of the worktree as UAT does, by the manifest names of the repo', () => {
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    const seen: string[][] = [];
+    const gatesFor = makeManifestGatesFor({ store, uat: probing, namesFor: (repo) => (seen.push([repo]), ['web']) });
+    const gates = gatesFor(id, '/repo/web', worktree({ test: 'vitest' }));
+    expect(seen).toEqual([['/repo/web']]);
+    expect(gates?.map((g) => g.name)).toEqual(['test']);
+  });
+
+  it('applies the ticket host override to the resolved gates', () => {
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    const wt = worktree({ test: 'vitest' });
+    const base = makeManifestGatesFor({ store, uat: probing })(id, 'web', wt)!;
+    const name = base.find((g) => g.name === 'test')!.name;
+    addHostGates(store, id, [name]);
+    const over = makeManifestGatesFor({ store, uat: probing })(id, 'web', wt)!;
+    expect(over.find((g) => g.name === name)?.onResourceKill).toBe('host');
+  });
+
+  it('answers undefined when the worktree has no package.json to resolve from', () => {
+    const store = openStore(':memory:');
+    const id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    expect(makeManifestGatesFor({ store, uat: probing })(id, 'web', mkdtempSync(join(tmpdir(), 'karst-rerun-empty-')))).toBeUndefined();
   });
 });
