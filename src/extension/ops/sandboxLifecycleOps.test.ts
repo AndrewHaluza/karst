@@ -3,7 +3,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
 import {
-  backendKindOf, cleanupOrphansOp, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
+  sandboxKindOfCore, cleanupOrphansOp, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
   CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
@@ -53,15 +53,15 @@ function deps(over: Partial<SandboxLifecycleDeps> & { inv?: readonly ProjectSand
   return { d, proc, notify, lines, acted };
 }
 
-describe('backendKindOf', () => {
+describe('sandboxKindOfCore', () => {
   it('maps cores to runners', () => {
-    expect(backendKindOf('claude')).toBe('sbx');
-    expect(backendKindOf('codex')).toBe('sbx');
-    expect(backendKindOf('opencode2')).toBe('docker');
-    expect(backendKindOf('antigravity')).toBe('docker');
-    expect(backendKindOf('agy')).toBe('docker');
-    expect(backendKindOf('none')).toBe('host');
-    expect(backendKindOf(null)).toBe('host');
+    expect(sandboxKindOfCore('claude')).toBe('sbx');
+    expect(sandboxKindOfCore('codex')).toBe('sbx');
+    expect(sandboxKindOfCore('opencode2')).toBe('docker');
+    expect(sandboxKindOfCore('antigravity')).toBe('docker');
+    expect(sandboxKindOfCore('agy')).toBe('docker');
+    expect(sandboxKindOfCore('none')).toBe('host');
+    expect(sandboxKindOfCore(null)).toBe('host');
   });
 });
 
@@ -239,6 +239,30 @@ describe('reconcileSandboxes', () => {
     const r = reconcileSandboxes({ sandboxes: [], errors: ['docker ps failed: down'] }, live, () => true, clear);
     expect(r.missing).toEqual([7, 8, 10]);
     expect(clear).not.toHaveBeenCalledWith(9);
+  });
+  it('a recorded host placement keeps its session even when the core maps to a sandbox kind (arch:AC-32)', () => {
+    const clear = vi.fn();
+    const r = reconcileSandboxes({ sandboxes: [], errors: [] }, [{ id: 7, sessionId: 's7', sessionProvider: 'claude', placementBackend: 'host' }], () => true, clear);
+    expect(clear).not.toHaveBeenCalled();
+    expect(r.missing).toEqual([]);
+  });
+  it('a recorded sbx or docker placement with no sandbox drops the session', () => {
+    const clear = vi.fn();
+    const r = reconcileSandboxes({ sandboxes: [], errors: [] }, [
+      { id: 7, sessionId: 's7', sessionProvider: 'claude', placementBackend: 'sbx' },
+      { id: 8, sessionId: 's8', sessionProvider: 'claude', placementBackend: 'docker' },
+    ], () => true, clear);
+    expect(r.missing).toEqual([7, 8]);
+  });
+  it('a recorded docker placement is not cleared when only the sbx listing failed', () => {
+    const clear = vi.fn();
+    reconcileSandboxes({ sandboxes: [], errors: ['docker ps failed: down'] }, [{ id: 8, sessionId: 's8', sessionProvider: 'claude', placementBackend: 'docker' }], () => true, clear);
+    expect(clear).not.toHaveBeenCalled();
+  });
+  it('a null placement falls back to the kind of the core', () => {
+    const clear = vi.fn();
+    const r = reconcileSandboxes({ sandboxes: [], errors: [] }, [{ id: 7, sessionId: 's7', sessionProvider: 'claude', placementBackend: null }], () => true, clear);
+    expect(r.missing).toEqual([7]);
   });
   it('no session id → nothing to drop', () => {
     const clear = vi.fn();

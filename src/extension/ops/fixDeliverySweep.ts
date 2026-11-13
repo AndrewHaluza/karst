@@ -81,17 +81,24 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
    */
   function escalateUnsendable(row: FixDelivery): void {
     const { store } = deps;
-    if (deps.unsendableInbox === undefined) return;
+    if (deps.unsendableInbox === undefined && deps.hostUnsendable === undefined) return;
     if (row.pointerFailedAt !== null || row.pointedAt !== null || row.readAt !== null) return;
     if (deps.isGraphTicket(row.ticketId)) return;
     if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return;
     if (row.recoveryRoundId !== null && activeFixRound(store, row.ticketId)?.id !== row.recoveryRoundId) return;
     if (ageMs(row.createdAt) < FIX_POINTER_UNSENDABLE_MS) return;
-    const file = deps.unsendableInbox(row.ticketId, row.id);
-    if (file === null) return;
+    const file = deps.unsendableInbox?.(row.ticketId, row.id) ?? null;
+    const hostWhy = file === null ? (deps.hostUnsendable?.(row.ticketId, row.id) ?? null) : null;
+    if (file === null && hostWhy === null) return;
     if (!claimPointerFailed(store, row.id, deps.now())) return;
-    deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: pointer unsendable — brief is in ${file}`);
-    deps.needsYou(row.ticketId, `the fix pointer could not be sent; the brief is in ${file} — paste a pointer to it`);
+    if (file !== null) {
+      deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: pointer unsendable — brief is in ${file}`);
+      deps.needsYou(row.ticketId, `the fix pointer could not be sent; the brief is in ${file} — paste a pointer to it`);
+      return;
+    }
+    // Host: the brief is in the ticket's fix brief (karst MCP `fix-brief`); `needsYou` flags only a quiet or idle agent.
+    deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: host pointer unsendable — ${hostWhy}`);
+    deps.needsYou(row.ticketId, `the fix pointer could not be sent (${hostWhy}) — open the ticket session and ask the agent to read its fix brief`);
   }
 
   function apply(row: FixDelivery): void {

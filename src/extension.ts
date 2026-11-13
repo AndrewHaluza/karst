@@ -123,6 +123,7 @@ import {
   sessionOwnershipAction,
   SerializedStateWriter,
   SessionRecoveryLifecycle,
+  isCurrentHookAfterAdopt,
   shouldApplySessionHookState,
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
@@ -2018,6 +2019,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore,
     projectId: () => currentProject()?.id,
     isLive: (id) => sessions.isLive(id),
+    owns: (id) => sandboxLife.controls(id),
     isGraphTicket: (id) => nudgeSurface(localStore.db, id) === 'no-op',
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
     currentLaunchId: (id) => recoveryLifecycle.currentLaunchId(id),
@@ -2062,8 +2064,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     nudge: (id, line) => sessions.nudge(id, line),
     sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
-    isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
+    // `isLive` adopts a restored terminal, so a turn-end hook that beats the lazy adoption is not refused (arch:AC-37).
+    isCurrentHook: (id, launchId) => isCurrentHookAfterAdopt(recoveryLifecycle, (ticketId) => { void sessions.isLive(ticketId); }, id, launchId),
     fixEligible: fixDelivery.eligible,
+    fixArmed: fixDelivery.armed,
+    activeLaunchOf: (id) => recoveryLifecycle.currentLaunchId(id),
     ticketStage: (id) => getTicket(localStore, id).stageCurrent,
     claimFixPointed: fixDelivery.claimPointed,
     nudgeEligible: (id) => turnTracker.nudge(id),
@@ -3949,7 +3954,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e)).finally(() => gateConsole.flush(ticketId, 'ship'));
     }
   }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded); context.subscriptions.push(startBackgroundWaitSweep(localStore, turnTracker, notifyHook, (m) => logger.debug(m)));
-  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean | 'foreign-project' => refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) ? 'foreign-project' : shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
+  const refusedStateHooks = new Set<string>();
+  const logStateHookRefusalOnce = (ticketId: number, launchId: string | undefined, active: string | undefined): void => {
+    const key = `${ticketId}:${launchId ?? ''}:${active ?? ''}`;
+    if (refusedStateHooks.has(key)) return;
+    refusedStateHooks.add(key);
+    logger.info(`[driver] state hook refused ${formatId('ticket', ticketId)}: hook launch ${launchId ?? 'none'}, active launch ${active ?? 'none'}`);
+  };
+  const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean | 'foreign-project' => refuseForeignProjectTicket(localStore, ticketId, currentProject()?.id, 'hook', (m) => logger.info(m)) ? 'foreign-project' : shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload, { adopt: (id) => { void sessions.isLive(id); }, onRefused: logStateHookRefusalOnce });
   // Tag each captured session with the core that minted it, so a later switch
   // (this ticket's override OR the manifest default) is detectable instead of
   // surfacing as a failed `--resume` on the next Continue.

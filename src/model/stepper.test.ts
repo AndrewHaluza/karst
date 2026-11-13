@@ -192,6 +192,21 @@ describe('displayStatus', () => {
     ).toBe('passed');
   });
 
+  it('reads a running ship over a stored awaiting-merge block as running (a re-push)', () => {
+    // A re-push after an auto-fix round runs ship again; the block from the first ship stays stored.
+    expect(
+      displayStatus({
+        stageKey: 'ship',
+        status: 'running',
+        blocked: { kind: 'awaiting-merge', reason: 'PRs open', at: '2026-07-16T10:00:00.000Z', resumable: false },
+      }),
+    ).toBe('running');
+  });
+
+  it('still reads a running ship with another block as blocked', () => {
+    expect(displayStatus({ stageKey: 'ship', status: 'running', blocked })).toBe('blocked');
+  });
+
   it('leaves a pending stage with a block pending', () => {
     expect(displayStatus({ stageKey: 'uat', status: 'pending', blocked })).toBe('pending');
   });

@@ -69,6 +69,9 @@ export interface MailDeliveryWiringDeps {
   fixEligible?: (ticketId: number) => number | null;
   ticketStage?: (ticketId: number) => string | null;
   claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
+  /** Names the launch a refused hook should have carried, and an armed-but-ineligible fix row, in the log only. */
+  activeLaunchOf?: (ticketId: number) => string | undefined;
+  fixArmed?: (ticketId: number) => boolean;
   /** The marker-nudge snapshot `dispatchHook` took at the last turn end (in memory). */
   nudgeEligible?: (ticketId: number) => MarkerNudgeCandidate | null;
   /** Records `markerNudged` on the run's prompt_telemetry. */
@@ -191,6 +194,8 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
     ...(deps.nudgeEligible !== undefined
       ? { nudgeEligible: deps.nudgeEligible, nudgedAt, ...(deps.onNudged !== undefined ? { onNudged: deps.onNudged } : {}) }
       : {}),
+    ...(deps.activeLaunchOf !== undefined ? { activeLaunchOf: deps.activeLaunchOf } : {}),
+    ...(deps.fixArmed !== undefined ? { fixArmed: deps.fixArmed } : {}),
     debug: deps.debug,
   });
   const hookReply: HookReplyFor = (input) => {
