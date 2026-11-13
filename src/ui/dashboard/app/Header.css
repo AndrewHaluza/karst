@@ -16,7 +16,7 @@
    not a workflow state, so it gets no semantic feedback token. */
 .prio{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);color:var(--k-text-dim);flex:none}
 .ticketParent{color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono);line-height:1.1}
-.headerMeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-6) * -1 + var(--k-space-3)) 0 var(--k-space-6)}
+.headerMeta{container-type:inline-size;display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-6) * -1 + var(--k-space-3)) 0 var(--k-space-6)}
 .headerMeta[hidden]{display:none}
 .capabilityLabels{display:contents}
 .capChip{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;max-width:calc(var(--k-space-8) * 9);padding:0 var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);background:var(--k-surface);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap}
