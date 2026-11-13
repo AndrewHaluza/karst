@@ -231,7 +231,7 @@ An edge `{from, to}` means `from` waits on `to`, so `to` goes first. A draft edg
 
 The rules, in this order:
 1. The own priority of a draft is its effective draft priority (`@arch:PLANNING-PRIORITY`). The own priority of a ticket is its effective ticket priority: the user override, else the provider value. Effective priority is the highest of the own priority and the effective priority of every item that waits on it, transitively (priority inheritance). A missing priority reads as `normal`. `inheritedFrom` names the root item whose own priority raised the level, or null.
-2. Kahn order. An item is ready when each blocker in the set is placed. Among ready items the next one has the highest effective priority (`urgent` > `high` > `normal` > `low`), then the oldest `createdAt`, then the lowest id (drafts before tickets, numeric).
+2. Kahn order. An item is ready when each blocker in the set is placed. Among ready items the next one has the highest effective priority (`urgent` > `high` > `normal` > `low`), then the oldest `createdAt`, then the lowest id (drafts before tickets, numeric). A ticket from an accepted draft takes the draft's `created_at` as its queue age (the oldest one when several name it), so Save keeps its place.
 3. A cycle never throws. When no item is ready, the remaining items that can reach themselves are marked `cycle` and the best one by the same keys is placed. Validation prevents a new cycle, but stored data can be old.
 
 Each output item carries `position`, `priority`, `inheritedFrom`, `waitsOn` and `cycle`. `queueWhy` gives the short reason: `cycle`, `↑ from <id>`, `waits on <ids>`, or empty. Rejected: a sort only in the Planning pane, a Tickets-pane preset, a score formula, and tracks.

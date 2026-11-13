@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
-import { VARIANTS } from './variants.js';
+import { screenshotFullPage, VARIANTS } from './variants.js';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 
 /**
@@ -68,7 +68,7 @@ karstTest.describe('full-page screenshots', () => {
           });
         }
         await expect(page).toHaveScreenshot(`${v.baseline}.png`, {
-          fullPage: true,
+          fullPage: screenshotFullPage(v),
           mask: [page.locator(TIME_MASKS)],
         });
       });

@@ -525,6 +525,23 @@ describe('runGateList gate concurrency lease', () => {
     }
   });
 
+  it('sets KARST_GATE_LEASE_HELD=1 for a leased gate only', async () => {
+    const dir = mkDir();
+    try {
+      const calls: string[][] = [];
+      const runProcess = async (cmd: string, args: readonly string[]) => {
+        calls.push([cmd, ...args]);
+        return done;
+      };
+      await runGateList([limited], process.cwd(), { now, gateSlotsDir: dir, runProcess });
+      await runGateList([{ ...limited, maxConcurrent: undefined }], process.cwd(), { now, gateSlotsDir: dir, runProcess });
+      expect(calls[0]).toEqual(['env', 'KARST_GATE_LEASE_HELD=1', 'semgrep']);
+      expect(calls[1]).toEqual(['semgrep']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('frees the slot when the spawn throws', async () => {
     const dir = mkDir();
     try {

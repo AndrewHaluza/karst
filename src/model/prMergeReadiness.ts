@@ -15,7 +15,8 @@ import { formatAge } from './age.js';
  * adds no engine rule.
  */
 
-export type ReasonState = 'bad' | 'warn' | 'run' | 'ok';
+/** `note` is a reason that stays in the list but does not block the merge (optional checks failing). */
+export type ReasonState = 'bad' | 'warn' | 'run' | 'ok' | 'note';
 export type ReasonKind = 'draft' | 'review' | 'checks' | 'conflicts' | 'behind' | 'github-rule';
 export type ReasonAct = 'open-pr' | 'address-pr-feedback' | 'send-ci-failure' | 'resolve-conflicts' | 'rebase-on-base';
 
@@ -181,9 +182,11 @@ function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: Autofix
     }
     const canSend = offers.ciAvailable && offers.ciRepos.includes(pr.repo);
     const extra = fix.parked ?? waits;
+    // Only optional checks failed and no check is pending: the merge is not blocked, so the reason is a note.
+    const nonBlocking = split !== null && split.failed === 0 && split.pending === 0;
     return {
       kind: 'checks',
-      state: 'bad',
+      state: nonBlocking ? 'note' : 'bad',
       label,
       short,
       detail,
@@ -249,6 +252,9 @@ function conflictsReason(
 
 const isBad = (r: Reason): boolean => r.state === 'bad' || r.state === 'warn';
 
+/** A reason that counts toward the blocking count: not a passed check and not a non-blocking note. */
+export const isBlocking = (r: Reason): boolean => r.state !== 'ok' && r.state !== 'note';
+
 /** Why this pull request can or cannot merge — see the module comment. */
 export function prMergeReadiness(
   pr: ReadinessPr,
@@ -287,18 +293,21 @@ export function prMergeReadiness(
     reasons.push({ kind: 'github-rule', state: 'bad', label: 'Blocked by a GitHub rule', short: 'GitHub rule', detail: FALLBACK_DETAIL, ...(action ? { action } : {}) });
   }
 
+  const notes = reasons.filter((r) => r.state === 'note');
   const problem = reasons.some((r) => isBad(r) || r.state === 'run');
-  if (pr.canMerge && pr.mergeBlock !== 'clean' && !problem) {
+  // GitHub answers `unstable` when only optional checks fail: the checks note explains it, and GitHub merges it.
+  const unstableNoted = pr.mergeBlock === 'unstable' && !problem && reasons.some((r) => r.kind === 'checks' && r.state === 'note');
+  if (pr.canMerge && pr.mergeBlock !== 'clean' && !problem && !unstableNoted) {
     // GitHub did not say "clean" (it answered unknown, unstable or has_hooks) and nothing else explains it:
     // never claim it, never count it ready.
     return {
       ready: false,
       headline: 'Merge not confirmed',
       facts: `GitHub: ${pr.mergeBlock === 'unknown' ? 'no answer yet' : pr.mergeBlock}`,
-      reasons: [],
+      reasons: notes,
     };
   }
-  if (pr.canMerge && pr.mergeBlock === 'clean') {
+  if (pr.canMerge && (pr.mergeBlock === 'clean' || unstableNoted)) {
     const passed = pr.checks && pr.checks.state === 'passing' ? ` · ${plural(pr.checks.passed, 'check')} passed` : '';
     const approved = pr.reviewDecision === 'APPROVED' ? 'approved' : 'no review required';
     const clean =
@@ -308,8 +317,8 @@ export function prMergeReadiness(
     return {
       ready: true,
       headline: 'Ready to merge',
-      facts: `${approved}${passed} · GitHub: clean${clean}`,
-      reasons: [],
+      facts: `${approved}${passed} · GitHub: ${pr.mergeBlock}${clean}`,
+      reasons: notes,
     };
   }
   // ok-state reasons are shown only beside a problem; a lone "Checks passed" explains nothing.
@@ -317,19 +326,19 @@ export function prMergeReadiness(
     ready: false,
     headline: 'Merge blocked',
     facts: '',
-    reasons: problem ? reasons : [],
+    reasons: problem ? reasons : notes,
   };
 }
 
 /** The Merge button's disabled title: the reasons that block, joined. */
 export function blockingReasonsTitle(readiness: PrMergeReadiness): string {
   return readiness.reasons
-    .filter((r) => r.state !== 'ok')
+    .filter(isBlocking)
     .map((r) => `${r.label}${r.detail ? ` — ${r.detail}` : ''}`)
     .join(' · ');
 }
 
 /** How many reasons block (the header count and the chip). */
 export function blockingCount(readiness: PrMergeReadiness): number {
-  return readiness.reasons.filter((r) => r.state !== 'ok').length;
+  return readiness.reasons.filter(isBlocking).length;
 }

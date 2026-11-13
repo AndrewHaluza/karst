@@ -4,7 +4,7 @@ import type { ResolvedGate } from './resolve.js';
 import { regenerateGateName, runRegenerate, type RegenerateSpec } from './regenerate.js';
 import { GATE_MAX_WORKERS_ENV, isResourceKill, resourceKillReason } from './resourceKill.js';
 import { leasePortSlot, PORT_OFFSET_ENV, type PortSlotLease } from '../../runtime/portSlots.js';
-import { leaseGateSlot } from './gateLease.js';
+import { GATE_LEASE_HELD_ENV, leaseGateSlot } from './gateLease.js';
 import { isUiGate } from './uiScope.js';
 import { gateTimeoutMs, runProcess, type GateOutputChunk, type GateProcessRunner, type ProcessOutcome } from './run.js';
 
@@ -107,7 +107,7 @@ export interface RunGatesOptions {
   regenerate?: RegenerateSpec;
   /** True when `runProcess` is a sandbox runner (a missing module then means the sandbox lacks the tool). */
   sandboxed?: boolean;
-  /** Pool root for `maxConcurrent` gate leases; absent → `$TMPDIR/karst-gate-slots`. Tests inject a temp dir. */
+  /** Pool root for `maxConcurrent` gate leases; absent → `~/.karst/gate-slots`. Tests inject a temp dir. */
   gateSlotsDir?: string;
   /** Poll interval of a waiting gate lease; absent → the lease default. */
   gateSlotPollMs?: number;
@@ -236,6 +236,8 @@ export async function runGateList(
     // Every spawn of this gate (first run, host fallback, resource-kill retry) runs in the leased band.
     // The ticket's base branch reaches every gate process, host or sandbox (the D360 drift check reads it).
     const baseEnv = [
+      // The gate script (dockerGate.mjs) skips its own lease: this run already holds the slot.
+      ...(gateLease ? [`${GATE_LEASE_HELD_ENV}=1`] : []),
       ...(opts.baseRef ? [`KARST_BASE_REF=${opts.baseRef}`] : []),
       ...(opts.prBody !== undefined ? [`PR_BODY=${opts.prBody}`, ...(opts.baseRef ? [`BASE_REF=${opts.baseRef}`] : [])] : []),
     ];

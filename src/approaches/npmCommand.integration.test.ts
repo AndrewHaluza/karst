@@ -72,4 +72,20 @@ describe('runNpmCommand', () => {
     await cancelAllNpmCommands();
     expect((await result).code).toBe(1);
   });
+
+  it('runs the command without GH_TOKEN or GITHUB_TOKEN in its env', async () => {
+    vi.stubEnv('GH_TOKEN', 'secret-a');
+    vi.stubEnv('GITHUB_TOKEN', 'secret-b');
+    try {
+      const script = 'process.stdout.write(String(process.env.GH_TOKEN)+String(process.env.GITHUB_TOKEN))';
+      const result = await runNpmCommand(
+        `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`,
+        process.cwd(),
+        { timeoutMs: 5_000 },
+      );
+      expect(result.out).toBe('undefinedundefined');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

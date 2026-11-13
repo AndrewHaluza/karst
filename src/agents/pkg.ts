@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
-import { sanitizeFrontmatter } from '../approaches/sanitize.js';
+import { stripPermissionFrontmatter } from '../approaches/sanitize.js';
 
 /**
  * File-backed agent I/O: each single-subagent lives as one markdown file at
@@ -181,15 +181,14 @@ export function readAgentFile(agentsDir: string, name: string): AgentFile | null
 
 /**
  * Write an agent file's body to `<agentsDir>/<name>.md`, creating the
- * directory if needed. Runs `sanitizeFrontmatter` first — untrusted content
- * (e.g. materialized from an approach artifact) may request elevated
- * permissions, so dangerous frontmatter keys are stripped before landing on
- * disk.
+ * directory if needed. Runs `stripPermissionFrontmatter` first: permission
+ * keys are removed, and the user's other keys (`model`, `tools`) stay. Fetched
+ * approach content is allowlisted earlier, in `assembleAndWrite`.
  */
 export function writeAgentFile(agentsDir: string, name: string, body: string): void {
   const path = agentPath(agentsDir, name);
   mkdirSync(agentsDir, { recursive: true });
-  writeFileSync(path, sanitizeFrontmatter(body));
+  writeFileSync(path, stripPermissionFrontmatter(body));
 }
 
 /** Remove an agent file. Idempotent: absent file → no-op, never throws. */

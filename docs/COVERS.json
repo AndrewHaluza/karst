@@ -52,6 +52,9 @@
   "scripts/gateScope.mjs": [
     "arch:GATE-SCOPED"
   ],
+  "scripts/gateSlot.mjs#acquireGateSlot": [
+    "arch:GATE-CONCURRENCY"
+  ],
   "scripts/gateState.mjs": [
     "arch:GATE-REPEAT"
   ],
@@ -196,6 +199,9 @@
   "src/approaches/fetch.ts#installApproach": [
     "arch:APP-01"
   ],
+  "src/approaches/npmCommand.ts#withCommandConsent": [
+    "arch:APP-06"
+  ],
   "src/approaches/outputScan.ts#scanOutputSuggestions": [
     "arch:APP-10"
   ],
@@ -221,6 +227,9 @@
     "arch:APP-02"
   ],
   "src/approaches/sanitize.ts#sanitizeFrontmatter": [
+    "arch:APP-06"
+  ],
+  "src/approaches/sanitize.ts#stripPermissionFrontmatter": [
     "arch:APP-06"
   ],
   "src/artifacts/**": [

@@ -6,6 +6,7 @@
  * only places them, and never decides that a PR is mergeable or that a check failed.
  */
 import { memo } from 'react';
+import { isBlocking } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CopyUrl, DismissButton, MergeButton, OpenLink } from './PrActionButtons.js';
 import { Icon } from './Icon.js';
@@ -89,7 +90,7 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
   const stamp = lineStamp(p);
   const head = prHead(p.branches);
   const showBranches = p.branches !== '' && (head === '' || head !== headerBranch);
-  const blocking = live && !p.dismissed ? p.readiness.reasons.filter((r) => r.state !== 'ok').length : 0;
+  const blocking = live && !p.dismissed ? p.readiness.reasons.filter(isBlocking).length : 0;
   const sub = (
     <>
       <PrReadiness p={p} ciBusy={ciBusy} mergeOpen={mergeOpen} onMergeToggle={onMergeToggle} />

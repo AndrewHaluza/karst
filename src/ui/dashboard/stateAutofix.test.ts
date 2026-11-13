@@ -123,13 +123,46 @@ describe('readAutofix', () => {
     expect(readAutofix(store, id, CONFIG).row).toMatchObject({ state: 'unknown', message: 'CI status unknown for api #88. Auto-fix waits; not counted as pass.' });
   });
 
-  it('reads a pending CI rollup as unknown and a passing one as nothing', () => {
+  it('reads a pending CI rollup into pendingCi, not unknownCi, and a passing one as nothing', () => {
     const { store, id } = setup();
-    const rollup = (state: string, pending: number) => JSON.stringify({ state, total: 2, passed: 2 - pending, failed: 0, pending, failing: [], failedShown: 0 });
-    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, rollup('pending', 1));
-    expect(readAutofix(store, id, CONFIG).row?.state).toBe('unknown');
+    const rollup = (state: string, pending: number) => JSON.stringify({ state, total: 14, passed: 14 - pending, failed: 0, pending, failing: [], failedShown: 0 });
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, rollup('pending', 4));
+    const r = readAutofix(store, id, CONFIG);
+    expect(r.row).toMatchObject({ state: 'pending', message: 'CI running for api #88 (4 of 14 pending). Auto-fix waits.' });
+    expect(r.input.unknownCi).toBe(true);
     store.db.prepare('UPDATE prs SET checks = ?').run(rollup('passing', 0));
     expect(readAutofix(store, id, CONFIG).row).toBeNull();
+  });
+
+  it('reads a null rollup and an unparseable one into unknownCi', () => {
+    const { store, id } = setup();
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 1, 'https://x/1', 'open', NULL)").run(id);
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'web', 2, 'https://x/2', 'open', 'not json')").run(id);
+    expect(readAutofix(store, id, CONFIG).row).toMatchObject({ state: 'unknown', message: 'CI status unknown for api #1, web #2. Auto-fix waits; not counted as pass.' });
+  });
+
+  it('labels a PR with the manifest repo name and falls back to the raw path', () => {
+    const { store, id } = setup();
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, '/work/karst', 1056, 'https://x/1', 'open')").run(id);
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, '/work/other', 7, 'https://x/7', 'open')").run(id);
+    const names = (repo: string): string | undefined => (repo === '/work/karst' ? 'extention' : undefined);
+    expect(readAutofix(store, id, CONFIG, names).row?.message).toBe('CI status unknown for extention #1056, /work/other #7. Auto-fix waits; not counted as pass.');
+  });
+
+  it('names the manifest repo on a running round and a park target, but keeps the path in the Approve action', () => {
+    const { store, id } = setup();
+    const names = (repo: string): string | undefined => (repo === '/work/karst' ? 'extention' : undefined);
+    takeAutopilotAttempt(store, id, '/work/karst', 'conflicts', 'b', 2);
+    store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, '/work/karst', 5, 'https://x/5', 'open')").run(id);
+    markConflictRound(store, id, Date.now());
+    expect(readAutofix(store, id, CONFIG, names).row?.message).toBe('conflict on extention #5 · round 1 of 2');
+    // The PR panel matches the round to its PR by the recorded path, never by the display name.
+    expect(readAutofix(store, id, CONFIG, names).input.running?.repo).toBe('/work/karst');
+    takeAutopilotAttempt(store, id, '/work/karst', 'ci', 'lint', 3);
+    park(store, id, 'auto-fix stopped: ci 3/3');
+    const r = readAutofix(store, id, CONFIG, names);
+    expect(r.slice.banner?.titleSuffix).toContain('extention #5');
+    expect(r.slice.banner?.primary).toMatchObject({ repo: '/work/karst' });
   });
 
   it('says nothing about unknown CI when auto-fix is off for the ticket', () => {
@@ -200,7 +233,7 @@ describe('readAutofix', () => {
 describe('autofixInputOf', () => {
   const facts = (over: Partial<AutofixFacts>): AutofixFacts => ({
     override: 'inherit', projectDefault: true, effective: true, reason: null, round: null,
-    stopAfter: false, unknownCi: [], target: null, ...over,
+    stopAfter: false, unknownCi: [], pendingCi: [], target: null, ...over,
   });
 
   it('reads a running round with its repo and counter; an empty repo is null', () => {
@@ -219,5 +252,7 @@ describe('autofixInputOf', () => {
     expect(both.parked).toBeNull();
     expect(autofixInputOf(facts({ reason: 'auto-fix stopped by you' })).parked).toBeNull();
     expect(autofixInputOf(facts({ unknownCi: ['api #1'], effective: false }))).toMatchObject({ unknownCi: true, effective: false });
+    expect(autofixInputOf(facts({ pendingCi: [{ label: 'api #1', pending: 1, total: 2 }] })).unknownCi).toBe(true);
+    expect(autofixInputOf(facts({})).unknownCi).toBe(false);
   });
 });
