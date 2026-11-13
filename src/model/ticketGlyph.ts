@@ -13,8 +13,9 @@ export function currentStageStatus(t: TicketWithStages): StageStatus {
  * Whether the ticket's `waiting` agentState is a running-ship artifact rather
  * than a needs-you: ship is the driver's own headless work (committing,
  * pushing, opening PRs), and the hook that set `waiting` fired inside that run
- * — the ticket is NOT parked on the user (869ed7bpd). An awaiting-merge ship
- * reads `passed`, never `running`, so this can never swallow a merge wait.
+ * — the ticket is NOT parked on the user (869ed7bpd). A re-push after an
+ * auto-fix round runs ship again over a stored awaiting-merge block, so that
+ * block no longer says ship is idle; `shipWorkRunning` reads the running status.
  */
 function waitingWhileShipRuns(t: TicketWithStages): boolean {
   return (
@@ -22,6 +23,16 @@ function waitingWhileShipRuns(t: TicketWithStages): boolean {
     t.stageCurrent === 'ship' &&
     currentStageStatus(t) === 'running'
   );
+}
+
+/**
+ * Whether ship's own work runs: the ship stage runs (push, PR, re-push), or the ticket's deliver
+ * run runs (derived at load, also while ship reads `passed`, e.g. a base-moved re-check). The stored
+ * awaiting-merge block stays (@arch:BLOCKED); only its needs-you READING yields.
+ */
+export function shipWorkRunning(t: TicketWithStages): boolean {
+  if (t.stageCurrent !== 'ship' || t.pausedAt != null) return false;
+  return currentStageStatus(t) === 'running' || t.deliverRunning === true;
 }
 
 /** Whether a shipped, awaiting-merge ticket reads "CI running" (derived at load). */
@@ -86,6 +97,10 @@ export function needsUser(t: TicketWithStages): boolean {
   // RUNNING, where the ticket is moving, not parked (see `waitingWhileShipRuns`).
   if (waitingWhileShipRuns(t)) return false;
   if (((t.agentState ?? 'none') as AgentState) === 'waiting') return true;
+
+  // Ship's own work runs (a re-push, a deliver run): the ticket moves, nothing waits on the user.
+  // After the agent-state branches: a waiting or not-started agent still needs the user.
+  if (shipWorkRunning(t)) return false;
 
   // Mandatory CI of a shipped ticket still runs: the merge cannot be clicked
   // yet, so nothing waits on the user. A derived reading (`shipCi`), not a
@@ -161,8 +176,8 @@ export function ticketGlyph(t: TicketWithStages): Glyph {
   // A live agent working a parked (failed) stage reads in-progress; the stored
   // failure stays and the red reading returns when the session ends.
   if (agentWorkingOnFailedStage(t)) return 'blue';
-  // Ship's PR CI is running: in progress, not parked on the user.
-  if (shipCiRunning(t)) return 'blue';
+  // Ship's own work or its PR CI is running: in progress, not parked on the user.
+  if (shipWorkRunning(t) || shipCiRunning(t)) return 'blue';
   // The same running-ship exception, applied to the residual `waiting` the
   // glyph function would otherwise paint amber: pass the running state so the
   // glyph, facet, badge and attention set all read "in progress", never

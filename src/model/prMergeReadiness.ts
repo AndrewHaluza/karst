@@ -81,9 +81,11 @@ export interface AutofixInput {
   readonly running: { readonly kind: AutofixKindInput; readonly repo: string | null; readonly round: string } | null;
   readonly parked: { readonly kind: AutofixKindInput; readonly reason: string } | null;
   readonly unknownCi: boolean;
+  /** An open PR has readable CI with checks still pending (and none unknown): the wait is on a result, not on a gap. */
+  readonly pendingCi: boolean;
 }
 
-export const NO_AUTOFIX: AutofixInput = { effective: false, running: null, parked: null, unknownCi: false };
+export const NO_AUTOFIX: AutofixInput = { effective: false, running: null, parked: null, unknownCi: false, pendingCi: false };
 
 /** The facts of one PR the model reads. */
 export interface ReadinessPr {
@@ -102,6 +104,7 @@ export interface ReadinessPr {
 }
 
 const AUTOFIX_WAIT = 'Auto-fix waits; not counted as pass';
+const AUTOFIX_WAIT_PENDING = 'Auto-fix waits for the result';
 const FALLBACK_DETAIL = 'not review, checks or conflicts — e.g. signed commits, merge queue, required deployment, or branch must be up to date';
 
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
@@ -162,7 +165,7 @@ function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: Autofix
   if (c === null || c.state === 'none' || c.state === 'unknown') return null;
   const split = c.required ?? null;
   const fix = autofixFor('ci', pr, autofix);
-  const waits = autofix.effective && autofix.unknownCi ? AUTOFIX_WAIT : undefined;
+  const waits = !autofix.effective ? undefined : autofix.unknownCi ? AUTOFIX_WAIT : autofix.pendingCi ? AUTOFIX_WAIT_PENDING : undefined;
   if (c.state === 'failing') {
     const optionalPending = split ? Math.max(c.pending - split.pending, 0) : c.pending;
     // Only a split that counts a failed required check may say "required"; otherwise the failures are optional or unsplit.

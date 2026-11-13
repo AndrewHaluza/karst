@@ -1,20 +1,38 @@
 import type { Store } from './db.js';
 import { CURRENT_PR_ORDER } from './prs.js';
+import { currentDeliverRun } from './deliverRuns.js';
 import { listMergeChecksByTicket } from './mergeChecks.js';
 import { getAutopilotTicket } from './autopilot.js';
-import { parseChecks, readMergeBlock, type ChecksState, type MergeBlock } from '../model/prChecks.js';
+import { parseChecks, readMergeBlock, type ChecksState, type MergeBlock, type PrChecks } from '../model/prChecks.js';
 
 /**
  * The derived "CI running" reading of a shipped ticket (@arch:BLOCKED). It is
  * computed on read, never stored: the `awaiting-merge` block stays on the ship
  * stage, and only the needs-you READING yields while mandatory CI runs.
+ * Optional-only failures do not cancel it (see `optionalFailureOnly`).
  */
 export type ShipCi = 'running' | null;
 
-/** One current open PR, reduced to the two facts the reading needs. */
+/** One current open PR, reduced to the facts the reading needs. */
 export interface ShipCiPr {
   checks: ChecksState | null;
   mergeBlock: MergeBlock;
+  /** The stored rollup, for the optional-failure rule; absent = no detail (a failure stays amber). */
+  rollup?: PrChecks | null;
+}
+
+/**
+ * A failing PR whose every failure is KNOWN optional while required checks still run: GitHub gave the
+ * required split, none of the required checks failed, some are pending, every failure says
+ * `required === false`, and the failing list is complete. Anything unknown keeps the PR amber (@arch:GH-03).
+ * `isKnownOptional` needs 0 required pending, so it cannot answer here.
+ */
+function optionalFailureOnly(p: ShipCiPr): boolean {
+  const c = p.rollup;
+  if (!c || c.state !== 'failing' || c.required == null) return false;
+  if (c.required.failed !== 0 || c.required.pending <= 0) return false;
+  if (c.failing.length === 0 || c.failedShown < c.failed || c.failing.length < c.failed) return false;
+  return c.failing.every((f) => f.required === false) && p.mergeBlock === CI_BLOCKING;
 }
 
 /**
@@ -25,8 +43,9 @@ export interface ShipCiPr {
  */
 export function shipCiReading(prs: readonly ShipCiPr[], hasConflict: boolean): ShipCi {
   if (hasConflict || prs.length === 0) return null;
-  if (prs.some((p) => p.checks === 'failing' || p.mergeBlock === 'dirty')) return null;
-  return prs.some((p) => p.checks === 'pending' && p.mergeBlock === CI_BLOCKING) ? 'running' : null;
+  if (prs.some((p) => (p.checks === 'failing' && !optionalFailureOnly(p)) || p.mergeBlock === 'dirty')) return null;
+  const runs = (p: ShipCiPr): boolean => (p.checks === 'pending' && p.mergeBlock === CI_BLOCKING) || optionalFailureOnly(p);
+  return prs.some(runs) ? 'running' : null;
 }
 
 /**
@@ -76,6 +95,7 @@ function listCurrentOpenPrs(store: Store, ticketId: number): ShipCiPr[] {
   return rows.map((r) => ({
     checks: parseChecks(r.checks)?.state ?? null,
     mergeBlock: readMergeBlock(r.merge_block),
+    rollup: parseChecks(r.checks),
   }));
 }
 
@@ -86,6 +106,11 @@ export function readShipCi(store: Store, ticketId: number): ShipCi {
   if (autopilot.stoppedReason !== null || autopilot.pausedReason !== null) return null;
   const hasConflict = listMergeChecksByTicket(store, ticketId).some((m) => m.state === 'conflicted');
   return shipCiReading(listCurrentOpenPrs(store, ticketId), hasConflict);
+}
+
+/** Whether the ticket's current deliver run runs now (derived at load, never stored). */
+export function readDeliverRunning(store: Store, ticketId: number): boolean {
+  return currentDeliverRun(store, ticketId)?.state === 'running';
 }
 
 /** Whether a loaded ticket can read "CI running" at all: ship, awaiting-merge, not paused. */
