@@ -4034,6 +4034,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Ensure the run's wake-up route exists before any of its sessions can
     // launch; the launcher reuses the same route when composing the env.
     graphRouteFor(graphRunId);
+    // Settle BEFORE the tick: a node that reported `replan` is `blocked` with
+    // outcome `replan`, and the sweep's first-fault block would park the run
+    // `blocked` before `electReplan` ran. `settleGraphRun` is idempotent.
+    try {
+      settleGraphRun(gs.db, graphRunId);
+    } catch (err) {
+      // A busy settle must not fall through to the sweep: it would read the
+      // `replan` request as a fault and park the run. The next tick retries.
+      logError(`karst: graph pre-tick settle failed for run ${graphRunId}`, err);
+      return;
+    }
     try {
       runCoordinatorTick(
         {

@@ -845,7 +845,7 @@ async function settleRun(h: Harness, graphRunId: number): Promise<void> {
  *  - `planning`: judge the submitted plan; a repair request re-prompts the planner.
  *  - `draining`: judge the submitted replan; a repair request re-prompts it.
  *  - `running`: claim tokens, drive ready nodes, drive `completing` nodes
- *    through the completion pipeline, then settle (blocked / replan / END).
+ *    through the completion pipeline; settle (blocked / replan / END) before and after.
  * The agent's work between ticks goes through the REAL CLI verbs. Returns the
  * run's status after the pass.
  */
@@ -864,14 +864,17 @@ export async function tickGraphRun(h: Harness, graphRunId: number): Promise<stri
     }
     if (accepted.kind === 'accepted') await claimAndDrive(h, graphRunId);
   } else if (status === 'running') {
-    // Host order (`runGraphCoordinatorTick`): the sweep runs FIRST, then the
-    // continuation drives completing nodes and settles. A node report settles
-    // only after the sweep, exactly as in production.
-    await claimAndDrive(h, graphRunId);
-    for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(db, graphRunId, ['completing'])) {
-      await runCompletionPipeline(h.pipelineDeps, { graphRunId, nodeRunId });
-    }
+    // Host order (`runGraphCoordinatorTick`): settle FIRST (a `replan` request
+    // elects before the sweep can read its blocked node run as a fault), then
+    // the sweep, then the continuation drives completing nodes and settles again.
     await settleRun(h, graphRunId);
+    if (graphRunStatus(db, graphRunId) === 'running') {
+      await claimAndDrive(h, graphRunId);
+      for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(db, graphRunId, ['completing'])) {
+        await runCompletionPipeline(h.pipelineDeps, { graphRunId, nodeRunId });
+      }
+      await settleRun(h, graphRunId);
+    }
   }
   return graphRunStatus(db, graphRunId) ?? 'gone';
 }
