@@ -165,6 +165,7 @@ describe('repairStaleAutopilotParks (T1122)', () => {
 
   it('clears an auto-fix block on a pending ship row and the stop reason', () => {
     const { store, id } = seed('pending', STOP);
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(id);
     repairStaleAutopilotParks(store);
     expect(stageBlock(store, id, 'ship')).toBeNull();
     expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
@@ -182,8 +183,16 @@ describe('repairStaleAutopilotParks (T1122)', () => {
     expect(stageBlock(n.store, n.id, 'ship')?.reason).toBe('blocked: not merged yet');
   });
 
+  it('keeps a stop reason of a ticket that left ship (a pause)', () => {
+    const { store, id } = seed('pending', null);
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(id);
+    repairStaleAutopilotParks(store);
+    expect(getAutopilotTicket(store, id).stoppedReason).toBe(STOP);
+  });
+
   it('clears a stop reason that its ship block no longer matches, keeping stop_after', () => {
     const { store, id } = seed('passed', 'blocked: not merged yet');
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(id);
     setAutopilotStopAfter(store, id);
     repairStaleAutopilotParks(store);
     const t = getAutopilotTicket(store, id);
