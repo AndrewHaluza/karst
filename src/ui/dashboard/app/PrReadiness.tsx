@@ -6,6 +6,7 @@
  * that a PR is mergeable. An action is rendered only when the host attached it to the reason.
  */
 import { memo } from 'react';
+import { isBlocking } from '../../../model/prMergeReadiness.js';
 import type { Reason, ReasonAction, ReasonListItem } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CiButton, OpenButton, OpenLink, ResolveButton, SingleFlightButton } from './PrActionButtons.js';
@@ -16,6 +17,7 @@ const STATE_ICON: Readonly<Record<Reason['state'], string>> = {
   warn: 'alert-triangle',
   run: 'loader-2',
   ok: 'circle-check',
+  note: 'info-circle',
 };
 
 /** Items with no identity of their own get a content key made unique by its occurrence count. */
@@ -64,7 +66,7 @@ function ActionButton({ action, repo, ciBusy }: { readonly action: ReasonAction;
 
 interface ReasonRowProps {
   readonly r: Reason;
-  /** True inside the folded body: the action rides on the summary line, and the list is already open. */
+  /** True inside the folded body: a blocking reason's action rides on the summary line (a note has none there), and the list is already open. */
   readonly folded?: boolean;
   readonly repo: string;
   readonly ciBusy: boolean;
@@ -86,7 +88,7 @@ function ReasonRow({ r, folded = false, repo, ciBusy, open, onToggle }: ReasonRo
           <b className="prsn-label">{r.label}</b>
           {r.detail ? <span className="prsn-detail">{r.detail}</span> : null}
         </span>
-        {r.action && !folded ? <ActionButton action={r.action} repo={repo} ciBusy={ciBusy} /> : null}
+        {r.action && (!folded || r.state === 'note') ? <ActionButton action={r.action} repo={repo} ciBusy={ciBusy} /> : null}
       </div>
       {r.extra ? <div className="prsn-extra">{r.extra}</div> : null}
       {hasBody && folded ? (
@@ -112,8 +114,6 @@ function ReasonRow({ r, folded = false, repo, ciBusy, open, onToggle }: ReasonRo
     </li>
   );
 }
-
-const isBlocking = (r: Reason): boolean => r.state !== 'ok';
 
 /** The summary line of the folded list: chevron, headline, one brief item per blocking reason, then the actions. */
 function FoldSummary({ headline, blockers, repo, ciBusy }: { readonly headline: string; readonly blockers: readonly Reason[]; readonly repo: string; readonly ciBusy: boolean }) {
@@ -157,20 +157,32 @@ interface PrReadinessProps {
 export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onMergeToggle }: PrReadinessProps) {
   const { readiness } = p;
   if (p.status === 'merged' || p.dismissed) return null;
+  const notes = (
+    <ul className="prblock-list prblock-notes">
+      {readiness.reasons.map((r) => (
+        <ReasonRow key={r.kind} r={r} repo={p.repo} ciBusy={ciBusy} open={mergeOpen} onToggle={onMergeToggle} />
+      ))}
+    </ul>
+  );
   if (readiness.ready) {
     return (
-      <div className="prready" data-state="ready">
-        <span className="prready-icon" aria-hidden="true">
-          <Icon name="circle-check" size={13} />
-        </span>
-        <b>{readiness.headline}</b>
-        <span className="prready-facts">{readiness.facts}</span>
-      </div>
+      <>
+        <div className="prready" data-state="ready">
+          <span className="prready-icon" aria-hidden="true">
+            <Icon name="circle-check" size={13} />
+          </span>
+          <b>{readiness.headline}</b>
+          <span className="prready-facts">{readiness.facts}</span>
+        </div>
+        {readiness.reasons.length > 0 ? notes : null}
+      </>
     );
   }
   if (readiness.reasons.length === 0) return null;
   const blockers = readiness.reasons.filter(isBlocking);
   const n = blockers.length;
+  // Notes only (GitHub did not confirm the merge, so the PR is not ready): show the notes, not an empty blocked box.
+  if (n === 0) return notes;
   if (n >= 2) {
     return (
       <details
