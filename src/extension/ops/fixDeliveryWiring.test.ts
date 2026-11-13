@@ -242,6 +242,34 @@ describe('fixDeliveryWiring', () => {
     });
   });
 
+  describe('host session whose pointer cannot be sent (arch:AC-37)', () => {
+    const debug = vi.fn();
+    beforeEach(() => debug.mockClear());
+    const stuckHost = (agent: 'none' | 'idle' | 'running' | 'waiting') => {
+      state.live = false;
+      const w = make({ debug });
+      setAgentState(store, ticketId, agent);
+      w.deliver(ticketId, null);
+      const row = currentFixDelivery(store, ticketId)!;
+      store.db.prepare('UPDATE fix_deliveries SET created_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', row.id);
+      w.sweep.sweep();
+      return row.id;
+    };
+    it.each(['none', 'idle'] as const)('agent %s: claims pointer_failed and flags the ticket as needing you, once', (agent) => {
+      const id = stuckHost(agent);
+      expect(getFixDelivery(store, id)!.pointerFailedAt).not.toBeNull();
+      expect(getTicket(store, ticketId).agentState).toBe('not-started');
+      const lines = debug.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('needs you'));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('no live agent session');
+    });
+    it.each(['running', 'waiting'] as const)('agent %s: claims pointer_failed but never overwrites the live hook state', (agent) => {
+      const id = stuckHost(agent);
+      expect(getFixDelivery(store, id)!.pointerFailedAt).not.toBeNull();
+      expect(getTicket(store, ticketId).agentState).toBe(agent);
+    });
+  });
+
   describe('sandboxed session (inbox file + ack line, arch:AC-34)', () => {
     const CH = { kind: 'sandbox' as const, runDir: '/karst-bridge/7', core: 'opencode2' };
     let root: string;

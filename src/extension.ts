@@ -122,6 +122,7 @@ import {
   sessionOwnershipAction,
   SerializedStateWriter,
   SessionRecoveryLifecycle,
+  isCurrentHookAfterAdopt,
   shouldApplySessionHookState,
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
@@ -2055,8 +2056,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     nudge: (id, line) => sessions.nudge(id, line),
     sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
-    isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
+    // `isLive` adopts a restored terminal, so a turn-end hook that beats the lazy adoption is not refused (arch:AC-37).
+    isCurrentHook: (id, launchId) => isCurrentHookAfterAdopt(recoveryLifecycle, (ticketId) => { void sessions.isLive(ticketId); }, id, launchId),
     fixEligible: fixDelivery.eligible,
+    fixArmed: fixDelivery.armed,
+    activeLaunchOf: (id) => recoveryLifecycle.currentLaunchId(id),
     ticketStage: (id) => getTicket(localStore, id).stageCurrent,
     claimFixPointed: fixDelivery.claimPointed,
     nudgeEligible: (id) => turnTracker.nudge(id),

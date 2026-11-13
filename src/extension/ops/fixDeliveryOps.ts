@@ -71,6 +71,11 @@ export interface FixDeliveryHost {
    */
   unsendableInbox?: (ticketId: number, deliveryId: number) => string | null;
   /**
+   * Host ticket: why the pointer cannot reach the agent now (no live session, a launch still pending),
+   * or null when it is sendable or the ticket is not on host. Host has no inbox file to name.
+   */
+  hostUnsendable?: (ticketId: number, deliveryId: number) => string | null;
+  /**
    * Sandboxed ticket: a `pointer_failed_at` claim (Needs you already raised) does
    * not end delivery; the sweep keeps trying the pointer once the agent recovers.
    */

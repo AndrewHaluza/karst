@@ -25,8 +25,9 @@ import { createShellAvailabilityCache, openSandboxShellOp, sandboxShellAvailabil
 import { carrySandboxOp } from './sandboxCarryOp.js';
 import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js';
 import { runSandboxReconcile } from './bootSweeps.js';
+import { repairHostSessions } from './hostSessionRepair.js';
 import {
-  backendKindOf, cleanupOrphansOp, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
+  sandboxKindOfCore, cleanupOrphansOp, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
 export interface SandboxWiringInput {
@@ -160,6 +161,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const merged = doneMergedTicketIds(w.store);
     return projectId === undefined ? [] : listTickets(w.store, { projectId }).filter((t) => t.archivedAt === null && !merged.has(t.id));
   };
+  /** Live tickets for the reconcile: each carries its recorded placement, the only source of host-vs-sandbox (arch:AC-32). */
+  const reconcileTickets = () => liveTickets().map((t) => ({ id: t.id, sessionId: t.sessionId, sessionProvider: t.sessionProvider, placementBackend: getPlacement(w.store, t.id)?.backend ?? null }));
   /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
   const resolved = async (ticketId: number, projectRoot: string): Promise<SandboxSyncTarget> => {
     const t = target(ticketId);
@@ -255,8 +258,9 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     } catch {
       core = null;
     }
-    if (backendKindOf(core) === 'host') { await bridges.detach(ticketId); return; }
-    const kind = backendKindOf(core);
+    // The recorded placement is not host here (null or a sandbox), so the core only picks the runner to ask (arch:AC-32).
+    const kind = sandboxKindOfCore(core);
+    if (kind === 'host') { await bridges.detach(ticketId); return; }
     let inv: SandboxInventory;
     try {
       inv = await inventoryOf(d);
@@ -371,6 +375,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     /** "Rebase on base": does the sandbox hold commits the host branch lacks? Unreadable counts as yes. */
     hasUnsynced: async (ticketId: number): Promise<boolean> => {
+      if (recordedHost(ticketId)) return false;
       const { d, t } = await manualDeps(ticketId);
       return sandboxHasUnsynced({ ...d, reopen: async () => {} }, t);
     },
@@ -401,6 +406,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     /** "Rebase on base": recreate the clone from the rebased branch (no pre-remove sync), then reopen. Throws on failure. */
     recreateNoSync: async (ticketId: number): Promise<void> => {
+      if (recordedHost(ticketId)) return;
       const { d, t } = await manualDeps(ticketId);
       if (!w.reopen) throw new Error('reopening the sandbox is not available');
       await recreateSandboxNoSync({ ...d, ...syncTrack, reopen: w.reopen }, t);
@@ -471,13 +477,19 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     reconcile: async (): Promise<void> => {
       const d = deps();
       if (!d || w.projectId() === undefined) return;
+      // Restore the binding an earlier reload wrongly cleared on a host ticket (T1121); never throws into activation.
+      try {
+        repairHostSessions({ store: w.store, live: () => liveTickets().map((t) => t.id), owns: controls, info: w.info });
+      } catch (err) {
+        w.logError('karst: host session repair failed', err);
+      }
       await runSandboxReconcile({
         inventory: async () => {
           const inventory = await inventoryOf(d);
           w.onInventory?.(inventory);
           return inventory;
         },
-        live: liveTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
+        live: reconcileTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
         sweepStrays: async (inv) => {
           const sd = { projectRoot: d.projectRoot, docker: d.dockerProc ?? NODE_DOCKER_PROCESS, liveTicketIds: new Set(liveTickets().map((t) => t.id)) };
           const strays = await findStrays(sd, inv);

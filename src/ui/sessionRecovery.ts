@@ -466,3 +466,21 @@ export function shouldApplySessionHookState(
   if (!lifecycle.isCurrentHook(ticketId, payload.launchId)) return false;
   return payload.hook_event_name !== 'SessionEnd' || !sessions.isOpen(ticketId);
 }
+
+/**
+ * Hook generation check that first adopts a revived terminal (arch:AC-37). After a reload the
+ * restored terminal is adopted lazily, so a turn-end hook can arrive before anything adopted it
+ * and would be refused. With no active launch, give `adopt` one chance (it may adopt the
+ * restored session and its launch id), then check again. A hook of any other launch stays refused.
+ */
+export function isCurrentHookAfterAdopt(
+  lifecycle: Pick<SessionRecoveryLifecycle, 'isCurrentHook' | 'currentLaunchId'>,
+  adopt: (ticketId: number) => void,
+  ticketId: number,
+  launchId: string | undefined,
+): boolean {
+  if (lifecycle.isCurrentHook(ticketId, launchId)) return true;
+  if (launchId === undefined || lifecycle.currentLaunchId(ticketId) !== undefined) return false;
+  adopt(ticketId);
+  return lifecycle.isCurrentHook(ticketId, launchId);
+}

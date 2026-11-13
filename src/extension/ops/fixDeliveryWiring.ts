@@ -105,6 +105,8 @@ export interface FixDeliveryWiring {
   pointAtLaunch: (ticketId: number, launchId: string) => 'sent' | 'unsendable' | 'no-row';
   /** Hook channel: the delivery id the turn-end reply may point at, if any. */
   eligible: (ticketId: number) => number | null;
+  /** A current row is armed and not yet read or pointed, eligible or not: the hook log names it when `eligible` is null. */
+  armed: (ticketId: number) => boolean;
   claimPointed: (ticketId: number, deliveryId: number) => boolean;
 }
 
@@ -160,6 +162,12 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       if (!stuck || !writeFixBrief(deps, id, deliveryId)) return null;
       return `inbox/${inboxRef(fixPointer(deliveryId))}.md`;
     },
+    hostUnsendable: (id, deliveryId) => {
+      if (isSandboxChannel(deps.sessionChannel(id))) return null;
+      if (!deps.isLive(id)) return 'no live agent session in this window';
+      const row = getFixDelivery(deps.store, deliveryId);
+      return row !== null && hasPendingFixIntent(deps.store, row.launchId) ? 'the fix launch is still starting' : null;
+    },
     retryAfterFailure: (id) => isSandboxChannel(deps.sessionChannel(id)),
     needsYou: (id, reason) => {
       // Only a quiet or idle agent is flagged: `running`/`waiting` are live
@@ -201,6 +209,10 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       return result === 'queued' ? 'sent' : 'unsendable';
     },
     eligible: (ticketId) => eligibleFixDelivery(host, ticketId)?.id ?? null,
+    armed: (ticketId) => {
+      const row = currentFixDelivery(deps.store, ticketId);
+      return row !== null && row.armedAt !== null && row.pointedAt === null && row.readAt === null && row.pointerFailedAt === null;
+    },
     claimPointed: (ticketId, deliveryId) => {
       void ticketId;
       return claimPointed(deps.store, deliveryId, now());
