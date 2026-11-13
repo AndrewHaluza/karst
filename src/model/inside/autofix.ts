@@ -15,7 +15,10 @@ export type AutofixKind = 'conflicts' | 'ci';
 /** The problem a park or a round is about, as the host resolved it. */
 export interface AutofixTarget {
   readonly kind: AutofixKind;
+  /** The repo key the host actions use (a path). Show `repoLabel` instead. */
   readonly repo: string;
+  /** The manifest repo name for display. Absent → `repo`. */
+  readonly repoLabel?: string;
   readonly pr: number | null;
   /** The failing check (CI only). */
   readonly check: string | null;
@@ -36,13 +39,22 @@ export interface AutofixFacts {
   readonly reason: string | null;
   readonly round: AutofixRound | null;
   readonly stopAfter: boolean;
-  /** `repo #n` labels of open PRs whose CI status is unknown or unreadable. */
+  /** `repo #n` labels of open PRs whose CI status is missing, unreadable or unknown. The engine waits and does not count a pass. */
   readonly unknownCi: readonly string[];
+  /** Open PRs whose CI rollup is readable and still has pending checks. The engine waits on these too. */
+  readonly pendingCi: readonly AutofixPendingCi[];
   readonly target: AutofixTarget | null;
   /** One line per attempt, oldest first (the banner's collapsed history). */
   readonly history?: readonly string[];
   /** Every armed round of both kinds, oldest first, with the time of its Autopilot note (the Auto-fix row's attempt rows). */
   readonly attempts?: readonly AutofixAttempt[];
+}
+
+/** An open PR whose checks still run: its label and the rollup counts. */
+export interface AutofixPendingCi {
+  readonly label: string;
+  readonly pending: number;
+  readonly total: number;
 }
 
 /** One `Autopilot: <kind> round n/m` note: the engine writes it when it arms a round. */
@@ -54,7 +66,7 @@ export interface AutofixAttempt {
   readonly at: string;
 }
 
-export type AutofixRowState = 'running' | 'spent' | 'paused' | 'gh-failed' | 'unknown' | 'history';
+export type AutofixRowState = 'running' | 'spent' | 'paused' | 'gh-failed' | 'unknown' | 'pending' | 'history';
 
 /** A finished attempt: `ran` while a later round runs, `fails` on a spent park (every attempt failed). */
 export interface AutofixAttemptRow {
@@ -96,7 +108,10 @@ const SANDBOX_WORD = /sandbox/i;
 const NOT_RUN = /^auto-fix not run:/;
 const SANDBOXED = 'auto-fix not run: sandboxed ticket';
 
-const prLabel = (t: AutofixTarget): string => (t.pr === null ? t.repo : `${t.repo} #${t.pr}`);
+const prLabel = (t: AutofixTarget): string => {
+  const repo = t.repoLabel ?? t.repo;
+  return t.pr === null ? repo : `${repo} #${t.pr}`;
+};
 /** ` on web #421`, or nothing when the host could not name the PR. */
 const onPr = (t: AutofixTarget): string => (prLabel(t) === '' ? '' : ` on ${prLabel(t)}`);
 const capitalize = (s: string): string => (s === '' ? s : `${s[0]!.toUpperCase()}${s.slice(1)}`);
@@ -172,6 +187,21 @@ function parkedRow(f: AutofixFacts, reason: string): AutofixRowView {
   return { ...base, state: 'paused', message: reason.replace(/^auto-fix /, ''), attempts };
 }
 
+/** CI running: one PR shows its count, several PRs show the labels only. */
+function pendingMessage(pending: readonly AutofixPendingCi[]): string {
+  const only = pending.length === 1 ? pending[0]! : null;
+  return only ? `CI running for ${only.label} (${only.pending} of ${only.total} pending)` : `CI running for ${pending.map((p) => p.label).join(', ')}`;
+}
+
+/** The row for a ticket that waits on CI, or null when no open PR waits. */
+function waitingRow(f: AutofixFacts): AutofixRowView | null {
+  if (f.unknownCi.length === 0 && f.pendingCi.length === 0) return null;
+  const base = { attempts: finishedAttempts(f, null), steps: [], stopAfterRequested: false } as const;
+  if (f.unknownCi.length === 0) return { ...base, state: 'pending', message: `${pendingMessage(f.pendingCi)}. Auto-fix waits.` };
+  const unknown = `CI status unknown for ${f.unknownCi.join(', ')}. Auto-fix waits; not counted as pass.`;
+  return { ...base, state: 'unknown', message: f.pendingCi.length === 0 ? unknown : `${unknown.slice(0, -1)}; CI running for ${f.pendingCi.map((p) => p.label).join(', ')}.` };
+}
+
 /**
  * The Auto-fix row's reading, or null when the row is omitted: autopilot must apply to the ticket, and a round, a park, an attempt
  * on record or an unknown CI status gives it something to say. A running round wins over a stale park.
@@ -180,16 +210,9 @@ export function autofixRow(f: AutofixFacts): AutofixRowView | null {
   if (!f.effective) return null;
   if (f.round) return runningRow(f, f.round);
   if (f.reason !== null && f.reason.startsWith('auto-fix')) return parkedRow(f, f.reason);
-  // Unknown CI status is never a pass (@arch:GH-03): the row says the engine waits.
-  if (f.unknownCi.length > 0) {
-    return {
-      state: 'unknown',
-      message: `CI status unknown for ${f.unknownCi.join(', ')}. Auto-fix waits; not counted as pass.`,
-      attempts: finishedAttempts(f, null),
-      steps: [],
-      stopAfterRequested: false,
-    };
-  }
+  // Unknown or pending CI is never a pass (@arch:GH-03): the row says the engine waits. Unknown wins over pending.
+  const waiting = waitingRow(f);
+  if (waiting) return waiting;
   // Earlier attempts alone still give the row: it lists them and states no result it cannot prove.
   const earlier = finishedAttempts(f, null);
   if (earlier.length > 0) {

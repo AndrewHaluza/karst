@@ -9,6 +9,7 @@ const BASE: AutofixFacts = {
   round: null,
   stopAfter: false,
   unknownCi: [],
+  pendingCi: [],
   target: null,
 };
 
@@ -109,6 +110,24 @@ describe('autofixRow', () => {
   it('words an unknown CI status as waiting, never as a pass', () => {
     const row = autofixRow({ ...BASE, unknownCi: ['api #88'] });
     expect(row).toMatchObject({ state: 'unknown', message: 'CI status unknown for api #88. Auto-fix waits; not counted as pass.' });
+  });
+
+  it('words a pending-only rollup as CI running with the count, never as a pass', () => {
+    const row = autofixRow({ ...BASE, pendingCi: [{ label: 'extention #1056', pending: 4, total: 14 }] });
+    expect(row).toMatchObject({ state: 'pending', message: 'CI running for extention #1056 (4 of 14 pending). Auto-fix waits.' });
+  });
+
+  it('joins several pending labels with a comma and drops the count', () => {
+    const row = autofixRow({ ...BASE, pendingCi: [{ label: 'api #1', pending: 1, total: 2 }, { label: 'web #2', pending: 3, total: 5 }] });
+    expect(row).toMatchObject({ state: 'pending', message: 'CI running for api #1, web #2. Auto-fix waits.' });
+  });
+
+  it('lets unknown win over pending and lists the pending labels after it', () => {
+    const row = autofixRow({ ...BASE, unknownCi: ['api #88'], pendingCi: [{ label: 'web #2', pending: 1, total: 2 }] });
+    expect(row).toMatchObject({
+      state: 'unknown',
+      message: 'CI status unknown for api #88. Auto-fix waits; not counted as pass; CI running for web #2.',
+    });
   });
 
   it('keeps an unknown park reason visible', () => {
