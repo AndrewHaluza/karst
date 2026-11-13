@@ -110,9 +110,11 @@ A reinstall must land the source's current contents and nothing else. Overlaying
 END_DOC_BLOCK: [@arch:APP-05]
 
 ## [@arch:APP-06] Untrusted-source hardening
-covers: src/approaches/sanitize.ts#sanitizeFrontmatter
+covers: src/approaches/sanitize.ts#sanitizeFrontmatter, src/approaches/npmCommand.ts#withCommandConsent
 
-`sanitizeFrontmatter` (`approaches/sanitize.ts`) strips dangerous permission frontmatter (`permissionMode: bypassPermissions`, `allowed-tools`, `dangerously-*`) from EVERY fetched body at install (in `assembleAndWrite`) so materialization can't silently grant bypass — karst's own `--settings` stays the sole permission authority.
+`sanitizeFrontmatter` (`approaches/sanitize.ts`) applies an allowlist to EVERY fetched body at install (in `assembleAndWrite`). It keeps only `name`, `description`, `context` and `argument-hint`; it removes every other top-level key with its nested block (`hooks`, `mcpServers`, `permissionMode`, `allowed-tools`, quoted keys). It strips a leading BOM and accepts CRLF. Karst's own `--settings` stays the sole permission authority.
+
+The GitHub contents URL (`contentsUrl` in `approaches/fetch.ts`) accepts only an `owner/name` repo, encodes each path segment and the ref, and refuses `..`. An npm-source command runs only after the user approves its exact text (`withCommandConsent`); a changed text asks again. The command env has no `GH_TOKEN`, `GITHUB_TOKEN` or other secret-like variable.
 END_DOC_BLOCK: [@arch:APP-06]
 ## [@arch:APP-07] An approach body may NEVER block on the user inside a driven stage
 covers: src/agents/skillBlockingDirective.test.ts

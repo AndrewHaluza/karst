@@ -187,6 +187,25 @@ function parseContentsPayload(raw: unknown, repo: string, path: string): Content
   return [single];
 }
 
+const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+/**
+ * Build the contents-API URL. `repo` must be `owner/name`; each path segment
+ * and the ref are percent-encoded so `&`, `#`, `?` cannot change the request.
+ * A `..` segment is refused.
+ */
+export function contentsUrl(repo: string, path: string, ref: string): string {
+  if (!REPO_PATTERN.test(repo)) {
+    throw new ApproachInstallError(`invalid GitHub repo "${repo}": expected owner/name`);
+  }
+  const segments = path.split('/').filter((s) => s !== '');
+  if (segments.includes('..') || path.split(/[\\/]/).includes('..')) {
+    throw new ApproachInstallError(`source path must not contain "..": "${path}"`);
+  }
+  const encodedPath = segments.map(encodeURIComponent).join('/');
+  return `${GITHUB_API_BASE}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`;
+}
+
 async function fetchContents(
   fetchFn: FetchLike,
   repo: string,
@@ -194,7 +213,7 @@ async function fetchContents(
   ref: string,
   hasToken: boolean,
 ): Promise<ContentsEntry[]> {
-  const url = `${GITHUB_API_BASE}/${repo}/contents/${path}?ref=${ref}`;
+  const url = contentsUrl(repo, path, ref);
   let res: Response;
   try {
     res = await fetchFn(url, { headers: REQUEST_HEADERS });

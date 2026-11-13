@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
-import type { RunCommand } from './fetch.js';
+import { ApproachInstallError, type RunCommand } from './fetch.js';
 
 export const NPM_COMMAND_TIMEOUT_MS = 5 * 60 * 1_000;
 export const NPM_COMMAND_MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -16,6 +16,35 @@ export interface NpmCommandOptions {
 interface ActiveCommand {
   cancel(): void;
   done: Promise<void>;
+}
+
+/** Env names that carry a credential: GitHub tokens plus any token/secret/key-like name. */
+const SECRET_ENV_PATTERN = /^(GH_TOKEN|GITHUB_TOKEN)$|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_?KEY|PRIVATE_?KEY/i;
+
+/** A copy of `env` without GH_TOKEN, GITHUB_TOKEN and other secret-like variables. */
+export function scrubSecretEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !SECRET_ENV_PATTERN.test(name)));
+}
+
+/**
+ * Wrap a runner so a command text runs only after `confirm` approves it. The
+ * approval is remembered per exact command text; a changed command asks again.
+ * A declined command is never run.
+ */
+export function withCommandConsent(
+  run: RunCommand,
+  confirm: (command: string) => Promise<boolean>,
+  approved: Set<string> = new Set(),
+): RunCommand {
+  return async (command, cwd) => {
+    if (!approved.has(command)) {
+      if (!(await confirm(command))) {
+        throw new ApproachInstallError(`command not approved, so it did not run: ${command}`);
+      }
+      approved.add(command);
+    }
+    return run(command, cwd);
+  };
 }
 
 const activeCommands = new Set<ActiveCommand>();
@@ -67,6 +96,7 @@ export function runNpmCommand(
         cwd,
         shell: true,
         detached: true,
+        env: scrubSecretEnv(process.env),
       });
     } catch (error) {
       settle(1, error instanceof Error ? error.message : String(error));

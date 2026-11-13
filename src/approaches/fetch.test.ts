@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   installApproach,
+  contentsUrl,
   ApproachInstallError,
   type FetchLike,
   type RunCommand,
@@ -929,5 +930,21 @@ describe('installApproach — GitHub auth', () => {
       githubToken: TOKEN,
     }).then(() => new Error('did not throw'), (e: unknown) => e as Error);
     expect(withToken.message).not.toContain('private repo');
+  });
+});
+
+describe('contentsUrl', () => {
+  it('encodes the ref and each path segment', () => {
+    const url = contentsUrl('o/r', 'a b/c#d', 'x&y#z');
+    expect(url).toBe('https://api.github.com/repos/o/r/contents/a%20b/c%23d?ref=x%26y%23z');
+  });
+
+  it('refuses a path with ..', () => {
+    expect(() => contentsUrl('o/r', 'a/../b', 'main')).toThrow(/\.\./);
+  });
+
+  it('refuses a repo that is not owner/name', () => {
+    expect(() => contentsUrl('o/r/../x', 'a', 'main')).toThrow(/invalid GitHub repo/);
+    expect(() => contentsUrl('o/r?x=1', 'a', 'main')).toThrow(/invalid GitHub repo/);
   });
 });
