@@ -86,6 +86,27 @@ describe('runBootSweeps', () => {
     expect(m.sweepHookSettings).toHaveBeenCalledWith('/g');
   });
 
+  it('reports the repaired stale autopilot parks, only when some were repaired (T1122)', async () => {
+    m.repairStaleAutopilotParks.mockReturnValue(0);
+    const quiet = deps();
+    await runBootSweeps(quiet);
+    expect(m.repairStaleAutopilotParks).toHaveBeenCalledWith(store);
+    expect(quiet.info).not.toHaveBeenCalled();
+    m.repairStaleAutopilotParks.mockReturnValue(2);
+    const d = deps();
+    await runBootSweeps(d);
+    expect(d.info).toHaveBeenCalledWith('karst: cleared 2 stale autopilot park record(s)');
+  });
+
+  it('logs a failed autopilot park repair and keeps booting (T1122)', async () => {
+    const boom = new Error('db locked');
+    m.repairStaleAutopilotParks.mockImplementation(() => { throw boom; });
+    const d = deps();
+    await runBootSweeps(d);
+    expect(d.logError).toHaveBeenCalledWith('karst: stale autopilot park repair failed', boom);
+    expect(d.info).not.toHaveBeenCalled();
+  });
+
   it('reports swept hook settings only when some were swept', async () => {
     m.sweepHookSettings.mockReturnValue(3);
     const d = deps();
