@@ -71,6 +71,11 @@ export interface Variant {
   readonly skipLayout?: boolean;
   /** Screenshot viewport width override (px); absent = the project default. */
   readonly width?: number;
+  /**
+   * Screenshot capture mode. Absent = a full-page shot. `viewport` = the visible viewport only, for a fixed overlay
+   * whose full-page shot would also record the height of the page below it (@ui:VISUAL-VARIANTS).
+   */
+  readonly capture?: CaptureMode;
   /** Screenshot viewport height override (px): a short window puts an open popover's trigger near the bottom edge. */
   readonly viewportHeight?: number;
   /** Dashboard drill-downs: pill names clicked, in order, after the page loads (the restored artifact index shows the pills). */
@@ -85,6 +90,13 @@ export interface Variant {
   readonly click?: string;
   /** Dashboard baseline review: selectors clicked in order after load (open the overlay, then reach a state). */
   readonly clicks?: readonly string[];
+}
+
+export type CaptureMode = 'viewport';
+
+/** The Playwright `fullPage` option for a variant: only a `capture: 'viewport'` variant is not full-page. */
+export function screenshotFullPage(v: Pick<Variant, 'capture'>): boolean {
+  return v.capture !== 'viewport';
 }
 
 /** The interaction steps of a ticket-details drawer variant: open it from the doc icon, then pick a tab. */
@@ -112,6 +124,7 @@ function variant(
     themes?: readonly string[];
     skipLayout?: boolean;
     width?: number;
+    capture?: CaptureMode;
     viewportHeight?: number;
     pills?: readonly string[];
     agentPopover?: AgentPopoverSteps;
@@ -128,6 +141,7 @@ function variant(
     corpus,
     ...(opts.skipLayout ? { skipLayout: true } : {}),
     ...(opts.width === undefined ? {} : { width: opts.width }),
+    ...(opts.capture === undefined ? {} : { capture: opts.capture }),
     ...(opts.viewportHeight === undefined ? {} : { viewportHeight: opts.viewportHeight }),
     ...(opts.pills === undefined ? {} : { pills: opts.pills }),
     ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
@@ -341,7 +355,7 @@ const DETAILS_TABS: Readonly<Record<string, readonly (TicketDetailsSteps['tab'] 
   rich: [undefined, 'desc', 'raw'], draft: [undefined, 'raw'], plain: [undefined, 'raw'], empty: [undefined],
 };
 
-/** T1060: the four states x their tabs at wide, mid and narrow. The drawer is a fixed overlay: no layout run of its own. */
+/** T1060: the four states x their tabs at wide, mid and narrow. The drawer is a fixed overlay: no layout run of its own, and the shot is the viewport, not the page below it. */
 const ticketDetailsVariants = (): Variant[] =>
   DETAILS_STATES.flatMap(([name, patch]) =>
     (DETAILS_TABS[name] ?? []).flatMap((tab) =>
@@ -349,6 +363,7 @@ const ticketDetailsVariants = (): Variant[] =>
         variant('dashboard', `ticket-details-${name}${tab ? `-${tab}` : ''}-${tier}`, dashboardScenario('running', 2, patch), {
           skipLayout: true,
           width,
+          capture: 'viewport',
           ticketDetails: tab ? { tab } : {},
         }),
       ),

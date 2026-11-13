@@ -122,6 +122,7 @@ layout target. `buildFixture.ts` writes `<theme>/<view>--<variant>.html` for eac
 - **Baseline names**: legacy names are kept (`sidebar.png`, `dashboard-running.png` for dashboard `populated`, `agents-*.png`); new ones are `<view>--<variant>.png`.
 - **`error` without a host failure state**: gettingStarted has none, so its `error` variant is the fresh checklist; replace it when a failure state exists.
 - **Not covered**: the doctor has no webview (`src/ui/doctor/host.ts` only), so it is not in `WEBVIEW_NAMES`.
+- **Capture mode**: a variant is a full-page shot by default. A variant of a fixed overlay sets `capture: 'viewport'` and the shot is the viewport (`fullPage: false`, `screenshotFullPage` in `variants.ts`). A full-page shot of a fixed overlay also records the height of the page below it, so every dashboard height change moved all 24 `ticket-details-*` baselines (T1060, T1064, T1069). The dashboard keeps its own full-page variants, so its height stays covered. Only the ticket-details drawer uses it. If the drawer scrolls inside itself, the viewport shows its top.
 - **Adding a variant**: add it to the registry, run `npm run -s test:visual:docker:update`, review the new PNGs only, run `npm run -s test:layout:docker` and ledger new failures with the owner's approval. `variants.test.ts` names what is missing.
 END_DOC_BLOCK: [@ui:VISUAL-VARIANTS]
 
