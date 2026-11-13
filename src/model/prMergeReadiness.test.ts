@@ -354,6 +354,16 @@ describe('blocking helpers', () => {
       expect(r.headline).toBe('Merge not confirmed');
     });
 
+    it.each(['unknown', 'has_hooks'] as const)('keeps the note when GitHub answers %s (not confirmed, not ready)', (mergeBlock) => {
+      const r = read(pr({ canMerge: true, mergeBlock, checks: optional }), undefined, offers);
+      expect(r.ready).toBe(false);
+      expect(r.headline).toBe('Merge not confirmed');
+      expect(of('checks', r).state).toBe('note');
+      expect(of('checks', r).list).toEqual([{ text: 'lint', url: 'https://ci/2' }]);
+      expect(of('checks', r).action).toEqual({ act: 'send-ci-failure', label: 'Send CI failure' });
+      expect(blockingCount(r)).toBe(0);
+    });
+
     it('stays blocking when a required check fails', () => {
       const r = read(pr({ checks: failing }), undefined, offers);
       expect(r.ready).toBe(false);

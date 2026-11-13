@@ -157,6 +157,13 @@ interface PrReadinessProps {
 export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onMergeToggle }: PrReadinessProps) {
   const { readiness } = p;
   if (p.status === 'merged' || p.dismissed) return null;
+  const notes = (
+    <ul className="prblock-list prblock-notes">
+      {readiness.reasons.map((r) => (
+        <ReasonRow key={r.kind} r={r} repo={p.repo} ciBusy={ciBusy} open={mergeOpen} onToggle={onMergeToggle} />
+      ))}
+    </ul>
+  );
   if (readiness.ready) {
     return (
       <>
@@ -167,19 +174,15 @@ export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onM
           <b>{readiness.headline}</b>
           <span className="prready-facts">{readiness.facts}</span>
         </div>
-        {readiness.reasons.length > 0 ? (
-          <ul className="prblock-list prblock-notes">
-            {readiness.reasons.map((r) => (
-              <ReasonRow key={r.kind} r={r} repo={p.repo} ciBusy={ciBusy} open={mergeOpen} onToggle={onMergeToggle} />
-            ))}
-          </ul>
-        ) : null}
+        {readiness.reasons.length > 0 ? notes : null}
       </>
     );
   }
   if (readiness.reasons.length === 0) return null;
   const blockers = readiness.reasons.filter(isBlocking);
   const n = blockers.length;
+  // Notes only (GitHub did not confirm the merge, so the PR is not ready): show the notes, not an empty blocked box.
+  if (n === 0) return notes;
   if (n >= 2) {
     return (
       <details

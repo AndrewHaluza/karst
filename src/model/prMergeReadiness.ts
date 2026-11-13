@@ -293,6 +293,7 @@ export function prMergeReadiness(
     reasons.push({ kind: 'github-rule', state: 'bad', label: 'Blocked by a GitHub rule', short: 'GitHub rule', detail: FALLBACK_DETAIL, ...(action ? { action } : {}) });
   }
 
+  const notes = reasons.filter((r) => r.state === 'note');
   const problem = reasons.some((r) => isBad(r) || r.state === 'run');
   // GitHub answers `unstable` when only optional checks fail: the checks note explains it, and GitHub merges it.
   const unstableNoted = pr.mergeBlock === 'unstable' && reasons.some((r) => r.kind === 'checks' && r.state === 'note');
@@ -303,7 +304,7 @@ export function prMergeReadiness(
       ready: false,
       headline: 'Merge not confirmed',
       facts: `GitHub: ${pr.mergeBlock === 'unknown' ? 'no answer yet' : pr.mergeBlock}`,
-      reasons: [],
+      reasons: notes,
     };
   }
   if (pr.canMerge && (pr.mergeBlock === 'clean' || unstableNoted)) {
@@ -317,7 +318,7 @@ export function prMergeReadiness(
       ready: true,
       headline: 'Ready to merge',
       facts: `${approved}${passed} · GitHub: ${pr.mergeBlock}${clean}`,
-      reasons: reasons.filter((r) => r.state === 'note'),
+      reasons: notes,
     };
   }
   // ok-state reasons are shown only beside a problem; a lone "Checks passed" explains nothing.
@@ -325,7 +326,7 @@ export function prMergeReadiness(
     ready: false,
     headline: 'Merge blocked',
     facts: '',
-    reasons: problem ? reasons : [],
+    reasons: problem ? reasons : notes,
   };
 }
 

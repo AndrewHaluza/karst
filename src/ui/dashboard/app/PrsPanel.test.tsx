@@ -499,4 +499,13 @@ describe('PrsPanel — a non-blocking optional-checks note', () => {
     expect(document.querySelector('.prblock')).toBeNull();
     expect(document.body.textContent).not.toContain('blocked ·');
   });
+
+  it('shows only the note, no blocked box, when GitHub did not confirm the merge', () => {
+    const r = note();
+    mount(stateWith([pr({ readiness: { ...r, ready: false, headline: 'Merge not confirmed', facts: 'GitHub: no answer yet' } })]));
+    expect(document.querySelector('li.prsn.prsn-note[data-kind="checks"]')).not.toBeNull();
+    expect(texts('.prsn-line button')).toEqual(['Send CI failure']);
+    expect(document.querySelector('.prblock')).toBeNull();
+    expect(document.querySelector('.prready')).toBeNull();
+  });
 });
