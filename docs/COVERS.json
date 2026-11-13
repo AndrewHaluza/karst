@@ -196,6 +196,9 @@
   "src/approaches/fetch.ts#installApproach": [
     "arch:APP-01"
   ],
+  "src/approaches/npmCommand.ts#withCommandConsent": [
+    "arch:APP-06"
+  ],
   "src/approaches/outputScan.ts#scanOutputSuggestions": [
     "arch:APP-10"
   ],
