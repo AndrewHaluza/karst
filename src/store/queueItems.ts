@@ -134,10 +134,14 @@ function draftEdges(store: Store, p: PlanningProposal, inSet: ReadonlySet<string
   return { edges, waits };
 }
 
+/** `created_at` is the queue age: the oldest accepted draft's time, else the ticket's own (`@arch:QUEUE-ORDER`). */
 function readTickets(store: Store, projectId: number): TicketRow[] {
   return store.db
     .prepare(
-      `SELECT id, COALESCE(title, key, '') AS title, priority, priority_override, source, source_ref, created_at FROM tickets
+      `SELECT id, COALESCE(title, key, '') AS title, priority, priority_override, source, source_ref,
+             COALESCE((SELECT MIN(pp.created_at) FROM planning_proposals pp
+                        WHERE pp.status = 'accepted' AND pp.ticket_id = tickets.id), created_at) AS created_at
+        FROM tickets
         WHERE project_id = ? AND archived_at IS NULL AND subtask_parent_id IS NULL
           AND stage_current = ?
         ORDER BY id`,
