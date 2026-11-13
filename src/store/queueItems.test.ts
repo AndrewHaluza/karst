@@ -132,6 +132,63 @@ describe('readProjectQueue', () => {
     expect(entry.waitsOn).toEqual([`T${own}`]);
   });
 
+  describe('queue age of a ticket from an accepted draft', () => {
+    const setDraftAge = (id: number, at: string): void => {
+      store.db.prepare('UPDATE planning_proposals SET created_at = ? WHERE id = ?').run(at, id);
+    };
+    const setTicketAge = (id: number, at: string): void => {
+      store.db.prepare('UPDATE tickets SET created_at = ? WHERE id = ?').run(at, id);
+    };
+
+    it('keeps the first place of an accepted draft before the older-first drafts that follow', () => {
+      const a = insertProposal(store, s1, payload);
+      const b = insertProposal(store, s1, payload);
+      const c = insertProposal(store, s1, payload);
+      setDraftAge(a, '2026-01-01 10:00:00');
+      setDraftAge(b, '2026-01-01 11:00:00');
+      setDraftAge(c, '2026-01-01 12:00:00');
+      const t = ticket('ACC', 'scope');
+      setTicketAge(t, '2026-01-02 09:00:00');
+      markProposalAccepted(store, a, t);
+      expect(ids()).toEqual([`T${t}`, `D${b}`, `D${c}`]);
+    });
+
+    it('places the ticket between older and newer manual tickets by the draft time', () => {
+      const older = ticket('OLD', 'scope');
+      const newer = ticket('NEW', 'scope');
+      const accepted = ticket('ACC', 'scope');
+      const d = insertProposal(store, s1, payload);
+      markProposalAccepted(store, d, accepted);
+      setTicketAge(older, '2026-01-01 08:00:00');
+      setDraftAge(d, '2026-01-01 09:00:00');
+      setTicketAge(newer, '2026-01-01 10:00:00');
+      setTicketAge(accepted, '2026-01-05 00:00:00');
+      expect(ids()).toEqual([`T${older}`, `T${accepted}`, `T${newer}`]);
+    });
+
+    it('uses the oldest created_at when more than one accepted draft names the ticket', () => {
+      const other = ticket('OTH', 'scope');
+      const accepted = ticket('ACC', 'scope');
+      const d1 = insertProposal(store, s1, payload);
+      const d2 = insertProposal(store, s1, payload);
+      markProposalAccepted(store, d1, accepted);
+      markProposalAccepted(store, d2, accepted);
+      setDraftAge(d1, '2026-01-01 12:00:00');
+      setDraftAge(d2, '2026-01-01 08:00:00');
+      setTicketAge(other, '2026-01-01 10:00:00');
+      setTicketAge(accepted, '2026-01-05 00:00:00');
+      expect(ids()).toEqual([`T${accepted}`, `T${other}`]);
+    });
+
+    it('orders a ticket with no source draft by tickets.created_at', () => {
+      const late = ticket('LATE', 'scope');
+      const early = ticket('EARLY', 'scope');
+      setTicketAge(late, '2026-01-03 00:00:00');
+      setTicketAge(early, '2026-01-02 00:00:00');
+      expect(ids()).toEqual([`T${early}`, `T${late}`]);
+    });
+  });
+
   it('leaves out other projects, sub-tasks, archived and started tickets', () => {
     const other = upsertProject(store, { slug: 'q' }).id;
     insertProposal(store, createPlanningSession(store, { projectId: other, title: 'o', core: 'claude', model: null }).id, payload);
