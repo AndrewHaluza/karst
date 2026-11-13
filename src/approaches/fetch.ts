@@ -195,7 +195,7 @@ const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
  * A `..` segment is refused.
  */
 export function contentsUrl(repo: string, path: string, ref: string): string {
-  if (!REPO_PATTERN.test(repo)) {
+  if (!REPO_PATTERN.test(repo) || repo.split('/').some((part) => /^\.+$/.test(part))) {
     throw new ApproachInstallError(`invalid GitHub repo "${repo}": expected owner/name`);
   }
   const segments = path.split('/').filter((s) => s !== '');

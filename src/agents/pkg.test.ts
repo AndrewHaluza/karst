@@ -92,6 +92,15 @@ describe('writeAgentFile sanitization', () => {
   });
 });
 
+describe('writeAgentFile keeps user keys', () => {
+  it('keeps model and tools, drops permission keys', () => {
+    const dir = makeAgentsDir();
+    writeAgentFile(dir, 'mine', '---\nname: mine\nmodel: opus\ntools: Read, Grep\npermissionMode: acceptEdits\n---\nB');
+    const onDisk = readFileSync(join(dir, 'mine.md'), 'utf8');
+    expect(onDisk).toBe('---\nname: mine\nmodel: opus\ntools: Read, Grep\n---\nB');
+  });
+});
+
 describe('unsafe name guard', () => {
   it('throws on write for an unsafe name', () => {
     const dir = makeAgentsDir();

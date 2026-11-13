@@ -25,6 +25,21 @@ export const ALLOWED_FRONTMATTER_KEYS: readonly string[] = [
 
 const BOM = '﻿';
 
+/** Permission keys a user-authored file may not carry (karst's `--settings` is the permission authority). */
+const PERMISSION_KEYS = [
+  'permissionmode',
+  'permission-mode',
+  'permissions',
+  'allowedtools',
+  'allowed-tools',
+  'disallowedtools',
+  'disallowed-tools',
+];
+
+function isPermissionKey(key: string): boolean {
+  return PERMISSION_KEYS.includes(key) || key.startsWith('allow-dangerously') || key.startsWith('dangerously');
+}
+
 /** The key of a top-level line (plain or quoted), lowercased; undefined if the line starts no key. */
 function topLevelKey(line: string): string | undefined {
   const match = /^(?:"([^"]*)"|'([^']*)'|([^\s:#'"-][^:]*?))\s*:(?:\s|$)/.exec(line);
@@ -40,6 +55,19 @@ function topLevelKey(line: string): string | undefined {
  * is removed.
  */
 export function sanitizeFrontmatter(body: string): string {
+  return filterFrontmatter(body, (key) => key !== undefined && ALLOWED_FRONTMATTER_KEYS.includes(key));
+}
+
+/**
+ * For a file the USER wrote (Local agent Save): drop only the permission keys
+ * and keep every other key (`model`, `tools`, `color`, ...). Untrusted fetched
+ * content goes through `sanitizeFrontmatter` instead.
+ */
+export function stripPermissionFrontmatter(body: string): string {
+  return filterFrontmatter(body, (key) => key === undefined || !isPermissionKey(key));
+}
+
+function filterFrontmatter(body: string, keepKey: (key: string | undefined) => boolean): string {
   const text = body.startsWith(BOM) ? body.slice(BOM.length) : body;
   const lines = text.split('\n');
   const eol = (l: string): string => (l.endsWith('\r') ? '\r' : '');
@@ -61,7 +89,7 @@ export function sanitizeFrontmatter(body: string): string {
     const continuation = /^\s/.test(line) || line.trim() === '' || line.startsWith('- ');
     if (!continuation) {
       const key = topLevelKey(line);
-      keeping = key !== undefined && ALLOWED_FRONTMATTER_KEYS.includes(key);
+      keeping = keepKey(key);
     }
     if (keeping) kept.push(line);
   }

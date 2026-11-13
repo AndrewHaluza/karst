@@ -945,6 +945,8 @@ describe('contentsUrl', () => {
 
   it('refuses a repo that is not owner/name', () => {
     expect(() => contentsUrl('o/r/../x', 'a', 'main')).toThrow(/invalid GitHub repo/);
+    expect(() => contentsUrl('../r', 'a', 'main')).toThrow(/invalid GitHub repo/);
+    expect(() => contentsUrl('o/..', 'a', 'main')).toThrow(/invalid GitHub repo/);
     expect(() => contentsUrl('o/r?x=1', 'a', 'main')).toThrow(/invalid GitHub repo/);
   });
 });
