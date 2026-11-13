@@ -139,7 +139,6 @@ import {
   type ProcessRole,
 } from './manifest/validate/processAssignments.js';
 import { runProcess } from './workflow/gates/run.js';
-import { regenerateOption } from './workflow/gates/regenerateOption.js';
 import {
   recordSessionLaunchIntent,
   failSessionLaunchIntent,
