@@ -223,7 +223,7 @@ describe('prMergeReadiness', () => {
 
   describe('autopilot', () => {
     const running = (kind: 'ci' | 'conflicts', repo: string | null): AutofixInput => ({
-      effective: true, running: { kind, repo, round: '2/3' }, parked: null, unknownCi: false,
+      effective: true, running: { kind, repo, round: '2/3' }, parked: null, unknownCi: false, pendingCi: false,
     });
 
     it('a running ci round turns the checks reason to run with no action', () => {
@@ -247,7 +247,7 @@ describe('prMergeReadiness', () => {
     });
 
     it('a park keeps the action and adds the reason', () => {
-      const parked: AutofixInput = { effective: true, running: null, parked: { kind: 'ci', reason: 'auto-fix stopped: ci budget spent' }, unknownCi: false };
+      const parked: AutofixInput = { effective: true, running: null, parked: { kind: 'ci', reason: 'auto-fix stopped: ci budget spent' }, unknownCi: false, pendingCi: false };
       const r = read(pr({ checks: failing }), undefined, offers, parked).reasons[0]!;
       expect(r.action?.act).toBe('send-ci-failure');
       expect(r.extra).toBe('auto-fix stopped: ci budget spent');
@@ -257,12 +257,19 @@ describe('prMergeReadiness', () => {
     });
 
     it('a park of the other kind adds nothing', () => {
-      const parked: AutofixInput = { effective: true, running: null, parked: { kind: 'conflicts', reason: 'x' }, unknownCi: false };
+      const parked: AutofixInput = { effective: true, running: null, parked: { kind: 'conflicts', reason: 'x' }, unknownCi: false, pendingCi: false };
       expect(read(pr({ checks: failing }), undefined, offers, parked).reasons[0]!.extra).toBeUndefined();
     });
 
+    it('pending-only CI while effective adds a pending wait line, not the unknown one', () => {
+      const wait: AutofixInput = { effective: true, running: null, parked: null, unknownCi: false, pendingCi: true };
+      const pending: PrChecks = { ...passing, state: 'pending', passed: 1, pending: 3 };
+      expect(read(pr({ checks: pending }), undefined, offers, wait).reasons[0]!.extra).toBe('Auto-fix waits for the result');
+      expect(read(pr({ checks: pending }), undefined, offers, { ...wait, effective: false }).reasons[0]!.extra).toBeUndefined();
+    });
+
     it('unknown CI while effective adds the wait line; not effective adds nothing', () => {
-      const wait: AutofixInput = { effective: true, running: null, parked: null, unknownCi: true };
+      const wait: AutofixInput = { effective: true, running: null, parked: null, unknownCi: true, pendingCi: false };
       const pending: PrChecks = { ...passing, state: 'pending', passed: 1, pending: 3 };
       expect(read(pr({ checks: pending }), undefined, offers, wait).reasons[0]!.extra).toBe('Auto-fix waits; not counted as pass');
       expect(read(pr({ checks: failing }), undefined, offers, wait).reasons[0]!.extra).toBe('Auto-fix waits; not counted as pass');
@@ -273,7 +280,7 @@ describe('prMergeReadiness', () => {
 
 describe('short summary text', () => {
   const shortOf = (r: ReturnType<typeof read>) => r.reasons.map((x) => x.short);
-  const running: AutofixInput = { effective: true, running: { kind: 'ci', repo: 'api', round: '2/3' }, parked: null, unknownCi: false };
+  const running: AutofixInput = { effective: true, running: { kind: 'ci', repo: 'api', round: '2/3' }, parked: null, unknownCi: false, pendingCi: false };
 
   it('words draft, review and GitHub rule', () => {
     expect(shortOf(read(pr({ status: 'draft', checks: null })))).toEqual(['draft']);
@@ -298,7 +305,7 @@ describe('short summary text', () => {
     const conflicts = (files: string[], a: AutofixInput = NO_AUTOFIX) => shortOf(read(pr({ checks: null }), check({ state: 'conflicted', files }), offers, a));
     expect(conflicts(['a', 'b', 'c'])).toEqual(['conflicts · 3 files']);
     expect(conflicts(['a'])).toEqual(['conflicts · 1 file']);
-    const fix: AutofixInput = { effective: true, running: { kind: 'conflicts', repo: null, round: '1/3' }, parked: null, unknownCi: false };
+    const fix: AutofixInput = { effective: true, running: { kind: 'conflicts', repo: null, round: '1/3' }, parked: null, unknownCi: false, pendingCi: false };
     expect(conflicts(['a'], fix)).toEqual(['auto-fix round 1/3 runs']);
     expect(shortOf(read(pr({ mergeBlock: 'behind', checks: null }), check({ state: 'unknown' })))).toEqual(['conflicts unknown', 'behind develop']);
   });

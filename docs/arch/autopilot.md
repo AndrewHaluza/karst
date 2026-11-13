@@ -144,5 +144,6 @@ a failing check is known optional only when the stored rollup has the required s
 - Every failure known optional and one off the allowlist: no round and no park. A stale `auto-fix` block clears, and one note is written per signature.
 - Mixed with a required failure: the allowlist test covers the required and unknown ones. The round still sends all failures.
 - `provenClean` counts a rollup with only known optional failures and 0 pending as passing.
+- The ship ticket reading `CI running` (`@arch:BLOCKED`) uses the same `required === false` flag, but with the opposite split: it needs `required.pending > 0`.
 
 END_DOC_BLOCK: [@arch:AP-07]

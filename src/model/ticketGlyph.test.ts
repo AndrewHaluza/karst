@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { TicketWithStages } from '../store/tickets.js';
 import { agentWorkingOnFailedStage, needsUser, ticketGlyph } from './ticketGlyph.js';
+import { stageBadge } from './stageBadge.js';
 
 function ticket(over: Partial<TicketWithStages>): TicketWithStages {
   return {
@@ -287,5 +288,50 @@ describe('agent working on a failed (parked) current stage', () => {
   it('closed stays gray and paused stays amber (needs-you first)', () => {
     expect(ticketGlyph(failedFix({ agentState: 'running', stageCurrent: 'closed' }))).toBe('gray');
     expect(ticketGlyph(failedFix({ agentState: 'running', pausedAt: '2026-10-31' as never }))).toBe('amber');
+  });
+});
+
+describe('ship work yields the needs-you reading of an awaiting-merge block', () => {
+  const shipAwaiting = (status: string, over: Partial<TicketWithStages> = {}): TicketWithStages =>
+    ticket({
+      stageCurrent: 'ship',
+      stages: [{ stageKey: 'ship', status, blockedKind: 'awaiting-merge' } as never],
+      ...over,
+    });
+
+  it('a running ship (re-push) reads blue and does not need the user', () => {
+    const t = shipAwaiting('running');
+    expect(needsUser(t)).toBe(false);
+    expect(ticketGlyph(t)).toBe('blue');
+    expect(stageBadge(t).label).toBe('Shipping');
+  });
+
+  it('a passed ship with a running deliver run reads blue, badge Shipping', () => {
+    const t = shipAwaiting('passed', { deliverRunning: true });
+    expect(needsUser(t)).toBe(false);
+    expect(ticketGlyph(t)).toBe('blue');
+    expect(stageBadge(t).label).toBe('Shipping');
+  });
+
+  it('a passed ship with no running deliver run stays amber', () => {
+    const t = shipAwaiting('passed', { deliverRunning: false });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+
+  it('a paused ticket stays amber', () => {
+    const t = shipAwaiting('passed', { deliverRunning: true, pausedAt: '2026-10-31' as never });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+
+  it('a waiting or not-started agent on a passed ship stays amber', () => {
+    expect(needsUser(shipAwaiting('passed', { deliverRunning: true, agentState: 'waiting' }))).toBe(true);
+    expect(needsUser(shipAwaiting('passed', { deliverRunning: true, agentState: 'not-started' }))).toBe(true);
+  });
+
+  it('a deliver run reading on a ticket not at ship is ignored', () => {
+    const t = ticket({ stageCurrent: 'uat', deliverRunning: true, stages: [{ stageKey: 'uat', status: 'pending', blockedKind: 'awaiting-merge' } as never] });
+    expect(needsUser(t)).toBe(true);
   });
 });
