@@ -1167,10 +1167,16 @@ function renderTesterContext(
   return parts.join('\n\n');
 }
 
-/** The host re-run rows of one stage, when it has any (@arch:AC-45). */
+/** The newest batch stamp of a stage among the UAT/review batch rows; null when the stage has none. */
+function latestBatchRunAt(batchRuns: readonly { stageKey: string; runAt: string }[], stageKey: string): string | null {
+  return batchRuns.reduce<string | null>((max, r) => (r.stageKey === stageKey && (max === null || r.runAt > max) ? r.runAt : max), null);
+}
+
+/** The host re-run rows of one stage and round (at or after its newest batch), when it has any (@arch:AC-45). */
 function hostRerunGatesOf(store: Store, ticketId: number, stageKey: string): { hostRerunGates?: TicketContextGate[] } {
+  const since = latestBatchRunAt(listGateRuns(store, ticketId), stageKey);
   const rows = listGateRuns(store, ticketId, { includeHostRerun: true })
-    .filter((g) => g.source === HOST_RERUN_SOURCE && g.stageKey === stageKey)
+    .filter((g) => g.source === HOST_RERUN_SOURCE && g.stageKey === stageKey && since !== null && g.runAt >= since)
     .map((g) => ({ name: g.gateName, exitCode: g.exitCode, skipped: g.skipped, summary: g.summary ?? null }));
   return rows.length > 0 ? { hostRerunGates: rows } : {};
 }

@@ -20,6 +20,19 @@ describe('diagnostic store evidence', () => {
   let store: Store | undefined
   afterEach(() => store?.close())
 
+  it('marks a host re-run gate row and leaves a batch row unmarked', () => {
+    store = openStore(':memory:')
+    const ins = store.db.prepare(
+      `INSERT INTO gate_runs (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, source)
+       VALUES (7, 'uat', 1, '2026-07-01T00:00:00.000Z', ?, 0, ?)`,
+    )
+    ins.run('batch', null)
+    ins.run('rerun', 'host-rerun')
+    const rows = readGateRuns(store, 7, 10).rows
+    expect(rows.find((r) => r.gateName === 'batch')?.hostRerun).toBeUndefined()
+    expect(rows.find((r) => r.gateName === 'rerun')?.hostRerun).toBe(true)
+  })
+
   it('retains the newest bounded gate/phase window in chronological order', () => {
     store = openStore(':memory:')
     for (let i = 1; i <= 4; i++) {

@@ -4,6 +4,7 @@ import type { GateProcessRunner } from '../workflow/gates/run.js';
 import { manifestNamesByPath } from '../workflow/gates/targets.js';
 import { regenerateOption } from '../workflow/gates/regenerateOption.js';
 import { resolveTicketBaseRef } from '../workflow/baseRef.js';
+import { defaultGitRunner } from '../integrations/git.js';
 import { canonicalPath } from '../runtime/pathScope.js';
 import { makeManifestGatesFor, type GateRerunDeps } from './ops/fixRerunOps.js';
 
@@ -29,6 +30,7 @@ export function bindGateRerunDeps(host: GateRerunHost): GateRerunDeps {
     store: host.store,
     runnerFor: (id) => host.gateProcessFor(id) ?? host.runProcess,
     hostRunner: host.runProcess,
+    git: defaultGitRunner,
     hostGateFor: (id) => host.hostGateFor(id)?.(),
     sandboxedFor: (id) => host.gateProcessFor(id) !== undefined,
     regenerateFor: (repo) => regenerateOption(host.manifest(), { repo, names: [repo] }).regenerate,

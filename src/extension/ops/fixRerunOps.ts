@@ -12,6 +12,8 @@ import { resolveReviewGates } from '../../workflow/review/gates.js';
 import { renderCitationText } from '../../model/archCitations.js';
 import type { StageKey } from '../../model/types.js';
 import { probeScripts } from '../../workflow/gates/probe.js';
+import { baseDefinesScript } from '../../workflow/gates/npmScript.js';
+import type { GitRunner } from '../../integrations/git.js';
 import { resolveTargetGates } from '../../workflow/stages/uat.js';
 import { withHostOverride } from '../../workflow/gates/resourceKill.js';
 import { getHostGates } from '../../store/ticketGates.js';
@@ -56,6 +58,10 @@ export interface GateRerunDeps {
   readonly gateSlotPollMs?: number;
   readonly debug?: (message: string) => void;
   readonly now?: () => string;
+  /** The script probe of a worktree, as UAT reads it; defaults to `probeScripts`. */
+  readonly probe?: typeof probeScripts;
+  /** Git runner for the base-ref script lookup of a stale branch; absent → no lookup. */
+  readonly git?: GitRunner;
   /** The one gate spawn path; tests inject a fake. */
   readonly runGates?: typeof runGateList;
 }
@@ -149,8 +155,12 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
   const attempt = stageAttempt(deps.store, ticketId, stage);
   const baseRef = deps.baseRefFor?.(ticketId, group.repo);
   const run = deps.runGates ?? runGateList;
+  const scriptProbe = (deps.probe ?? probeScripts)(group.path, deps.debug);
+  const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
   const res = await run(toRun, group.path, {
     now,
+    scriptsAvailable: (script, derived) => (scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived),
+    ...(deps.git && baseRef ? { baseDefinesScript: (script: string) => baseDefinesScript(deps.git as GitRunner, group.path, baseRef, script) } : {}),
     ...(baseRef ? { baseRef } : {}),
     prBody: renderCitationText(listArchCitations(deps.store, ticketId)),
     runProcess: deps.runnerFor(ticketId),

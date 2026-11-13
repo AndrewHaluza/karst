@@ -2966,6 +2966,21 @@ describe("host re-run rows in the gates list", () => {
     expect(rows).toHaveLength(2);
   });
 
+  it("hides a re-run row recorded before the shown batch (an earlier round)", () => {
+    const rows = rowsOf(
+      uatProcesses(
+        qualityInput({
+          gateRuns: batch,
+          hostRerunRuns: [
+            rerun("uat", "old (web)", 0, { runAt: "2026-07-20T11:00:00.000Z" }),
+            rerun("uat", "new (web)", 0, { runAt: "2026-07-20T12:05:00.000Z" }),
+          ],
+        }),
+      )[0]!,
+    );
+    expect(rows.map((r) => r.label)).toEqual(["test", "new"]);
+  });
+
   it("keeps the re-run rows bounded to the newest ones", () => {
     const many = Array.from({ length: 12 }, (_, i) => rerun("uat", `g${i} (web)`, 0));
     const rows = rowsOf(uatProcesses(qualityInput({ gateRuns: batch, hostRerunRuns: many }))[0]!);

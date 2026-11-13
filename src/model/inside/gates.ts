@@ -694,7 +694,7 @@ function gatesProcess(
   if (boundedRows.remaining > 0) {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
-  if (!eff.empty && !eff.historical) rows.push(...hostRerunRows(hostRerunRuns, stageKey, repoLabel));
+  if (!eff.empty && !eff.historical) rows.push(...hostRerunRows(hostRerunRuns, stageKey, repoLabel, latestBatch(runs, stageKey)[0]?.runAt ?? null));
 
   // The description IS the count, per state (the design's "6 / 6 command gates
   // passed"). A skipped gate, or one whose script the repo does not define, is

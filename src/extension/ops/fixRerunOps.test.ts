@@ -92,6 +92,21 @@ describe('makeGateRerun through runGateList', () => {
     expect(seen).toEqual([spec, undefined]);
   });
 
+  it('passes the script probe and the base-script lookup to runGateList, as UAT does', async () => {
+    let seen: { scriptsAvailable?: (s: string, d: boolean) => boolean; baseDefinesScript?: (s: string) => Promise<boolean | undefined> } = {};
+    const runGates = vi.fn(async (_g: readonly ResolvedGate[], _c: string, opts?: typeof seen) => {
+      seen = opts ?? {};
+      return { kind: 'ran' as const, results: [] };
+    });
+    const git = vi.fn(async (_args: readonly string[]) => ({ exitCode: 0, stdout: JSON.stringify({ scripts: { lint: 'x' } }), stderr: '' }));
+    const probe = () => ({ kind: 'ok' as const, scripts: { test: 'vitest' } }) as never;
+    await make(vi.fn(), { runGates, probe, git: git as never, baseRefFor: () => 'develop' })(ticketId, [failed()], 'uat');
+    expect(seen.scriptsAvailable?.('test', false)).toBe(true);
+    expect(seen.scriptsAvailable?.('lint', false)).toBe(false);
+    expect(await seen.baseDefinesScript?.('lint')).toBe(true);
+    expect(git.mock.calls[0]?.[0]).toEqual(['show', 'develop:./package.json']);
+  });
+
   it('says a regenerate row cannot be re-run when the manifest declares no commands', async () => {
     const runGates = vi.fn(async () => ({ kind: 'ran' as const, results: [] }));
     const regen = failed({ gateName: 'regenerate (web)', command: 'regenerate (web)', args: [], kind: 'regenerate' });
@@ -337,7 +352,7 @@ describe('makeGateRerun exact options, rows and results', () => {
   it('passes only the options it was given, so a bare dependency set adds none', async () => {
     const s = spy(() => undefined);
     await rerun({ runGates: s.runGates })(ticketId, [failed()], 'uat');
-    expect(Object.keys(s.calls[0]!.opts).sort()).toEqual(['now', 'onGateComplete', 'onGateOutput', 'onGateSpawned', 'onGateStart', 'prBody', 'runProcess', 'sandboxed']);
+    expect(Object.keys(s.calls[0]!.opts).sort()).toEqual(['now', 'onGateComplete', 'onGateOutput', 'onGateSpawned', 'onGateStart', 'prBody', 'runProcess', 'sandboxed', 'scriptsAvailable']);
     expect(s.calls[0]!.opts.sandboxed).toBe(false);
     expect(typeof s.calls[0]!.opts.prBody).toBe('string');
   });

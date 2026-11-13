@@ -529,6 +529,18 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
     expect(renderTicketContext(ctx)).toContain('- host re-run gates:\n  - visual: exit 0');
   });
 
+  it('drops the host re-run rows of an earlier round when a newer batch ran', () => {
+    const t = createTicket(store, { key: 'PROJ-2', title: 't' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('uat', t.id);
+    setStage(store, t.id, 'uat', { status: 'failed' });
+    const first = { ticketId: t.id, stageKey: 'uat' as const, attempt: 1, runAt: '2026-08-01T10:00:00.000Z' };
+    recordGateRun(store, { ...first, gates: [{ gateName: 'visual', exitCode: 1 }] });
+    recordGateRun(store, { ...first, source: HOST_RERUN_SOURCE, gates: [{ gateName: 'visual', exitCode: 0 }] });
+    recordGateRun(store, { ...first, attempt: 2, runAt: '2026-08-01T11:00:00.000Z', gates: [{ gateName: 'visual', exitCode: 1 }] });
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage?.hostRerunGates).toBeUndefined();
+  });
+
   it('carries the current stage, its latest gates and its findings when at review', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 't' });
     store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
