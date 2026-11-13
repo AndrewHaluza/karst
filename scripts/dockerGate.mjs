@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { baseRerunArgv, classifyFailures, classifyHeadRerun, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
 import { hasBinary } from './onPath.mjs';
+import { acquireGateSlot, leaseHeld } from './gateSlot.mjs';
 import { gitDirOf, loadPassInput, planSkip, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
 import { mergeBase } from './gateScope.mjs';
 import { gateGrep, isUiPath, parseListLayout, parseListTotal, readSettingsSections, selectViews, selectionLine, selectsLayoutRoute } from './uiViews.mjs';
@@ -352,10 +353,15 @@ async function runContainer(rawArgv, memo = null) {
   const abort = new AbortController();
   let holding = false;
   const forceRemove = () => spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+  let gateLease = null;
   const cleanup = () => {
     if (holding) release(slot);
     holding = false;
+    gateLease?.release();
+    gateLease = null;
   };
+  // Release on any exit path, including an uncaught error (arch:GATE-CONCURRENCY).
+  process.on('exit', cleanup);
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(sig, () => {
       abort.abort();
@@ -363,6 +369,20 @@ async function runContainer(rawArgv, memo = null) {
       cleanup();
       process.exit(130);
     });
+  }
+  // The host-wide `visual` lease, so an agent's own run queues behind a gate sweep. A gate run that
+  // already holds it (KARST_GATE_LEASE_HELD=1) must not wait for itself.
+  if (!leaseHeld()) {
+    try {
+      gateLease = await acquireGateSlot('visual', {
+        signal: abort.signal,
+        ticket,
+        onWait: ({ pid, ticket: holder }) =>
+          console.error(`waiting for the visual gate slot (held by ${holder ? `ticket ${holder}` : `pid ${pid ?? 'unknown'}`})`),
+      });
+    } catch {
+      process.exit(130);
+    }
   }
   // Timers only: the wait never blocks, so signals keep working while queued.
   holding = await acquireSlot(slot, {

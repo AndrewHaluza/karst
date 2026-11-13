@@ -183,15 +183,17 @@ Exit 127 is POSIX's "command not found": the binary a gate runs is not installed
 END_DOC_BLOCK: [@arch:GATE-CAPABILITY]
 
 ## [@arch:GATE-CONCURRENCY] A gate may cap how many of its runs go at once on the host
-covers: src/runtime/claimLease.ts#leaseClaimSlot, src/workflow/gates/gateLease.ts#leaseGateSlot, src/workflow/gates/runList.ts#runGateList
+covers: src/runtime/claimLease.ts#leaseClaimSlot, src/workflow/gates/gateLease.ts#leaseGateSlot, src/workflow/gates/runList.ts#runGateList, scripts/gateSlot.mjs#acquireGateSlot
 
 Reviews of different tickets ran the same heavy gate (`sast`, semgrep-core) at once and saturated the CPU. `DriverController.begin` allows one run per ticket and no limit across tickets. A gate sets `maxConcurrent` (whole number >= 1, @arch:SANDBOX-HOST lists the sibling fields) and `runGateList` leases one of that many slots before the first spawn. A gate without the field takes no lease and behaves as before.
 
-**One lease mechanism.** `runtime/claimLease.ts#leaseClaimSlot` owns the claim-directory logic (`claimFresh`, `isStale`, `reclaimStale`, the poll loop). `leasePortSlot` (@arch:PORTS) and `gates/gateLease.ts#leaseGateSlot` both call it. The claim is a `slot-<n>` directory under `$TMPDIR/karst-gate-slots/<encoded gate name>` with an `owner` file holding the host pid. A dead owner is reclaimed, so a crash cannot leak a slot. A file claim works across IDE windows; an in-memory semaphore does not.
+**One lease mechanism.** `runtime/claimLease.ts#leaseClaimSlot` owns the claim-directory logic (`claimFresh`, `isStale`, `reclaimStale`, the poll loop). `leasePortSlot` (@arch:PORTS) and `gates/gateLease.ts#leaseGateSlot` both call it. The claim is a `slot-<n>` directory under `~/.karst/gate-slots/<encoded gate name>` (`DEFAULT_GATE_SLOTS_DIR`; `KARST_GATE_SLOTS_DIR` overrides) with an `owner` file holding the host pid. The path is fixed, not `tmpdir()`: on macOS the extension host and an agent shell resolve `tmpdir()` differently and would not share the lease. A dead owner is reclaimed, so a crash cannot leak a slot. A file claim works across IDE windows; an in-memory semaphore does not.
 
 **Scope of the lease.** One slot covers every spawn of the gate: first run, host fallback and resource-kill retry. `runGateList` releases it in `finally`. It is taken before the spawn, so the wait does not count toward `DEFAULT_GATE_TIMEOUT_MS`. While every slot is held, the gate writes one line to its output stream (@arch:GATE-OUTPUT): `<gate>: waiting for a free slot (N of N in use by other tickets)`. A Stop during the wait returns `stopped` and no process spawns.
 
-Guards: `runtime/claimLease.test.ts`, `workflow/gates/runList.test.ts` "gate concurrency lease", `manifest/load.test.ts` "gate maxConcurrent". Out of scope: a limit across all gates, a Settings UI field.
+**Agent runs take the `visual` slot too.** `scripts/dockerGate.mjs` leases one slot of the `visual` pool (`scripts/gateSlot.mjs#acquireGateSlot`, the same layout and stale-owner rules in plain JS) before the Docker run. It releases the slot on exit, signal and error. An agent that runs `npm run test:visual:docker` or re-records baselines therefore queues behind a gate sweep, and the reverse. While it waits it prints one line: `waiting for the visual gate slot (held by pid N)`, or the holder's ticket when the holder wrote one. `runGateList` sets `KARST_GATE_LEASE_HELD=1` in the environment of a gate that holds its lease; the script then skips its own lease, so a gate run never waits for its own slot.
+
+Guards: `runtime/claimLease.test.ts`, `scripts/gateSlot.test.mjs`, `workflow/gates/runList.test.ts` "gate concurrency lease", `manifest/load.test.ts` "gate maxConcurrent". Out of scope: a limit across all gates, a Settings UI field.
 END_DOC_BLOCK: [@arch:GATE-CONCURRENCY]
 
 ## [@arch:UAT-OBS] UAT Tester observations are advisory BY DEFAULT, and one knob makes them a verdict
