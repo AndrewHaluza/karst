@@ -65,6 +65,27 @@ export function selectViews(changedPaths) {
   return { all: false, views: [...views].sort() };
 }
 
+/**
+ * The views of a repeat-pass delta (@arch:GATE-REPEAT). Unlike `selectViews`, a delta with no UI path
+ * selects no view: the stored run already covered the views.
+ */
+export function selectDeltaViews(paths) {
+  const ui = paths.filter(isUiPath);
+  return ui.length === 0 ? { all: false, views: [] } : selectViews(ui);
+}
+
+/**
+ * The selection of a repeat pass from the stored run (@arch:GATE-REPEAT): the views of the delta since its
+ * snapshot plus its failed tests. `scope` is `{ since, paths, failed }` from `planRepeat`. Null when it
+ * selects nothing; the caller then uses the branch diff.
+ */
+export function scopedSelection({ since, paths, failed }) {
+  const selection = selectDeltaViews(paths);
+  const carried = selection.all ? [] : failed;
+  if (!selection.all && selection.views.length === 0 && carried.length === 0) return null;
+  return { selection, failed: carried, origin: { kind: failed.length > 0 ? 'red' : 'green', since, failed: carried.length } };
+}
+
 /** `SETTINGS_SECTIONS` read from source: layout titles for settings are the bare section ids. */
 export function readSettingsSections(repo = process.cwd()) {
   const source = readFileSync(join(repo, 'src/ui/settings/sections.ts'), 'utf8');
@@ -79,16 +100,18 @@ const VIEWS_WITHOUT_LAYOUT = ['catalog', 'status'];
 export const selectsLayoutRoute = (selection) => selection.all || selection.views.some((view) => !VIEWS_WITHOUT_LAYOUT.includes(view));
 
 /** Layout setup/teardown must always run, or the ledger verdict is lost. */
-const LAYOUT_BOOKENDS = ['clear layout shards', 'layout ledger verdict'];
+export const LAYOUT_BOOKENDS = ['clear layout shards', 'layout ledger verdict'];
 
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * The Playwright grep (a RegExp source) for a selection, or null for the full
  * sweep. Matches titles `<view>/…`, `<view>: …`, the status and catalog
- * screenshots, and the settings layout routes (bare section ids).
+ * screenshots, the settings layout routes (bare section ids), and the titles of
+ * `failed` (`{ project, title }`, the failed tests of a stored red run).
+ * Null also when nothing is selected.
  */
-export function gateGrep(selection, settingsSections) {
+export function gateGrep(selection, settingsSections, failed = []) {
   if (selection.all) return null;
   const tokens = [];
   for (const view of selection.views) {
@@ -97,18 +120,34 @@ export function gateGrep(selection, settingsSections) {
     else tokens.push(`${escape(view)}[/:]`);
     if (view === 'settings') for (const s of settingsSections) tokens.push(`${escape(s)}[ #]`);
   }
+  for (const title of new Set(failed.map((f) => f.title))) tokens.push(escape(title));
+  if (tokens.length === 0) return null;
   const head = `(?:^|\\s)(?:${tokens.join('|')})`;
   return `${head}|${LAYOUT_BOOKENDS.join('|')}`;
 }
 
-/** The line printed at the top of the gate output. */
-export function selectionLine(script, selection, counts = null) {
+const failedCount = (n) => `${n} failed test${n === 1 ? '' : 's'}`;
+
+/** What a repeat-pass selection runs, with the stored run it comes from. */
+function scopedWhat(views, { kind, since, failed }) {
+  const at = `the ${kind} run at ${since.slice(0, 12)}`;
+  const changed = views.length > 0 ? `${views.join(', ')} (changed since ${at})` : '';
+  if (failed === 0) return changed;
+  return changed ? `${changed} and ${failedCount(failed)} of that run` : `${failedCount(failed)} of ${at}`;
+}
+
+/**
+ * The line printed at the top of the gate output. `origin` (`{ kind: 'green' | 'red', since, failed }`,
+ * from `scopedSelection`) names the stored run of a repeat-pass selection; null for the branch diff.
+ */
+export function selectionLine(script, selection, counts = null, origin = null) {
   const name = script.replace(/^test:/, '').replace(/:docker$/, '');
   const count = (n) => n.toLocaleString('en-US');
   const layout = counts?.layoutTotal === undefined ? '' : ` (${count(counts.layoutSelected)} of ${count(counts.layoutTotal)} layout)`;
   const tests = counts ? ` — ${count(counts.selected)} of ${count(counts.total)} tests${layout}` : '';
   if (selection.all) return `${name}: running every view${tests}; full sweep also runs in CI`;
-  return `${name}: running ${selection.views.join(', ')}${tests}; full sweep runs in CI`;
+  const what = origin === null ? selection.views.join(', ') : scopedWhat(selection.views, origin);
+  return `${name}: running ${what}${tests}; full sweep runs in CI`;
 }
 
 /** The N in playwright's `Total: N tests in M files`, or null when the listing is unreadable. */

@@ -5,6 +5,7 @@ import {
   classifyFailures,
   driftNotice,
   failingScreenshots,
+  failedTests,
   collapseList,
   planBaseCheck,
   planHeadRerun,
@@ -236,4 +237,39 @@ describe('head re-run lines', () => {
   it('prints nothing when nothing passed', () => {
     expect(headRerunLines({ flaky: [], unstable: [], again: [s1] })).toEqual([]);
   });
+});
+
+describe('failedTests', () => {
+  const BOOKENDS = ['clear layout shards', 'layout ledger verdict'];
+  const spec = (project, title, status = 'unexpected', resultStatus = 'failed') => ({
+    title,
+    tests: [{ projectName: project, status, results: [{ status: resultStatus }] }],
+  });
+  const run = (specs, unexpected, over = {}) => ({ errors: [], stats: { unexpected }, suites: [{ specs }], ...over });
+
+  it('names each failed test by project and title, and ignores the others', () => {
+    const rep = run([spec('dark', 'a'), spec('light', 'a'), spec('dark', 'b', 'expected', 'passed'), spec('dark', 'c', 'flaky', 'passed'), spec('dark', 'd', 'skipped', 'skipped')], 2);
+    expect(failedTests(rep, BOOKENDS)).toEqual([{ project: 'dark', title: 'a' }, { project: 'light', title: 'a' }]);
+  });
+  it('lists a project and title pair once', () => {
+    const rep = { errors: [], stats: { unexpected: 2 }, suites: [{ specs: [spec('dark', 'a')] }, { specs: [spec('dark', 'a')] }] };
+    expect(failedTests(rep, BOOKENDS)).toEqual([{ project: 'dark', title: 'a' }]);
+  });
+  it('keeps BASE_RERUN_CAP failures', () => {
+    const specs = Array.from({ length: BASE_RERUN_CAP }, (_, i) => spec('dark', `t${i}`));
+    expect(failedTests(run(specs, BASE_RERUN_CAP), BOOKENDS)).toHaveLength(BASE_RERUN_CAP);
+  });
+  it.each([
+    ['no report', null],
+    ['a global error', run([spec('dark', 'a')], 1, { errors: [{ message: 'webServer' }] })],
+    ['no stats', { errors: [], suites: [{ specs: [spec('dark', 'a')] }] }],
+    ['a count that differs from stats.unexpected', run([spec('dark', 'a')], 2)],
+    ['no failure', run([spec('dark', 'a', 'expected', 'passed')], 0)],
+    ['an interrupted test', run([spec('dark', 'a'), spec('dark', 'b', 'skipped', 'interrupted')], 1)],
+    ['a failed ledger verdict', run([spec('layout-teardown', 'layout ledger verdict')], 1)],
+    ['a failed shard setup', run([spec('layout-setup', 'clear layout shards')], 1)],
+    ['a failure with no project', run([{ title: 'a', tests: [{ status: 'unexpected', results: [] }] }], 1)],
+    ['a failure with no title', run([spec('dark', '')], 1)],
+    ['more than BASE_RERUN_CAP failures', run(Array.from({ length: BASE_RERUN_CAP + 1 }, (_, i) => spec('dark', `t${i}`)), BASE_RERUN_CAP + 1)],
+  ])('is null for %s', (_, rep) => expect(failedTests(rep, BOOKENDS)).toBeNull());
 });

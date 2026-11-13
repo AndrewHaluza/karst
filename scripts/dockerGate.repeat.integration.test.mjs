@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { planRepeat, storeGreen } from './dockerGate.mjs';
+import { planRepeat, storeRun } from './dockerGate.mjs';
 
 const IDS = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const SCRIPT = 'test:visual:docker';
@@ -39,7 +39,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const green = async () => storeGreen((await planRepeat(SCRIPT, ARGV, dir)).memo, 0);
+const green = async () => storeRun((await planRepeat(SCRIPT, ARGV, dir)).memo, 0, null);
 
 describe('planRepeat', () => {
   it('runs the first pass and prints a full line', async () => {
@@ -47,6 +47,7 @@ describe('planRepeat', () => {
     expect(r.skip).toBeNull();
     expect(r.memo).not.toBeNull();
     expect(console.error).toHaveBeenCalledWith('full: no earlier green run');
+    expect(r.scope).toBeNull();
   });
 
   it('runs after a green run when only the layout ledger changed', async () => {
@@ -67,7 +68,7 @@ describe('planRepeat', () => {
   });
 
   it('skips for the layout gate too', async () => {
-    storeGreen((await planRepeat('test:layout:docker', ARGV, dir)).memo, 0);
+    storeRun((await planRepeat('test:layout:docker', ARGV, dir)).memo, 0, null);
     expect((await planRepeat('test:layout:docker', ARGV, dir)).skip).toMatch(/^skipped:/);
   });
 
@@ -80,7 +81,7 @@ describe('planRepeat', () => {
   });
 
   it('stores no green state after a failed run', async () => {
-    storeGreen((await planRepeat(SCRIPT, ARGV, dir)).memo, 1);
+    storeRun((await planRepeat(SCRIPT, ARGV, dir)).memo, 1, null);
     put('docs/x.md', 'changed');
     expect((await planRepeat(SCRIPT, ARGV, dir)).skip).toBeNull();
   });
@@ -105,11 +106,11 @@ describe('planRepeat', () => {
   it.each(['KARST_LAYOUT_SEED', 'KARST_LAYOUT_PRUNE', 'KARST_UI_GREP'])('never skips or stores with %s set', async (name) => {
     await green();
     process.env[name] = '1';
-    expect(await planRepeat(SCRIPT, ARGV, dir)).toEqual({ memo: null, skip: null });
+    expect(await planRepeat(SCRIPT, ARGV, dir)).toEqual({ memo: null, skip: null, scope: null });
   });
 
   it('ignores a script that does not narrow', async () => {
-    expect(await planRepeat('test:visual:screens:docker', ARGV, dir)).toEqual({ memo: null, skip: null });
+    expect(await planRepeat('test:visual:screens:docker', ARGV, dir)).toEqual({ memo: null, skip: null, scope: null });
   });
 
   it('keeps the real index and the working tree as they were', async () => {
@@ -118,5 +119,46 @@ describe('planRepeat', () => {
     const before = git('status', '--porcelain').stdout;
     await planRepeat(SCRIPT, ARGV, dir);
     expect(git('status', '--porcelain').stdout).toBe(before);
+  });
+
+  const RED_REPORT = {
+    errors: [],
+    stats: { unexpected: 1 },
+    suites: [{ specs: [{ title: 'settings/default: full-page screenshot', tests: [{ projectName: 'dark', status: 'unexpected', results: [{ status: 'failed' }] }] }] }],
+  };
+
+  it('carries the delta paths after a green run', async () => {
+    await green();
+    put('src/ui/settings/a.tsx', 'changed');
+    const r = await planRepeat(SCRIPT, ARGV, dir);
+    expect(r.scope).toEqual({ since: expect.stringMatching(/^[0-9a-f]{40}$/), paths: ['src/ui/settings/a.tsx'], failed: [] });
+  });
+
+  it('carries the failed tests of a red run when only a non-UI path changed', async () => {
+    storeRun((await planRepeat(SCRIPT, ARGV, dir)).memo, 1, RED_REPORT);
+    put('docs/x.md', 'changed');
+    const r = await planRepeat(SCRIPT, ARGV, dir);
+    expect(r.skip).toBeNull();
+    expect(r.scope).toMatchObject({ paths: ['docs/x.md'], failed: [{ project: 'dark', title: 'settings/default: full-page screenshot' }] });
+  });
+
+  it('keeps the earlier snapshot after a red run it cannot parse', async () => {
+    await green();
+    put('src/ui/settings/a.tsx', 'changed');
+    const first = await planRepeat(SCRIPT, ARGV, dir);
+    storeRun(first.memo, 1, null);
+    const next = await planRepeat(SCRIPT, ARGV, dir);
+    expect(next.scope.since).toBe(first.scope.since);
+    expect(next.scope.failed).toEqual([]);
+  });
+
+  it('gives no scope when the merge base moved', async () => {
+    await green();
+    git('checkout', '-q', 'develop');
+    put('docs/y.md', 'y');
+    commit('develop moves');
+    git('checkout', '-q', 'ticket');
+    git(...IDS, 'rebase', 'develop');
+    expect((await planRepeat(SCRIPT, ARGV, dir)).scope).toBeNull();
   });
 });
