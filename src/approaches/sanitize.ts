@@ -67,33 +67,39 @@ export function stripPermissionFrontmatter(body: string): string {
   return filterFrontmatter(body, (key) => key === undefined || !isPermissionKey(key));
 }
 
+/** A line break YAML parsers accept: CRLF, a lone CR, LF, NEL, LS or PS. */
+const LINE_BREAK = /(\r\n|[\r\n\u0085\u2028\u2029])/;
+
+interface Line {
+  text: string;
+  /** The break that ends the line; '' for the last line. */
+  eol: string;
+}
+
+function splitLines(text: string): Line[] {
+  const parts = text.split(LINE_BREAK);
+  const lines: Line[] = [];
+  for (let i = 0; i < parts.length; i += 2) lines.push({ text: parts[i]!, eol: parts[i + 1] ?? '' });
+  return lines;
+}
+
 function filterFrontmatter(body: string, keepKey: (key: string | undefined) => boolean): string {
   const text = body.replace(/^(?:\uFEFF|\s)+(?=---)/, '');
   if (text !== body && text.length === 0) return body;
-  const lines = text.split('\n');
-  const eol = (l: string): string => (l.endsWith('\r') ? '\r' : '');
-  if (lines[0]!.trimEnd() !== '---') return body;
+  const lines = splitLines(text);
+  if (lines[0]!.text.trimEnd() !== '---') return body;
 
-  let closeIdx = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trimEnd() === '---') {
-      closeIdx = i;
-      break;
-    }
-  }
+  const closeIdx = lines.findIndex((l, i) => i > 0 && l.text.trimEnd() === '---');
   if (closeIdx === -1) return body; // unterminated block → leave as-is
 
-  const kept: string[] = [`---${eol(lines[0]!)}`];
+  const out: Line[] = [lines[0]!];
   let keeping = false;
   for (let i = 1; i < closeIdx; i++) {
     const line = lines[i]!;
-    const continuation = /^\s/.test(line) || line.trim() === '' || line.startsWith('- ');
-    if (!continuation) {
-      const key = topLevelKey(line);
-      keeping = keepKey(key);
-    }
-    if (keeping) kept.push(line);
+    const continuation = /^\s/.test(line.text) || line.text.trim() === '' || line.text.startsWith('- ');
+    if (!continuation) keeping = keepKey(topLevelKey(line.text));
+    if (keeping) out.push(line);
   }
-  kept.push(...lines.slice(closeIdx));
-  return kept.join('\n');
+  out.push(...lines.slice(closeIdx));
+  return out.map((l) => l.text + l.eol).join('');
 }

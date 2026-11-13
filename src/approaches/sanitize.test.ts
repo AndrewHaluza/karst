@@ -86,4 +86,13 @@ describe('sanitizeFrontmatter', () => {
     const input = '\n  \n---\nname: x\nhooks:\n  a: b\n---\nbody';
     expect(sanitizeFrontmatter(input)).toBe('---\nname: x\n---\nbody');
   });
+
+  it('treats a lone CR or a Unicode line break as a line break', () => {
+    const cr = '---\rname: x\rhooks:\r  a: b\r---\rbody';
+    expect(sanitizeFrontmatter(cr)).toBe('---\rname: x\r---\rbody');
+    const mixed = '---\ndescription: a\rhooks:\r  a: b\u2028mcpServers: x\n---\nbody';
+    const out = sanitizeFrontmatter(mixed);
+    expect(out).not.toMatch(/hooks|mcpServers/);
+    expect(out).toContain('description: a');
+  });
 });
