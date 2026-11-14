@@ -240,6 +240,8 @@ import {
   restartStoppedGraph,
 } from './approaches/graph/entryPoints.js';
 import { graphLaunchDecision } from './approaches/graph/launchGuard.js';
+import { cancelGraphRun } from './approaches/graph/cancel.js';
+import { graphOwnedChangeMessage, graphRunLiveness, showGraphOwnedNotice } from './approaches/graph/graphOwnedNotice.js';
 import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
@@ -2144,6 +2146,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       reloadManifest,
       warn: (msg: string) => logger.warn(msg),
       listInstalledIds: listInstalledApproachIds,
+      onAgentChoiceChanged: (id: number) => notifyGraphOwnedChange(id),
       openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
       openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
       storageDir: context.globalStorageUri.fsPath,
@@ -2935,6 +2938,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // is created later in activate; the Inside Stop action reads it only after
   // activation has fully run, like `runPrSync` and `maybeDrive`.
   let stopGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
+
+  // T1138: a launch on a graph-owned ticket starts nothing. Say why, and offer
+  // the one Cancel operation behind a modal confirm.
+  const notifyGraphOwnedLaunch = async (ticketId: number, run: { graphRunId: number; status: string }): Promise<void> => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const liveness = await graphRunLiveness(gs.db, systemAsyncProcessFacts, run.graphRunId);
+    await showGraphOwnedNotice(
+      {
+        warn: (message, ...actions) => vscode.window.showWarningMessage(message, ...actions),
+        confirm: async (message, accept) => (await vscode.window.showWarningMessage(message, { modal: true }, accept)) === accept,
+        cancel: (graphRunId) =>
+          cancelGraphRun(
+            {
+              db: gs.db,
+              transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
+              facts: systemAsyncProcessFacts,
+              killTree,
+              debug: (message) => logger.debug(message),
+            },
+            graphRunId,
+            'cancelled by user from a blocked launch',
+          ),
+        refresh: () => { provider.refresh(); dashboard.pushState(ticketId); },
+        inform: (message) => void vscode.window.showInformationMessage(message),
+        logError,
+      },
+      { ticketLabel: formatId('ticket', ticketId), run, liveness },
+    );
+  };
+  // T1138: an agent, model or preset pick on a graph-owned ticket applies to the next launch.
+  const notifyGraphOwnedChange = (ticketId: number): void => {
+    const gs = graphCoordinatorStore;
+    if (!gs) return;
+    const run = activeGraphRunFor(gs.db, ticketId);
+    if (run) void vscode.window.showInformationMessage(graphOwnedChangeMessage(formatId('ticket', ticketId), run));
+  };
   let restartGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
   let confirmGraphRunForTicket: ((ticketId: number, graphRunId: number) => void) | undefined;
 
@@ -6333,9 +6373,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (session) {
           session.terminal?.show();
         } else {
-          void vscode.window.showInformationMessage(
-            `Ticket ${formatId('ticket', ticketId)} is owned by an active graph run (${activeGraph.status}) — its session is not attached to this window; the coordinator re-attaches it on the next sweep.`,
-          );
+          void notifyGraphOwnedLaunch(ticketId, activeGraph);
         }
         return { kind: 'not-applicable', reason: 'graph-owned' };
       }
@@ -6412,9 +6450,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (live) {
             live.terminal?.show();
           } else {
-            void vscode.window.showInformationMessage(
-              `Ticket ${formatId('ticket', ticketId)} is owned by graph run ${decision.graphRunId} (${decision.status}) — the coordinator owns continuation; use the Inside panel.`,
-            );
+            void notifyGraphOwnedLaunch(ticketId, { graphRunId: decision.graphRunId, status: decision.status });
           }
           return { kind: 'not-applicable', reason: 'graph-owned' };
         }
