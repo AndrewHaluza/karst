@@ -18,7 +18,7 @@ Fix an allowlisted CI failure or a merge conflict on an open PR of a ticket with
 
 ### Connections
 - in: @arch:CONCURRENCY, @arch:FIELDCHK, @arch:SCHEMA-CHECK (schema v100)
-- out: `sendCiFailureAction` (ciActionsWiring), `resolveConflictRound` (conflictResolveOps), `gateFailureOutcome` (autopilotWiring: the base-moved round, @arch:AP-06)
+- out: `sendCiFailureAction` (ciActionsWiring), `resolveConflictRound` (conflictResolveOps), `gateFailureOutcome` (@arch:AP-06)
 
 ### Flow
 ```mermaid
