@@ -33,6 +33,7 @@ import { baselineDependentsFor } from './store/baselineRefs.js';
 import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { killTree } from './runtime/processTree.js';
+import { cancelGraphRunOnApproachChange } from './approaches/graph/approachChange.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
@@ -2133,6 +2134,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       resolveAnalysisProcess: analysisProcess,
       pickUsageLimitAgentModel: makeUsageLimitAgentModelPicker(() => modelCatalog),
       onChange: () => provider.refresh(),
+      cancelGraphRunForApproachChange: async (ticketId, approachId) => {
+        const gs = graphCoordinatorStore;
+        if (!gs) return { ok: true };
+        const result = await cancelGraphRunOnApproachChange(
+          {
+            db: gs.db,
+            transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
+            facts: systemAsyncProcessFacts,
+            killTree,
+            debug: (message) => logger.debug(message),
+          },
+          ticketId,
+          approachId,
+        );
+        if (result.ok && result.cancelledGraphRunId !== undefined) {
+          dashboard.pushState(ticketId);
+        }
+        return result;
+      },
       startTicket,
       requestSubtaskAutostart: () => void subtaskAutostart.sweep(),
       // A started ticket belongs to its dashboard — the ticket form hands off there.

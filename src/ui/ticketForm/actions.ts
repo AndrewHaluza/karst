@@ -155,6 +155,15 @@ export interface TicketFormActionsDeps {
   ) => Promise<{ provider: AgentProvider; model: string | null } | undefined>;
   /** Notify the host to refresh sidebar/dashboard after a create/edit. */
   onChange: () => void;
+  /**
+   * Before a picked approach is saved on an existing ticket: close the open
+   * graph run the old approach left behind. `ok: false` keeps the old approach
+   * and its `message` is shown to the user. Absent → no graph runs to close.
+   */
+  cancelGraphRunForApproachChange?: (
+    ticketId: number,
+    approachId: string,
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
   confirmBlockedStart?: (message: string) => Promise<boolean>;
   /**
    * Kick off a just-finished ticket: create worktrees for its selected repos,
@@ -1115,8 +1124,17 @@ export function buildTicketFormActions(
       updateTicketFields(deps.store, ctx.ticketId, { baseRefs: next });
     },
 
-    setApproach(id: string): void {
+    async setApproach(id: string): Promise<void> {
+      if (ctx.ticketId !== undefined && deps.cancelGraphRunForApproachChange) {
+        const cancel = await deps.cancelGraphRunForApproachChange(ctx.ticketId, id);
+        if (!cancel.ok) {
+          ctx.post({ type: 'error', message: cancel.message });
+          ctx.pushState();
+          return;
+        }
+      }
       setApproach(id);
+      deps.onChange();
     },
 
     setAgent(id: string): void {
