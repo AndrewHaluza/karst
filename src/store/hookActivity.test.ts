@@ -19,7 +19,12 @@ import {
 import { getTicket } from './tickets.js';
 import { upsertProject } from './projects.js';
 import { openProcessRun, listProcessRuns } from './processRuns.js';
-import { stampHookActivity, liftStalledFixPark } from './hookActivity.js';
+import {
+  stampHookActivity,
+  liftStalledFixPark,
+  extendBackgroundWaitUntil,
+  clearBackgroundWait,
+} from './hookActivity.js';
 
 const T0 = '2026-08-01T10:00:00.000Z';
 const T_PARK = '2026-08-01T11:30:00.000Z';
@@ -88,6 +93,64 @@ describe('hook activity — fix stall watchdog', () => {
       stampHookActivity(store, ticketId, T_SWEEP);
       stampHookActivity(store, ticketId, T0);
       expect(lastHookAt()).toBe(T_SWEEP);
+    });
+  });
+
+  describe('background wait (T1136)', () => {
+    const plusMinutes = (iso: string, m: number): string => minutesBefore(iso, -m);
+    const waitUntil = () =>
+      (store.db.prepare('SELECT background_wait_until AS v FROM tickets WHERE id = ?').get(ticketId) as {
+        v: string | null;
+      }).v;
+
+    it('does not park a fix whose last hook is past the window while a background wait is still open', () => {
+      liveFix();
+      stampHookActivity(store, ticketId, minutesBefore(T_SWEEP, 90));
+      extendBackgroundWaitUntil(store, ticketId, plusMinutes(T_SWEEP, 5));
+      const debug: string[] = [];
+
+      expect(sweepStalledFixRounds(store, { at: T_SWEEP, timeoutMs: WINDOW_MS, projectId, debug: (m) => debug.push(m) })).toEqual([]);
+      expect(fixStage().status).toBe('running');
+      expect(debug).toHaveLength(1);
+      expect(debug[0]).toContain('background wait');
+    });
+
+    it('counts a wait that reached its deadline as progress from the deadline, so the window applies after it', () => {
+      liveFix();
+      stampHookActivity(store, ticketId, minutesBefore(T_SWEEP, 90));
+      extendBackgroundWaitUntil(store, ticketId, minutesBefore(T_SWEEP, 30)); // deadline 30 min ago, window 60
+      expect(sweep()).toEqual([]);
+    });
+
+    it('parks a fix whose wait deadline is past by more than the window', () => {
+      liveFix();
+      stampHookActivity(store, ticketId, minutesBefore(T_SWEEP, 150));
+      extendBackgroundWaitUntil(store, ticketId, minutesBefore(T_SWEEP, 61));
+      expect(sweep()).toHaveLength(1);
+      expect(fixStage().verdict).toBe(FIX_PARKED_STALLED);
+    });
+
+    it('parks a fix after the wait is cleared', () => {
+      liveFix();
+      stampHookActivity(store, ticketId, minutesBefore(T_SWEEP, 90));
+      extendBackgroundWaitUntil(store, ticketId, plusMinutes(T_SWEEP, 5));
+      clearBackgroundWait(store, ticketId);
+      expect(waitUntil()).toBeNull();
+      expect(sweep()).toHaveLength(1);
+    });
+
+    it('only moves the deadline forward', () => {
+      extendBackgroundWaitUntil(store, ticketId, plusMinutes(T_SWEEP, 30));
+      extendBackgroundWaitUntil(store, ticketId, plusMinutes(T_SWEEP, 5));
+      expect(waitUntil()).toBe(plusMinutes(T_SWEEP, 30));
+    });
+
+    it('is read from the column: a second store handle on the same database sees the wait', () => {
+      liveFix();
+      stampHookActivity(store, ticketId, minutesBefore(T_SWEEP, 90));
+      extendBackgroundWaitUntil(store, ticketId, plusMinutes(T_SWEEP, 5));
+      // Another window shares the database and has no in-memory tracker: the sweep takes no tracker at all.
+      expect(sweepStalledFixRounds(store, { at: T_SWEEP, timeoutMs: WINDOW_MS, projectId })).toEqual([]);
     });
   });
 

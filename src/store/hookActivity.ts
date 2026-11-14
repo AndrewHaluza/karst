@@ -19,6 +19,26 @@ export function stampHookActivity(store: Store, ticketId: number, at: string): v
 }
 
 /**
+ * Record the deadline of the agent's background wait (T1136). The deadline only
+ * moves forward: a second launch extends the wait, never shortens it. The fix
+ * stall watchdog reads this column, so a sweep in another window sees the wait.
+ */
+export function extendBackgroundWaitUntil(store: Store, ticketId: number, untilIso: string): void {
+  store.db
+    .prepare(
+      'UPDATE tickets SET background_wait_until = ? WHERE id = ? AND (background_wait_until IS NULL OR background_wait_until < ?)',
+    )
+    .run(untilIso, ticketId, untilIso);
+}
+
+/** The background wait is over (a woken turn, a real prompt, the marker, the session end). */
+export function clearBackgroundWait(store: Store, ticketId: number): void {
+  store.db
+    .prepare('UPDATE tickets SET background_wait_until = NULL WHERE id = ? AND background_wait_until IS NOT NULL')
+    .run(ticketId);
+}
+
+/**
  * Lift a `FIX_PARKED_STALLED` park when the session works again (T1111).
  *
  * A hook event after the park proves the agent session is alive, so the park

@@ -4,7 +4,7 @@ import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { transition } from '../workflow/machine.js';
 import { upsertProject } from '../store/projects.js';
-import { dispatchHook, expireBackgroundWaits, parseHookPayload } from './dispatch.js';
+import { dispatchHook, expireBackgroundWaits, parseHookPayload, BACKGROUND_WAIT_DEFAULT_MS } from './dispatch.js';
 import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 import {
@@ -1644,6 +1644,43 @@ describe('dispatchHook — background wait survives Stop (T993)', () => {
     expect(getTicket(store, id).agentState).toBe('running');
     expect(tracker.nudge(id)).toBeNull();
     expect(listProcessRuns(store, id)[0]!.promptTelemetry?.markerMissCase).toBe('background-wait');
+  });
+
+  describe('persisted background wait (T1136)', () => {
+    const waitUntil = (id: number) =>
+      (store.db.prepare('SELECT background_wait_until AS v FROM tickets WHERE id = ?').get(id) as { v: string | null }).v;
+
+    it('a background launch writes the deadline to the ticket', () => {
+      const { id, send } = setup();
+      const before = Date.now();
+      send(bgBash);
+      const until = Date.parse(waitUntil(id)!);
+      expect(until).toBeGreaterThanOrEqual(before + BACKGROUND_WAIT_DEFAULT_MS);
+      expect(until).toBeLessThan(Date.now() + BACKGROUND_WAIT_DEFAULT_MS + 1000);
+    });
+
+    it('a woken task-notification turn clears the persisted wait', () => {
+      const { id, send } = setup();
+      send(bgBash);
+      send(stop);
+      expect(waitUntil(id)).not.toBeNull();
+      send(woken);
+      expect(waitUntil(id)).toBeNull();
+    });
+
+    it('a real user prompt clears the persisted wait', () => {
+      const { id, send } = setup();
+      send(monitor);
+      send(userPrompt);
+      expect(waitUntil(id)).toBeNull();
+    });
+
+    it('SessionEnd clears the persisted wait', () => {
+      const { id, send } = setup();
+      send(bgBash);
+      send({ hook_event_name: 'SessionEnd' });
+      expect(waitUntil(id)).toBeNull();
+    });
   });
 
   it('a real user prompt ends the wait, and the next Stop reads waiting', () => {

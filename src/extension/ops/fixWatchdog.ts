@@ -168,6 +168,7 @@ export function runFixWatchdog(deps: FixWatchdogDeps): number {
     at: opts.at,
     timeoutMs,
     projectId: opts.projectId,
+    debug: deps.log,
   };
   // Two holes, one window: a live fix run that stopped making progress, and a
   // fix LAUNCH that never started at all (its pending intent otherwise exempts

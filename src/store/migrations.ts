@@ -3018,5 +3018,11 @@ function migrateLocked(db: Database): void {
     if (cols122.size > 0 && !cols122.has('host_rerun_pid')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN host_rerun_pid INTEGER');
   }
 
+  if (current < 123) {
+    // v123: `tickets.background_wait_until` — the deadline of the agent's open background wait (T1136). Additive; NULL = no wait (no backfill).
+    const cols123 = tableColumns(db, 'tickets');
+    if (cols123.size > 0 && !cols123.has('background_wait_until')) db.exec('ALTER TABLE tickets ADD COLUMN background_wait_until TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
