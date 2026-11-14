@@ -9,11 +9,12 @@ import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.j
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
+import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { isKnownOptional, parseChecks } from '../../model/prChecks.js';
 import {
   clearConflictRound, effectiveAutopilot, markCiRound, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
-  getCiRoundHeadSha, markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
+  getCiRoundHeadSha, setCiRoundHeadSha, markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind,
 } from '../../store/autopilot.js';
 
@@ -63,6 +64,8 @@ export interface AutopilotDeps {
   /** The ticket ran an implementation graph: a hand-off to Implement would reach no agent. */
   readonly isGraphTicket: () => boolean;
   readonly sendCiFailure: () => Promise<FixOutcome>;
+  /** The send-back of a failed base-moved run (@arch:AP-00). Absent: a `base-moved-failed` block gets no round. */
+  readonly sendGateFailure?: () => Promise<FixOutcome>;
   /** The Resolve conflicts path for one repo (`resolveConflictRound`). */
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or karst delivers its resolved merge now: no other round starts beside it. */
@@ -97,6 +100,7 @@ const LOG = '[ship] autopilot';
 
 const GRAPH_REASON = 'auto-fix not run: graph ticket';
 const UNKNOWN_PLACEMENT_REASON = 'auto-fix not run: placement unknown';
+export const NO_CHANGE_BASE_MOVED_REASON = 'auto-fix stopped: base-moved round made no change';
 const STALLED_REASON = 'auto-fix stopped: conflict round did not deliver';
 
 function openPrRepos(store: Store, ticketId: number): Set<string> {
@@ -122,7 +126,7 @@ export function clearParkBlock(store: Store, ticketId: number): void {
 /** A ship block of another kind than awaiting-merge (push-diverged, a gate park, ...). Awaiting-merge is the normal ship wait, where autopilot works. */
 function foreignBlock(store: Store, ticketId: number): boolean {
   const block = stageBlock(store, ticketId, 'ship');
-  return block !== null && block.kind !== 'awaiting-merge';
+  return block !== null && block.kind !== 'awaiting-merge' && block.kind !== 'base-moved-failed';
 }
 
 /** Tickets with a round in flight in this process: a second tick for the same ticket must not start another round. */
@@ -150,12 +154,14 @@ function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'de
     }
     // Another writer's block (push-diverged) owns the ship row: leave it untouched.
     if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
+    // A `base-moved-failed` block is already amber and carries the gate failure the action sends: it stays, and the stop reason is the park.
+    const onBaseMoved = stageBlock(d.store, d.ticketId, 'ship')?.kind === 'base-moved-failed';
     // Re-park when another writer replaced or cleared the block, so the amber state matches the stop reason.
-    if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason || stageBlock(d.store, d.ticketId, 'ship')?.reason !== reason) {
+    if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason || (!onBaseMoved && stageBlock(d.store, d.ticketId, 'ship')?.reason !== reason)) {
       setAutopilotStopped(d.store, d.ticketId, reason, headSha);
       if (paused) setAutopilotPaused(d.store, d.ticketId, reason);
       // The amber Needs you state: the existing awaiting-merge kind carries the reason (no new BlockerKind, @arch:BLOCKED).
-      parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: new Date().toISOString(), gates: [] });
+      if (!onBaseMoved) parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: new Date().toISOString(), gates: [] });
       d.note(`Autopilot: ${reason}`, `${d.key} (${kind}): ${body}`);
       d.debug(`${LOG} ticket ${d.key} ${kind}: ${reason}`);
       return { kind: 'parked', reason };
@@ -168,7 +174,9 @@ function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'de
 
 /** The ticket is at ship and ship has passed (shipped): the only state where a park block may be written. */
 function stillShipped(store: Store, ticketId: number): boolean {
-  return getTicket(store, ticketId).stageCurrent === 'ship' && getStage(store, ticketId, 'ship')?.status === 'passed';
+  if (getTicket(store, ticketId).stageCurrent !== 'ship') return false;
+  // A failed base-moved check parked ship before its push: the row is pending, the block says the ticket waits (@arch:BLOCKED).
+  return getStage(store, ticketId, 'ship')?.status === 'passed' || stageBlock(store, ticketId, 'ship')?.kind === 'base-moved-failed';
 }
 
 /** One failing PR and the signature (its failing check names) its budget counts against. */
@@ -243,9 +251,13 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (state.stoppedReason === STALLED_REASON && !provenClean(d)) return { kind: 'idle' };
   // Only a SHIPPED ticket (the awaiting-merge block) is worked: a ticket that waits for Confirm ship has no block, and its
   // stored CI result belongs to an older head. Push-diverged and every other foreign block need a person too.
-  if (stageBlock(d.store, d.ticketId, 'ship')?.kind !== 'awaiting-merge') return { kind: 'idle' };
+  // A failed base-moved check (`base-moved-failed`) is worked like a red CI rollup, by its own round (@arch:AP-00).
+  const blockKind = stageBlock(d.store, d.ticketId, 'ship')?.kind;
+  if (blockKind !== 'awaiting-merge' && blockKind !== 'base-moved-failed') return { kind: 'idle' };
+  if (blockKind === 'base-moved-failed' && (!d.sendGateFailure || state.stoppedReason !== null)) return { kind: 'idle' };
   if (!d.controls()) return { kind: 'not-controller' };
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
+  if (blockKind === 'base-moved-failed') return guardedRound(d, () => runBaseMovedRound(d, cfg));
   // The merge check stays 'conflicted' (and the CI rollup stays on the old head) until the resolved merge is pushed and
   // probed again, so no time cooldown can tell a round in progress from a new one: read the round state itself.
   // A round armed for a long time, with no agent and no delivery running, never delivered (the agent left the merge
@@ -262,14 +274,66 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     d.debug(`${LOG} ticket ${d.key}: no round, a conflict round is armed or its resolved merge is being delivered`);
     return { kind: 'busy' };
   }
+  return guardedRound(d, () => runRound(d, cfg, state));
+}
+
+/** One round per ticket at a time in this process. */
+async function guardedRound(d: AutopilotDeps, round: () => Promise<AutopilotResult>): Promise<AutopilotResult> {
   const flightKey = flightKeyOf(d);
   if (inFlight.has(flightKey)) return { kind: 'busy' };
   inFlight.add(flightKey);
   try {
-    return await runRound(d, cfg, state);
+    return await round();
   } finally {
     inFlight.delete(flightKey);
   }
+}
+
+/** The repos of the failed gates of a base-moved run, one budget target each. */
+function baseMovedTargets(failed: readonly { readonly repo: string }[], reason: string): BudgetTarget[] {
+  return [...new Set(failed.map((g) => g.repo))].sort().map((repo) => ({ repo, signature: reason }));
+}
+
+/**
+ * A failed base-moved run is a red CI rollup (@arch:AP-00): one CI round through the CI budget and its mark, so the driver
+ * re-ships after the round (@arch:AP-06). The round records the ticket head the failed run tested. A second failure on that head
+ * means the round made no commit (D564): the ticket parks and the block `base-moved-failed` stays.
+ */
+async function runBaseMovedRound(d: AutopilotDeps, cfg: AutopilotConfig): Promise<AutopilotResult> {
+  const state = baseMovedFailureState(d.store, d.ticketId);
+  if (!state.available || !d.sendGateFailure) return { kind: 'nothing' };
+  // No gate exited non-zero (a refused or stopped gate): there is no failure for an agent to fix, so a person decides.
+  if (state.failed.length === 0) return { kind: 'nothing' };
+  if (cfg.ci.policy === 'ask') return { kind: 'ask', reason: 'ci policy is ask' };
+  const targets = baseMovedTargets(state.failed, state.reason);
+  const head = state.run.headSha;
+  if (head !== null && targets.some((t) => getCiRoundHeadSha(d.store, d.ticketId, t.repo) === head)) {
+    return park(d, 'ci', NO_CHANGE_BASE_MOVED_REASON, 'the agent made no commit and the base-moved check failed again on the same head; fix it by hand or approve one more attempt.', false, head);
+  }
+  const placed = await placementOf(d, 'ci');
+  if (placed.kind === 'park') return placed.result;
+  const first = targets[0]!;
+  if (d.concurrencyFull()) return queueWait(d, 'ci', first.repo, first.signature);
+  const taken: BudgetTarget[] = [];
+  let budget: { ok: true; used: number; max: number } | null = null;
+  for (const target of targets) {
+    const b = takeAutopilotAttempt(d.store, d.ticketId, target.repo, 'ci', target.signature, cfg.ci.maxAttempts);
+    if (!b.ok) {
+      for (const t of taken) refundAutopilotAttempt(d.store, d.ticketId, t.repo, 'ci');
+      return park(d, 'ci', stoppedReason('ci', b.used, b.max), `the budget for ${target.repo} is spent; approve one more attempt or fix it by hand.`);
+    }
+    taken.push(target);
+    if (target.repo === first.repo) budget = b;
+  }
+  if (budget === null) return { kind: 'nothing' };
+  const refundAll = (): void => { for (const t of taken) refundAutopilotAttempt(d.store, d.ticketId, t.repo, 'ci'); };
+  const blocked = await sandboxGate(d, placed.placement, 'ci', first.repo, refundAll);
+  if (blocked) return blocked;
+  const outcome: FixOutcome = await d.sendGateFailure()
+    .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
+  const settled = await settleRound(d, { kind: 'ci', repo: first.repo, used: budget.used, max: budget.max, action: 'Send gate failure to agent', refundAll }, outcome);
+  if (settled.kind === 'armed' && head !== null) for (const t of targets) setCiRoundHeadSha(d.store, d.ticketId, t.repo, head);
+  return settled;
 }
 
 async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnType<typeof getAutopilotTicket>): Promise<AutopilotResult> {

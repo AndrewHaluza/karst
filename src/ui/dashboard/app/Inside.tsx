@@ -69,7 +69,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
   }, [stopOffered]);
   if (!frame) return null;
   const { view, menu, main, back } = frame;
-  const anyMenu = menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.rebase || menu.retry !== null || menu.autofixStop || menu.deliverFailures;
+  const anyMenu = menu.sendBack || menu.reset !== null || menu.prFeedback || menu.ci || menu.gateFailure || menu.rebase || menu.retry !== null || menu.autofixStop || menu.deliverFailures;
   const backSentence = `Current stage — return the strip to ${back ?? 'the current stage'}, the stage the ticket is actually on`;
   const lstatus = frame.live ? frame.live.status || 'run' : '';
   return (

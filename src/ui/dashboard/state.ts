@@ -263,6 +263,7 @@ export function buildDashboardState(
     resetStage,
     prFeedbackFix,
     ciFailure,
+    gateFailure,
     rebase,
     undelivered,
     deliverAuto,
@@ -434,7 +435,7 @@ export function buildDashboardState(
     rerunGate,
     resetStage,
     prFeedbackFix,
-    ...shipActionViews({ ciFailure, rebase, undelivered, deliverAuto }, ticket.stageCurrent),
+    ...shipActionViews({ ciFailure, gateFailure, rebase, undelivered, deliverAuto }, ticket.stageCurrent),
     openPrFeedback,
   };
 }

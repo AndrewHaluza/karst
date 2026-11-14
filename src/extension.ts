@@ -341,6 +341,7 @@ import { describeReap } from './runtime/worktreeServers.js';
 import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js';
 import { bindGateRuns, type GateRunsBinding } from './extension/ops/gateRunsOps.js';
 import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
+import { killTree as systemKillTree } from './runtime/processTree.js';
 import { listBaseBranchCandidates } from './runtime/branchList.js';
 import {
   openProcessRun,
@@ -5398,6 +5399,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       now: () => new Date().toISOString(),
       debug: (message) => logger.debug(message),
       facts: systemAsyncProcessFacts,
+      killTree: systemKillTree,
       sessionFor: (nodeRunId) => graphSessionFor(nodeRunId),
       resumePipeline: (nodeRunId) => {
         const graphRunId = nodeRunGraphRunId(gs.db, nodeRunId);

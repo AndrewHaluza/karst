@@ -128,7 +128,9 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
         // Re-scope; a generic Resume would re-open the fix loop that was stopped.
         row.blockedKind !== 'review-stalled' &&
         // Foreign commits on origin: Fix push (Overwrite / Integrate) answers it.
-        row.blockedKind !== 'push-diverged',
+        row.blockedKind !== 'push-diverged' &&
+        // A failed base-moved gate is answered by Send gate failure to agent, never by a retry (@arch:BLOCKED).
+        row.blockedKind !== 'base-moved-failed',
     },
   };
 }

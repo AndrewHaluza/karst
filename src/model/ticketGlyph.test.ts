@@ -49,6 +49,17 @@ describe('tester-skipped block', () => {
   });
 });
 
+describe('base-moved-failed block', () => {
+  it('reads Needs you (amber) at ship', () => {
+    const t = ticket({
+      stageCurrent: 'ship',
+      stages: [{ stageKey: 'ship', status: 'pending', blockedKind: 'base-moved-failed' } as never],
+    });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+});
+
 describe('ticketGlyph', () => {
   it('waiting agent → amber (needs-you wins)', () => {
     expect(ticketGlyph(ticket({ agentState: 'waiting' }))).toBe('amber');

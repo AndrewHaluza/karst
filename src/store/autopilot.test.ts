@@ -206,6 +206,16 @@ describe('repairStaleAutopilotParks (T1122)', () => {
     expect(stageBlock(n.store, n.id, 'ship')?.reason).toBe('blocked: not merged yet');
   });
 
+  it('keeps the stop reason of a base-moved park: its own block never carries the reason (T1129)', () => {
+    const { store, id } = seed('pending', null);
+    setStage(store, id, 'ship', { blockedKind: 'base-moved-failed', blockedReason: 'r: gate "unit" fails when merged with origin/develop abc', blockedAt: 'x' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(id);
+    repairStaleAutopilotParks(store);
+    repairStaleAutopilotParks(store);
+    expect(getAutopilotTicket(store, id).stoppedReason).toBe(STOP);
+    expect(stageBlock(store, id, 'ship')?.kind).toBe('base-moved-failed');
+  });
+
   it('keeps a stop reason of a ticket that left ship (a pause)', () => {
     const { store, id } = seed('pending', null);
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(id);

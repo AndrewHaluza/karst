@@ -18,7 +18,7 @@ import type { Notify } from './ops/notify.js';
 import { conflictRounds, armConflictRound } from './ops/autoDeliverOps.js';
 import { makeDependencyOps } from './ops/dependencyOps.js';
 import { addressPrFeedback } from './ops/prFeedbackAction.js';
-import { deliverToPrAction, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput, type CiHost } from './ops/ciActionsWiring.js';
+import { deliverToPrAction, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput, type CiHost } from './ops/ciActionsWiring.js';
 import { resolveStageLogPath } from './ops/stageLogArtifact.js';
 import { stopServerRow, startServerRow, restartServerRow, openServerRow, copyServerUrlRow, type ServerOpsDeps } from './ops/serverOps.js';
 import type { DashboardActions } from '../ui/dashboard/messages.js';
@@ -428,6 +428,7 @@ export function makeDashboardActions(
           )) === 'Address feedback',
       }),
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
+    sendGateFailure: () => void askPausedModal(store, ticketId, 'sending the gate failure to the agent', 'Send gate failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendGateFailureAction(ciActionsInput()) : undefined)),
     sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction(ciActionsInput()) : undefined)),
     deliverToPr: () => void deliverToPrAction(ciActionsInput()),
     dismissDeliverFailures: (gate) => { dismissDeliverFailures(store, ticketId, gate, nowIso()); afterServerChange(); },

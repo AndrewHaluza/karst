@@ -6,6 +6,7 @@ import { retryGateState } from '../../workflow/retryGate.js';
 import { prFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import { countOpenPrFeedback } from '../../store/prFeedback.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
+import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { rebaseState } from '../../workflow/rebaseState.js';
 import { deliverTargets } from '../../workflow/deliverState.js';
 import type { DashboardAgentContext, DashboardState } from './stateTypes.js';
@@ -40,6 +41,7 @@ export function readActionStates(store: Store, ticketId: number, agentContext: D
   // Same single-read rule for the two ship CI actions (T715).
   const ciFailure = ciFailureState(store, ticketId);
   const rebase = rebaseState(store, ticketId);
+  const gateFailure = baseMovedFailureState(store, ticketId);
   const undelivered = deliverTargets(store, ticketId).available ? agentContext.undelivered?.(ticketId) : undefined;
   const openPrFeedback = countOpenPrFeedback(store, ticketId);
   return {
@@ -49,6 +51,7 @@ export function readActionStates(store: Store, ticketId: number, agentContext: D
     resetStage,
     prFeedbackFix,
     ciFailure,
+    gateFailure,
     rebase,
     undelivered,
     deliverAuto: readDeliverAuto(store, ticketId),
@@ -58,14 +61,15 @@ export function readActionStates(store: Store, ticketId: number, agentContext: D
 
 /** The ship CI/rebase/deliver slots of the dashboard state, projected from the reads above. */
 export function shipActionViews(
-  states: Pick<ReturnType<typeof readActionStates>, 'ciFailure' | 'rebase' | 'undelivered' | 'deliverAuto'>,
+  states: Pick<ReturnType<typeof readActionStates>, 'ciFailure' | 'gateFailure' | 'rebase' | 'undelivered' | 'deliverAuto'>,
   stageCurrent: string | null,
-): Pick<DashboardState, 'ciFailure' | 'rebase' | 'deliver'> {
-  const { ciFailure, rebase, undelivered, deliverAuto } = states;
+): Pick<DashboardState, 'ciFailure' | 'gateFailure' | 'rebase' | 'deliver'> {
+  const { ciFailure, gateFailure, rebase, undelivered, deliverAuto } = states;
   return {
     ciFailure: ciFailure.available
       ? { available: true, repos: ciFailure.prs.map((p) => p.repo) }
       : { available: false, repos: [] },
+    gateFailure: { available: gateFailure.available },
     rebase: rebase.available ? { available: true, stage: stageCurrent ?? undefined } : { available: false },
     deliver: {
       ...(undelivered

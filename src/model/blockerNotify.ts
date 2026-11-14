@@ -23,6 +23,7 @@ export const BLOCKS_NOTIFY_PARENT: Readonly<Record<BlockerKind, boolean>> = {
   'baseline-review': true,
   'tester-skipped': true,
   'push-diverged': true,
+  'base-moved-failed': true,
   'review-stalled': true,
   'usage-limit': true,
   'stranded-stage': true,

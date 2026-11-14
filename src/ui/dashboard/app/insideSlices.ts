@@ -25,6 +25,8 @@ export interface MenuFlags {
   readonly reset: string | null;
   readonly prFeedback: boolean;
   readonly ci: boolean;
+  /** Ship only: the base-moved check failed and ship parked (`base-moved-failed`), so 'Send gate failure' is offered. */
+  readonly gateFailure: boolean;
   readonly rebase: boolean;
   /** Ship only: an auto-fix round runs, so 'Stop auto-fix now…' is offered. */
   readonly autofixStop: boolean;
@@ -86,6 +88,7 @@ export const frameOf =
       reset: state.resetStage && state.resetStage.available && key === state.resetStage.stage ? state.resetStage.stage : null,
       prFeedback: !!(state.prFeedbackFix && state.prFeedbackFix.available && key === 'ship'),
       ci: !!(state.ciFailure && state.ciFailure.available) && key === 'ship',
+      gateFailure: !!(state.gateFailure && state.gateFailure.available) && key === 'ship',
       rebase: !!(state.rebase && state.rebase.available) && key === (state.rebase.stage || 'ship'),
       // The stop item needs the visible Auto-fix row, which shows only while autopilot is effective; Merge all stays off for any live round.
       autofixStop: key === 'ship' && state.autopilot?.roundRunning === true && state.autopilot.effective,

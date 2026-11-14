@@ -24,7 +24,7 @@ import type { HostMessage } from '../messages.js';
 export const SHIPPED_FLASH_MS = 2400;
 
 /** The operations whose wire message carries no request id and which settle on a state push. */
-export type ActionName = 'sendBack' | 'resetStage' | 'prFeedback' | 'ci' | 'rebase' | 'deliver' | 'previewRefresh' | 'mergeAll';
+export type ActionName = 'sendBack' | 'resetStage' | 'prFeedback' | 'ci' | 'gateFailure' | 'rebase' | 'deliver' | 'previewRefresh' | 'mergeAll';
 
 type State = Extract<HostMessage, { type: 'state' }>['state'];
 type Outcome = { readonly ok: boolean | null; readonly message?: string };
@@ -35,6 +35,7 @@ const OUTCOMES: Readonly<Record<ActionName, (state: State) => Outcome>> = {
   resetStage: (s) => (s.stageCurrent === 'uat' || s.stageCurrent === 'review' ? { ok: true, message: 'Stage reset; re-running.' } : { ok: null, message: 'The stage was not reset.' }),
   prFeedback: (s) => (s.stageCurrent === 'fix' ? { ok: true, message: 'Addressing pull request feedback.' } : { ok: null, message: 'The ticket was not moved.' }),
   ci: (s) => (s.stageCurrent === 'impl' ? { ok: true, message: 'Sent the CI failure to the agent.' } : { ok: null, message: 'The ticket was not moved.' }),
+  gateFailure: (s) => (s.stageCurrent === 'impl' ? { ok: true, message: 'Sent the gate failure to the agent.' } : { ok: null, message: 'The ticket was not moved.' }),
   rebase: () => ({ ok: null, message: 'Rebase finished; see the notification for the result.' }),
   deliver: () => ({ ok: null, message: 'Deliver to PR finished; see the notification for the result.' }),
   previewRefresh: () => ({ ok: true }),

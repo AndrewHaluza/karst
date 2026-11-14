@@ -68,6 +68,7 @@ import {
 import type { GraphRunRow as FullGraphRunRow } from '../../../store/graph/graphRuns.js';
 import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
 import type { PlannerRunRow as FullPlannerRunRow } from '../../../store/graph/plannerRuns.js';
+import type { KillOutcome } from '../../../runtime/processTree.js';
 import { markLeaseAmbiguous } from './leases.js';
 import { cancelNodeRuns, type AbandonedNodeRun } from './abandonedNodes.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
@@ -107,6 +108,10 @@ export interface ReconcileGraphRunDeps {
   debug?: (message: string) => void;
   /** OS process probes (`runtime/serverIdentity.ts`), injected for tests. */
   facts: ProcessFactsSource;
+  /** Group signal used to stop an ORPHAN: a run whose `process_runs` row is
+   *  already closed while its attributable pid still lives (its terminal closed
+   *  but the process did not). Absent → the orphan is logged and left alone. */
+  killTree?: (pid: number) => KillOutcome;
   /** The transport's session for a node run in THIS window; undefined after a
    *  reload. A session present means this window owns a live process. */
   sessionFor: (nodeRunId: number) => { pid: number | null } | undefined;
@@ -155,6 +160,7 @@ type NodeRunRow = Pick<FullNodeRunRow, 'id' | 'status' | 'owner_nonce' | 'proces
 interface ProcessRunRow {
   pid: number | null;
   started_at: string;
+  status: string;
 }
 
 function noopResult(graphRunId: number, status: string): ReconcileGraphRunResult {
@@ -206,19 +212,46 @@ function drainingRevisionNumber(db: GraphDb, graphRunId: number): number | undef
   return row?.revision_number;
 }
 
+/** The statuses the transport's terminal-close handler writes. `stale` is NOT
+ *  one: a run is marked `stale` when a newer run of the same process OPENS
+ *  (superseded) or a sweep finds its pid gone — its pid may be a healthy
+ *  parallel node, so it is never evidence of an orphan. */
+const TERMINAL_CLOSE_STATUSES: ReadonlySet<string> = new Set(['passed', 'failed', 'interrupted']);
+
+/** A recorded process identity. `runClosed` is true once the `process_runs`
+ *  row left `running` (its terminal closed) — a still-live pid then is an
+ *  orphan, not another window's process. */
+interface ProcessIdentity {
+  pid: number;
+  startedAt: string | null;
+  runClosed: boolean;
+}
+
+/** Stop an orphan's process tree. True only when the signal landed; a missing
+ *  `killTree` seam or a refused signal leaves the run alone (logged). */
+function stopOrphan(deps: ReconcileGraphRunDeps, label: string, pid: number): boolean {
+  if (!deps.killTree) {
+    deps.debug?.(`[graph] reconcile: ${label} is an orphan (closed process_run, live pid ${pid}) — no killTree seam, left alone`);
+    return false;
+  }
+  const outcome = deps.killTree(pid);
+  deps.debug?.(`[graph] reconcile: ${label} is an orphan (closed process_run, live pid ${pid}) — killTree: ${outcome}`);
+  return outcome === 'killed';
+}
+
 /** The run's node-linked process identity, or null when none exists (a null
  *  pid is equally no evidence — "never declared dead merely because this
  *  window cannot see its terminal"). */
 export function processOf(
   db: GraphDb,
   node: { process_run_id: number | null },
-): { pid: number; startedAt: string | null } | null {
+): ProcessIdentity | null {
   if (node.process_run_id === null) return null;
   const row = db
-    .prepare('SELECT pid, started_at FROM process_runs WHERE id = ?')
+    .prepare('SELECT pid, started_at, status FROM process_runs WHERE id = ?')
     .get(node.process_run_id) as ProcessRunRow | undefined;
   if (!row || row.pid === null) return null;
-  return { pid: row.pid, startedAt: row.started_at };
+  return { pid: row.pid, startedAt: row.started_at, runClosed: TERMINAL_CLOSE_STATUSES.has(row.status) };
 }
 
 /** The two planner kinds the crash matrix judges, each on its own run status. */
@@ -230,13 +263,13 @@ type PlannerRunRow = Pick<FullPlannerRunRow, 'id' | 'status' | 'owner_nonce' | '
  *  runs are (`processOf`): a null `process_run_id`, or a process_runs row
  *  whose pid is null, is no evidence of death — never declared dead merely
  *  because this window cannot see its terminal. */
-function plannerProcessOf(db: GraphDb, planner: PlannerRunRow): { pid: number; startedAt: string | null } | null {
+function plannerProcessOf(db: GraphDb, planner: PlannerRunRow): ProcessIdentity | null {
   if (planner.process_run_id === null) return null;
   const row = db
-    .prepare('SELECT pid, started_at FROM process_runs WHERE id = ?')
+    .prepare('SELECT pid, started_at, status FROM process_runs WHERE id = ?')
     .get(planner.process_run_id) as ProcessRunRow | undefined;
   if (!row || row.pid === null) return null;
-  return { pid: row.pid, startedAt: row.started_at };
+  return { pid: row.pid, startedAt: row.started_at, runClosed: TERMINAL_CLOSE_STATUSES.has(row.status) };
 }
 
 /** The four-way attribution over the injected probes, awaited exactly like the
@@ -481,7 +514,10 @@ async function reconcileRunning(
   if (deps.sessionFor(node.id)) return 0; // this window owns it
   const proc = processOf(deps.db, node);
   if (proc === null) return 0; // no pid evidence — never declared dead
-  const attribution = await attributeOf(deps.facts, proc);
+  let attribution = await attributeOf(deps.facts, proc);
+  if (attribution === 'attributable' && proc.runClosed && stopOrphan(deps, `node ${node.id}`, proc.pid)) {
+    attribution = 'dead'; // stopped orphan → the existing dead-node path
+  }
   if (attribution === 'attributable') return 0;
   if (attribution === 'dead' || attribution === 'foreign') {
     return deps.transaction(() => {
@@ -742,7 +778,10 @@ async function reconcilePlannerRun(
 
   if (planner.status === 'running') {
     if (proc === null) return planningResult(deps, run, 0); // no pid evidence — never declared dead
-    const attribution = await attributeOf(deps.facts, proc);
+    let attribution = await attributeOf(deps.facts, proc);
+    if (attribution === 'attributable' && proc.runClosed && stopOrphan(deps, `${kind} planner ${planner.id}`, proc.pid)) {
+      attribution = 'dead'; // stopped orphan → stale + bounded relaunch
+    }
     if (attribution === 'dead' || attribution === 'foreign') {
       return staleAndRelaunch(
         `[graph] reconcile: run ${run.id} ${kind} planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) — relaunching the planner`,
@@ -762,7 +801,10 @@ async function reconcilePlannerRun(
       }
       return planningResult(deps, run, 0); // unprovable — leave alone
     }
-    const attribution = await attributeOf(deps.facts, proc);
+    let attribution = await attributeOf(deps.facts, proc);
+    if (attribution === 'attributable' && proc.runClosed && stopOrphan(deps, `${kind} planner ${planner.id}`, proc.pid)) {
+      attribution = 'dead'; // stopped orphan → stale + bounded relaunch
+    }
     if (attribution === 'dead' || attribution === 'foreign') {
       return staleAndRelaunch(
         `[graph] reconcile: run ${run.id} ${kind} planner ${planner.id} process (pid ${proc.pid}) is gone (${attribution}) — relaunching the planner`,
