@@ -436,9 +436,10 @@
     "arch:AP-00"
   ],
   "src/extension/ops/baseMovedCheck.ts": [
-    "arch:GATE-REPEAT"
+    "arch:GATE-BASE-MOVED"
   ],
   "src/extension/ops/baseMovedHost.ts": [
+    "arch:GATE-BASE-MOVED",
     "arch:GATE-REPEAT"
   ],
   "src/extension/ops/ciActionsWiring.ts": [
@@ -1036,7 +1037,7 @@
     "arch:GATE-CONCURRENCY"
   ],
   "src/workflow/gates/run.ts": [
-    "arch:GATE-REPEAT"
+    "arch:GATE-BASE-MOVED"
   ],
   "src/workflow/gates/runList.ts#runGateList": [
     "arch:GATE-CONCURRENCY"

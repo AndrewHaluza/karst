@@ -60,6 +60,34 @@ export function failingScreenshots(report, root) {
   return { screenshots, others };
 }
 
+/**
+ * The failed tests of a Playwright JSON report as `{ project, title }`, for the next pass to run again
+ * (@arch:GATE-REPEAT). Null when the report cannot name each failure: no report, a global error, no
+ * `stats.unexpected`, an interrupted test, a failure with no project or title, a failed setup or teardown
+ * (`bookends`), a count that differs from `stats.unexpected`, no failure, or more than BASE_RERUN_CAP failures.
+ */
+export function failedTests(report, bookends) {
+  if (report === null || typeof report !== 'object') return null;
+  if (Array.isArray(report.errors) && report.errors.length > 0) return null;
+  if (typeof report.stats?.unexpected !== 'number') return null;
+  const seen = new Set();
+  const failed = [];
+  let count = 0;
+  for (const spec of specsOf(report, undefined)) {
+    if (spec.results.some((r) => r?.status === 'interrupted')) return null;
+    if (spec.status !== 'unexpected') continue;
+    count += 1;
+    const named = typeof spec.project === 'string' && spec.project !== '' && typeof spec.title === 'string' && spec.title !== '';
+    if (!named || bookends.includes(spec.title)) return null;
+    const key = `${spec.project}\0${spec.title}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    failed.push({ project: spec.project, title: spec.title });
+  }
+  if (count === 0 || count !== report.stats.unexpected || failed.length > BASE_RERUN_CAP) return null;
+  return failed;
+}
+
 function otherFailuresReason(others) {
   const named = others.slice(0, MAX_NAMED).map((o) => `[${o.project}] ${o.title}${o.message ? ` — ${o.message}` : ''}`);
   if (others.length > MAX_NAMED) named.push(`+${others.length - MAX_NAMED} more`);

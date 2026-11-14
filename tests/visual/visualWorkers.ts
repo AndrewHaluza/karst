@@ -4,7 +4,7 @@
  * `KARST_VISUAL_WORKERS` raises it for the local docker gate. The default is 1.
  * CI and baseline-update runs are always 1: CI keeps its measured behaviour, and
  * baseline authoring must not change. A bad value falls back to 1.
- * The layout chain is one spec file, so it stays on one worker at any count.
+ * The layout project is `fullyParallel`, so its one spec file spreads over the workers too.
  */
 export function resolveVisualWorkers(
   env: Record<string, string | undefined>,

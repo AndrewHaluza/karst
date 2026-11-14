@@ -1377,7 +1377,11 @@ rows to reach "+N more"). View-specific states (dashboard stage scenarios,
 Confirm ship, sandbox on; sidebar subtasks and planning dependencies; every
 settings route; usage quota; and so on) are added alongside. Each variant has a
 corpus builder, a screenshot baseline in each theme project it declares, and a
-layout-gate run at every `LAYOUT_WIDTHS` width.
+layout-gate run of its page at every `LAYOUT_WIDTHS` width. A variant that opens
+the same page as an earlier variant (the same corpus and layout steps; it differs
+only in screenshot fields such as `width` or `themes`) shares that run: the gate
+derives this (`layoutPlan()`), so no flag is set by hand. The size of each view's
+sweep is pinned by the sweep budget (`@ui:SWEEP-BUDGET`).
 
 A view or state that ships without a fixture, a baseline and a geometry run is
 invisible to every gate; a baseline alone can be re-recorded as "correct".
@@ -1386,9 +1390,11 @@ invisible to every gate; a baseline alone can be re-recorded as "correct".
 
 **Check:** STATIC `tests/visual/variants.test.ts` (unit gate) fails on a webview
 with no entry, a missing mandatory variant, a variant without a baseline PNG in
-a required theme project, a baseline PNG with no variant, or a variant with no
-layout target. VISUAL: the sweep records `<view>/<variant>` and the layout gate
-opens it at every width.
+a required theme project, a baseline PNG with no variant, a variant with no
+layout run (its own or a shared one), or two non-settings layout targets that
+open the same page. `tests/visual/sweepBudget.test.ts` fails when a view's screenshot or layout
+count leaves its budget. VISUAL: the sweep records `<view>/<variant>` and the
+layout gate opens each distinct page at every width.
 END_DOC_BLOCK: [@ui:UI-R57]
 ## [@ui:APPX-V31] Appendix — UI-RULES v3.1 "React views" annex (NDL-126 §9)
 
