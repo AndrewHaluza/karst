@@ -11,6 +11,7 @@ import {
   ARMED_FIX_TIMEOUT_MS,
   FIX_ENQUEUE_STALE_MS,
   FIX_POINTER_RESEND_MS,
+  FIX_POINTER_UNSENDABLE_MS,
   FIX_UNREAD_NEEDS_YOU_MS,
   makeFixDeliverySweep,
 } from './fixDeliverySweep.js';
@@ -340,5 +341,40 @@ describe('fixDeliverySweep', () => {
     });
     expect(() => s.sweep()).not.toThrow();
     expect(h.host.debug).toHaveBeenCalledWith(expect.stringContaining('sweep failed (boom)'));
+  });
+
+  describe('host ticket whose pointer cannot be delivered (arch:AC-37)', () => {
+    const hostSweep = (hostUnsendable: (ticketId: number, deliveryId: number) => string | null) => {
+      const s = makeFixDeliverySweep({ ...h.host, hostUnsendable, projectId: () => h.projectId });
+      return () => s.sweep();
+    };
+    it('claims pointer_failed and raises a host-worded Needs you after the unsendable window', () => {
+      h.state.route = 'typed';
+      h.state.running = true;
+      const id = deliver();
+      h.state.running = false;
+      h.state.live = false;
+      const run = hostSweep(() => 'the agent session is not live in this window');
+      run();
+      expect(h.needsYou).toEqual([]);
+      h.advance(FIX_POINTER_UNSENDABLE_MS + 1);
+      run();
+      expect(row(id).pointerFailedAt).not.toBeNull();
+      expect(h.needsYou).toHaveLength(1);
+      expect(h.needsYou[0]).toContain('the agent session is not live in this window');
+      expect(h.needsYou[0]).not.toContain('inbox/');
+      run();
+      expect(h.needsYou).toHaveLength(1);
+    });
+    it('stays quiet when the host pointer is deliverable', () => {
+      h.state.route = 'typed';
+      h.state.running = true;
+      const id = deliver();
+      h.state.running = false;
+      h.advance(FIX_POINTER_UNSENDABLE_MS + 1);
+      hostSweep(() => null)();
+      expect(row(id).pointerFailedAt).toBeNull();
+      expect(h.needsYou).toEqual([]);
+    });
   });
 });

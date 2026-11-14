@@ -23,6 +23,8 @@ export function buildShipSlot(
 ): ShipSlot {
   if (!cell || cell.stageKey !== 'ship') return { kind: 'none' };
   if (cell.status === 'failed') return { kind: 'retry', reason: cell.reason ?? null };
+  // A re-push (an auto-fix round) runs ship over the stored awaiting-merge block: it ships, it does not wait (@arch:BLOCKED).
+  if (cell.status === 'running' && cell.blocked?.kind === 'awaiting-merge') return { kind: 'shipping' };
   if (cell.blocked?.kind === 'awaiting-merge') {
     return { kind: 'waiting-merge', repos: mergeGate?.repos?.length ?? 0 };
   }

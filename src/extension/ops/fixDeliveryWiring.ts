@@ -75,6 +75,8 @@ export interface FixDeliveryWiringDeps {
   store: Store;
   projectId: () => number | undefined;
   isLive: (ticketId: number) => boolean;
+  /** This window controls the ticket (arch:GLOBAL). Absent = every ticket of the project. Only the controlling window escalates: `isLive` is false for a session another window holds. */
+  owns?: (ticketId: number) => boolean;
   isGraphTicket: (ticketId: number) => boolean;
   /** The live session's core, from in-memory identity only. */
   sessionProvider: (ticketId: number) => string | null | undefined;
@@ -105,6 +107,8 @@ export interface FixDeliveryWiring {
   pointAtLaunch: (ticketId: number, launchId: string) => 'sent' | 'unsendable' | 'no-row';
   /** Hook channel: the delivery id the turn-end reply may point at, if any. */
   eligible: (ticketId: number) => number | null;
+  /** A current row is armed and not yet read or pointed, eligible or not: the hook log names it when `eligible` is null. */
+  armed: (ticketId: number) => boolean;
   claimPointed: (ticketId: number, deliveryId: number) => boolean;
 }
 
@@ -154,13 +158,22 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       return !isSandboxChannel(deps.sessionChannel(id)) || writeFixBrief(deps, id, deliveryId);
     },
     unsendableInbox: (id, deliveryId) => {
+      if (deps.owns?.(id) === false) return null;
       if (!isSandboxChannel(deps.sessionChannel(id))) return null;
       const row = getFixDelivery(deps.store, deliveryId);
       const stuck = !deps.isLive(id) || deps.agyBusy(id) || (row !== null && hasPendingFixIntent(deps.store, row.launchId));
       if (!stuck || !writeFixBrief(deps, id, deliveryId)) return null;
       return `inbox/${inboxRef(fixPointer(deliveryId))}.md`;
     },
-    retryAfterFailure: (id) => isSandboxChannel(deps.sessionChannel(id)),
+    hostUnsendable: (id, deliveryId) => {
+      if (deps.owns?.(id) === false) return null;
+      if (isSandboxChannel(deps.sessionChannel(id))) return null;
+      if (!deps.isLive(id)) return 'no live agent session in this window';
+      const row = getFixDelivery(deps.store, deliveryId);
+      return row !== null && hasPendingFixIntent(deps.store, row.launchId) ? 'the fix launch is still starting' : null;
+    },
+    // Host and sandbox alike: an escalated pointer must still reach the agent once it is live again (arch:AC-37).
+    retryAfterFailure: () => true,
     needsYou: (id, reason) => {
       // Only a quiet or idle agent is flagged: `running`/`waiting` are live
       // hook state that must never be overwritten with needs-you.
@@ -201,6 +214,10 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       return result === 'queued' ? 'sent' : 'unsendable';
     },
     eligible: (ticketId) => eligibleFixDelivery(host, ticketId)?.id ?? null,
+    armed: (ticketId) => {
+      const row = currentFixDelivery(deps.store, ticketId);
+      return row !== null && row.armedAt !== null && row.pointedAt === null && row.readAt === null && row.pointerFailedAt === null;
+    },
     claimPointed: (ticketId, deliveryId) => {
       void ticketId;
       return claimPointed(deps.store, deliveryId, now());

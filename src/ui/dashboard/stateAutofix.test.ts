@@ -129,7 +129,7 @@ describe('readAutofix', () => {
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, rollup('pending', 4));
     const r = readAutofix(store, id, CONFIG);
     expect(r.row).toMatchObject({ state: 'pending', message: 'CI running for api #88 (4 of 14 pending). Auto-fix waits.' });
-    expect(r.input.unknownCi).toBe(true);
+    expect(r.input).toMatchObject({ unknownCi: false, pendingCi: true });
     store.db.prepare('UPDATE prs SET checks = ?').run(rollup('passing', 0));
     expect(readAutofix(store, id, CONFIG).row).toBeNull();
   });
@@ -252,7 +252,7 @@ describe('autofixInputOf', () => {
     expect(both.parked).toBeNull();
     expect(autofixInputOf(facts({ reason: 'auto-fix stopped by you' })).parked).toBeNull();
     expect(autofixInputOf(facts({ unknownCi: ['api #1'], effective: false }))).toMatchObject({ unknownCi: true, effective: false });
-    expect(autofixInputOf(facts({ pendingCi: [{ label: 'api #1', pending: 1, total: 2 }] })).unknownCi).toBe(true);
+    expect(autofixInputOf(facts({ pendingCi: [{ label: 'api #1', pending: 1, total: 2 }] }))).toMatchObject({ unknownCi: false, pendingCi: true });
     expect(autofixInputOf(facts({})).unknownCi).toBe(false);
   });
 });

@@ -39,6 +39,13 @@ describe('buildShipSlot', () => {
     )).toEqual({ kind: 'waiting-merge', repos: 0 });
   });
 
+  it('reports shipping for a re-push that runs over a stored awaiting-merge block', () => {
+    expect(buildShipSlot(
+      cell({ status: 'running', blocked: { kind: 'awaiting-merge', reason: 'PR open', at: 'x', resumable: false } }),
+      { repos: ['web'] },
+    )).toEqual({ kind: 'shipping' });
+  });
+
   it('keeps the states mutually exclusive — a blocked cell is never confirm/retry/shipping', () => {
     const slot = buildShipSlot(cell({ status: 'passed', blocked: { kind: 'awaiting-merge', reason: 'r', at: 't', resumable: false } }), undefined);
     expect(slot.kind).toBe('waiting-merge');

@@ -13,7 +13,7 @@ import { isKnownProvider } from '../agent/provider.js';
 import { isTicketType, TICKET_TYPES, type TicketType } from './ticketTypes.js';
 import { slugifyTitleKey } from './titleKey.js';
 import { nowIso } from '../model/time.js';
-import { isShipAwaitingMerge, readShipCi, reportShipCiFailure, type ShipCi } from './shipCi.js';
+import { isShipAwaitingMerge, readDeliverRunning, readShipCi, reportShipCiFailure, type ShipCi } from './shipCi.js';
 import { deleteGraphRunData, graphRunIdsForTicket } from './graph/graphRuns.js';
 import { formatId } from '../model/entityId.js';
 import { asPriorityLevel, PRIORITY_LEVELS, type PriorityLevel } from '../model/priority.js';
@@ -143,6 +143,11 @@ export interface TicketWithStages extends Ticket {
    * mandatory CI of a shipped, awaiting-merge ticket still runs. Absent = null.
    */
   shipCi?: ShipCi;
+  /**
+   * Derived at read time, never stored: the current deliver run of a ship/awaiting-merge ticket
+   * runs now. Absent for any other ticket. Ship's own work yields the needs-you reading.
+   */
+  deliverRunning?: boolean;
 }
 
 interface TicketRow {
@@ -1136,17 +1141,17 @@ function withStages(store: Store, rows: readonly TicketRow[]): TicketWithStages[
   );
 }
 
-/** Attach the derived `shipCi` reading; only a ship/awaiting-merge ticket costs a query. */
+/** Attach the derived `shipCi` and `deliverRunning` readings; only a ship/awaiting-merge ticket costs a query. */
 function withShipCi(store: Store, t: TicketWithStages): TicketWithStages {
   if (!isShipAwaitingMerge(t)) return t;
   try {
-    return { ...t, shipCi: readShipCi(store, t.id) };
+    return { ...t, shipCi: readShipCi(store, t.id), deliverRunning: readDeliverRunning(store, t.id) };
   } catch (err) {
     reportShipCiFailure(t.id, err);
     // The reading is display-only: a table that cannot be read (for example a
     // dropped merge_checks) must not fail a ticket load. Null is the safe
     // answer: the ticket keeps its amber "Needs you" reading.
-    return { ...t, shipCi: null };
+    return { ...t, shipCi: null, deliverRunning: false };
   }
 }
 

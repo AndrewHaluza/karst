@@ -139,9 +139,13 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
  * `running` — a spinner and a growing clock beside a banner saying it is
  * blocked. The stored status stays the record of what the runner was doing;
  * this is what every surface renders.
+ *
+ * One exception: ship parks at `awaiting-merge` with status `passed`, so a `running` ship over that
+ * stored block is a re-push (an auto-fix round) and reads `running` (@arch:BLOCKED).
  */
 export function displayStatus(cell: StepperCell): StageStatus | 'blocked' | 'paused' {
   if (cell.paused && cell.status === 'running') return 'paused';
+  if (cell.stageKey === 'ship' && cell.blocked?.kind === 'awaiting-merge') return cell.status;
   return cell.blocked && cell.status === 'running' ? 'blocked' : cell.status;
 }
 

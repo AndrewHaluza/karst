@@ -101,6 +101,10 @@ export interface MailReplyDeps {
   nudgeEligible?: (ticketId: number) => MarkerNudgeCandidate | null;
   nudgedAt?: Map<number, NudgedAt>;
   onNudged?: (ticketId: number, candidate: MarkerNudgeCandidate) => void;
+  /** The launch id a hook must carry now; only named in the refusal log. */
+  activeLaunchOf?: (ticketId: number) => string | undefined;
+  /** A fix delivery row is armed for the ticket (eligible or not); only named in the log. */
+  fixArmed?: (ticketId: number) => boolean;
   debug?: (message: string) => void;
 }
 
@@ -123,12 +127,15 @@ function nudgeReply(deps: MailReplyDeps, ticketId: number, launchId: string | un
 }
 
 /** A fix pointer for this turn end, or null (nothing eligible, already blocked, lost the claim). */
-function fixReply(deps: MailReplyDeps, ticketId: number, launchId: string | undefined): HookReply | null {
+function fixReply(deps: MailReplyDeps, ticketId: number, launchId: string | undefined, logOnce: (key: string, message: string) => void): HookReply | null {
   if (deps.fixEligible === undefined || deps.claimFixPointed === undefined || deps.blockedAtFix === undefined) {
     return null;
   }
   const deliveryId = deps.fixEligible(ticketId);
   if (deliveryId === null) {
+    if (deps.fixArmed?.(ticketId) === true) {
+      logOnce(`armed:${ticketId}`, `[driver] delivery reply ${formatId('ticket', ticketId)}: fix row armed but not eligible`);
+    }
     deps.blockedAtFix.delete(ticketId);
     return null;
   }
@@ -142,6 +149,13 @@ function fixReply(deps: MailReplyDeps, ticketId: number, launchId: string | unde
 }
 
 export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
+  // A refusal repeats on every turn end: log each distinct key once so the log shows it without flooding.
+  const logged = new Set<string>();
+  const logOnce = (key: string, message: string): void => {
+    if (logged.has(key)) return;
+    logged.add(key);
+    deps.debug?.(message);
+  };
   return ({ ticketId, event, launchId, stopHookActive }) => {
     if (event !== 'Stop' && event !== 'session.idle') return null;
     // A continuation turn (Claude's stop_hook_active) is not a fresh turn end:
@@ -150,6 +164,10 @@ export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
     // output here, so spending the budget would silently swallow the batch.
     if (stopHookActive === true) return null;
     if (!deps.isCurrent(ticketId, launchId)) {
+      logOnce(
+        `refused:${ticketId}:${launchId ?? ''}`,
+        `[driver] hook refused ${formatId('ticket', ticketId)}: hook launch ${launchId ?? 'none'}, active launch ${deps.activeLaunchOf?.(ticketId) ?? 'none'}`,
+      );
       // A retired generation can never claim delivery; drop its record so the
       // map stays bounded by the tickets with unread mail.
       deps.blockedAt.delete(ticketId);
@@ -158,7 +176,7 @@ export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
       return null;
     }
     if (deps.shouldReply !== undefined && !deps.shouldReply(ticketId)) return null;
-    const fix = fixReply(deps, ticketId, launchId);
+    const fix = fixReply(deps, ticketId, launchId, logOnce);
     if (fix !== null) return fix;
     const unread = deps.unread(ticketId);
     if (unread < 1) {

@@ -287,3 +287,28 @@ describe('makeHookReply marker nudge', () => {
     expect(nudgedAt.size).toBe(0);
   });
 });
+
+describe('makeHookReply refusal log (arch:AC-37)', () => {
+  it('logs a refused hook once per ticket and launch with both launch ids', () => {
+    const debug = vi.fn();
+    const reply = makeHookReply(deps({ isCurrent: () => false, activeLaunchOf: () => 'ACTIVE', debug }));
+    expect(reply({ ticketId: 7, event: 'Stop', launchId: 'OLD' })).toBeNull();
+    expect(reply({ ticketId: 7, event: 'Stop', launchId: 'OLD' })).toBeNull();
+    const lines = debug.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('refused'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('T7');
+    expect(lines[0]).toContain('OLD');
+    expect(lines[0]).toContain('ACTIVE');
+    reply({ ticketId: 7, event: 'Stop', launchId: 'OLDER' });
+    expect(debug.mock.calls.filter((c) => String(c[0]).includes('refused'))).toHaveLength(2);
+  });
+  it('logs a fix row that is armed but not eligible, once per ticket', () => {
+    const debug = vi.fn();
+    const reply = makeHookReply(deps({ fixEligible: () => null, claimFixPointed: () => true, blockedAtFix: new Map(), fixArmed: () => true, unread: () => 0, debug }));
+    reply({ ticketId: 7, event: 'Stop', launchId: 'L1' });
+    reply({ ticketId: 7, event: 'Stop', launchId: 'L1' });
+    const lines = debug.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('armed but not eligible'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('T7');
+  });
+});

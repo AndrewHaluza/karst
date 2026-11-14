@@ -76,7 +76,8 @@ export interface RailNeedsInput {
    * that: the hooks that set `agentWaiting` fire inside ship's own headless run,
    * so "the agent asked you something" beside shipping in progress is the exact
    * contradiction this input prevents (869ed7bpd). Only consulted when
-   * `stage === 'ship'`; an awaiting-merge ship reads `passed`, never `running`.
+   * `stage === 'ship'`. A re-push after an auto-fix round runs ship again over a
+   * stored awaiting-merge block, so `running` can occur with that block too.
    */
   shipStatus: StageStatus;
   /** The ship stage row's verdict reason; worded (one line, capped) when ship failed. */

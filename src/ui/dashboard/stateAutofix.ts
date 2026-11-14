@@ -72,7 +72,8 @@ export function autofixInputOf(facts: AutofixFacts): AutofixInput {
     effective: facts.effective,
     running: round === null ? null : { kind: round.kind, repo: round.repo === '' ? null : round.repo, round: `${round.used}/${round.max}` },
     parked: round === null && facts.reason !== null && kind !== null ? { kind, reason: facts.reason } : null,
-    unknownCi: facts.unknownCi.length > 0 || facts.pendingCi.length > 0,
+    unknownCi: facts.unknownCi.length > 0,
+    pendingCi: facts.pendingCi.length > 0,
   };
 }
 

@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { planRepeat, storeRun } from './dockerGate.mjs';
 
 const GATE = resolve('scripts/dockerGate.mjs');
 const GIT = spawnSync('git', ['--exec-path'], { encoding: 'utf8' }).stdout.trim();
@@ -88,5 +89,71 @@ describe('test:layout:docker with a selection that has no layout route', () => {
     const run = runGate({ KARST_LAYOUT_PRUNE: '1' });
     expect(run.status).toBe(EXIT_NO_DOCKER);
     expect(run.stderr).not.toContain('layout: skipped');
+  });
+});
+
+describe('test:layout:docker after a stored run', () => {
+  const ARGV = ['run', '--rm', 'img'];
+  let savedBase;
+  const seed = async (status, report) => {
+    savedBase = process.env.KARST_BASE_REF;
+    process.env.KARST_BASE_REF = 'develop';
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      storeRun((await planRepeat('test:layout:docker', ARGV, dir)).memo, status, report);
+    } finally {
+      spy.mockRestore();
+      if (savedBase === undefined) delete process.env.KARST_BASE_REF;
+      else process.env.KARST_BASE_REF = savedBase;
+    }
+  };
+
+  it('runs only the views changed since the green run', async () => {
+    put('src/ui/settings/b.tsx');
+    git('add', '-A');
+    git('commit', '-qm', 'settings change');
+    await seed(0, null);
+    put('src/ui/diffs/a.tsx');
+    const run = runGate({});
+    expect(run.status).toBe(EXIT_NO_DOCKER);
+    expect(run.stderr).toMatch(/layout: running diffs \(changed since the green run at [0-9a-f]{12}\); full sweep runs in CI/);
+    expect(run.stderr).not.toContain('settings');
+  });
+
+  it('runs every view when a shared path changed since the green run', async () => {
+    put('src/ui/diffs/a.tsx');
+    git('add', '-A');
+    git('commit', '-qm', 'diffs change');
+    await seed(0, null);
+    put('src/ui/theme/tokens.ts');
+    const run = runGate({});
+    expect(run.status).toBe(EXIT_NO_DOCKER);
+    expect(run.stderr).toContain('layout: running every view');
+  });
+
+  it('runs the failed tests of the red run with no UI change since', async () => {
+    put('src/ui/diffs/a.tsx');
+    git('add', '-A');
+    git('commit', '-qm', 'diffs change');
+    await seed(1, {
+      errors: [],
+      stats: { unexpected: 1 },
+      suites: [{ specs: [{ title: 'diffs/empty @1280', tests: [{ projectName: 'layout', status: 'unexpected', results: [{ status: 'failed' }] }] }] }],
+    });
+    const run = runGate({});
+    expect(run.status).toBe(EXIT_NO_DOCKER);
+    expect(run.stderr).toMatch(/layout: running 1 failed test of the red run at [0-9a-f]{12}; full sweep runs in CI/);
+    expect(run.stderr).not.toContain('layout: skipped');
+  });
+
+  it('uses the branch diff after a red run it cannot parse and no earlier state', async () => {
+    put('src/ui/diffs/a.tsx');
+    git('add', '-A');
+    git('commit', '-qm', 'diffs change');
+    await seed(1, null);
+    const run = runGate({});
+    expect(run.status).toBe(EXIT_NO_DOCKER);
+    expect(run.stderr).toContain('full: no earlier green run');
+    expect(run.stderr).toContain('layout: running diffs; full sweep runs in CI');
   });
 });

@@ -29,8 +29,11 @@ export interface SandboxLifecycleDeps extends SandboxSyncDeps {
 
 export type BackendKind = 'host' | 'sbx' | 'docker';
 
-/** Where a core's session runs when a sandbox backend is configured. */
-export function backendKindOf(core: string | null): BackendKind {
+/**
+ * Which sandbox kind a core WOULD use when a sandbox backend is configured.
+ * It never says where a ticket runs: only the recorded placement does (arch:AC-32).
+ */
+export function sandboxKindOfCore(core: string | null): BackendKind {
   const c = core ?? '';
   if ((SBX_CORES as readonly string[]).includes(c)) return 'sbx';
   return isDockerCore(c) ? 'docker' : 'host';
@@ -93,8 +96,8 @@ export async function removeSandboxGuarded(
 ): Promise<boolean> {
   const inv = await inventoryOf(deps);
   const boxes = inv.sandboxes.filter((s) => s.ticketId === target.ticketId);
-  // A failed listing proves nothing gone: fall back to the ticket's current core.
-  if (boxes.length === 0 && backendKindOf(target.core) !== 'host' && inv.errors.length > 0) {
+  // A failed listing proves nothing gone: fall back to the ticket's current core. Callers skip a recorded-host ticket first (arch:AC-32), so the core only picks the runner to ask.
+  if (boxes.length === 0 && sandboxKindOfCore(target.core) !== 'host' && inv.errors.length > 0) {
     boxes.push({ runner: 'sbx', name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
   }
   if (boxes.length === 0) return true;
@@ -221,6 +224,8 @@ export interface ReconcileTicket {
   readonly id: number;
   readonly sessionId: string | null;
   readonly sessionProvider: string | null;
+  /** The recorded placement backend; `null`/absent = none recorded, so the core's sandbox kind is the fallback. */
+  readonly placementBackend?: BackendKind | null;
 }
 
 export interface ReconcileResult {
@@ -252,7 +257,8 @@ export function reconcileSandboxes(
     const box = inv.sandboxes.find((s) => s.ticketId === t.id && s.core === t.sessionProvider);
     if (box) (box.state === 'running' ? running : stopped).push(t.id);
     else {
-      const kind = backendKindOf(t.sessionProvider);
+      // Recorded placement decides (arch:AC-32); a core only tells which sandbox kind it would use.
+      const kind = t.placementBackend ?? sandboxKindOfCore(t.sessionProvider);
       if (kind !== 'host' && t.sessionId !== null && listed(kind)) {
         clearSession(t.id);
         missing.push(t.id);

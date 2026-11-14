@@ -9,6 +9,7 @@ import {
   sessionOwnershipAction,
   SessionRecoveryLifecycle,
   SerializedStateWriter,
+  isCurrentHookAfterAdopt,
   shouldApplySessionHookState,
 } from './sessionRecovery.js';
 import {
@@ -222,6 +223,18 @@ describe('recovery lifecycle ordering', () => {
         { hook_event_name: 'SessionEnd' },
       ),
     ).toBe(false);
+  });
+
+  it('adopts a restored launch before it refuses a state hook, and reports a refusal', () => {
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    const lifecycle = new SessionRecoveryLifecycle();
+    const adopt = vi.fn((t: number) => lifecycle.adoptLaunch(t, id));
+    const onRefused = vi.fn();
+    expect(shouldApplySessionHookState({ isOpen: () => false }, lifecycle, 7, { hook_event_name: 'Stop', launchId: id }, { adopt, onRefused })).toBe(true);
+    expect(onRefused).not.toHaveBeenCalled();
+    const other = '223e4567-e89b-42d3-a456-426614174000';
+    expect(shouldApplySessionHookState({ isOpen: () => false }, lifecycle, 7, { hook_event_name: 'Stop', launchId: other }, { adopt, onRefused })).toBe(false);
+    expect(onRefused).toHaveBeenCalledWith(7, other, id);
   });
 
   it('allows SessionEnd after the replacement terminal has closed', () => {
@@ -561,5 +574,28 @@ describe('SerializedStateWriter', () => {
     await second;
     await writer.flush();
     expect(writes).toEqual([1, 2]);
+  });
+});
+
+describe('isCurrentHookAfterAdopt (arch:AC-37)', () => {
+  it('admits the hook of a revived terminal that was not adopted yet', () => {
+    const lifecycle = new SessionRecoveryLifecycle(100);
+    const adopt = vi.fn((id: number) => lifecycle.adoptLaunch(id, 'REVIVED'));
+    expect(lifecycle.isCurrentHook(7, 'REVIVED')).toBe(false);
+    expect(isCurrentHookAfterAdopt(lifecycle, adopt, 7, 'REVIVED')).toBe(true);
+    expect(adopt).toHaveBeenCalledWith(7);
+  });
+  it('still refuses a hook of another launch after the adoption', () => {
+    const lifecycle = new SessionRecoveryLifecycle(100);
+    const adopt = (id: number): void => lifecycle.adoptLaunch(id, 'REVIVED');
+    expect(isCurrentHookAfterAdopt(lifecycle, adopt, 7, 'STALE')).toBe(false);
+  });
+  it('does not adopt when a launch is already active or the hook has no launch id', () => {
+    const lifecycle = new SessionRecoveryLifecycle(100);
+    lifecycle.adoptLaunch(7, 'ACTIVE');
+    const adopt = vi.fn();
+    expect(isCurrentHookAfterAdopt(lifecycle, adopt, 7, 'OTHER')).toBe(false);
+    expect(isCurrentHookAfterAdopt(lifecycle, adopt, 8, undefined)).toBe(false);
+    expect(adopt).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   BASELINE_ENV_MARKER,
   dockerArgv,
@@ -12,8 +12,10 @@ import {
   narrowSweep,
   missingDockerMessage,
   readLocalCommand,
+  storeRun,
 } from './dockerGate.mjs';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { readState } from './gateState.mjs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -250,7 +252,7 @@ describe('narrowSweep', () => {
     delete process.env.KARST_UI_GREP;
     process.env[intent] = '1';
     try {
-      narrowSweep('test:layout:docker');
+      narrowSweep('test:layout:docker', { since: 'a'.repeat(40), paths: ['src/ui/diffs/a.tsx'], failed: [] });
       expect(process.env.KARST_UI_GREP).toBeUndefined();
     } finally {
       process.env = saved;
@@ -268,4 +270,43 @@ describe('baseRunArgv', () => {
     expect(argv).not.toContain('npm');
     expect(argv.at(-1)).toContain("'--project=dark' '--grep' 'it'\\''s'");
   });
+});
+
+describe('storeRun', () => {
+  const tree = 'c'.repeat(40);
+  const report = {
+    errors: [],
+    stats: { unexpected: 1 },
+    suites: [{ specs: [{ title: 'diffs/empty: full-page screenshot', tests: [{ projectName: 'dark', status: 'unexpected', results: [{ status: 'failed' }] }] }] }],
+  };
+  let dir;
+  const memo = () => ({ dir, key: 'k', tree, base: 'b1' });
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-store-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('stores a green run with no failed test', () => {
+    storeRun(memo(), 0, null);
+    expect(readState(dir, 'k').state).toMatchObject({ tree, base: 'b1', clean: true, failed: [] });
+  });
+  it('stores a red run with its failed tests', () => {
+    storeRun(memo(), 1, report);
+    expect(readState(dir, 'k').state).toMatchObject({ tree, clean: true, failed: [{ project: 'dark', title: 'diffs/empty: full-page screenshot' }] });
+  });
+  it.each([
+    ['an unreadable report', 1, null],
+    ['a failed ledger verdict', 1, { ...report, suites: [{ specs: [{ title: 'layout ledger verdict', tests: [{ projectName: 'layout-teardown', status: 'unexpected', results: [] }] }] }] }],
+    ['exit 137', 137, report],
+    ['exit 127', 127, report],
+  ])('stores nothing for %s', (_, status, rep) => {
+    storeRun(memo(), status, rep);
+    expect(existsSync(join(dir, 'karst-gate-state', 'k.json'))).toBe(false);
+  });
+  it('keeps the earlier state when it stores nothing', () => {
+    storeRun(memo(), 0, null);
+    storeRun({ ...memo(), tree: 'd'.repeat(40) }, 1, null);
+    expect(readState(dir, 'k').state.tree).toBe(tree);
+  });
+  it('does nothing without a memo', () => expect(() => storeRun(null, 1, report)).not.toThrow());
 });
