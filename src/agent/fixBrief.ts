@@ -106,6 +106,10 @@ function gateCommandLines(stageKey: StageKey, runs: readonly GateRun[]): string[
 export const FIX_REFUSED_STOP_RULE =
   'If the done marker is refused with no new commit and the host re-run still fails, stop and wait for the user — that is a valid stopping point.';
 
+/** Said once in a non-review gate-failure brief: an environment failure needs no change, only the marker. */
+export const FIX_NO_FAULT_RULE =
+  'If the failure output shows no fault in the ticket code (a timeout, a server that did not start, a port window) and you change no file, call the done marker now. The host re-runs the gate.';
+
 /** Said once in a failed review gate brief: repair the whole defect class, not only the reported site. */
 export const REVIEW_SWEEP_RULE =
   'For each finding, name the rule it breaks. Search the repository for each site of that rule. Fix each site. List the sites in the commit body.';
@@ -176,13 +180,15 @@ export function renderFixBrief(
       ? `Reviewers requested changes on the pull request for ticket ${ticketLabel}. ` +
         'Address every point below, then stop.'
       : `The ${gate.stageKey} gate failed for ticket ${ticketLabel}. Fix what it reported, ` +
-        'then re-run the checks yourself to confirm they pass.',
+        'then re-run each check whose files your fix changes to confirm it passes. ' +
+        'If your fix changes no UI path, leave a UI gate (visual, layout) to the host.',
     // A fix session runs shell commands to reproduce and re-run checks; it must
     // stop only what it started (`kill $!`), never a process-wide `pkill`.
     '',
     PROCESS_KILL_RULE,
   ];
   if (!isPrFeedback) lines.push('', FIX_REFUSED_STOP_RULE);
+  if (!isPrFeedback && gate.stageKey !== 'review') lines.push('', FIX_NO_FAULT_RULE);
   if (gate.stageKey === 'review') lines.push('', REVIEW_SWEEP_RULE);
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
   if (options?.hasPrototype && (!gate.verdict || !gate.verdict.includes('@ui:UI-R39-REJECT'))) {
