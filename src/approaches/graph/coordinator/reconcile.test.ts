@@ -801,6 +801,85 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.transitions).toBe(0);
   });
 
+  describe('an orphan: a closed process_run whose attributable pid still lives', () => {
+    const closeRun = (processRunId: number): void => {
+      ctx.db.prepare("UPDATE process_runs SET status = 'interrupted' WHERE id = ?").run(processRunId);
+    };
+    const liveFacts = (pid: number): ProcessFactsSource =>
+      makeFacts({ alive: { [pid]: true }, startMs: { [pid]: Date.parse(NOW) } });
+
+    it('a running node is stopped and takes the dead-node path', async () => {
+      linkProcess(ctx, 130, 7001, NOW);
+      closeRun(130);
+      insertNodeRun(ctx, 130, 'running', { processRunId: 130 });
+      const killed: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: liveFacts(7001),
+        killTree: (pid) => (killed.push(pid), 'killed'),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(killed).toEqual([7001]);
+      expect(nodeRow(ctx, 130).status).toBe('stale');
+      expect(runRow(ctx).status).toBe('blocked');
+      expect(result.transitions).toBe(1);
+    });
+
+    it('a running node whose process_run is still running is left alone', async () => {
+      linkProcess(ctx, 131, 7002, NOW);
+      insertNodeRun(ctx, 131, 'running', { processRunId: 131 });
+      const killed: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: liveFacts(7002),
+        killTree: (pid) => (killed.push(pid), 'killed'),
+      });
+      await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(killed).toEqual([]);
+      expect(nodeRow(ctx, 131).status).toBe('running');
+    });
+
+    it('a superseded (stale) process_run is not an orphan: its live pid is left alone', async () => {
+      linkProcess(ctx, 133, 7005, NOW);
+      ctx.db.prepare("UPDATE process_runs SET status = 'stale' WHERE id = 133").run();
+      insertNodeRun(ctx, 133, 'running', { processRunId: 133 });
+      const killed: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: liveFacts(7005),
+        killTree: (pid) => (killed.push(pid), 'killed'),
+      });
+      await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(killed).toEqual([]);
+      expect(nodeRow(ctx, 133).status).toBe('running');
+    });
+
+    it('a refused kill leaves the node alone', async () => {
+      linkProcess(ctx, 132, 7003, NOW);
+      closeRun(132);
+      insertNodeRun(ctx, 132, 'running', { processRunId: 132 });
+      const deps = ctx.makeDeps({ facts: liveFacts(7003), killTree: () => 'denied' });
+      await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(nodeRow(ctx, 132).status).toBe('running');
+    });
+
+    it('a running planner is stopped, marked stale and relaunched', async () => {
+      toPlanning(ctx);
+      insertPlannerRun(ctx, 230, 'running');
+      linkPlannerProcess(ctx, 230, 230, 7004, NOW);
+      closeRun(230);
+      const killed: number[] = [];
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: liveFacts(7004),
+        killTree: (pid) => (killed.push(pid), 'killed'),
+        relaunchPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const result = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(killed).toEqual([7004]);
+      expect(plannerRow(ctx, 230).status).toBe('stale');
+      expect(relaunched).toEqual([ctx.graphRunId]);
+      expect(result.transitions).toBe(1);
+    });
+  });
+
   describe('a planning run whose bootstrap planner session is gone', () => {
     it('a running planner with a demonstrably dead process is marked stale and relaunched on the same run', async () => {
       toPlanning(ctx);
