@@ -13,13 +13,14 @@ import { renderCitationText } from '../../model/archCitations.js';
 import type { StageKey } from '../../model/types.js';
 import { probeScripts } from '../../workflow/gates/probe.js';
 import { baseDefinesScript } from '../../workflow/gates/npmScript.js';
-import type { GitRunner } from '../../integrations/git.js';
+import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { resolveTargetGates } from '../../workflow/stages/uat.js';
 import { withHostOverride } from '../../workflow/gates/resourceKill.js';
 import { getHostGates } from '../../store/ticketGates.js';
-import type { ReviewConfig, UatConfig } from '../../manifest/types.js';
+import type { Manifest, ReviewConfig, UatConfig } from '../../manifest/types.js';
 import { nowIso } from '../../model/time.js';
 import type { MarkerStage } from '../../agent/markerStage.js';
+import { recordHostRerunPass, type HostRerunPassDeps } from '../../workflow/hostRerunPass.js';
 import { runRequestedHostReruns } from '../../workflow/fixHostRerunRequest.js';
 import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
 import {
@@ -28,6 +29,7 @@ import {
   preBriefHostRerun,
   type FailedGate,
   type GateRerunResult,
+  type HostRerunDeps,
   type HostRerunOutcome,
   type HostRerunReply,
 } from '../../workflow/fixHostRerun.js';
@@ -62,6 +64,12 @@ export interface GateRerunDeps {
   readonly probe?: typeof probeScripts;
   /** Git runner for the base-ref script lookup of a stale branch; absent → no lookup. */
   readonly git?: GitRunner;
+  /** Re-drive the source stage after a passing re-run; without it the fix watchdog finds the stage ~5 min later. */
+  readonly redrive?: (ticketId: number) => void;
+  /** The manifest, for the baseline-review check of the gate pass record (@arch:BASELINE-REVIEW). */
+  readonly manifest?: () => Manifest | undefined;
+  /** Test seam for the working-tree fingerprint. */
+  readonly fingerprint?: HostRerunPassDeps['fingerprint'];
   /** The one gate spawn path; tests inject a fake. */
   readonly runGates?: typeof runGateList;
 }
@@ -262,16 +270,38 @@ export function makeRecoverRefusal(
   };
 }
 
+/** The `HostRerunDeps` the three callers share: the gate runner, the pass record and the re-drive. */
+function rerunDepsOf(deps: GateRerunDeps): HostRerunDeps {
+  return {
+    runGates: makeGateRerun(deps),
+    ...(deps.debug ? { debug: deps.debug } : {}),
+    onPassed: async (ticketId, stage, roundId) => {
+      try {
+        const result = await recordHostRerunPass(deps.store, ticketId, stage, roundId, {
+          manifest: deps.manifest ?? (() => undefined),
+          git: deps.git ?? defaultGitRunner,
+          ...(deps.fingerprint ? { fingerprint: deps.fingerprint } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+        });
+        deps.debug?.(`[fix-rerun] ticket ${ticketId}: gate pass record ${result}`);
+      } catch (err) {
+        deps.debug?.(`[fix-rerun] ticket ${ticketId}: gate pass record failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      deps.redrive?.(ticketId);
+    },
+  };
+}
+
 /** Production composition: re-run through the store-backed workflow with the host's gate runner. */
 export function hostRerunFor(deps: GateRerunDeps): (ticketId: number) => Promise<HostRerunOutcome> {
-  const runGates = makeGateRerun(deps);
-  return (ticketId) => hostRerunFailedGates(deps.store, ticketId, { runGates });
+  const rerunDeps = rerunDepsOf(deps);
+  return (ticketId) => hostRerunFailedGates(deps.store, ticketId, rerunDeps);
 }
 
 /** Production composition for the pre-brief re-run of an environment-signature gate failure. */
 export function preBriefRerunFor(deps: GateRerunDeps): (ticketId: number) => Promise<HostRerunOutcome> {
-  const runGates = makeGateRerun(deps);
-  return (ticketId) => preBriefHostRerun(deps.store, ticketId, { runGates });
+  const rerunDeps = rerunDepsOf(deps);
+  return (ticketId) => preBriefHostRerun(deps.store, ticketId, rerunDeps);
 }
 
 export interface RequestedRerunSweepDeps extends GateRerunDeps {
@@ -284,14 +314,14 @@ export interface RequestedRerunSweepDeps extends GateRerunDeps {
  * re-run request; run it here, never in the CLI. A tick that finds a run in flight does nothing.
  */
 export function makeRequestedRerunSweep(deps: RequestedRerunSweepDeps): () => Promise<void> {
-  const runGates = makeGateRerun(deps);
+  const rerunDeps = rerunDepsOf(deps);
   let running = false;
   return async () => {
     const projectId = deps.projectId();
     if (running || projectId === undefined) return;
     running = true;
     try {
-      const outcomes = await runRequestedHostReruns(deps.store, projectId, { runGates });
+      const outcomes = await runRequestedHostReruns(deps.store, projectId, rerunDeps);
       for (const o of outcomes) deps.debug?.(`[fix-rerun] requested by the host CLI: ${o.kind}`);
     } catch (err) {
       deps.debug?.(`[fix-rerun] sweep failed: ${err instanceof Error ? err.message : String(err)}`);

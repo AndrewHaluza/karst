@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicketFlow } from './stages/create.js';
 import { openProcessRun } from '../store/processRuns.js';
@@ -79,6 +79,26 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(getStage(store, ticketId, 'uat')).toMatchObject({ status: 'running', attempt: 1, blockedKind: null });
     expect(getStage(store, ticketId, 'fix')).toMatchObject({ status: 'pending' });
     expect(activeFixRound(store, ticketId)).toBeNull();
+  });
+
+  it('calls onPassed once, after the stage returned, with the ticket and the source stage', async () => {
+    const seen: unknown[] = [];
+    const onPassed = (id: number, stage: string, round: number) => { seen.push([id, stage, round, getStage(store, ticketId, 'uat')?.status]); };
+    await hostRerunFailedGates(store, ticketId, { ...deps(() => ok), onPassed });
+    expect(seen).toEqual([[ticketId, 'uat', roundId, 'running']]);
+  });
+
+  it('does not call onPassed when a gate still fails', async () => {
+    const onPassed = vi.fn();
+    await hostRerunFailedGates(store, ticketId, { ...deps((g) => (g.gateName === 'unit (web)' ? { exitCode: 1, summary: 'red' } : ok)), onPassed });
+    expect(onPassed).not.toHaveBeenCalled();
+  });
+
+  it('logs a throw of onPassed and still reports passed', async () => {
+    const debug = vi.fn();
+    const out = await hostRerunFailedGates(store, ticketId, { ...deps(() => ok), debug, onPassed: () => { throw new Error('boom'); } });
+    expect(out).toEqual({ kind: 'passed', stage: 'uat' });
+    expect(debug).toHaveBeenCalledWith(`[fix-rerun] ticket ${ticketId}: after a passed re-run: boom`);
   });
 
   it('ends the round fix process run when the re-run passes, marked as closed by the host', async () => {

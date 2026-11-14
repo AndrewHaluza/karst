@@ -8,7 +8,7 @@ import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import type { ResolvedGate } from '../../workflow/gates/resolve.js';
 import { leaseGateSlot } from '../../workflow/gates/gateLease.js';
 import { listGateRuns, HOST_RERUN_SOURCE } from '../../store/gateRuns.js';
-import { makeGateRerun, makeManifestGatesFor, makeRecoverRefusal, makeRequestedRerunSweep } from './fixRerunOps.js';
+import { hostRerunFor, makeGateRerun, makeManifestGatesFor, makeRecoverRefusal, makeRequestedRerunSweep, preBriefRerunFor } from './fixRerunOps.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { addHostGates } from '../../store/ticketGates.js';
 import { setStage } from '../../store/stages.js';
@@ -265,6 +265,52 @@ describe('makeRequestedRerunSweep', () => {
     expect(run).toHaveBeenCalledTimes(1);
     expect(debug).toHaveBeenCalledWith('[fix-rerun] requested by the host CLI: passed');
     expect(store.db.prepare('SELECT status FROM recovery_rounds WHERE id = ?').get(round.id)).toEqual({ status: 'passed' });
+  });
+
+  const requestedRound = async (store: Store, request = true) => {
+    const { upsertProject } = await import('../../store/projects.js');
+    const { requestHostRerun } = await import('../../workflow/fixHostRerunRequest.js');
+    const { openRecoveryRound } = await import('../../store/recoveryRounds.js');
+    const { recordGateRun } = await import('../../store/gateRuns.js');
+    const project = upsertProject(store, { slug: 'p' });
+    const ticketId = createTicketFlow(store, { key: 'T-1', title: 't', projectId: project.id }).id;
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(ticketId, 'web', '/wt/web', 'b');
+    recordGateRun(store, { ticketId, stageKey: 'uat', attempt: 1, runAt: '2026-01-01T00:00:00Z', gates: [{ gateName: 'unit (web)', exitCode: 1, repo: 'web', command: 'npm', args: ['t'], summary: 's' }] });
+    const round = openRecoveryRound(store, { ticketId, sourceStage: 'uat', sourceProcessId: 'gates', triggerKind: 'gate-failure', triggerDetail: 'x', maxRounds: 3, startedAt: '2026-01-01T00:00:00Z' } as never);
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(round.id);
+    if (request) requestHostRerun(store, ticketId, '2026-01-01T00:00:00Z');
+    return { project, ticketId };
+  };
+
+  it('re-drives the source stage when the requested re-run passes', async () => {
+    const store = openStore(':memory:');
+    const { project, ticketId } = await requestedRound(store);
+    const redrive = vi.fn();
+    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: 'ok' }));
+    await makeRequestedRerunSweep({ store, runnerFor: () => run, gatesFor: () => [resolved({ args: ['t'] })], gateSlotsDir: mkdtempSync(join(tmpdir(), 'karst-rerun-slots-')), projectId: () => project.id, redrive })();
+    expect(redrive).toHaveBeenCalledExactlyOnceWith(ticketId);
+  });
+
+  it('does not re-drive when the requested re-run fails', async () => {
+    const store = openStore(':memory:');
+    const { project } = await requestedRound(store);
+    const redrive = vi.fn();
+    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 1, output: 'bad' }));
+    await makeRequestedRerunSweep({ store, runnerFor: () => run, gatesFor: () => [resolved({ args: ['t'] })], gateSlotsDir: mkdtempSync(join(tmpdir(), 'karst-rerun-slots-')), projectId: () => project.id, redrive })();
+    expect(redrive).not.toHaveBeenCalled();
+  });
+
+  it('re-drives after the bridge re-run (hostRerunFor) and the pre-brief re-run (preBriefRerunFor) pass', async () => {
+    for (const make of [hostRerunFor, preBriefRerunFor]) {
+      const store = openStore(':memory:');
+      const { ticketId } = await requestedRound(store, false);
+      const redrive = vi.fn();
+      const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 0, output: 'ok' }));
+      store.db.prepare("UPDATE gate_runs SET summary = 'environment signature: a gate or test timeout' WHERE ticket_id = ?").run(ticketId);
+      const outcome = await make({ store, runnerFor: () => run, gatesFor: () => [resolved({ args: ['t'] })], gateSlotsDir: mkdtempSync(join(tmpdir(), 'karst-rerun-slots-')), redrive })(ticketId);
+      expect(outcome.kind).toBe('passed');
+      expect(redrive).toHaveBeenCalledExactlyOnceWith(ticketId);
+    }
   });
 
   it('does nothing without a project', async () => {

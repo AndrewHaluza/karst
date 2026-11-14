@@ -18,6 +18,8 @@ export interface GateRerunHost {
   readonly hostGateFor: (ticketId: number) => (() => GateProcessRunner) | undefined;
   readonly onGateOutput: GateRerunDeps['onGateOutput'];
   readonly onGateSpawned: GateRerunDeps['onGateSpawned'];
+  /** Re-drive a ticket's source stage after a passing re-run. */
+  readonly redrive: (ticketId: number) => void;
   readonly debug: (message: string) => void;
 }
 
@@ -31,6 +33,8 @@ export function bindGateRerunDeps(host: GateRerunHost): GateRerunDeps {
     runnerFor: (id) => host.gateProcessFor(id) ?? host.runProcess,
     hostRunner: host.runProcess,
     git: defaultGitRunner,
+    manifest: host.manifest,
+    redrive: host.redrive,
     hostGateFor: (id) => host.hostGateFor(id)?.(),
     sandboxedFor: (id) => host.gateProcessFor(id) !== undefined,
     regenerateFor: (repo) => regenerateOption(host.manifest(), { repo, names: [repo] }).regenerate,
