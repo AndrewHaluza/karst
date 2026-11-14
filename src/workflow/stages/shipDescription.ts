@@ -94,7 +94,7 @@ async function describePr(
     finalParsed !== undefined && finalParsed.kind !== 'not-json'
       ? finalParsed
       : parsePrDescriptionAnswer(r.raw);
-  if (parsed.kind === 'ok') return { body: renderNarrative(parsed.answer, ctx) };
+  if (parsed.kind === 'ok') return { body: renderNarrative(parsed.answer, { ...ctx, ...(debug ? { debug } : {}) }) };
   if (parsed.kind === 'not-json') {
     debug?.(`[ship] ticket ${ticketId}: PR description answer is not JSON — sanitized text used: ${headlessPreview(r.raw)}`);
     const text = sanitizePrDescription(r.raw, ctx.title);

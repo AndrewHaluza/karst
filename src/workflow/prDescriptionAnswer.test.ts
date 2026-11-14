@@ -6,6 +6,7 @@ import {
   parsePrDescriptionAnswer,
   renderNarrative,
 } from './prDescriptionAnswer.js';
+import { toStrictSchema } from '../agent/strictSchema.js';
 
 const valid = { summary: 'Adds **JSON** answers.', behavior: null };
 
@@ -26,6 +27,14 @@ describe('parsePrDescriptionAnswer', () => {
     expect(r.kind === 'ok' && 'extra' in r.answer).toBe(false);
   });
 
+  it('keeps a behavior value of any shape for the diagram builder to judge', () => {
+    for (const behavior of [5, 'graph TD', { before: [], after: [] }]) {
+      const r = parsePrDescriptionAnswer(JSON.stringify({ ...valid, behavior }));
+      expect(r.kind === 'ok' && r.answer.behavior).toEqual(behavior);
+    }
+    expect(parsePrDescriptionAnswer(JSON.stringify({ summary: 'S' })).kind).toBe('ok');
+  });
+
   it('reports prose as not-json', () => {
     expect(parsePrDescriptionAnswer('## Summary\n\nDid a thing.').kind).toBe('not-json');
     expect(parsePrDescriptionAnswer('').kind).toBe('not-json');
@@ -43,7 +52,6 @@ describe('parsePrDescriptionAnswer', () => {
     ['bad whereToLook', { ...valid, whereToLook: 'x' }],
     ['non-string bullet', { ...valid, needsHuman: ['a', 2] }],
     ['non-string risk', { ...valid, risk: 4 }],
-    ['non-string behavior', { ...valid, behavior: 5 }],
   ])('reports %s as invalid', (_name, value) => {
     expect(parsePrDescriptionAnswer(JSON.stringify(value)).kind).toBe('invalid');
   });
@@ -58,7 +66,7 @@ describe('renderNarrative', () => {
     const body = renderNarrative(
       {
         summary: 'S',
-        behavior: 'graph TD',
+        behavior: null,
         whereToLook: ['a.ts', ' ', 'b.ts'],
         risk: 'Low.',
         needsHuman: ['Check X'],
@@ -68,7 +76,29 @@ describe('renderNarrative', () => {
     expect(body).toBe(
       'S\n\n## Where to look\n\n- a.ts\n- b.ts\n\n## Risk\n\nLow.\n\n## Needs a human\n\n- Check X',
     );
-    expect(body).not.toContain('graph TD');
+  });
+
+  it('adds the Behavior section after the narrative sections, before the gate line', () => {
+    const behavior = { before: [{ label: 'Old' }], after: [{ label: 'New' }] };
+    const body = renderNarrative(
+      { summary: 'S', behavior, needsHuman: ['Check X'] },
+      { gateSetChanged: true },
+    );
+    const at = (t: string): number => body.indexOf(t);
+    expect(at('## Needs a human')).toBeGreaterThan(-1);
+    expect(at('## Behavior')).toBeGreaterThan(at('## Needs a human'));
+    expect(at(GATE_SET_CHANGED_LINE)).toBeGreaterThan(at('## Behavior'));
+    expect(body.match(/```mermaid/gu)).toHaveLength(1);
+  });
+
+  it('keeps the narrative and writes a debug line when the behavior is broken', () => {
+    const lines: string[] = [];
+    const body = renderNarrative(
+      { summary: 'S', behavior: { before: [], after: [] } },
+      { debug: (m) => void lines.push(m) },
+    );
+    expect(body).toBe('S');
+    expect(lines).toHaveLength(1);
   });
 
   it('omits empty arrays and blank risk', () => {
@@ -103,5 +133,25 @@ describe('schema and prose contract agree', () => {
   it('marks behavior nullable and the prose says null', () => {
     expect((schema.properties.behavior as { type: string[] }).type).toContain('null');
     expect(prDescriptionOutputRules(undefined).join('\n')).toContain('null');
+  });
+  it('describes behavior as before/after steps with the 1 to 6 bound, in schema and prose', () => {
+    const b = schema.properties.behavior as {
+      required: string[];
+      properties: Record<string, { type: string; items: { required: string[]; properties: Record<string, unknown> } }>;
+    };
+    expect([...b.required].sort()).toEqual(['after', 'before']);
+    for (const side of ['before', 'after'] as const) {
+      expect(b.properties[side]!.type).toBe('array');
+      expect(b.properties[side]!.items.required).toEqual(['label']);
+      expect(Object.keys(b.properties[side]!.items.properties).sort()).toEqual(['kind', 'label']);
+    }
+    const prose = prDescriptionOutputRules(undefined).join('\n');
+    for (const word of ['"before"', '"after"', '"label"', '"kind"', '"ok"', '"bad"', '1 to 6']) {
+      expect(prose).toContain(word);
+    }
+  });
+  it('survives the codex strict copy: every nested object lists all its keys', () => {
+    const strict = JSON.stringify(toStrictSchema(PR_DESCRIPTION_OUTPUT_SCHEMA));
+    expect(strict).toContain('"required":["label","kind"]');
   });
 });

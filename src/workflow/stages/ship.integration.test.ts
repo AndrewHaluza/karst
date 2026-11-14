@@ -2337,6 +2337,29 @@ setTimeout(() => {
       expect(seen.outputSchema).toBeDefined();
     });
 
+    it('renders a Behavior diagram from valid behavior data', async () => {
+      const raw = JSON.stringify({
+        summary: 'Adds the diagram.',
+        behavior: {
+          before: [{ label: 'Body is prose' }],
+          after: [{ label: 'Body has a diagram', kind: 'ok' }, { label: '@arch:X' }],
+        },
+      });
+      const { body } = await shipWith(answerAdapter(raw, true));
+      expect(body.startsWith('Adds the diagram.\n\n## Behavior\n\n```mermaid\nflowchart LR\n')).toBe(true);
+      expect(body.match(/```mermaid/gu)).toHaveLength(1);
+      expect(body).toContain('subgraph before["Before"]');
+      expect(body).toContain('subgraph after["After"]');
+      expect(body).toContain('<sub>Drawn by the agent from the diff.</sub>');
+      expect(body).not.toContain('@arch:');
+    });
+
+    it('keeps the narrative and draws no diagram when behavior breaks a rule', async () => {
+      const raw = JSON.stringify({ summary: 'Only text.', behavior: { before: [], after: [] } });
+      const { body } = await shipWith(answerAdapter(raw, true));
+      expect(body).toBe('Only text.');
+    });
+
     it('renders only the summary when behavior is null and nothing else is given', async () => {
       const { body } = await shipWith(
         answerAdapter(JSON.stringify({ summary: 'Only this.', behavior: null }), true),
