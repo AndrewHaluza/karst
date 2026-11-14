@@ -426,6 +426,9 @@
     "arch:AP-04",
     "arch:AP-07"
   ],
+  "src/extension/ops/autopilotOps.ts#runBaseMovedRound": [
+    "arch:AP-06"
+  ],
   "src/extension/ops/autopilotRerun.ts": [
     "arch:AP-03"
   ],
@@ -1101,6 +1104,9 @@
   ],
   "src/workflow/stages/ship*.ts": [
     "arch:GH-00"
+  ],
+  "src/workflow/stages/ship.ts#parkShipBaseMovedFailed": [
+    "arch:GATE-BASE-MOVED"
   ],
   "src/workflow/stages/shipPushRecovery.ts#classifyRejectedPush": [
     "arch:GH-08"
