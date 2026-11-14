@@ -46,6 +46,8 @@ export interface MergeTicketPrOpts {
   repo: string;
   /** How to merge. Always explicit — the host asks the user which. */
   method: MergeMethod;
+  /** Tracked commits (host and sandbox) this PR lacks; above 0 refuses the merge (arch:GH-03). Absent = not tracked. */
+  unpushed?: number;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[merge]`,
    * threaded into the post-merge settlement. Absent → no debug lines; the
@@ -128,10 +130,19 @@ async function checkHead(
 ): Promise<{ readonly pin: string | null; readonly refusal: string | null }> {
   const pin = await fetchPrHeadSha(gh, url, cwd);
   if (pin === null) return { pin: null, refusal: null };
-  const r = await git(['rev-list', '--count', `${pin}..HEAD`], cwd);
-  const ahead = Number(r.stdout.trim());
-  if (r.exitCode === 0 && Number.isInteger(ahead) && ahead > 0) return { pin, refusal: unpushedReason(ahead) };
-  return { pin, refusal: null };
+  const count = async (): Promise<number | null> => {
+    const r = await git(['rev-list', '--count', `${pin}..HEAD`], cwd);
+    const n = Number(r.stdout.trim());
+    return r.exitCode === 0 && Number.isInteger(n) ? n : null;
+  };
+  let ahead = await count();
+  if (ahead === null) {
+    // The PR head may not be in the local clone yet (a push from elsewhere): fetch it once, then count again.
+    await git(['fetch', 'origin', pin], cwd);
+    ahead = await count();
+  }
+  if (ahead === null) return { pin, refusal: `Could not compare the pull request head ${pin.slice(0, 7)} with the local head. Fetch it and try again.` };
+  return { pin, refusal: ahead > 0 ? unpushedReason(ahead) : null };
 }
 
 export async function mergeTicketPr(
@@ -165,6 +176,7 @@ export async function mergeTicketPr(
     };
   }
 
+  if ((opts.unpushed ?? 0) > 0) return { ok: false, status: pr.status, completedTicket: false, reason: unpushedReason(opts.unpushed ?? 0) };
   const head = await checkHead(gh, git, pr.url, pr.cwd);
   if (head.refusal !== null) return { ok: false, status: pr.status, completedTicket: false, reason: head.refusal };
   const attempt = await mergePr(gh, pr.url, pr.cwd, opts.method, head.pin ?? undefined);
@@ -220,7 +232,7 @@ export function planMergeAll(
   repoOrder: readonly string[],
   repoNameFor: (repo: string) => string | undefined,
   now: string,
-  unpushed = 0,
+  unpushed: (repo: string) => number = () => 0,
 ): MergeAllPlan {
   const current = new Set(listCurrentPrsByTicket(store, ticketId).map((p) => `${p.repo}\u0000${p.url}`));
   const views = listPrsByTicket(store, ticketId).filter((p) => p.url !== null && current.has(`${p.repo}\u0000${p.url}`));
@@ -249,8 +261,8 @@ export interface MergeAllDeps {
   readonly refresh: () => Promise<void>;
   /** True while an Autopilot auto-fix round runs for the ticket. */
   readonly autofixRunning: () => boolean;
-  /** Commits the ticket holds that its PRs lack; a PR is not ready while this is above 0 (arch:GH-03). Absent = 0. */
-  readonly unpushed?: () => number;
+  /** Commits the ticket holds that one PR lacks; that PR is not ready while this is above 0 (arch:GH-03). Absent = 0. */
+  readonly unpushed?: (repo: string) => number;
   /** The one modal. Resolves true on confirm, false on cancel. */
   readonly confirm: (plan: MergeAllPlan) => Promise<boolean>;
   readonly merge?: (repo: string) => Promise<MergeTicketPrResult>;
@@ -285,12 +297,12 @@ export async function mergeAllPrs(store: Store, deps: MergeAllDeps): Promise<Mer
     await deps.refresh();
     // A round can start while the probe runs; the check is repeated before anything irreversible.
     if (deps.autofixRunning()) return { kind: 'refused', reason: MERGE_ALL_ROUND_RUNNING };
-    const plan = planMergeAll(store, ticketId, deps.repoOrder, deps.repoNameFor, deps.now(), deps.unpushed?.() ?? 0);
+    const plan = planMergeAll(store, ticketId, deps.repoOrder, deps.repoNameFor, deps.now(), deps.unpushed);
     if (plan.ready.length === 0) return { kind: 'refused', reason: MERGE_ALL_NONE_READY };
     if (!(await deps.confirm(plan))) return { kind: 'cancelled' };
     // The modal can stay open for minutes; a round may have started meanwhile.
     if (deps.autofixRunning()) return { kind: 'refused', reason: MERGE_ALL_ROUND_RUNNING };
-    const merge = deps.merge ?? ((repo: string) => mergeTicketPr(store, { ticketId, repo, method: MERGE_ALL_METHOD, ...(deps.debug ? { debug: deps.debug } : {}) }));
+    const merge = deps.merge ?? ((repo: string) => mergeTicketPr(store, { ticketId, repo, method: MERGE_ALL_METHOD, ...(deps.unpushed ? { unpushed: deps.unpushed(repo) } : {}), ...(deps.debug ? { debug: deps.debug } : {}) }));
     const merged: MergeAllItem[] = [];
     let completedTicket = false;
     for (const item of plan.ready) {

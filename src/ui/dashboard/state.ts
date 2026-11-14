@@ -297,7 +297,7 @@ export function buildDashboardState(
         feedbackAvailable: prFeedbackFix.available,
       },
       autofix: autofixReading.input,
-      unpushed: undelivered ? undelivered.hostAhead : 0,
+      unpushed: (repo) => undelivered?.byRepo?.[repo] ?? 0,
     },
   });
   const phases = approachPhases(ticket.approach);

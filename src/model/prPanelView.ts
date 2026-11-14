@@ -209,8 +209,8 @@ export interface PrReadinessContext {
   readonly mergeChecks: readonly MergeCheckRow[];
   readonly offers: ReadinessOffers;
   readonly autofix: AutofixInput;
-  /** Commits the ticket holds that its PRs lack (the undelivered tracker); absent = 0. */
-  readonly unpushed?: number;
+  /** Commits the ticket holds that one PR's repo lacks (the undelivered tracker); absent = 0. */
+  readonly unpushed?: (repo: string) => number;
 }
 
 const NO_READINESS_CONTEXT: PrReadinessContext = { mergeChecks: [], offers: NO_OFFERS, autofix: NO_AUTOFIX };
@@ -254,7 +254,7 @@ export function buildPrPanelRows(
         approvals: pr.approvals,
         requiredApprovals: null,
         reviewRequests: pr.reviewRequests,
-        unpushed: context.unpushed ?? 0,
+        unpushed: context.unpushed?.(pr.repo) ?? 0,
       },
       context.mergeChecks.find((m) => m.repo === pr.repo),
       context.offers,

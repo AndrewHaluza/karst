@@ -813,7 +813,7 @@ describe('refreshUndeliveredForShipTickets', () => {
     };
     const pid = projectOf(id);
     expect(await refreshUndeliveredForShipTickets({ ...i, projectId: pid }, tracker)).toBe(true);
-    expect(tracker.get(id)).toEqual({ hostAhead: 2, sandboxAhead: 2 });
+    expect(tracker.get(id)).toEqual({ hostAhead: 2, sandboxAhead: 2, byRepo: { r: 4 } });
     expect(await refreshUndeliveredForShipTickets({ ...i, projectId: pid }, tracker)).toBe(false);
   });
 

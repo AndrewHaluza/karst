@@ -109,7 +109,7 @@ END_DOC_BLOCK: [@arch:GH-03]
 covers: src/workflow/mergePr.ts#mergeTicketPr, src/integrations/github.ts#mergePr
 
 `workflow/mergePr.ts` runs `gh pr merge` and then re-reads the PR: gh refused but it reads merged → success; gh accepted but it does not → NOT success, with the state named. `gh pr merge` always gets an explicit method (bare would prompt on a tty that does not exist behind a webview) and never `--delete-branch`/`--auto` — the `worktrees` row and `archive.ts` restore both target that ref, and a queued merge cannot be reflected as merged now. The webview posts only `{type:'merge-pr', repo}`; the modal confirmation AND the method choice live in the host, so a crafted message can neither pick a strategy nor skip the confirmation of an irreversible action.
-Before it merges, `mergeTicketPr` also checks the head (see `@arch:GH-03`): it refuses when the ticket holds commits the PR lacks, and `gh pr merge` gets `--match-head-commit <checked head>`.
+Before it merges, `mergeTicketPr` also checks the head (see `@arch:GH-03`): it refuses when the repo holds commits the PR lacks (tracked, or counted by git after a fetch of the PR head; a head that cannot be compared refuses), and `gh pr merge` gets `--match-head-commit <checked head>`.
 END_DOC_BLOCK: [@arch:GH-04]
 
 ## [@arch:GH-05] A merged PR ends its repo's merge check, and that is enforced on READ
@@ -149,5 +149,5 @@ Merge all (`merge-all-prs`) is one host operation. The webview posts no payload 
 6. Stop at the FIRST failure. The PRs after it stay open and untouched, and the failure reason is shown. A PR merged before the failure stays merged: a merge cannot be undone, so the message says so.
 
 The ticket reaches `done` through the normal settle path of the last merge (`completedTicket`), not through a Merge all special case. The host pushes the state again on every exit, so the button never stays pending. A merge that GitHub queues and does not complete reads as a failure by the `@arch:GH-04` rule.
-`planMergeAll` also skips every PR while the ticket holds commits that no PR has (the `unpushed` reason of `@arch:GH-03`); `mergeTicketPr` re-checks it per PR.
+`planMergeAll` skips a PR while its own repo holds commits that the PR lacks, host or sandbox (the `unpushed` reason of `@arch:GH-03`; the count is per repo, so one repo never blocks another); `mergeTicketPr` re-checks it per PR.
 END_DOC_BLOCK: [@arch:GH-09]

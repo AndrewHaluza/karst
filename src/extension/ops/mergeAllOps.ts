@@ -44,7 +44,7 @@ export interface MergeAllOpsDeps {
   readonly refresh: () => Promise<void>;
   readonly autofixRunning: () => boolean;
   /** Commits the ticket holds that its PRs lack (the undelivered tracker); absent = 0. */
-  readonly unpushed?: () => number;
+  readonly unpushed?: (repo: string) => number;
   /** Shows the modal; true on the confirm button, false on Cancel or dismiss. */
   /** Merges one repo's PR; defaults to `mergeTicketPr` (a seam for tests). */
   readonly merge?: MergeAllDeps['merge'];

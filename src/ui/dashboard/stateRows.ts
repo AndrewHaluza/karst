@@ -37,7 +37,7 @@ export interface DashboardRowsInput {
    */
   serviceKeys: readonly string[];
   /** The actions the host offers and the Autopilot reading: the merge-readiness reasons attach them (arch:AP-00). */
-  readiness?: { offers: ReadinessOffers; autofix: AutofixInput; unpushed?: number };
+  readiness?: { offers: ReadinessOffers; autofix: AutofixInput; unpushed?: (repo: string) => number };
 }
 
 /** The dashboard's scope rows and the mergeability facts the rail and panels share. */
