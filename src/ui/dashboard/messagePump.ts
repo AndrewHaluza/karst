@@ -39,9 +39,13 @@ export function attachMessagePump(panel: DashboardPanel, deps: MessagePumpDeps):
     const requestId = readRequestId(raw);
     // An unparsed message posts NOTHING (UI-R13): no action ran, so there is
     // no terminal outcome to report, and reporting one anyway would ack a
-    // message the host never acted on.
+    // message the host never acted on. The one exception is a baseline
+    // decision from a pending button: its refusal settles that button.
     const parsed = parseWebviewMessage(raw);
-    if (!parsed) return;
+    if (!parsed) {
+      refuseDroppedDecision(raw, requestId, panel, deps);
+      return;
+    }
     if (parsed.type === 'select-gate-attempt') {
       // Pure read: the selection is panel memory only — it never touches
       // the store, never mutates the ticket, and has no
@@ -141,6 +145,28 @@ export function attachMessagePump(panel: DashboardPanel, deps: MessagePumpDeps):
         throw err;
       }
     });
+  });
+}
+
+/** The decision messages a user sends from a pending button (UI-R13 exception). */
+const DECISION_TYPES: ReadonlySet<string> = new Set(['baseline-approve', 'baseline-approve-all', 'baseline-reject']);
+
+/** A decision message the parse dropped: tell the pending button, and log the type only (no payload). */
+function refuseDroppedDecision(
+  raw: unknown,
+  requestId: string | undefined,
+  panel: DashboardPanel,
+  deps: MessagePumpDeps,
+): void {
+  const type = typeof raw === 'object' && raw !== null ? (raw as { type?: unknown }).type : undefined;
+  if (typeof type !== 'string' || !DECISION_TYPES.has(type)) return;
+  deps.logError(`karst: dashboard dropped an invalid ${type} message`, 'refused by the message parse');
+  if (!requestId) return;
+  panel.postMessage({
+    type: 'action-result',
+    requestId,
+    ok: false,
+    message: 'The request was refused: it was malformed or too large. Reopen the review and try again.',
   });
 }
 

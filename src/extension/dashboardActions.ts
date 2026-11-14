@@ -605,7 +605,7 @@ export function makeDashboardActions(
       redrive: driveAfterResume, refresh: afterServerChange,
       handOff: guardedHandOff({ paused: () => getTicket(store, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), isGraphTicket: () => nudgeSurface(store.db, ticketId) === 'no-op', handOff: handOffToSession }),
     }),
-    ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
+    ...makeBaselineActions({ store, manifest, ticketId, debug, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
     ...usageLimitParks,
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The

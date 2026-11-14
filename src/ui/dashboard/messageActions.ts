@@ -209,6 +209,8 @@ export interface DashboardActions {
   purgeStoredArtifacts: () => void | Promise<void>;
   /** Approve changed baselines by entry index; the host re-derives and validates (see the message). */
   baselineApprove: (blockId: string, indices: number[]) => void | Promise<void>;
+  /** Approve every pending changed baseline; the host decides which entries are pending. */
+  baselineApproveAll: (blockId: string) => void | Promise<void>;
   testerSkippedRerun: () => void | Promise<void>;
   testerSkippedAccept: () => void | Promise<void>;
   pushDivergedOverwrite: () => void | Promise<void>;

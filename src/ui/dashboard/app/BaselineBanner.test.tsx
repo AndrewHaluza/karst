@@ -46,20 +46,21 @@ describe('BaselineBanner (@arch:BASELINE-REVIEW)', () => {
     mountRail(review([row(0, 'pending')]));
     expect(btn('baseline-open').className).toContain('k-btn--primary');
     expect(btn('baseline-open').textContent).toContain('Review');
-    expect(btn('baseline-approve').className).toContain('k-btn--secondary');
-    expect(btn('baseline-approve').textContent).toContain('Approve all');
+    expect(btn('baseline-approve-all').className).toContain('k-btn--secondary');
+    expect(btn('baseline-approve-all').textContent).toContain('Approve all');
   });
 
   it('approves the pending entries only, not the rejected ones, without a confirm', () => {
     const h = mountRail(review([row(0, 'pending'), row(1, 'rejected', { reason: 'x' }), row(2, 'approved'), row(3, 'pending')]));
-    expect(btn('baseline-approve').dataset.indices).toBe('0,3');
-    fireEvent.click(btn('baseline-approve'));
-    expect(h.send.baselineApprove).toHaveBeenCalledWith('baseline-review', [0, 3], 'req-1');
+    fireEvent.click(btn('baseline-approve-all'));
+    // The message names the block only: the host decides what is pending, so no index list or size limit applies.
+    expect(h.send.baselineApproveAll).toHaveBeenCalledWith('baseline-review', 'req-1');
+    expect(h.send.baselineApprove).not.toHaveBeenCalled();
   });
 
   it('hides Approve all when nothing is pending, and says so in the singular', () => {
     mountRail(review([row(0, 'approved'), row(1, 'rejected', { reason: 'x' })]));
-    expect(q('#blocked [data-act="baseline-approve"]')).toBeNull();
+    expect(q('#blocked [data-act="baseline-approve-all"]')).toBeNull();
     expect(banner().querySelector('.freason')!.textContent).toContain('0 of 2 changed screenshots need you');
     cleanupRail();
     mountRail(review([row(0, 'pending')]));
@@ -68,7 +69,6 @@ describe('BaselineBanner (@arch:BASELINE-REVIEW)', () => {
 
   it('allowlists the enums and coerces the index', () => {
     mountRail(review([row(7.9, 'odd', { status: 'weird' })]));
-    expect(btn('baseline-approve').dataset.indices).toBe('7');
     expect(all('#blocked .blbanner')).toHaveLength(1);
   });
 });
