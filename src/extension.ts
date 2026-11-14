@@ -32,6 +32,7 @@ import { openStore, type Store } from './store/db.js';
 import { baselineDependentsFor } from './store/baselineRefs.js';
 import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
+import { killTree } from './runtime/processTree.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
@@ -5650,6 +5651,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           sessionsFor: (graphRunId) =>
             tr.sessions().filter((s) => s.graphRunId === graphRunId),
           facts: systemAsyncProcessFacts,
+          killTree,
           debug: (message) => logger.debug(message),
         },
         { ticketId, graphRunId: run.graphRunId },
@@ -5661,7 +5663,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // cannot reach was NOT stopped, and saying so is the whole point of the
       // outcome: draining it would strand it behind a false success.
       void vscode.window.showInformationMessage(
-        result.outcome === 'live-process-unreachable'
+        result.outcome === 'cancelled'
+          ? `Ticket ${formatId('ticket', ticketId)}: the graph run was cancelled — ${result.terminated} process${result.terminated === 1 ? '' : 'es'} stopped.`
+          : result.outcome === 'cancel-refused'
+            ? `Ticket ${formatId('ticket', ticketId)}: the graph run was NOT cancelled — a live process could not be proven to belong to it, so none was stopped.`
+            : result.outcome === 'cancel-raced'
+              ? `Ticket ${formatId('ticket', ticketId)}: the graph run changed state while it was stopped — check the ticket and try again.`
+              : result.outcome === 'live-process-unreachable'
           ? `Ticket ${formatId('ticket', ticketId)}: the implementation graph was NOT stopped — a node process is still running but is not attached to this window. Stop it from the window that launched it, or reload and try again.`
           : result.drained || result.terminated > 0
             ? `Ticket ${formatId('ticket', ticketId)}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`

@@ -69,6 +69,7 @@ function harness(runStatus = 'running'): Ctx {
     transport: fakeTransport(),
     sessionsFor: () => [],
     facts: deadFacts(),
+    killTree: () => 'killed',
   };
   return { db, ticketId, graphRunId, revisionId, makeDeps: (overrides) => ({ ...base, ...overrides }) };
 }
@@ -120,6 +121,18 @@ function insertNodeRun(ctx: Ctx, id: number, status: string): void {
     )
     .run(id, ctx.graphRunId, ctx.revisionId, visit, status);
 }
+
+describe('Stop on a planning or awaiting-confirmation run', () => {
+  it.each(['planning', 'awaiting-confirmation'])('cancels a %s run through cancelGraphRun', async (status) => {
+    const ctx = harness(status);
+    const result = await stopActiveGraph(ctx.makeDeps(), { ticketId: ctx.ticketId, graphRunId: ctx.graphRunId });
+    expect(result).toMatchObject({ drained: false, outcome: 'cancelled' });
+    const run = ctx.db.prepare('SELECT status FROM approach_graph_runs WHERE id = ?').get(ctx.graphRunId) as {
+      status: string;
+    };
+    expect(run.status).toBe('cancelled');
+  });
+});
 
 describe('openSession surface', () => {
   it('detects the active graph run BEFORE the generic session surface', () => {

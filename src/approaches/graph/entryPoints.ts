@@ -34,6 +34,8 @@ import { activeRevision } from '../../store/graph/revisions.js';
 import type { AgentTransport, SupervisedAgentSession } from './transport/supervisedCliTransport.js';
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 import { graphRunHasLiveNodeProcess } from './coordinator/liveness.js';
+import { cancelGraphRun } from './cancel.js';
+import type { KillOutcome } from '../../runtime/processTree.js';
 import {
   graphMarkerReadyForTicket,
   graphRunStatusForTicket,
@@ -147,6 +149,9 @@ export interface StopActiveGraphDeps {
   /** OS process probes (`runtime/serverIdentity.ts`) — the durable evidence
    *  behind "is anything of this run still alive". */
   facts: ProcessFactsSource;
+  /** Process-tree kill for the Cancel path (`planning`/`awaiting-confirmation`). */
+  killTree: (pid: number) => KillOutcome;
+  now?: () => string;
   debug?: (message: string) => void;
 }
 
@@ -156,9 +161,20 @@ export interface StopActiveGraphDeps {
  *  - `live-process-unreachable`: this window observed no session, but a node
  *    run's recorded pid is alive — the run is left `running`;
  *  - `not-running`: the run was not `running` when the CAS ran (already
- *    draining, blocked, or moved by another window).
+ *    draining, blocked, or moved by another window);
+ *  - `cancelled`: a `planning`/`awaiting-confirmation` run has no drain to
+ *    enter, so Stop closed it through `cancelGraphRun`;
+ *  - `cancel-refused`: that cancel met a live process it could not attribute
+ *    (or kill) and changed no row;
+ *  - `cancel-raced`: the run left its status under the cancel.
  */
-export type StopOutcome = 'drained' | 'live-process-unreachable' | 'not-running';
+export type StopOutcome =
+  | 'drained'
+  | 'live-process-unreachable'
+  | 'not-running'
+  | 'cancelled'
+  | 'cancel-refused'
+  | 'cancel-raced';
 
 export interface StopActiveGraphResult {
   graphRunId: number;
@@ -267,10 +283,32 @@ export function restartStoppedGraph(
   };
 }
 
+/** Stop on a run with no drain: the one Cancel operation closes it. */
+async function stopByCancel(
+  deps: StopActiveGraphDeps,
+  graphRunId: number,
+): Promise<StopActiveGraphResult> {
+  const result = await cancelGraphRun(deps, graphRunId, 'stopped by user');
+  const base = { graphRunId, drained: false, terminated: 0, refused: 0 };
+  switch (result.outcome) {
+    case 'cancelled':
+      return { ...base, terminated: result.killed, outcome: 'cancelled' };
+    case 'refused-live-process':
+      return { ...base, terminated: result.killed, refused: result.refusals.length, outcome: 'cancel-refused' };
+    case 'raced':
+    case 'already-terminal':
+      return { ...base, outcome: 'cancel-raced' };
+  }
+}
+
 export async function stopActiveGraph(
   deps: StopActiveGraphDeps,
   input: { ticketId: number; graphRunId: number },
 ): Promise<StopActiveGraphResult> {
+  const status = graphRunStatusForTicket(deps.db, input.graphRunId, input.ticketId);
+  if (status === 'planning' || status === 'awaiting-confirmation') {
+    return stopByCancel(deps, input.graphRunId);
+  }
   const sessions = deps.sessionsFor(input.graphRunId);
   let terminated = 0;
   let refused = 0;
