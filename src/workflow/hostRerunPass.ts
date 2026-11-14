@@ -7,6 +7,7 @@ import { listGateRuns, HOST_RERUN_SOURCE, type GateRun } from '../store/gateRuns
 import { stageAttempt } from '../store/stages.js';
 import { recordUatGatePass } from '../store/uatGatePasses.js';
 import { nowIso } from '../model/time.js';
+import { regenerateRepoOf } from './gates/regenerate.js';
 import { fingerprintTicket } from './gates/baselineReviewTicket.js';
 
 export interface HostRerunPassDeps {
@@ -23,6 +24,12 @@ const sameGate = (a: GateRun, b: GateRun): boolean =>
   a.gateName === b.gateName && a.repo === b.repo && a.command === b.command && (a.args ?? []).join('\u0000') === (b.args ?? []).join('\u0000');
 
 const passed = (r: GateRun): boolean => !r.skipped && r.exitCode === 0;
+
+/**
+ * A `regenerate` gate that did not pass in the batch stopped its repo's list (`runGateList` returns
+ * only that row), so the other gates of the repo never ran and left no row to check.
+ */
+const stoppedByRegenerate = (batch: readonly GateRun[]): boolean => batch.some((r) => regenerateRepoOf(r.gateName) !== null && !passed(r));
 
 /** The rows of the source stage's latest UAT batch (host re-run rows are not batches). */
 function latestBatch(runs: readonly GateRun[], stage: StageKey): GateRun[] {
@@ -46,6 +53,7 @@ export async function recordHostRerunPass(store: Store, ticketId: number, stage:
   if (batch.length === 0) return 'no-batch';
   const batchAt = batch[0]!.runAt;
   const reruns = listGateRuns(store, ticketId, { includeHostRerun: true }).filter((r) => r.source === HOST_RERUN_SOURCE && r.stageKey === stage && r.runAt >= batchAt);
+  if (stoppedByRegenerate(batch)) return 'gate-not-passed';
   const covered = batch.every((row) => passed(row) || reruns.some((r) => passed(r) && sameGate(r, row)));
   if (!covered) return 'gate-not-passed';
   const repos = new Set(batch.map((r) => r.repo));

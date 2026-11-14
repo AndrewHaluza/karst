@@ -67,6 +67,19 @@ describe('recordHostRerunPass', () => {
     expect(await recordHostRerunPass(store, ticketId, 'uat', deps())).toBe('gate-not-passed');
   });
 
+  it('records nothing when the batch regenerate failed: the later gates of that repo never ran and have no row', async () => {
+    batch([gate('regenerate (web)', 1, { command: 'regenerate (web)', args: [] })]);
+    rerun([gate('regenerate (web)', 0, { command: 'regenerate (web)', args: [] })]);
+    expect(await recordHostRerunPass(store, ticketId, 'uat', deps())).toBe('gate-not-passed');
+    expect(hasUatGatePass(store, ticketId, 2, 'fp-1')).toBe(false);
+  });
+
+  it('records the pass when the batch regenerate passed and a later gate failed', async () => {
+    batch([gate('regenerate (web)', 0, { command: 'regenerate (web)', args: [] }), gate('visual', 1)]);
+    rerun([gate('visual', 0)]);
+    expect(await recordHostRerunPass(store, ticketId, 'uat', deps())).toBe('recorded');
+  });
+
   it('records nothing when a failed gate has no passing re-run row (cannotRerun)', async () => {
     batch([gate('lint', 0), gate('visual', 1)]);
     expect(await recordHostRerunPass(store, ticketId, 'uat', deps())).toBe('gate-not-passed');
