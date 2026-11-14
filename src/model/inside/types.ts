@@ -866,6 +866,12 @@ export interface InsideLiveView {
  * the retired legacy strip become ordered processes, each carrying its own
  * evidence and controls.
  */
+/** The "Now" line pair under the ship header while GitHub CI works (T1140). */
+export interface InsideNowView {
+  readonly now: string;
+  readonly next: string;
+}
+
 export interface InsideStageView {
   stageKey: InsideStageKey;
   /** Display title — `Implementation`, `UAT`. */
@@ -878,6 +884,8 @@ export interface InsideStageView {
    * no process is running or waiting — a settled stage has no live line.
    */
   live?: InsideLiveView;
+  /** Ship only: who works now and what comes next, while CI alone waits and nothing needs the user. */
+  now?: InsideNowView;
   /** Ordered processes. EMPTY means nothing ran — the view shows `blurb` instead. */
   processes: InsideProcessView[];
   /** The static "what happens here" copy. Always present. */

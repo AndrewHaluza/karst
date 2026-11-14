@@ -102,6 +102,8 @@ export interface ShipProcessesInput {
   deliver?: DeliverRowInput | null;
   /** An open PR still waits on CI: the Merge row names it among its blockers. */
   ciOpen?: boolean;
+  /** CI is the ONLY open question: every open PR's checks are readable and pending, none failed or unknown (T1140). */
+  ciWaiting?: boolean;
 }
 
 /** Rank for severity comparisons — lower is worse. Kept local per-module, like `aggregate.ts` and `tester.ts`. */
@@ -820,6 +822,8 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
     }
     return {
       ...row,
+      // GitHub CI works and nothing needs the user: a run, never the amber wait (T1140).
+      status: input.ciWaiting === true && input.ciOpen === true ? 'run' : row.status,
       label: `${name} · open`,
       detail: number ? `${number} · not merged yet` : 'not merged yet',
       ...(check?.checkedAt ? { time: formatTime(check.checkedAt) } : {}),
@@ -845,7 +849,7 @@ function mergeProcess(input: ShipProcessesInput): InsideProcessView {
     id: 'merge',
     kind: 'merge',
     label: 'Merge',
-    status: recorded.length > 0 ? (allMerged ? 'pass' : 'wait') : ranStatus(input),
+    status: recorded.length > 0 ? (allMerged ? 'pass' : recorded.every((r) => r.status === 'pass' || r.status === 'run') ? 'run' : 'wait') : ranStatus(input),
     // handoff §11: a conflict is a WAIT that names what the user must do — the per-repo rows keep their factual
     // readings; the sentence is the collapsed summary. Merge states only merge facts (T1070): the open blockers the
     // host knows, joined with "and". Auto-fix has its own row.
@@ -894,7 +898,7 @@ export function autofixProcess(autofix: AutofixRowView | null | undefined): Insi
     id: 'autofix',
     kind: 'autofix',
     label: 'Auto-fix',
-    status: autofix.state === 'running' ? 'run' : autofix.state === 'history' ? 'note' : 'wait',
+    status: autofix.state === 'running' || autofix.state === 'pending' ? 'run' : autofix.state === 'history' ? 'note' : 'wait',
     detail: autofix.message,
     // The AI mark: the agent does the work. There is no recorded identity, so no `execution`.
     aiMark: true,

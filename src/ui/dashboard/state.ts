@@ -16,6 +16,7 @@ import { type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
 import { FIX_ATTEMPT_CAP, type GateStageKey } from '../../workflow/fixAttempts.js';
+import { ciNowView } from '../../model/inside/ciNow.js';
 import { needsUser } from '../../model/ticketGlyph.js';
 import { canCloseTicket, canReopenTicket } from '../../model/closeRules.js';
 import { subtaskProgress, canAddSubtask, canDetachSubtask } from '../../model/subtask.js';
@@ -351,6 +352,9 @@ export function buildDashboardState(
     autofix: autofixReading.row,
     deliver: deliverRowInput(undelivered, deliverAuto),
     ciOpen: autofixReading.ciOpen,
+    ciWaiting: autofixReading.ciWaiting,
+    // Only while nothing needs the user: the line says "Nothing for you to do" (T1140).
+    ...(blocked ? {} : { ciNow: ciNowView({ waiting: autofixReading.ciWaitingPrs, autofixEffective: autofixReading.slice.effective }) }),
   });
 
   const draft = getProposalForTicket(store, ticket.id);

@@ -1,7 +1,7 @@
 import type { DashboardState } from './state.js';
 import { STEP_CI_AGENT, STEP_CONFLICT_AGENT, STEP_FETCH_LOG, type AutofixAttemptRow, type AutofixRowView } from '../../model/inside/autofix.js';
 import { autofixProcess } from '../../model/inside/ship.js';
-import type { GraphNodeListRow, InsideProcessView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
+import type { GraphNodeListRow, InsideProcessView, InsideNowView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { StageKey } from '../../model/types.js';
 import { buildStageRail } from '../../model/stageRail.js';
 import { populatedStateFor, renderFixtures, shipPreviewStateFor, withDeliverRow } from './renderFixtures.js';
@@ -83,15 +83,18 @@ function autofixShip(
   row: AutofixRowView | null,
   slice: AutopilotPatch,
   park?: { readonly reason: string },
+  /** T1140: GitHub CI alone waits — the Merge row reads run and the header states the Now line. */
+  ciWait?: InsideNowView,
 ): () => DashboardState {
   return legacy('ship', (s, v) => {
     const own = row ? autofixProcess(row) : undefined;
-    const processes = own ? v.processes.flatMap((p) => (p.id === 'merge' ? [own, p] : [p])) : v.processes;
+    const base = own ? v.processes.flatMap((p) => (p.id === 'merge' ? [own, p] : [p])) : v.processes;
+    const processes = ciWait ? base.map((p) => (p.id === 'merge' ? { ...p, status: 'run' as const } : p)) : base;
     const cell = s.currentStage ?? caseCell('ship', 'running');
     return {
       ...s,
       autopilot: { override: 'inherit', projectDefault: true, effective: true, banner: null, roundActive: row?.state === 'running', roundRunning: row?.state === 'running', ...slice },
-      insideViews: { ...s.insideViews, ship: { ...v, processes } },
+      insideViews: { ...s.insideViews, ship: { ...v, processes, ...(ciWait ? { now: ciWait } : {}) } },
       currentStage: park
         ? { ...cell, blocked: { kind: 'awaiting-merge', reason: park.reason, at: t(30), resumable: false } }
         : cell,
@@ -646,7 +649,10 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     stage: 'ship',
     id: 'auto-status-pending',
     allThemes: true,
-    state: autofixShip({ ...PARKED, state: 'pending', message: 'CI running for api #88 (4 of 14 pending). Auto-fix waits.' }, {}),
+    state: autofixShip({ ...PARKED, state: 'pending', message: 'CI running for api #88 (4 of 14 pending). Auto-fix waits.' }, {}, undefined, {
+      now: 'Now: GitHub CI runs on api #88 — 10 of 14 passed, 4 pending. Nothing for you to do.',
+      next: 'Next: all green → Merge. A red check → Auto-fix sends it to the agent.',
+    }),
   },
   {
     stage: 'ship',

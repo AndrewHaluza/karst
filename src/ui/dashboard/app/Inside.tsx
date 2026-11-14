@@ -95,6 +95,13 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
           <StageClock stage={stage} />
           {anyMenu ? <StageMenu key={selection.epoch} stageKey={view.stageKey} menu={menu} main={main} /> : null}
         </div>
+        {/* Ship only: who works now and what comes next while GitHub CI alone waits (T1140). It wraps; the PR number never truncates. */}
+        {view.now ? (
+          <div className="inside-now" data-region="inside-now">
+            <p>{view.now.now}</p>
+            <p>{view.now.next}</p>
+          </div>
+        ) : null}
         {/* ONE slot for the round row and its caption, so the ledger keeps its sibling position (layout ledger keys are nth-child paths). */}
         {(view.attempts?.length ?? 0) >= 2 || view.attemptNote ? (
           <div className="attempt-slot">

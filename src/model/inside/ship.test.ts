@@ -1723,6 +1723,45 @@ describe('Auto-fix is its own process row (T1070)', () => {
     expect(rowsOf(merge)).toHaveLength(1);
   });
 
+  const pendingRow = { state: 'pending', message: 'CI running for web #421 (1 of 14 pending). Auto-fix waits.', attempts: [], steps: [], stopAfterRequested: false } as const;
+
+  it('reads run for the Auto-fix row while CI is pending (T1140)', () => {
+    expect(byId(shipInput({ prs: [openPr], autofix: pendingRow }), 'autofix')!.status).toBe('run');
+  });
+
+  it.each(['paused', 'spent', 'gh-failed', 'unknown'] as const)('keeps wait for the Auto-fix row in state %s (T1140)', (state) => {
+    const row = byId(shipInput({ prs: [openPr], autofix: { ...pendingRow, state } }), 'autofix')!;
+    expect(row.status).toBe('wait');
+  });
+
+  it('reads run for the Merge row and the PR sub-row when only pending CI blocks (T1140)', () => {
+    const merge = byId(shipInput({ prs: [openPr], ciOpen: true, ciWaiting: true }), 'merge')!;
+    expect(merge.status).toBe('run');
+    expect(rowsOf(merge)[0]!.status).toBe('run');
+  });
+
+  it('keeps wait for Merge when CI is open but not only pending (T1140)', () => {
+    const merge = byId(shipInput({ prs: [openPr], ciOpen: true, ciWaiting: false }), 'merge')!;
+    expect(merge.status).toBe('wait');
+    expect(rowsOf(merge)[0]!.status).toBe('wait');
+  });
+
+  it('keeps wait for Merge on a conflict even while CI is pending (T1140)', () => {
+    const merge = byId(shipInput({
+      prs: [openPr],
+      mergeChecks: [check('/web', { state: 'conflicted', files: ['a.ts'], reason: 'both sides edit' })],
+      ciOpen: true,
+      ciWaiting: true,
+    }), 'merge')!;
+    expect(merge.status).toBe('wait');
+    expect(rowsOf(merge)[0]!.status).toBe('wait');
+  });
+
+  it('keeps wait for green CI that waits on the click, and pass for a merged PR (T1140)', () => {
+    expect(byId(shipInput({ prs: [openPr] }), 'merge')!.status).toBe('wait');
+    expect(byId(shipInput({ prs: [pr('/web', { number: 421, status: 'merged' })], ciWaiting: true }), 'merge')!.status).toBe('pass');
+  });
+
   it('is a plain Merge row with no blocker', () => {
     const merge = byId(shipInput({ prs: [openPr] }), 'merge')!;
     expect(merge.detail).toBe('0/1 merged');
