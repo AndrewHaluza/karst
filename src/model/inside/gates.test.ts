@@ -2922,3 +2922,69 @@ describe("gates caption: why the gates re-ran, or whose results they are (T938)"
     expect(rowsOf(p)).toHaveLength(0);
   });
 });
+
+describe("host re-run rows in the gates list", () => {
+  const rerun = (stage: StageKey, name: string, exitCode: number | null, extra: Partial<GateRun> = {}) =>
+    run(stage, name, exitCode, { source: "host-rerun", repo: "/wt/web", ...extra });
+  const batch = [run("uat", "test (web)", 1, { repo: "/wt/web", runAt: "2026-07-20T12:00:00.000Z" })];
+
+  it("lists a host re-run row after the recorded batch, labelled, with no change to the count", () => {
+    const p = uatProcesses(
+      qualityInput({
+        gateRuns: batch,
+        hostRerunRuns: [rerun("uat", "test (web)", 0, { startedAt: "2026-07-20T12:10:00.000Z", endedAt: "2026-07-20T12:11:00.000Z" })],
+      }),
+    )[0]!;
+    const rows = rowsOf(p);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ status: "pass", label: "test", detail: "host re-run · exit 0", repo: "/wt/web" });
+    expect(p.count).toBe(uatProcesses(qualityInput({ gateRuns: batch }))[0]!.count);
+    expect(p.detail).toBe(uatProcesses(qualityInput({ gateRuns: batch }))[0]!.detail);
+  });
+
+  it("marks a failed re-run row, and a re-run that could not run", () => {
+    const rows = rowsOf(
+      uatProcesses(
+        qualityInput({ gateRuns: batch, hostRerunRuns: [rerun("uat", "a (web)", 2), rerun("uat", "b (web)", null)] }),
+      )[0]!,
+    );
+    expect(rows[1]).toMatchObject({ status: "fail", detail: "host re-run · exit 2" });
+    expect(rows[2]).toMatchObject({ status: "note", detail: "host re-run · did not run" });
+  });
+
+  it("shows only the re-run rows of its own stage", () => {
+    const rows = rowsOf(
+      reviewProcesses(
+        qualityInput({
+          cell: cell("review", "failed"),
+          gateRuns: [run("review", "lint (web)", 1)],
+          hostRerunRuns: [rerun("uat", "test (web)", 0), rerun("review", "lint (web)", 0)],
+        }),
+      )[0]!,
+    );
+    expect(rows.map((r) => r.label)).toEqual(["lint", "lint"]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("hides a re-run row recorded before the shown batch (an earlier round)", () => {
+    const rows = rowsOf(
+      uatProcesses(
+        qualityInput({
+          gateRuns: batch,
+          hostRerunRuns: [
+            rerun("uat", "old (web)", 0, { runAt: "2026-07-20T11:00:00.000Z" }),
+            rerun("uat", "new (web)", 0, { runAt: "2026-07-20T12:05:00.000Z" }),
+          ],
+        }),
+      )[0]!,
+    );
+    expect(rows.map((r) => r.label)).toEqual(["test", "new"]);
+  });
+
+  it("keeps the re-run rows bounded to the newest ones", () => {
+    const many = Array.from({ length: 12 }, (_, i) => rerun("uat", `g${i} (web)`, 0));
+    const rows = rowsOf(uatProcesses(qualityInput({ gateRuns: batch, hostRerunRuns: many }))[0]!);
+    expect(rows.filter((r) => r.detail?.startsWith("host re-run")).length).toBeLessThanOrEqual(6);
+    expect(rows[rows.length - 1]!.label).toBe("g11");
+  });
+});

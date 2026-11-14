@@ -2999,5 +2999,11 @@ function migrateLocked(db: Database): void {
     if (cols119.size > 0 && !cols119.has('last_hook_at')) db.exec('ALTER TABLE tickets ADD COLUMN last_hook_at TEXT');
   }
 
+  if (current < 120) {
+    // v120: `gate_runs.source` — what wrote the row; 'host-rerun' marks a host gate re-run (T1120, @arch:AC-45). Additive; NULL = a UAT/review batch row (no backfill).
+    const cols120 = tableColumns(db, 'gate_runs');
+    if (cols120.size > 0 && !cols120.has('source')) db.exec('ALTER TABLE gate_runs ADD COLUMN source TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

@@ -99,7 +99,7 @@ describe('host re-run request from a refused CLI fix marker', () => {
       roundId = openRound('gate-failure');
       requestHostRerun(store, ticketId, AT);
       const ran: FailedGate[] = [];
-      const rerunDeps = { runGate: async (_: number, g: FailedGate) => (ran.push(g), ok), now: () => '2026-01-02T00:00:00Z' };
+      const rerunDeps = { runGates: async (_: number, gs: readonly FailedGate[]) => gs.map((g) => (ran.push(g), ok)), now: () => '2026-01-02T00:00:00Z' };
       await runRequestedHostReruns(store, PROJECT, rerunDeps);
       await runRequestedHostReruns(store, PROJECT, rerunDeps);
       expect(ran).toHaveLength(1);
@@ -113,7 +113,7 @@ describe('host re-run request from a refused CLI fix marker', () => {
       roundId = openRound('gate-failure');
       requestHostRerun(store, ticketId, AT);
       const outcomes = await runRequestedHostReruns(store, PROJECT, {
-        runGate: async () => ({ exitCode: 1, summary: 'ENOTEMPTY' }),
+        runGates: async (_id: number, gs: readonly FailedGate[]) => gs.map(() => ({ exitCode: 1, summary: 'ENOTEMPTY' })),
         now: () => '2026-01-02T00:00:00Z',
       });
       expect(outcomes.map((o) => o.kind)).toEqual(['failed']);
@@ -127,14 +127,14 @@ describe('host re-run request from a refused CLI fix marker', () => {
       openRound('gate-failure');
       requestHostRerun(store, ticketId, AT);
       let calls = 0;
-      await runRequestedHostReruns(store, PROJECT + 1, { runGate: async () => (calls++, ok) });
+      await runRequestedHostReruns(store, PROJECT + 1, { runGates: async (_id, gs) => (calls++, gs.map(() => ok)) });
       expect(calls).toBe(0);
     });
 
     it('ignores a round nobody requested', async () => {
       openRound('gate-failure');
       let calls = 0;
-      await runRequestedHostReruns(store, PROJECT, { runGate: async () => (calls++, ok) });
+      await runRequestedHostReruns(store, PROJECT, { runGates: async (_id, gs) => (calls++, gs.map(() => ok)) });
       expect(calls).toBe(0);
     });
   });

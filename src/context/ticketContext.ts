@@ -36,7 +36,7 @@ import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckView.js';
 import { deliverFailureLine, deliverProgressLine, deliverTakeOverLine, mergeStateWording, type DeliverFacts } from '../model/inside/deliver.js';
 import { deliverFactsFor } from '../store/deliverFacts.js';
-import { listGateRuns } from '../store/gateRuns.js';
+import { listGateRuns, HOST_RERUN_SOURCE } from '../store/gateRuns.js';
 import { latestFindingBatch } from '../store/reviewFindings.js';
 import { latestBatch } from '../model/inside/gates.js';
 import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
@@ -141,6 +141,8 @@ export interface TicketContextStage {
   verdict: string | null;
   blocked: { kind: string; reason: string } | null;
   gates: TicketContextGate[];
+  /** The host re-run's gate rows of this stage (@arch:AC-45): a second look at a failed batch, never a verdict. */
+  hostRerunGates?: TicketContextGate[];
   findings: TicketContextFinding[];
   /**
    * Where this stage's log was written, when it wrote one. A stage that says
@@ -577,6 +579,7 @@ export function buildTicketContext(
           skipped: g.skipped,
           summary: g.summary ?? null,
         })),
+        ...hostRerunGatesOf(store, ticketId, stageRow.stageKey),
         // Findings are review-only evidence (Lane B writes nothing for uat).
         findings:
           stageRow.stageKey === 'review'
@@ -805,6 +808,10 @@ export function renderTicketContext(
       }
     }
     if (s.artifactPath) lines.push(`- log: ${s.artifactPath}`);
+    if (s.hostRerunGates !== undefined && s.hostRerunGates.length > 0) {
+      lines.push('- host re-run gates:');
+      for (const g of s.hostRerunGates) lines.push(`  - ${g.name}: ${g.exitCode === null ? 'not run' : `exit ${g.exitCode}`}`);
+    }
     if (s.gates.length > 0) {
       lines.push('- gates:');
       for (const g of s.gates) {
@@ -1158,4 +1165,18 @@ function renderTesterContext(
     parts.push(`## Running servers\n${rows.join('\n')}`);
   }
   return parts.join('\n\n');
+}
+
+/** The newest batch stamp of a stage among the UAT/review batch rows; null when the stage has none. */
+function latestBatchRunAt(batchRuns: readonly { stageKey: string; runAt: string }[], stageKey: string): string | null {
+  return batchRuns.reduce<string | null>((max, r) => (r.stageKey === stageKey && (max === null || r.runAt > max) ? r.runAt : max), null);
+}
+
+/** The host re-run rows of one stage and round (at or after its newest batch), when it has any (@arch:AC-45). */
+function hostRerunGatesOf(store: Store, ticketId: number, stageKey: string): { hostRerunGates?: TicketContextGate[] } {
+  const since = latestBatchRunAt(listGateRuns(store, ticketId), stageKey);
+  const rows = listGateRuns(store, ticketId, { includeHostRerun: true })
+    .filter((g) => g.source === HOST_RERUN_SOURCE && g.stageKey === stageKey && since !== null && g.runAt >= since)
+    .map((g) => ({ name: g.gateName, exitCode: g.exitCode, skipped: g.skipped, summary: g.summary ?? null }));
+  return rows.length > 0 ? { hostRerunGates: rows } : {};
 }

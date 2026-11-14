@@ -1,3 +1,4 @@
+import { HOST_RERUN_SOURCE } from './hostRerunSource.js';
 import type { Store } from './db.js';
 import type { StageKey } from '../model/types.js';
 
@@ -51,7 +52,14 @@ export interface GateRun {
    * contract. NULL for a pass, a skip, an absent script, and every pre-v46 row.
    */
   summary: string | null;
+  /**
+   * v120: what wrote the row. `HOST_RERUN_SOURCE` marks a host gate re-run row (T1120). NULL for a
+   * UAT/review batch row and every pre-v120 row.
+   */
+  source?: string | null;
 }
+
+export { HOST_RERUN_SOURCE };
 
 /** One gate as a runner reports it, before it has an id or a batch stamp. */
 export interface GateRunInput {
@@ -87,6 +95,8 @@ export interface GateRunBatch {
   gates: readonly GateRunInput[];
   /** v25: the invocation these rows belong to. Absent for a caller with none. */
   stageRunId?: number | null;
+  /** v120: what wrote these rows; absent = a UAT/review batch (`HOST_RERUN_SOURCE` = a host re-run). */
+  source?: string | null;
 }
 
 interface GateRunRow {
@@ -105,6 +115,7 @@ interface GateRunRow {
   skipped: number | null;
   stage_run_id: number | null;
   summary: string | null;
+  source: string | null;
 }
 
 /**
@@ -162,6 +173,7 @@ function rowToGateRun(r: GateRunRow): GateRun {
     skipped: r.skipped === 1,
     stageRunId: r.stage_run_id,
     summary: r.summary,
+    source: r.source,
   };
 }
 
@@ -185,8 +197,8 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
   const insert = store.db.prepare(
     `INSERT INTO gate_runs
        (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, started_at, ended_at,
-        repo, command, args, skipped, stage_run_id, summary)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        repo, command, args, skipped, stage_run_id, summary, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const g of batch.gates) {
     insert.run(
@@ -204,6 +216,7 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
       g.skipped ? 1 : null,
       batch.stageRunId ?? null,
       g.summary ?? null,
+      batch.source ?? null,
     );
   }
 }
@@ -213,14 +226,19 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
  * order). Returns everything and groups nothing: picking "the latest batch" is a
  * pure decision that belongs in the model layer, where it is testable without a
  * database.
+ *
+ * A host re-run row (`source = HOST_RERUN_SOURCE`) is left out unless `includeHostRerun` is set: it
+ * is a second look at a failed batch, never a batch of its own, so a batch reader that saw it would
+ * take it as the latest UAT verdict.
  */
-export function listGateRuns(store: Store, ticketId: number): GateRun[] {
+export function listGateRuns(store: Store, ticketId: number, opts: { includeHostRerun?: boolean } = {}): GateRun[] {
+  const filter = opts.includeHostRerun === true ? '' : `AND source IS NOT '${HOST_RERUN_SOURCE}'`;
   return store.db
     .prepare(
       `SELECT id, ticket_id, stage_key, attempt, run_at, gate_name, exit_code,
-              started_at, ended_at, repo, command, args, skipped, stage_run_id, summary
+              started_at, ended_at, repo, command, args, skipped, stage_run_id, summary, source
          FROM gate_runs
-        WHERE ticket_id = ?
+        WHERE ticket_id = ? ${filter}
         ORDER BY id`,
     )
     .all(ticketId)

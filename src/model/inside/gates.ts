@@ -19,6 +19,7 @@ import { displayStatus, type StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
 import { bounded } from './bounds.js';
+import { hostRerunRows } from './hostRerunRows.js';
 import { insertCausalFix, recoveryProcess } from './recovery.js';
 import {
   batchForAttempt,
@@ -227,6 +228,8 @@ export interface ResolvedGate {
 export interface QualityProcessesInput {
   cell: StepperCell;
   gateRuns: readonly GateRun[];
+  /** The host gate re-run rows (@arch:AC-45); listed after the recorded batch, never counted in it. */
+  hostRerunRuns?: readonly GateRun[];
   /** Review findings — the review stage's evidence; empty for uat. */
   findings: readonly Finding[];
   /**
@@ -493,6 +496,7 @@ function gatesProcess(
   processRuns: readonly ProcessRun[] = [],
   eff: EffectiveAttempt = { key: null, empty: false, historical: false },
   captionInput: GatesCaptionInput = { rounds: [] },
+  hostRerunRuns: readonly GateRun[] = [],
 ): InsideProcessView {
   // One mapping, used by BOTH the per-gate rows and the failure sentence: a
   // row that named the service while the summary above it named the path
@@ -690,6 +694,7 @@ function gatesProcess(
   if (boundedRows.remaining > 0) {
     rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
   }
+  if (!eff.empty && !eff.historical) rows.push(...hostRerunRows(hostRerunRuns, stageKey, repoLabel, latestBatch(runs, stageKey)[0]?.runAt ?? null));
 
   // The description IS the count, per state (the design's "6 / 6 command gates
   // passed"). A skipped gate, or one whose script the repo does not define, is
@@ -1192,6 +1197,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
       input.processRuns,
       eff,
       input,
+      input.hostRerunRuns,
     ),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
@@ -1216,6 +1222,7 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
       input.processRuns,
       eff,
       input,
+      input.hostRerunRuns,
     ),
     reviewProcess(input),
   ];

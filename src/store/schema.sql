@@ -157,11 +157,14 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   stage_run_id  INTEGER,              -- v25: -> stage_runs.id, the invocation that produced this row.
                                        -- NULL = a pre-v25 row, or a batch written by a caller that opened
                                        -- no run. Never backfilled.
-  summary       TEXT                  -- v46: a bounded excerpt of the gate's own output, written ONLY for
+  summary       TEXT,                 -- v46: a bounded excerpt of the gate's own output, written ONLY for
                                        -- a gate that FAILED (non-null non-zero exit code). NULL = it passed,
                                        -- skipped, the repo had no such script, or a pre-v46 row. The full
                                        -- output stays in the artifact log; this is the "what failed (file,
                                        -- line, rule)" a fix session or `karst context` reads back as data.
+  source        TEXT                  -- v120: what wrote the row. 'host-rerun' = the host gate re-run of a
+                                       -- refused fix marker (@arch:AC-45), never a UAT batch verdict. NULL =
+                                       -- a UAT/review batch row (and every pre-v120 row).
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
 
