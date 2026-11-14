@@ -9,12 +9,16 @@
 
 import type { JsonSchemaDocument } from '../agent/adapter.js';
 import type { StructuredOutputForm } from '../agent/surfaces.js';
+import { renderBehaviorDiagram } from './prVisuals.js';
 
 export interface PrDescriptionAnswer {
   /** Markdown allowed. Required, non-empty after trim. */
   summary: string;
-  /** Required but nullable. The behavior-diagram draft renders it; this draft ignores it. */
-  behavior: string | null;
+  /**
+   * Required but nullable: `{ before: Step[]; after: Step[] }` or null. Kept as
+   * given; `renderBehaviorDiagram` judges it, so a broken one never fails the answer.
+   */
+  behavior: unknown;
   whereToLook?: string[];
   risk?: string;
   needsHuman?: string[];
@@ -31,12 +35,28 @@ export type PrDescriptionParse =
 export const GATE_SET_CHANGED_LINE =
   'The gate set changed since the previous attempt of a gate stage — a gate may have been removed rather than fixed.';
 
+const STEP_SCHEMA: JsonSchemaDocument = {
+  type: 'object',
+  properties: {
+    label: { type: 'string' },
+    kind: { type: ['string', 'null'], enum: ['ok', 'bad', null] },
+  },
+  required: ['label'],
+};
+
 /** What a structured core enforces (claude `--json-schema`, codex `--output-schema`). */
 export const PR_DESCRIPTION_OUTPUT_SCHEMA: JsonSchemaDocument = {
   type: 'object',
   properties: {
     summary: { type: 'string' },
-    behavior: { type: ['string', 'null'] },
+    behavior: {
+      type: ['object', 'null'],
+      properties: {
+        before: { type: 'array', items: STEP_SCHEMA },
+        after: { type: 'array', items: STEP_SCHEMA },
+      },
+      required: ['before', 'after'],
+    },
     whereToLook: { type: 'array', items: { type: 'string' } },
     risk: { type: 'string' },
     needsHuman: { type: 'array', items: { type: 'string' } },
@@ -56,7 +76,8 @@ export function prDescriptionOutputRules(form: StructuredOutputForm | undefined)
   return [
     FIRST_RULE[form ?? 'none'],
     '- "summary": string, required, not empty. What the change does and why, in GitHub-flavored markdown. Add no heading.',
-    '- "behavior": string or null, required. Use null.',
+    '- "behavior": object or null, required. The object is { "before": [steps], "after": [steps] }: how the behavior ran before the change and how it runs after. Use null for a refactor, docs-only, or tests-only change.',
+    '- Each side of "behavior" has 1 to 6 steps, in order. A step is { "label": string, "kind": "ok" | "bad" }. "label" is short plain text (60 characters at most). "kind" is optional: "bad" marks a step that is wrong or risky, "ok" marks a step that is right. Use only steps the material shows. Write no diagram syntax; code draws the diagram.',
     '- "whereToLook": optional array of strings. Each item names a file or area a reviewer reads first.',
     '- "risk": optional string. What can break, in one or two sentences.',
     '- "needsHuman": optional array of strings. Each item is a decision or check only a person can make.',
@@ -94,9 +115,6 @@ export function parsePrDescriptionAnswer(text: string): PrDescriptionParse {
   if (typeof o.summary !== 'string' || o.summary.trim() === '') {
     return { kind: 'invalid', reason: '"summary" must be a non-empty string' };
   }
-  if (o.behavior !== null && typeof o.behavior !== 'string') {
-    return { kind: 'invalid', reason: '"behavior" must be a string or null' };
-  }
   if (o.risk !== undefined && typeof o.risk !== 'string') {
     return { kind: 'invalid', reason: '"risk" must be a string' };
   }
@@ -120,11 +138,12 @@ function bullets(items: readonly string[] | undefined): string[] {
 
 /**
  * Render the narrative body: summary (no heading — the template's `## Summary`
- * wraps it), then Where to look, Risk, Needs a human, each only with text.
+ * wraps it), then Where to look, Risk, Needs a human, each only with text,
+ * then the Behavior diagram when the answer has a valid one.
  */
 export function renderNarrative(
   answer: PrDescriptionAnswer,
-  ctx: { gateSetChanged?: boolean },
+  ctx: { gateSetChanged?: boolean; debug?: (message: string) => void },
 ): string {
   const blocks = [answer.summary.trim()];
   const where = bullets(answer.whereToLook);
@@ -133,6 +152,8 @@ export function renderNarrative(
   if (risk !== '') blocks.push(`## Risk\n\n${risk}`);
   const needs = bullets(answer.needsHuman);
   if (needs.length > 0) blocks.push(`## Needs a human\n\n${needs.join('\n')}`);
+  const diagram = renderBehaviorDiagram(answer.behavior, ctx.debug);
+  if (diagram !== null) blocks.push(diagram);
   if (ctx.gateSetChanged) blocks.push(GATE_SET_CHANGED_LINE);
   return blocks.join('\n\n');
 }
