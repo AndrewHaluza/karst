@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { setStage } from './stages.js';
 
 /**
  * Autopilot state (v100, T973): the per-ticket override, the stop/pause flags and one budget row per
@@ -215,7 +216,7 @@ export function grantAutopilotExtra(store: Store, ticketId: number, repo: string
     const next = { ...cur, extra: cur.extra + 1 };
     writeBudget(store, ticketId, repo, kind, next);
     ensureRow(store, ticketId);
-    store.db.prepare('UPDATE autopilot_tickets SET paused_reason = NULL, stopped_reason = NULL, stop_after = 0 WHERE ticket_id = ?').run(ticketId);
+    store.db.prepare('UPDATE autopilot_tickets SET paused_reason = NULL, stopped_reason = NULL, stopped_head_sha = NULL, stop_after = 0 WHERE ticket_id = ?').run(ticketId);
     return next;
   });
   return run();
@@ -335,4 +336,29 @@ export function markStaleRebaseStopped(store: Store, ticketId: number, repo: str
   store.db
     .prepare("UPDATE autopilot_reruns SET pattern = pattern || ? WHERE ticket_id = ? AND repo = ? AND run_id = ? AND check_name = ? AND pattern LIKE 'stale-generated:%' AND pattern NOT LIKE '%' || ?")
     .run(STALE_STOPPED_SUFFIX, ticketId, repo, runId, checkName, STALE_STOPPED_SUFFIX);
+}
+
+/**
+ * One-time repair of a stale autopilot park (T1122): a park that landed after a send-back left an `auto-fix` awaiting-merge block
+ * on a ship row that is not shipped, and a stop reason its ship block no longer carries. Idempotent. Returns the count repaired.
+ * The block goes through `setStage` (the single writer); a stop of a ticket that left ship (a pause) is not touched.
+ */
+export function repairStaleAutopilotParks(store: Store): number {
+  const run = store.db.transaction((): number => {
+    const stale = store.db.prepare(
+      `SELECT ticket_id AS id FROM stages
+        WHERE stage_key = 'ship' AND blocked_kind = 'awaiting-merge' AND blocked_reason LIKE 'auto-fix%'
+          AND status NOT IN ('passed', 'running')`,
+    ).all() as Array<{ id: number }>;
+    for (const { id } of stale) setStage(store, id, 'ship', { blockedKind: null, blockedReason: null, blockedAt: null });
+    const stops = store.db.prepare(
+      `UPDATE autopilot_tickets SET stopped_reason = NULL, stopped_head_sha = NULL
+        WHERE stopped_reason LIKE 'auto-fix%'
+          AND EXISTS (SELECT 1 FROM tickets t WHERE t.id = autopilot_tickets.ticket_id AND t.stage_current = 'ship')
+          AND NOT EXISTS (SELECT 1 FROM stages s WHERE s.ticket_id = autopilot_tickets.ticket_id AND s.stage_key = 'ship'
+                            AND s.blocked_kind = 'awaiting-merge' AND s.blocked_reason = autopilot_tickets.stopped_reason)`,
+    ).run().changes;
+    return stale.length + stops;
+  });
+  return run();
 }

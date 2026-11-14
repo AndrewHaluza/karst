@@ -8,6 +8,7 @@ import { reconcileStageRuns, describeStaleStageRun } from '../../store/stageRuns
 import { reconcileProcessRuns, describeStaleProcessRun } from '../../store/processRuns.js';
 import { reconcileShipRuns, describeStaleShipRun, listBlankBeforeShipCommits, fillBeforeShipMessage } from '../../store/shipRuns.js';
 import { reconcileStrandedFixRounds, describeStrandedFixRound } from '../../store/recoveryRounds.js';
+import { repairStaleAutopilotParks } from '../../store/autopilot.js';
 import { compactArchivedWorktrees } from '../../runtime/archiveBulk.js';
 import { reapClosedGraphSubtrees, describeGraphReap } from '../../approaches/graph/retention.js';
 import { reapOrphanedArtifactDirs, describeArtifactReap } from '../../runtime/artifactOrphans.js';
@@ -229,6 +230,13 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
     }
   } catch (err) {
     deps.logError('karst: stranded fix-round sweep failed', err);
+  }
+  // A park that landed after a send-back left a stale auto-fix block or stop reason (T1122): repair it once per boot.
+  try {
+    const repaired = repairStaleAutopilotParks(deps.store);
+    if (repaired > 0) deps.info(`karst: cleared ${repaired} stale autopilot park record(s)`);
+  } catch (err) {
+    deps.logError('karst: stale autopilot park repair failed', err);
   }
   // The fix-stall watchdog is NOT here: activation is covered by
   // `startFixWatchdog`'s own first tick, which runs after the manifest and

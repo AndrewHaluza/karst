@@ -9,6 +9,8 @@ import { transition } from './machine.js';
 import { setStage } from '../store/stages.js';
 import { dismissPr } from '../store/prs.js';
 import { openShipRun, closeShipRun } from '../store/shipRuns.js';
+import { readShipCi } from '../store/shipCi.js';
+import { setAutopilotStopped, setAutopilotStopAfter, getAutopilotTicket } from '../store/autopilot.js';
 import { mergeGateState, restoreAwaitingMergeBlock, resolveShipLanding, settleShipGate, settleShipGates } from './mergeGate.js';
 
 // Wrapped rather than stubbed (`vi.fn(actual.x)`), so every OTHER test in this
@@ -182,6 +184,24 @@ describe('resolveShipLanding', () => {
     store.db.prepare("UPDATE prs SET checks = ?, merge_block = 'BLOCKED' WHERE ticket_id = ?").run('{"state":"failing"}', id);
     resolveShipLanding(store, id);
     expect(store.db.prepare('SELECT checks, merge_block FROM prs WHERE ticket_id = ?').get(id)).toEqual({ checks: null, merge_block: null });
+  });
+
+  it('clears an autopilot stop of the old head on a re-ship, so CI of the new head reads running (T1122)', () => {
+    walkToShip(store, id);
+    seedPr(store, id, 'api', 'open');
+    setAutopilotStopped(store, id, 'auto-fix stopped: ci round made no change');
+    resolveShipLanding(store, id);
+    expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+    store.db.prepare("UPDATE prs SET checks = ?, merge_block = 'blocked' WHERE ticket_id = ?").run('{"state":"pending","total":3,"passed":0,"failed":0,"pending":3,"failedShown":0,"failing":[]}', id);
+    expect(readShipCi(store, id)).toBe('running');
+  });
+
+  it('keeps a stop a person set (stop_after) on a re-ship (T1122)', () => {
+    walkToShip(store, id);
+    seedPr(store, id, 'api', 'open');
+    setAutopilotStopAfter(store, id);
+    resolveShipLanding(store, id);
+    expect(getAutopilotTicket(store, id).stopAfter).toBe(true);
   });
 
   // The block reason is what "surface a clear reason naming the unmerged PR"

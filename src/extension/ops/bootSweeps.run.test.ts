@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   reconcileProcessRuns: vi.fn(),
   reconcileShipRuns: vi.fn(),
   reconcileStrandedFixRounds: vi.fn(),
+  repairStaleAutopilotParks: vi.fn(() => 0),
   compactArchivedWorktrees: vi.fn(),
   reapClosedGraphSubtrees: vi.fn(),
   reapOrphanedArtifactDirs: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('../../store/stageRuns.js', () => ({ reconcileStageRuns: m.reconcileStag
 vi.mock('../../store/processRuns.js', () => ({ reconcileProcessRuns: m.reconcileProcessRuns, describeStaleProcessRun: (s: string) => `proc:${s}` }));
 vi.mock('../../store/shipRuns.js', () => ({ reconcileShipRuns: m.reconcileShipRuns, describeStaleShipRun: (s: string) => `ship:${s}` }));
 vi.mock('../../store/recoveryRounds.js', () => ({ reconcileStrandedFixRounds: m.reconcileStrandedFixRounds, describeStrandedFixRound: (s: { n: string }) => `fix:${s.n}` }));
+vi.mock('../../store/autopilot.js', () => ({ repairStaleAutopilotParks: m.repairStaleAutopilotParks }));
 vi.mock('../../runtime/archiveBulk.js', () => ({ compactArchivedWorktrees: m.compactArchivedWorktrees }));
 vi.mock('../../approaches/graph/retention.js', () => ({ reapClosedGraphSubtrees: m.reapClosedGraphSubtrees, describeGraphReap: (s: string) => `graph:${s}` }));
 vi.mock('../../runtime/artifactOrphans.js', () => ({ reapOrphanedArtifactDirs: m.reapOrphanedArtifactDirs, describeArtifactReap: (s: number) => `art:${s}` }));
@@ -82,6 +84,27 @@ describe('runBootSweeps', () => {
     expect(d.logError).not.toHaveBeenCalled();
     expect(r.strandedFixResumes.size).toBe(0);
     expect(m.sweepHookSettings).toHaveBeenCalledWith('/g');
+  });
+
+  it('reports the repaired stale autopilot parks, only when some were repaired (T1122)', async () => {
+    m.repairStaleAutopilotParks.mockReturnValue(0);
+    const quiet = deps();
+    await runBootSweeps(quiet);
+    expect(m.repairStaleAutopilotParks).toHaveBeenCalledWith(store);
+    expect(quiet.info).not.toHaveBeenCalled();
+    m.repairStaleAutopilotParks.mockReturnValue(2);
+    const d = deps();
+    await runBootSweeps(d);
+    expect(d.info).toHaveBeenCalledWith('karst: cleared 2 stale autopilot park record(s)');
+  });
+
+  it('logs a failed autopilot park repair and keeps booting (T1122)', async () => {
+    const boom = new Error('db locked');
+    m.repairStaleAutopilotParks.mockImplementation(() => { throw boom; });
+    const d = deps();
+    await runBootSweeps(d);
+    expect(d.logError).toHaveBeenCalledWith('karst: stale autopilot park repair failed', boom);
+    expect(d.info).not.toHaveBeenCalled();
   });
 
   it('reports swept hook settings only when some were swept', async () => {

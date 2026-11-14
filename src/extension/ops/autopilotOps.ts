@@ -142,20 +142,33 @@ function flightKeyOf(d: Pick<AutopilotDeps, 'store' | 'ticketId'>): string {
 }
 
 function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug'>, kind: AutopilotKind, reason: string, body: string, paused = false, headSha: string | null = null): AutopilotResult {
-  // Another writer's block (push-diverged) owns the ship row: leave it untouched.
-  if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
-  // Re-park when another writer replaced or cleared the block, so the amber state matches the stop reason.
-  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason || stageBlock(d.store, d.ticketId, 'ship')?.reason !== reason) {
-    setAutopilotStopped(d.store, d.ticketId, reason, headSha);
-    if (paused) setAutopilotPaused(d.store, d.ticketId, reason);
-    // The amber Needs you state: the existing awaiting-merge kind carries the reason (no new BlockerKind, @arch:BLOCKED).
-    parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: new Date().toISOString(), gates: [] });
-    d.note(`Autopilot: ${reason}`, `${d.key} (${kind}): ${body}`);
-    d.debug(`${LOG} ticket ${d.key} ${kind}: ${reason}`);
-    return { kind: 'parked', reason };
-  }
-  // Already parked with this reason: nothing changed, so the views are not refreshed again.
-  return { kind: 'nothing' };
+  // The check and the write share one transaction: a tick awaits between its start and its park, and a send-back may land there (T1122).
+  const write = d.store.db.transaction((): AutopilotResult => {
+    if (!stillShipped(d.store, d.ticketId)) {
+      d.debug(`${LOG} ticket ${d.key} ${kind}: the ticket left ship or ship is not shipped; park "${reason}" not written`);
+      return { kind: 'idle' };
+    }
+    // Another writer's block (push-diverged) owns the ship row: leave it untouched.
+    if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
+    // Re-park when another writer replaced or cleared the block, so the amber state matches the stop reason.
+    if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason || stageBlock(d.store, d.ticketId, 'ship')?.reason !== reason) {
+      setAutopilotStopped(d.store, d.ticketId, reason, headSha);
+      if (paused) setAutopilotPaused(d.store, d.ticketId, reason);
+      // The amber Needs you state: the existing awaiting-merge kind carries the reason (no new BlockerKind, @arch:BLOCKED).
+      parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: new Date().toISOString(), gates: [] });
+      d.note(`Autopilot: ${reason}`, `${d.key} (${kind}): ${body}`);
+      d.debug(`${LOG} ticket ${d.key} ${kind}: ${reason}`);
+      return { kind: 'parked', reason };
+    }
+    // Already parked with this reason: nothing changed, so the views are not refreshed again.
+    return { kind: 'nothing' };
+  });
+  return write();
+}
+
+/** The ticket is at ship and ship has passed (shipped): the only state where a park block may be written. */
+function stillShipped(store: Store, ticketId: number): boolean {
+  return getTicket(store, ticketId).stageCurrent === 'ship' && getStage(store, ticketId, 'ship')?.status === 'passed';
 }
 
 /** One failing PR and the signature (its failing check names) its budget counts against. */

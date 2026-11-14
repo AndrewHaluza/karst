@@ -313,6 +313,9 @@ export function resolveShipLanding(
     // Ship's tail just pushed: a stored CI rollup belongs to the head before this ship, so it must not feed a CI round
     // (autopilot) before the re-probe writes the new one.
     for (const pr of listCurrentPrsByTicket(store, ticketId)) if (pr.status === 'open') clearOpenPrProbe(store, ticketId, pr.repo);
+    // An autopilot stop (its reason starts with `auto-fix`) was written for the head before this ship, so it must not outlive it:
+    // it would hide "CI running" of the new head (`readShipCi`). A stop a person set (`stop_after`) is another column and stays (T1122).
+    store.db.prepare("UPDATE autopilot_tickets SET stopped_reason = NULL, stopped_head_sha = NULL WHERE ticket_id = ? AND stopped_reason LIKE 'auto-fix%'").run(ticketId);
     parkAwaitingMerge(store, ticketId, state);
   } catch {
     // Swallowed deliberately — see comment above. The PRs are already open;
