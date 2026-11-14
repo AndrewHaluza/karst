@@ -74,7 +74,7 @@ const PLACEHOLDERS: Record<ConventionField, string> = {
   branchName: 'karst/{type}/{slug}',
   commitMessage: '{title}',
   pullRequestTitle: '{title}',
-  pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}',
+  pullRequestDescription: '## Summary\n{description}\n\nTicket: {key}',
 };
 
 const HINTS: Record<ConventionField, string> = {
