@@ -94,6 +94,25 @@ describe('makeDefaultSpawn', () => {
 describe('ClaudeAdapter.buildInteractiveCommand', () => {
   const adapter = new ClaudeAdapter();
 
+  it('sets CLAUDE_CODE_SHELL to a bash on darwin with a zsh login shell, unless the user set it', () => {
+    const plat = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    try {
+      vi.stubEnv('SHELL', '/bin/zsh');
+      vi.stubEnv('CLAUDE_CODE_SHELL', '');
+      vi.stubEnv('KARST_CLAUDE_SHELL', '');
+      expect(adapter.buildInteractiveCommand({ cwd: '/wt/a' }).env?.CLAUDE_CODE_SHELL).toMatch(/bash$/);
+      vi.stubEnv('KARST_CLAUDE_SHELL', 'off');
+      expect(adapter.buildInteractiveCommand({ cwd: '/wt/a' }).env?.CLAUDE_CODE_SHELL).toBeUndefined();
+      vi.stubEnv('KARST_CLAUDE_SHELL', '');
+      vi.stubEnv('CLAUDE_CODE_SHELL', '/bin/zsh');
+      expect(adapter.buildInteractiveCommand({ cwd: '/wt/a' }).env?.CLAUDE_CODE_SHELL).toBeUndefined();
+    } finally {
+      Object.defineProperty(process, 'platform', plat);
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('returns the claude bin with no -p (interactive, not headless)', () => {
     const { command, args } = adapter.buildInteractiveCommand({ cwd: '/wt/a' });
     expect(command).toBe('claude');

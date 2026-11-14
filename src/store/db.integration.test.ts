@@ -499,7 +499,7 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
   });
 
-  it('migrates a pre-v120 database by adding gate_runs.source, idempotently, without a backfill', () => {
+  it('migrates a pre-v121 database by adding gate_runs.source, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');

@@ -436,9 +436,10 @@
     "arch:AP-00"
   ],
   "src/extension/ops/baseMovedCheck.ts": [
-    "arch:GATE-REPEAT"
+    "arch:GATE-BASE-MOVED"
   ],
   "src/extension/ops/baseMovedHost.ts": [
+    "arch:GATE-BASE-MOVED",
     "arch:GATE-REPEAT"
   ],
   "src/extension/ops/ciActionsWiring.ts": [
@@ -517,6 +518,7 @@
     "arch:GH-03"
   ],
   "src/integrations/github.ts#mergePr": [
+    "arch:GH-03",
     "arch:GH-04"
   ],
   "src/integrations/prChecks.ts": [
@@ -1036,7 +1038,7 @@
     "arch:GATE-CONCURRENCY"
   ],
   "src/workflow/gates/run.ts": [
-    "arch:GATE-REPEAT"
+    "arch:GATE-BASE-MOVED"
   ],
   "src/workflow/gates/runList.ts#runGateList": [
     "arch:GATE-CONCURRENCY"
@@ -1057,6 +1059,7 @@
     "arch:GH-09"
   ],
   "src/workflow/mergePr.ts#mergeTicketPr": [
+    "arch:GH-03",
     "arch:GH-04"
   ],
   "src/workflow/mergePr.ts#planMergeAll": [

@@ -353,6 +353,10 @@ codes — never by an agent self-report. \`stage ship pass\` is REFUSED, and a
 conflict must never be marked failed: \`ship\` has no failed edge, so the
 ticket would park with no way out.
 
+## Editing files
+
+Edit files with the Edit tool. If you use \`sed -i\`, write \`sed -i.bak\` (works on BSD and GNU).
+
 ## Rules you may not break
 
 1. A gate verdict is a process exit code. Nothing you say can pass a stage.

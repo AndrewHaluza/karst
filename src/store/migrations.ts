@@ -3000,9 +3000,15 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 120) {
-    // v120: `gate_runs.source` — what wrote the row; 'host-rerun' marks a host gate re-run (T1120, @arch:AC-45). Additive; NULL = a UAT/review batch row (no backfill).
-    const cols120 = tableColumns(db, 'gate_runs');
-    if (cols120.size > 0 && !cols120.has('source')) db.exec('ALTER TABLE gate_runs ADD COLUMN source TEXT');
+    // v120: `autopilot_tickets.stopped_head_sha` — the head a stop applies to (T1123). Additive; NULL = none recorded (no backfill).
+    const cols120 = tableColumns(db, 'autopilot_tickets');
+    if (cols120.size > 0 && !cols120.has('stopped_head_sha')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN stopped_head_sha TEXT');
+  }
+
+  if (current < 121) {
+    // v121: `gate_runs.source` — what wrote the row; 'host-rerun' marks a host gate re-run (T1120, @arch:AC-45). Additive; NULL = a UAT/review batch row (no backfill).
+    const cols121 = tableColumns(db, 'gate_runs');
+    if (cols121.size > 0 && !cols121.has('source')) db.exec('ALTER TABLE gate_runs ADD COLUMN source TEXT');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

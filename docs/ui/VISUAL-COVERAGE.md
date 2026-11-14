@@ -96,14 +96,14 @@ The `layout` Playwright projects run inside the existing `visual` UAT gate (`tes
   - i `state-survives-resize`: on each Agents hash, resize 1280 to 480 to 1280; the hash and the selected item are unchanged.
 - **Output**: failures print grouped as route, width, check, selector, numbers (teardown test output), and the full list is in `tests/visual/.layout-report.json` (gitignored with the shards).
 - **Ratchet ledger** `tests/visual/layout-known-failures.json` is the only exemption (no per-element opt-out attribute). Keys are `route|width|check|selector`. A failure not in the ledger fails the gate; a ledger entry that no longer reproduces ALSO fails the gate. Stale entries are judged only over routes x widths that ran, so a view-scoped run never reports an entry of a route that did not run. Docker is authoritative (host rendering differs): `npm run test:layout:docker:seed` seeds once (refused if the file exists), `npm run test:layout:docker:prune` removes stale entries only and never adds; both refuse on a filtered run and without `KARST_LAYOUT_AUTHORITATIVE=1`. Host `npm run test:layout` is advisory and cannot seed or prune. Never reseed to make a branch green.
-- **Gate**: `scripts/visual-sweep-gate.mjs` runs only in CI, on the full chain. It fails when `layout` ran zero tests, when `layout-teardown` did not run exactly one test, or when a `layout`/`layout-teardown` test is `unexpected`. In the other projects it also fails a **pull request's own** added/changed baseline that does not match its screenshot (`ui:RUNNING-SWEEP`); every other screenshot diff stays advisory.
+- **Gate**: `scripts/visual-sweep-gate.mjs` runs only in CI, on the full chain. CI runs the whole chain in one shard, so the teardown verdict sees every route (`ui:RUNNING-SWEEP`). It fails when `layout` ran zero tests, when `layout-teardown` did not run exactly one test, or when a `layout`/`layout-teardown` test is `unexpected`. In the other projects it also fails a **pull request's own** added/changed baseline that does not match its screenshot (`ui:RUNNING-SWEEP`); every other screenshot diff stays advisory.
 - **Cannot catch**: a wrong control in a sane-looking place (until a page ships region expectations), wrong copy, wrong colours, or a layout bug that only appears in a state the corpus does not render (add the state to the corpus).
 END_DOC_BLOCK: [@ui:LAYOUT-SANITY]
 
 ## [@ui:LAYOUT-SCOPE] Layout chain scope in a local gate
 
-- **Scope**: `scripts/dockerGate.mjs` narrows `test:visual:docker` and `test:layout:docker` to the views that the ticket diff reaches (`selectViews`, `gateGrep` in `scripts/uiViews.mjs`). The `layout` project uses the same `KARST_UI_GREP` grep. `layout-setup` and `layout-teardown` take no filter, so the ledger verdict still runs on the selected routes for any grep, and a filtered seed or prune is refused. The selection line states the scope, with counts that include layout tests. These runs stay on the full chain: CI (variable unset), `test:ui:docker` (it passes `KARST_UI_GREP: ''` because its view is named by hand, not derived from the diff), a shared path (a move counts as both of its paths), `playwright.config.ts`, a change to the ledger (it also voids the repeat-pass skip, `@arch:GATE-REPEAT`), an unknown diff, seed and prune. CI is the backstop for a layout bug that a view-scoped run misses.
-- **No selected route**: `catalog` and `status` have no layout route. In that selection, `test:layout:docker` prints a skip line and exits 0, and in `test:visual:docker` the teardown accepts zero shards only if the grep matches no layout title. A run with selected routes and no shards still fails.
+- **Scope**: `scripts/dockerGate.mjs` narrows `test:visual:docker` and `test:layout:docker` to the views that the ticket diff reaches (`selectViews`, `gateGrep` in `scripts/uiViews.mjs`). A repeat pass with a usable state narrows further: to the views of the delta since the stored run, plus the failed tests of a red run (`scopedSelection`, `@arch:GATE-REPEAT`). The failed-test titles join the same grep, so the bookends still run and the ledger verdict judges only the routes that ran. The `layout` project uses the same `KARST_UI_GREP` grep. `layout-setup` and `layout-teardown` take no filter, so the ledger verdict still runs on the selected routes for any grep, and a filtered seed or prune is refused. The selection line states the scope, with counts that include layout tests. These runs stay on the full chain: CI (variable unset), `test:ui:docker` (it passes `KARST_UI_GREP: ''` because its view is named by hand, not derived from the diff), a shared path (a move counts as both of its paths), `playwright.config.ts`, a change to the ledger (it also voids the repeat-pass skip, `@arch:GATE-REPEAT`), an unknown diff, seed and prune. CI is the backstop for a layout bug that a view-scoped run misses.
+- **No selected route**: `catalog` and `status` have no layout route. In that selection, `test:layout:docker` prints a skip line and exits 0 (but not when it carries failed tests of a red run), and in `test:visual:docker` the teardown accepts zero shards only if the grep matches no layout title. A run with selected routes and no shards still fails.
 - **Measured saving**: `docs/issues/2026-11-06-layout-chain-narrowing-timing.md` (`@issue:NARROW-01`).
 END_DOC_BLOCK: [@ui:LAYOUT-SCOPE]
 
@@ -113,7 +113,9 @@ END_DOC_BLOCK: [@ui:LAYOUT-SCOPE]
 a corpus builder (reusing the `renderFixtures` modules and `realisticSettings.ts`;
 fixed data, no clock), a baseline name, the theme projects that record it, and a
 layout target. `buildFixture.ts` writes `<theme>/<view>--<variant>.html` for each,
-`pages.visual.ts` screenshots each, `layout.layout.ts` opens each at every width.
+`pages.visual.ts` screenshots each, `layout.layout.ts` opens each distinct page at every width.
+
+- **One layout run per page**: `layoutPlan()` keys a variant by its layout identity (`layoutIdentity()`: the view, its widths, the corpus messages and view state with ISO timestamps ignored, and `clicks`, the only step `layout.layout.ts` runs). A variant with the key of an earlier variant shares that run, so `width`, `themes`, `capture`, `viewportHeight`, `click`, `pills` and the popover and drawer steps never add layout tests. Example: `dashboard/inside-<stage>-<case>-mid|narrow|tight` share the run of `dashboard/inside-<stage>-<case>`. When `layout.layout.ts` starts to run a new step, add it to `layoutIdentity()`. `skipLayout` stays for a variant whose page differs but must not get a layout run.
 
 - **Mandatory per view**: `populated`, `empty`, `loading` (no host message yet), `error`, `long-content`.
 - **Theme split** (gate runtime): `populated` and the legacy dashboard stages and agents shots record `dark`, `light`, `hc`; every other variant records `dark` only. Geometry runs dark only. Grayscale and reduced-motion stay on the status spec (UI-R28, UI-R30).
@@ -123,8 +125,16 @@ layout target. `buildFixture.ts` writes `<theme>/<view>--<variant>.html` for eac
 - **`error` without a host failure state**: gettingStarted has none, so its `error` variant is the fresh checklist; replace it when a failure state exists.
 - **Not covered**: the doctor has no webview (`src/ui/doctor/host.ts` only), so it is not in `WEBVIEW_NAMES`.
 - **Capture mode**: a variant is a full-page shot by default. A variant of a fixed overlay sets `capture: 'viewport'` and the shot is the viewport (`fullPage: false`, `screenshotFullPage` in `variants.ts`). A full-page shot of a fixed overlay also records the height of the page below it, so every dashboard height change moved all 24 `ticket-details-*` baselines (T1060, T1064, T1069). The dashboard keeps its own full-page variants, so its height stays covered. Only the ticket-details drawer uses it. If the drawer scrolls inside itself, the viewport shows its top.
-- **Adding a variant**: add it to the registry, run `npm run -s test:visual:docker:update`, review the new PNGs only, run `npm run -s test:layout:docker` and ledger new failures with the owner's approval. `variants.test.ts` names what is missing.
+- **Adding a variant**: add it to the registry, run `npm run -s test:visual:docker:update`, review the new PNGs only, run `npm run -s test:layout:docker` and ledger new failures with the owner's approval. `variants.test.ts` names what is missing, and `sweepBudget.test.ts` names the budget to update (`@ui:SWEEP-BUDGET`).
 END_DOC_BLOCK: [@ui:VISUAL-VARIANTS]
+
+## [@ui:SWEEP-BUDGET] Sweep budget ratchet
+
+`tests/visual/sweepBudget.ts` pins, for each view, the number of screenshots (variant x declared theme project) and layout tests (distinct page x width, plus the settings routes) that the view adds to the visual gate. `sweepBudget.test.ts` (unit gate) fails when a count moves. Above the budget: share a layout run, drop a theme, or raise the number with a reason (ticket and why) in a comment on that line. Below the budget: lower the number.
+
+- **Why**: the sweep has one host slot and a 45 min limit (`UI_GATE_TIMEOUT_MS`), and each later ticket pays for every test a change adds. Before the budget, one change (#1066) took the sweep from 4,635 to 7,166 tests and passed every gate; the only answer was a higher CI limit.
+- **Counts come from the registry**, not from a Playwright run, so the check costs about 1 s.
+END_DOC_BLOCK: [@ui:SWEEP-BUDGET]
 
 ## [@ui:LIMITATIONS] Named limitations
 
@@ -140,6 +150,7 @@ END_DOC_BLOCK: [@ui:LIMITATIONS]
 2. **TITLE_RATCHET** (`a11y.visual.ts`): Settings `span#dirtyDot` tooltip-only hint. Shrink-only.
 3. **FOCUS_COUNT_RATCHET** (`focus.visual.ts`): Focusable-element counts per view. Shrink-only, save the justified raises recorded in the constant's comment (agent-presets, ticket 508: `ticketForm` +1, `settings` +7 — seven net-new controls with no existing element to fold into; preset editor, NDL-106: `settings` +6 for the General tab's name/core/model/effort/Add/Cancel form; sub-task UI, NDL-217: `dashboard` +2 for `#addSubtask` and `#detachSubtask`).
 4. **MINIMAL_RATCHET** (`corpora.ts`): Views still on MINIMAL state seed. Shrink-only.
+5. **SWEEP_BUDGET** (`sweepBudget.ts`): screenshots and layout tests per view (`@ui:SWEEP-BUDGET`). A raise needs a reason on its line.
 END_DOC_BLOCK: [@ui:OPEN-RATCHETS]
 
 ## [@ui:RUNNING-SWEEP] Running the sweep
@@ -149,6 +160,8 @@ END_DOC_BLOCK: [@ui:OPEN-RATCHETS]
 **Update baselines only with `npm run test:visual:docker:update`.** Never `npm run test:visual:update` on a developer machine, and never hand-edit a PNG. The image tag must stay in lockstep with the pinned `@playwright/test` version — a different tag ships a different Chromium and invalidates every baseline at once.
 
 **CI runs the same image.** `.github/workflows/ci.yml`'s `visual` job is advisory for **pre-existing** screenshot **diff failures** while the suite settles: the Playwright exit code is published to the run summary, a run that executed tests with only pre-existing diffs does not fail the job, and the job uploads `tests/visual/.report/` as the `visual-report` artifact. Two things are never advisory: a sweep that executed **zero tests** — a webServer/startup crash, because `continue-on-error: true` used to record conclusion=success on a job whose sweep had never run (NDL-218) — and, on a pull request, a baseline the PR itself **added or changed** that fails its own screenshot (#769, how 9 sandbox-recorded baselines from #722 landed on develop and stayed red). `scripts/visual-sweep-gate.mjs` enforces both. Promote the remaining pre-existing failures to blocking — by letting the step exit with Playwright's code instead of the gate's verdict — once the sweep has run green on `develop` for a week with no baseline churn attributable to the environment.
+
+**CI shards the sweep.** The job `visual-shard` runs 4 shards in parallel in the same image, with 1 worker each. `scripts/visual-shards.mjs` holds the plan and the measured times: `dark` in two halves (`--fully-parallel --shard=i/2`), the whole layout chain in one shard, and the other five projects in one shard. A count split (`--shard=i/N` alone) is not balanced, because a skipped test costs almost no time. Each shard writes a blob report. The job `visual` keeps the required check name. It fails when a shard did not succeed, merges the blobs with `playwright merge-reports --config playwright.config.ts` into `.results.json` and `.report/`, and runs the gate. The gate also fails when the merged report lacks a test of the full listing (`VISUAL_LISTED_REPORT`). A merged report moves attachments into `resources/`, so the gate finds a failed baseline from the `Snapshot:` line of the error. Never split the layout chain over shards: the ledger verdict must see every route. Local docker runs do not shard.
 
 **No karst UAT gate for `test:visual`.** The gate was intentionally omitted because `test:visual` always exits non-zero on macOS (container-authored baselines vs. macOS font rendering), and karst's gate system treats any non-zero exit as a failure — creating an unrecoverable loop. CI's `visual` job is the authoritative run.
 
@@ -182,6 +195,8 @@ Every run: 1662 expected, 1038 skipped, 0 unexpected, 0 flaky, no 137 exit.
 **Result.** Median Playwright time: 1 worker 430 s, 2 workers 358 s (17% saving), 3 workers 362 s (16% saving). Median wall time: 439 s, 367 s (16%), 415 s (5%). Memory grows with the count (about 1.2, 1.6 and 2.05 GiB) and stays far below the VM limit. Safety was fine: zero diffs, zero kills at every count. The saving was the problem. It is below 25%, and the run-to-run spread at one count (228 s to 493 s at 2 workers) is larger than the gap between counts. Run 6 (3 workers, round 2) lost about 630 s outside the test run. The cause was not found.
 
 **Revisit** when the host is idle, or when the layout chain is split or shortened, since it caps the gain. A re-run needs the same 9-run table.
+
+**Since this measurement** the layout chain is shorter and is not one serial unit. `layoutPlan()` gives one run per distinct page (`@ui:VISUAL-VARIANTS`), so it holds 1,123 tests, not 2,864. The `layout` project sets `fullyParallel: true`, so a count above 1 also spreads that file over the workers. The default stays 1 until the 9-run table is measured again.
 END_DOC_BLOCK: [@ui:WORKERS]
 
 ## [@ui:UPDATE-BASELINE] How to update a baseline

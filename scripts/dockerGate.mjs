@@ -24,12 +24,12 @@ import { basename } from 'node:path';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { baseRerunArgv, classifyFailures, classifyHeadRerun, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
+import { baseRerunArgv, classifyFailures, classifyHeadRerun, failedTests, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
 import { hasBinary } from './onPath.mjs';
 import { acquireGateSlot, leaseHeld } from './gateSlot.mjs';
-import { gitDirOf, loadPassInput, planSkip, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
+import { gitDirOf, isCleanRun, loadPassInput, planSkip, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
 import { mergeBase } from './gateScope.mjs';
-import { gateGrep, isUiPath, parseListLayout, parseListTotal, readSettingsSections, selectViews, selectionLine, selectsLayoutRoute } from './uiViews.mjs';
+import { LAYOUT_BOOKENDS, gateGrep, isUiPath, parseListLayout, parseListTotal, readSettingsSections, scopedSelection, selectViews, selectionLine, selectsLayoutRoute } from './uiViews.mjs';
 import {
   VOLUME_PREFIX,
   acquireSlot,
@@ -202,30 +202,37 @@ function countTests(script, grep) {
   return { selected: selected.total, total: all.total, layoutSelected: selected.layout, layoutTotal: all.layout };
 }
 
+/** The selection of the branch diff (merge base to the working tree). Unknown diff = full. */
+function branchSelection() {
+  const paths = changedPaths();
+  return paths === null ? { all: true, views: [] } : selectViews(paths);
+}
+
 /**
- * Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. Unknown diff = full.
- * Returns the line to print when the gate has nothing to run, else null.
+ * Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. `scope` (`{ since, paths, failed }`
+ * from `planRepeat`) selects from the stored run (@arch:GATE-REPEAT); null, or a scope that selects nothing,
+ * selects from the branch diff. Unknown diff = full. Returns the line to print when the gate has nothing to run, else null.
  */
-export function narrowSweep(script) {
+export function narrowSweep(script, scope = null) {
   if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return null;
   // A ledger seed/prune must see the full run (its full-run guard refuses a partial one).
   if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return null;
-  const paths = changedPaths();
-  const selection = paths === null ? { all: true, views: [] } : selectViews(paths);
+  const scoped = scope === null ? null : scopedSelection(scope);
+  const selection = scoped === null ? branchSelection() : scoped.selection;
+  const failed = scoped === null ? [] : scoped.failed;
   let grep = null;
   try {
-    grep = gateGrep(selection, readSettingsSections());
+    grep = gateGrep(selection, readSettingsSections(), failed);
   } catch {
     // Unreadable section list: run the full sweep.
   }
   // `--project=layout` with no route is playwright's "No tests found" (exit 1): nothing to judge here.
-  if (grep !== null && script === 'test:layout:docker' && !selectsLayoutRoute(selection)) {
+  if (grep !== null && script === 'test:layout:docker' && failed.length === 0 && !selectsLayoutRoute(selection)) {
     return `layout: skipped, ${selection.views.join(', ')} has no layout route; full sweep runs in CI`;
   }
   if (grep !== null) process.env.KARST_UI_GREP = grep;
-  console.error(
-    selectionLine(script, grep === null ? { all: true, views: [] } : selection, countTests(script, grep)),
-  );
+  const shown = grep === null ? { all: true, views: [] } : selection;
+  console.error(selectionLine(script, shown, countTests(script, grep), grep === null || scoped === null ? null : scoped.origin));
   return null;
 }
 
@@ -247,12 +254,13 @@ export function baseRunArgv(rawArgv, baseDir, screenshots, name, volume = null) 
 const shellQuote = (arg) => `'${arg.replace(/'/g, `'\\''`)}'`;
 
 /**
- * The repeat-pass memo of a sweep gate: skip when nothing UI changed since the last green run, and keep the
- * snapshot to store after the next green one. Seed, prune, an external grep and non-selecting scripts never
- * skip or store. Any trouble means no skip.
+ * The repeat-pass memo of a sweep gate: skip when nothing UI changed since the last green run, keep the
+ * snapshot to store after the run, and return the `scope` (`{ since, paths, failed }`) that `narrowSweep`
+ * selects from (@arch:GATE-REPEAT). Seed, prune, an external grep and non-selecting scripts never skip, store
+ * or scope. Any trouble means no skip and no scope.
  */
 export async function planRepeat(script, argv, cwd = process.cwd()) {
-  const none = { memo: null, skip: null };
+  const none = { memo: null, skip: null, scope: null };
   if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return none;
   if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return none;
   try {
@@ -265,19 +273,29 @@ export async function planRepeat(script, argv, cwd = process.cwd()) {
     const input = await loadPassInput(cwd, dir, key, base, tree);
     const plan = planSkip({ ...input, force: process.env.KARST_GATE_FULL === '1', isUiPath });
     const name = script.replace(/^test:/, '').replace(/:docker$/, '');
-    if (plan.kind === 'skip') return { memo, skip: scopeLine(name, { kind: 'skipped', since: plan.since }) };
-    console.error(plan.reason ? scopeLine(name, { kind: 'full', reason: plan.reason }) : scopeLine(name, { kind: 'scoped', count: plan.delta, since: plan.since }));
-    return { memo, skip: null };
+    if (plan.kind === 'skip') return { memo, skip: scopeLine(name, { kind: 'skipped', since: plan.since }), scope: null };
+    if (plan.reason) {
+      console.error(scopeLine(name, { kind: 'full', reason: plan.reason }));
+      return { memo, skip: null, scope: null };
+    }
+    console.error(scopeLine(name, { kind: 'scoped', count: plan.delta, since: plan.since }));
+    return { memo, skip: null, scope: { since: plan.since, paths: plan.paths, failed: plan.failed } };
   } catch (error) {
     console.error(`full: scope planning failed: ${error.message}`);
     return none;
   }
 }
 
-/** Store the green state of a finished sweep. */
-export function storeGreen(memo, status) {
-  if (memo === null || status !== 0) return;
-  writeState(memo.dir, memo.key, { tree: memo.tree, base: memo.base, clean: true, failed: [] });
+/**
+ * Store the state of a finished sweep (@arch:GATE-REPEAT): green with no failed test, or red with the failed
+ * tests of its JSON `report`. A red run whose failures cannot be parsed, or exit 127 or 137, stores nothing,
+ * so the earlier state stays.
+ */
+export function storeRun(memo, status, report) {
+  if (memo === null) return;
+  const failed = status === 0 ? [] : failedTests(report, LAYOUT_BOOKENDS);
+  if (!isCleanRun({ status, parsedAllFailures: failed !== null })) return;
+  writeState(memo.dir, memo.key, { tree: memo.tree, base: memo.base, clean: true, failed });
 }
 
 async function main(argv) {
@@ -287,7 +305,7 @@ async function main(argv) {
     console.error(repeat.skip);
     process.exit(0);
   }
-  const nothingToRun = narrowSweep(script);
+  const nothingToRun = narrowSweep(script, repeat.scope);
   if (nothingToRun !== null) {
     console.error(nothingToRun);
     process.exit(0);
@@ -307,13 +325,17 @@ async function main(argv) {
       `${script}: docker is not installed here, but this container IS the rendering environment the ` +
         'baselines were recorded in — running the sweep locally.',
     );
+    const results = join(process.cwd(), RESULTS_REL);
+    rmSync(results, { force: true });
     const result = spawnSync(plan.command, {
       shell: true,
       stdio: 'inherit',
       env: { ...process.env, ...plan.env },
     });
-    storeGreen(repeat.memo, result.status ?? 1);
-    process.exit(result.status ?? 1);
+    const status = result.status ?? 1;
+    // A run that a signal ended leaves no trusted report: store nothing.
+    if (result.signal === null) storeRun(repeat.memo, status, status === 0 ? null : readReport(results));
+    process.exit(status);
   }
   runContainer(local ? local.rest : argv, repeat.memo);
 }
@@ -404,7 +426,7 @@ async function runContainer(rawArgv, memo = null) {
       child.on('close', (status) => resolve(status ?? 1));
     });
   let status = await run(args);
-  storeGreen(memo, status);
+  storeRun(memo, status, status === 0 ? null : readReport(results));
   if (status !== 0) status = await judgeAgainstBase({ status, rawArgv, name, volume, run, results });
   cleanup();
   if (status === 0) collectVolumes(process.cwd());

@@ -59,7 +59,7 @@ describe('deliver to PR (real git)', () => {
     commit(clone, 'fix2');
     const tracker = createUndeliveredTracker();
     await refreshUndelivered(tracker, 1, targets(), countDeps);
-    expect(tracker.get(1)).toEqual({ hostAhead: 0, sandboxAhead: 2 });
+    expect(tracker.get(1)).toEqual({ hostAhead: 0, sandboxAhead: 2, byRepo: { r: 2 } });
 
     const d: DeliverDeps = {
       targets,
@@ -81,7 +81,7 @@ describe('deliver to PR (real git)', () => {
     commit(wt, 'host1');
     const tracker = createUndeliveredTracker();
     await refreshUndelivered(tracker, 1, targets(), { ...countDeps, sandboxRef: async () => null });
-    expect(tracker.get(1)).toEqual({ hostAhead: 1, sandboxAhead: 0 });
+    expect(tracker.get(1)).toEqual({ hostAhead: 1, sandboxAhead: 0, byRepo: { r: 1 } });
   });
 
   it('a diverged clone stops before the push and raises the blocker', async () => {

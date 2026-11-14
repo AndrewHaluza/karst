@@ -2,10 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
   ALL_VIEWS,
+  LAYOUT_BOOKENDS,
   VIEW_DIRS,
   gateGrep,
   isUiPath,
   readSettingsSections,
+  scopedSelection,
+  selectDeltaViews,
   selectViews,
   parseListLayout,
   parseListTotal,
@@ -185,4 +188,99 @@ it('keeps package.json passing KARST_UI_GREP into the gate and update containers
   expect(scripts['test:visual:docker']).toContain('-e KARST_UI_GREP');
   expect(scripts['test:layout:docker']).toContain('-e KARST_UI_GREP');
   expect(scripts['test:visual:docker:update']).toContain('-e KARST_UI_GREP');
+});
+
+describe('LAYOUT_BOOKENDS', () => {
+  it('names the layout setup and teardown titles', () => {
+    expect(LAYOUT_BOOKENDS).toEqual(['clear layout shards', 'layout ledger verdict']);
+  });
+});
+
+describe('selectDeltaViews', () => {
+  it('selects no view when the delta holds no UI path', () => {
+    expect(selectDeltaViews([])).toEqual({ all: false, views: [] });
+    expect(selectDeltaViews(['docs/x.md', 'src/workflow/a.ts', 'src/ui/dashboard/a.test.ts'])).toEqual({ all: false, views: [] });
+  });
+  it('selects the owning views of the UI paths', () => {
+    expect(selectDeltaViews(['src/ui/diffs/a.tsx', 'docs/x.md'])).toEqual({ all: false, views: ['diffs'] });
+  });
+  it('selects every view for a UI path with no owning view', () => {
+    expect(selectDeltaViews(['src/ui/shared/url.ts', 'src/ui/diffs/a.tsx']).all).toBe(true);
+  });
+});
+
+describe('scopedSelection', () => {
+  const since = 'a'.repeat(40);
+  const failed = [{ project: 'dark', title: 'sidebar/empty: full-page screenshot' }];
+  it('selects the delta views after a green run', () => {
+    expect(scopedSelection({ since, paths: ['src/ui/diffs/a.tsx'], failed: [] })).toEqual({
+      selection: { all: false, views: ['diffs'] },
+      failed: [],
+      origin: { kind: 'green', since, failed: 0 },
+    });
+  });
+  it('carries the failed tests of a red run with no UI path in the delta', () => {
+    expect(scopedSelection({ since, paths: ['docs/x.md'], failed })).toEqual({
+      selection: { all: false, views: [] },
+      failed,
+      origin: { kind: 'red', since, failed: 1 },
+    });
+  });
+  it('selects every view and carries no failed test for a shared path', () => {
+    expect(scopedSelection({ since, paths: ['src/ui/shared/url.ts'], failed })).toEqual({
+      selection: { all: true, views: ALL_VIEWS },
+      failed: [],
+      origin: { kind: 'red', since, failed: 0 },
+    });
+  });
+  it('is null when it selects nothing', () => {
+    expect(scopedSelection({ since, paths: ['docs/x.md'], failed: [] })).toBeNull();
+  });
+});
+
+describe('gateGrep with failed tests', () => {
+  const sections = readSettingsSections();
+  it('matches the failed titles and keeps the bookends', () => {
+    const re = new RegExp(gateGrep({ all: false, views: [] }, sections, [{ project: 'dark', title: 'sidebar/empty: full-page screenshot' }]));
+    expect(re.test('dark tests/visual/pages.visual.ts full-page screenshots sidebar/empty: full-page screenshot')).toBe(true);
+    expect(re.test('dark tests/visual/pages.visual.ts full-page screenshots usage/empty: full-page screenshot')).toBe(false);
+    expect(re.test('layout-teardown layout.teardown.ts layout ledger verdict')).toBe(true);
+    expect(re.test('layout-setup layout.setup.ts clear layout shards')).toBe(true);
+  });
+  it('adds the failed titles to the view tokens', () => {
+    const re = new RegExp(gateGrep({ all: false, views: ['diffs'] }, sections, [{ project: 'dark', title: 'usage/busy: full-page screenshot' }]));
+    expect(re.test('dark pages.visual.ts diffs/empty: full-page screenshot')).toBe(true);
+    expect(re.test('dark pages.visual.ts usage/busy: full-page screenshot')).toBe(true);
+    expect(re.test('dark pages.visual.ts sidebar/empty: full-page screenshot')).toBe(false);
+  });
+  it('escapes the regex characters of a title', () => {
+    const re = new RegExp(gateGrep({ all: false, views: [] }, sections, [{ project: 'layout', title: 'agents#tab=roles (x) @1280' }]));
+    expect(re.test('layout layout.layout.ts agents#tab=roles (x) @1280')).toBe(true);
+    expect(re.test('layout layout.layout.ts agents#tab=roles x @1280')).toBe(false);
+  });
+  it('is null with no view and no failed test', () => {
+    expect(gateGrep({ all: false, views: [] }, sections, [])).toBeNull();
+  });
+});
+
+describe('selectionLine with an origin', () => {
+  const since = 'a'.repeat(40);
+  it('names the green run for a delta selection', () => {
+    expect(selectionLine('test:visual:docker', { all: false, views: ['diffs'] }, { selected: 60, total: 1850 }, { kind: 'green', since, failed: 0 })).toBe(
+      'visual: running diffs (changed since the green run at aaaaaaaaaaaa) — 60 of 1,850 tests; full sweep runs in CI',
+    );
+  });
+  it('names the red run and its failed tests', () => {
+    expect(selectionLine('test:visual:docker', { all: false, views: ['settings'] }, null, { kind: 'red', since, failed: 2 })).toBe(
+      'visual: running settings (changed since the red run at aaaaaaaaaaaa) and 2 failed tests of that run; full sweep runs in CI',
+    );
+    expect(selectionLine('test:layout:docker', { all: false, views: [] }, null, { kind: 'red', since, failed: 1 })).toBe(
+      'layout: running 1 failed test of the red run at aaaaaaaaaaaa; full sweep runs in CI',
+    );
+  });
+  it('keeps the every-view line', () => {
+    expect(selectionLine('test:visual:docker', { all: true, views: [] }, null, { kind: 'red', since, failed: 0 })).toBe(
+      'visual: running every view; full sweep also runs in CI',
+    );
+  });
 });

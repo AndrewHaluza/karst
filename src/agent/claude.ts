@@ -56,6 +56,7 @@ import {
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
 import { claudeAttendedDeny, claudeGateDeny, isGatePolicy, type HeadlessPolicy } from './gatePolicy.js';
+import { claudeShellEnv } from './claudeShell.js';
 import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { spillOversizedKickoff } from './kickoffSpill.js';
@@ -377,7 +378,7 @@ export class ClaudeAdapter implements AgentAdapter {
     return {
       command: acct.binary,
       args: [...acct.args, ...args],
-      env: { ...acct.env },
+      env: { ...claudeShellEnv(), ...acct.env },
       ...(acct.account !== 'default' ? { account: acct.account } : {}),
       ...(kickoff.ownedPaths.length > 0 ? { ownedPaths: kickoff.ownedPaths } : {}),
       ...(opts.instructions ? { instructionsChannel: 'native-file' as const } : {}),
@@ -822,7 +823,7 @@ export class ClaudeAdapter implements AgentAdapter {
     let streamedStderr = false;
     const spawn = (a: string[]) =>
       this.spawnHeadless(acct.binary, [...acct.args, ...a], opts.cwd, {
-        ...accountSpawnEnv(acct),
+        isolationEnv: { ...claudeShellEnv(), ...accountSpawnEnv(acct).isolationEnv },
         signal: opts.signal,
         timeoutMs: opts.timeoutMs,
         onDebug: opts.debug,

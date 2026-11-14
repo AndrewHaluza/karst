@@ -63,9 +63,15 @@ export function planScope({ state, readable = true, base, delta, force = false }
   return { kind: 'scoped', paths, failed: [...state.failed], since: state.tree };
 }
 
+/** A failed test that a sweep gate stored: `{ project, title }`, both non-empty strings. */
+const isFailedTest = (f) =>
+  f !== null && typeof f === 'object' && typeof f.project === 'string' && f.project !== '' && typeof f.title === 'string' && f.title !== '';
+
 /**
  * Whether a sweep gate (visual, layout) may skip: it ran green at a snapshot, the merge base is the same, and
- * the delta since then holds no UI path. Anything else runs, with the reason (or the delta size) for the scope line.
+ * the delta since then holds no UI path. Anything else runs, with the reason for the scope line, or, with a usable
+ * state, as a scoped run: the delta size, the snapshot, the delta `paths` and the stored `failed` tests
+ * (`{ project, title }`; a red state never skips). A malformed failed entry makes the state unreadable.
  */
 export function planSkip({ state, readable = true, base, delta, force = false, isUiPath }) {
   const run = (reason) => ({ kind: 'run', reason });
@@ -75,8 +81,10 @@ export function planSkip({ state, readable = true, base, delta, force = false, i
   if (!state.clean) return run('earlier run was not green');
   if (base === null || base === undefined || state.base !== base) return run('the merge base moved');
   if (delta === null) return run('could not compare with the earlier run');
-  if (delta.some(({ path }) => isUiPath(path))) return { kind: 'run', delta: delta.length, since: state.tree };
-  return { kind: 'skip', since: state.tree };
+  if (!state.failed.every(isFailedTest)) return run('earlier run state is unreadable');
+  const failed = state.failed.map(({ project, title }) => ({ project, title }));
+  if (failed.length === 0 && !delta.some(({ path }) => isUiPath(path))) return { kind: 'skip', since: state.tree };
+  return { kind: 'run', delta: delta.length, since: state.tree, paths: delta.map(({ path }) => path), failed };
 }
 
 /** True when the delta holds a path that can change a render (the `selectViews` UI paths). */

@@ -162,9 +162,9 @@ CREATE TABLE IF NOT EXISTS gate_runs (
                                        -- skipped, the repo had no such script, or a pre-v46 row. The full
                                        -- output stays in the artifact log; this is the "what failed (file,
                                        -- line, rule)" a fix session or `karst context` reads back as data.
-  source        TEXT                  -- v120: what wrote the row. 'host-rerun' = the host gate re-run of a
+  source        TEXT                  -- v121: what wrote the row. 'host-rerun' = the host gate re-run of a
                                        -- refused fix marker (@arch:AC-45), never a UAT batch verdict. NULL =
-                                       -- a UAT/review batch row (and every pre-v120 row).
+                                       -- a UAT/review batch row (and every pre-v121 row).
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
 
@@ -1528,6 +1528,7 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   stop_after    INTEGER NOT NULL DEFAULT 0,   -- 1 = "stop after this round": no new round is armed
   paused_reason TEXT,                         -- a round that moved the ticket on but started no session; NOT a spent budget
   stopped_reason TEXT,                        -- last park reason autopilot wrote (dedupes repeat notes)
+  stopped_head_sha TEXT,                      -- v120: the head the stop applies to (arch:AP-00); NULL = none recorded
   claim_owner TEXT,                           -- window that holds the arming lease (two windows share one db)
   claim_until INTEGER,                        -- lease end, epoch ms
   session_owner TEXT,                         -- window that holds the ticket's session; set at session open, cleared at close

@@ -53,8 +53,8 @@ export interface GateRun {
    */
   summary: string | null;
   /**
-   * v120: what wrote the row. `HOST_RERUN_SOURCE` marks a host gate re-run row (T1120). NULL for a
-   * UAT/review batch row and every pre-v120 row.
+   * v121: what wrote the row. `HOST_RERUN_SOURCE` marks a host gate re-run row (T1120). NULL for a
+   * UAT/review batch row and every pre-v121 row.
    */
   source?: string | null;
 }
@@ -95,7 +95,7 @@ export interface GateRunBatch {
   gates: readonly GateRunInput[];
   /** v25: the invocation these rows belong to. Absent for a caller with none. */
   stageRunId?: number | null;
-  /** v120: what wrote these rows; absent = a UAT/review batch (`HOST_RERUN_SOURCE` = a host re-run). */
+  /** v121: what wrote these rows; absent = a UAT/review batch (`HOST_RERUN_SOURCE` = a host re-run). */
   source?: string | null;
 }
 

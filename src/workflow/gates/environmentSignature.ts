@@ -18,6 +18,9 @@ const ANSI_RE = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 const SIGNATURES: readonly { pattern: RegExp; reason: string }[] = [
   { pattern: /exceeded the test timeout/i, reason: 'a gate or test timeout' },
   { pattern: /timed out waiting \d+\s*ms from config\.webServer|webServer.{0,40}time(?:d )?out/i, reason: 'a gate or test timeout' },
+  // Scoped to the fixture step and to a spawnSync call: a bare ETIMEDOUT can sit in a test title.
+  { pattern: /Failed to generate fixtures:.{0,300}ETIMEDOUT|spawnSync\s+\S+\s+ETIMEDOUT/is, reason: 'a gate or test timeout' },
+  { pattern: /config\.webServer was not able to start/i, reason: 'the gate web server could not start' },
   { pattern: /base check skipped: some vitest failures are not parseable/i, reason: 'the base check could not parse the vitest failures' },
   { pattern: /not (?:a )?screenshot mismatch/i, reason: 'a failure that is not a screenshot mismatch' },
   { pattern: /screenshots fail \(cap \d+\)/i, reason: MORE_THAN_CAP },

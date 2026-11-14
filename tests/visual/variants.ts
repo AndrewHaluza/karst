@@ -2,8 +2,9 @@
  * The variant registry (ui:UI-R57, ui:VISUAL-VARIANTS): every webview in
  * WEBVIEW_NAMES maps to the variants it declares, and every variant carries
  * (a) its corpus builder, (b) the baseline name and theme projects the sweep
- * records, and (c) the layout-gate target that opens it at every LAYOUT_WIDTHS
- * width. variants.test.ts fails when any of the three is missing.
+ * records, and (c) the layout-gate target that opens its page at every LAYOUT_WIDTHS
+ * width (shared when an earlier variant opens the same page, see layoutPlan()).
+ * variants.test.ts fails when any of the three is missing.
  *
  * Builders reuse the render-fixture corpora and realisticSettings.ts so the
  * sweep and the render tests pin the same states. All data is fixed: no clock,
@@ -28,6 +29,7 @@ import { resourcesRenderFixtures } from '../../src/ui/resources/renderFixtures.j
 import { gettingStartedRenderFixtures } from '../../src/ui/gettingStarted/renderFixtures.js';
 import { diffsRenderFixtures } from '../../src/ui/diffs/renderFixtures.js';
 import { WEBVIEW_NAMES, type WebviewName } from '../../src/model/webviewChains.js';
+import { layoutWidthsFor } from '../../src/ui/layout/layoutBreakpoints.js';
 import { formatAgentsHash } from '../../src/ui/settings/app/sections/agentsRoute.js';
 import type { SettingsSection } from '../../src/ui/settings/sections.js';
 import { settingsRoutes } from './settingsRoutes.js';
@@ -192,7 +194,8 @@ const insideCaseVariants = (): Variant[] =>
   );
 
 /**
- * T1090: every Inside case at the mid, narrow and tight tiers, layout checks ON (@ui:RD-TIERS). The widths sit inside the
+ * T1090: every Inside case at the mid, narrow and tight tiers (@ui:RD-TIERS). The `width` is a screenshot field: each
+ * tier variant shares the layout run of its base case, which opens the same page at every width (layoutPlan()). The widths sit inside the
  * tier they name: mid 700-999, narrow 400-699, tight <=399. The live-tokens and stage-menu cases carry their own tier sets.
  */
 const INSIDE_TIERS = [['mid', 800], ['narrow', 500], ['tight', 360]] as const;
@@ -1117,17 +1120,63 @@ export interface LayoutTarget {
   readonly variant: Variant;
 }
 
-/** Layout-gate runs, one per variant; settings route variants reuse their settingsRoutes() id. */
-export function layoutTargets(): readonly LayoutTarget[] {
-  return WEBVIEW_NAMES.flatMap((view) =>
-    VARIANTS[view]
-      .filter((variant) => !variant.skipLayout)
-      .map((variant) => ({
-        id: variant.layoutRouteId ?? `${view}/${variant.id}`,
-        view,
-        variant,
-      })),
+/** A clock value in a corpus (`stageSince`, `startedAt`): the layout gate measures geometry, not the time text. */
+const ISO_TIMESTAMP = /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g;
+
+/**
+ * What decides the page the layout gate measures for a variant (@ui:VISUAL-VARIANTS): the view, the widths, the
+ * fixture page (`buildFixture` reads only the corpus messages and view state) and the steps `layout.layout.ts` runs
+ * (`clicks` only). Screenshot fields (`width`, `themes`, `capture`, `viewportHeight`, `click`, `pills`, the popover
+ * and drawer steps) are not part of it. Add a field here when `layout.layout.ts` starts to run it.
+ */
+export function layoutIdentity(view: ViewId, variant: Variant): string {
+  const corpus = variant.corpus();
+  return JSON.stringify([view, layoutWidthsFor(view, variant.id), corpus.messages, corpus.viewState ?? null, variant.clicks ?? []]).replace(
+    ISO_TIMESTAMP,
+    '<time>',
   );
+}
+
+export interface LayoutPlan {
+  readonly targets: readonly LayoutTarget[];
+  /** `<view>/<variant>` of a variant whose page an earlier target already measures → the id of that target. */
+  readonly sharedWith: ReadonlyMap<string, string>;
+}
+
+let plan: LayoutPlan | undefined;
+
+/**
+ * Layout-gate runs, one per distinct page (ui:UI-R57). A variant that opens the same page as an earlier variant (it
+ * differs only in screenshot fields, e.g. a tier variant with its own `width`) shares that run: the gate already opens
+ * the page at every width. Settings route variants keep their settingsRoutes() id and are never shared.
+ */
+export function layoutPlan(): LayoutPlan {
+  if (plan !== undefined) return plan;
+  const targets: LayoutTarget[] = [];
+  const sharedWith = new Map<string, string>();
+  const firstById = new Map<string, string>();
+  for (const view of WEBVIEW_NAMES) {
+    for (const variant of VARIANTS[view].filter((v) => !v.skipLayout)) {
+      const id = variant.layoutRouteId ?? `${view}/${variant.id}`;
+      if (variant.layoutRouteId === undefined) {
+        const key = layoutIdentity(view, variant);
+        const first = firstById.get(key);
+        if (first !== undefined) {
+          sharedWith.set(id, first);
+          continue;
+        }
+        firstById.set(key, id);
+      }
+      targets.push({ id, view, variant });
+    }
+  }
+  plan = { targets, sharedWith };
+  return plan;
+}
+
+/** Layout-gate runs, one per distinct page; settings route variants reuse their settingsRoutes() id. */
+export function layoutTargets(): readonly LayoutTarget[] {
+  return layoutPlan().targets;
 }
 
 /** Layout targets that are not settings routes: settings routes keep their settingsRoutes() runs. */

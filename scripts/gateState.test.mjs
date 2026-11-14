@@ -102,6 +102,23 @@ describe('planSkip', () => {
   it('skips on an empty delta', () => expect(skip({ delta: [] }).kind).toBe('skip'));
   it('runs when the delta holds a UI path', () => expect(skip({ delta: [{ status: 'M', path: 'src/ui/a.tsx' }] })).toMatchObject({ kind: 'run', delta: 1 }));
   it('runs when a UI file was deleted', () => expect(skip({ delta: [{ status: 'D', path: 'src/ui/a.tsx' }] }).kind).toBe('run'));
+  const RED = { ...GOOD, failed: [{ project: 'dark', title: 'settings/default: full-page screenshot' }] };
+  it('carries the delta paths and no failed test after a green run', () =>
+    expect(skip({ delta: [{ status: 'M', path: 'src/ui/a.tsx' }, { status: 'M', path: 'docs/x.md' }] })).toEqual({
+      kind: 'run', delta: 2, since: GOOD.tree, paths: ['src/ui/a.tsx', 'docs/x.md'], failed: [],
+    }));
+  it('runs the failed tests of a red run when the delta holds no UI path', () =>
+    expect(skip({ state: RED })).toEqual({ kind: 'run', delta: 1, since: GOOD.tree, paths: ['docs/x.md'], failed: RED.failed }));
+  it('runs a red run on an empty delta', () => expect(skip({ state: RED, delta: [] })).toMatchObject({ kind: 'run', paths: [], failed: RED.failed }));
+  it('copies the failed tests', () => expect(skip({ state: RED }).failed[0]).not.toBe(RED.failed[0]));
+  it.each([
+    ['a file path', ['src/a.test.ts']],
+    ['no title', [{ project: 'dark' }]],
+    ['an empty project', [{ project: '', title: 't' }]],
+    ['null', [null]],
+  ])('reads a failed entry with %s as unreadable', (_, failed) => {
+    expect(skip({ state: { ...GOOD, failed } })).toEqual({ kind: 'run', reason: 'earlier run state is unreadable' });
+  });
   it.each([
     ['KARST_GATE_FULL=1', { force: true }],
     ['no earlier green run', { state: null }],
