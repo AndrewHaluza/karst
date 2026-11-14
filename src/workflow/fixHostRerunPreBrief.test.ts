@@ -66,6 +66,16 @@ describe('pre-brief host re-run', () => {
     expect(getTicket(store, ticketId).stageCurrent).toBe('uat');
   });
 
+  it('a failed pre-brief re-run leaves the round fixing but ends the in-flight reading', async () => {
+    open([{ name: 'visual', summary: SIGNED }]);
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing'").run();
+    const now = () => new Date().toISOString();
+    const out = await preBriefHostRerun(store, ticketId, { ...deps(1), now });
+    expect(out.kind).toBe('failed');
+    expect(activeFixRound(store, ticketId)).not.toBeNull();
+    expect(getTicket(store, ticketId).hostRerunning).toBe(false);
+  });
+
   it('leaves a mixed round to the agent and runs nothing', async () => {
     open([{ name: 'visual', summary: SIGNED }, { name: 'lint', summary: 'error: no-unused-vars' }]);
     expect(await preBriefHostRerun(store, ticketId, deps(0))).toEqual({ kind: 'not-applicable' });

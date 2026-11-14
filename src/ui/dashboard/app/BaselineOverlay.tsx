@@ -51,7 +51,7 @@ function Review({ model, drafts }: { readonly model: BaselineModel; readonly dra
       <DrillHeader
         trail={[{ label: 'Baselines' }]}
         actions={
-          pending.length > 0 ? <ApproveButton indices={pending} label={`Approve all (${pending.length})`} primary={false} approve={approve} /> : null
+          pending.length > 0 ? <ApproveButton indices={pending} label={`Approve all (${pending.length})`} primary={false} approve={approve} all /> : null
         }
       />
       <div className="blsub">{`${model.ticketLabel} · ${model.stageKey} · ${model.counts.pending} open`}</div>

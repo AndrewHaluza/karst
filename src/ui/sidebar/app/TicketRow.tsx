@@ -17,6 +17,7 @@ import { PriorityChip } from './PriorityChip.js';
 import { AUTOSTART_WORD, GLYPH_WORD, MAX_SUBTASK_INDENT, relTime } from './format.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketBody } from './TicketBody.js';
+import { stageWord as stageWordOf } from '../../shared/ticketRefView.js';
 import { TicketRefChip } from '../../shared/TicketRefChip.js';
 
 export interface TicketRowProps {
@@ -94,6 +95,8 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
   // The chip states the STAGE (colored by the shared stg-* token); the full phrase is the tooltip.
   // `autostart` is host-derived (UI-R31): a sub-task waiting at scope reads "Queued"/"Starting".
   const stageChip = (row.autostart ? AUTOSTART_WORD[row.autostart] : undefined) || row.stageChip || stageText;
+  // A real stage gets the full/short word pair; a host word ("Queued", "Starting") stays plain text.
+  const stageWord = !row.autostart && row.stageChip ? stageWordOf(row.stageChip) : null;
   const stageClass = row.stageClass || 'stg-unknown';
   // The session button states which of the two it does — "Continue" or "Start".
   const sessVerb = row.sessionAction?.label || 'Start';
@@ -141,7 +144,12 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
       {compact ? (
         time ? <span className="time">{relTime(row.lastActiveAt)}</span> : null
       ) : (
-        <span className={`stage ${stageClass}`} title={stageText}>{stageChip}</span>
+        stageWord ? (
+          // One span, two words: CSS picks data-full or data-short by the host width (@ui:UI-R51).
+          <span className={`stage ${stageClass}`} role="img" aria-label={stageText} title={stageText} data-full={stageWord.full} data-short={stageWord.short} />
+        ) : (
+          <span className={`stage ${stageClass}`} title={stageText}>{stageChip}</span>
+        )
       )}
     </>
   );

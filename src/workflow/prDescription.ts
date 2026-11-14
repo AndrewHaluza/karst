@@ -20,6 +20,9 @@
  */
 
 import type { Store } from '../store/db.js';
+import type { StructuredOutputForm } from '../agent/surfaces.js';
+import { OUTPUT_RULES_HEADING } from '../agent/promptText.js';
+import { prDescriptionOutputRules } from './prDescriptionAnswer.js';
 import { latestStageRun, previousStageRun } from '../store/stageRuns.js';
 
 /**
@@ -57,12 +60,16 @@ function section(name: string, body: string | undefined): string | null {
  * ("where is the worktree?") became a PR body. Everything the model needs is
  * in the prompt; it is told never to go and get more.
  */
-export function buildPrDescriptionPrompt(ctx: PrDescriptionContext): string {
+export function buildPrDescriptionPrompt(
+  ctx: PrDescriptionContext,
+  /** How the core returns structured output; absent → the prose rules. */
+  outputForm?: StructuredOutputForm,
+): string {
   const line = (label: string, value: string | undefined): string | null =>
     value === undefined || value === '' ? null : `${label}: ${value}`;
 
   const parts = [
-    'Write the pull-request description for the changes below.',
+    'Answer with the pull-request description data for the changes below. Code renders the description from your answer.',
     line('Repository', ctx.repo),
     line(
       'Branch',
@@ -78,19 +85,8 @@ export function buildPrDescriptionPrompt(ctx: PrDescriptionContext): string {
           ctx.diff,
         ),
     '',
-    'Output rules (strict):',
-    `- Base the description ONLY on the material above. Do not run commands, open files, or inspect the repository — everything you need is included.`,
-    `- Output ONLY the description body: no preamble, no sign-off, no commentary about what you are doing, and no status line about whether a PR exists.`,
-    `- Do not wrap the response in a code fence. Start directly with the description — a short summary line or a "## Summary" heading.`,
-    `- Use GitHub-flavored markdown for structure and emphasis: headings, bullet lists, **bold**, and inline \`code\` for identifiers, file paths, commands, and flags.`,
-    `- Use fenced code blocks only for real code, diffs, terminal output, or config snippets, and tag each fence with its language.`,
-    ...(ctx.gateSetChanged
-      ? [
-          ``,
-          `The gate set for this ticket changed since the previous attempt of a gate stage — a gate may have been removed rather than fixed.`,
-          `State this in the description so a deleted gate cannot read as a fixed one.`,
-        ]
-      : []),
+    OUTPUT_RULES_HEADING,
+    ...prDescriptionOutputRules(outputForm),
   ];
   return parts.filter((p): p is string => p !== null).join('\n');
 }

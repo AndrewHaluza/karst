@@ -83,6 +83,10 @@ module.exports = {
       // park reason exactly as the lanes do (`usageLimitReason`, cliFailure.ts).
       // stallSuggestion runs the one read-only stall call and must sort its failure
       // (`classifyFailure`, failureClass.ts) the way every other agent call does (T1001).
+      // prDescription and shipDescription ask the agent for the PR description JSON
+      // answer: the prompt shares the output-rules heading (`promptText.ts`), and the
+      // describe call reads the core's structured-output form (`surfaces.ts`) and
+      // previews a bad answer (`headlessPreview`, headlessSpawn.ts) like the lanes do.
       name: 'core-agent-seam',
       severity: 'error',
       comment: 'Core may value-import agent/domain code only from the accepted seam modules listed in pathNot.',
@@ -92,11 +96,11 @@ module.exports = {
           '^src/manifest/(foldProcessRows|schema)\\.ts$',
           '^src/model/(artifacts|inside/agent|inside/gates)\\.ts$',
           '^src/store/(interactiveUsageSamples|tickets|usageLimitParks)\\.ts$',
-          '^src/workflow/(agentScope|conflictBrief|graphMarkerGuard|messageDelivery|shipPreview|subtaskGate|stallSuggestion|usageLimitRerun)\\.ts$',
+          '^src/workflow/(agentScope|conflictBrief|graphMarkerGuard|messageDelivery|shipPreview|subtaskGate|stallSuggestion|usageLimitRerun|prDescription)\\.ts$',
           '^src/workflow/artifacts/(alignment|alignmentTrigger)\\.ts$',
           '^src/workflow/gates/gateConsole\\.ts$',
           '^src/workflow/review/(aggregate|findingsLane)\\.ts$',
-          '^src/workflow/stages/(fix|uat)\\.ts$',
+          '^src/workflow/stages/(fix|uat|shipDescription)\\.ts$',
           '^src/workflow/uat/tester\\.ts$',
         ].join('|'),
       },

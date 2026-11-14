@@ -21,6 +21,7 @@ import {
 } from '../../src/ui/dashboard/renderFixtures.js';
 import { renderBrief } from '../../src/integrations/briefMarkdown.js';
 import type { DashboardState } from '../../src/ui/dashboard/state.js';
+import { ticketRefView } from '../../src/ui/shared/ticketRefView.js';
 import { INSIDE_CASES } from '../../src/ui/dashboard/insideCases.js';
 import { stallFixtureState, type StallFixtureKind } from '../../src/ui/dashboard/stallFixtures.js';
 import { sidebarRenderFixtures } from '../../src/ui/sidebar/renderFixtures.js';
@@ -206,6 +207,9 @@ const insideTierVariants = (): Variant[] =>
     ),
   );
 
+/** T1099: a viewport height above the 966px content of the ship/wide menu variant. */
+const SHIP_MENU_WIDE_VIEWPORT_H = 1000;
+
 /** T1072 (F): the stage menu open at the wide and narrow tiers, on a ship with a main action plus rest, and on a failed review. */
 const stageMenuOpenVariants = (): Variant[] => {
   const cases = [
@@ -219,6 +223,8 @@ const stageMenuOpenVariants = (): Variant[] => {
       variant('dashboard', `inside-${stage}-menu-open-${tier}`, () => stateMessage(patch(c.state())), {
         width,
         click: `[data-stage-menu="${key}"]`,
+        // T1099: the full-page capture of ship/wide flips 964/966px while the DOM height is a stable 966px; a viewport above the content pins it.
+        ...(stage === 'ship' && tier === 'wide' ? { viewportHeight: SHIP_MENU_WIDE_VIEWPORT_H } : {}),
       }),
     );
   });
@@ -494,7 +500,23 @@ const baselineReviewVariants = (): Variant[] =>
     }),
   );
 
+/** T1099: the one stage chip at a full-word host (460px) and a short-word host (300px), in both themes (@ui:11.21). */
+const CHIP_TIERS = [['460', 460], ['300', 300]] as const;
+const CHIP_THEMES: readonly string[] = ['dark', 'light'];
+
+const chipBlockers = (s: DashboardState): DashboardState => ({
+  ...s,
+  blockers: [
+    ticketRefView({ ticket: { id: 42, key: 'CU-123', stageCurrent: 'impl', stages: [] } as never }),
+    ticketRefView({ ticket: { id: 43, key: 'CU-124', stageCurrent: 'review', stages: [] } as never }),
+    ticketRefView({ ref: 'external' }),
+  ],
+});
+
 const dashboardVariants = (): Variant[] => [
+  ...CHIP_TIERS.map(([tier, width]) =>
+    variant('dashboard', `stage-chip-${tier}`, dashboardScenario('running', 2, chipBlockers), { width, themes: CHIP_THEMES }),
+  ),
   variant('dashboard', 'populated', dashboardScenario('running', 10), { baseline: 'dashboard-running', themes: ALL_THEMES }),
   ...(['pending', 'passed', 'failed', 'waiting', 'exhausted'] as const).map((s) =>
     variant('dashboard', s, dashboardScenario(s, 10), { baseline: `dashboard-${s}`, themes: ALL_THEMES }),
@@ -768,6 +790,9 @@ const sidebarVariants = (): Variant[] => {
     variant('sidebar', 'queue-populated', openQueue(s('queue'))),
     variant('sidebar', 'queue-long-content', openQueue(s('queue-long'))),
     variant('sidebar', 'subtasks', s('subtasks')),
+    ...CHIP_TIERS.map(([tier, width]) =>
+      variant('sidebar', `stage-chip-${tier}`, s('planning-deps'), { width, themes: CHIP_THEMES }),
+    ),
     variant('sidebar', 'filtered', s('filtered')),
     variant('sidebar', 'cloud-sessions', s('cloud-sessions')),
     // T1091: the filter menu in a short window.

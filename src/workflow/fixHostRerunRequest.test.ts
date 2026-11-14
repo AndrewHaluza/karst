@@ -62,6 +62,8 @@ describe('host re-run request from a refused CLI fix marker', () => {
     expect(HOST_RERUN_REQUESTED_REPLY).toContain(NO_NEW_COMMIT_REASON);
     expect(HOST_RERUN_REQUESTED_REPLY).toMatch(/host re-runs the failed gates/);
     expect(HOST_RERUN_REQUESTED_REPLY).toMatch(/stop now/i);
+    expect(HOST_RERUN_REQUESTED_REPLY).toMatch(/Inside panel/);
+    expect(HOST_RERUN_REQUESTED_REPLY).toContain('karst context');
     const row = store.db.prepare('SELECT host_rerun_requested_at AS r, host_rerun_at AS h FROM recovery_rounds WHERE id = ?').get(roundId);
     expect(row).toEqual({ r: AT, h: null });
   });

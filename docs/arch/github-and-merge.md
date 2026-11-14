@@ -73,6 +73,7 @@ sequenceDiagram
 | Read-filtered merge checks via `PR_NOT_MERGED` | Deleting stale check rows on merge transition | Transition hooks miss rows already stranded in user databases; read filtering recomputes dynamically from re-probed `prs.status`. |
 | Separate `dismissed_at` column for closed PRs | Overwriting `status` or force-advancing the ticket | `prSync` periodically overwrites `status` with upstream state; explicit dismissal records human acknowledgement without falsely claiming the PR merged. |
 | Explicit merge method (`--merge`, `--squash`, `--rebase`) | Defaulting to bare `gh pr merge` | Bare command prompts on an interactive TTY that does not exist in webview context; explicit flags avoid hangs. |
+| The description agent returns a JSON answer (`prDescriptionAnswer.ts`); code renders the body with a fixed section layout | An agent that writes the whole PR body as markdown | Code owns the layout, so a model error cannot show in a public PR. The gate-set-changed line is rendered by code, because a model can omit it. |
 | Single path formatter (`repoDisplayPath` + `PathContext`) | Ad-hoc local formatting across panels and CLI | Uniform path representation prevents confusion across webviews, CLI status lines, and multi-repo tickets. |
 
 ### Fallbacks
@@ -82,6 +83,8 @@ sequenceDiagram
 | `gh pr view` output truncated or unparseable | Yields `UNKNOWN_PR_DETAIL` and preserves known facts via `COALESCE` | Next sync tick retries without wiping previously recorded metadata. |
 | `git merge-tree` unsupported on older git (< 2.38) | Falls back to fast-forward ancestry check or returns `unknown` | Reports actionable version requirement instead of cryptic usage banner. |
 | PR closed upstream without merging | Merge gate reports `closed` state and refuses transition | User reopens PR upstream or dismisses it via `dismissTicketPr`. |
+| The description answer is not JSON | `sanitizePrDescription` cleans the text, as before | Same body hygiene as the prose path. |
+| The description answer is JSON but fails validation (no or empty `summary`, wrong types) | The deterministic template body, with a describe-step note | The sanitizer would publish raw JSON text in a public PR. Ship never fails. |
 | Ship tail loses `awaiting-merge` block write | `settleShipGate` detects passed `ship_runs` without active run | Automatically repairs lost `awaiting-merge` block on next sweep tick. |
 
 ### Rules

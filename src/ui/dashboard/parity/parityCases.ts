@@ -645,8 +645,8 @@ export const COVERED: readonly ParityCase[] = [
   })),
   { act: 'baseline-open', state: baselineState, sel: act('baseline-open'), posts: [], pendingSel: false, after: (h) => expect(q(h, '#baselineView [data-region="baseline-review"]')).not.toBeNull() },
   {
-    act: 'baseline-approve', variant: 'approve all in the banner', state: baselineState, sel: act('baseline-approve', '[data-indices="0,1"]'),
-    posts: [{ type: 'baseline-approve', blockId: 'baseline-review', indices: [0, 1] }], rid: true,
+    act: 'baseline-approve-all', variant: 'approve all in the banner', state: baselineState, sel: act('baseline-approve-all'),
+    posts: [{ type: 'baseline-approve-all', blockId: 'baseline-review' }], rid: true,
   },
   {
     act: 'baseline-approve', variant: 'one entry', state: baselineState, prep: openBaselines, sel: act('baseline-approve', '[data-role="approve"]'),

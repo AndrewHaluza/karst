@@ -304,6 +304,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       if (!indices.every((i) => Number.isInteger(i) && (i as number) >= 0)) return null;
       return { type: 'baseline-approve', blockId: BASELINE_BLOCK_ID, indices: indices as number[] };
     }
+    case 'baseline-approve-all':
+      return m.blockId === BASELINE_BLOCK_ID ? { type: 'baseline-approve-all', blockId: BASELINE_BLOCK_ID } : null;
     case 'tester-skipped-rerun':
       return { type: 'tester-skipped-rerun' };
     case 'tester-skipped-accept':

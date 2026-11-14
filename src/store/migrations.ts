@@ -3011,5 +3011,12 @@ function migrateLocked(db: Database): void {
     if (cols121.size > 0 && !cols121.has('source')) db.exec('ALTER TABLE gate_runs ADD COLUMN source TEXT');
   }
 
+  if (current < 122) {
+    // v122:`recovery_rounds.host_rerun_pid` — the pid of the host that claimed the one host re-run, so a
+    // boot ends the in-flight reading of a claim whose owner died and leaves a live window's claim alone. Additive; NULL = none recorded (no backfill).
+    const cols122 = tableColumns(db, 'recovery_rounds');
+    if (cols122.size > 0 && !cols122.has('host_rerun_pid')) db.exec('ALTER TABLE recovery_rounds ADD COLUMN host_rerun_pid INTEGER');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

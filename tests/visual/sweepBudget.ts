@@ -24,13 +24,15 @@ export interface SweepCount {
  * own shot or layout run). First recorded after the layout runs were made one per distinct page.
  */
 export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
-  dashboard: { screenshots: 582, layout: 685 },
+  // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
+  dashboard: { screenshots: 586, layout: 690 },
   diffs: { screenshots: 7, layout: 25 },
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },
   serverLogs: { screenshots: 8, layout: 30 },
   settings: { screenshots: 62, layout: 118 },
-  sidebar: { screenshots: 16, layout: 65 },
+  // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
+  sidebar: { screenshots: 20, layout: 65 },
   ticketForm: { screenshots: 30, layout: 90 },
   usage: { screenshots: 10, layout: 40 },
 };

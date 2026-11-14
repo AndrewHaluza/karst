@@ -22,11 +22,9 @@ export function BaselineBanner({ entries }: { readonly entries: readonly Baselin
   const overlays = useOverlays();
   const rows = normaliseRows(entries);
   const counts = countRows(rows);
-  const pending = rows.filter((r) => r.decision === 'pending').map((r) => r.index);
-  const pendingKey = pending.join(',');
-  // The key stands for the list: a new array with the same indices must not rebuild the callback.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const onApprove = usePendingAction(useCallback((requestId: string) => send.baselineApprove(BASELINE_BLOCK_ID, pending, requestId), [send, pendingKey]));
+  const pendingCount = rows.filter((r) => r.decision === 'pending').length;
+  // Approve all names only the block: the host decides which entries are pending, so no list size applies.
+  const onApprove = usePendingAction(useCallback((requestId: string) => send.baselineApproveAll(BASELINE_BLOCK_ID, requestId), [send]));
   const verb = plural(counts.all, 'needs', 'need');
   const noun = plural(counts.all, 'screenshot', 'screenshots');
   const rejected = counts.rejected > 0 ? ` · ${counts.rejected} rejected` : '';
@@ -41,13 +39,12 @@ export function BaselineBanner({ entries }: { readonly entries: readonly Baselin
         <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="baseline-open" onClick={() => overlays.openBaselines()}>
           <Icon name="eye" size={14} /> Review
         </button>
-        {pending.length > 0 ? (
+        {pendingCount > 0 ? (
           <button
             type="button"
             className="k-btn k-btn--secondary k-btn--sm"
-            data-act="baseline-approve"
+            data-act="baseline-approve-all"
             data-block-id={BASELINE_BLOCK_ID}
-            data-indices={pending.join(',')}
             onClick={onApprove}
           >
             <Icon name="check" size={14} /> Approve all

@@ -502,6 +502,9 @@
   "src/extension/ops/storedArtifactOps.ts#makeStoredArtifactsLoader": [
     "arch:APP-11"
   ],
+  "src/extension/ops/strandedShip.ts": [
+    "arch:SHIP-RESUME"
+  ],
   "src/extension/ops/ticketPriorityOps.ts#setTicketPriorityOp": [
     "arch:PLANNING-PRIORITY"
   ],
@@ -1105,11 +1108,17 @@
   "src/workflow/stages/ship*.ts": [
     "arch:GH-00"
   ],
+  "src/workflow/stages/ship.ts": [
+    "arch:SHIP-RESUME"
+  ],
   "src/workflow/stages/ship.ts#parkShipBaseMovedFailed": [
     "arch:GATE-BASE-MOVED"
   ],
   "src/workflow/stages/shipPushRecovery.ts#classifyRejectedPush": [
     "arch:GH-08"
+  ],
+  "src/workflow/stages/shipResume.ts": [
+    "arch:SHIP-RESUME"
   ],
   "src/workflow/stages/subtask.ts#createSubtask": [
     "arch:CLI-09"

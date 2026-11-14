@@ -52,6 +52,12 @@ describe('convention presets', () => {
   // The default template is what an unconfigured project's PRs open with, so it
   // must validate exactly like a hand-written one and carry the metadata the
   // ticket asked for: implementation agent provider, model, approach, session id.
+  it('the default PR description template has no Repository line, but {repo} stays valid in user templates', () => {
+    expect(DEFAULT_PR_DESCRIPTION_TEMPLATE).not.toContain('Repository:');
+    expect(DEFAULT_PR_DESCRIPTION_TEMPLATE).not.toContain('{repo}');
+    expect(() => validateArtifactTemplate('pullRequestDescription', 'Repo: {repo}\n{description}')).not.toThrow();
+  });
+
   it('the default PR description template validates, uses {description}, and renders the metadata', () => {
     expect(() => validateArtifactTemplate('pullRequestDescription', DEFAULT_PR_DESCRIPTION_TEMPLATE)).not.toThrow();
     expect(usesDescription(DEFAULT_PR_DESCRIPTION_TEMPLATE)).toBe(true);

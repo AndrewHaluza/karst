@@ -75,6 +75,9 @@ karstTest.describe('NDL-219: the theme body class reaches the stage palette', ()
           token: getComputedStyle(document.body)
             .getPropertyValue(`--stage-${key}`)
             .trim(),
+          fgToken: getComputedStyle(document.body)
+            .getPropertyValue(`--stage-${key}-fg`)
+            .trim(),
           color: getComputedStyle(el).color,
         }), stage);
 
@@ -84,8 +87,11 @@ karstTest.describe('NDL-219: the theme body class reaches the stage palette', ()
         // theme class is on the element and won the cascade.
         expect(measured.token.toLowerCase()).toBe(expected.toLowerCase());
 
-        // And the badge actually consumes that token.
-        expect(measured.color).toBe(hexToRgb(expected));
+        // The badge text uses the readable text tone of the same hue
+        // (`--stage-<key>-fg`, one chip form on every surface), not the border color.
+        const expectedFg = STAGE_COLORS[stage].fg[LAYER[theme]];
+        expect(measured.fgToken.toLowerCase()).toBe(expectedFg.toLowerCase());
+        expect(measured.color).toBe(hexToRgb(expectedFg));
       },
     );
   }

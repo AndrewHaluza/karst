@@ -27,6 +27,8 @@ export const BASELINE_REASON_MAX = 1000;
 
 export type BaselineDecisionRequest =
   | { kind: 'approve'; indices: readonly number[] }
+  /** Approve every entry the host sees as pending; a rejected entry is never touched. */
+  | { kind: 'approve-all' }
   | { kind: 'reject'; index: number; reason: string };
 
 export type BaselineDecisionResult =
@@ -59,10 +61,17 @@ function refuse(deps: BaselineDecisionDeps, reason: string): BaselineDecisionRes
 }
 
 function validIndices(request: BaselineDecisionRequest, count: number): number[] | null {
+  if (request.kind === 'approve-all') return null;
   const indices = request.kind === 'approve' ? [...request.indices] : [request.index];
   if (indices.length === 0) return null;
   const ok = indices.every((i) => Number.isInteger(i) && i >= 0 && i < count);
   return ok ? [...new Set(indices)] : null;
+}
+
+/** Indices of the entries that still await the user, as the host derives them now. */
+function pendingIndices(store: Store, ticketId: number, entries: readonly BaselineEntry[]): number[] {
+  const latest = latestBaselineDecisions(store, ticketId);
+  return entries.flatMap((entry, i) => (baselineState(entry, latest).kind === 'pending' ? [i] : []));
 }
 
 /** One line per rejected entry — the failed verdict's reason, read by the fix agent. */
@@ -102,8 +111,8 @@ export async function decideBaselines(
     await deps.notify.error(`Cannot read the changed baselines for ${label}: ${message}`);
     return { kind: 'refused', reason: message };
   }
-  const indices = validIndices(request, entries.length);
-  if (indices === null) {
+  const indices = request.kind === 'approve-all' ? pendingIndices(store, ticketId, entries) : validIndices(request, entries.length);
+  if (indices === null || (request.kind === 'approve-all' && indices.length === 0)) {
     return refuse(deps, `The changed baselines of ${label} moved on — reopen the UAT report.`);
   }
 
@@ -115,7 +124,7 @@ export async function decideBaselines(
       repo: entries[i]!.repo,
       path: entries[i]!.path,
       sha256: entries[i]!.newSha256,
-      decision: request.kind === 'approve' ? ('approved' as const) : ('rejected' as const),
+      decision: request.kind === 'reject' ? ('rejected' as const) : ('approved' as const),
       reason,
     })),
     now(),
@@ -202,6 +211,7 @@ export interface BaselineActionsDeps {
  */
 export function makeBaselineActions(deps: BaselineActionsDeps): {
   baselineApprove: (blockId: string, indices: number[]) => Promise<void>;
+  baselineApproveAll: (blockId: string) => Promise<void>;
   baselineReject: (blockId: string, index: number, reason: string) => Promise<void>;
 } {
   const run = async (blockId: string, request: BaselineDecisionRequest): Promise<void> => {
@@ -224,6 +234,7 @@ export function makeBaselineActions(deps: BaselineActionsDeps): {
   };
   return {
     baselineApprove: (blockId, indices) => run(blockId, { kind: 'approve', indices }),
+    baselineApproveAll: (blockId) => run(blockId, { kind: 'approve-all' }),
     baselineReject: (blockId, index, reason) => run(blockId, { kind: 'reject', index, reason }),
   };
 }
