@@ -399,6 +399,23 @@ describe('buildDashboardState', () => {
     expect(build({ hostAhead: 1, sandboxAhead: 2 }).available).toBe(false);
   });
 
+  it('marks only the PR whose own repo lacks commits as unpushed (per-repo count)', () => {
+    const t = createTicket(store, { key: 'UNP-1', title: 'unpushed' });
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, t.id, from, { kind: 'passed' });
+    setStage(store, t.id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    for (const [repo, n] of [['r1', 1], ['r2', 2]] as const) {
+      store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(t.id, repo, `/w/${repo}`, 'b');
+      store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, head_ref, base_ref) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(t.id, repo, n, `https://github.com/o/${repo}/pull/${n}`, 'open', 'feat/x', 'develop');
+    }
+    const counts = { hostAhead: 0, sandboxAhead: 0, byRepo: { r1: 3 } };
+    const state = buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, undefined, { undelivered: () => counts });
+    const kinds = (repo: string): string[] =>
+      (state.prs.find((p) => p.repo === repo)?.readiness.reasons ?? []).map((r) => r.kind);
+    expect(kinds('r1')).toContain('unpushed');
+    expect(kinds('r2')).not.toContain('unpushed');
+  });
+
   it('reads 0/0 progress and no sub-tasks for a ticket with none (NDL-76)', () => {
     const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
     const state = buildDashboardState(store, parent.id);

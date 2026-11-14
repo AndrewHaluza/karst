@@ -44,7 +44,7 @@ import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type Ar
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
-import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
+import { aheadFor, createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
 import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, freeSlotOnConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
@@ -3072,6 +3072,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { bindings: () => sandboxB, life: () => sandboxLife },
         driver,
         stall.hostFor(ticketId),
+        (id, repo) => aheadFor(undelivered.get(id), repo),
       );
     },
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),

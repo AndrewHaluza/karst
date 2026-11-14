@@ -17,7 +17,7 @@ import { formatAge } from './age.js';
 
 /** `note` is a reason that stays in the list but does not block the merge (optional checks failing). */
 export type ReasonState = 'bad' | 'warn' | 'run' | 'ok' | 'note';
-export type ReasonKind = 'draft' | 'review' | 'checks' | 'conflicts' | 'behind' | 'github-rule';
+export type ReasonKind = 'draft' | 'review' | 'checks' | 'conflicts' | 'behind' | 'unpushed' | 'github-rule';
 export type ReasonAct = 'open-pr' | 'address-pr-feedback' | 'send-ci-failure' | 'resolve-conflicts' | 'rebase-on-base';
 
 export interface ReasonAction {
@@ -101,6 +101,8 @@ export interface ReadinessPr {
   /** Required approving reviews, or null (karst does not fetch it; unknown stays unknown). */
   readonly requiredApprovals: number | null;
   readonly reviewRequests: readonly string[];
+  /** Commits the ticket holds that the PR head lacks (host-derived, arch:GH-03); absent or 0 = none. */
+  readonly unpushed?: number;
 }
 
 const AUTOFIX_WAIT = 'Auto-fix waits; not counted as pass';
@@ -280,6 +282,17 @@ export function prMergeReadiness(
   if (checks) reasons.push(checks);
   const conflicts = conflictsReason(pr, mergeCheck, now, autofix);
   if (conflicts) reasons.push(conflicts);
+  const unpushed = pr.unpushed ?? 0;
+  if (unpushed > 0) {
+    // Karst merges only the head that review passed (arch:GH-03). The Deliver row owns the Push, so no action here.
+    reasons.push({
+      kind: 'unpushed',
+      state: 'bad',
+      label: 'Commits not on the PR',
+      short: `unpushed · ${unpushed}`,
+      detail: `${plural(unpushed, 'commit')} ${unpushed === 1 ? 'is' : 'are'} not on the pull request; push with Deliver to PR`,
+    });
+  }
   if (pr.mergeBlock === 'behind') {
     reasons.push({
       kind: 'behind',
@@ -310,7 +323,8 @@ export function prMergeReadiness(
       reasons: notes,
     };
   }
-  if (pr.canMerge && (pr.mergeBlock === 'clean' || unstableNoted)) {
+  // A GitHub `clean` does not outrank the head rule: unpushed commits keep the PR not ready (arch:GH-03).
+  if (pr.canMerge && unpushed === 0 && (pr.mergeBlock === 'clean' || unstableNoted)) {
     const passed = pr.checks && pr.checks.state === 'passing' ? ` · ${plural(pr.checks.passed, 'check')} passed` : '';
     const approved = pr.reviewDecision === 'APPROVED' ? 'approved' : 'no review required';
     const clean =

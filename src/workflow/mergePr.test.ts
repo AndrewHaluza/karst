@@ -4,6 +4,7 @@ import { createTicket, getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { listPrsByTicket } from '../store/dashboard.js';
 import type { GhRunner } from '../integrations/github.js';
+import type { GitRunner } from '../integrations/git.js';
 import { mergeAllPrs, mergeTicketPr, type MergeAllDeps, type MergeAllPlan } from './mergePr.js';
 import { resolveShipLanding } from './mergeGate.js';
 
@@ -58,7 +59,7 @@ describe('mergeTicketPr', () => {
     const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
 
     expect(r).toEqual({ ok: true, status: 'merged', completedTicket: false, reason: '' });
-    expect(calls[0]).toEqual(['pr', 'merge', PR12, '--squash']);
+    expect(calls.find((c) => c[1] === 'merge')).toEqual(['pr', 'merge', PR12, '--squash']);
     // The stored row reflects the REAL state, re-read from gh — never assumed
     // from the exit code.
     expect(listPrsByTicket(store, a.id)[0]).toMatchObject({
@@ -278,6 +279,20 @@ describe('mergeAllPrs', () => {
     expect(r.kind === 'done' && r.merged.map((i) => i.repo)).toEqual(['api', 'web']);
   });
 
+  it('skips every PR while the ticket holds commits that the PRs lack, so none merges', async () => {
+    const { deps, order } = setup({ unpushed: () => 1 });
+    const r = await mergeAllPrs(store, deps);
+    expect(r.kind).toBe('refused');
+    expect(order).toEqual(['refresh']);
+  });
+
+  it('skips only the PR whose own repo lacks commits, and still merges the others', async () => {
+    const { deps, plans } = setup({ unpushed: (repo) => (repo === 'api' ? 2 : 0) });
+    await mergeAllPrs(store, deps);
+    expect(plans[0]!.ready.map((i) => i.repo)).toEqual(['web']);
+    expect(plans[0]!.skipped.map((i) => i.repo)).toContain('api');
+  });
+
   it('merges nothing when the user cancels', async () => {
     const { deps, order } = setup({ confirm: async () => false });
     expect(await mergeAllPrs(store, deps)).toEqual({ kind: 'cancelled' });
@@ -338,5 +353,104 @@ describe('mergeAllPrs', () => {
     // The guard is released: a later run is not refused.
     release = () => undefined;
     expect((await mergeAllPrs(store, { ...deps, confirm: async () => false })).kind).toBe('cancelled');
+  });
+});
+
+describe('mergeTicketPr head guard', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const PR_HEAD = '952a97b54aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const gitAhead = (count: string, code = 0): { git: GitRunner; calls: string[][] } => {
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      return { stdout: `${count}\n`, stderr: '', exitCode: code };
+    };
+    return { git, calls };
+  };
+  const seed = (): number => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    return a.id;
+  };
+
+  it('refuses to merge when the local head is ahead of the PR head, and runs no merge', async () => {
+    const id = seed();
+    const { gh, calls } = ghFake({ view: { state: 'OPEN', headRefOid: PR_HEAD } });
+    const { git } = gitAhead('1');
+
+    const r = await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash' }, gh, git);
+
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/1 commit.*not on the pull request/);
+    expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+  });
+
+  it('pins the PR head it checked with --match-head-commit', async () => {
+    const id = seed();
+    const { gh, calls } = ghFake({ view: { state: 'MERGED', headRefOid: PR_HEAD } });
+    const { git, calls: gitCalls } = gitAhead('0');
+
+    const r = await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash' }, gh, git);
+
+    expect(r.ok).toBe(true);
+    expect(calls.find((c) => c[1] === 'merge')).toEqual(['pr', 'merge', PR12, '--squash', '--match-head-commit', PR_HEAD]);
+    expect(gitCalls[0]).toEqual(['rev-list', '--count', `${PR_HEAD}..HEAD`]);
+  });
+
+  it('refuses when the tracker counts commits the PR lacks (sandbox commits), and runs no git or merge', async () => {
+    const id = seed();
+    const { gh, calls } = ghFake({ view: { state: 'OPEN', headRefOid: PR_HEAD } });
+    const { git, calls: gitCalls } = gitAhead('0');
+
+    const r = await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash', unpushed: 2 }, gh, git);
+
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/2 commits are not on the pull request/);
+    expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+    expect(gitCalls).toEqual([]);
+  });
+
+  it('fetches a PR head that the local clone lacks, then counts again', async () => {
+    const id = seed();
+    const { gh } = ghFake({ view: { state: 'OPEN', headRefOid: PR_HEAD } });
+    const calls: string[][] = [];
+    let fetched = false;
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === 'fetch') fetched = true;
+      return args[0] === 'rev-list' && !fetched ? { stdout: '', stderr: 'bad object', exitCode: 128 } : { stdout: '1\n', stderr: '', exitCode: 0 };
+    };
+
+    const r = await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash' }, gh, git);
+
+    expect(calls.map((c) => c[0])).toEqual(['rev-list', 'fetch', 'rev-list']);
+    expect(calls[1]).toEqual(['fetch', 'origin', PR_HEAD]);
+    expect(r.reason).toMatch(/1 commit is not on the pull request/);
+  });
+
+  it('refuses when the PR head cannot be compared even after a fetch', async () => {
+    const id = seed();
+    const { gh, calls } = ghFake({ view: { state: 'OPEN', headRefOid: PR_HEAD } });
+    const { git } = gitAhead('', 128);
+
+    const r = await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash' }, gh, git);
+
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/Could not compare the pull request head 952a97b/);
+    expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+  });
+
+  it('merges without a pin when gh does not report a head', async () => {
+    const id = seed();
+    const { gh, calls } = ghFake({ view: { state: 'MERGED' } });
+    const { git } = gitAhead('0');
+
+    await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash' }, gh, git);
+
+    expect(calls.find((c) => c[1] === 'merge')).toEqual(['pr', 'merge', PR12, '--squash']);
   });
 });

@@ -71,6 +71,28 @@ const failing: PrChecks = {
 };
 
 describe('prMergeReadiness', () => {
+  describe('unpushed commits', () => {
+    const clean = { canMerge: true, mergeBlock: 'clean' as const, reviewDecision: 'APPROVED' as const };
+
+    it('is not ready when the ticket holds commits the PR lacks, and names the Push', () => {
+      const r = read(pr({ ...clean, unpushed: 1 }), check());
+      expect(r.ready).toBe(false);
+      const reason = of('unpushed', r);
+      expect(reason).toMatchObject({ state: 'bad', label: 'Commits not on the PR', short: 'unpushed · 1' });
+      expect(reason.detail).toBe('1 commit is not on the pull request; push with Deliver to PR');
+    });
+
+    it('pluralises and stays ready when nothing is unpushed', () => {
+      expect(of('unpushed', read(pr({ ...clean, unpushed: 3 }), check())).detail).toBe('3 commits are not on the pull request; push with Deliver to PR');
+      expect(read(pr({ ...clean, unpushed: 0 }), check()).ready).toBe(true);
+      expect(read(pr({ ...clean }), check()).ready).toBe(true);
+    });
+
+    it('gives a merged PR no reason', () => {
+      expect(read(pr({ status: 'merged', unpushed: 2 })).reasons).toEqual([]);
+    });
+  });
+
   it('reads a merged or closed PR as having no reasons', () => {
     expect(read(pr({ status: 'merged' })).reasons).toEqual([]);
     expect(read(pr({ status: 'closed' })).ready).toBe(false);

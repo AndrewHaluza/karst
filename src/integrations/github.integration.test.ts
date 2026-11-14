@@ -880,6 +880,16 @@ describe('mergePr', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('pins the checked head with --match-head-commit when one is given', async () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = async (args) => {
+      calls.push(args);
+      return { stdout: '', exitCode: 0 };
+    };
+    await mergePr(gh, '9', '/wt', 'squash', 'abc1234');
+    expect(calls[0]).toEqual(['pr', 'merge', '9', '--squash', '--match-head-commit', 'abc1234']);
+  });
+
   it('supports a merge commit and a rebase merge', async () => {
     const calls: string[][] = [];
     const gh: GhRunner = async (args) => {

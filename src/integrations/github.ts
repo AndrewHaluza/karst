@@ -626,6 +626,19 @@ export interface MergeAttempt {
   reason: string;
 }
 
+/** The head sha of a PR as gh reports it, or null when gh cannot say. */
+export async function fetchPrHeadSha(gh: GhRunner, ref: string, cwd: string): Promise<string | null> {
+  try {
+    const r = await gh(['pr', 'view', ref, '--json', 'headRefOid'], cwd);
+    if (r.exitCode !== 0) return null;
+    const parsed: unknown = JSON.parse(r.stdout);
+    const oid = typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>).headRefOid : undefined;
+    return typeof oid === 'string' && /^[0-9a-f]{7,64}$/i.test(oid) ? oid : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Merge a PR via `gh pr merge`.
  *
@@ -641,16 +654,21 @@ export interface MergeAttempt {
  * restore both target that ref, so deleting it upstream would break resuming and
  * restoring a ticket. Nor `--auto`: queuing a merge for later cannot be reflected
  * as merged state now, and the button must never claim more than happened.
+ *
+ * `matchHeadCommit` pins the head the caller checked (`--match-head-commit`), so a head that moves
+ * between the check and the merge fails closed.
  */
 export async function mergePr(
   gh: GhRunner,
   ref: string,
   cwd: string,
   method: MergeMethod,
+  /** The PR head the caller checked; GitHub refuses the merge when the head has moved (arch:GH-03). */
+  matchHeadCommit?: string,
 ): Promise<MergeAttempt> {
   let r: GhResult;
   try {
-    r = await gh(['pr', 'merge', ref, `--${method}`], cwd);
+    r = await gh(['pr', 'merge', ref, `--${method}`, ...(matchHeadCommit ? ['--match-head-commit', matchHeadCommit] : [])], cwd);
   } catch (e) {
     // A runner that rejects (spawn failure in a custom runner) is a failed merge
     // with a reason, not an exception the UI has to catch a second time.

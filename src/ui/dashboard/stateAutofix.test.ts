@@ -23,6 +23,26 @@ function setup() {
 const park = (store: ReturnType<typeof openStore>, id: number, reason: string): void =>
   parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: 'x', gates: [] });
 
+describe('readAutofix stop head', () => {
+  const REASON = 'auto-fix stopped: ci round made no change';
+
+  it('adds the head a stop applies to when the ticket holds newer commits, and keeps the stop kind', () => {
+    const { store, id } = setup();
+    park(store, id, REASON);
+    setAutopilotStopped(store, id, REASON, '952a97b54aaa');
+    const moved = readAutofix(store, id, CONFIG, undefined, true);
+    expect(moved.input.parked).toEqual({ kind: 'ci', reason: `${REASON} (autopilot stopped at 952a97b; the head moved since)` });
+    expect(readAutofix(store, id, CONFIG).input.parked).toEqual({ kind: 'ci', reason: REASON });
+  });
+
+  it('leaves a stop without a recorded head unchanged', () => {
+    const { store, id } = setup();
+    park(store, id, REASON);
+    setAutopilotStopped(store, id, REASON);
+    expect(readAutofix(store, id, CONFIG, undefined, true).input.parked).toEqual({ kind: 'ci', reason: REASON });
+  });
+});
+
 describe('readAutofix', () => {
   it('reports the project default and an inherit override', () => {
     const { store, id } = setup();

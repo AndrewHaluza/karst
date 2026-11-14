@@ -53,7 +53,7 @@ describe('refreshUndelivered / tracker', () => {
     const tracker = createUndeliveredTracker();
     const two: DeliverTargets = { available: true, prs: [PR, { ...PR, repo: 'b', cwd: '/b' }] };
     await refreshUndelivered(tracker, 1, two, countRig('1', 'FETCH_HEAD', '2').deps);
-    expect(tracker.get(1)).toEqual({ hostAhead: 2, sandboxAhead: 4 });
+    expect(tracker.get(1)).toEqual({ hostAhead: 2, sandboxAhead: 4, byRepo: { karst: 3, b: 3 } });
     await refreshUndelivered(tracker, 1, OPEN, countRig('0', null).deps);
     expect(tracker.get(1)).toBeUndefined();
   });
