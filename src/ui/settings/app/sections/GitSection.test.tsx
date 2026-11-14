@@ -87,6 +87,14 @@ describe('GitSection — the four template controls', () => {
     expect(field.value).toBe(DEFAULT_PR_DESCRIPTION_TEMPLATE);
   });
 
+  it('shows a PR description placeholder without a Repository line, like the default', () => {
+    mountGit();
+    const field = screen.getByLabelText('Pull request description template') as HTMLTextAreaElement;
+    fireEvent.change(field, { target: { value: '' } });
+    expect(field.placeholder).toContain('Ticket: {key}');
+    expect(field.placeholder).not.toContain('Repository');
+  });
+
   it('renders the other three templates empty when the manifest declares none', () => {
     mountGit();
     expect((screen.getByLabelText('Branch name template') as HTMLInputElement).value).toBe('');
