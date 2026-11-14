@@ -6,7 +6,7 @@ import {
   stageColorClass,
   stagePaletteCss,
 } from './stagePalette.js';
-import { PALETTE_TOKENS, paletteCss } from './palette.js';
+import { ATTENTION_FG, PALETTE_TOKENS, paletteCss } from './palette.js';
 
 /** WCAG relative-luminance contrast ratio between two `#rrggbb` hexes. */
 function contrastRatio(hexA: string, hexB: string): number {
@@ -53,12 +53,12 @@ describe('Scope steel palette (869ej2cfz)', () => {
   });
 
   it('leaves every other stage colour untouched — only Scope changes', () => {
-    expect(STAGE_COLORS.impl).toEqual({ dark: '#7f7bf5', light: '#4f46e5' });
-    expect(STAGE_COLORS.uat).toEqual({ dark: '#d18616', light: '#b45309' });
-    expect(STAGE_COLORS.review).toEqual({ dark: '#2ea8b5', light: '#0e7490' });
-    expect(STAGE_COLORS.fix).toEqual({ dark: '#f14c4c', light: '#c93636' });
-    expect(STAGE_COLORS.ship).toEqual({ dark: '#d162c4', light: '#bf3989' });
-    expect(STAGE_COLORS.done).toEqual({ dark: '#4bb64b', light: '#1a7f37' });
+    expect({ dark: STAGE_COLORS.impl.dark, light: STAGE_COLORS.impl.light }).toEqual({ dark: '#7f7bf5', light: '#4f46e5' });
+    expect({ dark: STAGE_COLORS.uat.dark, light: STAGE_COLORS.uat.light }).toEqual({ dark: '#d18616', light: '#b45309' });
+    expect({ dark: STAGE_COLORS.review.dark, light: STAGE_COLORS.review.light }).toEqual({ dark: '#2ea8b5', light: '#0e7490' });
+    expect({ dark: STAGE_COLORS.fix.dark, light: STAGE_COLORS.fix.light }).toEqual({ dark: '#f14c4c', light: '#c93636' });
+    expect({ dark: STAGE_COLORS.ship.dark, light: STAGE_COLORS.ship.light }).toEqual({ dark: '#d162c4', light: '#bf3989' });
+    expect({ dark: STAGE_COLORS.done.dark, light: STAGE_COLORS.done.light }).toEqual({ dark: '#4bb64b', light: '#1a7f37' });
   });
 
   it('clears WCAG AA (>= 4.5:1) for the Scope label on its own fill in both themes', () => {
@@ -112,7 +112,7 @@ describe('stagePaletteCss', () => {
   it('emits the Scope background token per theme and a --stg-bg handle', () => {
     expect(css).toContain('--stage-scope-bg:#29343D');
     expect(css).toMatch(
-      /\.stg-scope\{color:var\(--stage-scope\);--stg-color:var\(--stage-scope\);--stg-bg:var\(--stage-scope-bg\)\}/,
+      /\.stg-scope\{color:var\(--stage-scope\);--stg-color:var\(--stage-scope\);--stg-fg:var\(--stage-scope-fg\);--stg-bg:var\(--stage-scope-bg\)\}/,
     );
     const light = css.slice(css.indexOf('body.vscode-light'));
     expect(light).toContain('--stage-scope-bg:#EAEDF0');
@@ -130,5 +130,55 @@ describe('stagePaletteCss', () => {
 describe('paletteCss', () => {
   it('carries the stage palette, so one injection point serves both views', () => {
     expect(paletteCss()).toContain(stagePaletteCss());
+  });
+});
+
+/** Mix `fg` over `base` at `alpha` (what `color-mix(in srgb, fg alpha%, transparent)` paints over `base`). */
+function over(fg: string, base: string, alpha: number): string {
+  const ch = (hex: string): number[] => hex.slice(1).match(/.{2}/g)!.map((p) => parseInt(p, 16));
+  const [f, b] = [ch(fg), ch(base)];
+  const out = f.map((v, i) => Math.round(v * alpha + b[i]! * (1 - alpha)));
+  return `#${out.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// The surfaces a chip sits on: the panel and the row hover (docs/ui/prototypes/ref-chip.html).
+const SURFACES = {
+  dark: { panel: '#1f1f1f', hover: '#2a2d2e' },
+  light: { panel: '#ffffff', hover: '#e8e8e8' },
+} as const;
+const MIN_TEXT_CONTRAST = 4.6;
+
+describe('stage text tone (fg)', () => {
+  for (const theme of ['dark', 'light'] as const) {
+    for (const [name, fg, wash, alpha, key] of [
+      ...STAGE_KEYS.map((k) => [k, STAGE_COLORS[k].fg[theme], STAGE_COLORS[k][theme], 0.2, k] as const),
+      ['unknown', theme === 'dark' ? '#a6acb3' : '#525860', theme === 'dark' ? '#7d8590' : '#6e7681', 0.2, 'unknown'] as const,
+      ['attention', ATTENTION_FG[theme], theme === 'dark' ? '#cca700' : '#bf8803', 0.3, 'attention'] as const,
+    ]) {
+      for (const surface of ['panel', 'hover'] as const) {
+        it(`${name} reaches ${MIN_TEXT_CONTRAST}:1 on its wash over the ${surface} (${theme})`, () => {
+          const base = SURFACES[theme][surface];
+          const bgPair = key in STAGE_COLORS ? STAGE_COLORS[key as keyof typeof STAGE_COLORS].bg : undefined;
+          const washed = bgPair ? bgPair[theme] : over(wash, base, alpha);
+          expect(contrastRatio(fg, washed)).toBeGreaterThanOrEqual(MIN_TEXT_CONTRAST);
+          // Bare text on the panel; on the hover the chip's own wash (above) is the ground.
+          if (surface === 'panel') expect(contrastRatio(fg, base)).toBeGreaterThanOrEqual(MIN_TEXT_CONTRAST);
+        });
+      }
+    }
+  }
+
+  it('injects --stage-<key>-fg per theme and --stg-fg per class', () => {
+    const css = stagePaletteCss();
+    expect(css).toContain('--stage-impl-fg:#a8a6f8;');
+    expect(css).toMatch(/body\.vscode-light\{[^}]*--stage-impl-fg:#3a30e2;/);
+    expect(css).toContain('.stg-impl{color:var(--stage-impl);--stg-color:var(--stage-impl);--stg-fg:var(--stage-impl-fg)}');
+    expect(css).toContain('--stage-unknown-fg:#a6acb3;');
+  });
+
+  it('injects --k-attention-fg beside --k-attention', () => {
+    const css = paletteCss();
+    expect(css).toContain('--k-attention-fg:#f0c400;');
+    expect(css).toContain('body.vscode-light{--k-attention-fg:#6f4f02}');
   });
 });

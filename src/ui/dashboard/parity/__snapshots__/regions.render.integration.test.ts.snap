@@ -869,15 +869,15 @@ exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · all 
 exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · follow-up, blocked-by and sub-task relations > headerMeta · follow-up, blocked-by and sub-task relations 1`] = `
 "<div#headerMeta.headerMeta>
   <span#parentRef.ticketParent> "from D88 (P17) · Sub-task of T942001 · FEAT-100 · Follow-up of T9 · FEAT-99 · ·"
-    <span.k-ticket-ref aria-label="Ticket T42 in impl">
-      <span> "Blocked by"
-      <span.g-gray.k-ticket-ref-dot aria-hidden="true">
-      <span> "· CU-123 · impl"
-        <a data-act="open-dependency" data-ticket="42" href="#"> "T42"
-    <span.k-ticket-ref aria-label="external">
-      <span> "Blocked by"
-      <span.g-gray.k-ticket-ref-dot aria-hidden="true">
-      <span> "external"
+    <span.k-ticket-ref.stg-impl>
+      <span.k-ticket-ref-prefix> "Blocked by"
+      <a aria-label="T42, Implementation" data-act="open-dependency" data-ticket="42" href="#"> "T42"
+      <span.k-ticket-ref-x> "· CU-123"
+      <span.k-ticket-ref-word aria-hidden="true" data-full="Implementation" data-short="impl">
+    <span.is-gone.k-ticket-ref aria-label="external, missing">
+      <span.k-ticket-ref-prefix> "Blocked by"
+      <span.k-ticket-ref-id> "external"
+      <span.k-ticket-ref-word aria-hidden="true" data-full="Missing" data-short="Missing">
   <span#capabilityLabels.capabilityLabels>"
 `;
 
@@ -2883,9 +2883,9 @@ exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer �
             <div.tdFactRow>
               <dt> "Sub-task of"
               <dd>
-                <span.k-ticket-ref aria-label="T942001 · FEAT-100">
-                  <span.g-gray.k-ticket-ref-dot aria-hidden="true">
-                  <span> "T942001 · FEAT-100"
+                <span.is-gone.k-ticket-ref aria-label="T942001 · FEAT-100, missing">
+                  <span.k-ticket-ref-id> "T942001 · FEAT-100"
+                  <span.k-ticket-ref-word aria-hidden="true" data-full="Missing" data-short="Missing">
             <div.tdFactRow>
               <dt> "Repos"
               <dd> "web, api"
@@ -2900,9 +2900,9 @@ exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer �
             <div.tdFactRow>
               <dt> "Sub-task of"
               <dd>
-                <span.k-ticket-ref aria-label="T942001 · FEAT-100">
-                  <span.g-gray.k-ticket-ref-dot aria-hidden="true">
-                  <span> "T942001 · FEAT-100"
+                <span.is-gone.k-ticket-ref aria-label="T942001 · FEAT-100, missing">
+                  <span.k-ticket-ref-id> "T942001 · FEAT-100"
+                  <span.k-ticket-ref-word aria-hidden="true" data-full="Missing" data-short="Missing">
             <div.tdFactRow>
               <dt> "Repos"
               <dd> "web, api"
@@ -2946,9 +2946,9 @@ exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer �
             <div.tdFactRow>
               <dt> "Sub-task of"
               <dd>
-                <span.k-ticket-ref aria-label="T942001 · FEAT-100">
-                  <span.g-gray.k-ticket-ref-dot aria-hidden="true">
-                  <span> "T942001 · FEAT-100"
+                <span.is-gone.k-ticket-ref aria-label="T942001 · FEAT-100, missing">
+                  <span.k-ticket-ref-id> "T942001 · FEAT-100"
+                  <span.k-ticket-ref-word aria-hidden="true" data-full="Missing" data-short="Missing">
             <div.tdFactRow>
               <dt> "Repos"
               <dd> "web, api"
@@ -2963,9 +2963,9 @@ exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer �
             <div.tdFactRow>
               <dt> "Sub-task of"
               <dd>
-                <span.k-ticket-ref aria-label="T942001 · FEAT-100">
-                  <span.g-gray.k-ticket-ref-dot aria-hidden="true">
-                  <span> "T942001 · FEAT-100"
+                <span.is-gone.k-ticket-ref aria-label="T942001 · FEAT-100, missing">
+                  <span.k-ticket-ref-id> "T942001 · FEAT-100"
+                  <span.k-ticket-ref-word aria-hidden="true" data-full="Missing" data-short="Missing">
             <div.tdFactRow>
               <dt> "Repos"
               <dd> "web, api"

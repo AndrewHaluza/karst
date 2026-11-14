@@ -162,6 +162,17 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   '--k-control-h-lg': '30px',
   // WCAG 2.2 §2.5.8 (AA) minimum pointer target.
   '--k-hit-min': '24px',
+  // The reference chip and the stage pill (@ui:11.21): 18px high, 7px side
+  // padding, a 16px line (15px + 1px bottom padding for an all-capitals word),
+  // and the 4px the link's ::after grows by so its hit area stays >= 24px.
+  '--k-chip-h': '18px',
+  '--k-chip-pad-x': '7px',
+  '--k-chip-lh': '16px',
+  '--k-chip-lh-caps': '15px',
+  '--k-chip-hit-bleed': '4px',
+  '--k-chip-tracking': '.05em',
+  '--k-chip-wash': '20%',
+  '--k-chip-wash-needs': '30%',
   '--k-focus-w': '1px',
   '--k-focus-offset': '1px',
   // The spinner ring. Distinct from `--k-border-w`: a 1px ring reads as a

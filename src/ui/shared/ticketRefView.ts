@@ -1,7 +1,9 @@
 import type { Glyph } from '../../model/glyph.js';
 import { formatId } from '../../model/entityId.js';
 import { ticketGlyph } from '../../model/ticketGlyph.js';
-import { isFinishedStage } from '../../model/types.js';
+import { STAGE_TITLE } from '../../model/stageBadge.js';
+import { stageColorClass } from '../../model/stagePalette.js';
+import { ALL_STAGE_KEYS, isFinishedStage, type StageKey } from '../../model/types.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 
 export type TicketRefKind = 'ticket' | 'finished' | 'draft' | 'ref';
@@ -31,6 +33,8 @@ export interface TicketRefView {
   readonly draftId?: number | null;
   readonly label?: string;
   readonly done?: boolean;
+  /** What the chip draws (state, stage class, word pair). Host-built so a vanilla view needs no stage table. */
+  readonly chip?: RefChipParts;
 }
 
 export interface TicketRefInput {
@@ -49,6 +53,49 @@ export interface TicketRefInput {
   readonly sessionLabel?: string | null;
 }
 
+
+/** The stage's full title ("Implementation"), or the raw text for a stage this build does not know. */
+export function stageWord(stage: string | null): { full: string; short: string } {
+  if (!stage) return { full: '', short: '' };
+  const key: StageKey | undefined = ALL_STAGE_KEYS.find((k) => k === stage);
+  return key ? { full: STAGE_TITLE[key], short: key } : { full: stage, short: stage };
+}
+
+/**
+ * The accessible name of a chip's link: id, stage title, and "needs you" when
+ * the ticket waits on the user. The visible stage word is aria-hidden, so the
+ * name must carry everything the word and the color say (@ui:11.21).
+ */
+function chipName(idLabel: string, stage: string | null, glyph: Glyph): string {
+  const title = stageWord(stage).full;
+  return [idLabel, title, glyph === 'amber' ? 'needs you' : ''].filter(Boolean).join(', ');
+}
+
+export type RefChipState = 'stage' | 'needs' | 'draft' | 'gone';
+
+/** What the chip draws, shared by the React chip and the HTML string renderer. */
+export interface RefChipParts {
+  readonly state: RefChipState;
+  /** `stg-<key>` class; empty for a draft or a missing reference (they have their own look). */
+  readonly stageClass: string;
+  /** Stage word for wide hosts (`data-full`). */
+  readonly full: string;
+  /** Stage word for hosts of 400px and less (`data-short`). */
+  readonly short: string;
+}
+
+export function refChipParts(view: TicketRefView): RefChipParts {
+  if (view.chip) return view.chip;
+  if (view.kind === 'draft') return { state: 'draft', stageClass: '', full: 'Draft', short: 'Draft' };
+  if (view.kind === 'ref') return { state: 'gone', stageClass: '', full: 'Missing', short: 'Missing' };
+  const word = stageWord(view.stage);
+  return {
+    state: view.glyph === 'amber' ? 'needs' : 'stage',
+    stageClass: stageColorClass(view.stage),
+    ...word,
+  };
+}
+
 function isTicketWithStages(val: unknown): val is TicketWithStages {
   return typeof val === 'object' && val !== null && 'id' in val && ('stages' in val || 'stageCurrent' in val);
 }
@@ -61,6 +108,11 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
   if (typeof input === 'object' && input !== null && 'displayTextParts' in input) {
     return input as TicketRefView;
   }
+  const view = buildRefView(input);
+  return { ...view, chip: refChipParts(view) };
+}
+
+function buildRefView(input: TicketWithStages | TicketRefInput): TicketRefView {
   const opts: TicketRefInput = isTicketWithStages(input) ? { ticket: input } : input;
   const draftId = opts.draftId ?? null;
   const draftLabel = opts.draftLabel ?? (draftId !== null ? formatId('draft', draftId) : null);
@@ -85,18 +137,7 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
       stage,
       session: opts.sessionLabel ?? null,
     };
-    let accessibleName: string;
-    if (opts.accessibleName) {
-      accessibleName = opts.accessibleName;
-    } else if (draftLabel !== null) {
-      accessibleName = finishedStage
-        ? `${draftLabel}, ticket ${ticketLabel} ${stage}`
-        : `${draftLabel}, ticket ${ticketLabel} in ${stage || 'progress'}`;
-    } else {
-      accessibleName = finishedStage
-        ? `Ticket ${ticketLabel} ${stage}`
-        : `Ticket ${ticketLabel} in ${stage || 'progress'}`;
-    }
+    const accessibleName = opts.accessibleName || chipName(idLabel, stage, glyph);
     return {
       id: draftId ?? ticketId,
       kind,
@@ -136,7 +177,7 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
       stage,
       glyph,
       displayTextParts,
-      accessibleName: opts.accessibleName ?? `Ticket ${ticketLabel}${stage ? ` in ${stage}` : ''}`,
+      accessibleName: opts.accessibleName ?? chipName(idLabel, stage, glyph),
       draftId,
       label: key ?? ticketLabel,
       done: kind === 'finished',
@@ -183,7 +224,7 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
     stage: null,
     glyph: opts.glyph ?? 'gray',
     displayTextParts,
-    accessibleName: opts.accessibleName ?? rawRef,
+    accessibleName: opts.accessibleName ?? `${rawRef}, missing`,
     draftId: null,
     label: rawRef,
     done: false,
@@ -206,6 +247,16 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+/** The class list of the chip root: base, stage token, and the state modifier. */
+export function chipClass(parts: RefChipParts, extra = ''): string {
+  const mod = parts.state === 'stage' ? '' : ` is-${parts.state}`;
+  return `k-ticket-ref${parts.stageClass ? ` ${parts.stageClass}` : ''}${mod}${extra ? ` ${extra}` : ''}`;
+}
+
+/** The needs-you mark (@ui:UI-R28b): two bars, filled with the attention text tone. */
+export const PAUSE_SVG =
+  '<svg class="k-ticket-ref-pause" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="3" width="5" height="18" rx="1"/><rect x="14" y="3" width="5" height="18" rx="1"/></svg>';
 
 /** Formats the display text of a TicketRefView. */
 export function formatTicketRefText(view: TicketRefView, options: { prefix?: string; showKey?: boolean } = {}): string {
@@ -231,18 +282,24 @@ export function renderTicketRefHtml(view: TicketRefView, options: TicketRefRende
   const dataAct = options.dataAct ?? 'open-dependency';
   const dataIdAttr = options.dataIdAttr ?? 'data-ticket';
   const tooltip = !showKey && view.keyOrRef ? view.keyOrRef : null;
+  const parts = refChipParts(view);
 
   const idText = view.displayTextParts.id;
-  const keyPart = showKey && view.displayTextParts.key ? ` · ${escapeHtml(view.displayTextParts.key)}` : '';
-  const stagePart = view.displayTextParts.stage ? ` · ${escapeHtml(view.displayTextParts.stage)}` : '';
-  const sessionPart = view.displayTextParts.session ? ` · ${escapeHtml(view.displayTextParts.session)}` : '';
+  const keyHtml = showKey && view.displayTextParts.key ? `<span class="k-ticket-ref-x"> · ${escapeHtml(view.displayTextParts.key)}</span>` : '';
+  const sessionHtml = view.displayTextParts.session ? `<span class="k-ticket-ref-x"> · ${escapeHtml(view.displayTextParts.session)}</span>` : '';
+  const name = escapeHtml(view.accessibleName);
 
-  let idHtml = escapeHtml(idText);
-  if (link && view.ticketId !== null) {
-    idHtml = `<a href="#" data-act="${escapeHtml(dataAct)}" ${dataIdAttr}="${escapeHtml(String(view.ticketId))}">${escapeHtml(idText)}</a>`;
-  }
-
+  const isLink = link && view.ticketId !== null;
+  const idHtml = isLink
+    ? `<a href="#" data-act="${escapeHtml(dataAct)}" ${dataIdAttr}="${escapeHtml(String(view.ticketId))}" aria-label="${name}">${escapeHtml(idText)}</a>`
+    : `<span class="k-ticket-ref-id">${escapeHtml(idText)}</span>`;
+  const word = parts.full
+    ? `<span class="k-ticket-ref-word" data-full="${escapeHtml(parts.full)}" data-short="${escapeHtml(parts.short)}" aria-hidden="true"></span>`
+    : '';
+  const pause = parts.state === 'needs' ? PAUSE_SVG : '';
   const titleAttr = tooltip ? ` title="${escapeHtml(tooltip)}"` : '';
-  const prefixHtml = prefix ? `<span>${escapeHtml(prefix)}</span>` : '';
-  return `<span class="k-ticket-ref" aria-label="${escapeHtml(view.accessibleName)}"${titleAttr}>${prefixHtml}<span class="k-ticket-ref-dot g-${escapeHtml(view.glyph)}" aria-hidden="true"></span><span>${idHtml}${keyPart}${stagePart}${sessionPart}</span></span>`;
+  const prefixHtml = prefix ? `<span class="k-ticket-ref-prefix">${escapeHtml(prefix)}</span>` : '';
+  const cls = chipClass(parts);
+  const nameAttr = isLink ? '' : ` aria-label="${name}"`;
+  return `<span class="${cls}"${nameAttr}${titleAttr}>${prefixHtml}${pause}${idHtml}${keyHtml}${word}${sessionHtml}</span>`;
 }
