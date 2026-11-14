@@ -5788,6 +5788,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         syncParent: (pid) => sandboxLife.ensureInSync(pid, false), prDescriptionProcess: prDescriptionProcess(ticketId),
         ...(shipOpts.repos ? { repos: shipOpts.repos } : {}),
         ...(deliverToOpenPr ? { deliverToOpenPr: true } : {}),
+        // @arch:SHIP-RESUME: an unattended run continues the push the dead host left open, for a clean worktree only.
+        ...(shipOpts.unattended ? { resumeInterrupted: true } : {}),
         // D541: CI tests the branch merged with the current base, so every push tests that merge first.
         checkBase: shipBaseCheck(ciInput(ticketId), shipGateDeps(ticketId), () => gateConsole.flush(ticketId, 'ship')),
       },

@@ -44,6 +44,12 @@ import {
   type ShipStep,
 } from './shipStore.js';
 import { adoptMergedPr, probeMergedNothingNew } from '../mergedNothingNew.js';
+import {
+  commitsNotOnRemote,
+  priorRunHasPushStep,
+  undeliveredCommitsDetail,
+  worktreeIsClean,
+} from './shipResume.js';
 import { backfillDescription, bodyHash, generateDescription, noteReusedPr, syncDesignRules } from './shipDescription.js';
 import { appendDesignRulesSection } from '../../model/archCitations.js';
 import { listArchCitations } from '../../store/archCitations.js';
@@ -179,6 +185,12 @@ export interface ShipOpts {
    * commits.
    */
   deliverToOpenPr?: boolean;
+  /**
+   * An unattended resume of a ship whose host died (@arch:SHIP-RESUME). For a repo whose PR is open, the prior run
+   * recorded a `push` step, and the worktree is clean, the committed HEAD is delivered onto the PR as if
+   * `deliverToOpenPr` were set. A dirty worktree is never delivered: the resume never commits files to a PR in review.
+   */
+  resumeInterrupted?: boolean;
   /**
    * The base-moved check run before each push (D541, @arch:GATE-REPEAT): the host merges the branch with the current
    * base and gates that merge, because CI tests it. Null = push; else the CI reason, and the push does not run. The step
@@ -914,6 +926,35 @@ export async function shipTicket(
   // untouched — but EVERY target being untouched means the ticket's work never
   // reached its branches, and that is checked once, after the loop.
   const noChangeRepos: string[] = [];
+  // Repos that took the 'existing PR already open' skip, and those of them whose
+  // committed HEAD holds commits origin does not have (@arch:SHIP-RESUME).
+  const openPrSkips: string[] = [];
+  const undelivered: { repo: string; ahead: number }[] = [];
+  const priorRun = opts.resumeInterrupted ? findPriorShipRun(store, opts.ticketId, run.id) : undefined;
+  // A resumed ship continues the push of the run the host death cut short.
+  const resumesDelivery = async (wt: WorktreeView): Promise<boolean> => {
+    if (priorRun === undefined || !priorRunHasPushStep(store, priorRun.id, wt.repo)) return false;
+    const clean = await worktreeIsClean(git, wt.path);
+    if (!clean) {
+      opts.debug?.(`[gate] ship ticket ${opts.ticketId}: ${wt.repo} resume not delivered — worktree is not clean`);
+    }
+    return clean;
+  };
+  // A skipped repo whose commits are not on the PR must never read as shipped.
+  const recordUndelivered = async (wt: WorktreeView): Promise<void> => {
+    if (!wt.branch) return;
+    const ahead = await commitsNotOnRemote(git, wt.path, wt.branch);
+    if (ahead === null) {
+      opts.debug?.(`[gate] ship ticket ${opts.ticketId}: ${wt.repo} commits ahead of origin/${wt.branch} unreadable`);
+      return;
+    }
+    if (ahead === 0) return;
+    const detail = undeliveredCommitsDetail(ahead);
+    const at = nowIso();
+    const row = openShipRepoStep(store, { shipRunId: run.id, repo: wt.repo, step: 'push', detail, startedAt: at });
+    finishShipRepoStep(store, row.id, { status: 'note', detail, endedAt: at });
+    undelivered.push({ repo: wt.repo, ahead });
+  };
   try {
     if (opts.repos && scoped.length === 0) {
       throw new Error(
@@ -929,8 +970,9 @@ export async function shipTicket(
         const conventions =
           opts.conventions ?? resolveRepoConventions(opts.manifest, repoName);
         const prior = findExistingLivePr(store, opts.ticketId, wt.repo);
-        const deliveringToOpenPr = Boolean(prior && opts.deliverToOpenPr);
-        if (prior && !opts.deliverToOpenPr) {
+        const deliverHere = opts.deliverToOpenPr === true || (prior !== undefined && (await resumesDelivery(wt)));
+        const deliveringToOpenPr = Boolean(prior && deliverHere);
+        if (prior && !deliverHere) {
           prs.push({ repo: prior.repo, number: prior.number, url: prior.url });
           // Nothing ran this time — say so for every step this repo skips,
           // rather than leaving commit/push looking like they are still "to
@@ -953,6 +995,8 @@ export async function shipTicket(
               detail: 'existing PR already open — not re-shipped',
             });
           }
+          openPrSkips.push(wt.repo);
+          await recordUndelivered(wt);
           continue;
         }
         if (deliveringToOpenPr && prior) {
@@ -1868,6 +1912,12 @@ export async function shipTicket(
             `${outstanding.join(', ')}`,
         );
       }
+    }
+    // Every repo skipped on its open PR while committed work waits: nothing was delivered, so the run must not
+    // read 'passed' (@arch:SHIP-RESUME). The ticket parks at ship with the reason; the Deliver click pushes it.
+    if (scoped.length > 0 && openPrSkips.length === scoped.length && undelivered.length > 0) {
+      const total = undelivered.reduce((sum, u) => sum + u.ahead, 0);
+      throw new Error(`${undeliveredCommitsDetail(total)} (${undelivered.map((u) => u.repo).join(', ')})`);
     }
     // Every target unchanged means the ship produced nothing at all: no commit,
     // no push, no PR. Each repo's own note is right, but the aggregate is the
