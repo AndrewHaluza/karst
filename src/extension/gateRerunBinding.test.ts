@@ -16,6 +16,7 @@ const host = (over: Partial<GateRerunHost> = {}): GateRerunHost => ({
   hostGateFor: () => undefined,
   onGateOutput: vi.fn(),
   onGateSpawned: vi.fn(),
+  redrive: vi.fn(),
   debug: vi.fn(),
   ...over,
 });

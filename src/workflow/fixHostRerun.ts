@@ -47,6 +47,12 @@ export interface HostRerunDeps {
    */
   runGates: (ticketId: number, gates: readonly FailedGate[], stage: StageKey) => Promise<GateRerunResult[]>;
   now?: () => string;
+  /**
+   * Runs after a passing re-run returned the ticket to its source stage: the host re-drives the
+   * stage and records the gate pass. A throw is sent to `debug`, never fatal.
+   */
+  onPassed?: (ticketId: number, stage: StageKey) => Promise<void> | void;
+  debug?: (message: string) => void;
 }
 
 /** The one-sentence way out, named in the marker reply and the park verdict. */
@@ -133,6 +139,15 @@ function returnToSource(store: Store, ticketId: number, roundId: number, stage: 
   })();
 }
 
+/** Tell the host a re-run passed; a throw is logged, because the round is already closed. */
+async function notifyPassed(deps: HostRerunDeps, ticketId: number, stage: StageKey): Promise<void> {
+  try {
+    await deps.onPassed?.(ticketId, stage);
+  } catch (err) {
+    deps.debug?.(`[fix-rerun] ticket ${ticketId}: after a passed re-run: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /** Park the fix stage and move the round out of `fixing`, in one transaction. */
 function parkRound(store: Store, ticketId: number, roundId: number, verdict: string, at: string): void {
   store.db.transaction(() => {
@@ -169,6 +184,7 @@ export async function hostRerunFailedGates(
   const failures = await rerunAll(deps, ticketId, failed, round.sourceStage);
   if (failures.length === 0) {
     returnToSource(store, ticketId, round.id, round.sourceStage, now());
+    await notifyPassed(deps, ticketId, round.sourceStage);
     return { kind: 'passed', stage: round.sourceStage };
   }
   if (!park) return { kind: 'failed', failures };
