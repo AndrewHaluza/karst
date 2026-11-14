@@ -74,7 +74,7 @@ sequenceDiagram
 | Separate `dismissed_at` column for closed PRs | Overwriting `status` or force-advancing the ticket | `prSync` periodically overwrites `status` with upstream state; explicit dismissal records human acknowledgement without falsely claiming the PR merged. |
 | Explicit merge method (`--merge`, `--squash`, `--rebase`) | Defaulting to bare `gh pr merge` | Bare command prompts on an interactive TTY that does not exist in webview context; explicit flags avoid hangs. |
 | The description agent returns a JSON answer (`prDescriptionAnswer.ts`); code renders the body with a fixed section layout | An agent that writes the whole PR body as markdown | Code owns the layout, so a model error cannot show in a public PR. The gate-set-changed line is rendered by code, because a model can omit it. |
-| `prVisuals.ts` builds the `## Behavior` mermaid diagram from the answer's `behavior` step data | An agent that writes mermaid | Code encodes each label, so a label cannot break the fence or carry `@arch:`. Bad data drops only the diagram. |
+| `prVisuals.ts` builds the `## Behavior` mermaid diagram from the answer's `behavior` step data | Agent-written mermaid | Code encodes each label: no label breaks the fence or carries `@arch:`. Bad data drops only the diagram. |
 | Single path formatter (`repoDisplayPath` + `PathContext`) | Ad-hoc local formatting across panels and CLI | Uniform path representation prevents confusion across webviews, CLI status lines, and multi-repo tickets. |
 
 ### Fallbacks
