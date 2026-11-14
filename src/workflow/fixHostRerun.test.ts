@@ -83,9 +83,9 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
 
   it('calls onPassed once, after the stage returned, with the ticket and the source stage', async () => {
     const seen: unknown[] = [];
-    const onPassed = (id: number, stage: string) => { seen.push([id, stage, getStage(store, ticketId, 'uat')?.status]); };
+    const onPassed = (id: number, stage: string, round: number) => { seen.push([id, stage, round, getStage(store, ticketId, 'uat')?.status]); };
     await hostRerunFailedGates(store, ticketId, { ...deps(() => ok), onPassed });
-    expect(seen).toEqual([[ticketId, 'uat', 'running']]);
+    expect(seen).toEqual([[ticketId, 'uat', roundId, 'running']]);
   });
 
   it('does not call onPassed when a gate still fails', async () => {

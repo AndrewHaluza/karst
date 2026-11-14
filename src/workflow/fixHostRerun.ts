@@ -51,7 +51,7 @@ export interface HostRerunDeps {
    * Runs after a passing re-run returned the ticket to its source stage: the host re-drives the
    * stage and records the gate pass. A throw is sent to `debug`, never fatal.
    */
-  onPassed?: (ticketId: number, stage: StageKey) => Promise<void> | void;
+  onPassed?: (ticketId: number, stage: StageKey, roundId: number) => Promise<void> | void;
   debug?: (message: string) => void;
 }
 
@@ -140,9 +140,9 @@ function returnToSource(store: Store, ticketId: number, roundId: number, stage: 
 }
 
 /** Tell the host a re-run passed; a throw is logged, because the round is already closed. */
-async function notifyPassed(deps: HostRerunDeps, ticketId: number, stage: StageKey): Promise<void> {
+async function notifyPassed(deps: HostRerunDeps, ticketId: number, stage: StageKey, roundId: number): Promise<void> {
   try {
-    await deps.onPassed?.(ticketId, stage);
+    await deps.onPassed?.(ticketId, stage, roundId);
   } catch (err) {
     deps.debug?.(`[fix-rerun] ticket ${ticketId}: after a passed re-run: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -184,7 +184,7 @@ export async function hostRerunFailedGates(
   const failures = await rerunAll(deps, ticketId, failed, round.sourceStage);
   if (failures.length === 0) {
     returnToSource(store, ticketId, round.id, round.sourceStage, now());
-    await notifyPassed(deps, ticketId, round.sourceStage);
+    await notifyPassed(deps, ticketId, round.sourceStage, round.id);
     return { kind: 'passed', stage: round.sourceStage };
   }
   if (!park) return { kind: 'failed', failures };

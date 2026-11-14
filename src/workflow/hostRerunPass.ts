@@ -5,6 +5,7 @@ import type { GitRunner } from '../integrations/git.js';
 import { listWorktreesByTicket } from '../store/dashboard.js';
 import { listGateRuns, HOST_RERUN_SOURCE, type GateRun } from '../store/gateRuns.js';
 import { stageAttempt } from '../store/stages.js';
+import { listFixRoundHeads } from '../store/fixRoundHeads.js';
 import { recordUatGatePass } from '../store/uatGatePasses.js';
 import { nowIso } from '../model/time.js';
 import { regenerateRepoOf } from './gates/regenerate.js';
@@ -18,7 +19,7 @@ export interface HostRerunPassDeps {
   readonly now?: () => string;
 }
 
-export type HostRerunPassResult = 'recorded' | 'not-uat' | 'baseline-review-off' | 'no-batch' | 'gate-not-passed' | 'no-fingerprint';
+export type HostRerunPassResult = 'recorded' | 'not-uat' | 'baseline-review-off' | 'no-batch' | 'gate-not-passed' | 'tree-changed' | 'no-fingerprint';
 
 const sameGate = (a: GateRun, b: GateRun): boolean =>
   a.gateName === b.gateName && a.repo === b.repo && a.command === b.command && (a.args ?? []).join('\u0000') === (b.args ?? []).join('\u0000');
@@ -30,6 +31,23 @@ const passed = (r: GateRun): boolean => !r.skipped && r.exitCode === 0;
  * only that row), so the other gates of the repo never ran and left no row to check.
  */
 const stoppedByRegenerate = (batch: readonly GateRun[]): boolean => batch.some((r) => regenerateRepoOf(r.gateName) !== null && !passed(r));
+
+/**
+ * The batch passes ran on the tree the fix round opened on. The re-run adds no commit, so the tree
+ * is that tree only when every worktree still has its recorded HEAD and holds no uncommitted or
+ * untracked change. No snapshot, or a probe that fails, cannot confirm it.
+ */
+async function treeUnchangedSince(store: Store, roundId: number, git: GitRunner): Promise<boolean> {
+  const heads = listFixRoundHeads(store, roundId);
+  if (heads.length === 0) return false;
+  for (const h of heads) {
+    const head = await git(['rev-parse', 'HEAD'], h.worktreePath);
+    if (head.exitCode !== 0 || head.stdout.trim() !== h.headSha) return false;
+    const status = await git(['status', '--porcelain'], h.worktreePath);
+    if (status.exitCode !== 0 || status.stdout.trim() !== '') return false;
+  }
+  return true;
+}
 
 /** The rows of the source stage's latest UAT batch (host re-run rows are not batches). */
 function latestBatch(runs: readonly GateRun[], stage: StageKey): GateRun[] {
@@ -45,7 +63,7 @@ function latestBatch(runs: readonly GateRun[], stage: StageKey): GateRun[] {
  * re-entry (`returnToSource` leaves `stages.attempt` as the failed verdict raised it). Without
  * baseline review UAT computes no fingerprint, so nothing is recorded and the full list runs.
  */
-export async function recordHostRerunPass(store: Store, ticketId: number, stage: StageKey, deps: HostRerunPassDeps): Promise<HostRerunPassResult> {
+export async function recordHostRerunPass(store: Store, ticketId: number, stage: StageKey, roundId: number, deps: HostRerunPassDeps): Promise<HostRerunPassResult> {
   if (stage !== 'uat') return 'not-uat';
   const manifest = deps.manifest();
   if (manifest === undefined || (manifest.uat?.baselineReview?.paths.length ?? 0) === 0) return 'baseline-review-off';
@@ -56,6 +74,7 @@ export async function recordHostRerunPass(store: Store, ticketId: number, stage:
   if (stoppedByRegenerate(batch)) return 'gate-not-passed';
   const covered = batch.every((row) => passed(row) || reruns.some((r) => passed(r) && sameGate(r, row)));
   if (!covered) return 'gate-not-passed';
+  if (!(await treeUnchangedSince(store, roundId, deps.git))) return 'tree-changed';
   const repos = new Set(batch.map((r) => r.repo));
   const worktrees = listWorktreesByTicket(store, ticketId).filter((w) => repos.has(w.repo));
   const fingerprint = await (deps.fingerprint ?? fingerprintTicket)(store, manifest, ticketId, worktrees.map((w) => ({ repo: w.repo, path: w.path })), { git: deps.git });

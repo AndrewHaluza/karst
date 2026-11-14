@@ -275,9 +275,9 @@ function rerunDepsOf(deps: GateRerunDeps): HostRerunDeps {
   return {
     runGates: makeGateRerun(deps),
     ...(deps.debug ? { debug: deps.debug } : {}),
-    onPassed: async (ticketId, stage) => {
+    onPassed: async (ticketId, stage, roundId) => {
       try {
-        const result = await recordHostRerunPass(deps.store, ticketId, stage, {
+        const result = await recordHostRerunPass(deps.store, ticketId, stage, roundId, {
           manifest: deps.manifest ?? (() => undefined),
           git: deps.git ?? defaultGitRunner,
           ...(deps.fingerprint ? { fingerprint: deps.fingerprint } : {}),
