@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   gate_snapshot     TEXT,                 -- JSON {"uat":[names],"review":[names]}: the gates the branch was cut with (@arch:GATE-SNAPSHOT); NULL = no snapshot, every gate runs
   -- v119 last hook activity (kept in sync with migrations.ts v119 ALTER):
   last_hook_at      TEXT,                 -- ISO time of the newest hook event dispatch accepted for the ticket; the fix stall watchdog counts it as progress; NULL = none seen
+  -- v123 background wait deadline (kept in sync with migrations.ts v123 ALTER):
+  background_wait_until TEXT,           -- ISO deadline of the agent's open background wait (dispatch writes it, a woken turn or SessionEnd clears it); the fix stall watchdog counts it as progress; NULL = no wait
   -- v44 provider-native priority label (kept in sync with migrations.ts v44 ALTER):
   priority          TEXT,                 -- 'urgent' | 'high' | 'normal' | ... ; NULL = provider did not expose it
   priority_override TEXT CHECK (priority_override IN ('urgent', 'high', 'normal', 'low')), -- v113: the priority the user set in karst; a fetch never writes it; NULL = none

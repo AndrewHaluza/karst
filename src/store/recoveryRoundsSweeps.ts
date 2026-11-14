@@ -153,6 +153,8 @@ export interface SweepStalledFixOpts {
    * window. `null` (no project bound) settles nothing.
    */
   projectId: number | null;
+  /** Debug line sink: the sweep reports each ticket it skips for a background wait. */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -177,9 +179,18 @@ export interface SweepStalledFixOpts {
  * fix round is `fixing`, so counting one would let unrelated work reset the clock and mask a
  * genuinely stalled fix — the exact false negative this sweep exists to close.
  *
+ * A background wait is a known state, not silence (T1136). When the agent launches a background
+ * command and ends its turn, dispatch writes the wait deadline to `tickets.background_wait_until`
+ * (a woken turn, a real prompt, the marker or the session end clears it). A ticket whose deadline
+ * is later than `at` is skipped, with one debug line. A deadline that has passed counts as a
+ * progress moment, so the normal window applies from the deadline: a wait lasts its deadline plus
+ * `timeoutMs`, never longer, and a hung background job still parks. The column, not memory, is the
+ * reading, so a sweep in another window sees the wait.
+ *
  * `recovery_rounds` carries NO `updated_at` column, so a round's own row is not a progress
- * signal. An agent working silently past the timeout is parked though it was working — an
- * accepted false positive, bounded by the configurable window and recoverable by a retry.
+ * signal. An agent working silently past the timeout, with no background wait, is parked though it
+ * was working — an accepted false positive, bounded by the configurable window and recoverable by
+ * a retry.
  *
  * PROJECT-SCOPED, unlike the sibling sweep: the window's `timeoutMs` comes from
  * ITS project's manifest, and the registry is shared by every window, so a
@@ -211,7 +222,8 @@ export function sweepStalledFixRounds(
               run.started_at AS run_started_at,
               (SELECT MAX(started_at) FROM process_runs
                 WHERE ticket_id = r.ticket_id AND process_id = 'guide-pull') AS latest_guide_pull_at,
-              (SELECT last_hook_at FROM tickets WHERE id = r.ticket_id) AS last_hook_at
+              (SELECT last_hook_at FROM tickets WHERE id = r.ticket_id) AS last_hook_at,
+              (SELECT background_wait_until FROM tickets WHERE id = r.ticket_id) AS background_wait_until
          FROM recovery_rounds r
          JOIN process_runs run ON run.id = r.fix_process_run_id
         WHERE r.status = 'fixing' AND run.status = 'running'
@@ -227,13 +239,23 @@ export function sweepStalledFixRounds(
     run_started_at: string;
     latest_guide_pull_at: string | null;
     last_hook_at: string | null;
+    background_wait_until: string | null;
   }[];
 
   const stalled: StrandedFixRound[] = [];
   for (const row of rows) {
-    const moments = [row.run_started_at, row.latest_guide_pull_at, row.last_hook_at].filter(
-      (v): v is string => v !== null,
-    );
+    if (row.background_wait_until !== null && row.background_wait_until > opts.at) {
+      opts.debug?.(
+        `[fix-watchdog] ticket ${row.ticket_id}: fix not stalled, background wait open until ${row.background_wait_until}`,
+      );
+      continue;
+    }
+    const moments = [
+      row.run_started_at,
+      row.latest_guide_pull_at,
+      row.last_hook_at,
+      row.background_wait_until,
+    ].filter((v): v is string => v !== null);
     const progress = moments.reduce((a, b) => (a >= b ? a : b));
     if (progress >= cutoff) continue;
 

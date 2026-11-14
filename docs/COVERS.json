@@ -806,6 +806,9 @@
   "src/store/graph/**": [
     "arch:GRAPHRUN"
   ],
+  "src/store/hookActivity.ts": [
+    "arch:HOOK-LIVE"
+  ],
   "src/store/mergeChecks.ts": [
     "arch:GH-00"
   ],
@@ -863,6 +866,9 @@
   ],
   "src/store/queueItems.ts": [
     "arch:QUEUE-ORDER"
+  ],
+  "src/store/recoveryRoundsSweeps.ts#sweepStalledFixRounds": [
+    "arch:HOOK-LIVE"
   ],
   "src/store/schema.sql": [
     "arch:SCHEMA-CHECK"

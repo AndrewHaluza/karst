@@ -499,6 +499,29 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
   });
 
+  it('migrates a pre-v123 database by adding tickets.background_wait_until, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT NOT NULL)');
+    legacy.exec("INSERT INTO tickets (key, title) VALUES ('K-1', 'old')");
+    legacy.pragma('user_version = 122');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('background_wait_until');
+    expect(migrated.db.prepare('SELECT background_wait_until FROM tickets').get()).toEqual({ background_wait_until: null });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'background_wait_until')).toHaveLength(1);
+  });
+
   it('migrates a pre-v122 database by adding recovery_rounds.host_rerun_pid, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

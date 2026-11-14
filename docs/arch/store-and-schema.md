@@ -291,14 +291,20 @@ covers: src/cloud/sessionLinks.ts, src/cloud/sidebarView.ts, src/store/cloudSess
 - Reads resolve the ticket as `COALESCE(link.ticket_id, proposal.ticket_id)`, so an accepted draft appears on its new ticket with no copy hook; a discarded (or deleted) proposal makes the link unlinked. Sidebar view model: `cloudSessionsForSidebar` in `src/cloud/sidebarView.ts`; one icon per provider, newest-first menu when a provider has several sessions.
 END_DOC_BLOCK: [@arch:CLOUD-01]
 
+## [@arch:HOOK-LIVE] Hook liveness columns (v119, v123)
+covers: src/store/hookActivity.ts, src/store/recoveryRoundsSweeps.ts#sweepStalledFixRounds
+
+**Last hook activity (v119).** `tickets.last_hook_at TEXT NULL` holds the ISO time of the newest hook event that `dispatchHook` accepted for the ticket, for every core. Additive, NULL = none seen (no backfill). The fix stall watchdog counts it as progress (see the v123 background wait below), and a new hook event lifts a `FIX_PARKED_STALLED` park.
+
+**Background wait deadline (v123).** `tickets.background_wait_until TEXT NULL` holds the ISO deadline of the agent's open background wait. Additive, NULL = no wait (no backfill). `dispatchHook` writes it when a background launch extends the wait (it only moves forward). A woken task-notification turn, a real prompt, the done marker, or `SessionEnd` clears it. The fix stall watchdog reads the column, not memory, so a sweep in another window sees the wait. A ticket with a deadline later than the sweep clock is skipped, and a past deadline counts as a progress moment. A wait lasts its deadline plus the stall window, so a hung job still parks (T1136).
+END_DOC_BLOCK: [@arch:HOOK-LIVE]
+
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
 **Host re-run marker (v121).** `gate_runs.source TEXT NULL` is `'host-rerun'` for a row that the host gate re-run of a fix round wrote (@arch:AC-45), NULL for a UAT or review row (no backfill). `listGateRuns` hides the marked rows unless `includeHostRerun` is true, so `failedGatesOf` and the UAT batch readers never read them.
 
 **Autopilot stop head (v120).** `autopilot_tickets.stopped_head_sha TEXT NULL` holds the head a stop applies to, written with `stopped_reason` and cleared with it. Additive, NULL = none recorded (no backfill). The rules live in `@arch:AP-00`.
-
-**Last hook activity (v119).** `tickets.last_hook_at TEXT NULL` holds the ISO time of the newest hook event that `dispatchHook` accepted for the ticket, for every core. Additive, NULL = none seen (no backfill). The fix stall watchdog counts it as progress, and a new hook event lifts a `FIX_PARKED_STALLED` park.
 
 **Autopilot CI round mark (v118).** `autopilot_tickets.ci_round_at INTEGER NULL` holds the epoch ms an Autopilot CI round was sent. Additive, NULL = none (no backfill). It lets the driver re-ship to open PRs without the Confirm click (`@arch:AP-00`).
 

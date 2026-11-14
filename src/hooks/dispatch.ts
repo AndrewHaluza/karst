@@ -1,6 +1,11 @@
 import type { Store } from '../store/db.js';
 import { setAgentState, setSessionId } from '../store/tickets.js';
-import { stampHookActivity, liftStalledFixPark } from '../store/hookActivity.js';
+import {
+  stampHookActivity,
+  liftStalledFixPark,
+  extendBackgroundWaitUntil,
+  clearBackgroundWait,
+} from '../store/hookActivity.js';
 import { roundFixDecision } from '../workflow/fixAttempts.js';
 import { ticketIdForWorktreePath } from '../runtime/worktree.js';
 import type { AgentState } from '../model/types.js';
@@ -363,6 +368,11 @@ export class TurnTracker {
     this.waitDeadlines.set(ticketId, Math.max(this.waitDeadlines.get(ticketId) ?? 0, deadline));
   }
 
+  /** The wait deadline (epoch ms), or undefined when no wait is open. */
+  backgroundWaitDeadline(ticketId: number): number | undefined {
+    return this.waitDeadlines.get(ticketId);
+  }
+
   /** Whether the ticket is inside a background wait that has not reached its deadline. */
   backgroundWaitActive(ticketId: number, now: number = Date.now()): boolean {
     const deadline = this.waitDeadlines.get(ticketId);
@@ -450,6 +460,23 @@ export class TurnTracker {
     this.lastToolNames.delete(ticketId);
     this.nudges.delete(ticketId);
     this.endBackgroundWait(ticketId);
+  }
+}
+
+/** Best-effort: a defect persisting the wait may not change what a hook does. */
+function persistWaitDeadline(store: Store, ticketId: number, deadlineMs: number, debug?: (m: string) => void): void {
+  try {
+    extendBackgroundWaitUntil(store, ticketId, new Date(deadlineMs).toISOString());
+  } catch (error) {
+    debug?.(`[hook] ticket ${ticketId}: background wait not persisted: ${String(error)}`);
+  }
+}
+
+function persistWaitCleared(store: Store, ticketId: number, debug?: (m: string) => void): void {
+  try {
+    clearBackgroundWait(store, ticketId);
+  } catch (error) {
+    debug?.(`[hook] ticket ${ticketId}: background wait not cleared: ${String(error)}`);
   }
 }
 
@@ -827,6 +854,16 @@ export function dispatchHook(
     ) {
       tracker.endBackgroundWait(ticketId);
     }
+    // T1136: the persisted wait is the fix watchdog's reading. A woken turn is a live
+    // session (its hook events are progress), so it clears the column even though the
+    // tracker keeps the wait for the blue reading. SessionEnd clears it too.
+    if (
+      payload.hook_event_name === 'SessionEnd' ||
+      payload.hook_event_name === 'UserPromptSubmit' ||
+      !markerIsPending
+    ) {
+      persistWaitCleared(store, ticketId, debug);
+    }
     if (payload.hook_event_name === 'PostToolUse' && payload.tool_name) {
       tracker.recordToolUse(ticketId, payload.tool_name);
       if (lifecycleProvider !== null) {
@@ -836,6 +873,8 @@ export function dispatchHook(
           BACKGROUND_TOOL_NAMES[lifecycleProvider].has(payload.tool_name);
         if (alwaysBackground || flagged) {
           tracker.extendBackgroundWait(ticketId, payload.timeout_ms ?? BACKGROUND_WAIT_DEFAULT_MS);
+          const deadline = tracker.backgroundWaitDeadline(ticketId);
+          if (deadline !== undefined) persistWaitDeadline(store, ticketId, deadline, debug);
         }
       }
     }
