@@ -68,14 +68,22 @@ describe('renderPrDescription', () => {
 });
 
 describe('buildPrDescriptionPrompt', () => {
-  it('instructs the AI body to state a changed gate set when one happened', () => {
-    expect(buildPrDescriptionPrompt({ title: 'KAR-1', gateSetChanged: true })).toContain(
-      'The gate set for this ticket changed since the previous attempt of a gate stage',
-    );
+  it('leaves the gate-set warning to code, never to the model', () => {
+    expect(buildPrDescriptionPrompt({ title: 'KAR-1', gateSetChanged: true })).not.toContain('gate set');
   });
 
-  it('stays silent about the gate set when nothing changed', () => {
-    expect(buildPrDescriptionPrompt({ title: 'KAR-1' })).not.toContain('gate set');
+  it('asks for one JSON object and names the schema keys', () => {
+    const prompt = buildPrDescriptionPrompt({ title: 'KAR-1' });
+    for (const key of ['summary', 'behavior', 'whereToLook', 'risk', 'needsHuman']) {
+      expect(prompt).toContain(`"${key}"`);
+    }
+    expect(prompt).toContain('one JSON object');
+    expect(prompt).not.toContain('Start directly with the description');
+  });
+
+  it('follows the structured-output form of the core', () => {
+    expect(buildPrDescriptionPrompt({ title: 'T' }, 'tool')).toContain('StructuredOutput tool');
+    expect(buildPrDescriptionPrompt({ title: 'T' }, 'final-document')).toContain('final message');
   });
 
   // The reported bug (PR #117): the model was told only "the changes in this
@@ -101,9 +109,8 @@ describe('buildPrDescriptionPrompt', () => {
     expect(prompt).toContain(
       'Diff (full):\ndiff --git a/src/workflow/ship.ts b/src/workflow/ship.ts\n+fix',
     );
-    expect(prompt).toContain(
-      'Base the description ONLY on the material above. Do not run commands, open files, or inspect the repository — everything you need is included.',
-    );
+    expect(prompt).toContain('Base the description ONLY on the material above');
+    expect(prompt).toContain('Do not run commands, open files, or inspect the repository');
   });
 
   it('omits branch material that is absent — the title alone still asks the question', () => {

@@ -26,6 +26,14 @@ import {
   sanitizePrDescription,
   type PrDescriptionContext,
 } from '../prDescription.js';
+import {
+  GATE_SET_CHANGED_LINE,
+  PR_DESCRIPTION_OUTPUT_SCHEMA,
+  parsePrDescriptionAnswer,
+  renderNarrative,
+} from '../prDescriptionAnswer.js';
+import { headlessPreview } from '../../agent/headlessSpawn.js';
+import { structuredOutputFormOf } from '../../agent/surfaces.js';
 import { upsertDesignRulesSection, type ArchCitation } from '../../model/archCitations.js';
 import { openStepWithPreparation, type ShipProgress } from './shipStore.js';
 
@@ -39,34 +47,55 @@ import { openStepWithPreparation, type ShipProgress } from './shipStore.js';
  * and the AI adapter, but none of the git/GitHub orchestration around it.
  */
 
+/** What one describe call produced: the body, and a note when the AI answer was not used. */
+interface DescribeResult {
+  body: string;
+  note?: string;
+}
+
 /**
- * Ask the agent (cheap model) for a PR description; falls back to the title.
+ * Ask the agent (cheap model) for the PR description DATA; code renders the body.
  *
- * The answer is sanitized, not trusted: an agent asked a chat-shaped question
- * answers with chat-shaped scaffolding (a "no PR open yet … copy-paste ready"
- * status line, a preamble, the whole body inside a code fence), and this text
- * goes straight into public GitHub metadata. `prDescription.ts` owns both halves
- * — the prompt, which hands the model the branch facts and asks for a clean
- * body, and the filter that enforces it.
+ * The agent answers with one JSON object (`prDescriptionAnswer.ts`). Fallback
+ * ladder, never a failed ship: text that is not JSON goes through the
+ * sanitizer as before; JSON that fails validation yields the template body and
+ * a describe-step note (the sanitizer would publish raw JSON in a public PR);
+ * a failed agent call keeps the caller's path. `prDescription.ts` owns the
+ * prompt and the sanitizer.
  */
 async function describePr(
   adapter: AgentAdapter,
   cwd: string,
   ctx: PrDescriptionContext,
   ticketId: number,
-  processRunId?: number | null,
-  model?: string,
-  effort?: string,
-): Promise<string> {
+  processRunId: number | null | undefined,
+  model: string | undefined,
+  effort: string | undefined,
+  fallbackBody: (() => string) | undefined,
+  debug: ((message: string) => void) | undefined,
+): Promise<DescribeResult> {
+  const form = structuredOutputFormOf(adapter);
   const r = await adapter.runHeadless({
-    prompt: buildPrDescriptionPrompt(ctx),
+    prompt: buildPrDescriptionPrompt(ctx, form),
     cwd,
     minimalContext: true,
     model,
     effort,
+    ...(form !== undefined ? { outputSchema: PR_DESCRIPTION_OUTPUT_SCHEMA } : {}),
     tracking: { callSite: 'pr-description', ticketId, processRunId: processRunId ?? undefined },
   });
-  return sanitizePrDescription(r.raw, ctx.title);
+  const parsed = parsePrDescriptionAnswer(r.raw);
+  if (parsed.kind === 'ok') return { body: renderNarrative(parsed.answer, ctx) };
+  if (parsed.kind === 'not-json') {
+    debug?.(`[ship] ticket ${ticketId}: PR description answer is not JSON — sanitized text used: ${headlessPreview(r.raw)}`);
+    const text = sanitizePrDescription(r.raw, ctx.title);
+    return { body: ctx.gateSetChanged ? `${text}\n\n${GATE_SET_CHANGED_LINE}` : text };
+  }
+  debug?.(`[ship] ticket ${ticketId}: PR description answer is invalid (${parsed.reason}) — template body used: ${headlessPreview(r.raw)}`);
+  return {
+    body: fallbackBody ? fallbackBody() : ctx.title,
+    note: `AI description answer was invalid (${parsed.reason}) — template body used`,
+  };
 }
 
 function isAbort(err: unknown): boolean {
@@ -101,6 +130,7 @@ export async function generateDescription(
   onInsideProgress: (event: InsideProgressEvent) => void = () => {},
   assignment?: ProcessAssignmentSnapshot,
   fallbackBody?: () => string,
+  debug?: (message: string) => void,
 ): Promise<string> {
   onProgress({ repo, step: 'describe', status: 'run' });
   onInsideProgress({
@@ -150,7 +180,7 @@ export async function generateDescription(
     startedAt: at,
   });
   try {
-    const body = await describePr(
+    const { body, note } = await describePr(
       adapter,
       cwd,
       ctx,
@@ -158,10 +188,17 @@ export async function generateDescription(
       processRun.id,
       assignment?.model,
       assignment?.effort,
+      fallbackBody,
+      debug,
     );
     finishProcessRun(store, processRun.id, 'passed', nowIso());
-    finishShipRepoStep(store, step.id, { status: 'passed', detail: 'generated', endedAt: nowIso() });
-    onProgress({ repo, step: 'describe', status: 'pass' });
+    if (note !== undefined) {
+      finishShipRepoStep(store, step.id, { status: 'note', detail: note, endedAt: nowIso() });
+      onProgress({ repo, step: 'describe', status: 'note', detail: note });
+    } else {
+      finishShipRepoStep(store, step.id, { status: 'passed', detail: 'generated', endedAt: nowIso() });
+      onProgress({ repo, step: 'describe', status: 'pass' });
+    }
     // Retract the header, never `completed`: `pr-description` names no row
     // in the ship ledger (the real "Pull request" row is `id: 'pr'`, opened
     // by a LATER step), so a `completed` event here used to reuse that same

@@ -1548,6 +1548,7 @@ export async function shipTicket(
                 onInsideProgress,
                 process.assignment,
                 () => templateBody(ctx),
+                opts.debug,
               );
             }
             if (process === null) {
@@ -1577,6 +1578,7 @@ export async function shipTicket(
                 onInsideProgress,
                 undefined,
                 () => templateBody(ctx),
+                opts.debug,
               );
             }
             opts.debug?.(
