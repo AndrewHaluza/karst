@@ -28,11 +28,12 @@ export interface ConventionPreset {
  * tab pre-fills and "Reset" restores it, so the metadata the prompt asks for —
  * implementation agent provider, model, approach and session id — is what a PR
  * opens with by default. Editing the field (or clearing it) is what turns it
- * off. The webview cannot import TypeScript, so `webview.html` mirrors this
- * string; `webview.test.ts` pins the mirror.
+ * off. The GitHub PR header already shows the repository, so the template has
+ * no `{repo}` line; `{repo}` stays available to user templates. The Settings Git
+ * tab placeholder (`GitSection.tsx`) holds its own copy of this text.
  */
 export const DEFAULT_PR_DESCRIPTION_TEMPLATE =
-  '## Summary\n{description}\n\nTicket: {key}\nRepository: {repo}\n\n## Metadata\n' +
+  '## Summary\n{description}\n\nTicket: {key}\n\n## Metadata\n' +
   'Agent: {provider}\nModel: {model|default:n/a}\nApproach: {approach|default:n/a}\n' +
   'Session: {sessionId|default:n/a}';
 
