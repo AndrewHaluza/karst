@@ -23,10 +23,6 @@ async function open(page: Page, scenario: string, width: number): Promise<void> 
 }
 
 test.describe('Servers tab geometry (UI-R43/R45/R47)', () => {
-  test.beforeEach(({}, testInfo) => {
-    if (testInfo.project.name !== 'dark') testInfo.skip();
-  });
-
   for (const scenario of SCENARIOS) {
     for (const width of LAYOUT_WIDTHS) {
       test(`${scenario} @${width}: no sideways scroll, ordered regions, no nested scroller`, async ({ page }) => {

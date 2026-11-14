@@ -1,4 +1,6 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices, type PlaywrightTestOptions, type Project } from '@playwright/test';
+import { isMergeRun } from './tests/visual/layoutShards.js';
+import { outsideGrep, testIgnoreFor } from './tests/visual/projectFilter.js';
 import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
 import { WEB_SERVER_TIMEOUT_MS } from './tests/visual/serveLimits.mjs';
 
@@ -25,7 +27,10 @@ import { WEB_SERVER_TIMEOUT_MS } from './tests/visual/serveLimits.mjs';
  * mcr.microsoft.com/playwright:v1.63.0-noble image. A bare `npm run test:visual`
  * on macOS is a local smoke run; its diffs are not authoritative.
  *
- * CI runs the same image in .github/workflows/ci.yml's `visual` job. Pre-existing
+ * CI runs the same image in the `visual-shard` jobs of .github/workflows/ci.yml
+ * (the plan is scripts/visual-shards.mjs) and merges their reports in the
+ * `visual` job. There, KARST_LAYOUT_MERGE=1 runs the layout ledger verdict over
+ * the layout files of all shards, without a web server. Pre-existing
  * diff failures there are advisory, but a pull request's own added/changed
  * baseline that fails its own screenshot fails the job (scripts/visual-sweep-gate.mjs).
  */
@@ -35,6 +40,20 @@ import { WEB_SERVER_TIMEOUT_MS } from './tests/visual/serveLimits.mjs';
 // (ui:LAYOUT-SCOPE).
 const ALL_TITLES = /.*/;
 const UI_GREP = process.env['KARST_UI_GREP'] ? new RegExp(process.env['KARST_UI_GREP']) : undefined;
+
+/**
+ * A screenshot project. `testIgnore` and `grepInvert` drop, before any fixture
+ * setup, the tests that this project does not run (tests/visual/projectFilter.ts).
+ * A project-level `grepInvert` leaves the global `grep` (KARST_UI_GREP) in force.
+ */
+function screenshotProject(name: string, use: Partial<PlaywrightTestOptions>): Project {
+  return {
+    name,
+    testIgnore: testIgnoreFor(name),
+    grepInvert: outsideGrep(name),
+    use: { ...devices['Desktop Chrome'], channel: undefined, ...use },
+  };
+}
 
 // T992: one id per run. The webServer child inherits it and the cleanup reporter compares it; workers re-read this file and keep the id.
 process.env.KARST_VISUAL_RUN_ID ??= `${process.pid}-${Date.now()}`;
@@ -66,14 +85,20 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4317',
   },
 
-  webServer: {
-    // KARST_VISUAL_RUN_ID reaches serve.mjs, which records it; the cleanup reporter removes pages only of its own server.
-    command: 'node tests/visual/serve.mjs',
-    url: 'http://127.0.0.1:4317/healthz',
-    reuseExistingServer: !process.env.CI,
-    // Covers the whole serve.mjs start (bundles + fixtures + listen); it must exceed the 60 s fixture limit in serve.mjs.
-    timeout: WEB_SERVER_TIMEOUT_MS,
-  },
+  // The CI layout merge run (isMergeRun, tests/visual/layoutShards.ts) runs only layout-setup and layout-teardown.
+  // They open no page, so the job skips the fixture build of serve.mjs.
+  ...(isMergeRun()
+    ? {}
+    : {
+        webServer: {
+          // KARST_VISUAL_RUN_ID reaches serve.mjs, which records it; the cleanup reporter removes pages only of its own server.
+          command: 'node tests/visual/serve.mjs',
+          url: 'http://127.0.0.1:4317/healthz',
+          reuseExistingServer: !process.env.CI,
+          // Covers the whole serve.mjs start (bundles + fixtures + listen); it must exceed the 60 s fixture limit in serve.mjs.
+          timeout: WEB_SERVER_TIMEOUT_MS,
+        },
+      }),
 
   forbidOnly: !!process.env.CI,
   retries: 0,
@@ -93,30 +118,12 @@ export default defineConfig({
   ],
 
   projects: [
-    {
-      name: 'dark',
-      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
-    },
-    {
-      name: 'light',
-      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'light' },
-    },
-    {
-      name: 'hc',
-      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
-    },
-    {
-      name: 'dark-grayscale',
-      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
-    },
-    {
-      name: 'dark-reduced-motion',
-      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark', reducedMotion: 'reduce' },
-    },
-    {
-      name: 'catalog',
-      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
-    },
+    screenshotProject('dark', { colorScheme: 'dark' }),
+    screenshotProject('light', { colorScheme: 'light' }),
+    screenshotProject('hc', { colorScheme: 'dark' }),
+    screenshotProject('dark-grayscale', { colorScheme: 'dark' }),
+    screenshotProject('dark-reduced-motion', { colorScheme: 'dark', reducedMotion: 'reduce' }),
+    screenshotProject('catalog', { colorScheme: 'dark' }),
     // Layout-sanity gate. The top-level testMatch stays '**/*.visual.ts' so the
     // other projects never pick up these files. Setup clears the shards, `layout`
     // writes them (never fails on geometry), teardown renders the ledger verdict.
