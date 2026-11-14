@@ -289,11 +289,9 @@ async function guardedRound(d: AutopilotDeps, round: () => Promise<AutopilotResu
   }
 }
 
-/** The repos a base-moved failure names (the failed gates' repos), else the repo the block reason starts with. */
+/** The repos of the failed gates of a base-moved run, one budget target each. */
 function baseMovedTargets(failed: readonly { readonly repo: string }[], reason: string): BudgetTarget[] {
-  const repos = [...new Set(failed.map((g) => g.repo))].sort();
-  const fallback = /^(.+?): /.exec(reason)?.[1] ?? 'ship';
-  return (repos.length > 0 ? repos : [fallback]).map((repo) => ({ repo, signature: reason }));
+  return [...new Set(failed.map((g) => g.repo))].sort().map((repo) => ({ repo, signature: reason }));
 }
 
 /**
@@ -304,6 +302,8 @@ function baseMovedTargets(failed: readonly { readonly repo: string }[], reason: 
 async function runBaseMovedRound(d: AutopilotDeps, cfg: AutopilotConfig): Promise<AutopilotResult> {
   const state = baseMovedFailureState(d.store, d.ticketId);
   if (!state.available || !d.sendGateFailure) return { kind: 'nothing' };
+  // No gate exited non-zero (a refused or stopped gate): there is no failure for an agent to fix, so a person decides.
+  if (state.failed.length === 0) return { kind: 'nothing' };
   if (cfg.ci.policy === 'ask') return { kind: 'ask', reason: 'ci policy is ask' };
   const targets = baseMovedTargets(state.failed, state.reason);
   const head = state.run.headSha;

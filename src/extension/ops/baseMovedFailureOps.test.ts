@@ -49,6 +49,17 @@ describe('sendGateFailureToAgent', () => {
     expect(prompt).toContain('/art/base-moved-failure-');
     expect(d.afterServerChange).toHaveBeenCalledOnce();
   });
+  it('carries each failed gate and its excerpt in the reason, and says so when a gate printed nothing', async () => {
+    seed({ block: true, run: 'failed' });
+    const runId = openDeliverRun(store, { ticketId: id, headSha: 'abd', gates: ['unit', 'lint'], pid: 1, now: 'T2', kind: 'base-moved' });
+    recordDeliverGate(store, runId, { gateName: 'lint', repo: 'r', exitCode: 2, summary: null, startedAt: null, endedAt: null });
+    finishDeliverRun(store, runId, 'failed', 'T3');
+    const d = deps();
+    await sendGateFailureToAgent(d);
+    const prompt = (d.handOff as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(prompt).toContain('- r: gate "lint" exit 2: (the gate printed no output; run it on the merged tree to see the failure)');
+    expect(Object.values(d.written)[0]).toContain('the gate printed no output');
+  });
   it.each([
     ['no block', { block: false, run: 'failed' as const }],
     ['a passed run', { block: true, run: 'passed' as const }],

@@ -109,4 +109,15 @@ describe('autopilot on a base-moved-failed block (@arch:AP-00)', () => {
     expect((await autopilotTick(r.deps)).kind).toBe('nothing');
     expect(r.sendGate).not.toHaveBeenCalled();
   });
+
+  it('starts no round when no gate exited non-zero (a refused gate), and takes no budget', async () => {
+    setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null, blockedKind: 'base-moved-failed', blockedReason: 'fails when merged with origin/develop abc; CI tests this merge - r: gate "unit" could not run', blockedAt: 'T0' });
+    const runId = openDeliverRun(store, { ticketId: id, headSha: 'head1', gates: ['unit'], pid: 1, now: 'T0', kind: 'base-moved' });
+    recordDeliverGate(store, runId, { gateName: 'unit', repo: 'r', exitCode: null, summary: null, startedAt: null, endedAt: null });
+    finishDeliverRun(store, runId, 'failed', 'T1');
+    const r = rig();
+    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
+    expect(r.sendGate).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+  });
 });
