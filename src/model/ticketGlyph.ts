@@ -40,6 +40,11 @@ export function shipCiRunning(t: TicketWithStages): boolean {
   return t.shipCi === 'running' && t.stageCurrent === 'ship' && t.pausedAt == null;
 }
 
+/** Whether the host re-runs the gates of the active fix round (derived at load); a paused ticket never reads it. */
+export function hostRerunRunning(t: TicketWithStages): boolean {
+  return t.hostRerunning === true && t.stageCurrent !== 'closed' && t.pausedAt == null;
+}
+
 /**
  * Whether the ticket is blocked on the user — the needs-you signal, in one place
  * so the color, the badge and the facet can never disagree about it.
@@ -68,6 +73,11 @@ export function needsUser(t: TicketWithStages): boolean {
   // it waits on the user: it must never read as running. Checked after closed
   // so a finished ticket stays gray.
   if (t.pausedAt != null) return true;
+
+  // The host re-runs the gates of a refused fix marker; the agent waits by instruction (its idle
+  // prompt sets `waiting`), so nothing waits on the user. A derived reading, checked before the
+  // agent-state branches, after closed and paused.
+  if (hostRerunRunning(t)) return false;
 
   // A parent held by its own sub-tasks is NOT parked on the user: the wait is
   // on a machine or another ticket (design NDL-70 §5). This has to be checked
@@ -177,7 +187,7 @@ export function ticketGlyph(t: TicketWithStages): Glyph {
   // failure stays and the red reading returns when the session ends.
   if (agentWorkingOnFailedStage(t)) return 'blue';
   // Ship's own work or its PR CI is running: in progress, not parked on the user.
-  if (shipWorkRunning(t) || shipCiRunning(t)) return 'blue';
+  if (hostRerunRunning(t) || shipWorkRunning(t) || shipCiRunning(t)) return 'blue';
   // The same running-ship exception, applied to the residual `waiting` the
   // glyph function would otherwise paint amber: pass the running state so the
   // glyph, facet, badge and attention set all read "in progress", never

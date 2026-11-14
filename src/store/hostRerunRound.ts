@@ -74,3 +74,15 @@ export function hostRerunPassedBefore(store: Store, ticketId: number, sourceStag
     .get(ticketId, sourceStage, reason, exceptRoundId);
   return row !== undefined;
 }
+
+/**
+ * Whether the host re-run of a ticket's ACTIVE fix round is in flight (derived at load, never
+ * stored): the round is still `fixing` and the host claimed its one re-run. The claim is stamped
+ * before the gates run; closing the round passed or parking it ends the reading.
+ */
+export function readHostRerunning(store: Store, ticketId: number): boolean {
+  const row = store.db
+    .prepare("SELECT 1 AS hit FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' AND host_rerun_at IS NOT NULL LIMIT 1")
+    .get(ticketId);
+  return row !== undefined;
+}

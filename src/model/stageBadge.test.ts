@@ -211,3 +211,22 @@ describe('stageBadge CI running vs a waiting agent', () => {
     expect(stageBadge(t)).toMatchObject({ label: 'Needs you', glyph: 'amber' });
   });
 });
+
+describe('stageBadge while the host re-runs the gates of a fix round', () => {
+  it('reads blue Re-running gates, not Needs you, for a waiting agent', () => {
+    const t = ticket('fix', 'running', { hostRerunning: true, agentState: 'waiting' });
+    expect(stageBadge(t)).toMatchObject({ label: 'Re-running gates', glyph: 'blue' });
+  });
+  it('reads Needs you for a waiting agent with no re-run', () => {
+    const t = ticket('fix', 'running', { hostRerunning: false, agentState: 'waiting' });
+    expect(stageBadge(t)).toMatchObject({ label: 'Needs you', glyph: 'amber' });
+  });
+  it('a paused ticket stays Paused and amber', () => {
+    const t = ticket('fix', 'running', { hostRerunning: true, agentState: 'waiting', pausedAt: 'x' });
+    expect(stageBadge(t)).toMatchObject({ label: 'Paused', glyph: 'amber' });
+  });
+  it('a closed ticket stays gray', () => {
+    const t = ticket('closed', 'passed', { hostRerunning: true, agentState: 'waiting' });
+    expect(stageBadge(t).glyph).toBe('gray');
+  });
+});

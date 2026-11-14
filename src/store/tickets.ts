@@ -13,6 +13,7 @@ import { isKnownProvider } from '../agent/provider.js';
 import { isTicketType, TICKET_TYPES, type TicketType } from './ticketTypes.js';
 import { slugifyTitleKey } from './titleKey.js';
 import { nowIso } from '../model/time.js';
+import { readHostRerunning } from './hostRerunRound.js';
 import { isShipAwaitingMerge, readDeliverRunning, readShipCi, reportShipCiFailure, type ShipCi } from './shipCi.js';
 import { deleteGraphRunData, graphRunIdsForTicket } from './graph/graphRuns.js';
 import { formatId } from '../model/entityId.js';
@@ -143,6 +144,11 @@ export interface TicketWithStages extends Ticket {
    * mandatory CI of a shipped, awaiting-merge ticket still runs. Absent = null.
    */
   shipCi?: ShipCi;
+  /**
+   * Derived at read time, never stored: the host re-runs the gates of the ticket's active fix round
+   * now. The agent waits by instruction, so the ticket reads in progress, not "Needs you".
+   */
+  hostRerunning?: boolean;
   /**
    * Derived at read time, never stored: the current deliver run of a ship/awaiting-merge ticket
    * runs now. Absent for any other ticket. Ship's own work yields the needs-you reading.
@@ -459,7 +465,7 @@ export function generateTicketKey(
 export function getTicket(store: Store, id: number): TicketWithStages {
   const ticket = getBareTicket(store, id);
   const stages = loadStages(store, id);
-  return withShipCi(store, { ...ticket, stages });
+  return withHostRerunning(store, withShipCi(store, { ...ticket, stages }));
 }
 
 function loadStages(store: Store, id: number): Stage[] {
@@ -1137,8 +1143,14 @@ function withStages(store: Store, rows: readonly TicketRow[]): TicketWithStages[
     }
   }
   return rows.map((r) =>
-    withShipCi(store, { ...rowToTicket(r), stages: byTicket.get(r.id) ?? [] }),
+    withHostRerunning(store, withShipCi(store, { ...rowToTicket(r), stages: byTicket.get(r.id) ?? [] })),
   );
+}
+
+/** Attach the derived `hostRerunning` reading; only a ticket at the fix stage costs a query. */
+function withHostRerunning(store: Store, t: TicketWithStages): TicketWithStages {
+  if (t.stageCurrent !== 'fix') return t;
+  return { ...t, hostRerunning: readHostRerunning(store, t.id) };
 }
 
 /** Attach the derived `shipCi` and `deliverRunning` readings; only a ship/awaiting-merge ticket costs a query. */

@@ -16,7 +16,7 @@ export const MARKER_VIA_BRIDGE_ENV = 'KARST_MARKER_VIA_BRIDGE';
 
 /** The refusal text the host CLI gives when it handed the round to the extension. */
 export const HOST_RERUN_REQUESTED_REPLY =
-  `cannot mark this stage done: ${NO_NEW_COMMIT_REASON}. The host re-runs the failed gates now and reports the result. Stop now: do not make an empty commit and do not fire the marker again`;
+  `cannot mark this stage done: ${NO_NEW_COMMIT_REASON}. The host re-runs the failed gates now and reports the result. Watch it in the gates section of the fix Inside panel or with karst context. Stop now: do not make an empty commit and do not fire the marker again`;
 
 export type HostRerunRequestOutcome = { kind: 'not-applicable' } | { kind: 'requested'; message: string };
 
