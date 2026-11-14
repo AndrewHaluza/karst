@@ -837,6 +837,20 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
       expect(nodeRow(ctx, 131).status).toBe('running');
     });
 
+    it('a superseded (stale) process_run is not an orphan: its live pid is left alone', async () => {
+      linkProcess(ctx, 133, 7005, NOW);
+      ctx.db.prepare("UPDATE process_runs SET status = 'stale' WHERE id = 133").run();
+      insertNodeRun(ctx, 133, 'running', { processRunId: 133 });
+      const killed: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: liveFacts(7005),
+        killTree: (pid) => (killed.push(pid), 'killed'),
+      });
+      await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(killed).toEqual([]);
+      expect(nodeRow(ctx, 133).status).toBe('running');
+    });
+
     it('a refused kill leaves the node alone', async () => {
       linkProcess(ctx, 132, 7003, NOW);
       closeRun(132);

@@ -212,6 +212,12 @@ function drainingRevisionNumber(db: GraphDb, graphRunId: number): number | undef
   return row?.revision_number;
 }
 
+/** The statuses the transport's terminal-close handler writes. `stale` is NOT
+ *  one: a run is marked `stale` when a newer run of the same process OPENS
+ *  (superseded) or a sweep finds its pid gone — its pid may be a healthy
+ *  parallel node, so it is never evidence of an orphan. */
+const TERMINAL_CLOSE_STATUSES: ReadonlySet<string> = new Set(['passed', 'failed', 'interrupted']);
+
 /** A recorded process identity. `runClosed` is true once the `process_runs`
  *  row left `running` (its terminal closed) — a still-live pid then is an
  *  orphan, not another window's process. */
@@ -245,7 +251,7 @@ export function processOf(
     .prepare('SELECT pid, started_at, status FROM process_runs WHERE id = ?')
     .get(node.process_run_id) as ProcessRunRow | undefined;
   if (!row || row.pid === null) return null;
-  return { pid: row.pid, startedAt: row.started_at, runClosed: row.status !== 'running' };
+  return { pid: row.pid, startedAt: row.started_at, runClosed: TERMINAL_CLOSE_STATUSES.has(row.status) };
 }
 
 /** The two planner kinds the crash matrix judges, each on its own run status. */
@@ -263,7 +269,7 @@ function plannerProcessOf(db: GraphDb, planner: PlannerRunRow): ProcessIdentity 
     .prepare('SELECT pid, started_at, status FROM process_runs WHERE id = ?')
     .get(planner.process_run_id) as ProcessRunRow | undefined;
   if (!row || row.pid === null) return null;
-  return { pid: row.pid, startedAt: row.started_at, runClosed: row.status !== 'running' };
+  return { pid: row.pid, startedAt: row.started_at, runClosed: TERMINAL_CLOSE_STATUSES.has(row.status) };
 }
 
 /** The four-way attribution over the injected probes, awaited exactly like the
