@@ -32,7 +32,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   serverLogs: { screenshots: 8, layout: 30 },
   settings: { screenshots: 62, layout: 118 },
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
-  sidebar: { screenshots: 20, layout: 65 },
+  // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
+  sidebar: { screenshots: 24, layout: 70 },
   ticketForm: { screenshots: 30, layout: 90 },
   usage: { screenshots: 10, layout: 40 },
 };

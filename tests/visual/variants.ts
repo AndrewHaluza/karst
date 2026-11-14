@@ -793,6 +793,10 @@ const sidebarVariants = (): Variant[] => {
     ...CHIP_TIERS.map(([tier, width]) =>
       variant('sidebar', `stage-chip-${tier}`, s('planning-deps'), { width, themes: CHIP_THEMES }),
     ),
+    // T1103: a row with 3 references (Waits on + one chip + +N) at a full-word and a short-word host (@ui:UI-R57).
+    ...CHIP_TIERS.map(([tier, width]) =>
+      variant('sidebar', `waits-on-${tier}`, s('waits-on'), { width, themes: CHIP_THEMES }),
+    ),
     variant('sidebar', 'filtered', s('filtered')),
     variant('sidebar', 'cloud-sessions', s('cloud-sessions')),
     // T1091: the filter menu in a short window.

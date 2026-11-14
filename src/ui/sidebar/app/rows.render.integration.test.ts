@@ -97,41 +97,61 @@ describe('ticket row', () => {
     expect(h.query('.histlist .ticket')!.classList.contains('older')).toBe(true);
   });
 
-  it('shows a Blocked-by chip, a follow-up marker and the active-row mark', async () => {
-    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' })], parentKey: 'PAR-1', isActive: true })] }));
-    const chips = h.queryAll('.ticket .k-ticket-ref');
-    expect(chips.map(text)).toEqual(['Blocked by A-1', 'Blocked by B-2']);
+  it('shows Waits on with one chip and a +N button, a follow-up marker and the active-row mark', async () => {
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' }), ticketRefView({ ref: 'C-3' })], parentKey: 'PAR-1', isActive: true })] }));
+    expect(text(h.query('.ticket .refs-verb'))).toBe('Waits on');
+    expect(h.queryAll('.ticket .refs-line .k-ticket-ref').map(text)).toEqual(['A-1']);
+    const more = h.query<HTMLButtonElement>('.ticket button.refs-more')!;
+    expect(text(more)).toBe('+2');
+    expect(more.getAttribute('aria-expanded')).toBe('false');
     expect(text(h.query('.parentref'))).toBe('↳ PAR-1');
     expect(h.query('.ticket')!.classList.contains('active')).toBe(true);
+    expect(h.document.body.textContent).not.toMatch(/Blocked by/);
   });
 
-  it('wraps multiple blocker chips onto a new line instead of shrinking them (UI-R43, UI-R44)', async () => {
+  it('keeps the references outside the row click target, on their own line (UI-R09)', async () => {
     const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' })] })] }));
-    const css = h.document.querySelector('style')!.textContent!;
-    expect(css).toMatch(/\.rowopen\{[^}]*flex-wrap:wrap/);
-    expect(css).toMatch(/\.rowopen \.k-ticket-ref\{[^}]*flex:0 0 auto/);
-    expect(css).toMatch(/\.name\{[^}]*flex:1;/);
-    expect(css).toMatch(/\.rowopen\.has-refs \.name\{[^}]*flex:1 1 auto/);
-    expect(h.queryAll('.ticket .k-ticket-ref')).toHaveLength(2);
+    expect(h.query('.ticket .rowopen .k-ticket-ref')).toBeNull();
+    expect(h.query('.ticket .rowopen button')).toBeNull();
+    expect(h.query('.ticket > .refs')).not.toBeNull();
   });
 
-  it('marks only rows that carry reference chips, so an ordinary row keeps its stage on the title line', async () => {
-    const h = await mount(
-      stateWith({
-        current: [row(1), row(2, { blockedBy: [ticketRefView({ ref: 'A-1' })] })],
-      }),
-    );
-    const rows = h.queryAll('.ticket .rowopen');
-    expect(rows[0]!.classList.contains('has-refs')).toBe(false);
-    expect(rows[1]!.classList.contains('has-refs')).toBe(true);
+  it('opens the other chips inline on +N, and Escape closes them and returns focus to +N', async () => {
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' }), ticketRefView({ ref: 'C-3' })] })] }));
+    const list = h.query<HTMLElement>('.ticket .refs-list')!;
+    expect(list.hidden).toBe(true);
+    await h.click('.ticket button.refs-more');
+    expect(list.hidden).toBe(false);
+    expect(h.query('.ticket button.refs-more')!.getAttribute('aria-expanded')).toBe('true');
+    expect(Array.from(list.querySelectorAll('.k-ticket-ref')).map(text)).toEqual(['B-2', 'C-3']);
+    const more = h.query<HTMLButtonElement>('.ticket button.refs-more')!;
+    more.focus();
+    more.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await Promise.resolve();
+    expect(h.query('.ticket button.refs-more')!.getAttribute('aria-expanded')).toBe('false');
+    expect(h.document.activeElement).toBe(h.query('.ticket button.refs-more'));
   });
 
-  it('renders a proposal-only blocker as plain text inside the row target, never a nested button (UI-R09)', async () => {
+  it('closes the inline list on an outside click', async () => {
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' }), ticketRefView({ ref: 'B-2' })] })] }));
+    await h.click('.ticket button.refs-more');
+    expect(h.query('.ticket button.refs-more')!.getAttribute('aria-expanded')).toBe('true');
+    h.document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await Promise.resolve();
+    expect(h.query('.ticket button.refs-more')!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('renders a single reference with no +N button', async () => {
+    const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ ref: 'A-1' })] })] }));
+    expect(h.query('.ticket button.refs-more')).toBeNull();
+  });
+
+  it('renders a proposal-only reference as a plain chip, never a nested button (UI-R09)', async () => {
     const h = await mount(stateWith({ current: [row(1, { blockedBy: [ticketRefView({ draftId: 94 })] })] }));
     const chip = h.query('.ticket .k-ticket-ref')!;
     expect(chip.tagName).toBe('SPAN');
     expect(chip.querySelector('button')).toBeNull();
-    expect(text(chip)).toBe('Blocked by D94');
+    expect(text(chip)).toContain('D94');
   });
 
   it('renders a blocker line ONLY on failure (reason + attempt), never the plain status', async () => {

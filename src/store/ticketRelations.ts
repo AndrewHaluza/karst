@@ -473,6 +473,14 @@ export function listBlockers(store: Store, ticketId: number): TicketRelation[] {
   return listRelations(store, ticketId).filter((r) => r.kind === 'blocked-by');
 }
 
+/** The ids of the tickets that wait on `ticketId` (`blocked-by` rows aimed at it), oldest relation first. */
+export function listWaitingTicketIds(store: Store, ticketId: number): number[] {
+  const rows = store.db
+    .prepare("SELECT ticket_id AS id FROM ticket_relations WHERE kind = 'blocked-by' AND target_ticket_id = ? ORDER BY id")
+    .all(ticketId) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
 /**
  * One open blocker with its resolved target info and display label.
  * Built once per blocker: target ticket with ref, or dangling ref, or proposal-only.

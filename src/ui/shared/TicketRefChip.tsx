@@ -17,7 +17,7 @@ export interface TicketRefChipProps {
    * planning draft dependency needs (it reveals the draft card).
    */
   readonly linkTarget?: 'id' | 'chip';
-  /** Leading text, e.g. 'Blocked by ' on the sidebar row and dashboard header. */
+  /** Leading text, e.g. 'Waits on '. */
   readonly prefix?: string;
   /** Whether to show the key part in the visible text (defaults to true; sidebar row passes false to keep key in tooltip). */
   readonly showKey?: boolean;

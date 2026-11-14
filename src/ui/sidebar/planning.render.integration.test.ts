@@ -250,11 +250,11 @@ describe('sidebar planning drafts', () => {
       expect(draft(h, 94).querySelector('.pt-deps-row')).toBeNull();
     });
 
-    it('starts with the word needs, then one chip per dependency in order, as buttons', async () => {
+    it('starts with the words Waits on, then one chip per dependency in order, as buttons', async () => {
       const h = await renderSidebarApp();
       await withDeps(h);
       const row = draft(h, 95).querySelector('.pt-deps-row')!;
-      expect(row.firstElementChild!.textContent).toBe('needs');
+      expect(row.firstElementChild!.textContent).toBe('Waits on');
       expect(chips(h, 95).map((c) => c.tagName)).toEqual(['BUTTON', 'BUTTON', 'BUTTON']);
       expect(chips(h, 95).map((c) => c.textContent!.trim())).toEqual(['D94', 'D92→T605', 'D91→T604']);
     });
@@ -264,7 +264,7 @@ describe('sidebar planning drafts', () => {
       await withDeps(h);
       expect(chips(h, 97).map((c) => c.textContent!.trim())).toEqual(['D498 · P43', 'T610']);
       expect(chips(h, 97).map((c) => c.getAttribute('aria-label'))).toEqual([
-        'D498, draft pending', 'T610, Implementation',
+        'D498, draft pending, session P43', 'T610, Implementation',
       ]);
     });
 

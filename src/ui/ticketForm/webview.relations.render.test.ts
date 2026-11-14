@@ -44,7 +44,7 @@ function relation(refView: ReturnType<typeof ticketRefView>) {
   return {
     id: 1,
     kind: 'blocked-by',
-    kindLabel: 'Blocked by',
+    kindLabel: 'Waits on',
     ticketId: refView.ticketId,
     label: refView.label,
     writebackError: null,
@@ -53,7 +53,7 @@ function relation(refView: ReturnType<typeof ticketRefView>) {
 }
 
 describe('ticket form — relations card', () => {
-  it('shows the Relations heading, not Blocked by', () => {
+  it('shows the Relations heading, not Waits on', () => {
     const v = open(baseState({ relations: [relation(ticketRefView(ticket()))] }));
     const card = v.query<HTMLElement>('#dependenciesCard')!;
     expect(card.hidden).toBe(false);

@@ -108,7 +108,12 @@ export function ticketRefView(input: TicketWithStages | TicketRefInput | TicketR
   if (typeof input === 'object' && input !== null && 'displayTextParts' in input) {
     return input as TicketRefView;
   }
-  const view = buildRefView(input);
+  const built = buildRefView(input);
+  // The visible `· P43` is text next to the id; the link's name must carry it too (a screen reader hears only the name).
+  const session = built.displayTextParts.session;
+  const view = session && !('accessibleName' in input && input.accessibleName)
+    ? { ...built, accessibleName: `${built.accessibleName}, session ${session}` }
+    : built;
   return { ...view, chip: refChipParts(view) };
 }
 

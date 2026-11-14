@@ -1,16 +1,16 @@
-import { getProposalForTicket } from '../../store/planningProposals.js';
+import { getProposalForTicket, listPendingProposalsDependingOn } from '../../store/planningProposals.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listFixDeliveriesByRound } from '../../store/fixDeliveries.js';
 import type { RoundWithDelivery } from '../../model/inside/recovery.js';
 import type { Store } from '../../store/db.js';
 import { getTicket, listSubtasks } from '../../store/tickets.js';
-import { listOpenBlockers } from '../../store/ticketRelations.js';
+import { listOpenBlockers, listWaitingTicketIds } from '../../store/ticketRelations.js';
 import { isFinishedStage } from '../../model/types.js';
 import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
 import { subtaskAutostartPhase } from '../../model/subtask.js';
 import { formatId, formatTicketRef } from '../../model/entityId.js';
-import { ticketRefView } from '../shared/ticketRefView.js';
+import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
 import { buildStepper } from '../../model/stepper.js';
 import { queuedPositions, SLOT_STAGES } from '../../store/autostart.js';
 import { listCurrentPrsByTicket } from '../../store/prs.js';
@@ -65,6 +65,26 @@ function childAgent(child: Child, done: boolean, inputs: SubtaskAgentInputs): Da
 
 
 /**
+ * What this ticket unblocks (the reverse edges, host-derived per @ui:UI-R31): the
+ * tickets with a `blocked-by` row aimed at it, then the pending drafts that list
+ * it in `depends_on_tickets`. A hard-deleted ticket drops out.
+ */
+function readUnblocks(store: Store, ticketId: number): TicketRefView[] {
+  const views: TicketRefView[] = [];
+  for (const id of listWaitingTicketIds(store, ticketId)) {
+    try {
+      views.push(ticketRefView({ ticket: getTicket(store, id) }));
+    } catch {
+      continue;
+    }
+  }
+  for (const p of listPendingProposalsDependingOn(store, ticketId)) {
+    views.push(ticketRefView({ draftId: p.id }));
+  }
+  return views;
+}
+
+/**
  * The ticket's relations: follow-up parent, sub-task parent, direct sub-tasks
  * and open blockers, read in one fixed order for the dashboard snapshot.
  */
@@ -117,6 +137,7 @@ export function readRelations(store: Store, ticket: ReturnType<typeof getTicket>
     }
     return ticketRefView({ ref: b.label });
   });
+  const unblocks = readUnblocks(store, ticketId);
   const queue = queuedPositions(store, ticketId);
   const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {
     const child = getTicket(store, s.id);
@@ -140,7 +161,7 @@ export function readRelations(store: Store, ticket: ReturnType<typeof getTicket>
       queuePos: queue.get(s.id) ?? null,
     };
   });
-  return { parent, subtaskParent, subtaskList, blockers, subtasks };
+  return { parent, subtaskParent, subtaskList, blockers, unblocks, subtasks };
 }
 
 // Each round carries the receipt state of its stored fix brief (@arch:V77).
