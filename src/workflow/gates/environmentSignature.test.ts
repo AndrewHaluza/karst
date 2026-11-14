@@ -16,12 +16,24 @@ describe('environmentSignature', () => {
     ['the 40-failure skip', 'visual', 'flake re-run skipped: 41 screenshots fail (cap 40), a real break', 'more than 40 failing screenshots (the host environment is suspect)'],
     ['the wholesale skip', 'visual', '41 screenshots fail (cap 40): base likely drifted wholesale', 'more than 40 failing screenshots (the host environment is suspect)'],
     ['the port window', 'test:integration', 'no free window of 4 ports in [4100, 4200]', 'no free port window'],
+    ['a fixture spawn timeout', 'visual', '[WebServer] Failed to generate fixtures: Command failed: spawnSync /bin/sh ETIMEDOUT', 'a gate or test timeout'],
+    ['a fixture spawn timeout with ANSI codes', 'visual', '\u001b[2m[WebServer]\u001b[22m Failed to generate fixtures: spawnSync /bin/sh ETIMEDOUT', 'a gate or test timeout'],
+    ['a web server that cannot start', 'visual', 'Error: Process from config.webServer was not able to start. Exit code: 1', 'the gate web server could not start'],
+    ['a web server that cannot start with ANSI codes', 'visual', '\u001b[31mError: Process from config.webServer was not able to start.\u001b[0m', 'the gate web server could not start'],
   ])('%s gives a reason', (_label, gate, output, reason) => {
     expect(environmentSignature(gate, output)).toBe(reason);
   });
 
   it('returns null for an assertion failure', () => {
     expect(environmentSignature('test:unit', 'FAIL a.test.ts > x\nAssertionError: expected 1 to be 2')).toBeNull();
+  });
+
+  it('returns null when a test title only names ETIMEDOUT', () => {
+    expect(environmentSignature('test:unit', 'FAIL a.test.ts > maps ETIMEDOUT to a retry\nAssertionError: expected 1 to be 2')).toBeNull();
+  });
+
+  it('returns null for a spawnSync failure that is not a timeout', () => {
+    expect(environmentSignature('visual', 'Failed to generate fixtures: spawnSync /bin/sh ENOENT')).toBeNull();
   });
 
   it('returns null for empty output', () => {
