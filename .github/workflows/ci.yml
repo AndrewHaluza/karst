@@ -420,24 +420,92 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  visual:
-    name: Visual regression (blocks new breaks)
+  # The visual sweep runs in 4 parallel shards. scripts/visual-shards.mjs holds
+  # the plan and the measured times: dark split in two, the whole layout chain
+  # in one shard (its ledger verdict must see every route), and the other five
+  # projects in one shard. Each shard writes a blob report. The `visual` job
+  # merges the blobs and runs the gate; a screenshot diff never fails a shard.
+  visual-shard:
+    name: Visual shard (${{ matrix.shard }}/4)
     # Scheduled runs only carry branch-drift; skip the visual sweep on a timer.
     if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # The baselines under tests/visual/__baselines__/ carry no {platform} token
+    # (see playwright.config.ts's snapshotPathTemplate), so they are valid for
+    # exactly ONE rendering environment. This image is that environment, and its
+    # tag must stay in lockstep with the pinned @playwright/test version —
+    # a different tag ships a different Chromium and invalidates every PNG.
+    container: mcr.microsoft.com/playwright:v1.63.0-noble
+    # The longest shard ran about 310 s of tests on develop (run 43596873718).
+    timeout-minutes: 20
+    strategy:
+      # Every shard must report: the `visual` job fails when one did not.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      # No actions/setup-node here on purpose (see the `visual` job).
+      - name: Report the container's Node version
+        run: |
+          node --version
+          echo "expected major: $(cat .nvmrc)"
+
+      - run: npm ci
+
+      # Fixture generation needs the webview sender bundles (see the `visual` job history, NDL-218).
+      - name: Build the webview bundles
+        run: node scripts/build-webview-send.mjs
+
+      # A red screenshot does not fail the shard: the `visual` job judges the
+      # merged report. A shard that writes no blob fails at the upload step.
+      - name: Run the visual shard
+        shell: bash
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
+        run: |
+          read -r -a args <<< "$(node scripts/visual-shards.mjs '${{ matrix.shard }}')"
+          set +e
+          npx playwright test "${args[@]}" --add-reporter=blob
+          code=$?
+          set -e
+          echo "Playwright exit code: ${code} (advisory here; the visual job runs the gate)"
+
+      - name: Upload the shard's blob report
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-blob-${{ matrix.shard }}
+          path: blob-report/
+          if-no-files-found: error
+          retention-days: 1
+
+  visual:
+    # The develop ruleset requires this exact check name.
+    name: Visual regression (blocks new breaks)
+    needs: visual-shard
+    # always(): a failed or cancelled shard must turn this check red, never skip it.
+    if: always() && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     # github-script lists develop's runs to find the red-set artifact.
     permissions:
       contents: read
       actions: read
-    # The baselines under tests/visual/__baselines__/ carry no {platform} token
-    # (see playwright.config.ts's snapshotPathTemplate), so they are valid for
-    # exactly ONE rendering environment. This image is that environment, and its
-    # tag must stay in lockstep with the pinned @playwright/test version —
-    # a different tag ships a different Chromium and invalidates all 82 PNGs.
+    # Same image as the shards, so the merge and the gate run on the same Node.
     container: mcr.microsoft.com/playwright:v1.63.0-noble
-    # 7166 tests since the Inside ladder (T1090: 400/399/320 layout probes and mid/narrow/tight shots); 4635 ran in 20 min, so the sweep needs about 31.
-    timeout-minutes: 40
+    timeout-minutes: 15
     steps:
+      # Never pass on missing data: a shard that failed, was cancelled or was
+      # skipped leaves part of the sweep without a report.
+      - name: Require a report from every shard
+        if: needs.visual-shard.result != 'success'
+        run: |
+          echo "::error::A visual shard did not finish (result: ${{ needs.visual-shard.result }}), so the sweep has no complete report."
+          exit 1
+
       # Depth 2, not the default 1: on a pull_request the checkout is the merge
       # commit, and scripts/visual-sweep-gate.mjs diffs HEAD^1..HEAD (the base
       # tip against the merge) to learn which baselines THIS PR added or
@@ -460,19 +528,17 @@ jobs:
       # by tests/visual/serve.mjs to generate fixture pages) and the TypeScript
       # toolchain both come from here. install:visual-browsers is deliberately
       # NOT run — the image already provides Chromium.
-      - run: npm ci
-
+      #
       # The webview sender bundles (gitignored esbuild output of
-      # scripts/build-webview-send.mjs) must exist before the sweep: fixture
+      # scripts/build-webview-send.mjs) must exist before a shard runs: fixture
       # generation hydrates webview.html through the REAL injector chain, which
       # readFileSync's `webviewSend.webview.js`. Until NDL-218 only vitest's
       # globalSetup built them, so this job died on startup with
       # ENOENT webviewSend.webview.js — masked by `continue-on-error: true`.
       # serve.mjs now also builds them on demand (it is the path the docker
-      # script takes); doing it here as well fails fast and names the
+      # script takes); each shard builds them as well to fail fast and name the
       # prerequisite in the job log.
-      - name: Build the webview bundles
-        run: node scripts/build-webview-send.mjs
+      - run: npm ci
 
       # tests/visual is excluded from the main tsconfig, so its type errors are
       # only visible through this config — and they belong to this job, not to
@@ -528,24 +594,40 @@ jobs:
           run-id: ${{ steps.develop-red.outputs.run-id }}
           github-token: ${{ github.token }}
 
+      - name: Download the shard reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: visual-blob-*
+          path: all-blob
+          merge-multiple: true
+
+      # merge-reports runs the reporters of playwright.config.ts over the
+      # blobs: the json reporter writes tests/visual/.results.json and the html
+      # reporter writes tests/visual/.report/, as a single run did.
+      # The listing (no webServer, no browser) is the full sweep: the gate
+      # fails when the merged report lacks any listed test.
+      #
       # Blocking rules live in scripts/visual-sweep-gate.mjs, hence no
       # `continue-on-error` here: it fails the job for a run that executed zero
-      # tests (NDL-218), a baseline the PR itself added or changed that does not
+      # tests (NDL-218), a listed test that no shard reported, the layout
+      # verdict, a baseline the PR itself added or changed that does not
       # match its own screenshot (#769), and on a PR a screenshot that fails
       # here but is not red on develop. Screenshots red on develop stay
       # advisory, and so does everything when no develop red set was fetched.
-      - name: Run the visual sweep
+      - name: Merge the shard reports and run the gate
         id: visual
         run: |
           rm -f tests/visual/.results.json
+          npx playwright test --list --reporter=json > visual-listed.json
           set +e
-          npm run test:visual
+          npx playwright merge-reports --config playwright.config.ts all-blob
           code=$?
           set -e
           echo "playwright-exit-code=${code}" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.develop-red-download.outcome }}" = "success" ]; then
             export VISUAL_RED_DEVELOP="$PWD/develop-red/visual-red-develop.json"
           fi
+          export VISUAL_LISTED_REPORT="$PWD/visual-listed.json"
           node scripts/visual-sweep-gate.mjs
 
       - name: Publish the outcome to the run summary
@@ -554,8 +636,9 @@ jobs:
           {
             echo '## Visual regression'
             echo
-            echo "Sweep step outcome: \`${{ steps.visual.outcome }}\`"
-            echo "Playwright exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (screenshots already red on develop are advisory; the gate fails the job when zero tests ran, this PR's own added/changed baseline fails, or a screenshot is red here but not on develop)"
+            echo "Shard results: \`${{ needs.visual-shard.result }}\`"
+            echo "Gate step outcome: \`${{ steps.visual.outcome }}\`"
+            echo "merge-reports exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (screenshots already red on develop are advisory; the gate fails the job when a shard did not report, zero tests ran, the layout verdict fails, this PR's own added/changed baseline fails, or a screenshot is red here but not on develop)"
             echo
             if [ -f tests/visual/.results.json ]; then
               executed="$(node -e "const s = require('./tests/visual/.results.json').stats || {}; console.log((s.expected || 0) + (s.unexpected || 0) + (s.flaky || 0))" 2>/dev/null || echo 0)"
