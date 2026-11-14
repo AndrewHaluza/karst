@@ -192,7 +192,7 @@ exports[`dashboard region parity (DOM contract) > blocked #blocked · baseline r
     <div.facts>
       <button.k-btn.k-btn--primary.k-btn--sm data-act="baseline-open" type="button"> "Review"
         <svg.k-icon aria-hidden="true">
-      <button.k-btn.k-btn--secondary.k-btn--sm data-act="baseline-approve" data-block-id="baseline-review" data-indices="0" type="button"> "Approve all"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="baseline-approve-all" data-block-id="baseline-review" type="button"> "Approve all"
         <svg.k-icon aria-hidden="true">"
 `;
 
