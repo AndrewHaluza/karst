@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openStore } from '../../store/db.js';
-import { cancelGraphRunOnApproachChange } from './approachChange.js';
+import { bindApproachChangeCancel, cancelGraphRunOnApproachChange } from './approachChange.js';
 import type { CancelGraphRunDeps } from './cancel.js';
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 
@@ -68,5 +68,20 @@ describe('cancelGraphRunOnApproachChange', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toContain('4242');
     expect(h.runStatus()).toBe('planning');
+  });
+});
+
+describe('bindApproachChangeCancel', () => {
+  it('allows the change when no graph context exists', async () => {
+    const cancel = bindApproachChangeCancel(() => undefined, () => {});
+    expect(await cancel(1, 'direct')).toEqual({ ok: true });
+  });
+
+  it('refreshes once a run was cancelled', async () => {
+    const h = harness('planning');
+    const seen: number[] = [];
+    const cancel = bindApproachChangeCancel(() => h.deps, (id) => seen.push(id));
+    expect(await cancel(h.ticketId, 'direct')).toMatchObject({ ok: true });
+    expect(seen).toEqual([h.ticketId]);
   });
 });

@@ -45,3 +45,21 @@ export async function cancelGraphRunOnApproachChange(
       };
   }
 }
+
+/**
+ * The ticket form's `cancelGraphRunForApproachChange` dep, bound to a lazily
+ * resolved cancel context. No context (no graph store yet) means no graph run
+ * can exist, so the change is allowed. `onCancelled` refreshes the dashboard.
+ */
+export function bindApproachChangeCancel(
+  resolve: () => CancelGraphRunDeps | undefined,
+  onCancelled: (ticketId: number) => void,
+): (ticketId: number, approachId: string) => Promise<ApproachChangeCancel> {
+  return async (ticketId, approachId) => {
+    const deps = resolve();
+    if (!deps) return { ok: true };
+    const result = await cancelGraphRunOnApproachChange(deps, ticketId, approachId);
+    if (result.ok && result.cancelledGraphRunId !== undefined) onCancelled(ticketId);
+    return result;
+  };
+}
