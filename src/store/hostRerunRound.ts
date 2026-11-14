@@ -8,10 +8,10 @@ import type { Store } from './db.js';
  * restart mid-run — can never start another run. Returns false when the round
  * was already stamped (or is gone); the caller then does not re-run.
  */
-export function claimHostRerun(store: Store, roundId: number, at: string): boolean {
+export function claimHostRerun(store: Store, roundId: number, at: string, ownerPid: number = process.pid): boolean {
   const result = store.db
-    .prepare('UPDATE recovery_rounds SET host_rerun_at = ? WHERE id = ? AND host_rerun_at IS NULL')
-    .run(at, roundId);
+    .prepare('UPDATE recovery_rounds SET host_rerun_at = ?, host_rerun_pid = ? WHERE id = ? AND host_rerun_at IS NULL')
+    .run(at, ownerPid, roundId);
   return Number(result.changes) === 1;
 }
 
@@ -74,3 +74,70 @@ export function hostRerunPassedBefore(store: Store, ticketId: number, sourceStag
     .get(ticketId, sourceStage, reason, exceptRoundId);
   return row !== undefined;
 }
+
+/**
+ * The longest a host re-run reads in flight: the gate slot wait plus the longest UI gate run. A claim
+ * older than this belongs to a host that died mid-run, so the ticket returns to its normal reading.
+ */
+export const HOST_RERUN_READING_MAX_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Record that a claimed host re-run ended without closing or parking the round (the pre-brief re-run
+ * that failed: the agent then works the brief). `end_reason` ends the in-flight reading; the round
+ * stays `fixing`. Returns false when the round is not an open round or already has a reason.
+ */
+export function markHostRerunFailed(store: Store, roundId: number, reason: string): boolean {
+  const result = store.db
+    .prepare("UPDATE recovery_rounds SET end_reason = ? WHERE id = ? AND status IN ('pending','fixing') AND end_reason IS NULL")
+    .run(reason, roundId);
+  return Number(result.changes) === 1;
+}
+
+/**
+ * Whether the host re-run of a ticket's ACTIVE fix round is in flight (derived at load, never
+ * stored): the round is still `fixing`, the host claimed its one re-run less than
+ * `HOST_RERUN_READING_MAX_MS` ago, and no result was recorded. Closing the round passed, parking it,
+ * or `markHostRerunFailed` ends the reading.
+ */
+export function readHostRerunning(store: Store, ticketId: number, nowMs: number = Date.now()): boolean {
+  const cutoff = new Date(nowMs - HOST_RERUN_READING_MAX_MS).toISOString();
+  const row = store.db
+    .prepare(
+      "SELECT 1 AS hit FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' AND host_rerun_at IS NOT NULL AND host_rerun_at > ? AND end_reason IS NULL LIMIT 1",
+    )
+    .get(ticketId, cutoff);
+  return row !== undefined;
+}
+
+/** The reason a restart gives to a claimed host re-run it finds with no run behind it. */
+export const HOST_RERUN_ORPHANED_REASON = 'the host restarted during the re-run';
+
+/**
+ * At host start, end the in-flight reading of every open round whose claimed host re-run lost its
+ * owner: the claiming host's pid is gone (or was never recorded), so no run is behind the claim. A
+ * claim whose owner is alive belongs to another window and stays. The round stays open (the one
+ * re-run per round stays used). Returns the number of rounds ended.
+ */
+export function endOrphanedHostReruns(store: Store, isAlive: (pid: number) => boolean): number {
+  const claimed = store.db
+    .prepare(
+      "SELECT id, host_rerun_pid AS pid FROM recovery_rounds WHERE status IN ('pending','fixing') AND host_rerun_at IS NOT NULL AND end_reason IS NULL",
+    )
+    .all() as { id: number; pid: number | null }[];
+  let ended = 0;
+  for (const row of claimed) {
+    if (row.pid !== null && isAlive(row.pid)) continue;
+    if (markHostRerunFailed(store, row.id, HOST_RERUN_ORPHANED_REASON)) ended += 1;
+  }
+  return ended;
+}
+
+/** The reason an interrupt gives to a claimed host re-run it cuts short. */
+export const HOST_RERUN_INTERRUPTED_REASON = 'the round was interrupted during the host re-run';
+
+/**
+ * SQL for a `SET` clause of every writer that moves a round to `interrupted`. A claim with no result
+ * keeps a reason, so the round does not read as a re-run in flight when the driver reopens it
+ * (`host_rerun_at` stays set: the one re-run per round stays used). An existing reason stays.
+ */
+export const INTERRUPT_KEEPS_RERUN_ENDED_SQL = `end_reason = COALESCE(end_reason, CASE WHEN host_rerun_at IS NOT NULL THEN '${HOST_RERUN_INTERRUPTED_REASON}' END)`;

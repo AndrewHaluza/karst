@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { INTERRUPT_KEEPS_RERUN_ENDED_SQL } from './hostRerunRound.js';
 import { failSessionLaunchIntent } from './sessionLaunchIntents.js';
 import {
   type RecoverySourceStage,
@@ -240,7 +241,7 @@ export function sweepStalledFixRounds(
       const changed =
         store.db
           .prepare(
-            `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?,
+            `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?, ${INTERRUPT_KEEPS_RERUN_ENDED_SQL},
                interrupt_count = interrupt_count + 1
               WHERE id = ? AND status = 'fixing'`,
           )
@@ -335,7 +336,7 @@ export function sweepAbandonedFixLaunches(
       const interrupted =
         store.db
           .prepare(
-            `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?,
+            `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?, ${INTERRUPT_KEEPS_RERUN_ENDED_SQL},
                interrupt_count = interrupt_count + 1
              WHERE id = ? AND ticket_id = ? AND status = 'pending'`,
           )

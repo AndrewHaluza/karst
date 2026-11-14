@@ -4,7 +4,7 @@ import { activeFixRound } from '../store/recoveryRounds.js';
 import { listGateRuns, type GateRun } from '../store/gateRuns.js';
 import { finishProcessRun } from '../store/processRuns.js';
 import { roundById } from '../store/recoveryRounds.js';
-import { claimHostRerun, closeRoundPassed, hostRerunPassedBefore, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
+import { claimHostRerun, closeRoundPassed, hostRerunPassedBefore, markHostRerunFailed, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
 import { parkFixStage } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
 import { setAgentState, setStageCurrent } from '../store/tickets.js';
@@ -187,7 +187,11 @@ export async function hostRerunFailedGates(
     await notifyPassed(deps, ticketId, round.sourceStage, round.id);
     return { kind: 'passed', stage: round.sourceStage };
   }
-  if (!park) return { kind: 'failed', failures };
+  if (!park) {
+    // The round stays open for the agent's brief; the re-run is over, so the in-flight reading ends.
+    markHostRerunFailed(store, round.id, `the host re-run failed — ${describeFailures(failures)}`);
+    return { kind: 'failed', failures };
+  }
   const detail = describeFailures(failures);
   parkRound(store, ticketId, round.id, `no new commit, and the host re-run did not close the round — ${detail}. ${HOST_RERUN_WAY_OUT}`, now());
   return { kind: 'failed', failures };

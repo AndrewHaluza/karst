@@ -380,6 +380,7 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   manifest_path TEXT,     -- v108: the operator manifest file recorded when the fix round opened; NULL = none
   manifest_sha TEXT,      -- v108: sha256 of that file's bytes at that time; NULL = none or unreadable
   host_rerun_requested_at TEXT, -- v112: stamp of a refused host CLI fix marker that asked the extension for the host re-run
+  host_rerun_pid INTEGER, -- v122: the pid of the host that claimed the re-run; NULL = none recorded (a pre-v122 claim)
   CHECK (round <= max_rounds)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
