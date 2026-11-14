@@ -76,13 +76,35 @@ export function hostRerunPassedBefore(store: Store, ticketId: number, sourceStag
 }
 
 /**
- * Whether the host re-run of a ticket's ACTIVE fix round is in flight (derived at load, never
- * stored): the round is still `fixing` and the host claimed its one re-run. The claim is stamped
- * before the gates run; closing the round passed or parking it ends the reading.
+ * The longest a host re-run reads in flight: the gate slot wait plus the longest UI gate run. A claim
+ * older than this belongs to a host that died mid-run, so the ticket returns to its normal reading.
  */
-export function readHostRerunning(store: Store, ticketId: number): boolean {
+export const HOST_RERUN_READING_MAX_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Record that a claimed host re-run ended without closing or parking the round (the pre-brief re-run
+ * that failed: the agent then works the brief). `end_reason` ends the in-flight reading; the round
+ * stays `fixing`. Returns false when the round is not an open round or already has a reason.
+ */
+export function markHostRerunFailed(store: Store, roundId: number, reason: string): boolean {
+  const result = store.db
+    .prepare("UPDATE recovery_rounds SET end_reason = ? WHERE id = ? AND status IN ('pending','fixing') AND end_reason IS NULL")
+    .run(reason, roundId);
+  return Number(result.changes) === 1;
+}
+
+/**
+ * Whether the host re-run of a ticket's ACTIVE fix round is in flight (derived at load, never
+ * stored): the round is still `fixing`, the host claimed its one re-run less than
+ * `HOST_RERUN_READING_MAX_MS` ago, and no result was recorded. Closing the round passed, parking it,
+ * or `markHostRerunFailed` ends the reading.
+ */
+export function readHostRerunning(store: Store, ticketId: number, nowMs: number = Date.now()): boolean {
+  const cutoff = new Date(nowMs - HOST_RERUN_READING_MAX_MS).toISOString();
   const row = store.db
-    .prepare("SELECT 1 AS hit FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' AND host_rerun_at IS NOT NULL LIMIT 1")
-    .get(ticketId);
+    .prepare(
+      "SELECT 1 AS hit FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' AND host_rerun_at IS NOT NULL AND host_rerun_at > ? AND end_reason IS NULL LIMIT 1",
+    )
+    .get(ticketId, cutoff);
   return row !== undefined;
 }
