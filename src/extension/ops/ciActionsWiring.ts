@@ -9,6 +9,7 @@ import { clearOpenPrProbe } from '../../store/prs.js';
 import { armForcePushLease } from '../../store/worktrees.js';
 import { rebaseState } from '../../workflow/rebaseState.js';
 import { sendCiFailureToAgent } from './ciFailureOps.js';
+import { sendGateFailureToAgent } from './baseMovedFailureOps.js';
 import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
 import { deliverTargets, type DeliverPr } from '../../workflow/deliverState.js';
@@ -79,6 +80,20 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
       return path;
     },
     confirm: (detail) => i.confirm('Send CI failure to the agent?', detail, 'Send to agent'),
+    info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, handOff: i.handOff, afterServerChange: i.afterServerChange,
+  });
+}
+
+export function sendGateFailureAction(i: CiActionsInput): Promise<void> {
+  return sendGateFailureToAgent({
+    store: i.store, ticketId: i.ticketId,
+    writeLog: (name, text) => {
+      mkdirSync(i.artifactDir, { recursive: true });
+      const path = join(i.artifactDir, name);
+      writeFileSync(path, text);
+      return path;
+    },
+    confirm: (detail) => i.confirm('Send gate failure to the agent?', detail, 'Send to agent'),
     info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, handOff: i.handOff, afterServerChange: i.afterServerChange,
   });
 }
@@ -330,7 +345,7 @@ export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, p
       await seedMergedState(dir, merged.stdout.trim(), baseSha);
     },
     runGates: (merged) => runShipGates([{ ...pr, cwd: merged.cwd }], {
-      ...gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: async () => merged.sha,
+      ...gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: () => headShaOf(i, pr.cwd), // the TICKET head: the merge sha is a new synthetic commit on every run, so it cannot tell a round that changed nothing (@arch:AP-06)
       onProgress: i.afterServerChange, uiChanged: merged.uiChanged, uiSkipReason: merged.uiSkipReason, kind: 'base-moved',
     }),
   });

@@ -100,7 +100,7 @@ describe('checkBaseMoved', () => {
     const r = await checkBaseMoved(deps(g, { runGates: async () => 'r: gate "visual" failed (exit 1)' }));
     expect(r).toEqual({
       kind: 'failed', mergedSha: MERGED,
-      reason: `fails when merged with origin/develop ${BASE.slice(0, 9)}; CI tests this merge — r: gate "visual" failed (exit 1)`,
+      reason: `r: gate "visual" fails when merged with origin/develop ${BASE.slice(0, 9)}`,
     });
   });
 
@@ -371,6 +371,11 @@ describe('checkBaseMoved unknown reasons', () => {
 
 describe('baseMovedReason', () => {
   it('names the base ref, the 9-character base SHA and the failure', () => {
-    expect(baseMovedReason('develop', BASE, 'x')).toBe('fails when merged with origin/develop bbbbbbbbb; CI tests this merge — x');
+    expect(baseMovedReason('develop', BASE, 'x')).toBe('fails when merged with origin/develop bbbbbbbbb; CI tests this merge - x');
+  });
+
+  it('names the repository, the gate and the first failing line of a gate failure', () => {
+    expect(baseMovedReason('develop', BASE, 'r: gate "unit" failed (exit 1) — FAIL a.test.ts > b\nmore'))
+      .toBe('r: gate "unit" fails when merged with origin/develop bbbbbbbbb - FAIL a.test.ts > b');
   });
 });

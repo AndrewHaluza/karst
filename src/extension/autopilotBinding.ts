@@ -2,7 +2,7 @@ import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { getTicket } from '../store/tickets.js';
 import type { AutostartCaps } from '../workflow/subtaskAutostart.js';
-import { autopilotSweep, ciOutcome, conflictOutcome, postAutopilotNote } from './ops/autopilotWiring.js';
+import { autopilotSweep, ciOutcome, gateFailureOutcome, conflictOutcome, postAutopilotNote } from './ops/autopilotWiring.js';
 import type { ResolveConflictInput } from './ops/conflictResolveOps.js';
 import { approveCommand, retryCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './ops/autopilotCommandOps.js';
 import type { AutopilotKind, AutopilotOverride } from '../store/autopilot.js';
@@ -240,6 +240,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         placement: () => d.placement(id),
         ...(d.sandboxPreflight ? { sandboxPreflight: () => d.sandboxPreflight!(id) } : {}),
         sendCi: () => sentRound(id, () => ciOutcome(d.ciInput(id))),
+        sendGateFailure: () => sentRound(id, () => gateFailureOutcome(d.ciInput(id))),
         sendConflict: (repo) => sentRound(id, () => conflictOutcome(d.conflictInput(id, repo))),
         conflictRoundActive: () => d.conflictRoundActive(id),
         conflictRoundStalled: () => d.conflictRoundStalled(id),

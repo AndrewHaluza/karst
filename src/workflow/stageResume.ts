@@ -65,6 +65,8 @@ export function resumeBlockedStage(
   if (block.kind === 'tester-skipped') return { kind: 'refused' };
   // Origin holds foreign commits; Overwrite / Integrate is the user's call.
   if (block.kind === 'push-diverged') return { kind: 'refused' };
+  // A gate failed on the merge with the moved base; Send gate failure to agent is the user's answer (@arch:BLOCKED).
+  if (block.kind === 'base-moved-failed') return { kind: 'refused' };
   // Same shape: the stall question was asked and only the user's choice
   // (hint / continue / re-scope) answers it — a generic Resume would re-open
   // the very fix loop that was stopped.

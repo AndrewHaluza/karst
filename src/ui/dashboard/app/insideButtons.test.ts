@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mainActionOf, type MenuFlags } from './insideSlices.js';
 import { insideActionSentence } from './insideText.js';
 
-const NONE: MenuFlags = { sendBack: false, retry: null, reset: null, prFeedback: false, ci: false, rebase: false, autofixStop: false, deliverFailures: false };
+const NONE: MenuFlags = { sendBack: false, retry: null, reset: null, prFeedback: false, ci: false, gateFailure: false, rebase: false, autofixStop: false, deliverFailures: false };
 
 describe('mainActionOf', () => {
   it('returns null when the host offers no recovery action', () => {

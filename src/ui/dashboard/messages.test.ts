@@ -51,6 +51,7 @@ function actions(): DashboardActions {
     stallPlanning: vi.fn(),
     addressPrFeedback: vi.fn(),
     sendCiFailure: vi.fn(),
+    sendGateFailure: vi.fn(),
     autopilotOverride: vi.fn(),
     autopilotApproveOne: vi.fn(),
     autopilotStop: vi.fn(),
@@ -372,6 +373,13 @@ describe('routeAction', () => {
     // host action (which derives availability + the current stage itself).
     routeAction({ type: 'send-back-to-implement', stage: 'ship' }, a);
     expect(a.sendBackToImplement).toHaveBeenCalledOnce();
+  });
+
+  it('parses and dispatches send-gate-failure', () => {
+    expect(parseWebviewMessage({ type: 'send-gate-failure', repo: 'x' })).toEqual({ type: 'send-gate-failure' });
+    const a = actions();
+    routeAction({ type: 'send-gate-failure' }, a);
+    expect(a.sendGateFailure).toHaveBeenCalledOnce();
   });
 
   it('parses and dispatches the ship CI actions, dropping forged companions', () => {

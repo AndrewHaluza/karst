@@ -91,6 +91,19 @@ describe('resumeBlockedStage', () => {
     expect(stageBlock(store, t.id, 'uat')?.kind).toBe('tester-skipped');
   });
 
+  it('refuses to clear a base-moved-failed block — Send gate failure to agent is the answer', () => {
+    const t = createTicket(store, { key: 'RB-BM', title: 'thing' });
+    setStage(store, t.id, 'ship', {
+      status: 'pending',
+      blockedKind: 'base-moved-failed',
+      blockedReason: 'r: gate "unit" fails when merged with origin/develop abcdef123',
+      blockedAt: '2026-07-16T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    expect(resumeBlockedStage(store, t.id, t.id, 'ship')).toEqual({ kind: 'refused' });
+    expect(stageBlock(store, t.id, 'ship')?.kind).toBe('base-moved-failed');
+  });
+
   it('refuses to clear a usage-limit block — a retry cannot reset a quota (K11)', () => {
     const t = createTicket(store, { key: 'RB-UL', title: 'thing' });
     setStage(store, t.id, 'review', {

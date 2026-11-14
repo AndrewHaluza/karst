@@ -163,6 +163,7 @@ describe('sub-task events from the stage writer', () => {
       'subtask-integration-conflict': true,
       'tester-skipped': true,
       'push-diverged': true,
+      'base-moved-failed': true,
       'baseline-review': true,
       'review-stalled': true,
       'usage-limit': true,

@@ -108,6 +108,7 @@ export type WebviewMessage =
    */
   | { type: 'address-pr-feedback' }
   | { type: 'send-ci-failure' }
+  | { type: 'send-gate-failure' }
   /** Auto-fix controls (T1004). Each is payload-validated; the host owns every consequence. */
   | { type: 'autopilot-override'; mode: 'inherit' | 'on' | 'off' }
   | { type: 'autopilot-approve-one'; repo: string; kind: 'conflicts' | 'ci' }

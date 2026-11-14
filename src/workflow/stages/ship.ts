@@ -656,6 +656,24 @@ function parkShipPushDiverged(
   });
 }
 
+/** Park `ship` on `base-moved-failed`: a gate failed on the merge with the moved base, so nothing was pushed. */
+function parkShipBaseMovedFailed(
+  store: Store,
+  ticketId: number,
+  reason: string,
+  debug?: (message: string) => void,
+): void {
+  debug?.(`[driver] ticket ${ticketId}: parking 'ship' — base-moved-failed`);
+  setStage(store, ticketId, 'ship', {
+    status: 'pending',
+    verdict: null,
+    endedAt: null,
+    blockedKind: 'base-moved-failed',
+    blockedReason: reason,
+    blockedAt: nowIso(),
+  });
+}
+
 /** The remote's current sha for `refs/heads/<branch>`, or null when unreadable. */
 async function lsRemoteBranchSha(
   git: GitRunner,
@@ -1392,7 +1410,11 @@ export async function shipTicket(
           if (baseFailure !== null) {
             reconcileShipOperation(store, pushOp.intentId, 'failed', { resolvedAt: nowIso(), detail: baseFailure });
             finishShipRepoStep(store, pushOp.stepId, { status: 'failed', detail: baseFailure, endedAt: nowIso() });
-            throw new Error(baseFailure);
+            // The user decides (Send gate failure to agent), never a `failed` verdict: ship has no failed edge (@arch:BLOCKED).
+            parkShipBaseMovedFailed(store, opts.ticketId, baseFailure, opts.debug);
+            closeShipRun(store, run.id, 'failed', nowIso());
+            onInsideProgress(shipFinishedEvent(opts.ticketId, 'fail'));
+            return { prs: [] };
           }
           finalizeShipOperationIntent(
             store,
