@@ -7,6 +7,7 @@ import { transition } from './machine.js';
 import { parkGateStage } from '../store/stageBlocks.js';
 import { sendBackState, sendBackToImplement } from './sendBack.js';
 import { listInbox } from '../store/ticketMessages.js';
+import { setAutopilotStopped, setAutopilotPaused, setAutopilotStopAfter, getAutopilotTicket } from '../store/autopilot.js';
 import { markImplementDone } from './stages/implement.js';
 
 function seedPr(
@@ -362,5 +363,25 @@ describe('sendBackToImplement', () => {
     sendBackToImplement(store, id, { now: () => '2026-08-09T11:00:00.000Z' });
     const impl = getStage(store, id, 'impl')!;
     expect(impl.attempt).toBe(5);
+  });
+});
+
+describe('sendBackToImplement clears the autopilot stop (T1122)', () => {
+  it('clears stopped_reason and paused_reason, keeps stop_after and the budgets', () => {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'SB-AP', title: 't' }).id;
+    walkTo(store, id, 'ship');
+    setStage(store, id, 'ship', { status: 'passed' });
+    setAutopilotStopped(store, id, 'auto-fix stopped: ci round made no change');
+    setAutopilotPaused(store, id, 'auto-fix paused: sandbox down');
+    setAutopilotStopAfter(store, id);
+    store.db.prepare("INSERT INTO autopilot_budgets (ticket_id, repo, kind, attempts, extra, signature, round_head_sha) VALUES (?, 'r', 'ci', 2, 0, 's', 'abc')").run(id);
+    sendBackToImplement(store, id);
+    const t = getAutopilotTicket(store, id);
+    expect(t.stoppedReason).toBeNull();
+    expect(t.pausedReason).toBeNull();
+    expect(t.stopAfter).toBe(true);
+    const b = store.db.prepare("SELECT attempts, round_head_sha FROM autopilot_budgets WHERE ticket_id = ?").get(id);
+    expect(b).toEqual({ attempts: 2, round_head_sha: 'abc' });
   });
 });
