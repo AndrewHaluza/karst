@@ -68,7 +68,7 @@ covers: src/recovery/reconcile.ts#reconcileOnStart, src/recovery/reconcile.ts#de
 
 SQLite is source of truth; `reconcileOnStart`/`deriveStageCurrent` re-derive on boot.
 `openStore` retries the WAL switch on SQLITE_BUSY (bounded, ~5 s) because the busy handler does not cover a journal-mode change.
-`reconcileOnStart` also ends the in-flight reading of a host re-run (`endOrphanedHostReruns`): no re-run survives a restart, so an open fix round with a claim and no result gets an `end_reason` and stays open. The `hostRerunning` reading of a ticket at `fix` is derived at load (`readHostRerunning`), never stored.
+`reconcileOnStart` also ends the in-flight reading of a host re-run whose owner died (`endOrphanedHostReruns`): an open fix round whose claim has no result and whose claiming host pid (`recovery_rounds.host_rerun_pid`, v122) is not alive gets an `end_reason` and stays open. A claim of a live window stays. The `hostRerunning` reading of a ticket at `fix` is derived at load (`readHostRerunning`), never stored.
 END_DOC_BLOCK: [@arch:SQLITE]
 
 ## [@arch:PROJECTS] Projects scope the board across IDE windows

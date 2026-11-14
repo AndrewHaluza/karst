@@ -8,10 +8,10 @@ import type { Store } from './db.js';
  * restart mid-run — can never start another run. Returns false when the round
  * was already stamped (or is gone); the caller then does not re-run.
  */
-export function claimHostRerun(store: Store, roundId: number, at: string): boolean {
+export function claimHostRerun(store: Store, roundId: number, at: string, ownerPid: number = process.pid): boolean {
   const result = store.db
-    .prepare('UPDATE recovery_rounds SET host_rerun_at = ? WHERE id = ? AND host_rerun_at IS NULL')
-    .run(at, roundId);
+    .prepare('UPDATE recovery_rounds SET host_rerun_at = ?, host_rerun_pid = ? WHERE id = ? AND host_rerun_at IS NULL')
+    .run(at, ownerPid, roundId);
   return Number(result.changes) === 1;
 }
 
@@ -113,15 +113,21 @@ export function readHostRerunning(store: Store, ticketId: number, nowMs: number 
 export const HOST_RERUN_ORPHANED_REASON = 'the host restarted during the re-run';
 
 /**
- * At host start nothing of this process runs yet, so every open round that holds a claim with no
- * result is orphaned: its re-run died with the previous host. End the in-flight reading of each; the
- * round stays open (the one re-run per round stays used). Returns the number of rounds ended.
+ * At host start, end the in-flight reading of every open round whose claimed host re-run lost its
+ * owner: the claiming host's pid is gone (or was never recorded), so no run is behind the claim. A
+ * claim whose owner is alive belongs to another window and stays. The round stays open (the one
+ * re-run per round stays used). Returns the number of rounds ended.
  */
-export function endOrphanedHostReruns(store: Store): number {
-  const result = store.db
+export function endOrphanedHostReruns(store: Store, isAlive: (pid: number) => boolean): number {
+  const claimed = store.db
     .prepare(
-      "UPDATE recovery_rounds SET end_reason = ? WHERE status IN ('pending','fixing') AND host_rerun_at IS NOT NULL AND end_reason IS NULL",
+      "SELECT id, host_rerun_pid AS pid FROM recovery_rounds WHERE status IN ('pending','fixing') AND host_rerun_at IS NOT NULL AND end_reason IS NULL",
     )
-    .run(HOST_RERUN_ORPHANED_REASON);
-  return Number(result.changes);
+    .all() as { id: number; pid: number | null }[];
+  let ended = 0;
+  for (const row of claimed) {
+    if (row.pid !== null && isAlive(row.pid)) continue;
+    if (markHostRerunFailed(store, row.id, HOST_RERUN_ORPHANED_REASON)) ended += 1;
+  }
+  return ended;
 }

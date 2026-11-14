@@ -64,13 +64,30 @@ describe('the derived hostRerunning reading of a loaded ticket', () => {
     expect(getTicket(store, ticketId).hostRerunning).toBe(true);
   });
 
-  it('a host restart ends the reading of an orphaned claim', () => {
-    claimHostRerun(store, roundId, new Date().toISOString());
-    reconcileOnStart(store, () => false);
+  it('a host restart ends the reading of a claim whose owner is dead', () => {
+    claimHostRerun(store, roundId, new Date().toISOString(), 424242);
+    reconcileOnStart(store, (pid) => pid !== 424242);
     expect(readHostRerunning(store, ticketId)).toBe(false);
     const row = store.db.prepare('SELECT status, end_reason AS r FROM recovery_rounds WHERE id = ?').get(roundId) as { status: string; r: string };
     expect(row.status).toBe('fixing');
     expect(row.r).toMatch(/restart/);
+  });
+
+  it('a boot in another window leaves a claim whose owner is alive', () => {
+    claimHostRerun(store, roundId, new Date().toISOString(), 424242);
+    reconcileOnStart(store, () => true);
+    expect(readHostRerunning(store, ticketId)).toBe(true);
+  });
+
+  it('a claim with no recorded owner is treated as dead', () => {
+    store.db.prepare('UPDATE recovery_rounds SET host_rerun_at = ? WHERE id = ?').run(new Date().toISOString(), roundId);
+    reconcileOnStart(store, () => true);
+    expect(readHostRerunning(store, ticketId)).toBe(false);
+  });
+
+  it('the claim records the owner pid', () => {
+    claimHostRerun(store, roundId, AT, 777);
+    expect(store.db.prepare('SELECT host_rerun_pid AS p FROM recovery_rounds WHERE id = ?').get(roundId)).toEqual({ p: 777 });
   });
 
   it('a restart leaves a round with no claim alone', () => {

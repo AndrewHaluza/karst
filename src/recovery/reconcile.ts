@@ -172,8 +172,8 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
   let awaitingSubtaskParents: number[] = [];
 
   const restore = store.db.transaction(() => {
-    // A claimed host re-run has no run behind it after a restart: end its in-flight reading.
-    endOrphanedHostReruns(store);
+    // A claimed host re-run whose owning host is gone has no run behind it: end its in-flight reading.
+    endOrphanedHostReruns(store, isAlive);
 
     for (const ticket of listTickets(store)) {
       const stages = healEntryStages(store, ticket.id, ticket.stages);
