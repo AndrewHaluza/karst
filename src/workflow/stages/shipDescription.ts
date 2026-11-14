@@ -84,7 +84,16 @@ async function describePr(
     ...(form !== undefined ? { outputSchema: PR_DESCRIPTION_OUTPUT_SCHEMA } : {}),
     tracking: { callSite: 'pr-description', ticketId, processRunId: processRunId ?? undefined },
   });
-  const parsed = parsePrDescriptionAnswer(r.raw);
+  // opencode cores join narration with the answer in `raw`; `finalMessage` is the
+  // answer alone, so it is parsed first and `raw` is the fallback text.
+  const finalParsed =
+    r.finalMessage !== undefined && r.finalMessage.trim() !== ''
+      ? parsePrDescriptionAnswer(r.finalMessage)
+      : undefined;
+  const parsed =
+    finalParsed !== undefined && finalParsed.kind !== 'not-json'
+      ? finalParsed
+      : parsePrDescriptionAnswer(r.raw);
   if (parsed.kind === 'ok') return { body: renderNarrative(parsed.answer, ctx) };
   if (parsed.kind === 'not-json') {
     debug?.(`[ship] ticket ${ticketId}: PR description answer is not JSON — sanitized text used: ${headlessPreview(r.raw)}`);

@@ -2356,6 +2356,20 @@ setTimeout(() => {
       expect(seen.prompt).toContain('one JSON object');
     });
 
+    it('reads the final message of a core whose raw joins narration with the answer', async () => {
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => ({
+          sessionId: 's',
+          verdict: null,
+          raw: 'Let me write that.\n{"summary":"Narrated.","behavior":null}',
+          finalMessage: '{"summary":"Narrated.","behavior":null}',
+        }),
+      };
+      const { body } = await shipWith(adapter);
+      expect(body).toBe('Narrated.');
+    });
+
     it('sanitizes text that is not JSON', async () => {
       const { body } = await shipWith(answerAdapter('The search feature now works.', true));
       expect(body).toBe('The search feature now works.');
