@@ -1126,7 +1126,12 @@ export function buildTicketFormActions(
 
     async setApproach(id: string): Promise<void> {
       if (ctx.ticketId !== undefined && deps.cancelGraphRunForApproachChange) {
-        const cancel = await deps.cancelGraphRunForApproachChange(ctx.ticketId, id);
+        let cancel: { ok: true } | { ok: false; message: string };
+        try {
+          cancel = await deps.cancelGraphRunForApproachChange(ctx.ticketId, id);
+        } catch (e) {
+          cancel = { ok: false, message: `The approach was not changed: ${errorMessage(e)}` };
+        }
         if (!cancel.ok) {
           ctx.post({ type: 'error', message: cancel.message });
           ctx.pushState();

@@ -2290,6 +2290,20 @@ describe('buildTicketFormActions', () => {
     expect(post).toHaveBeenCalledWith({ type: 'error', message: 'live pid 4242' });
   });
 
+  it('setApproach reports a throwing graph cancel and keeps the old approach', async () => {
+    const t = createTicket(store, { key: 'P-GT', title: 't' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+    const post = vi.fn();
+    const cancel = vi.fn(async () => { throw new Error('boom'); });
+    const ctx: TicketFormActionsCtx = { post, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
+    const actions = buildTicketFormActions({ ...deps, cancelGraphRunForApproachChange: cancel })(ctx);
+
+    await expect(actions.setApproach('direct')).resolves.toBeUndefined();
+
+    expect(getTicket(store, t.id).approach).toBe('rpi');
+    expect(post).toHaveBeenCalledWith({ type: 'error', message: expect.stringContaining('boom') });
+  });
+
   it('setApproach saves the new approach after the graph cancel succeeds', async () => {
     const t = createTicket(store, { key: 'P-GD', title: 't' });
     updateTicketFields(store, t.id, { approach: 'rpi' });

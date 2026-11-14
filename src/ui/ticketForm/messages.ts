@@ -564,7 +564,7 @@ export function routeTicketFormAction(
       actions.setBaseRef(msg.repo, msg.baseRef);
       return;
     case 'set-approach':
-      actions.setApproach(msg.id);
+      void actions.setApproach(msg.id);
       return;
     case 'set-agent':
       actions.setAgent(msg.id);

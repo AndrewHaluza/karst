@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { graphTicketSurface, shouldDriveGraphTicket } from './entryPoints.js';
 import { openStore } from '../../store/db.js';
 import { bindApproachChangeCancel, cancelGraphRunOnApproachChange } from './approachChange.js';
 import type { CancelGraphRunDeps } from './cancel.js';
@@ -33,6 +34,14 @@ describe('cancelGraphRunOnApproachChange', () => {
     const result = await cancelGraphRunOnApproachChange(h.deps, h.ticketId, 'direct');
     expect(result).toEqual({ ok: true, cancelledGraphRunId: h.graphRunId });
     expect(h.runStatus()).toBe('cancelled');
+  });
+
+  it('leaves the ticket off the graph surface so Start takes the direct path', async () => {
+    const h = harness('planning');
+    await cancelGraphRunOnApproachChange(h.deps, h.ticketId, 'direct');
+    h.db.prepare('UPDATE tickets SET approach = ? WHERE id = ?').run('direct', h.ticketId);
+    expect(graphTicketSurface(h.db, h.ticketId)).toBe('none');
+    expect(shouldDriveGraphTicket(h.db, h.ticketId)).toBe(true);
   });
 
   it('does nothing when the run already has the new approach', async () => {
