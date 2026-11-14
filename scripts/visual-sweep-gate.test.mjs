@@ -7,6 +7,7 @@ import {
   summaryMarkdown,
   gitArgs,
   layoutGateProblems,
+  missingTests,
   neverRanCount,
   prChangedBaselines,
   repoRelative,
@@ -291,5 +292,79 @@ describe('neverRanCount', () => {
     const never = { ...testEntry({ status: 'skipped', title: 'never' }), results: [] };
     const intentional = testEntry({ status: 'skipped', title: 'skip()' });
     expect(neverRanCount(report(never, intentional, testEntry({ status: 'expected' })))).toBe(1);
+  });
+});
+
+/** A test entry as `merge-reports` writes it: attachment paths point into the merged blob's `resources/`. */
+function mergedEntry({ project = 'dark', title = 'v/empty: full-page screenshot', snapshot, attachmentName = snapshot } = {}) {
+  return {
+    title,
+    projectName: project,
+    status: 'unexpected',
+    results: [
+      {
+        error: {
+          message: `\u001b[31mError: expect(page).toHaveScreenshot(expected) failed\u001b[39m\n\n  12 pixels (ratio 0.01 of all image pixels) are different.\n\n  Snapshot: ${snapshot}\n`,
+        },
+        attachments: [
+          { name: `${attachmentName.replace(/\.png$/, '')}-expected.png`, contentType: 'image/png', path: '/w/all-blob/resources/0a1b.png' },
+        ],
+      },
+    ],
+  };
+}
+
+describe('baselineProblems on a merged report', () => {
+  it('maps a failure to its baseline through the Snapshot line and the project', () => {
+    const changed = new Set([`${BASELINES_DIR}/light/gettingStarted--empty.png`]);
+    const problems = baselineProblems(report(mergedEntry({ project: 'light', snapshot: 'gettingStarted--empty.png' })), changed, '/repo');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(`${BASELINES_DIR}/light/gettingStarted--empty.png`);
+  });
+
+  it('keeps the full name of a long snapshot that Playwright trims in the attachment name', () => {
+    const name = 'settings--route-agents-agents-profiles-builtin-3AuatTester.png';
+    const changed = new Set([`${BASELINES_DIR}/dark/${name}`]);
+    const entry = mergedEntry({ snapshot: name, attachmentName: 'settings--route-agen-1a2b3-iltin-3AuatTester.png' });
+    expect(baselineProblems(report(entry), changed, '/repo')).toHaveLength(1);
+  });
+
+  it('does not blame a baseline of another project', () => {
+    const changed = new Set([`${BASELINES_DIR}/dark/a.png`]);
+    expect(baselineProblems(report(mergedEntry({ project: 'hc', snapshot: 'a.png' })), changed, '/repo')).toEqual([]);
+  });
+
+  it('reports one problem for a failure that both the path and the Snapshot line name', () => {
+    const changed = new Set([`${BASELINES_DIR}/dark/a.png`]);
+    const entry = testEntry({ expected: { name: 'a', path: '/repo/tests/visual/__baselines__/dark' } });
+    entry.results[0].error = { message: 'Snapshot: a.png' };
+    expect(baselineProblems(report(entry), changed, '/repo')).toHaveLength(1);
+  });
+});
+
+describe('missingTests', () => {
+  const listed = report(
+    testEntry({ project: 'dark', status: 'skipped', title: 'a' }),
+    testEntry({ project: 'light', status: 'skipped', title: 'a' }),
+    testEntry({ project: 'layout-teardown', status: 'skipped', title: 'layout ledger verdict' }),
+  );
+
+  it('is empty when the merged report holds every listed test', () => {
+    const merged = report(
+      testEntry({ project: 'layout-teardown', status: 'expected', title: 'layout ledger verdict' }),
+      testEntry({ project: 'light', status: 'skipped', title: 'a' }),
+      testEntry({ project: 'dark', status: 'expected', title: 'a' }),
+    );
+    expect(missingTests(listed, merged)).toEqual([]);
+  });
+
+  it('names each listed test that no shard reported', () => {
+    const merged = report(testEntry({ project: 'dark', status: 'expected', title: 'a' }));
+    expect(missingTests(listed, merged)).toEqual(['light ::a', 'layout-teardown ::layout ledger verdict']);
+  });
+
+  it('accepts a merged report that holds a test twice', () => {
+    const merged = report(testEntry({ project: 'dark', title: 'a' }), testEntry({ project: 'dark', title: 'a' }));
+    expect(missingTests(report(testEntry({ project: 'dark', title: 'a' })), merged)).toEqual([]);
   });
 });

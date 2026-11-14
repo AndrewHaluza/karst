@@ -19,8 +19,12 @@
  * available the rule falls back to the own-baseline rule only, and the summary
  * says so; a missing artifact never fails the job.
  *
+ * - In the sharded CI sweep, a test of the full listing (`VISUAL_LISTED_REPORT`)
+ *   that the merged report does not hold: a shard that did not report must
+ *   never pass as a smaller sweep.
+ *
  * Reads the `json` reporter's output (tests/visual/.results.json, written by
- * playwright.config.ts) and the baselines changed against the PR's base
+ * playwright.config.ts, or by `merge-reports` over the shard blobs in CI) and the baselines changed against the PR's base
  * commit (`git diff HEAD^1 HEAD`: actions/checkout checks out the merge commit,
  * so its first parent is the base tip; the visual job fetches depth 2).
  *
@@ -149,6 +153,43 @@ export function layoutGateProblems(rep) {
   return problems;
 }
 
+const SNAPSHOT_LINE = /^\s*Snapshot: (.+?)\s*$/gm;
+
+/**
+ * The repo-relative baselines that a failed test compared against.
+ *
+ * A single run attaches the baseline file itself as `<snapshot>-expected.png`.
+ * A report that `merge-reports` wrote (the sharded CI sweep) moves every
+ * attachment into the blob's `resources/`, and Playwright trims a long
+ * attachment name. The `Snapshot: <name>` line of the error keeps the full
+ * name, and `snapshotPathTemplate` puts it at `{projectName}/{arg}{ext}`.
+ */
+function comparedBaselines(spec, rootDir) {
+  const baselines = new Set();
+  for (const attachment of spec.attachments) {
+    if (!attachment.name?.endsWith('-expected.png') || !attachment.path) continue;
+    const path = repoRelative(attachment.path, rootDir);
+    if (path.startsWith(`${BASELINES_DIR}/`)) baselines.add(path);
+  }
+  for (const message of spec.errors) {
+    for (const match of message.replace(ANSI, '').matchAll(SNAPSHOT_LINE)) {
+      baselines.add(`${BASELINES_DIR}/${spec.project}/${match[1]}`);
+    }
+  }
+  return baselines;
+}
+
+/**
+ * The tests of the full sweep listing (`playwright test --list --reporter=json`)
+ * that the merged report does not hold, as `<project> <file>::<title>`.
+ * A shard that did not run, or a shard plan that drops a project, shows here.
+ */
+export function missingTests(listed, merged) {
+  const key = (s) => `${s.project ?? ''} ${s.file ?? ''}::${s.title}`;
+  const reported = new Set([...projectSpecs(merged, undefined)].map(key));
+  return [...projectSpecs(listed, undefined)].map(key).filter((k) => !reported.has(k));
+}
+
 /**
  * The failures this PR owns: a red screenshot whose EXPECTED image is one of
  * the baselines the PR added or changed. The report attaches the compared
@@ -159,9 +200,7 @@ export function baselineProblems(rep, changed, rootDir = root) {
   const problems = [];
   for (const spec of projectSpecs(rep, undefined)) {
     if (spec.status !== 'unexpected') continue;
-    for (const attachment of spec.attachments) {
-      if (!attachment.name?.endsWith('-expected.png') || !attachment.path) continue;
-      const baseline = repoRelative(attachment.path, rootDir);
+    for (const baseline of comparedBaselines(spec, rootDir)) {
       if (!changed.has(baseline)) continue;
       problems.push(
         `${spec.project}: "${spec.title}" failed against ${baseline}, ` +
@@ -247,6 +286,21 @@ function readDevelopRed() {
   }
 }
 
+const MISSING_SHOWN = 20;
+
+/** `VISUAL_LISTED_REPORT` (sharded CI only): the full listing. Unset: a single run, nothing to compare. */
+function missingFromListing(report) {
+  const path = process.env.VISUAL_LISTED_REPORT;
+  if (!path) return [];
+  let listed;
+  try {
+    listed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err) {
+    fail(`visual-sweep-gate: cannot read the sweep listing ${path}: ${err.message}`);
+  }
+  return missingTests(listed, report);
+}
+
 function fail(message) {
   const annotation = process.env.GITHUB_ACTIONS === 'true' ? '::error::' : '';
   console.error(`${annotation}${message}`);
@@ -272,6 +326,14 @@ function main() {
 
   if (ran <= 0) {
     fail(`visual-sweep-gate: the sweep executed 0 tests (stats: ${JSON.stringify(stats)}).`);
+  }
+
+  const missing = missingFromListing(report);
+  if (missing.length > 0) {
+    fail(
+      `visual-sweep-gate: ${missing.length} test(s) of the full sweep are not in the merged report ` +
+        `(a shard did not report, or the shard plan drops a project):\n- ${missing.slice(0, MISSING_SHOWN).join('\n- ')}`,
+    );
   }
 
   // Layout-sanity gate (ui:LAYOUT-SANITY). Geometry never fails a `layout` test,
