@@ -293,6 +293,8 @@ END_DOC_BLOCK: [@arch:CLOUD-01]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
+**Host re-run marker (v121).** `gate_runs.source TEXT NULL` is `'host-rerun'` for a row that the host gate re-run of a fix round wrote (@arch:AC-45), NULL for a UAT or review row (no backfill). `listGateRuns` hides the marked rows unless `includeHostRerun` is true, so `failedGatesOf` and the UAT batch readers never read them.
+
 **Autopilot stop head (v120).** `autopilot_tickets.stopped_head_sha TEXT NULL` holds the head a stop applies to, written with `stopped_reason` and cleared with it. Additive, NULL = none recorded (no backfill). The rules live in `@arch:AP-00`.
 
 **Last hook activity (v119).** `tickets.last_hook_at TEXT NULL` holds the ISO time of the newest hook event that `dispatchHook` accepted for the ticket, for every core. Additive, NULL = none seen (no backfill). The fix stall watchdog counts it as progress, and a new hook event lifts a `FIX_PARKED_STALLED` park.

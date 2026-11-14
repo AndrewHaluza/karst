@@ -68,7 +68,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
     findingsBlockingSeverity, displayBlocking, autofix, deliver, ciOpen, liveRunUsage,
   } = input;
-  const { marks, gateRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
+  const { marks, gateRuns, hostRerunRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
   const tokensFor = buildTokensFor(store, ticket.id);
   const recordedTotal = summarizeRecordedTokenUsage(store, ticket.id);
   const roleTokens = summarizeRecordedTokenUsageByRole(store, ticket.id);
@@ -144,6 +144,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     tokensForRuns,
     attach,
     gateRuns,
+    hostRerunRuns,
     findings,
     uatFindings,
     rounds,

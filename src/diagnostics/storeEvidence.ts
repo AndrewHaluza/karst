@@ -1,4 +1,5 @@
 import type { Store } from '../store/db.js'
+import { HOST_RERUN_SOURCE } from '../store/hostRerunSource.js'
 
 export interface BoundedRows<T> {
   readonly rows: readonly T[]
@@ -13,6 +14,8 @@ export interface GateEvidence {
   readonly exitCode: number | null
   readonly startedAt: string | null
   readonly endedAt: string | null
+  /** True for a host gate re-run row (@arch:AC-45), a second look at a batch, not a batch verdict. */
+  readonly hostRerun?: true
 }
 
 export interface PhaseEvidence {
@@ -87,7 +90,7 @@ function bounded<T>(newestFirst: readonly T[], cap: number, total = newestFirst.
 export function readGateRuns(store: Store, ticketId: number, cap: number): BoundedRows<GateEvidence> {
   const limit = checkedCap(cap)
   const rows = store.db.prepare(
-    `SELECT stage_key, attempt, run_at, gate_name, exit_code, started_at, ended_at,
+    `SELECT stage_key, attempt, run_at, gate_name, exit_code, started_at, ended_at, source,
             COUNT(*) OVER() AS total_count
        FROM gate_runs
       WHERE ticket_id = ?
@@ -101,6 +104,7 @@ export function readGateRuns(store: Store, ticketId: number, cap: number): Bound
     exit_code: number | null
     started_at: string | null
     ended_at: string | null
+    source: string | null
     total_count: number
   }>
   const result = bounded(rows, limit, rows[0]?.total_count ?? 0)
@@ -114,6 +118,7 @@ export function readGateRuns(store: Store, ticketId: number, cap: number): Bound
       exitCode: row.exit_code,
       startedAt: row.started_at,
       endedAt: row.ended_at,
+      ...(row.source === HOST_RERUN_SOURCE ? { hostRerun: true as const } : {}),
     })),
   }
 }

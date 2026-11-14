@@ -27,10 +27,11 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
   let ran: FailedGate[];
 
   const deps = (result: (g: FailedGate) => { exitCode: number | null; summary: string | null }): HostRerunDeps => ({
-    runGate: async (_id, gate) => {
-      ran.push(gate);
-      return result(gate);
-    },
+    runGates: async (_id, gates) =>
+      gates.map((gate) => {
+        ran.push(gate);
+        return result(gate);
+      }),
     now: () => '2026-01-02T00:00:00Z',
   });
 
@@ -131,19 +132,24 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(ran).toEqual([]);
   });
 
-  it('counts a gate that cannot answer (null exit) or throws as still failing', async () => {
-    let n = 0;
+  it('counts a gate that cannot answer (null exit) as still failing', async () => {
     const out = await hostRerunFailedGates(store, ticketId, {
-      runGate: async () => {
-        n += 1;
-        if (n === 1) return { exitCode: null, summary: null };
+      runGates: async (_id, gates) => gates.map((g) => (g.gateName === 'unit (web)' ? { exitCode: null, summary: null } : ok)),
+    });
+    expect(out.kind).toBe('failed');
+    if (out.kind === 'failed') expect(out.failures.map((f) => f.gateName)).toEqual(['unit (web)']);
+  });
+
+  it('counts every gate of the set as failing when the set run throws', async () => {
+    const out = await hostRerunFailedGates(store, ticketId, {
+      runGates: async () => {
         throw new Error('sandbox down');
       },
     });
     expect(out.kind).toBe('failed');
     if (out.kind === 'failed') {
       expect(out.failures.map((f) => f.gateName)).toEqual(['unit (web)', 'e2e (api)']);
-      expect(out.failures[1]?.summary).toContain('sandbox down');
+      expect(out.failures.every((f) => f.summary.includes('re-run error: sandbox down'))).toBe(true);
     }
   });
 

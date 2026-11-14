@@ -2,12 +2,22 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { setStage } from './stages.js';
-import { recordGateRun, listGateRuns } from './gateRuns.js';
+import { recordGateRun, listGateRuns, HOST_RERUN_SOURCE } from './gateRuns.js';
 
 describe('gate run evidence', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
+
+  it('keeps a host re-run row out of the default list and returns it on request', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const batch = { ticketId: t.id, stageKey: 'uat' as const, attempt: 0, runAt: '2026-07-20T12:00:00.000Z' };
+    recordGateRun(store, { ...batch, gates: [{ gateName: 'unit', exitCode: 1 }] });
+    recordGateRun(store, { ...batch, runAt: '2026-07-20T13:00:00.000Z', source: HOST_RERUN_SOURCE, gates: [{ gateName: 'unit', exitCode: 0 }] });
+
+    expect(listGateRuns(store, t.id).map((r) => [r.exitCode, r.source])).toEqual([[1, null]]);
+    expect(listGateRuns(store, t.id, { includeHostRerun: true }).map((r) => [r.exitCode, r.source])).toEqual([[1, null], [0, HOST_RERUN_SOURCE]]);
+  });
 
   it('appends one row per gate, preserving the order they were given', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });

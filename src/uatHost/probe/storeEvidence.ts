@@ -1,3 +1,4 @@
+import { HOST_RERUN_SOURCE } from '../../store/gateRuns.js';
 import type { Store } from '../../store/db.js';
 import type { TicketEvidence } from './runner.js';
 
@@ -25,7 +26,7 @@ export function readTickets(store: Store): TicketEvidence[] {
     .prepare('SELECT ticket_id, stage_key, status, blocked_kind FROM stages ORDER BY ticket_id, stage_key')
     .all() as StageRow[];
   const gates = store.db
-    .prepare('SELECT ticket_id, stage_key, attempt, gate_name, exit_code FROM gate_runs ORDER BY ticket_id, id')
+    .prepare(`SELECT ticket_id, stage_key, attempt, gate_name, exit_code FROM gate_runs WHERE source IS NOT '${HOST_RERUN_SOURCE}' ORDER BY ticket_id, id`)
     .all() as GateRow[];
   const processes = store.db
     .prepare('SELECT ticket_id, stage_key, process_id, attempt, status FROM process_runs ORDER BY ticket_id, id')

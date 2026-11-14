@@ -16,10 +16,11 @@ describe('pre-brief host re-run', () => {
   let ran: FailedGate[];
 
   const deps = (exitCode: number): HostRerunDeps => ({
-    runGate: async (_id, gate) => {
-      ran.push(gate);
-      return { exitCode, summary: exitCode === 0 ? null : 'still red' };
-    },
+    runGates: async (_id, gates) =>
+      gates.map((gate) => {
+        ran.push(gate);
+        return { exitCode, summary: exitCode === 0 ? null : 'still red' };
+      }),
     now: () => '2026-01-02T00:00:00Z',
   });
 

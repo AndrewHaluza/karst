@@ -40,8 +40,12 @@ export interface GateRerunResult {
 }
 
 export interface HostRerunDeps {
-  /** Run one failed gate again (sandbox- and host-gate-aware, bound by the host). */
-  runGate: (ticketId: number, gate: FailedGate) => Promise<GateRerunResult>;
+  /**
+   * Run the failed gates of the source stage again, one result for each gate in the same order.
+   * The host binds it to `runGateList`, one call for each repo worktree (sandbox- and host-gate-aware).
+   * A throw fails every gate of the set.
+   */
+  runGates: (ticketId: number, gates: readonly FailedGate[], stage: StageKey) => Promise<GateRerunResult[]>;
   now?: () => string;
 }
 
@@ -97,14 +101,21 @@ export function failedGatesOf(runs: GateRun[], stage: StageKey): FailedGate[] {
     }));
 }
 
-async function rerunOne(deps: HostRerunDeps, ticketId: number, gate: FailedGate): Promise<RerunFailure | null> {
+function failureOf(gate: FailedGate, res: GateRerunResult | undefined): RerunFailure | null {
+  if (res === undefined) return { gateName: gate.gateName, summary: 'the gate could not run' };
+  if (res.exitCode === 0) return null;
+  const summary = res.summary ?? (res.exitCode === null ? 'the gate could not run' : `exit ${res.exitCode}`);
+  return { gateName: gate.gateName, summary, ...(res.cannotRerun ? { cannotRerun: true as const } : {}) };
+}
+
+/** Run the set once; a throw fails every gate of it, never the round's bookkeeping. */
+async function rerunAll(deps: HostRerunDeps, ticketId: number, gates: readonly FailedGate[], stage: StageKey): Promise<RerunFailure[]> {
   try {
-    const res = await deps.runGate(ticketId, gate);
-    if (res.exitCode === 0) return null;
-    const summary = res.summary ?? (res.exitCode === null ? 'the gate could not run' : `exit ${res.exitCode}`);
-    return { gateName: gate.gateName, summary, ...(res.cannotRerun ? { cannotRerun: true as const } : {}) };
+    const results = await deps.runGates(ticketId, gates, stage);
+    return gates.flatMap((g, i) => failureOf(g, results[i]) ?? []);
   } catch (err) {
-    return { gateName: gate.gateName, summary: `re-run error: ${err instanceof Error ? err.message : String(err)}` };
+    const summary = `re-run error: ${err instanceof Error ? err.message : String(err)}`;
+    return gates.map((g) => ({ gateName: g.gateName, summary }));
   }
 }
 
@@ -155,8 +166,7 @@ export async function hostRerunFailedGates(
     return { kind: 'already-used' };
   }
 
-  const results = await Promise.all(failed.map((g) => rerunOne(deps, ticketId, g)));
-  const failures = results.filter((r): r is RerunFailure => r !== null);
+  const failures = await rerunAll(deps, ticketId, failed, round.sourceStage);
   if (failures.length === 0) {
     returnToSource(store, ticketId, round.id, round.sourceStage, now());
     return { kind: 'passed', stage: round.sourceStage };
