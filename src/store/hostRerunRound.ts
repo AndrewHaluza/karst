@@ -108,3 +108,20 @@ export function readHostRerunning(store: Store, ticketId: number, nowMs: number 
     .get(ticketId, cutoff);
   return row !== undefined;
 }
+
+/** The reason a restart gives to a claimed host re-run it finds with no run behind it. */
+export const HOST_RERUN_ORPHANED_REASON = 'the host restarted during the re-run';
+
+/**
+ * At host start nothing of this process runs yet, so every open round that holds a claim with no
+ * result is orphaned: its re-run died with the previous host. End the in-flight reading of each; the
+ * round stays open (the one re-run per round stays used). Returns the number of rounds ended.
+ */
+export function endOrphanedHostReruns(store: Store): number {
+  const result = store.db
+    .prepare(
+      "UPDATE recovery_rounds SET end_reason = ? WHERE status IN ('pending','fixing') AND host_rerun_at IS NOT NULL AND end_reason IS NULL",
+    )
+    .run(HOST_RERUN_ORPHANED_REASON);
+  return Number(result.changes);
+}

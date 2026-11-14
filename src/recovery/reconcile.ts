@@ -1,3 +1,4 @@
+import { endOrphanedHostReruns } from '../store/hostRerunRound.js';
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import { STAGE_KEYS } from '../model/types.js';
@@ -171,6 +172,9 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
   let awaitingSubtaskParents: number[] = [];
 
   const restore = store.db.transaction(() => {
+    // A claimed host re-run has no run behind it after a restart: end its in-flight reading.
+    endOrphanedHostReruns(store);
+
     for (const ticket of listTickets(store)) {
       const stages = healEntryStages(store, ticket.id, ticket.stages);
       const stage = deriveStageCurrent(stages);
