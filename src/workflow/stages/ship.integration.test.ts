@@ -1698,9 +1698,7 @@ setTimeout(() => {
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain('Repository: frontend');
       expect(prompts[0]).toContain('Title: [PROJ-1] add search');
-      expect(prompts[0]).toContain(
-        'Base the description ONLY on the material above. Do not run commands, open files, or inspect the repository — everything you need is included.',
-      );
+      expect(prompts[0]).toContain('Base the description ONLY on the material above');
       expect(creates[0]).toEqual([
         'pr',
         'create',
@@ -2274,6 +2272,121 @@ setTimeout(() => {
       expect(bodyOf(creates)).toBe(['## Summary', '', 'The search feature now works.'].join('\n'));
     });
   });
+
+  // The description agent returns a JSON answer; code renders the body.
+  describe('PR description JSON answer', () => {
+    function answerAdapter(
+      raw: string,
+      structured: boolean,
+      seen: { outputSchema?: unknown; prompt?: string } = {},
+    ): AgentAdapter {
+      return {
+        ...fakeAdapter(),
+        ...(structured
+          ? {
+              surfaces: {
+                structuredOutput: { supported: true },
+                structuredOutputForm: 'final-document',
+              } as unknown as AgentAdapter['surfaces'],
+            }
+          : {}),
+        runHeadless: async (opts) => {
+          seen.outputSchema = opts.outputSchema;
+          seen.prompt = opts.prompt;
+          return { sessionId: 's', verdict: null, raw };
+        },
+      };
+    }
+
+    async function shipWith(
+      adapter: AgentAdapter,
+    ): Promise<{ body: string; events: ShipStepEvent[] }> {
+      seedWorktree(store, id, 'frontend', join(dir, 'fe'));
+      const creates: string[][] = [];
+      const gh: GhRunner = async (args) => {
+        if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
+        if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        creates.push(args);
+        return { stdout: 'https://github.com/o/r/pull/7', exitCode: 0 };
+      };
+      const events: ShipStepEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id, conventions: { pullRequestDescription: '{description}' } },
+        gh,
+        adapter,
+        fakeGit().git,
+        (e) => events.push(e),
+      );
+      const args = creates[0]!;
+      return { body: args[args.indexOf('--body') + 1]!, events };
+    }
+
+    it('renders the sections from a valid answer and passes the schema to a structured core', async () => {
+      const seen: { outputSchema?: unknown } = {};
+      const raw = JSON.stringify({
+        summary: 'Adds the thing.',
+        behavior: null,
+        whereToLook: ['src/a.ts'],
+        risk: 'Low.',
+        needsHuman: ['Check the flag'],
+      });
+      const { body } = await shipWith(answerAdapter(raw, true, seen));
+      expect(body).toBe(
+        'Adds the thing.\n\n## Where to look\n\n- src/a.ts\n\n## Risk\n\nLow.\n\n## Needs a human\n\n- Check the flag',
+      );
+      expect(body).not.toContain('{');
+      expect(seen.outputSchema).toBeDefined();
+    });
+
+    it('renders only the summary when behavior is null and nothing else is given', async () => {
+      const { body } = await shipWith(
+        answerAdapter(JSON.stringify({ summary: 'Only this.', behavior: null }), true),
+      );
+      expect(body).toBe('Only this.');
+    });
+
+    it('passes no schema to a core without structured output and asks for JSON in the prompt', async () => {
+      const seen: { outputSchema?: unknown; prompt?: string } = {};
+      const { body } = await shipWith(
+        answerAdapter('```json\n{"summary":"Fenced.","behavior":null}\n```', false, seen),
+      );
+      expect(body).toBe('Fenced.');
+      expect(seen.outputSchema).toBeUndefined();
+      expect(seen.prompt).toContain('one JSON object');
+    });
+
+    it('reads the final message of a core whose raw joins narration with the answer', async () => {
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => ({
+          sessionId: 's',
+          verdict: null,
+          raw: 'Let me write that.\n{"summary":"Narrated.","behavior":null}',
+          finalMessage: '{"summary":"Narrated.","behavior":null}',
+        }),
+      };
+      const { body } = await shipWith(adapter);
+      expect(body).toBe('Narrated.');
+    });
+
+    it('sanitizes text that is not JSON', async () => {
+      const { body } = await shipWith(answerAdapter('The search feature now works.', true));
+      expect(body).toBe('The search feature now works.');
+    });
+
+    it('uses the template body and a note when the JSON has an empty summary', async () => {
+      const { body, events } = await shipWith(
+        answerAdapter(JSON.stringify({ summary: '  ', behavior: null }), true),
+      );
+      expect(body).toContain('Ticket:');
+      expect(body).not.toContain('"summary"');
+      expect(
+        events.some((e) => e.step === 'describe' && e.status === 'note' && /invalid/.test(e.detail ?? '')),
+      ).toBe(true);
+    });
+  });
+
 
   // Task 3: the pr-description process bundle carries the configured identity
   // AND its own adapter — the description step snapshots the assignment into
