@@ -175,6 +175,56 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
    *  failure, so the early-exit report is suppressed for them. */
   const terminating = new Set<string>();
 
+  /**
+   * Log every graph terminal close (exitCode, pid, liveness) and stop an
+   * orphan: a terminal that closed as `interrupted`/`failed` whose recorded pid
+   * is still alive AND attributable (T1107 — the planner's terminal closed 5 s
+   * after launch, yet its process lived on and nothing ever moved). Only an
+   * attributable pid is signalled; a foreign or unprovable one is logged and
+   * left alone. Fire-and-forget: the probes are async and the close handler
+   * must stay synchronous; every failure lands in `debug`, never a throw.
+   */
+  const reapOrphanOnClose = (
+    session: SupervisedAgentSession,
+    exitCode: number | undefined,
+    verdict: 'passed' | 'failed' | 'interrupted',
+  ): void => {
+    const label = `[graph] node ${session.nodeRunId}: terminal closed (exitCode ${exitCode ?? 'none'}, verdict ${verdict}, pid ${session.pid ?? 'none'})`;
+    const pid = session.pid;
+    if (pid === null || !facts) {
+      deps.debug?.(`${label} — no pid liveness probe`);
+      return;
+    }
+    void (async () => {
+      try {
+        const [alive, liveCwd, processStartMs] = await Promise.all([
+          facts.isAlive(pid),
+          facts.liveCwd(pid),
+          facts.processStartMs(pid),
+        ]);
+        if (!alive) {
+          deps.debug?.(`${label}, pid dead`);
+          return;
+        }
+        if (verdict === 'passed') {
+          deps.debug?.(`${label}, pid still alive after a clean exit — left alone`);
+          return;
+        }
+        const attribution = attributeServer(
+          { pid, cwd: session.cwd, startedAt: session.startedAt },
+          { isAlive: () => alive, liveCwd: () => liveCwd, processStartMs: () => processStartMs },
+        );
+        if (attribution !== 'attributable') {
+          deps.debug?.(`${label}, pid alive but ${attribution} — not killed`);
+          return;
+        }
+        deps.debug?.(`${label}, pid alive and attributable (orphan) — killing the process tree: ${killTree(pid)}`);
+      } catch (error) {
+        deps.debug?.(`${label} — the orphan probe failed (${String(error)})`);
+      }
+    })();
+  };
+
   return {
     capabilities: () => SUPERVISED_CLI_TRANSPORT_CAPABILITIES,
 
@@ -283,13 +333,11 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         // it BEFORE clearing: this close is the Stop when it is set.
         const stopping = terminating.has(key);
         terminating.delete(key);
+        const verdict = exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted';
+        reapOrphanOnClose(session, exitCode, verdict);
         if (processRunId !== null && deps.closeProcessRun) {
           try {
-            deps.closeProcessRun(
-              processRunId,
-              exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted',
-              deps.now(),
-            );
+            deps.closeProcessRun(processRunId, verdict, deps.now());
           } catch (error) {
             deps.debug?.(
               `[graph] node ${request.nodeRunId}: closing the process_runs row failed (${String(error)})`,
@@ -399,13 +447,11 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       if (session.terminal) {
         session.terminal.onDidClose((exitCode) => {
           if (sessions.get(key) === session) sessions.delete(key);
+          const verdict = exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted';
+          reapOrphanOnClose(session, exitCode, verdict);
           if (session.processRunId !== null && deps.closeProcessRun) {
             try {
-              deps.closeProcessRun(
-                session.processRunId,
-                exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted',
-                deps.now(),
-              );
+              deps.closeProcessRun(session.processRunId, verdict, deps.now());
             } catch (error) {
               deps.debug?.(
                 `[graph] node ${session.nodeRunId}: closing the process_runs row failed (${String(error)})`,
