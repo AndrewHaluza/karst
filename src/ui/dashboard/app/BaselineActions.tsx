@@ -18,28 +18,33 @@ export function useApprove(model: BaselineModel, drafts: BaselineDrafts) {
   const send = useDashboardSend();
   const from = model.selected?.index ?? -1;
   return useCallback(
-    (indices: readonly number[], requestId: string): void => {
+    (indices: readonly number[], requestId: string, all = false): void => {
       const next = nextOpen(model.visible, from, new Set(indices));
       if (next !== null) drafts.select(next);
-      send.baselineApprove(BASELINE_BLOCK_ID, [...indices], requestId);
+      if (all) send.baselineApproveAll(BASELINE_BLOCK_ID, requestId);
+      else send.baselineApprove(BASELINE_BLOCK_ID, [...indices], requestId);
     },
     [send, drafts, model.visible, from],
   );
 }
 
-export function ApproveButton({ indices, label, primary, approve }: { readonly indices: readonly number[]; readonly label: string; readonly primary: boolean; readonly approve: ReturnType<typeof useApprove> }) {
-  const onClick = usePendingAction(useCallback((requestId: string) => approve(indices, requestId), [approve, indices]));
-  return (
-    <button
-      type="button"
-      className={primary ? 'k-btn k-btn--primary k-btn--sm' : 'k-btn k-btn--secondary k-btn--sm'}
-      data-act="baseline-approve"
-      data-role={primary ? 'approve' : undefined}
-      data-block-id={BASELINE_BLOCK_ID}
-      data-indices={indices.join(',')}
-      onClick={onClick}
-    >
+/** `all` sends `baseline-approve-all` (the block id only); otherwise the index list of one screenshot or its themes. */
+export function ApproveButton({ indices, label, primary, approve, all = false }: { readonly indices: readonly number[]; readonly label: string; readonly primary: boolean; readonly approve: ReturnType<typeof useApprove>; readonly all?: boolean }) {
+  const onClick = usePendingAction(useCallback((requestId: string) => approve(indices, requestId, all), [approve, indices, all]));
+  const className = primary ? 'k-btn k-btn--primary k-btn--sm' : 'k-btn k-btn--secondary k-btn--sm';
+  const content = (
+    <>
       <Icon name="check" size={14} /> {label}
+    </>
+  );
+  // Two literal `data-act` values: the parity coverage guard reads them from the source.
+  return all ? (
+    <button type="button" className={className} data-act="baseline-approve-all" data-block-id={BASELINE_BLOCK_ID} onClick={onClick}>
+      {content}
+    </button>
+  ) : (
+    <button type="button" className={className} data-act="baseline-approve" data-role={primary ? 'approve' : undefined} data-block-id={BASELINE_BLOCK_ID} data-indices={indices.join(',')} onClick={onClick}>
+      {content}
     </button>
   );
 }

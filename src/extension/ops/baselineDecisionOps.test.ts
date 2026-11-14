@@ -7,7 +7,7 @@ import { openStageRun } from '../../store/stageRuns.js';
 import { setStage } from '../../store/stages.js';
 import { manifest as makeManifest, uat as makeUat } from '../../manifest/fixtures.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { latestBaselineDecisions } from '../../store/baselineDecisions.js';
+import { latestBaselineDecisions, recordBaselineDecisions } from '../../store/baselineDecisions.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import type { BaselineEntry } from '../../workflow/gates/baselineReview.js';
 import { decideBaselines, makeBaselineActions, type BaselineDecisionDeps } from './baselineDecisionOps.js';
@@ -50,6 +50,39 @@ describe('decideBaselines', () => {
     expect(getTicket(store, id).stageCurrent).toBe('uat');
     expect(redrive).toHaveBeenCalledWith(id);
     expect(latestBaselineDecisions(store, id).get('/web\0a.png')?.decision).toBe('approved');
+  });
+
+  it('approve-all approves 600 pending entries in one request and never a rejected one', async () => {
+    const many = Array.from({ length: 601 }, (_, i) => entry(`p${i}.png`, `s-${i}`));
+    deps.deriveEntries = async () => many;
+    // One entry (the last) already carries the user's rejection for its current sha.
+    recordBaselineDecisions(store, id, [
+      { repo: '/web', path: 'p600.png', sha256: 's-600', decision: 'rejected', reason: 'bad' },
+    ], NOW);
+    const result = await decideBaselines(deps, { kind: 'approve-all' });
+    const latest = latestBaselineDecisions(store, id);
+    const approved = [...latest.values()].filter((d) => d.decision === 'approved');
+    expect(approved).toHaveLength(600);
+    expect(latest.get('/web\0p600.png')?.decision).toBe('rejected');
+    expect(result.kind).toBe('rejected');
+    // The kept rejection fails UAT into fix (the existing rejection path); the block is never cleared as 'all approved'.
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+  });
+
+  it('approve-all with no rejected entry clears the block and re-drives', async () => {
+    deps.deriveEntries = async () => Array.from({ length: 600 }, (_, i) => entry(`p${i}.png`, `s-${i}`));
+    expect(await decideBaselines(deps, { kind: 'approve-all' })).toEqual({ kind: 'approved' });
+    expect(latestBaselineDecisions(store, id).size).toBe(600);
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+    expect(redrive).toHaveBeenCalledWith(id);
+  });
+
+  it('approve-all with nothing pending refuses with a visible warning', async () => {
+    await decideBaselines(deps, { kind: 'approve', indices: [0, 1] });
+    parkGateStage(store, { ticketId: id, stageKey: 'uat', kind: 'baseline-review', reason: 'r', runAt: NOW, gates: [] });
+    const result = await decideBaselines(deps, { kind: 'approve-all' });
+    expect(result.kind).toBe('refused');
+    expect(warn).toHaveBeenCalled();
   });
 
   it('a partial approval keeps the block and does not re-drive', async () => {

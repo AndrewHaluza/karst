@@ -64,8 +64,7 @@ describe('BaselineOverlay — shell', () => {
     expect(must('#baselineView .dh-backlabel').textContent).toBe('Dashboard');
     expect(must('#baselineView .dh-current').textContent).toBe('Baselines');
     expect(must('#baselineView .blsub').textContent).toContain('3 open');
-    expect(btn('baseline-approve', ':not([data-role])').textContent).toContain('Approve all (3)');
-    expect(btn('baseline-approve', ':not([data-role])').dataset.indices).toBe('0,1,2');
+    expect(btn('baseline-approve-all').textContent).toContain('Approve all (3)');
   });
 });
 
@@ -194,8 +193,9 @@ describe('BaselineOverlay — action bar', () => {
 
   it('Approve all (n) in the header posts every pending entry', () => {
     const h = mount();
-    click(btn('baseline-approve', '[data-indices="0,1,2"]'));
-    expect(h.send.baselineApprove).toHaveBeenCalledWith('baseline-review', [0, 1, 2], 'req-1');
+    click(btn('baseline-approve-all'));
+    expect(h.send.baselineApproveAll).toHaveBeenCalledWith('baseline-review', 'req-1');
+    expect(h.send.baselineApprove).not.toHaveBeenCalled();
   });
 
   it('hides Approve for an approved entry and Reject for a rejected one', () => {

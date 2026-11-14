@@ -443,6 +443,13 @@ visible result), which shows an in-place check for 1.2s plus a role=status tip.
 A failure never passes through that presentation (UI-R15) and its error toast
 stays until dismissed.
 
+An unparsed message posts NOTHING: no action ran, so there is no outcome to
+report. One exception: a baseline decision message (`baseline-approve`,
+`baseline-approve-all`, `baseline-reject`) that the parse drops, with a valid
+`requestId`, posts an `action-result` with `ok: false` and a warning, because
+the user sent it from a pending button and that button settles only by
+`requestId`. The pump logs the message type, never the payload.
+
 **Verification:** RUNTIME
 
 **Check:** success and failure settlement tests clear busy state and expose the

@@ -86,6 +86,7 @@ function actions(): DashboardActions {
     insideAction: vi.fn(),
     openArtifactResource: vi.fn(),
     baselineApprove: vi.fn(),
+    baselineApproveAll: vi.fn(),
     openStoredRevision: vi.fn(),
     diffStoredRevisions: vi.fn(),
     openStoredLive: vi.fn(),
@@ -945,6 +946,15 @@ describe('inside-action', () => {
     expect(a.baselineApprove).toHaveBeenCalledWith('baseline-review', [0, 2]);
     routeAction({ type: 'baseline-reject', blockId: 'baseline-review', index: 1, reason: 'wrong' }, a);
     expect(a.baselineReject).toHaveBeenCalledWith('baseline-review', 1, 'wrong');
+  });
+
+  it('routes baseline-approve-all with the block id only, and drops a wrong block', () => {
+    const a = actions();
+    routeAction({ type: 'baseline-approve-all', blockId: 'baseline-review' }, a);
+    expect(a.baselineApproveAll).toHaveBeenCalledWith('baseline-review');
+    routeAction({ type: 'baseline-approve-all', blockId: '/etc/passwd' }, a);
+    routeAction({ type: 'baseline-approve-all' }, a);
+    expect(a.baselineApproveAll).toHaveBeenCalledTimes(1);
   });
 
   it('rejects crafted baseline messages: paths, wrong block, junk indices, bad reasons', () => {

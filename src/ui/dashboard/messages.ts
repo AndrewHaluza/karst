@@ -251,6 +251,12 @@ export type WebviewMessage =
    * so a stale or crafted message approves nothing it cannot see as changed.
    */
   | { type: 'baseline-approve'; blockId: string; indices: number[] }
+  /**
+   * Approve EVERY pending changed baseline: the block id only, no index list, so no size limit
+   * applies. The host re-derives the entries and approves those it sees as pending; it never
+   * approves a rejected entry.
+   */
+  | { type: 'baseline-approve-all'; blockId: string }
   /** Reject ONE changed baseline entry with the user's required reason. */
   | { type: 'baseline-reject'; blockId: string; index: number; reason: string }
   /** Re-run ONLY the Tester lane of a UAT parked `tester-skipped`. */

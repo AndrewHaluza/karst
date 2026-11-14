@@ -203,6 +203,8 @@ export function createSender(api: WebviewApi) {
       indices: Msg<'baseline-approve'>['indices'],
       requestId?: string,
     ) => send({ type: 'baseline-approve', blockId, indices }, requestId),
+    baselineApproveAll: (blockId: Msg<'baseline-approve-all'>['blockId'], requestId?: string) =>
+      send({ type: 'baseline-approve-all', blockId }, requestId),
     testerSkippedRerun: (requestId?: string) => send({ type: 'tester-skipped-rerun' }, requestId),
     testerSkippedAccept: (requestId?: string) => send({ type: 'tester-skipped-accept' }, requestId),
     pushDivergedOverwrite: (requestId?: string) => send({ type: 'push-diverged-overwrite' }, requestId),
