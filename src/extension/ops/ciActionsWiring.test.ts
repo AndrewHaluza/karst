@@ -885,7 +885,7 @@ describe('shipBaseCheck (D541)', () => {
 });
 
 describe('baseMovedFailure runs the gates on the merged worktree (D541, D592)', () => {
-  const HEAD = 'h'.repeat(40);
+  const HEAD = 'a'.repeat(40);
   const BASE = 'b'.repeat(40);
   const FORK = 'f'.repeat(40);
   const GREEN = 'e'.repeat(40);
@@ -931,7 +931,7 @@ describe('baseMovedFailure runs the gates on the merged worktree (D541, D592)', 
     }) as CiActionsInput['git'];
   }
 
-  it('hands the merged worktree, its SHA, the UI verdict and the run kind to the gate runner, and returns null on a pass', async () => {
+  it('hands the merged worktree, the UI verdict and the run kind to the gate runner, and returns null on a pass', async () => {
     vi.mocked(shipGates.runShipGates).mockResolvedValueOnce(null);
     const i = input({ git: git({ ticketUi: false }) });
     expect(await baseMovedFailure(i, gate, pr, signal)).toBeNull();
@@ -941,7 +941,9 @@ describe('baseMovedFailure runs the gates on the merged worktree (D541, D592)', 
     expect(prs[0]!.cwd).not.toBe(pr.cwd);
     expect(deps).toMatchObject({ uiChanged: false, uiSkipReason: 'skipped: no UI path in the ticket diff', kind: 'base-moved', signal, git: i.git, onProgress: i.afterServerChange });
     expect(deps.evidence).toEqual({ store, ticketId: id });
-    expect(await deps.headSha!(pr.cwd)).toBe(MERGED);
+    // The run records the TICKET head, not the synthetic merge commit: Autopilot's no-change check compares it across rounds.
+    expect(await deps.headSha!(prs[0]!.cwd)).toBe(HEAD);
+    expect(await deps.headSha!(prs[0]!.cwd)).not.toBe(MERGED);
   });
 
   it('runs the UI gates when the ticket and the base both change a UI path', async () => {
