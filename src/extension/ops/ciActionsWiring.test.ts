@@ -953,7 +953,7 @@ describe('baseMovedFailure runs the gates on the merged worktree (D541, D592)', 
   it('returns the CI reason when a gate fails on the merge', async () => {
     vi.mocked(shipGates.runShipGates).mockResolvedValueOnce('r: gate "unit" failed (exit 1)');
     const reason = await baseMovedFailure(input({ git: git() }), gate, pr, signal);
-    expect(reason).toBe(`fails when merged with origin/develop ${BASE.slice(0, 9)}; CI tests this merge — r: gate "unit" failed (exit 1)`);
+    expect(reason).toBe(`r: gate "unit" fails when merged with origin/develop ${BASE.slice(0, 9)}`);
   });
 
   it('seeds the merged git directory with the clean gate states, set to the base tip', async () => {

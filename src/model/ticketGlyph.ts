@@ -142,6 +142,8 @@ export function needsUser(t: TicketWithStages): boolean {
     current?.blockedKind === 'tester-skipped' ||
     // Ship's push was rejected over foreign commits on origin: Overwrite / Integrate.
     current?.blockedKind === 'push-diverged' ||
+    // Ship's base-moved check failed a gate on the merge with the moved base: Send gate failure to agent.
+    current?.blockedKind === 'base-moved-failed' ||
     // Review stalled on the same files (`review.stallDetection`): the user picks
     // Redesign hint / Continue anyway / Re-scope.
     current?.blockedKind === 'review-stalled' ||

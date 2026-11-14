@@ -83,6 +83,7 @@ export interface DashboardActions {
   /** Move this ticket into a PR-feedback recovery round at Fix (host-confirmed). */
   addressPrFeedback: () => void | Promise<void>;
   sendCiFailure: () => void | Promise<void>;
+  sendGateFailure: () => void | Promise<void>;
   /** Auto-fix controls (T1004): the host re-derives the ticket and applies the command. */
   autopilotOverride: (mode: 'inherit' | 'on' | 'off') => void | Promise<void>;
   autopilotApproveOne: (repo: string, kind: 'conflicts' | 'ci') => void | Promise<void>;

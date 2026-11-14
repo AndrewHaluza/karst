@@ -99,6 +99,8 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'address-pr-feedback' });
     sender.sendCiFailure();
     expect(posted.at(-1)).toEqual({ type: 'send-ci-failure' });
+    sender.sendGateFailure();
+    expect(posted.at(-1)).toEqual({ type: 'send-gate-failure' });
     sender.rebaseOnBase();
     expect(posted.at(-1)).toEqual({ type: 'rebase-on-base' });
     sender.deliverToPr();
@@ -205,7 +207,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(70);
+    expect(posted).toHaveLength(71);
   });
 
   it('rejects a wrong argument type at compile time', () => {

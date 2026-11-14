@@ -113,6 +113,7 @@ export function createSender(api: WebviewApi) {
     addressPrFeedback: (requestId?: string) =>
       send({ type: 'address-pr-feedback' }, requestId),
     sendCiFailure: (requestId?: string) => send({ type: 'send-ci-failure' }, requestId),
+    sendGateFailure: (requestId?: string) => send({ type: 'send-gate-failure' }, requestId),
     autopilotOverride: (mode: Msg<'autopilot-override'>['mode'], requestId?: string) => send({ type: 'autopilot-override', mode }, requestId),
     autopilotApproveOne: (repo: string, kind: Msg<'autopilot-approve-one'>['kind'], requestId?: string) =>
       send({ type: 'autopilot-approve-one', repo, kind }, requestId),

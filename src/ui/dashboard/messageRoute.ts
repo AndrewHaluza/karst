@@ -95,6 +95,8 @@ export function routeAction(
       return actions.addressPrFeedback();
     case 'send-ci-failure':
       return actions.sendCiFailure();
+    case 'send-gate-failure':
+      return actions.sendGateFailure();
     case 'autopilot-override':
       return actions.autopilotOverride(msg.mode);
     case 'autopilot-approve-one':

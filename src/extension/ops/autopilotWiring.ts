@@ -1,7 +1,8 @@
 import type { AutopilotDeps, FixOutcome, Placement } from './autopilotOps.js';
 import type { CiActionsInput } from './ciActionsWiring.js';
 import { formatId } from '../../model/entityId.js';
-import { sendCiFailureAction } from './ciActionsWiring.js';
+import { sendCiFailureAction, sendGateFailureAction } from './ciActionsWiring.js';
+import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
@@ -27,21 +28,40 @@ import { resolveConflictRound, type ResolveConflictInput } from './conflictResol
  * A refused hand-off is NOT a sent round: it returns `failed` (the ticket already moved to Implement, so the engine pauses).
  */
 export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
-  if (!ciFailureState(input.store, input.ticketId).available) return { kind: 'failed', reason: 'no failing CI to send' };
+  return roundOutcome(input, ciFailureState(input.store, input.ticketId).available, 'ci', 'no failing CI to send', sendCiFailureAction);
+}
+
+/**
+ * Run "Send gate failure to agent" without the click (@arch:AP-00): a failed base-moved run is a CI round. The outcome rules
+ * are the ones of `ciOutcome`.
+ */
+export async function gateFailureOutcome(input: CiActionsInput): Promise<FixOutcome> {
+  return roundOutcome(input, baseMovedFailureState(input.store, input.ticketId).available, 'ci', 'no failed base-moved gate run to send', sendGateFailureAction);
+}
+
+async function roundOutcome(
+  input: CiActionsInput,
+  available: boolean,
+  label: string,
+  missing: string,
+  action: (i: CiActionsInput) => Promise<void>,
+): Promise<FixOutcome> {
+  if (!available) return { kind: 'failed', reason: missing };
   let failure: string | null = null;
   let refusal: string | null = null;
-  await sendCiFailureAction({
+  const tag = `[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ${label}`;
+  await action({
     ...input,
     confirm: async () => true,
-    info: (message) => input.debug(`[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ci: ${message}`),
-    error: (message) => { failure = message; input.debug(`[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ci error: ${message}`); },
+    info: (message) => input.debug(`${tag}: ${message}`),
+    error: (message) => { failure = message; input.debug(`${tag} error: ${message}`); },
     handOff: (prompt) => { refusal = input.handOff(prompt); return refusal; },
   });
   if (failure !== null) return { kind: 'failed', reason: failure };
   // The ticket already moved to Implement, but no session got the task: the round did not reach the agent.
   // The engine refunds the attempt and pauses autopilot with a visible reason (it cannot park the ship row any more).
   if (refusal !== null) {
-    input.debug(`[ship] autopilot ticket ${formatId('ticket', input.ticketId)} ci: hand-off refused (${refusal}); the ticket is in Implement`);
+    input.debug(`${tag}: hand-off refused (${refusal}); the ticket is in Implement`);
     return { kind: 'failed', reason: refusal };
   }
   return { kind: 'sent' };
@@ -66,6 +86,8 @@ export interface TicketSeams {
   /** Sandbox tickets only: the blocker reason before a hand-off, or null (arch:AC-46, AC-47). */
   readonly sandboxPreflight?: () => Promise<string | null>;
   readonly sendCi: () => Promise<FixOutcome>;
+  /** "Send gate failure to agent" for a failed base-moved run (@arch:AP-00). Absent: no round for that block. */
+  readonly sendGateFailure?: () => Promise<FixOutcome>;
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or its resolved merge is being delivered (arch:AC-39). */
   readonly conflictRoundActive: () => boolean;
@@ -169,6 +191,7 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         ...(seams.sandboxPreflight ? { sandboxPreflight: seams.sandboxPreflight } : {}),
         isGraphTicket: () => graphRunIdsForTicket(d.store.db, t.id).length > 0,
         sendCiFailure: seams.sendCi,
+        ...(seams.sendGateFailure ? { sendGateFailure: seams.sendGateFailure } : {}),
         sendConflict: seams.sendConflict,
         conflictRoundActive: seams.conflictRoundActive,
         conflictRoundStalled: seams.conflictRoundStalled,

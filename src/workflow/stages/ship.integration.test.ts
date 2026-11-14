@@ -3690,7 +3690,7 @@ setTimeout(() => {
       expect(calls.some((args) => args[0] === 'push')).toBe(true);
     });
 
-    it('checkBase failure (D541): the push never runs and the step reads the CI reason', async () => {
+    it('checkBase failure (D541): the push never runs, the step reads the reason and ship parks base-moved-failed', async () => {
       const worktree = join(dir, 'fe');
       seedWorktree(store, id, '/repo/frontend', worktree);
       await initRealRepo(worktree);
@@ -3700,15 +3700,16 @@ setTimeout(() => {
       const reason = 'fails when merged with origin/develop abcdef123; CI tests this merge — gate "test" failed';
       const seen: string[] = [];
 
-      await expect(
-        shipTicket(
-          store,
-          { ticketId: id, deliverToOpenPr: true, checkBase: async (t) => { seen.push(t.repo); return reason; } },
-          fakeGh().gh,
-          fakeAdapter(),
-          dirtyRealRepo(calls),
-        ),
-      ).rejects.toThrow(reason);
+      const result = await shipTicket(
+        store,
+        { ticketId: id, deliverToOpenPr: true, checkBase: async (t) => { seen.push(t.repo); return reason; } },
+        fakeGh().gh,
+        fakeAdapter(),
+        dirtyRealRepo(calls),
+      );
+
+      expect(result).toEqual({ prs: [] });
+      expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'base-moved-failed', reason: expect.stringContaining(reason) });
 
       expect(seen).toEqual(['/repo/frontend']);
       expect(calls.some((args) => args[0] === 'push')).toBe(false);

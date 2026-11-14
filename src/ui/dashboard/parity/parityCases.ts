@@ -553,6 +553,11 @@ export const COVERED: readonly ParityCase[] = [
     sel: act('rebase-on-base'), posts: [{ type: 'rebase-on-base' }], rid: false, pendingSel: false,
   },
   {
+    act: 'send-gate-failure', repeat: true, state: () => withDeliverRow(st('ship', { gateFailure: { available: true } })),
+    prep: ensureMenu('ship', act('send-gate-failure')),
+    sel: act('send-gate-failure'), posts: [{ type: 'send-gate-failure' }], rid: false, pendingSel: false,
+  },
+  {
     act: 'address-pr-feedback', repeat: true, state: shipMenuState, prep: ensureMenu('ship', act('address-pr-feedback')),
     sel: act('address-pr-feedback'), posts: [{ type: 'address-pr-feedback' }], rid: false, pendingSel: false,
   },

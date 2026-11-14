@@ -135,6 +135,9 @@ export type BlockerKind =
   // branch lacks (not karst's own last push). The USER decides: Overwrite remote
   // (lease over the probed origin SHA) or Integrate (send back to impl). Resume refused.
   | 'push-diverged'
+  // Ship's pre-push base-moved check (@arch:GATE-BASE-MOVED) gated the branch merged with the moved base and a gate
+  // failed: nothing was pushed. The USER decides (Send gate failure to agent); a generic Resume is refused.
+  | 'base-moved-failed'
   // Review keeps finding new blocking problems in the same file(s) round after
   // round (`review.stallDetection`) — a likely design problem, not a bug. Karst
   // stops opening fix rounds and asks the human; the question WAS asked, so a

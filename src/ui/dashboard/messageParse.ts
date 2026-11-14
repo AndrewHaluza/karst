@@ -117,6 +117,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'address-pr-feedback' };
     case 'send-ci-failure':
       return { type: 'send-ci-failure' };
+    case 'send-gate-failure':
+      return { type: 'send-gate-failure' };
     case 'autopilot-override':
       return m.mode === 'inherit' || m.mode === 'on' || m.mode === 'off' ? { type: 'autopilot-override', mode: m.mode } : null;
     case 'autopilot-approve-one':

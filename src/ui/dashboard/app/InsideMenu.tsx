@@ -122,7 +122,7 @@ export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string;
   const mainSentence = mainSpec ? insideActionSentence(mainSpec.label, mainSpec.description) : '';
   const show = (a: MainAction): boolean => main !== a;
   const runAgain = (menu.reset !== null) || (menu.retry !== null && show('retry'));
-  const toAgent = (menu.prFeedback && show('prFeedback')) || (menu.ci && show('ci')) || menu.sendBack;
+  const toAgent = (menu.prFeedback && show('prFeedback')) || (menu.ci && show('ci')) || menu.gateFailure || menu.sendBack;
   const branch = menu.rebase && show('rebase');
   const rest = runAgain || toAgent || branch || menu.deliverFailures || menu.autofixStop;
 
@@ -159,6 +159,9 @@ export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string;
               ) : null}
               {menu.ci && show('ci') ? (
                 <Item data-act="send-ci-failure" description="Send the failing CI log — UAT and Review will run again" icon="send" label="Send CI failure" onClick={start('ci', () => send.sendCiFailure())} />
+              ) : null}
+              {menu.gateFailure ? (
+                <Item data-act="send-gate-failure" description="Send the gate failure from the merge with the base — UAT and Review will run again" icon="send" label="Send gate failure to agent" onClick={start('gateFailure', () => send.sendGateFailure())} />
               ) : null}
               {menu.sendBack ? (
                 <Item data-act="send-back-to-implement" description="Move this ticket back to Implement — UAT and Review will run again" icon="arrow-left" label="Send back to Implement" onClick={start('sendBack', () => send.sendBackToImplement())} />

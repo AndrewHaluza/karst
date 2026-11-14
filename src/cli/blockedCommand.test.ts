@@ -95,6 +95,18 @@ describe('karst blocked — report', () => {
     expect(text).toContain('resolved blocks are not stored');
   });
 
+  it('lists a ship park base-moved-failed on its own row and counts it by kind', () => {
+    const t = createTicket(store, { key: 'K-2', title: 'k2' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    const reason = 'r: gate "unit" fails when merged with origin/develop abcdef123 - FAIL a.test.ts';
+    setStage(store, t.id, 'ship', { blockedKind: 'base-moved-failed', blockedReason: reason, blockedAt: '2026-11-05T12:00:00.000Z' });
+    const report = collectBlocked(store, scope);
+    expect(report.rows).toMatchObject([{ key: 'K-2', stage: 'ship', kind: 'base-moved-failed', reason }]);
+    const text = runBlockedCommand(store, { json: false }, scope);
+    expect(text).toContain('K-2  stage=ship  kind=base-moved-failed');
+    expect(text).toContain('base-moved-failed 1 now / 0 in the 14 days before');
+  });
+
   it('counts open blocks as now and only blocks on tickets no longer open as before', () => {
     stall('K-1', '2026-11-05T12:00:00.000Z');
     stall('K-2', '2026-10-30T12:00:00.000Z'); // open: in "now", never in "before"
