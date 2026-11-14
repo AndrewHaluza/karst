@@ -1,3 +1,4 @@
+import { setAutopilotStopped } from '../store/autopilot.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
@@ -56,6 +57,18 @@ describe('karst blocked — report', () => {
     expect(out).toContain('No open ticket has a block.');
     expect(out).toContain('Blocks by kind: none');
     expect(JSON.parse(runBlockedCommand(store, { json: true }, scope))).toEqual({ rows: [], summary: [] });
+  });
+
+  it('appends the head an autopilot stop applies to, only when the block reason is that stop', () => {
+    const t = createTicket(store, { key: 'K-2', title: 'k' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    const reason = 'auto-fix stopped: ci round made no change';
+    setStage(store, t.id, 'ship', { blockedKind: 'awaiting-merge', blockedReason: reason, blockedAt: '2026-11-05T12:00:00.000Z' });
+    setAutopilotStopped(store, t.id, reason, '952a97b54aaaaaaa');
+    expect(collectBlocked(store, scope).rows[0]!.reason).toBe(`${reason} at 952a97b`);
+    // A block another writer replaced is not the stop: its reason stays as written.
+    setStage(store, t.id, 'ship', { blockedKind: 'awaiting-merge', blockedReason: 'push diverged', blockedAt: '2026-11-05T12:00:00.000Z' });
+    expect(collectBlocked(store, scope).rows[0]!.reason).toBe('push diverged');
   });
 
   it('lists a ticket at fix with a review-stalled block and its findings per round', () => {

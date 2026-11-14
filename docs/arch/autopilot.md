@@ -58,6 +58,9 @@ flowchart TD
 - A park writes the ship block with kind `awaiting-merge` and the reason (amber Needs you). The dashboard banner shows it. A sent round, an approval, an override change or a tick with no problem left clears it. A refused CI hand-off does not count as sent: the attempt is given back and autopilot pauses with a visible reason, because the ticket already moved to Implement. A launch that is queued for memory or cancelled is not a failed launch. A set to the mode that is already stored is no change: it writes no note, clears no park and drops no conflict round, and only Retry or Approve 1 more clears a park without a mode change. Commands: `karst.autopilot.setOverride`, `.approveOne`, `.stop`.
 - Stop now ends the session only in the window that holds it. In another window it sets the stop flag and says that the stop did not reach the session.
 - Every action and fallback writes a bulletin note. The note title is one line, the text has no control character, and both fit the note limits. The debug line starts with `[ship] autopilot`. There is no toast, also for the commands: action text goes to the debug log.
+
+A stop records the head it applies to (`autopilot_tickets.stopped_head_sha`, v120; the no-change park writes the failing CI head). A stop about an older head is history, not the current block reason: when the ticket holds commits its PR lacks, the autopilot line adds `(autopilot stopped at <sha7>; the head moved since)` and the Deliver row stays the primary next action. `karst blocked` appends ` at <sha7>` to a block reason that is the stop (SELECT only). Only a person clears a stop (`setAutopilotStopped(null)` clears the head with the reason).
+
 END_DOC_BLOCK: [@arch:AP-00]
 
 ## [@arch:AP-01] Conflict rounds

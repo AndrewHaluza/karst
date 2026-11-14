@@ -4,6 +4,7 @@ import { createTicket, getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { listPrsByTicket } from '../store/dashboard.js';
 import type { GhRunner } from '../integrations/github.js';
+import type { GitRunner } from '../integrations/git.js';
 import { mergeAllPrs, mergeTicketPr, type MergeAllDeps, type MergeAllPlan } from './mergePr.js';
 import { resolveShipLanding } from './mergeGate.js';
 
@@ -58,7 +59,7 @@ describe('mergeTicketPr', () => {
     const r = await mergeTicketPr(store, { ticketId: a.id, repo: 'api', method: 'squash' }, gh);
 
     expect(r).toEqual({ ok: true, status: 'merged', completedTicket: false, reason: '' });
-    expect(calls[0]).toEqual(['pr', 'merge', PR12, '--squash']);
+    expect(calls.find((c) => c[1] === 'merge')).toEqual(['pr', 'merge', PR12, '--squash']);
     // The stored row reflects the REAL state, re-read from gh — never assumed
     // from the exit code.
     expect(listPrsByTicket(store, a.id)[0]).toMatchObject({
@@ -278,6 +279,13 @@ describe('mergeAllPrs', () => {
     expect(r.kind === 'done' && r.merged.map((i) => i.repo)).toEqual(['api', 'web']);
   });
 
+  it('skips every PR while the ticket holds commits that the PRs lack, so none merges', async () => {
+    const { deps, order } = setup({ unpushed: () => 1 });
+    const r = await mergeAllPrs(store, deps);
+    expect(r.kind).toBe('refused');
+    expect(order).toEqual(['refresh']);
+  });
+
   it('merges nothing when the user cancels', async () => {
     const { deps, order } = setup({ confirm: async () => false });
     expect(await mergeAllPrs(store, deps)).toEqual({ kind: 'cancelled' });
@@ -338,5 +346,61 @@ describe('mergeAllPrs', () => {
     // The guard is released: a later run is not refused.
     release = () => undefined;
     expect((await mergeAllPrs(store, { ...deps, confirm: async () => false })).kind).toBe('cancelled');
+  });
+});
+
+describe('mergeTicketPr head guard', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const PR_HEAD = '952a97b54aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const gitAhead = (count: string, code = 0): { git: GitRunner; calls: string[][] } => {
+    const calls: string[][] = [];
+    const git: GitRunner = async (args) => {
+      calls.push(args);
+      return { stdout: `${count}\n`, stderr: '', exitCode: code };
+    };
+    return { git, calls };
+  };
+  const seed = (): number => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    return a.id;
+  };
+
+  it('refuses to merge when the local head is ahead of the PR head, and runs no merge', async () => {
+    const id = seed();
+    const { gh, calls } = ghFake({ view: { state: 'OPEN', headRefOid: PR_HEAD } });
+    const { git } = gitAhead('1');
+
+    const r = await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash' }, gh, git);
+
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/1 commit.*not on the pull request/);
+    expect(calls.some((c) => c[1] === 'merge')).toBe(false);
+  });
+
+  it('pins the PR head it checked with --match-head-commit', async () => {
+    const id = seed();
+    const { gh, calls } = ghFake({ view: { state: 'MERGED', headRefOid: PR_HEAD } });
+    const { git, calls: gitCalls } = gitAhead('0');
+
+    const r = await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash' }, gh, git);
+
+    expect(r.ok).toBe(true);
+    expect(calls.find((c) => c[1] === 'merge')).toEqual(['pr', 'merge', PR12, '--squash', '--match-head-commit', PR_HEAD]);
+    expect(gitCalls[0]).toEqual(['rev-list', '--count', `${PR_HEAD}..HEAD`]);
+  });
+
+  it('merges without a pin when gh does not report a head', async () => {
+    const id = seed();
+    const { gh, calls } = ghFake({ view: { state: 'MERGED' } });
+    const { git } = gitAhead('0');
+
+    await mergeTicketPr(store, { ticketId: id, repo: 'api', method: 'squash' }, gh, git);
+
+    expect(calls.find((c) => c[1] === 'merge')).toEqual(['pr', 'merge', PR12, '--squash']);
   });
 });

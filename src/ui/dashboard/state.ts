@@ -268,7 +268,7 @@ export function buildDashboardState(
     deliverAuto,
     openPrFeedback,
   } = readActionStates(store, ticketId, agentContext);
-  const autofixReading = readAutofix(store, ticketId, autopilotConfig, repoNameFor);
+  const autofixReading = readAutofix(store, ticketId, autopilotConfig, repoNameFor, (undelivered?.hostAhead ?? 0) > 0);
   const {
     worktrees,
     prs,
@@ -297,6 +297,7 @@ export function buildDashboardState(
         feedbackAvailable: prFeedbackFix.available,
       },
       autofix: autofixReading.input,
+      unpushed: undelivered ? undelivered.hostAhead : 0,
     },
   });
   const phases = approachPhases(ticket.approach);

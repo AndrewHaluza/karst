@@ -2999,5 +2999,11 @@ function migrateLocked(db: Database): void {
     if (cols119.size > 0 && !cols119.has('last_hook_at')) db.exec('ALTER TABLE tickets ADD COLUMN last_hook_at TEXT');
   }
 
+  if (current < 120) {
+    // v120: `autopilot_tickets.stopped_head_sha` — the head a stop applies to (T1123). Additive; NULL = none recorded (no backfill).
+    const cols120 = tableColumns(db, 'autopilot_tickets');
+    if (cols120.size > 0 && !cols120.has('stopped_head_sha')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN stopped_head_sha TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

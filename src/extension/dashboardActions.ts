@@ -185,6 +185,8 @@ export function makeDashboardActions(
   // The auto-driver's per-ticket single-flight state (module-level in extension.ts).
   driver: DriverController,
   stall: StallHost,
+  // Commits the ticket holds that its PRs lack (the in-memory undelivered tracker); Merge all skips PRs while it is above 0.
+  unpushedCount: (ticketId: number) => number,
 ): DashboardActions {
   const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
@@ -739,6 +741,7 @@ export function makeDashboardActions(
         now: nowIso,
         refresh: refreshPrs,
         autofixRunning: () => readAutofix(store, ticketId, manifest()?.autopilot).input.running !== null,
+        unpushed: () => unpushedCount(ticketId),
         askModal: async (modal) =>
           (await vscode.window.showWarningMessage(modal.title, { modal: true, detail: modal.detail }, modal.confirm)) === modal.confirm,
         info: (m) => void vscode.window.showInformationMessage(m),

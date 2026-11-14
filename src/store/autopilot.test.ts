@@ -4,7 +4,7 @@ import { createTicket } from './tickets.js';
 import {
   claimAutopilotTicket,
   decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, grantAutopilotExtra, getAutopilotSessionOwner,
-  getAutopilotRerun, markAutopilotRerun, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
+  getAutopilotRerun, markAutopilotRerun, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
 } from './autopilot.js';
 
 describe('decideBudget', () => {
@@ -77,7 +77,7 @@ describe('autopilot store', () => {
     setAutopilotPaused(store, parent, 'read-only');
     const b = grantAutopilotExtra(store, parent, 'r', 'ci');
     expect(b).toEqual({ attempts: 1, signature: 'x', extra: 1 });
-    expect(getAutopilotTicket(store, parent)).toEqual({ mode: 'inherit', stopAfter: false, pausedReason: null, stoppedReason: null });
+    expect(getAutopilotTicket(store, parent)).toEqual({ mode: 'inherit', stopAfter: false, pausedReason: null, stoppedReason: null, stoppedHeadSha: null });
     expect(takeAutopilotAttempt(store, parent, 'r', 'ci', 'x', 1)).toEqual({ ok: true, used: 2, max: 2 });
   });
 
@@ -148,5 +148,28 @@ describe('autopilot re-run marker (T1019)', () => {
     // A new run (a new push) and another check get their own re-run.
     expect(markAutopilotRerun(store, id, { ...rerun, runId: '43' })).toBe(true);
     expect(markAutopilotRerun(store, id, { ...rerun, checkName: 'CodeQL' })).toBe(true);
+  });
+});
+
+describe('stopped head sha', () => {
+  it('stores the head a stop applies to and clears it with the stop reason', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    setAutopilotStopped(store, t.id, 'auto-fix stopped: ci round made no change', '952a97b54aaa');
+    expect(getAutopilotTicket(store, t.id)).toMatchObject({ stoppedReason: 'auto-fix stopped: ci round made no change', stoppedHeadSha: '952a97b54aaa' });
+    setAutopilotStopped(store, t.id, null, 'ignored');
+    expect(getAutopilotTicket(store, t.id)).toMatchObject({ stoppedReason: null, stoppedHeadSha: null });
+    store.close();
+  });
+
+  it('records no head when none is given, and a person changing the mode clears it', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    setAutopilotStopped(store, t.id, 'auto-fix stopped: x');
+    expect(getAutopilotTicket(store, t.id).stoppedHeadSha).toBeNull();
+    setAutopilotStopped(store, t.id, 'auto-fix stopped: x', 'abc1234');
+    setAutopilotOverride(store, t.id, 'on');
+    expect(getAutopilotTicket(store, t.id)).toMatchObject({ stoppedReason: null, stoppedHeadSha: null });
+    store.close();
   });
 });

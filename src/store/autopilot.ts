@@ -56,13 +56,15 @@ export interface AutopilotTicketState {
   readonly stopAfter: boolean;
   readonly pausedReason: string | null;
   readonly stoppedReason: string | null;
+  /** The head the stop applies to (arch:AP-00); null when none was recorded. */
+  readonly stoppedHeadSha: string | null;
 }
 
-interface TicketRow { mode: AutopilotOverride; stop_after: number; paused_reason: string | null; stopped_reason: string | null }
+interface TicketRow { mode: AutopilotOverride; stop_after: number; paused_reason: string | null; stopped_reason: string | null; stopped_head_sha: string | null }
 
 export function getAutopilotTicket(store: Store, ticketId: number): AutopilotTicketState {
-  const row = store.db.prepare('SELECT mode, stop_after, paused_reason, stopped_reason FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as TicketRow | undefined;
-  return { mode: row?.mode ?? 'inherit', stopAfter: (row?.stop_after ?? 0) === 1, pausedReason: row?.paused_reason ?? null, stoppedReason: row?.stopped_reason ?? null };
+  const row = store.db.prepare('SELECT mode, stop_after, paused_reason, stopped_reason, stopped_head_sha FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as TicketRow | undefined;
+  return { mode: row?.mode ?? 'inherit', stopAfter: (row?.stop_after ?? 0) === 1, pausedReason: row?.paused_reason ?? null, stoppedReason: row?.stopped_reason ?? null, stoppedHeadSha: row?.stopped_head_sha ?? null };
 }
 
 function ensureRow(store: Store, ticketId: number): void {
@@ -73,12 +75,16 @@ function ensureRow(store: Store, ticketId: number): void {
 export function setAutopilotOverride(store: Store, ticketId: number, mode: AutopilotOverride): void {
   if (!AUTOPILOT_OVERRIDES.includes(mode)) throw new Error(`autopilot override must be one of ${AUTOPILOT_OVERRIDES.join(', ')}`);
   ensureRow(store, ticketId);
-  store.db.prepare('UPDATE autopilot_tickets SET mode = ?, stop_after = 0, paused_reason = NULL, stopped_reason = NULL, ci_round_at = NULL WHERE ticket_id = ?').run(mode, ticketId);
+  store.db.prepare('UPDATE autopilot_tickets SET mode = ?, stop_after = 0, paused_reason = NULL, stopped_reason = NULL, stopped_head_sha = NULL, ci_round_at = NULL WHERE ticket_id = ?').run(mode, ticketId);
 }
 
-/** Remember the park reason last written, so a repeat tick does not repeat the note. Null clears it. */
-export function setAutopilotStopped(store: Store, ticketId: number, reason: string | null): void {
+/**
+ * Remember the park reason last written, so a repeat tick does not repeat the note. Null clears it, and the head with it.
+ * `headSha` is the head the stop applies to: a stop about an older head is history (arch:AP-00).
+ */
+export function setAutopilotStopped(store: Store, ticketId: number, reason: string | null, headSha: string | null = null): void {
   ensureRow(store, ticketId);
+  store.db.prepare('UPDATE autopilot_tickets SET stopped_head_sha = ? WHERE ticket_id = ?').run(reason === null ? null : headSha, ticketId);
   // A park reason (non-null) voids the mark; a null clear (a new round) must not.
   store.db.prepare(`UPDATE autopilot_tickets SET stopped_reason = ?${reason === null ? '' : ', ci_round_at = NULL'} WHERE ticket_id = ?`).run(reason, ticketId);
 }

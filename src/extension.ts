@@ -3072,6 +3072,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         { bindings: () => sandboxB, life: () => sandboxLife },
         driver,
         stall.hostFor(ticketId),
+        (id) => undelivered.get(id)?.hostAhead ?? 0,
       );
     },
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),

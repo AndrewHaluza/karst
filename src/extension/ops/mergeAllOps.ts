@@ -43,6 +43,8 @@ export interface MergeAllOpsDeps {
   readonly now: () => string;
   readonly refresh: () => Promise<void>;
   readonly autofixRunning: () => boolean;
+  /** Commits the ticket holds that its PRs lack (the undelivered tracker); absent = 0. */
+  readonly unpushed?: () => number;
   /** Shows the modal; true on the confirm button, false on Cancel or dismiss. */
   /** Merges one repo's PR; defaults to `mergeTicketPr` (a seam for tests). */
   readonly merge?: MergeAllDeps['merge'];
@@ -84,6 +86,7 @@ export async function mergeAllOp(d: MergeAllOpsDeps): Promise<void> {
       now: d.now,
       refresh: d.refresh,
       autofixRunning: d.autofixRunning,
+      ...(d.unpushed ? { unpushed: d.unpushed } : {}),
       confirm: (plan) => d.askModal(mergeAllModal(plan)),
       debug: d.debug,
       ...(d.merge ? { merge: d.merge } : {}),

@@ -114,6 +114,14 @@ interface BlockRow {
   blocked_reason: string | null;
   blocked_at: string | null;
   agent_state: string | null;
+  stopped_reason?: string | null;
+  stopped_head_sha?: string | null;
+}
+
+/** An autopilot stop names the head it applies to: ` at <sha7>` after the stop reason (arch:AP-00). The CLI only reads. */
+function reasonWithHead(r: BlockRow): string {
+  const reason = r.blocked_reason ?? '';
+  return r.stopped_head_sha && reason !== '' && reason === r.stopped_reason ? `${reason} at ${r.stopped_head_sha.slice(0, 7)}` : reason;
 }
 
 function roundsFor(store: Store, ticketId: number, floor: Severity | 'none'): BlockedRound[] {
@@ -165,7 +173,9 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
   const open = store.db
     .prepare(
       `SELECT t.id AS id, t.key AS key, s.stage_key AS stage_key, s.blocked_kind AS blocked_kind,
-              s.blocked_reason AS blocked_reason, s.blocked_at AS blocked_at, t.agent_state AS agent_state
+              s.blocked_reason AS blocked_reason, s.blocked_at AS blocked_at, t.agent_state AS agent_state,
+              (SELECT a.stopped_reason FROM autopilot_tickets a WHERE a.ticket_id = t.id) AS stopped_reason,
+              (SELECT a.stopped_head_sha FROM autopilot_tickets a WHERE a.ticket_id = t.id) AS stopped_head_sha
          FROM stages s JOIN tickets t ON t.id = s.ticket_id
         WHERE s.blocked_kind IS NOT NULL AND ${OPEN_TICKET_SQL}${projectSql}
         ORDER BY s.blocked_at, t.id`,
@@ -191,7 +201,7 @@ export function collectBlocked(store: Store, scope: BlockedScope = {}): BlockedR
     stage: r.stage_key,
     kind: r.blocked_kind,
     since: r.blocked_at ?? '',
-    reason: r.blocked_reason ?? '',
+    reason: reasonWithHead(r),
     agentState: r.agent_state,
     ...(r.blocked_kind === 'review-stalled' ? { rounds: roundsFor(store, r.id, scope.stallFloor ?? DEFAULT_STALL_FLOOR) } : {}),
     ...withDelivering(deliveringFor(store, r.id)),

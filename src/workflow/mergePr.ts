@@ -7,6 +7,7 @@ import { MERGE_ALL_NONE_READY, MERGE_ALL_ROUND_RUNNING } from '../model/mergeAll
 import { NO_AUTOFIX, NO_OFFERS } from '../model/prMergeReadiness.js';
 import {
   fetchPrDetail,
+  fetchPrHeadSha,
   mergePr,
   defaultGhRunnerAsync,
   UNKNOWN_PR_DETAIL,
@@ -110,6 +111,29 @@ async function settle(
   }
 }
 
+/** The reason Merge refuses a PR whose head lacks commits the ticket holds locally (arch:GH-03, reason `unpushed`). */
+export function unpushedReason(count: number): string {
+  return `${count} ${count === 1 ? 'commit is' : 'commits are'} not on the pull request. Push with Deliver to PR first; Merge lands only the head that review passed.`;
+}
+
+/**
+ * Read the PR head and count the local commits it lacks. A PR head that gh or git cannot read gives no
+ * verdict (the advisory read fails open); a head that is read is pinned on the merge.
+ */
+async function checkHead(
+  gh: GhRunner,
+  git: GitRunner,
+  url: string,
+  cwd: string,
+): Promise<{ readonly pin: string | null; readonly refusal: string | null }> {
+  const pin = await fetchPrHeadSha(gh, url, cwd);
+  if (pin === null) return { pin: null, refusal: null };
+  const r = await git(['rev-list', '--count', `${pin}..HEAD`], cwd);
+  const ahead = Number(r.stdout.trim());
+  if (r.exitCode === 0 && Number.isInteger(ahead) && ahead > 0) return { pin, refusal: unpushedReason(ahead) };
+  return { pin, refusal: null };
+}
+
 export async function mergeTicketPr(
   store: Store,
   opts: MergeTicketPrOpts,
@@ -141,7 +165,9 @@ export async function mergeTicketPr(
     };
   }
 
-  const attempt = await mergePr(gh, pr.url, pr.cwd, opts.method);
+  const head = await checkHead(gh, git, pr.url, pr.cwd);
+  if (head.refusal !== null) return { ok: false, status: pr.status, completedTicket: false, reason: head.refusal };
+  const attempt = await mergePr(gh, pr.url, pr.cwd, opts.method, head.pin ?? undefined);
   const detail = await probe(gh, pr.url, pr.cwd);
   // Persist whatever the probe could see, pass or fail: a refused merge still
   // brings back the comments and status that explain the refusal, and
@@ -194,10 +220,11 @@ export function planMergeAll(
   repoOrder: readonly string[],
   repoNameFor: (repo: string) => string | undefined,
   now: string,
+  unpushed = 0,
 ): MergeAllPlan {
   const current = new Set(listCurrentPrsByTicket(store, ticketId).map((p) => `${p.repo}\u0000${p.url}`));
   const views = listPrsByTicket(store, ticketId).filter((p) => p.url !== null && current.has(`${p.repo}\u0000${p.url}`));
-  const rows = buildPrPanelRows(views, now, repoNameFor, { mergeChecks: listMergeChecksByTicket(store, ticketId), offers: NO_OFFERS, autofix: NO_AUTOFIX });
+  const rows = buildPrPanelRows(views, now, repoNameFor, { mergeChecks: listMergeChecksByTicket(store, ticketId), offers: NO_OFFERS, autofix: NO_AUTOFIX, unpushed });
   const rank = (repo: string): number => {
     const i = repoOrder.indexOf(repo);
     return i === -1 ? repoOrder.length : i;
@@ -222,6 +249,8 @@ export interface MergeAllDeps {
   readonly refresh: () => Promise<void>;
   /** True while an Autopilot auto-fix round runs for the ticket. */
   readonly autofixRunning: () => boolean;
+  /** Commits the ticket holds that its PRs lack; a PR is not ready while this is above 0 (arch:GH-03). Absent = 0. */
+  readonly unpushed?: () => number;
   /** The one modal. Resolves true on confirm, false on cancel. */
   readonly confirm: (plan: MergeAllPlan) => Promise<boolean>;
   readonly merge?: (repo: string) => Promise<MergeTicketPrResult>;
@@ -256,7 +285,7 @@ export async function mergeAllPrs(store: Store, deps: MergeAllDeps): Promise<Mer
     await deps.refresh();
     // A round can start while the probe runs; the check is repeated before anything irreversible.
     if (deps.autofixRunning()) return { kind: 'refused', reason: MERGE_ALL_ROUND_RUNNING };
-    const plan = planMergeAll(store, ticketId, deps.repoOrder, deps.repoNameFor, deps.now());
+    const plan = planMergeAll(store, ticketId, deps.repoOrder, deps.repoNameFor, deps.now(), deps.unpushed?.() ?? 0);
     if (plan.ready.length === 0) return { kind: 'refused', reason: MERGE_ALL_NONE_READY };
     if (!(await deps.confirm(plan))) return { kind: 'cancelled' };
     // The modal can stay open for minutes; a round may have started meanwhile.
