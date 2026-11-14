@@ -1,4 +1,5 @@
 import { markSeedRead } from './fixDeliveries.js';
+import { INTERRUPT_KEEPS_RERUN_ENDED_SQL } from './hostRerunRound.js';
 import type { Store } from './db.js';
 import { openProcessRun, finishProcessRun, type ProcessRun } from './processRuns.js';
 import {
@@ -557,7 +558,7 @@ export function interruptFixExecution(store: Store, roundId: number, at: string)
     // that keeps dying without the marker cannot relaunch forever.
     store.db
       .prepare(
-        `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?, end_reason = NULL,
+        `UPDATE recovery_rounds SET status = 'interrupted', ended_at = ?, ${INTERRUPT_KEEPS_RERUN_ENDED_SQL},
            interrupt_count = interrupt_count + 1
           WHERE id = ? AND status = 'fixing'`,
       )

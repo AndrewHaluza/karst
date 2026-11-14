@@ -5,7 +5,7 @@ import { upsertProject } from './projects.js';
 import { openRecoveryRound } from './recoveryRounds.js';
 import { claimHostRerun, markHostRerunFailed, parkRoundOutOfFixing, readHostRerunning, HOST_RERUN_READING_MAX_MS } from './hostRerunRound.js';
 import { getTicket, setStageCurrent } from './tickets.js';
-import { completeFixExecution, interruptFixExecution } from './recoveryRounds.js';
+import { completeFixExecution, interruptFixExecution, reopenInterruptedRound } from './recoveryRounds.js';
 import { reconcileOnStart } from '../recovery/reconcile.js';
 
 const AT = '2026-01-01T00:00:00Z';
@@ -104,11 +104,25 @@ describe('the derived hostRerunning reading of a loaded ticket', () => {
     expect(row).toEqual({ status: 'revalidating', r: null });
   });
 
-  it('the failure reason does not outlive the open round (interrupted)', () => {
+  it('an interrupt keeps the failure reason as history', () => {
     claimHostRerun(store, roundId, new Date().toISOString());
     markHostRerunFailed(store, roundId, 'the host re-run failed');
     interruptFixExecution(store, roundId, AT);
     const row = store.db.prepare('SELECT status, end_reason AS r FROM recovery_rounds WHERE id = ?').get(roundId) as { status: string; r: string | null };
-    expect(row).toEqual({ status: 'interrupted', r: null });
+    expect(row).toEqual({ status: 'interrupted', r: 'the host re-run failed' });
+  });
+
+  it('an interrupt of a claimed re-run with no result gives it a reason, so a reopened round does not read in flight', () => {
+    claimHostRerun(store, roundId, new Date().toISOString());
+    interruptFixExecution(store, roundId, AT);
+    expect(reopenInterruptedRound(store, ticketId, roundId)).toBe(true);
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(roundId);
+    expect(getTicket(store, ticketId).hostRerunning).toBe(false);
+  });
+
+  it('an interrupt of a round with no claim leaves no reason', () => {
+    interruptFixExecution(store, roundId, AT);
+    const row = store.db.prepare('SELECT end_reason AS r FROM recovery_rounds WHERE id = ?').get(roundId) as { r: string | null };
+    expect(row.r).toBeNull();
   });
 });

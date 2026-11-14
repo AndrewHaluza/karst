@@ -131,3 +131,13 @@ export function endOrphanedHostReruns(store: Store, isAlive: (pid: number) => bo
   }
   return ended;
 }
+
+/** The reason an interrupt gives to a claimed host re-run it cuts short. */
+export const HOST_RERUN_INTERRUPTED_REASON = 'the round was interrupted during the host re-run';
+
+/**
+ * SQL for a `SET` clause of every writer that moves a round to `interrupted`. A claim with no result
+ * keeps a reason, so the round does not read as a re-run in flight when the driver reopens it
+ * (`host_rerun_at` stays set: the one re-run per round stays used). An existing reason stays.
+ */
+export const INTERRUPT_KEEPS_RERUN_ENDED_SQL = `end_reason = COALESCE(end_reason, CASE WHEN host_rerun_at IS NOT NULL THEN '${HOST_RERUN_INTERRUPTED_REASON}' END)`;
