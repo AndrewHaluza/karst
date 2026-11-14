@@ -1525,6 +1525,7 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   stop_after    INTEGER NOT NULL DEFAULT 0,   -- 1 = "stop after this round": no new round is armed
   paused_reason TEXT,                         -- a round that moved the ticket on but started no session; NOT a spent budget
   stopped_reason TEXT,                        -- last park reason autopilot wrote (dedupes repeat notes)
+  stopped_head_sha TEXT,                      -- v120: the head the stop applies to (arch:AP-00); NULL = none recorded
   claim_owner TEXT,                           -- window that holds the arming lease (two windows share one db)
   claim_until INTEGER,                        -- lease end, epoch ms
   session_owner TEXT,                         -- window that holds the ticket's session; set at session open, cleared at close

@@ -13,7 +13,7 @@ import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { isKnownOptional, parseChecks } from '../../model/prChecks.js';
 import {
   clearConflictRound, effectiveAutopilot, markCiRound, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
-  markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
+  getCiRoundHeadSha, markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind,
 } from '../../store/autopilot.js';
 
@@ -141,7 +141,7 @@ function flightKeyOf(d: Pick<AutopilotDeps, 'store' | 'ticketId'>): string {
   return `${d.store.db.name}:${d.ticketId}`;
 }
 
-function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug'>, kind: AutopilotKind, reason: string, body: string, paused = false): AutopilotResult {
+function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug'>, kind: AutopilotKind, reason: string, body: string, paused = false, headSha: string | null = null): AutopilotResult {
   // The check and the write share one transaction: a tick awaits between its start and its park, and a send-back may land there (T1122).
   const write = d.store.db.transaction((): AutopilotResult => {
     if (!stillShipped(d.store, d.ticketId)) {
@@ -152,7 +152,7 @@ function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'de
     if (foreignBlock(d.store, d.ticketId)) return { kind: 'idle' };
     // Re-park when another writer replaced or cleared the block, so the amber state matches the stop reason.
     if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== reason || stageBlock(d.store, d.ticketId, 'ship')?.reason !== reason) {
-      setAutopilotStopped(d.store, d.ticketId, reason);
+      setAutopilotStopped(d.store, d.ticketId, reason, headSha);
       if (paused) setAutopilotPaused(d.store, d.ticketId, reason);
       // The amber Needs you state: the existing awaiting-merge kind carries the reason (no new BlockerKind, @arch:BLOCKED).
       parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: new Date().toISOString(), gates: [] });
@@ -370,7 +370,7 @@ async function noChangeStepOf(d: AutopilotDeps, problem: Problem): Promise<Autop
   if (step.kind === 'none') return null;
   if (step.kind === 'rerun') return { kind: 'rerun' };
   if (step.kind === 'stopped') {
-    return park(d, 'ci', 'auto-fix stopped: ci round made no change', 'the agent made no commit and the check failed again after one re-run; fix it by hand or approve one more attempt.');
+    return park(d, 'ci', 'auto-fix stopped: ci round made no change', 'the agent made no commit and the check failed again after one re-run; fix it by hand or approve one more attempt.', false, getCiRoundHeadSha(d.store, d.ticketId, problem.repo));
   }
   return park(d, 'ci', `auto-fix stopped: ci could not run (${step.reason})`, `the action failed (${step.reason}); the ticket stays in ship and no attempt was used.`, true);
 }

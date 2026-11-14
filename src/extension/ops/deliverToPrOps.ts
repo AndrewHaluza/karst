@@ -14,6 +14,13 @@ export interface UndeliveredCounts {
   readonly hostAhead: number;
   /** Commits in the sandbox clone that are not on the host branch (so not on the PR either). */
   readonly sandboxAhead: number;
+  /** Per PR repo: host plus sandbox commits the PR lacks (the Merge head rule, arch:GH-03). Absent = none. */
+  readonly byRepo?: Readonly<Record<string, number>>;
+}
+
+/** Commits one repo's PR lacks, host and sandbox together; 0 when nothing is tracked. */
+export function aheadFor(counts: UndeliveredCounts | undefined, repo: string): number {
+  return counts?.byRepo?.[repo] ?? 0;
 }
 
 export interface GitResult {
@@ -74,12 +81,14 @@ export async function refreshUndelivered(
   if (!targets.available) return tracker.set(ticketId, undefined);
   let hostAhead = 0;
   let sandboxAhead = 0;
+  const byRepo: Record<string, number> = {};
   for (const pr of targets.prs) {
     const c = await countUndelivered(deps, pr);
     hostAhead += c.hostAhead;
     sandboxAhead += c.sandboxAhead;
+    byRepo[pr.repo] = (byRepo[pr.repo] ?? 0) + c.hostAhead + c.sandboxAhead;
   }
-  tracker.set(ticketId, { hostAhead, sandboxAhead });
+  tracker.set(ticketId, { hostAhead, sandboxAhead, byRepo });
 }
 
 export interface DeliverDeps {

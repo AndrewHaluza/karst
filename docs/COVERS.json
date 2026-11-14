@@ -518,6 +518,7 @@
     "arch:GH-03"
   ],
   "src/integrations/github.ts#mergePr": [
+    "arch:GH-03",
     "arch:GH-04"
   ],
   "src/integrations/prChecks.ts": [
@@ -1058,6 +1059,7 @@
     "arch:GH-09"
   ],
   "src/workflow/mergePr.ts#mergeTicketPr": [
+    "arch:GH-03",
     "arch:GH-04"
   ],
   "src/workflow/mergePr.ts#planMergeAll": [

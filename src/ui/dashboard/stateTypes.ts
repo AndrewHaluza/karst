@@ -88,7 +88,7 @@ export interface DashboardAgentContext {
   /** Whether "Open shell in sandbox" applies now (cached host-side probe; the state builder is sync). */
   sandboxShell?: (ticketId: number) => { available: boolean; why: string | null };
   /** What the open PRs still lack, measured on the PR refresh ("Deliver to PR"); undefined = nothing. */
-  undelivered?: (ticketId: number) => { hostAhead: number; sandboxAhead: number } | undefined;
+  undelivered?: (ticketId: number) => { hostAhead: number; sandboxAhead: number; byRepo?: Readonly<Record<string, number>> } | undefined;
   /**
    * Per-capability resolved agent identity computed from manifest and ticket preset/provider.
    * Plain data (no functions) suitable for serialization via postMessage.

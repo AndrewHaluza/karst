@@ -1328,6 +1328,9 @@ describe('autopilotTick CI round that made no commit (D564)', () => {
     expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
     expect(later.notes[0]![1]).toBe('AP-1 (ci): the agent made no commit and the check failed again after one re-run; fix it by hand or approve one more attempt.');
     expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix stopped: ci round made no change');
+    // The stop names the head it applies to: the failing run head recorded when the round was sent (arch:AP-00).
+    expect(getAutopilotTicket(store, id).stoppedHeadSha).toBe(getCiRoundHeadSha(store, id, 'r'));
+    expect(getAutopilotTicket(store, id).stoppedHeadSha).not.toBeNull();
   });
 
   it('records the failing run head only when a round was sent (armed), and only with the transient seams', async () => {

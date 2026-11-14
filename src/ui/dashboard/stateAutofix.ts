@@ -210,6 +210,8 @@ export function readAutofix(
   ticketId: number,
   config: AutopilotConfig | undefined,
   repoNameFor: (repo: string) => string | undefined = () => undefined,
+  /** The ticket holds commits its PRs lack: a stop recorded at another head is history, and its line says so (arch:AP-00). */
+  headMoved = false,
 ): AutofixReading {
   const nameOf: RepoNameOf = (repo) => repoNameFor(repo) ?? keepRepo(repo);
   const ticket = getAutopilotTicket(store, ticketId);
@@ -217,8 +219,13 @@ export function readAutofix(
   const effective = effectiveAutopilot(store, ticketId, projectDefault);
   const block = stageBlock(store, ticketId, 'ship')?.reason ?? null;
   // `stoppedReason` only remembers the last park note (no repeat note), so it outlives the park: it is not a source here.
-  const reason = [block, ticket.pausedReason].find((r) => typeof r === 'string' && r.startsWith('auto-fix')) ?? null;
-  const kind = reason === null ? null : parkedKind(reason);
+  const stopReason = [block, ticket.pausedReason].find((r) => typeof r === 'string' && r.startsWith('auto-fix')) ?? null;
+  const kind = stopReason === null ? null : parkedKind(stopReason);
+  // A suffix, not a prefix: `parkedKind` reads the leading `auto-fix` words. The Deliver row stays the primary next action.
+  const reason =
+    stopReason !== null && headMoved && ticket.stoppedHeadSha !== null && ticket.stoppedReason === stopReason
+      ? `${stopReason} (autopilot stopped at ${ticket.stoppedHeadSha.slice(0, 7)}; the head moved since)`
+      : stopReason;
   const target = kind === null ? null : resolveTarget(store, ticketId, config, kind, nameOf);
   const waiting = waitingCi(store, ticketId, nameOf);
   const facts: AutofixFacts = {
