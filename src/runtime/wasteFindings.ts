@@ -65,6 +65,7 @@ export function findWaste(opts: {
     if (row.pid !== null) serverPids.add(row.pid);
   }
 
+  const kindWord = (kind: string): string => (kind === 'agent' ? 'agent' : 'server');
   const findings: WasteFinding[] = [];
   const claimed = new Set<number>();
   const emit = (finding: WasteFinding): void => {
@@ -86,7 +87,7 @@ export function findWaste(opts: {
       pid: row.pid,
       serverId: row.serverId,
       ticketId: row.ticketId,
-      reason: `${server.repo} server still running in a worktree that no longer exists (${dirname(server.cwd)})`,
+      reason: `${server.repo} ${kindWord(row.kind)} still running in a worktree that no longer exists (${server.cwd})`,
       rssBytes: row.cost?.rssBytes ?? 0,
       killable: true,
     });
@@ -106,7 +107,7 @@ export function findWaste(opts: {
       pid: row.pid,
       serverId: row.serverId,
       ticketId: row.ticketId,
-      reason: `${server.repo} server still running for ${life.archived ? 'an archived' : 'a completed'} ticket ${life.key ?? life.id}`,
+      reason: `${server.repo} ${kindWord(row.kind)} still running for ${life.archived ? 'an archived' : 'a completed'} ticket ${life.key ?? life.id}`,
       rssBytes: row.cost?.rssBytes ?? 0,
       killable: true,
     });
