@@ -1,0 +1,17 @@
+{
+  "id": "c20-lost-update",
+  "title": "Add an event counter",
+  "baseRef": "main",
+  "branch": "feat/counter",
+  "defects": [
+    {
+      "id": "REVEVAL-D-019",
+      "file": "src/counter.ts",
+      "lineStart": 8,
+      "lineEnd": 10,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

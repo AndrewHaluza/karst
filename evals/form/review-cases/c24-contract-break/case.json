@@ -1,0 +1,17 @@
+{
+  "id": "c24-contract-break",
+  "title": "Make parseId throw on bad input",
+  "baseRef": "main",
+  "branch": "refactor/parse-id",
+  "defects": [
+    {
+      "id": "REVEVAL-D-023",
+      "file": "src/parseId.ts",
+      "lineStart": 3,
+      "lineEnd": 5,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

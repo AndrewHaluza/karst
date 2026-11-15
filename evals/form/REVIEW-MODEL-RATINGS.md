@@ -79,6 +79,25 @@ Recall runs on v5: the 14 defect cases (`c01` to `c08`, `c11` to `c16`), 2 runs 
 
 Both cores found every seeded defect, and no call timed out. The recall intervals are the same, so recall does not separate these two cores. The clean-case rate does (see above). Claude has no n of 30 cell yet.
 
+## Case set v6 (six harder cases, c19 to c24)
+
+Case set 6 adds `c19` to `c24`. Each has one seeded defect that needs more than a local read: a unit mismatch with an unchanged file (`c19`), a race (`c20`), an offset that disagrees with a correct helper (`c21`), a path prefix check (`c22`), regex `lastIndex` state (`c23`), and a changed contract with an unchanged caller (`c24`). Every case has a test file that passes on the defective code.
+
+Opencode2, 3 runs per case, 18 calls (`review-references/opencode2-mimo-v2.6-flash-hard-c19-c24-v6/`): recall 15/18 (83.3%, interval 60.8% to 94.2%, INSUFFICIENT), 18 of 18 calls ok, 2 blocking false findings, 110.5 seconds per run. The easy cases gave 34/34, so these cases separate the core from 100%.
+
+| Case | Found in 3 runs | Note |
+|---|---|---|
+| `c19-unit-mismatch` | 3 | |
+| `c20-lost-update` | 2 | Run 1 described the race, but the finding has no file and no line. The matcher cannot score it. |
+| `c21-pagination` | 2 | Run 3 is a real miss. It reported only a `NaN` page. |
+| `c22-path-prefix` | 3 | |
+| `c23-regex-state` | 3 | |
+| `c24-contract-break` | 2 | Run 3 found the break, but it put the finding on the caller, `handler.ts:10`. The case accepts only `parseId.ts`. |
+
+So 1 of the 3 misses is a real miss. 1 is a finding without a location, which a user cannot act on. 1 is a correct finding at a different location. I did not change the matcher to fit this result. A later change may accept the caller line for `c24`.
+
+Defect cases also drew 0 to 3 false findings per run. They do not count against the core.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.

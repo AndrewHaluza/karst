@@ -1,0 +1,17 @@
+{
+  "id": "c21-pagination",
+  "title": "Add pagination helpers",
+  "baseRef": "main",
+  "branch": "feat/paginate",
+  "defects": [
+    {
+      "id": "REVEVAL-D-020",
+      "file": "src/paginate.ts",
+      "lineStart": 22,
+      "lineEnd": 22,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

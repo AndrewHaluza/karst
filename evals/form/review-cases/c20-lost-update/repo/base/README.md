@@ -1,0 +1,3 @@
+# counter
+
+Small TypeScript library.

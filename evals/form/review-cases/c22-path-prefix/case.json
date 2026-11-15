@@ -1,0 +1,17 @@
+{
+  "id": "c22-path-prefix",
+  "title": "Add upload reads",
+  "baseRef": "main",
+  "branch": "feat/uploads",
+  "defects": [
+    {
+      "id": "REVEVAL-D-021",
+      "file": "src/uploads.ts",
+      "lineStart": 9,
+      "lineEnd": 9,
+      "kind": "bug",
+      "minSeverity": "high"
+    }
+  ],
+  "cleanFiles": []
+}
