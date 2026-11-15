@@ -37,9 +37,24 @@ const readOwner = (path) => {
   }
 };
 
-function isStale(path, alive, staleMs) {
+/** A stale heartbeat counts only when the same mtime stays stale for one heartbeat period on this waiter's monotonic clock (host sleep jumps the wall clock). Keep in step with src/runtime/claimLease.ts. */
+function heartbeatConfirmed(suspects, path, mtimeMs, heartbeatMs) {
+  const seen = suspects.get(path);
+  if (seen === undefined || seen.mtimeMs !== mtimeMs) {
+    suspects.set(path, { mtimeMs, at: performance.now() });
+    return false;
+  }
+  return performance.now() - seen.at >= heartbeatMs;
+}
+
+function isStale(path, alive, staleMs, suspects, heartbeatMs) {
   try {
-    if (Date.now() - statSync(join(path, 'heartbeat')).mtimeMs > staleMs) return true;
+    const mtimeMs = statSync(join(path, 'heartbeat')).mtimeMs;
+    if (Date.now() - mtimeMs > staleMs) {
+      if (heartbeatConfirmed(suspects, path, mtimeMs, heartbeatMs)) return true;
+    } else {
+      suspects.delete(path);
+    }
   } catch { /* no heartbeat file: a claim of older code, old rules only */ }
   const pid = readOwner(path);
   if (pid !== null) return !alive(pid);
@@ -64,10 +79,10 @@ function claim(path, ticket, token) {
   return true;
 }
 
-function tryClaim(dir, slot, alive, ticket, staleMs, token) {
+function tryClaim(dir, slot, alive, ticket, staleMs, token, suspects, heartbeatMs) {
   const path = join(dir, `slot-${slot}`);
   if (claim(path, ticket, token)) return true;
-  if (!isStale(path, alive, staleMs)) return false;
+  if (!isStale(path, alive, staleMs, suspects, heartbeatMs)) return false;
   // Serialise the reclaim: a short mutex dir, as in claimLease.ts.
   const lock = join(dir, 'reclaim.lock');
   try {
@@ -80,7 +95,7 @@ function tryClaim(dir, slot, alive, ticket, staleMs, token) {
     return false;
   }
   try {
-    if (!isStale(path, alive, staleMs)) return false;
+    if (!isStale(path, alive, staleMs, suspects, heartbeatMs)) return false;
     rmSync(path, { recursive: true, force: true });
     return claim(path, ticket, token);
   } finally {
@@ -110,11 +125,12 @@ export async function acquireGateSlot(gate, { dir = defaultGateSlotsDir(), slots
   const pool = join(dir, gatePoolName(gate));
   mkdirSync(pool, { recursive: true });
   const token = randomUUID();
+  const suspects = new Map();
   let waited = false;
   for (;;) {
     if (signal?.aborted) throw new Error('gate lease aborted');
     for (let slot = 0; slot < slots; slot++) {
-      if (!tryClaim(pool, slot, alive, ticket, heartbeatStaleMs, token)) continue;
+      if (!tryClaim(pool, slot, alive, ticket, heartbeatStaleMs, token, suspects, heartbeatMs)) continue;
       const path = join(pool, `slot-${slot}`);
       const ownsClaim = () => {
         try {

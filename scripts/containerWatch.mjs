@@ -10,7 +10,8 @@ export const EXIT_DOCKER_HUNG = 125;
 export const WATCH_POLL_MS = 30_000;
 export const WATCH_MISSES = 3;
 export const GRACE_IMAGE_PRESENT_MS = 120_000;
-export const GRACE_IMAGE_MISSING_MS = 900_000;
+export const GRACE_IMAGE_MISSING_MS = 2_400_000;
+export const RM_TIMEOUT_MS = 10_000;
 export const PROBE_TIMEOUT_MS = 10_000;
 
 const IMAGE_PREFIX = 'mcr.microsoft.com/playwright:';

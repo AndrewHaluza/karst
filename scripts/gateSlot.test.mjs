@@ -110,10 +110,29 @@ describe('acquireGateSlot', () => {
       writeFileSync(join(slot, 'token'), 'other');
       writeFileSync(join(slot, 'heartbeat'), '');
       back(join(slot, 'heartbeat'));
-      const lease = await acquireGateSlot('visual', { dir, pollMs: 5 });
+      const lease = await acquireGateSlot('visual', { dir, pollMs: 5, heartbeatMs: 20 });
       expect(lease.slot).toBe(0);
       expect(readFileSync(join(slot, 'token'), 'utf8')).not.toBe('other');
       lease.release();
+    });
+
+    it('does not reclaim a live owner whose heartbeat looks stale but is refreshed within one period', async () => {
+      const dir = mkDir();
+      const slot = join(dir, 'visual', 'slot-0');
+      mkdirSync(slot, { recursive: true });
+      writeFileSync(join(slot, 'owner'), String(process.pid));
+      writeFileSync(join(slot, 'token'), 'other');
+      writeFileSync(join(slot, 'heartbeat'), '');
+      back(join(slot, 'heartbeat'));
+      const ctl = new AbortController();
+      const beat = setInterval(() => utimesSync(join(slot, 'heartbeat'), new Date(), new Date()), 10);
+      const waiter = acquireGateSlot('visual', { dir, pollMs: 5, heartbeatMs: 200, signal: ctl.signal });
+      const outcome = await Promise.race([waiter.then(() => 'claimed'), new Promise((r) => setTimeout(() => r('waiting'), 400))]);
+      clearInterval(beat);
+      ctl.abort();
+      await waiter.catch(() => undefined);
+      expect(outcome).toBe('waiting');
+      expect(readFileSync(join(slot, 'token'), 'utf8')).toBe('other');
     });
 
     it('keeps a live owner with no heartbeat file', async () => {

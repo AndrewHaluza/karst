@@ -25,7 +25,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { baseRerunArgv, classifyFailures, classifyHeadRerun, failedTests, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
-import { EXIT_DOCKER_HUNG, GRACE_IMAGE_MISSING_MS, GRACE_IMAGE_PRESENT_MS, imageOf, imagePresent, watchContainer } from './containerWatch.mjs';
+import { EXIT_DOCKER_HUNG, RM_TIMEOUT_MS, GRACE_IMAGE_MISSING_MS, GRACE_IMAGE_PRESENT_MS, imageOf, imagePresent, watchContainer } from './containerWatch.mjs';
 import { hasBinary } from './onPath.mjs';
 import { formatTiming, phaseClock } from './gateTiming.mjs';
 import { dockerCpus, gateWorkers, workersLine } from './gateWorkers.mjs';
@@ -477,7 +477,8 @@ async function runContainer(rawArgv, memo = null, clock = phaseClock()) {
                 );
                 hung = true;
                 child.kill('SIGKILL');
-                spawnSync('docker', ['rm', '-f', hungName], { stdio: 'ignore' });
+                // Async with a timeout: the gate must not block its event loop on a stuck docker daemon.
+                spawn('docker', ['rm', '-f', hungName], { stdio: 'ignore', timeout: RM_TIMEOUT_MS }).on('error', () => {});
               },
             });
       child.on('error', (error) => {

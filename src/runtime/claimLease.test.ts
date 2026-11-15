@@ -95,10 +95,31 @@ describe('leaseClaimSlot', () => {
     writeFileSync(join(claim, 'token'), 'other');
     writeFileSync(join(claim, 'heartbeat'), '');
     utimesSync(join(claim, 'heartbeat'), TEN_MIN_AGO(), TEN_MIN_AGO());
-    const lease = await leaseClaimSlot({ dir, slots: 1, pollMs: 5 });
+    const lease = await leaseClaimSlot({ dir, slots: 1, pollMs: 5, heartbeatMs: 20 });
     expect(lease.slot).toBe(0);
     expect(readFileSync(join(claim, 'token'), 'utf8')).not.toBe('other');
     await lease.release();
+  });
+
+  it('does not reclaim a live owner whose heartbeat looks stale but is refreshed within one period', async () => {
+    const dir = tmp();
+    const claim = join(dir, 'slot-0');
+    mkdirSync(claim);
+    writeFileSync(join(claim, 'owner'), String(process.pid));
+    writeFileSync(join(claim, 'token'), 'other');
+    const hb = join(claim, 'heartbeat');
+    writeFileSync(hb, '');
+    utimesSync(hb, TEN_MIN_AGO(), TEN_MIN_AGO());
+    const ctl = new AbortController();
+    // The holder wakes from sleep and beats again while the waiter is still polling.
+    const beat = setInterval(() => utimesSync(hb, new Date(), new Date()), 10);
+    const waiter = leaseClaimSlot({ dir, slots: 1, pollMs: 5, heartbeatMs: 200, signal: ctl.signal });
+    const outcome = await Promise.race([waiter.then(() => 'claimed'), new Promise((r) => setTimeout(() => r('waiting'), 400))]);
+    clearInterval(beat);
+    ctl.abort();
+    await waiter.catch(() => undefined);
+    expect(outcome).toBe('waiting');
+    expect(readFileSync(join(claim, 'token'), 'utf8')).toBe('other');
   });
 
   it('keeps a live owner with no heartbeat file', async () => {
