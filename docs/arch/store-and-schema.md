@@ -235,7 +235,7 @@ The rules, in this order:
 2. Kahn order. An item is ready when each blocker in the set is placed. Among ready items the next one has the highest effective priority (`urgent` > `high` > `normal` > `low`), then the oldest `createdAt`, then the lowest id (drafts before tickets, numeric). A ticket from an accepted draft takes the draft's `created_at` as its queue age (the oldest one when several name it), so Save keeps its place.
 3. A cycle never throws. When no item is ready, the remaining items that can reach themselves are marked `cycle` and the best one by the same keys is placed. Validation prevents a new cycle, but stored data can be old.
 
-Each output item carries `position`, `priority`, `inheritedFrom`, `waitsOn` and `cycle`. `queueWhy` gives the short reason: `cycle`, `↑ from <id>`, `waits on <ids>`, or empty. Rejected: a sort only in the Planning pane, a Tickets-pane preset, a score formula, and tracks.
+Each output item carries `position`, `priority`, `inheritedFrom`, `waitsOn`, `cycle` and `cycleWith` (the first blocker that is a cycle member too, or null). `queueWhy` gives the short reason in lower case: `cycle with <id>` (`cycle` when there is no partner), `unblocks <id>`, `waits on <first id>` with ` +N` for the N other blockers, or empty. The Queue pane draws the same three reasons as the D561 verb and the D560 chip. Rejected: a sort only in the Planning pane, a Tickets-pane preset, a score formula, and tracks.
 END_DOC_BLOCK: [@arch:QUEUE-ORDER]
 
 ## [@arch:BULLETIN] Project bulletin (v72)

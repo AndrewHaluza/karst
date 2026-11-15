@@ -789,6 +789,10 @@ const sidebarVariants = (): Variant[] => {
     variant('sidebar', 'queue-empty', openQueue(s('empty'))),
     variant('sidebar', 'queue-populated', openQueue(s('queue'))),
     variant('sidebar', 'queue-long-content', openQueue(s('queue-long'))),
+    // T1104: the Queue relation (verb + chip) on one line at 460px, on a second line at 300px (@ui:UI-R57).
+    ...CHIP_TIERS.map(([tier, width]) =>
+      variant('sidebar', `queue-chips-${tier}`, openQueue(s('queue')), { width, themes: CHIP_THEMES }),
+    ),
     variant('sidebar', 'subtasks', s('subtasks')),
     ...CHIP_TIERS.map(([tier, width]) =>
       variant('sidebar', `stage-chip-${tier}`, s('planning-deps'), { width, themes: CHIP_THEMES }),

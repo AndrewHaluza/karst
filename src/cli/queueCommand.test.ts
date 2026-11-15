@@ -44,7 +44,7 @@ describe('karst queue — output', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'scope' WHERE id = ?").run(t.id);
     expect(runQueueCommand(store, { json: false }, { projectId }).split('\n')).toEqual([
       '#  ID  SESSION  PRIO    TITLE       WHY',
-      `1  D${blocker}  P${s1}       urgent  blocker     ↑ from D${urgent}`,
+      `1  D${blocker}  P${s1}       urgent  blocker     unblocks D${urgent}`,
       `2  D${urgent}  P${s2}       urgent  urgent one  waits on D${blocker}`,
       `3  T${t.id}  -        normal  a ticket`,
       '3 items · 2 drafts in 2 sessions · 1 tickets',
@@ -56,7 +56,7 @@ describe('karst queue — output', () => {
     const urgent = insertProposal(store, s2, { ...payload, priority: 'urgent', priorityReason: 'data loss', dependsOn: [blocker] });
     const rows = JSON.parse(runQueueCommand(store, { json: true }, { projectId }));
     expect(rows).toEqual(collectQueue(store, { projectId }));
-    expect(rows[0]).toMatchObject({ position: 1, id: `D${blocker}`, session: `P${s1}`, priority: 'urgent', inheritedFrom: `D${urgent}`, waitsOn: [], cycle: false, why: `↑ from D${urgent}` });
+    expect(rows[0]).toMatchObject({ position: 1, id: `D${blocker}`, session: `P${s1}`, priority: 'urgent', inheritedFrom: `D${urgent}`, waitsOn: [], cycle: false, why: `unblocks D${urgent}` });
     expect(rows[1]).toMatchObject({ position: 2, priorityReason: 'data loss', waitsOn: [`D${blocker}`], why: `waits on D${blocker}` });
   });
 

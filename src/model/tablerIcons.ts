@@ -279,6 +279,11 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M5 12l14 0"/>' +
     '<path d="M5 12l6 6"/>' +
     '<path d="M5 12l6 -6"/>',
+  // Added for the Queue pane (T1104): the raised-priority arrow on the priority chip.
+  'arrow-up':
+    '<path d="M12 5l0 14"/>' +
+    '<path d="M18 11l-6 -6"/>' +
+    '<path d="M6 11l6 -6"/>',
   // Added for the Inside buttons (T1072): 'Send CI failure' and 'Rebase'.
   send:
     '<path d="M10 14l11 -11"/>' +

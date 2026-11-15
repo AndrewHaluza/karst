@@ -6,7 +6,7 @@ import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubta
 import type { PriorityLevel } from '../../planning/proposal.js';
 import { asPriorityLevel, effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel, ticketProviderPriority } from '../../model/priority.js';
 import { PRIORITY_EDITABLE_STAGE } from '../../extension/ops/ticketPriorityOps.js';
-import { readProjectQueue } from '../../store/queueItems.js';
+import { readProjectQueue, type QueueEntry } from '../../store/queueItems.js';
 import { queueWhy } from '../../model/queueOrder.js';
 import { ticketActionFlags, type TicketActionFlags } from './ticketActions.js';
 import {
@@ -42,7 +42,7 @@ import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { listVisibleProposals, effectiveProposalPriority, type PlanningProposal } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
-import { formatId } from '../../model/entityId.js';
+import { formatId, parseId } from '../../model/entityId.js';
 import { listOpenBlockersFor } from '../../store/ticketRelations.js';
 import { cloudSessionsForSidebar, type CloudSessionChip } from '../../cloud/sidebarView.js';
 import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
@@ -232,6 +232,12 @@ export interface QueueRowView {
   inheritedFrom: string | null;
   /** Open blockers, in-queue ones first. */
   waitsOn: string[];
+  /** One chip view per `waitsOn` id, same order. The host builds each; the view never derives a stage (@ui:UI-R31). */
+  waitsOnRefs: TicketRefView[];
+  /** The chip of the item that raised the level (`inheritedFrom`), or null. */
+  inheritedRef: TicketRefView | null;
+  /** The chip of the cycle partner, or null when the row is not in a cycle. */
+  cycleRef: TicketRefView | null;
   cycle: boolean;
   /** The short reason (`↑ D498`, `waits D452`, `cycle`), or ''. */
   why: string;
@@ -255,15 +261,39 @@ export interface QueueView {
 
 export const EMPTY_QUEUE: QueueView = { rows: [], drafts: 0, sessions: 0, tickets: 0 };
 
+/** The chip view of one queue id (`D<n>`, `T<n>`) or an external blocker label. */
+function queueRef(store: Store, id: string, inQueue: ReadonlyMap<string, QueueEntry>): TicketRefView {
+  const entry = inQueue.get(id);
+  if (entry?.kind === 'draft') return ticketRefView({ draftId: entry.numId, draftLabel: id, sessionLabel: entry.session });
+  let parsed: { kind: string; n: number } | null = null;
+  try {
+    parsed = parseId(id);
+  } catch {
+    parsed = null;
+  }
+  if (parsed?.kind === 'draft') return ticketRefView({ draftId: parsed.n, draftLabel: id });
+  if (parsed?.kind === 'ticket') {
+    try {
+      return ticketRefView({ ticket: getTicket(store, parsed.n) });
+    } catch {
+      return ticketRefView({ ref: id });
+    }
+  }
+  return ticketRefView({ ref: id });
+}
+
 function queueView(store: Store, projectId: number | undefined, providerId?: string): QueueView {
   if (projectId === undefined) return EMPTY_QUEUE;
   const q = readProjectQueue(store, projectId, providerId);
+  const inQueue = new Map(q.entries.map((e) => [e.id, e]));
+  const ref = (id: string): TicketRefView => queueRef(store, id, inQueue);
   return {
     drafts: q.drafts,
     sessions: q.sessions,
     tickets: q.tickets,
     rows: q.entries.map((e) => {
       const why = queueWhy(e);
+      const partner = e.cycle ? (e.cycleWith ?? e.waitsOn[0] ?? null) : null;
       return {
         position: e.position,
         kind: e.kind,
@@ -274,8 +304,11 @@ function queueView(store: Store, projectId: number | undefined, providerId?: str
         level: e.priority,
         inheritedFrom: e.inheritedFrom,
         waitsOn: [...e.waitsOn],
+        waitsOnRefs: e.waitsOn.map(ref),
+        inheritedRef: e.inheritedFrom === null ? null : ref(e.inheritedFrom),
+        cycleRef: partner === null ? null : ref(partner),
         cycle: e.cycle,
-        why: e.cycle ? 'cycle' : e.inheritedFrom !== null ? `↑ ${e.inheritedFrom}` : e.waitsOn.length ? `waits ${e.waitsOn[0]}${e.waitsOn.length > 1 ? ` +${e.waitsOn.length - 1}` : ''}` : '',
+        why,
         whyKind: e.cycle ? 'cycle' : e.inheritedFrom !== null ? 'raised' : why ? 'waits' : 'none',
         ownLevel: e.ownPriority,
         prioritySource: e.prioritySource,

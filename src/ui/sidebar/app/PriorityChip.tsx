@@ -5,6 +5,7 @@
  * name give the level and who set it (the planner's reason, the provider, or you).
  */
 import type { PriorityLevel } from '../../../planning/proposal.js';
+import { Icon } from './Icon.js';
 import { levelLabel, levelShort, priorityTitle, type PriorityChipSource, type ProviderPriority } from './priority.js';
 
 export interface PriorityChipProps {
@@ -13,14 +14,17 @@ export interface PriorityChipProps {
   readonly reason?: string;
   /** A ticket's provider value, so the tooltip can name it beside a user value. */
   readonly provider?: ProviderPriority;
+  /** The level was raised by an item that waits on this one: a small up arrow follows the word. */
+  readonly raised?: boolean;
 }
 
-export function PriorityChip({ level, source, reason, provider }: PriorityChipProps) {
+export function PriorityChip({ level, source, reason, provider, raised }: PriorityChipProps) {
   if (!level || level === 'normal') return null;
   const title = source ? priorityTitle(level, source, reason, provider) : levelLabel(level);
   return (
     <span className={`k-pri k-pri--${level}`} role="img" aria-label={title} title={title}>
       {levelShort(level)}
+      {raised ? <Icon name="arrow-up" size={9} cls="k-pri-up" /> : null}
     </span>
   );
 }

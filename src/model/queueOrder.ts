@@ -44,6 +44,8 @@ export interface OrderedQueueItem {
   /** Open blockers: in-set blockers first, then the external ones. */
   readonly waitsOn: readonly string[];
   readonly cycle: boolean;
+  /** For a cycle member: the first blocker that is a cycle member too (the partner the chip names); null otherwise. */
+  readonly cycleWith: string | null;
 }
 
 const DEFAULT_LEVEL: PriorityLevel = 'normal';
@@ -147,6 +149,7 @@ export function orderQueue(items: readonly QueueItem[], edges: readonly QueueEdg
     const next = pool.sort(better)[0]!;
     remaining.delete(next);
     placed.add(next);
+    const sortedBlockers = [...blockers.get(next)!].sort(compareIds);
     out.push({
       id: next,
       position: out.length + 1,
@@ -154,14 +157,20 @@ export function orderQueue(items: readonly QueueItem[], edges: readonly QueueEdg
       inheritedFrom: source.get(next) ?? null,
       waitsOn: [...new Set([...[...blockers.get(next)!].sort(compareIds), ...(byId.get(next)!.externalWaits ?? [])])],
       cycle: cycle.has(next),
+      cycleWith: cycle.has(next) ? (sortedBlockers.find((b) => cycle.has(b)) ?? null) : null,
     });
   }
   return out;
 }
 
-/** The short reason for a place: a cycle, an inherited level, or the open blockers; '' when none. */
-export function queueWhy(item: Pick<OrderedQueueItem, 'cycle' | 'inheritedFrom' | 'waitsOn'>): string {
-  if (item.cycle) return 'cycle';
-  if (item.inheritedFrom !== null) return `↑ from ${item.inheritedFrom}`;
-  return item.waitsOn.length > 0 ? `waits on ${item.waitsOn.join(', ')}` : '';
+/**
+ * The short reason for a place, lower case: `cycle with D1`, `unblocks D498`,
+ * `waits on T12 +1` (the first blocker and the count of the rest); '' when none.
+ */
+export function queueWhy(item: Pick<OrderedQueueItem, 'cycle' | 'inheritedFrom' | 'waitsOn'> & { readonly cycleWith?: string | null }): string {
+  if (item.cycle) return item.cycleWith ? `cycle with ${item.cycleWith}` : 'cycle';
+  if (item.inheritedFrom !== null) return `unblocks ${item.inheritedFrom}`;
+  const [first, ...rest] = item.waitsOn;
+  if (first === undefined) return '';
+  return `waits on ${first}${rest.length > 0 ? ` +${rest.length}` : ''}`;
 }

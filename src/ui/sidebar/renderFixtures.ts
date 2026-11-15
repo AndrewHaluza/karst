@@ -473,7 +473,7 @@ export function fixtureQueueRow(position: number, overrides: Partial<QueueRowVie
   const id = 450 + position;
   return {
     position, kind: 'draft', id, idLabel: `D${id}`, sessionLabel: 'P17', title: `Queue item ${position}`,
-    level: 'normal', inheritedFrom: null, waitsOn: [], cycle: false, why: '', whyKind: 'none', ownLevel: null,
+    level: 'normal', inheritedFrom: null, waitsOn: [], waitsOnRefs: [], inheritedRef: null, cycleRef: null, cycle: false, why: '', whyKind: 'none', ownLevel: null,
     prioritySource: null, providerPriority: null, providerLabel: null,
     ...overrides,
   };
@@ -481,13 +481,15 @@ export function fixtureQueueRow(position: number, overrides: Partial<QueueRowVie
 
 /** Raised blocker, urgent and high drafts, a waiting draft, a scope ticket and a cycle: every reason kind. */
 function queueRows(): QueueRowView[] {
+  const draftRef = (n: number, session = 'P17') => ticketRefView({ draftId: n, draftLabel: `D${n}`, sessionLabel: session });
+  const ticketRef = (id: number, stage: string) => ticketRefView({ ticketId: id, stage });
   return [
-    fixtureQueueRow(1, { id: 497, idLabel: 'D497', title: 'Add the shared retry helper', level: 'urgent', inheritedFrom: 'D498', why: '↑ D498', whyKind: 'raised' }),
-    fixtureQueueRow(2, { id: 498, idLabel: 'D498', title: 'Fix the data loss on a failed accept', level: 'urgent', ownLevel: 'urgent', waitsOn: ['D497'], why: 'waits D497', whyKind: 'waits' }),
+    fixtureQueueRow(1, { id: 497, idLabel: 'D497', title: 'Add the shared retry helper', level: 'urgent', inheritedFrom: 'D498', inheritedRef: draftRef(498), why: 'unblocks D498', whyKind: 'raised' }),
+    fixtureQueueRow(2, { id: 498, idLabel: 'D498', title: 'Fix the data loss on a failed accept', level: 'urgent', ownLevel: 'urgent', waitsOn: ['D497'], waitsOnRefs: [draftRef(497)], why: 'waits on D497', whyKind: 'waits' }),
     fixtureQueueRow(3, { id: 452, idLabel: 'D452', title: 'Split the auth module', level: 'high', ownLevel: 'high', sessionLabel: 'P18' }),
-    fixtureQueueRow(4, { kind: 'ticket', id: 997, idLabel: 'T997', sessionLabel: null, title: 'Cut the cold start of the sidebar', waitsOn: ['T12'], why: 'waits T12', whyKind: 'waits' }),
+    fixtureQueueRow(4, { kind: 'ticket', id: 997, idLabel: 'T997', sessionLabel: null, title: 'Cut the cold start of the sidebar', waitsOn: ['T12', 'T13'], waitsOnRefs: [ticketRef(12, 'impl'), ticketRef(13, 'review')], why: 'waits on T12 +1', whyKind: 'waits' }),
     fixtureQueueRow(5, { id: 460, idLabel: 'D460', title: 'Rename the stage runner option', level: 'low', ownLevel: 'low' }),
-    fixtureQueueRow(6, { id: 461, idLabel: 'D461', title: 'Move the gate log to its own table', why: 'cycle', whyKind: 'cycle', cycle: true }),
+    fixtureQueueRow(6, { id: 461, idLabel: 'D461', title: 'Move the gate log to its own table', why: 'cycle with D462', whyKind: 'cycle', cycle: true, cycleRef: draftRef(462), waitsOn: ['D462'], waitsOnRefs: [draftRef(462)] }),
   ];
 }
 
@@ -498,7 +500,7 @@ function queueState(): SidebarState {
 
 function queueLongState(): SidebarState {
   const rows = Array.from({ length: 40 }, (_, i) =>
-    fixtureQueueRow(i + 1, { title: i % 7 === 0 ? `A very long queue item title ${i + 1} that must end in an ellipsis and never wrap` : `Queue item ${i + 1}`, ...(i % 5 === 0 ? { level: 'high' as const, inheritedFrom: 'D400', why: '↑ D400', whyKind: 'raised' as const } : {}) }),
+    fixtureQueueRow(i + 1, { title: i % 7 === 0 ? `A very long queue item title ${i + 1} that must end in an ellipsis and never wrap` : `Queue item ${i + 1}`, ...(i % 5 === 0 ? { level: 'high' as const, inheritedFrom: 'D400', inheritedRef: ticketRefView({ draftId: 400, draftLabel: 'D400', sessionLabel: 'P17' }), why: 'unblocks D400', whyKind: 'raised' as const } : {}) }),
   );
   return { ...allSectionsState(), queue: { rows, drafts: 40, sessions: 4, tickets: 0 } };
 }

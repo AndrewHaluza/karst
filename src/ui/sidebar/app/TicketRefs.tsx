@@ -6,7 +6,7 @@
  * Escape closes the list and returns focus; an outside click or focus leaving the
  * row closes it too.
  */
-import { useEffect, useId, useRef, useState, type FocusEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FocusEvent, type ReactNode } from 'react';
 import type { TicketRefView } from '../../shared/ticketRefView.js';
 import { TicketRefChip } from '../../shared/TicketRefChip.js';
 import { useSidebar } from './SidebarContext.js';
@@ -30,7 +30,17 @@ function RefChip({ refView }: { readonly refView: TicketRefView }) {
   );
 }
 
-export function TicketRefs({ refs }: { readonly refs: readonly TicketRefView[] }) {
+export interface TicketRefsProps {
+  readonly refs: readonly TicketRefView[];
+  /** The verb before the first chip; the Queue pane also says 'Unblocks' and 'Cycle with'. */
+  readonly verb?: string;
+  /** Extra class on the root: the Queue pane styles its rows with it. */
+  readonly className?: string;
+  /** Content before the verb, e.g. the cycle icon. */
+  readonly lead?: ReactNode;
+}
+
+export function TicketRefs({ refs, verb = WAITS_ON, className, lead }: TicketRefsProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
@@ -58,9 +68,10 @@ export function TicketRefs({ refs }: { readonly refs: readonly TicketRefView[] }
     if (open && !(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) setOpen(false);
   };
   return (
-    <div ref={rootRef} className="refs" onKeyDown={onKeyDown} onBlur={onBlur}>
+    <div ref={rootRef} className={className ? `refs ${className}` : 'refs'} onKeyDown={onKeyDown} onBlur={onBlur}>
       <div className="refs-line">
-        <span className="refs-verb">{WAITS_ON}</span>
+        {lead}
+        <span className="refs-verb">{verb}</span>
         <RefChip refView={first} />
         {rest.length ? (
           <button
@@ -69,7 +80,7 @@ export function TicketRefs({ refs }: { readonly refs: readonly TicketRefView[] }
             className="refs-more"
             aria-expanded={open}
             aria-controls={listId}
-            aria-label={`${rest.length} more ${WAITS_ON.toLowerCase()}`}
+            aria-label={`${rest.length} more ${verb.toLowerCase()}`}
             onClick={() => setOpen((v) => !v)}
           >
             <span className="refs-more-pill">+{rest.length}</span>
