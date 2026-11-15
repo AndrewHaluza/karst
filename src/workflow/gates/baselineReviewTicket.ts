@@ -64,7 +64,7 @@ export async function fingerprintTicket(
   manifest: Manifest,
   ticketId: number,
   worktrees: ReadonlyArray<{ repo: string; path: string }>,
-  deps: BaselineDetectDeps,
+  deps: BaselineDetectDeps & { debug?: (message: string) => void },
 ): Promise<string | null> {
   return gateFingerprint(
     deps,
