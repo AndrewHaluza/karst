@@ -11,7 +11,9 @@ import {
   isBaselineEnvironment,
   narrowSweep,
   missingDockerMessage,
+  passesWorkers,
   readLocalCommand,
+  rerunEnv,
   storeRun,
 } from './dockerGate.mjs';
 import { readState } from './gateState.mjs';
@@ -164,11 +166,73 @@ describe('the gate scripts', () => {
     );
   });
 
+  it('runs the same screenshot sweep locally as the container runs', () => {
+    expect(steps(localOf('test:visual:screens:docker'))).toEqual(
+      steps(pkg.scripts['test:visual:screens:ci']).filter((step) => !step.includes('npm ci')),
+    );
+  });
+
+  it('spreads the screenshot projects over the workers (@ui:WORKERS)', () => {
+    for (const script of ['test:visual:ci', 'test:visual:screens:ci']) {
+      expect(steps(pkg.scripts[script]).at(-1)).toContain('--fully-parallel');
+    }
+  });
+
+  it('keeps baseline authoring at one worker and in file order', () => {
+    expect(pkg.scripts['test:visual:ci:update']).not.toContain('--fully-parallel');
+    expect(pkg.scripts['test:visual:docker:update']).not.toContain('KARST_VISUAL_WORKERS');
+  });
+
+  it('passes the worker count into every gate container', () => {
+    for (const script of ['test:visual:docker', 'test:layout:docker', 'test:visual:screens:docker']) {
+      expect(pkg.scripts[script]).toContain('-e KARST_VISUAL_WORKERS ');
+    }
+  });
+
+  it('passes the fixture views into every gate container, and not into baseline authoring', () => {
+    for (const script of ['test:visual:docker', 'test:layout:docker', 'test:visual:screens:docker']) {
+      expect(pkg.scripts[script]).toContain('-e KARST_VISUAL_FIXTURE_VIEWS ');
+    }
+    expect(pkg.scripts['test:visual:docker:update']).not.toContain('KARST_VISUAL_FIXTURE_VIEWS');
+  });
+
+  it('writes the fixture pages inside the gate container, not through the bind mount', () => {
+    const pair = '-e KARST_VISUAL_TMP_DIR=/tmp/karst-visual-fixtures';
+    for (const script of ['test:visual:docker', 'test:layout:docker', 'test:visual:screens:docker']) {
+      const command = pkg.scripts[script];
+      expect(command).toContain(`${pair} `);
+      expect(command.indexOf(pair)).toBeLessThan(command.indexOf('mcr.microsoft.com/playwright:'));
+    }
+    expect(pkg.scripts['test:visual:docker:update']).not.toContain('KARST_VISUAL_TMP_DIR');
+  });
+
   it('keeps the container command in the gate script', () => {
     // The container path is unchanged: the pinned image, the repo mounted at
     // /work, and the CI script inside it.
     expect(pkg.scripts['test:visual:docker']).toContain('mcr.microsoft.com/playwright:v1.63.0-noble');
     expect(pkg.scripts['test:visual:docker']).toContain('npm run test:visual:ci');
+  });
+});
+
+describe('passesWorkers', () => {
+  it('is true when the docker argv passes KARST_VISUAL_WORKERS into the container', () => {
+    expect(passesWorkers(['run', '--rm', '-e', 'KARST_UI_GREP', '-e', 'KARST_VISUAL_WORKERS', 'image'])).toBe(true);
+  });
+
+  it('is false when the docker argv does not pass it', () => {
+    expect(passesWorkers(['run', '--rm', '-e', 'KARST_UI_GREP', 'image'])).toBe(false);
+    expect(passesWorkers(['run', 'KARST_VISUAL_WORKERS'])).toBe(false);
+    expect(passesWorkers(['run', '-e', 'KARST_VISUAL_WORKERS_X'])).toBe(false);
+  });
+});
+
+describe('rerunEnv', () => {
+  it('runs a re-run on the failing screenshots only, at one worker', () => {
+    const env = Object.freeze({ PATH: '/bin', KARST_UI_GREP: 'settings', KARST_VISUAL_WORKERS: '4' });
+    const out = rerunEnv(env);
+    expect(out).toEqual({ PATH: '/bin', KARST_UI_GREP: '', KARST_VISUAL_WORKERS: '1' });
+    expect(out).not.toBe(env);
+    expect(env.KARST_VISUAL_WORKERS).toBe('4');
   });
 });
 
@@ -269,6 +333,14 @@ describe('baseRunArgv', () => {
     expect(argv).toContain('/tmp/base:/work');
     expect(argv).not.toContain('npm');
     expect(argv.at(-1)).toContain("'--project=dark' '--grep' 'it'\\''s'");
+  });
+
+  it('keeps the -e pairs of the gate, so that a re-run writes its pages in the same place', async () => {
+    const { baseRunArgv } = await import('./dockerGate.mjs');
+    const raw = ['run', '--rm', '-e', 'KARST_VISUAL_WORKERS', '-e', 'KARST_VISUAL_TMP_DIR=/tmp/karst-visual-fixtures', '-v', '{repo}:/work', 'mcr.microsoft.com/playwright:v1.63.0-noble', 'npm', 'run', 'test:visual:ci'];
+    const argv = baseRunArgv(raw, '/tmp/base', [{ project: 'dark', title: 't', baseline: 'b' }], 'karst-pw-x-1-base');
+    expect(argv).toContain('KARST_VISUAL_TMP_DIR=/tmp/karst-visual-fixtures');
+    expect(argv).toContain('KARST_VISUAL_WORKERS');
   });
 });
 

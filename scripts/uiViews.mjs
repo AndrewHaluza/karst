@@ -126,6 +126,27 @@ export function gateGrep(selection, settingsSections, failed = []) {
   return `${head}|${LAYOUT_BOOKENDS.join('|')}`;
 }
 
+/**
+ * A selected view id -> the fixture view whose pages it loads (tests/visual/corpora.ts#ALL_VIEWS).
+ * `status` loads dashboard pages. `catalog` needs no view: the fixture writer always writes catalog.html.
+ */
+const FIXTURE_VIEW_OF = { status: 'dashboard', catalog: null };
+
+/**
+ * KARST_VISUAL_FIXTURE_VIEWS for a selection (@ui:FIXTURE-SCOPE): the sorted comma list of the fixture views
+ * that the selection loads, or null to write every view. Null for a full selection, for a run that carries a
+ * failed test (its title can come from any spec), and for a selection that needs no view.
+ */
+export function fixtureViews(selection, failed = []) {
+  if (selection.all || failed.length > 0) return null;
+  const views = new Set();
+  for (const view of selection.views) {
+    const fixture = Object.hasOwn(FIXTURE_VIEW_OF, view) ? FIXTURE_VIEW_OF[view] : view;
+    if (fixture !== null) views.add(fixture);
+  }
+  return views.size === 0 ? null : [...views].sort().join(',');
+}
+
 const failedCount = (n) => `${n} failed test${n === 1 ? '' : 's'}`;
 
 /** What a repeat-pass selection runs, with the stored run it comes from. */

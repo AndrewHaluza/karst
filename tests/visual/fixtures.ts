@@ -10,6 +10,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { fixtureThemeOf, type ThemeId } from './themes.js';
 import type { ViewId } from './chains.js';
 import { fixtureFile } from './variants.js';
+import { missingFixtureMessage } from './fixtureScope.js';
 import { SECTION_LABELS, type SettingsSection } from '../../src/ui/settings/sections.js';
 
 /** A settings route: the outer nav section, plus an optional in-page hash. */
@@ -81,7 +82,10 @@ export const test = base.extend<KarstFixtures>({
       }
       const path = `/${theme}/${filename}`;
       const fullUrl = new URL(path, 'http://127.0.0.1:4317').toString();
-      await page.goto(fullUrl, { waitUntil: 'load', timeout: 60_000 });
+      const response = await page.goto(fullUrl, { waitUntil: 'load', timeout: 60_000 });
+      // A page that the fixture writer did not write fails here, not as a silent wait and a screenshot diff.
+      const missing = missingFixtureMessage({ path, status: response?.status() ?? null, env: process.env });
+      if (missing !== null) throw new Error(missing);
       // The seed script sets data-karst-ready on <html> after dispatching messages.
       // Poll briefly for it — the script runs inline and should be fast, but large
       // pages may need a tick.

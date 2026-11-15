@@ -2,7 +2,7 @@ import { defineConfig, devices, type PlaywrightTestOptions, type Project } from 
 import { isMergeRun } from './tests/visual/layoutShards.js';
 import { outsideGrep, testIgnoreFor } from './tests/visual/projectFilter.js';
 import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
-import { WEB_SERVER_TIMEOUT_MS } from './tests/visual/serveLimits.mjs';
+import { WEB_SERVER_STDOUT, WEB_SERVER_TIMEOUT_MS } from './tests/visual/serveLimits.mjs';
 
 /**
  * Playwright config for the karst visual-regression sweep.
@@ -97,6 +97,8 @@ export default defineConfig({
           reuseExistingServer: !process.env.CI,
           // Covers the whole serve.mjs start (bundles + fixtures + listen); it must exceed the 60 s fixture limit in serve.mjs.
           timeout: WEB_SERVER_TIMEOUT_MS,
+          // The start step lines of serve.mjs reach the gate log (about 6 lines for each run).
+          stdout: WEB_SERVER_STDOUT,
         },
       }),
 

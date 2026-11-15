@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { planRepeat, storeRun } from './dockerGate.mjs';
+import { narrowSweep, planRepeat, storeRun } from './dockerGate.mjs';
 
 const GATE = resolve('scripts/dockerGate.mjs');
 const GIT = spawnSync('git', ['--exec-path'], { encoding: 'utf8' }).stdout.trim();
@@ -155,5 +155,51 @@ describe('test:layout:docker after a stored run', () => {
     expect(run.status).toBe(EXIT_NO_DOCKER);
     expect(run.stderr).toContain('full: no earlier green run');
     expect(run.stderr).toContain('layout: running diffs; full sweep runs in CI');
+  });
+});
+
+describe('the fixture views of a narrowed sweep (@ui:FIXTURE-SCOPE)', () => {
+  // narrowSweep writes process.env, so run it in this process, in the repo of the test, with the fake PATH.
+  const fixtureViewsAfterNarrow = (env = {}) => {
+    const savedEnv = { ...process.env };
+    const savedCwd = process.cwd();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      delete process.env.KARST_UI_GREP;
+      delete process.env.KARST_VISUAL_FIXTURE_VIEWS;
+      Object.assign(process.env, { PATH: bin, KARST_BASE_REF: 'develop' }, env);
+      process.chdir(dir);
+      narrowSweep('test:visual:docker', null);
+      return process.env.KARST_VISUAL_FIXTURE_VIEWS;
+    } finally {
+      process.chdir(savedCwd);
+      process.env = savedEnv;
+      spy.mockRestore();
+    }
+  };
+  const commit = (path) => {
+    put(path);
+    git('add', '-A');
+    git('commit', '-qm', `change ${path}`);
+  };
+
+  it('writes only the settings pages for a settings change', () => {
+    commit('src/ui/settings/b.tsx');
+    expect(fixtureViewsAfterNarrow()).toBe('settings');
+  });
+
+  it('writes every page for a shared change', () => {
+    commit('playwright.config.ts');
+    expect(fixtureViewsAfterNarrow()).toBeUndefined();
+  });
+
+  it('writes every page for a hand-written grep', () => {
+    commit('src/ui/settings/b.tsx');
+    expect(fixtureViewsAfterNarrow({ KARST_UI_GREP: 'sidebar/' })).toBeUndefined();
+  });
+
+  it('keeps a value that the caller set', () => {
+    commit('src/ui/settings/b.tsx');
+    expect(fixtureViewsAfterNarrow({ KARST_VISUAL_FIXTURE_VIEWS: 'dashboard' })).toBe('dashboard');
   });
 });
