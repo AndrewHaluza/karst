@@ -1,0 +1,17 @@
+{
+  "id": "c15-auth-inverted",
+  "title": "Add the edit access check",
+  "baseRef": "main",
+  "branch": "feat/can-edit",
+  "defects": [
+    {
+      "id": "REVEVAL-D-015",
+      "file": "src/access.ts",
+      "lineStart": 26,
+      "lineEnd": 27,
+      "kind": "bug",
+      "minSeverity": "high"
+    }
+  ],
+  "cleanFiles": []
+}

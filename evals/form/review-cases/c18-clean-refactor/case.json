@@ -1,0 +1,11 @@
+{
+  "id": "c18-clean-refactor",
+  "title": "Move the money formatter to its own file",
+  "baseRef": "main",
+  "branch": "refactor/money",
+  "defects": [],
+  "cleanFiles": [
+    "src/money.ts",
+    "src/report.ts"
+  ]
+}

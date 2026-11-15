@@ -322,13 +322,13 @@ describe('runReviewBench', () => {
 // ---- task 5: the shipped case set ----
 import { REVIEW_CASES } from './run.mjs';
 
-describe('review case set v1', () => {
+describe('review case set v2', () => {
   const ids = readdirSync(REVIEW_CASES).filter((n) => statSync(join(REVIEW_CASES, n)).isDirectory());
   const load = (id) => JSON.parse(readFileSync(join(REVIEW_CASES, id, 'case.json'), 'utf8'));
 
-  it('has 10 cases: 6 with one defect, 2 with two, 2 clean', () => {
+  it('has 18 cases: 11 with one defect, 3 with two, 4 clean', () => {
     const counts = ids.map((id) => load(id).defects.length).sort();
-    expect(counts).toEqual([0, 0, 1, 1, 1, 1, 1, 1, 2, 2]);
+    expect(counts).toEqual([0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2]);
   });
 
   it('has unique defect ids that are absent from the seeded code', () => {

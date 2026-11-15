@@ -1,0 +1,25 @@
+{
+  "id": "c16-two-subtle",
+  "title": "Add metrics helpers",
+  "baseRef": "main",
+  "branch": "feat/metrics",
+  "defects": [
+    {
+      "id": "REVEVAL-D-016",
+      "file": "src/metrics.ts",
+      "lineStart": 3,
+      "lineEnd": 3,
+      "kind": "bug",
+      "minSeverity": "medium"
+    },
+    {
+      "id": "REVEVAL-D-017",
+      "file": "src/metrics.ts",
+      "lineStart": 8,
+      "lineEnd": 8,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

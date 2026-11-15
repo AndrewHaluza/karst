@@ -1,0 +1,17 @@
+{
+  "id": "c12-tz-boundary",
+  "title": "Add a date range check",
+  "baseRef": "main",
+  "branch": "feat/date-range",
+  "defects": [
+    {
+      "id": "REVEVAL-D-012",
+      "file": "src/dateRange.ts",
+      "lineStart": 11,
+      "lineEnd": 11,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}
