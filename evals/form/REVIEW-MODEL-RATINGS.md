@@ -34,6 +34,12 @@ Rerun of opencode2 on `c12` to `c18`, 1 run each, 6 minute timeout (`review-refe
 
 Rerun of antigravity on `c11` to `c18`, 3 runs each, 15 minute timeout (`review-references/antigravity-gemini-3.8-flash-medium-c11-c18-rerun/`): all 24 calls finished ok, 0 timeouts, 72 seconds per run. Recall was 21/21. The clean cases `c17` and `c18` had 0 false findings in 6 of 6 calls. The core gave the same false findings in every run of two defect cases: 1 on `c14-mutated-arg` and 2 on `c15-auth-inverted`, 6 blocking in total. Read these in `results.json`. They may be real issues in the seeded code, or a matcher window miss. The earlier 2 timeouts did not repeat.
 
+## Case set v3 (c14 and c15 changed)
+
+The antigravity rerun gave the same false findings on `c14` and `c15` in every run. The seeded code had real extra issues: `renderBoard` listed all tasks as the rest, and the `visibility` type and the admin rule drew comments. Commit after this note changes the code of both cases and raises the case-set version to 3. Do not compare v3 cells with v2 cells for `c14` and `c15`.
+
+Run of claude on `c14` and `c15`, 5 runs each (`review-references/claude-sonnet-5-5-c14-c15-v3/`): recall 10/10, 0 blocking false findings, 10 seconds per run. Every run still had 1 or 2 false findings of low or medium severity. Two kinds remain: low comments about no tests or no input validation (the same cause as the old `c17`), and a medium finding on line 12 of `c14` that says `renderBoard` depends on the hidden sort mutation. That second finding is a true consequence of the seeded defect, but it is outside the 3-line window. Decision needed: add a test file to both cases, and widen the `c14` defect to lines 7 to 12.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.

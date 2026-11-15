@@ -8,14 +8,14 @@ export interface User {
 export interface Doc {
   ownerId: string;
   teamId: string;
-  visibility: string;
+  visibility: string; // free text from the legacy importer
   editors: string[];
 }
 
 export function canEdit(user: User, doc: Doc): boolean {
   if (!user.active) return false;
   if (doc.ownerId === user.id) return true;
-  if (user.role === 'admin') return true;
+  if (user.role === 'admin') return true; // policy: admins edit any document
   switch (doc.visibility) {
     case 'private':
       return false;
