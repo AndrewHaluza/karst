@@ -420,6 +420,45 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
     return { ...base, ...overrides };
   }
 
+  it('puts a resource-claim violation into the reasons file as evidence for the planner', () => {
+    const ctx = electedCtx();
+    nodeRun(ctx, 91, 'writer', 'cancelled');
+    ctx.db
+      .prepare(
+        `UPDATE approach_node_runs
+            SET outcome = 'failed', failure_category = 'resource-claim-violated',
+                reason = 'resource-claim-violated: b.ts (declared writes: a/**)'
+          WHERE id = 91`,
+      )
+      .run();
+    const writes: { relativePath: string; bytes: Uint8Array }[] = [];
+    const deps = launchDeps(ctx);
+    deps.writeSnapshot = (_g, relativePath, bytes) => {
+      writes.push({ relativePath, bytes });
+    };
+    beginReplanPlannerRun(deps, { graphRunId: ctx.graphRunId });
+    const reasonsWrite = writes.find((w) => w.relativePath.startsWith('reasons/'));
+    const reasons = JSON.parse(new TextDecoder().decode(reasonsWrite!.bytes)) as {
+      claimViolations: Array<{ node: string; evidence: string }>;
+    };
+    expect(reasons.claimViolations).toEqual([
+      { node: 'writer', evidence: 'resource-claim-violated: b.ts (declared writes: a/**)' },
+    ]);
+  });
+
+  it('writes an empty claimViolations list when no node violated its claims', () => {
+    const ctx = electedCtx();
+    const writes: { relativePath: string; bytes: Uint8Array }[] = [];
+    const deps = launchDeps(ctx);
+    deps.writeSnapshot = (_g, relativePath, bytes) => {
+      writes.push({ relativePath, bytes });
+    };
+    beginReplanPlannerRun(deps, { graphRunId: ctx.graphRunId });
+    const reasonsWrite = writes.find((w) => w.relativePath.startsWith('reasons/'));
+    const reasons = JSON.parse(new TextDecoder().decode(reasonsWrite!.bytes)) as { claimViolations: unknown[] };
+    expect(reasons.claimViolations).toEqual([]);
+  });
+
   it('allocates exactly one replan planner run with the next counter once the drain quiesces', () => {
     const ctx = electedCtx();
     const deps = launchDeps(ctx);
@@ -529,6 +568,16 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
     nodeRun(ctx, 78, 'a', 'blocked');
     const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
     expect(result).toEqual({ ok: false, reason: 'not-quiescent' });
+  });
+
+  it('does not wait on a blocked node whose failure is a resource-claim violation', () => {
+    const ctx = electedCtx();
+    nodeRun(ctx, 79, 'a', 'blocked');
+    ctx.db
+      .prepare("UPDATE approach_node_runs SET failure_category = 'resource-claim-violated' WHERE id = 79")
+      .run();
+    const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(result.ok).toBe(true);
   });
 
   it('refuses before quiescence: a running node blocks the planner run', () => {

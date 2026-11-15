@@ -328,6 +328,8 @@ export function countNodeRunsInStatusesExcludingOutcome(
   graphRunId: number,
   statuses: readonly string[],
   excludedOutcome: string,
+  /** A `blocked` node run with this failure category is not counted. */
+  exclude: { blockedCategory?: string } = {},
 ): number {
   if (statuses.length === 0) return 0;
   const placeholders = statuses.map(() => '?').join(', ');
@@ -335,9 +337,15 @@ export function countNodeRunsInStatusesExcludingOutcome(
     .prepare(
       `SELECT COUNT(*) AS n FROM approach_node_runs
        WHERE graph_run_id = ? AND status IN (${placeholders})
-         AND (outcome IS NULL OR outcome <> ?)`,
+         AND (outcome IS NULL OR outcome <> ?)
+         ${exclude.blockedCategory === undefined ? '' : "AND NOT (status = 'blocked' AND failure_category IS ?)"}`,
     )
-    .get(graphRunId, ...statuses, excludedOutcome) as { n: number };
+    .get(
+      graphRunId,
+      ...statuses,
+      excludedOutcome,
+      ...(exclude.blockedCategory === undefined ? [] : [exclude.blockedCategory]),
+    ) as { n: number };
   return row.n;
 }
 
@@ -592,6 +600,23 @@ export function replanNodeRunReasons(
        ORDER BY id`,
     )
     .all(graphRunId) as Array<Pick<NodeRunRow, 'node_id' | 'reason'>>;
+}
+
+/** The node runs that wrote outside their declared claims (the pipeline parks
+ *  them `failure_category = 'resource-claim-violated'`), oldest first, bounded.
+ *  `reason` carries the paths and the declared write claims. */
+export function claimViolationNodeRuns(
+  db: GraphDb,
+  graphRunId: number,
+  limit: number,
+): Array<{ node_id: string; reason: string }> {
+  return db
+    .prepare(
+      `SELECT node_id, COALESCE(reason, '') AS reason FROM approach_node_runs
+       WHERE graph_run_id = ? AND failure_category = 'resource-claim-violated'
+       ORDER BY id LIMIT ?`,
+    )
+    .all(graphRunId, limit) as Array<{ node_id: string; reason: string }>;
 }
 
 /** The failure lines of a graph run's node runs (replan failure summary),

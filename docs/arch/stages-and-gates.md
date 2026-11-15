@@ -36,6 +36,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - A ship in which EVERY target is unchanged is a failure, not a pass
 - Findings are scoped to the run that produced them
 - Evidence is not the current state
+- The graph coordinator recovers a blocked run for the safe reasons, three times at most
 END_DOC_BLOCK: [@arch:CONTENTS]
 
 ## [@arch:STAGEMACH] Stage machine
@@ -488,3 +489,26 @@ covers: src/workflow/stages/shipResume.ts, src/workflow/stages/ship.ts, src/exte
 - **Never commit under review.** A dirty or unreadable worktree is not delivered. An unattended run never commits uncommitted files to a PR under review (FIX-46).
 - **Never pass with commits waiting.** When EVERY repo took the 'existing PR already open' skip and a repo holds commits not on `origin/<head ref>` (`commitsNotOnRemote`), ship records a `push` step (status `note`) with the detail `<n> local commit(s) not on the PR; click Deliver`, closes the run `failed` and parks the ship stage with that reason. The Deliver click pushes the commits. The reason keeps the ticket at ship until D606 adds a block kind. An unreadable commit count never parks.
 END_DOC_BLOCK: [@arch:SHIP-RESUME]
+
+## [@arch:GRAPH-AUTORECOVERY] The graph coordinator recovers a blocked run for the safe reasons, three times at most
+covers: src/approaches/graph/coordinator/autoRecovery.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts
+
+The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` run when `recoveryCategoryFor(blocked_reason)` is an automatic category. The sweep uses the same entry and the same seams as the Resume and Replan buttons (`dispatchGraphRecovery`). The run claim (`blocked → running`) is a CAS, so two windows cannot both recover one block. The sweep shows no dialog. It writes one graph diagnostic and one bulletin note for each automatic recovery.
+
+| Category | Block reasons | Automatic |
+| --- | --- | --- |
+| `launch-retry` | `node-blocked`, `failed-to-launch` | yes |
+| `planner-relaunch` | `planner-stale` | yes |
+| `replan` | `graph-plan-invalid`, `planner-artifact-missing`, `instructions-missing`, `graph-deferral-timeout`, `resource-claim-violated` | yes |
+| `compile-new-revision` | `command-definition-changed` | yes |
+| `discard-required` | `launch-unknown`, `termination-unknown` | no |
+| `artifact-recheck` | `output-artifact-missing`, `artifact-unsafe` | no |
+| `explicit-resolution` | `integration-conflict`, `graph-topology-deadlock` | no |
+| `config-then-resume` | `graph-budget-exhausted` | no |
+| `prompt-resnapshot` | `prompt-config-changed` | no |
+| unknown reason | any other text | no |
+
+An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file. A `blocked` node run with that failure category does not hold the drain open.
+
+The count of automatic recoveries is `approach_graph_runs.auto_recovery_count`. The limit is `AUTO_RECOVERY_LIMIT` (3), a constant and not a manifest setting. At the limit the run stays `blocked` and the block reason says `automatic recovery stopped after 3 attempts` and lists the recovered reasons. A human Resume or Replan still works and does not reset the count.
+END_DOC_BLOCK: [@arch:GRAPH-AUTORECOVERY]

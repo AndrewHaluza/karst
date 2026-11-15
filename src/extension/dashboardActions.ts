@@ -28,6 +28,7 @@ import { type StoredArtifactActions } from './storedArtifactBinding.js';
 import { type UsageLimitParkActions } from './usageLimitParkBinding.js';
 import { SessionManager } from '../ui/session.js';
 import { type DriveProcessBundle } from '../agent/processAssignment.js';
+import { dispatchGraphRecovery } from './ops/graphRecoveryDispatch.js';
 import { recoverGraphRun, type RecoveryDeps } from '../approaches/graph/coordinator/recovery.js';
 import type { ReplanLaunchRequest } from '../approaches/graph/coordinator/replan.js';
 import type { BootstrapRelaunchRequest } from '../approaches/graph/coordinator/recovery.js';
@@ -514,21 +515,19 @@ export function makeDashboardActions(
       if (outcome.kind === 'graph-recovery') {
         // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
         // the typed action runs graph-aware recovery instead.
-        const recovery = recoverGraphRun(
-          graphRecoveryDeps(outcome.graphRunId),
+        const recovery = dispatchGraphRecovery(
+          {
+            recover: (input) => recoverGraphRun(graphRecoveryDeps(input.graphRunId), input),
+            launchReplan: graphReplanLaunch,
+            launchBootstrap: graphBootstrapRelaunch,
+            onRecovered: () => {
+              afterServerChange();
+              driveAfterResume(ticketId);
+            },
+          },
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
-        if (
-          recovery.kind === 'retried' ||
-          recovery.kind === 'confirmation-restored' ||
-          recovery.kind === 'replanned' ||
-          recovery.kind === 'relaunched'
-        ) {
-          if (recovery.kind === 'replanned' && recovery.launch) graphReplanLaunch(recovery.launch);
-          if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);
-          afterServerChange();
-          driveAfterResume(ticketId);
-        } else if (recovery.kind === 'refused') {
+        if (recovery.kind === 'refused') {
           void vscode.window.showInformationMessage(
             graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
           );

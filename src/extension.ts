@@ -248,7 +248,9 @@ import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
 import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
-import { type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
+import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
+import { makeAutoRecoverySweep } from './extension/ops/graphAutoRecoverySweep.js';
+import { type GraphRecoverySeams } from './extension/ops/graphRecoveryDispatch.js';
 import type { ReplanLaunchRequest } from './approaches/graph/coordinator/replan.js';
 import type { BootstrapRelaunchRequest } from './approaches/graph/coordinator/recovery.js';
 import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
@@ -3277,11 +3279,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (graphRunId) => graphRecoveryDeps(graphRunId),
     (launch) => void launchReplanPlannerHost(launch),
     (launch) => void launchBootstrapRelaunchHost(launch),
-    (ticketId, graphRunId) => {
-      provider.refresh();
-      dashboard.pushState(ticketId);
-      void driveGraphRunContinuation(graphRunId);
-    },
+    (ticketId, graphRunId) => onGraphRecovered(ticketId, graphRunId),
     async (ticketId, repo) => {
       if (!(await guardCapability('ship'))) return;
       void runShipSaga(ticketId, true, { repos: [repo] }).catch((e) => {
@@ -4405,6 +4403,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
   };
 
+  /** Refresh the surfaces and continue recovered work (buttons and sweep). */
+  const onGraphRecovered = (ticketId: number, graphRunId: number): void => {
+    provider.refresh();
+    dashboard.pushState(ticketId);
+    void driveGraphRunContinuation(graphRunId);
+  };
+
+  const graphRecoverySeams: GraphRecoverySeams = {
+    recover: (input) => recoverGraphRun(graphRecoveryDeps(input.graphRunId), input),
+    launchReplan: (l) => void launchReplanPlannerHost(l), launchBootstrap: (l) => void launchBootstrapRelaunchHost(l), onRecovered: onGraphRecovered,
+  };
+  const autoRecoverGraphBlocks = makeAutoRecoverySweep(graphRecoverySeams, { debug: (m) => logger.debug(m), logError });
+
   /** The ticket's manifest repository entries resolved to worktree paths. */
   const graphDomainsFor = (graphRunId: number): DomainEntry[] => {
     const gs = graphCoordinatorStore;
@@ -5301,7 +5312,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // must get it too — this is the path where a plan is rewritten after a
       // failure, exactly where guessing an id costs another cycle.
       plannerVocabularyFor(() => graphCompileContext(launch.graphRunId), graphArtifactRoot(launch.graphRunId), (m) => logger.debug(m)),
-      `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}.`,
+      `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}. Its claimViolations list names each node that wrote outside its declared write claims, the path and the declared claims: claim the path or move the work.`,
       ...(diagnostics ? [diagnostics] : []),
       PLANNER_SUBMIT_INSTRUCTION,
     ].filter(Boolean).join('\n\n');
@@ -5602,6 +5613,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await reattachGraphSessions();
       const project = graphSweepProject();
       if (project) {
+        await autoRecoverGraphBlocks(gs, project.id);
         let graphRuns: number[] = [];
         try {
           graphRuns = activeGraphRunIds(gs.db, { projectId: project.id });

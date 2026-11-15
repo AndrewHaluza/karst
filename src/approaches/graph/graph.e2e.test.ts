@@ -27,7 +27,18 @@ import { join } from 'node:path';
 import { runCli } from '../../cli/main.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { SUPPORTED, unsupported } from '../../agent/surfaces.js';
-import { bootstrapAndLaunchPlanner, acceptSubmittedPlan, confirmGraphRun, driveReadyNodeRuns } from './driver.js';
+import {
+  bootstrapAndLaunchPlanner,
+  acceptSubmittedPlan,
+  confirmGraphRun,
+  driveReadyNodeRuns,
+  launchReplanPlanner,
+  parkNodeLaunchExit,
+} from './driver.js';
+import { recoverGraphRun, type RecoveryResult } from './coordinator/recovery.js';
+import { autoRecoverBlockedRuns, createAutoRecoveryMemory } from './coordinator/autoRecovery.js';
+import { blockedGraphRunsForAutoRecovery } from '../../store/graph/graphRuns.js';
+import type { Store } from '../../store/db.js';
 import { runGraphCommand } from '../../cli/graph.js';
 import { runNodeCommand } from '../../cli/node.js';
 import { flipOnEndQuiescence } from './coordinator/completion.js';
@@ -1357,6 +1368,150 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
         .prepare('SELECT stage_attempt FROM approach_graph_runs WHERE id = ?')
         .get(launched.graphRunId) as { stage_attempt: number };
       expect(second.stage_attempt).toBe(1);
+    } finally {
+      h.close();
+    }
+  });
+});
+
+describe('dynamic graph e2e — automatic recovery of a blocked run (no human action)', () => {
+  /** One sweep pass of the host's automatic recovery step: the REAL
+   *  `autoRecoverBlockedRuns` over the REAL `recoverGraphRun`, then the planner
+   *  launch the result elects (what the host's recovery dispatch does). */
+  async function autoRecoverSweep(
+    h: Harness,
+    memory = createAutoRecoveryMemory(),
+  ): Promise<{ results: RecoveryResult[]; notes: string[] }> {
+    const results: RecoveryResult[] = [];
+    const notes: string[] = [];
+    await autoRecoverBlockedRuns(
+      {
+        db: h.store.db,
+        now: () => NOW,
+        recover: async (input) => {
+          const result = recoverGraphRun(
+            {
+              store: h.store as unknown as Store,
+              transaction: h.deps.transaction,
+              now: () => NOW,
+              writeSnapshot: h.deps.writeSnapshot,
+              readPrompt: () => new TextEncoder().encode('# Planner'),
+              plannerPromptPath: 'karst-graph-planner',
+              ticketContext: '# Ticket context',
+            },
+            input,
+          );
+          if (result.kind === 'replanned' && result.launch) {
+            await launchReplanPlanner(h.deps, {
+              graphRunId: input.graphRunId,
+              plannerRunId: result.launch.plannerRunId,
+              generation: '',
+              capability: '',
+              prompt: `Replan. Reasons: ${result.launch.reasonsSnapshotPath}`,
+              cwd: h.worktree,
+              repo: 'api',
+            });
+          }
+          results.push(result);
+          return result;
+        },
+        postNote: (note) => void notes.push(note.title),
+      },
+      memory,
+      blockedGraphRunsForAutoRecovery(h.store.db, h.projectId),
+    );
+    return { results, notes };
+  }
+
+  it('a node whose process exited before it started is retried by the sweep and the run completes', async () => {
+    const h = makeHarness();
+    try {
+      const { graphRunId } = await bootAndSubmit(h);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      await tickGraphRun(h, graphRunId);
+      const impl = runOf(h, graphRunId, 'impl');
+      parkNodeLaunchExit(h.deps, graphRunId, impl.id, 'provider exited');
+      expect(await tickGraphRun(h, graphRunId)).toBe('blocked');
+
+      const { results, notes } = await autoRecoverSweep(h);
+      expect(results.map((r) => r.kind)).toEqual(['retried']);
+      expect(notes).toHaveLength(1);
+      const count = h.store.db
+        .prepare('SELECT auto_recovery_count AS n FROM approach_graph_runs WHERE id = ?')
+        .get(graphRunId) as { n: number };
+      expect(count.n).toBe(1);
+
+      // No human action from here: the node launches again and finishes.
+      expect(await tickGraphRun(h, graphRunId)).toBe('running');
+      const again = nodeRunsOf(h, graphRunId).find((n) => n.node_id === 'impl' && n.status === 'running')!;
+      writeInWorkspace(h, again, 'src/recovered.ts', 'ok\n');
+      expect(reportNode(h, graphRunId, again, 'complete').ok).toBe(true);
+      expect(await tickUntil(h, graphRunId, (s) => s === 'completed-awaiting-impl-marker')).toBe(
+        'completed-awaiting-impl-marker',
+      );
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a resource-claim violation is replanned by the sweep with the violation as evidence and the run completes', async () => {
+    const h = makeHarness();
+    try {
+      const { graphRunId } = await bootAndSubmit(h);
+      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      await tickGraphRun(h, graphRunId);
+      const impl = runOf(h, graphRunId, 'impl');
+      writeInWorkspace(h, impl, 'outside.ts', 'changed\n');
+      expect(reportNode(h, graphRunId, impl, 'complete').ok).toBe(true);
+      expect(await tickGraphRun(h, graphRunId)).toBe('blocked');
+      const blocked = h.store.db
+        .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
+        .get(graphRunId) as { blocked_reason: string };
+      expect(blocked.blocked_reason).toContain('resource-claim-violated');
+
+      const { results } = await autoRecoverSweep(h);
+      expect(results.map((r) => r.kind)).toEqual(['replanned']);
+      expect(graphRunStatus(h.store.db, graphRunId)).toBe('draining');
+      // The planner's reasons file names the node, the path and the declared writes.
+      const reasonsPath = (results[0] as Extract<RecoveryResult, { kind: 'replanned' }>).launch!.reasonsSnapshotPath;
+      const reasons = JSON.parse(readFileSync(join(h.artifactRoot, reasonsPath), 'utf8')) as {
+        claimViolations: { node: string; evidence: string }[];
+      };
+      expect(reasons.claimViolations).toHaveLength(1);
+      expect(reasons.claimViolations[0]!.node).toBe('impl');
+      expect(reasons.claimViolations[0]!.evidence).toMatch(/outside\.ts.*declared writes/);
+
+      // The replan planner claims the path in revision 2; the run finishes.
+      const planner = h.transport.started.at(-1)!;
+      writePlannerSubmission(
+        h,
+        topologyJson(
+          [WORKER_NODE('retry', ['src', 'outside.ts'])],
+          [{ id: 'r-end', from: 'retry', on: 'complete', to: 'END' }],
+          ['retry'],
+        ),
+      );
+      const submitted = JSON.parse(
+        runGraphCommand(
+          h.store,
+          graphEnv(h, {
+            graphRunId: String(graphRunId),
+            launchId: String(planner.nodeRunId),
+            generation: planner.graphEnv?.KARST_GRAPH_GENERATION ?? '',
+            capability: planner.graphEnv?.KARST_GRAPH_CAPABILITY ?? '',
+          }),
+          ['graph', 'submit'],
+          () => NOW,
+        ),
+      ) as { ok: boolean };
+      expect(submitted.ok).toBe(true);
+      expect(await tickGraphRun(h, graphRunId)).toBe('running');
+      const retry = await tickToNode(h, graphRunId, 'retry');
+      writeInWorkspace(h, retry, 'outside.ts', 'claimed\n');
+      expect(reportNode(h, graphRunId, retry, 'complete').ok).toBe(true);
+      expect(await tickUntil(h, graphRunId, (s) => s === 'completed-awaiting-impl-marker')).toBe(
+        'completed-awaiting-impl-marker',
+      );
     } finally {
       h.close();
     }

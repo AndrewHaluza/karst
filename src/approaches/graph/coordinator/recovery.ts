@@ -21,6 +21,8 @@
  *                       configuration, new launch attempt, no re-snapshot
  *   prompt-resnapshot   re-snapshot the effective prompt bytes, then retry
  *   replan / compile-new-revision
+ *                       (resource-claim-violated is a replan: the planner gets
+ *                       the violation as evidence)
  *                       elect + begin a new planner run (Slice-4 T5),
  *                       subject to the planner/replan budget; an AUTOMATIC
  *                       budget refusal blocks the reporting node
@@ -40,10 +42,15 @@
  *                       faulted and retries the reserved visit only when the
  *                       correction is real, else refuses explicit-resolution
  *                       (`artifactRecheck.ts`). Never automatic.
- *   explicit-resolution integration conflict, resource-claim violation,
- *                       topology deadlock, unrecognized reasons —
+ *   explicit-resolution integration conflict, topology deadlock,
+ *                       unrecognized reasons —
  *                       corrected claims or replan/expert
  *                       diagnosis, then explicit Resume
+ *
+ * AUTOMATIC vs MANUAL (T1151): the coordinator sweep recovers a blocked run by
+ * itself (`autoRecovery.ts`, mode `resume`, never `force-resume`) only for
+ * launch-retry, planner-relaunch, replan and compile-new-revision. Every other
+ * category stays manual.
  *
  * The retry happens in ONE `BEGIN IMMEDIATE` transaction: it CAS-claims the
  * BLOCKED graph run (`blocked → running`), re-snapshots the prompt hash on
@@ -250,7 +257,9 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   // retries the reserved visit only when the correction is real.
   if (reason.startsWith('output-artifact-missing')) return 'artifact-recheck';
   if (reason.startsWith('artifact-unsafe')) return 'artifact-recheck';
-  if (reason.startsWith('resource-claim-violated')) return 'explicit-resolution';
+  // T1151: a node that wrote outside its declared claims is a plan fault — the
+  // recoverable answer is a new revision that claims the path or moves the work.
+  if (reason.startsWith('resource-claim-violated')) return 'replan';
   if (reason.startsWith('integration-conflict')) return 'explicit-resolution';
   if (reason.startsWith('graph-topology-deadlock')) return 'explicit-resolution';
   return 'explicit-resolution';

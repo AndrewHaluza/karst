@@ -113,6 +113,8 @@ goes through a named read helper next to the full-row reads (`graphRunById`,
 than declaring their own drifting row interfaces. A new column or status is
 therefore added to the store module and the schema, never to a repo-wide grep.
 
+The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
+
 Two deliberate, documented exceptions remain:
 
 - **The `karst` CLI's authenticated reads and UPDATEs** (`src/cli/node.ts`,
@@ -301,6 +303,8 @@ END_DOC_BLOCK: [@arch:HOOK-LIVE]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
+
+**Graph auto recovery (v125).** `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` record the automatic recoveries (`@arch:GRAPH-AUTORECOVERY`).
 
 **PR head (v124).** `prs.head_oid TEXT NULL` holds the PR head sha from `headRefOid`, current state with COALESCE in `updatePrDetail` (@arch:GH-03). NULL = never stated (no backfill).
 

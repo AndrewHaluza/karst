@@ -86,6 +86,7 @@ import {
   nodeRunFailuresForGraphRun,
   nodeRunsInStatusesForRevision,
   replanNodeRunReasons,
+  claimViolationNodeRuns,
   setNodeRunBudgetBlock,
 } from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken, insertEntryTokens } from '../../../store/graph/tokens.js';
@@ -103,6 +104,8 @@ const MAX_FAILURE_ROWS = 20;
 const MAX_DIFF_ROWS = 20;
 const MAX_CONFLICT_ROWS = 20;
 const MAX_SECONDARY_REASONS = 20;
+/** The most claim-violation evidence rows the reasons file carries. */
+const MAX_CLAIM_VIOLATIONS = 10;
 const MAX_DEFERRED_IDS = 20;
 const MAX_RATIONALE_CHARS = 2000;
 
@@ -274,7 +277,14 @@ function replanQuiescenceBlockedBy(db: GraphDb, graphRunId: number): string | nu
   // are the reason for the drain (and the source of its reasons artifact), not
   // active work. Counting them would make the drain refuse its own planner
   // forever — the exact strand this ticket fixes — so they are excluded.
-  if (countNodeRunsInStatusesExcludingOutcome(db, graphRunId, ACTIVE_NODE_STATUSES, 'replan') > 0) {
+  // A `resource-claim-violated` node stays `blocked` with no live process: the
+  // violation is the reason for the replan, so it must not hold the drain
+  // open. The replan submit cancels it with the superseded revision's work.
+  if (
+    countNodeRunsInStatusesExcludingOutcome(db, graphRunId, ACTIVE_NODE_STATUSES, 'replan', {
+      blockedCategory: 'resource-claim-violated',
+    }) > 0
+  ) {
     return 'active-node-runs';
   }
   const leases = db
@@ -395,6 +405,12 @@ export function beginReplanPlannerRun(
       secondary: reasonRows
         .slice(1, 1 + MAX_SECONDARY_REASONS)
         .map((r) => ({ node: r.node_id, reason: r.reason })),
+      // T1151: an out-of-claim write is the evidence an automatic replan needs
+      // — the node, the path(s) and the declared write claims, so the next
+      // revision can claim the path or move the work.
+      claimViolations: claimViolationNodeRuns(db, input.graphRunId, MAX_CLAIM_VIOLATIONS).map(
+        (r) => ({ node: r.node_id, evidence: r.reason }),
+      ),
     };
     const reasonsBytes = new TextEncoder().encode(JSON.stringify(reasonsDoc));
     const reasonsSnapshotPath = `reasons/${sha256Hex(reasonsBytes)}.json`;
