@@ -20,6 +20,7 @@ import { stageBlock } from '../store/stageBlocks.js';
 import {
   graphImplMarkerGuard,
   fireGraphImplMarkerFromHost,
+  tryAutoFireGraphImplMarker,
   blockGraphStage,
   graphApproachMissingRun,
   GRAPH_FAILED_BLOCKER,
@@ -444,6 +445,101 @@ describe('fireGraphImplMarkerFromHost', () => {
       stage_current: string;
     };
     expect(ticket.stage_current).toBe('impl');
+  });
+});
+
+describe('tryAutoFireGraphImplMarker', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+  const now = (): string => '2026-08-12T00:00:00.000Z';
+
+  function ready(key: string): { ticketId: number; graphRunId: number } {
+    store.db.prepare("INSERT OR IGNORE INTO projects (slug) VALUES ('proj')").run();
+    const projectId = (store.db.prepare("SELECT id FROM projects WHERE slug = 'proj'").get() as { id: number }).id;
+    const ticketId = createTicket(store, { key, title: 'thing', projectId }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
+    store.db.prepare(`UPDATE stages SET status = 'running' WHERE ticket_id = ? AND stage_key = 'impl'`).run(ticketId);
+    const attempt = stageAttempt(store, ticketId, 'impl');
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', ?, 'x', 'completed-awaiting-impl-marker', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ticketId, attempt).lastInsertRowid,
+    );
+    const revisionId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(graphRunId).lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_tokens
+           (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id,
+            destination_end, fork_instance, fork_lineage, status, created_at)
+         VALUES (?, NULL, 1, 'e1', 'END', 1, 0, 'root', 'consumed', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(revisionId);
+    return { ticketId, graphRunId };
+  }
+  const stageOf = (id: number): string =>
+    (store.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(id) as { stage_current: string }).stage_current;
+
+  it('fires the marker and advances to uat', () => {
+    const { ticketId, graphRunId } = ready('AF-1');
+    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toEqual({ kind: 'fired', graphRunId });
+    expect(stageOf(ticketId)).toBe('uat');
+  });
+
+  it('does not fire for a paused ticket and leaves the wait block', () => {
+    const { ticketId, graphRunId } = ready('AF-2');
+    store.db.prepare("UPDATE tickets SET paused_at = datetime('now') WHERE id = ?").run(ticketId);
+    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toEqual({ kind: 'paused', firstTime: true });
+    expect(stageOf(ticketId)).toBe('impl');
+    expect(stageBlock(store, ticketId, 'impl')?.kind).toBe('awaiting-impl-marker');
+  });
+
+  it('refuses while a blocking sub-task is open, like the CLI marker', () => {
+    const { ticketId, graphRunId } = ready('AF-4');
+    const projectId = (store.db.prepare('SELECT project_id AS p FROM tickets WHERE id = ?').get(ticketId) as { p: number }).p;
+    const child = createTicket(store, { key: 'AF-4-s1', title: 'sub', projectId }).id;
+    store.db.prepare('UPDATE tickets SET subtask_parent_id = ?, blocks_parent = 1 WHERE id = ?').run(ticketId, child);
+    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now);
+    expect(out).toMatchObject({ kind: 'refused', firstTime: true });
+    expect(stageBlock(store, ticketId, 'impl')?.reason).toMatch(/open blocking sub-tasks: AF-4-s1/);
+    expect(stageOf(ticketId)).toBe('impl');
+  });
+
+  it('refuses with a caller pre-check reason and does not fire', () => {
+    const { ticketId, graphRunId } = ready('AF-5');
+    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now, 'cannot mark this stage done: docs');
+    expect(out).toMatchObject({ kind: 'refused' });
+    expect(stageOf(ticketId)).toBe('impl');
+  });
+
+  it('treats a lock error as busy and writes no block', () => {
+    const { ticketId, graphRunId } = ready('AF-6');
+    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now, 'SQLITE_BUSY: database is locked');
+    expect(out).toEqual({ kind: 'busy' });
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  });
+
+  it('keeps the block with the reason on a waiting agent and reports the refusal once', () => {
+    const { ticketId, graphRunId } = ready('AF-3');
+    store.db.prepare("UPDATE tickets SET agent_state = 'waiting' WHERE id = ?").run(ticketId);
+    const first = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now);
+    expect(first).toMatchObject({ kind: 'refused', firstTime: true });
+    expect(stageBlock(store, ticketId, 'impl')?.reason).toMatch(/waiting for your input/);
+    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toMatchObject({
+      kind: 'refused',
+      firstTime: false,
+    });
+    expect(stageOf(ticketId)).toBe('impl');
   });
 });
 
