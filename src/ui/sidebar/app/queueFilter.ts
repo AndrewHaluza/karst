@@ -42,9 +42,12 @@ export function restoreQueueFilters(prev: unknown): QueueFilters {
   };
 }
 
-/** The filters with a chain that left the queue dropped, so no dead chain keeps the funnel lit. */
+/** The filters with a chain or a session that left the queue dropped, so no dead choice keeps the funnel lit. */
 export function liveFilters(rows: readonly QueueRowView[], f: QueueFilters): QueueFilters {
-  return f.chain !== null && !rows.some((r) => r.idLabel === f.chain) ? { ...f, chain: null } : f;
+  const chain = f.chain !== null && rows.some((r) => r.idLabel === f.chain) ? f.chain : null;
+  const labels = new Set(rows.map((r) => r.sessionLabel));
+  const sessions = f.sessions.filter((s) => labels.has(s));
+  return chain === f.chain && sessions.length === f.sessions.length ? f : { ...f, chain, sessions };
 }
 
 export function hasQueueFilters(f: QueueFilters): boolean {

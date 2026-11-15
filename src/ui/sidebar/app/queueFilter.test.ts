@@ -68,6 +68,14 @@ describe('filterQueue', () => {
   });
 });
 
+describe('liveFilters sessions', () => {
+  it('drops a session that left the queue and keeps one that is in it', () => {
+    expect(liveFilters(rows, { ...NO_QUEUE_FILTERS, sessions: ['P18', 'P99'] }).sessions).toEqual(['P18']);
+    const same = { ...NO_QUEUE_FILTERS, sessions: ['P18'] };
+    expect(liveFilters(rows, same)).toBe(same);
+  });
+});
+
 describe('matchesQuery', () => {
   it('matches id, session id, session title and title', () => {
     const r = row(1, { sessionLabel: 'P52', sessionTitle: 'offloading', title: 'Retry helper' });

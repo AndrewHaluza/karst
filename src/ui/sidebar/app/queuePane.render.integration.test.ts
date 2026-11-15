@@ -281,5 +281,14 @@ describe('Queue pane filters', () => {
     await pick(h, 'priority:high');
     expect(text(h.query('[data-pane="queue"] .pane-count'))).toBe('8 / 40');
   });
-});
 
+  it('closes a revealed pane with one click and keeps the saved state when the search ends', async () => {
+    const h = await mount({ ...fixture('queue'), filter: 'auth' });
+    const toggle = () => h.query('[data-pane="queue"] .pane-toggle')!;
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    await h.click(toggle());
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    await h.receive({ type: 'state', state: { ...fixture('queue'), filter: '' } });
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  });
+});
