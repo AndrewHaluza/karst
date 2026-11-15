@@ -360,7 +360,7 @@ async function mainReview(opts) {
   try { buildSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch { /* keep unknown */ }
   const meta = { startedAt, pass: 'review', command: `npm run -s eval:form -- ${process.argv.slice(2).join(' ')}`, caseSetVersion: REVIEW_CASE_SET_VERSION, buildSha, coreVersions: {} };
   const candidate = { core: opts.provider, model: opts.model, effort: opts.effort, runs: scored };
-  const dir = join(ROOT, 'eval-results', `review-${startedAt.replace(/[:.]/g, '-')}`);
+  const dir = join(ROOT, 'eval-results', `review-${startedAt.replace(/[:.]/g, '-')}-${opts.provider}-${process.pid}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'report.md'), renderReviewReport({ ...meta, candidates: [candidate] }));
   writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, candidate }, null, 2));
