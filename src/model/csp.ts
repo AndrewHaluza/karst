@@ -33,6 +33,11 @@ const POLICY = (nonce: string, mediaSource?: string): string => {
   return `${parts.join('; ')};`;
 };
 
+/** The CSP meta tag for `nonce`; shared by `injectCsp` and the Doctor page so the two cannot drift. */
+export function cspMetaTag(nonce: string, mediaSource?: string): string {
+  return `<meta http-equiv="Content-Security-Policy" content="${POLICY(nonce, mediaSource)}" />`;
+}
+
 /** The placeholder each webview.html carries where the CSP meta tag belongs. */
 export const CSP_MARKER = '<!--KARST_CSP-->';
 
@@ -62,7 +67,7 @@ export function newNonce(): string {
  */
 export function injectCsp(html: string, nonce: string, mediaSource?: string): string {
   if (!html.includes(CSP_MARKER)) return html;
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${POLICY(nonce, mediaSource)}" />`;
+  const meta = cspMetaTag(nonce, mediaSource);
   return html
     .replace(CSP_MARKER, meta)
     .replace(/(?<!["'\w])<script>/g, `<script nonce="${nonce}">`);

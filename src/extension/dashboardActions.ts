@@ -204,6 +204,8 @@ export function makeDashboardActions(
       },
     },
     logError,
+    (path) => listWorktreesByTicket(store, ticketId).some((w) => w.path === path),
+    debug,
   );
 
   const sandboxB = sandbox.bindings();
