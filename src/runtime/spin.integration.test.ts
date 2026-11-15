@@ -8,6 +8,7 @@ import { createTicket } from '../store/tickets.js';
 import { ALL_SERVICES, setServiceEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { stopServer } from './supervisor.js';
 import { spinTicket, SpinCancelledError } from './spin.js';
+import { recordSpinServers, removeSpinServerRecords, type SpinServerRow } from './spinFixtureOrphans.js';
 import { worktreeSlug } from './slug.js';
 import { createWorktree } from './worktree.js';
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
@@ -175,6 +176,20 @@ function feBeManifest(opts: {
   );
 }
 
+/** The running fixture servers of the store, as the orphan reaper records them. */
+function runningServers(store: Store): SpinServerRow[] {
+  return store.db.prepare("SELECT pid, port, cwd FROM servers WHERE status='running' AND pid IS NOT NULL").all() as SpinServerRow[];
+}
+
+/** `spinTicket`, then a record of each server so a killed run's servers are reaped (arch:GATE-ORPHANS). */
+async function spinAndRecord(...args: Parameters<typeof spinTicket>): ReturnType<typeof spinTicket> {
+  try {
+    return await spinTicket(...args);
+  } finally {
+    await recordSpinServers(runningServers(args[0]));
+  }
+}
+
 describe('spinTicket integration', () => {
   let store: Store;
   let root: string;
@@ -198,6 +213,7 @@ describe('spinTicket integration', () => {
     root = mkdtempSync(join(tmpdir(), 'karst-spin-'));
   });
   afterEach(async () => {
+    removeSpinServerRecords(runningServers(store));
     for (const s of store.db.prepare("SELECT id FROM servers WHERE status='running'").all()) {
       await stopServer(store, (s as { id: number }).id);
     }
@@ -217,7 +233,7 @@ describe('spinTicket integration', () => {
     const manifest = feBeManifest({ backend, frontend, bePort, fePort });
 
     const ticket = createTicket(store, { key: 'PROJ-1', title: 'fe only' });
-    const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+    const result = await spinAndRecord(store, manifest, ticket.id, ['frontend']);
 
     // frontend worktree created
     const wt = store.db.prepare('SELECT path FROM worktrees WHERE ticket_id = ?').get(ticket.id) as { path: string };
@@ -261,7 +277,7 @@ describe('spinTicket integration', () => {
     // wiring — an override of it must lose, or the health gate would never pass.
     setServiceEnvOverrides(store, ticket.id, ALL_SERVICES, { NEW_FLAG: 'on', PORT: '1' });
 
-    const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+    const result = await spinAndRecord(store, manifest, ticket.id, ['frontend']);
     const feServer = result.servers.find((s) => s.service === 'frontend')!;
     expect(feServer.status).toBe('running');
 
@@ -288,7 +304,7 @@ describe('spinTicket integration', () => {
     // Leftover branch a prior spin created and never cleaned up (the reported bug).
     git(frontend, 'branch', `karst/${worktreeSlug(ticket)}`, 'develop');
 
-    const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+    const result = await spinAndRecord(store, manifest, ticket.id, ['frontend']);
 
     const feServer = result.servers.find((s) => s.service === 'frontend')!;
     expect(feServer.status).toBe('running');
@@ -306,7 +322,7 @@ describe('spinTicket integration', () => {
     const manifest = feBeManifest({ backend, frontend, bePort, fePort });
 
     const ticket = createTicket(store, { key: 'PROJ-4', title: 'resume' });
-    await spinTicket(store, manifest, ticket.id, ['frontend']);
+    await spinAndRecord(store, manifest, ticket.id, ['frontend']);
 
     // Simulate a spin that died after createWorktree: kill running servers and
     // wipe the ticket's transient rows, but LEAVE the worktree (git + DB row) —
@@ -320,7 +336,7 @@ describe('spinTicket integration', () => {
     expect(wtBefore.n).toBe(1); // worktree leftover, as in the reported bug
 
     // Retry: adopts the existing worktree, re-resolves fresh, comes up running.
-    const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+    const result = await spinAndRecord(store, manifest, ticket.id, ['frontend']);
 
     const feServer = result.servers.find((s) => s.service === 'frontend')!;
     expect(feServer.status).toBe('running');
@@ -347,7 +363,7 @@ describe('spinTicket integration', () => {
     setTimeout(() => ctrl.abort(), 700);
 
     await expect(
-      spinTicket(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
+      spinAndRecord(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
     ).rejects.toBeInstanceOf(SpinCancelledError);
 
     // Fresh worktree removed on teardown.
@@ -381,7 +397,7 @@ describe('spinTicket integration', () => {
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 700);
     await expect(
-      spinTicket(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
+      spinAndRecord(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
     ).rejects.toBeInstanceOf(SpinCancelledError);
 
     // Adopted worktree row + git worktree survive.
@@ -415,7 +431,7 @@ describe('spinTicket integration', () => {
     ctrl.abort(); // cancel before the run: `bail()` throws, the rollback runs
 
     await expect(
-      spinTicket(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
+      spinAndRecord(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
     ).rejects.toBeInstanceOf(SpinCancelledError);
 
     const dead = store.db
@@ -450,7 +466,7 @@ describe('spinTicket integration', () => {
     seed.run(ticket.id, 'stopped');
     seed.run(ticket.id, 'failed');
 
-    await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow();
+    await expect(spinAndRecord(store, manifest, ticket.id, ['frontend'])).rejects.toThrow();
 
     // The prior rows are gone: nothing non-running and un-startable remains.
     const priorRows = store.db
@@ -487,7 +503,7 @@ describe('spinTicket integration', () => {
       )
       .run(ticket.id);
 
-    await spinTicket(store, manifest, ticket.id, ['api']);
+    await spinAndRecord(store, manifest, ticket.id, ['api']);
 
     const offline = store.db
       .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND repo = 'web' AND status = 'stopped'")
@@ -507,7 +523,7 @@ describe('spinTicket integration', () => {
     );
     const ticket = createTicket(store, { key: 'PROJ-9', title: 'bad branch' });
 
-    await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(
+    await expect(spinAndRecord(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(
       /Cannot spin/,
     );
 
@@ -537,7 +553,7 @@ describe('spinTicket integration', () => {
     );
 
     const ticket = createTicket(store, { key: 'PROJ-2', title: 'chain' });
-    await spinTicket(store, manifest, ticket.id, ['contracts', 'backend', 'frontend']);
+    await spinAndRecord(store, manifest, ticket.id, ['contracts', 'backend', 'frontend']);
 
     const { readFileSync } = await import('node:fs');
     const order = readFileSync(orderLog, 'utf8').trim().split('\n');
@@ -561,7 +577,7 @@ describe('spinTicket integration', () => {
     };
 
     const ticket = createTicket(store, { key: 'PROJ-C', title: 'edit docs too' });
-    const result = await spinTicket(store, manifest, ticket.id, ['frontend', 'docs']);
+    const result = await spinAndRecord(store, manifest, ticket.id, ['frontend', 'docs']);
 
     // Both repos got a worktree — the docs branch is what the agent edits on.
     const wts = store.db
@@ -592,7 +608,7 @@ describe('spinTicket integration', () => {
     );
 
     const ticket = createTicket(store, { key: 'PROJ-C2', title: 'docs only' });
-    const result = await spinTicket(store, manifest, ticket.id, ['docs']);
+    const result = await spinAndRecord(store, manifest, ticket.id, ['docs']);
 
     expect(result.servers).toEqual([]);
     const wt = store.db
@@ -622,7 +638,7 @@ describe('spinTicket integration', () => {
 
     const ticket = createTicket(store, { key: 'PROJ-D', title: 'monorepo two services' });
     const before = vi.mocked(createWorktree).mock.calls.length;
-    const result = await spinTicket(store, manifest, ticket.id, ['api', 'web']);
+    const result = await spinAndRecord(store, manifest, ticket.id, ['api', 'web']);
     const callsDuringSpin = vi.mocked(createWorktree).mock.calls.length - before;
 
     // one worktree CREATED (not once per repository entry)…
@@ -679,7 +695,7 @@ describe('spinTicket integration', () => {
     seed.run(ticket.id, 'frontend'); // pre-rename name of FE
     seed.run(ticket.id, 'FE'); // still in the manifest — merely not hot this spin
 
-    await spinTicket(store, manifest, ticket.id, ['BE']);
+    await spinAndRecord(store, manifest, ticket.id, ['BE']);
 
     const rows = store.db
       .prepare('SELECT repo, status FROM servers WHERE ticket_id = ? ORDER BY repo')
@@ -702,8 +718,8 @@ describe('spinTicket integration', () => {
 
     const t1 = createTicket(store, { key: 'PROJ-A', title: 'a' });
     const t2 = createTicket(store, { key: 'PROJ-B', title: 'b' });
-    await spinTicket(store, manifest, t1.id, ['frontend']);
-    await spinTicket(store, manifest, t2.id, ['frontend']);
+    await spinAndRecord(store, manifest, t1.id, ['frontend']);
+    await spinAndRecord(store, manifest, t2.id, ['frontend']);
 
     const baselines = store.db.prepare("SELECT COUNT(*) AS n FROM servers WHERE repo='backend' AND ticket_id IS NULL AND status='running'").get() as { n: number };
     expect(baselines.n).toBe(1); // one baseline shared by both tickets
@@ -744,7 +760,7 @@ describe('spinTicket integration', () => {
       await waitUntilListening(fePort);
 
       const ticket = createTicket(store, { key: 'PROJ-SQ', title: 'squat' });
-      const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+      const result = await spinAndRecord(store, manifest, ticket.id, ['frontend']);
 
       const feServer = result.servers.find((s) => s.service === 'frontend')!;
       expect(feServer.status).toBe('running');
@@ -781,7 +797,7 @@ describe('spinTicket integration', () => {
       await waitUntilListening(fePort);
 
       const ticket = createTicket(store, { key: 'PROJ-SQ2', title: 'squat foreign' });
-      const result = await spinTicket(store, manifest, ticket.id, ['frontend']);
+      const result = await spinAndRecord(store, manifest, ticket.id, ['frontend']);
 
       const feServer = result.servers.find((s) => s.service === 'frontend')!;
       expect(feServer.status).toBe('running');
@@ -826,7 +842,7 @@ describe('spinTicket integration', () => {
         )
         .run(ticket.id);
 
-      await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(
+      await expect(spinAndRecord(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(
         /no free contiguous block|in use/,
       );
 

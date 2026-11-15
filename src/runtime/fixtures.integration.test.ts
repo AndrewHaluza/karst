@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -148,5 +148,25 @@ describe('claimPortBand', () => {
 
     expect(existsSync(join(dir, '24230-4'))).toBe(false);
     expect(claimPortBand(24_230, 4, dir)).toBe(true);
+  });
+});
+
+describe('freePortWindow error', () => {
+  it('names the holders of the band when no window is free', async () => {
+    const srv = createServer();
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const port = (srv.address() as { port: number }).port;
+    const lockDir = join(tmpdir(), `fixture-holders-${process.pid}`);
+    try {
+      await expect(
+        freePortWindow(1, port, port + 1, 1, lockDir, async () => [{ pid: 4242, command: 'node', port }]),
+      ).rejects.toThrow(`no free window of 1 ports in [${port}, ${port + 1}]`);
+      await expect(
+        freePortWindow(1, port, port + 1, 1, lockDir, async () => [{ pid: 4242, command: 'node', port }]),
+      ).rejects.toThrow('pid 4242 (node)');
+    } finally {
+      srv.close();
+      rmSync(lockDir, { recursive: true, force: true });
+    }
   });
 });
