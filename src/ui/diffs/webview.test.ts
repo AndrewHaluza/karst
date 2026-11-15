@@ -203,6 +203,8 @@ function elementDouble(): Record<string, unknown> {
     setAttribute: (name: string, value: string) => { attrs[name] = value; },
     getAttribute: (name: string) => attrs[name],
     appendChild: () => {},
+    removeChild: () => {},
+    addEventListener: () => {},
     classList: {
       add: (name: string) => { classes.push(name); },
       remove: (name: string) => {

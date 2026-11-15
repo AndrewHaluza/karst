@@ -29,7 +29,8 @@ describe('design system components', () => {
     expect(CSS, 'a hex literal survived').not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     expect(CSS, 'an rgb/hsl literal survived').not.toMatch(/\b(?:rgba?|hsla?)\(/);
     // A container query condition cannot hold a var(): the 400px tier step is the one allowed raw length (@ui:UI-R49).
-    const withoutQueryConditions = CSS.replace(/@container \(max-width: 400px\)/g, '@container');
+    // The toast ladder (@ui:RD-LADDERS2) steps the viewport at the 699 and 399 tier edges, also literals.
+    const withoutQueryConditions = CSS.replace(/@container \(max-width: 400px\)/g, '@container').replace(/@media \(max-width: (?:699|399)px\)/g, '@media');
     expect(withoutQueryConditions, 'a raw length survived').not.toMatch(/(?<![\w-])\d+(?:\.\d+)?(?:px|rem|em)\b/);
     expect(CSS, 'a raw duration survived').not.toMatch(/(?<![\w-])\d+(?:\.\d+)?(?:ms|s)\b/);
   });

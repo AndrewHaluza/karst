@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { designRuntimeJs, PENDING_WATCHDOG_MS } from './designRuntime.js';
+import { readFileSync } from 'node:fs';
+import { designRuntimeJs, PENDING_WATCHDOG_MS, TOAST_ERROR_MS, TOAST_SUCCESS_MS, MAX_TOASTS } from './designRuntime.js';
 
 /**
  * These tests evaluate the SHIPPED STRING, not a TypeScript re-implementation of
@@ -212,19 +213,126 @@ describe('design system async runtime', () => {
     expect(root.attrs.get('aria-live')).toBe('polite');
   });
 
-  it('an error toast does not auto-dismiss; a success toast does', () => {
-    const h = load();
-    h.karstToast('error', 'stuck');
-    h.karstToast('success', 'fine');
-    const before = h.toastRoot()!.children.length;
-    expect(before).toBe(2);
+  describe('toast redesign (T1152)', () => {
+    const part = (t: FakeEl, cls: string): FakeEl | undefined => t.children.find((c) => c.classes.has(cls));
+    const toastText = (t: FakeEl): string => part(t, 'k-toast-text')?.textContent ?? '';
+    const toasts = (h: Harness): FakeEl[] => h.toastRoot()!.children;
+    const fire = (el: FakeEl, type: string): void => {
+      for (const fn of el.handlers[type] ?? []) fn({});
+    };
 
-    h.advance(60_000);
+    it('an error closes after TOAST_ERROR_MS and not before; success and warning after TOAST_SUCCESS_MS', () => {
+      const h = load();
+      h.karstToast('error', 'stuck');
+      h.karstToast('success', 'fine');
+      h.karstToast('warning', 'hmm');
+      h.advance(TOAST_SUCCESS_MS);
+      expect(toasts(h).map((t) => t.classes.has('k-toast--error'))).toEqual([true]);
+      h.advance(TOAST_ERROR_MS - TOAST_SUCCESS_MS - 1);
+      expect(toasts(h)).toHaveLength(1);
+      h.advance(1);
+      expect(toasts(h)).toHaveLength(0);
+    });
 
-    // The success toast has gone; the error is still there to be read.
-    const left = h.toastRoot()!.children;
-    expect(left.filter((c) => c.classes.has('k-toast--error'))).toHaveLength(1);
-    expect(left.filter((c) => c.classes.has('k-toast--success'))).toHaveLength(0);
+    it('every toast has a Dismiss button that removes it and clears its timer', () => {
+      const h = load();
+      h.karstToast('success', 'fine');
+      const close = part(toasts(h)[0]!, 'k-toast-close')!;
+      expect(close.tagName).toBe('BUTTON');
+      expect(close.attrs.get('type')).toBe('button');
+      expect(close.attrs.get('aria-label')).toBe('Dismiss');
+      expect(close.textContent).toBe('×');
+      close.click();
+      expect(toasts(h)).toHaveLength(0);
+      expect(h.pendingTimers()).toBe(0);
+    });
+
+    it('hover pauses the timer and leave restarts the full time', () => {
+      const h = load();
+      h.karstToast('error', 'stuck');
+      const t = toasts(h)[0]!;
+      h.advance(TOAST_ERROR_MS - 1);
+      fire(t, 'mouseenter');
+      h.advance(60_000);
+      expect(toasts(h)).toHaveLength(1);
+      fire(t, 'mouseleave');
+      h.advance(TOAST_ERROR_MS - 1);
+      expect(toasts(h)).toHaveLength(1);
+      h.advance(1);
+      expect(toasts(h)).toHaveLength(0);
+    });
+
+    it('focusin pauses and focusout restarts', () => {
+      const h = load();
+      h.karstToast('success', 'fine');
+      const t = toasts(h)[0]!;
+      fire(t, 'focusin');
+      h.advance(60_000);
+      expect(toasts(h)).toHaveLength(1);
+      fire(t, 'focusout');
+      h.advance(TOAST_SUCCESS_MS);
+      expect(toasts(h)).toHaveLength(0);
+    });
+
+    it('the countdown bar restarts with the timer and carries the same duration', () => {
+      const h = load();
+      h.karstToast('error', 'stuck');
+      const t = toasts(h)[0]!;
+      const bar = part(t, 'k-toast-bar')!;
+      expect(bar.attrs.get('style')).toContain(`${TOAST_ERROR_MS}ms`);
+      fire(t, 'mouseenter');
+      fire(t, 'mouseleave');
+      const again = part(t, 'k-toast-bar')!;
+      expect(again).not.toBe(bar);
+      expect(again.attrs.get('style')).toContain(`${TOAST_ERROR_MS}ms`);
+    });
+
+    it('a 4th toast removes the oldest and clears its timer', () => {
+      const h = load();
+      for (const m of ['a', 'b', 'c', 'd']) h.karstToast('error', m);
+      expect(MAX_TOASTS).toBe(3);
+      expect(toasts(h).map(toastText)).toEqual(['b', 'c', 'd']);
+      expect(h.pendingTimers()).toBe(3);
+    });
+
+    it('the same kind and text replaces the toast on screen and restarts its timer', () => {
+      const h = load();
+      h.karstToast('error', 'same');
+      h.karstToast('success', 'other');
+      h.advance(TOAST_ERROR_MS - 1);
+      h.karstToast('error', 'same');
+      expect(toasts(h).map(toastText)).toEqual(['same']);
+      h.advance(TOAST_ERROR_MS - 1);
+      expect(toasts(h)).toHaveLength(1);
+      h.advance(1);
+      expect(toasts(h)).toHaveLength(0);
+    });
+
+    it('a toast with the same text but another kind is kept', () => {
+      const h = load();
+      h.karstToast('error', 'same');
+      h.karstToast('warning', 'same');
+      expect(toasts(h)).toHaveLength(2);
+    });
+
+    it('the kind word sits in the live region and the glyph is aria-hidden', () => {
+      const h = load();
+      const words: Record<string, string> = { error: 'Error:', warning: 'Warning:', success: 'Done:', info: 'Info:' };
+      for (const [kind, word] of Object.entries(words)) {
+        h.karstToast(kind, `m-${kind}`);
+        const t = toasts(h).at(-1)!;
+        expect(part(t, 'k-toast-sr')!.textContent).toBe(word);
+        expect(part(t, 'k-toast-glyph')!.attrs.get('aria-hidden')).toBe('true');
+        expect(t.attrs.get('title')).toBe(`m-${kind}`);
+      }
+    });
+
+    it('the toast text is not red; the kind shows in the bar and glyph', () => {
+      const css = readFileSync(new URL('./designComponents.webview.css', import.meta.url), 'utf8');
+      const rule = css.split('\n').find((l) => l.startsWith('.k-toast--error{')) ?? '';
+      expect(rule).toContain('var(--k-danger)');
+      expect(rule).not.toMatch(/(^|[;{])color:/);
+    });
   });
 
   it('never leaves a control stuck pending (UI-R14)', () => {
@@ -319,7 +427,7 @@ describe('design system async runtime', () => {
   it('caps untrusted prose before it reaches a toast (UI-R32)', () => {
     const h = load();
     h.karstToast('error', `line one\nline two\n${'x'.repeat(1000)}`);
-    const text = h.toastRoot()!.children[0]!.textContent;
+    const text = h.toastRoot()!.children[0]!.children.find((c) => c.classes.has('k-toast-text'))!.textContent;
     expect(text).not.toContain('\n');
     expect(text.length).toBeLessThanOrEqual(240);
   });
@@ -451,7 +559,7 @@ describe('design system async runtime', () => {
       const { btn, id } = click(h, { tier: 'confirm' });
       h.karstSettle(id(), true, 'Copied');
       expect(btn.classes.has('is-success')).toBe(true);
-      expect(h.toastRoot()?.children.some((c) => c.textContent === 'Copied')).toBe(true);
+      expect(h.toastRoot()?.children.some((c) => c.children.some((x) => x.textContent === 'Copied'))).toBe(true);
       h.advance(1199);
       expect(btn.classes.has('is-success')).toBe(true);
       h.advance(1);

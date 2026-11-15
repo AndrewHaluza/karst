@@ -258,20 +258,46 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
   position:fixed;right:var(--k-space-7);bottom:var(--k-space-7);
   z-index:var(--k-z-toast);
   display:flex;flex-direction:column;gap:var(--k-space-3);
-  max-width:var(--k-toast-max-w,none)}
+  --k-toast-max-w:calc(var(--k-space-8) * 18);
+  width:var(--k-toast-max-w);max-width:calc(100vw - var(--k-space-7) * 2)}
 .k-toast{
-  padding:var(--k-space-4) var(--k-space-6);
-  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
+  --k-toast-c:var(--k-border);
+  position:relative;overflow:hidden;
+  display:flex;align-items:center;gap:var(--k-space-4);
+  padding:var(--k-space-4) var(--k-space-4) var(--k-space-4) var(--k-space-6);
+  border:var(--k-border-w) solid var(--k-border);border-left:calc(var(--k-space-1) + var(--k-border-w)) solid var(--k-toast-c);
+  border-radius:var(--k-radius-md);
   background:var(--k-surface);color:var(--k-text);
   box-shadow:var(--k-elev-3);font-size:var(--k-text-md);
   animation:k-toast-in var(--k-dur-base) var(--k-ease-out)}
 @keyframes k-toast-in{from{opacity:0;transform:translateY(var(--k-space-2))}to{opacity:1}}
-.k-toast--success{border-color:var(--k-success)}
-.k-toast--warning{border-color:var(--k-warning)}
-.k-toast--error{border-color:var(--k-danger);color:var(--k-danger)}
-.k-toast--info{border-color:var(--k-info)}
-.k-toast-close{background:transparent;border:0;color:inherit;cursor:pointer;
-  margin-left:var(--k-space-4)}
+.k-toast--success{--k-toast-c:var(--k-success)}
+.k-toast--warning{--k-toast-c:var(--k-warning)}
+.k-toast--error{--k-toast-c:var(--k-danger)}
+.k-toast--info{--k-toast-c:var(--k-info)}
+.k-toast-glyph{flex:none;display:inline-flex;align-items:center;justify-content:center;
+  width:var(--k-space-7);height:var(--k-space-7);border-radius:50%;background:var(--k-toast-c);color:var(--k-surface);
+  font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);line-height:1}
+.k-toast-sr{position:absolute;width:var(--k-border-w);height:var(--k-border-w);overflow:hidden;clip:rect(0 0 0 0);
+  clip-path:inset(50%);white-space:nowrap}
+.k-toast-text{flex:1;min-width:0;overflow-wrap:anywhere}
+.k-toast-close{flex:none;min-width:var(--k-hit-min);min-height:var(--k-hit-min);
+  background:transparent;border:0;color:inherit;cursor:pointer;font-size:var(--k-text-lg);line-height:1}
+/* Countdown: the bar and the timer take the same duration (--k-toast-ms, set by the runtime). */
+.k-toast-bar{position:absolute;left:0;right:0;bottom:0;height:var(--k-space-1);background:var(--k-toast-c);
+  transform-origin:left center;animation:k-toast-count var(--k-toast-ms) linear forwards}
+@keyframes k-toast-count{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+.k-toast:hover .k-toast-bar,.k-toast:focus-within .k-toast-bar{animation-play-state:paused}
+/* @ui:RD-LADDERS2 toasts. The root is position:fixed, so the webview viewport is its region. */
+@media (max-width: 699px){
+  .k-toast-root{right:auto;left:50%;transform:translateX(-50%);--k-toast-max-w:92vw}
+}
+@media (max-width: 399px){
+  .k-toast-root{left:var(--k-space-0);right:var(--k-space-0);bottom:var(--k-space-0);transform:none;
+    width:auto;max-width:none;gap:var(--k-space-0)}
+  .k-toast{border-radius:0}
+  .k-toast-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+}
 .k-empty{
   border:var(--k-border-w) dashed var(--k-border);border-radius:var(--k-radius-xl);
   padding:var(--k-space-9) var(--k-space-8);text-align:center;color:var(--k-text-dim)}
@@ -282,6 +308,7 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
   .k-switch-track::after,.k-drawer,.k-toast{transition:none}
   .k-spinner,.k-btn.is-spinning::before,.k-iconbtn.is-spinning::after,
   [data-region].is-loading::before,.k-toast{animation:none}
+  .k-toast-bar{display:none}
   .k-btn:active:not(:disabled),.k-iconbtn:active:not(:disabled),
   .k-chip:active,.k-switch:active .k-switch-track{transform:none}
 }
