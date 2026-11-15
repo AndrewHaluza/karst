@@ -191,14 +191,21 @@ export function buildGraphInsideInput(
 
   const revision = deps.store.db
     .prepare(
-      `SELECT revision_number, status, fingerprint, id,
+      `SELECT revision_number, status, fingerprint, id, planner_artifact_snapshot_id,
               length(canonical_graph) AS graph_bytes
          FROM approach_graph_revisions
         WHERE graph_run_id = ? AND status = 'active'
         ORDER BY revision_number DESC LIMIT 1`,
     )
     .get(run.id) as
-    | { revision_number: number; status: string; fingerprint: string; id: number; graph_bytes: number }
+    | {
+        revision_number: number;
+        status: string;
+        fingerprint: string;
+        id: number;
+        planner_artifact_snapshot_id: string | null;
+        graph_bytes: number;
+      }
     | undefined;
 
   const topology = readTopology(deps.store, revision, deps.debug, () =>
@@ -259,6 +266,7 @@ export function buildGraphInsideInput(
       startedAt: p.started_at,
       submittedAt: p.submitted_at,
       endedAt: p.ended_at,
+      graphSnapshotId: p.graph_snapshot_id,
     })),
     nodeRuns: nodeRuns.map((n) => ({
       nodeRunId: n.id,
@@ -290,6 +298,7 @@ export function buildGraphInsideInput(
           revisionNumber: revision.revision_number,
           status: revision.status,
           fingerprint: revision.fingerprint,
+          plannerArtifactSnapshotId: revision.planner_artifact_snapshot_id,
         }
       : null,
     diagnostics: [],

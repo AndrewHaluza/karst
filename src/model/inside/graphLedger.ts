@@ -292,19 +292,31 @@ export interface LedgerEntry {
   plannerRunNumber?: number;
 }
 
+function acceptedRevisionOf(
+  planner: GraphPlannerRunView,
+  revision: GraphInsideInput['revision'],
+): number | undefined {
+  if (!revision) return undefined;
+  const producedIt =
+    !!planner.graphSnapshotId && planner.graphSnapshotId === revision.plannerArtifactSnapshotId;
+  return planner.endedAt || producedIt ? revision.revisionNumber : undefined;
+}
+
 export function plannerListView(
   planner: GraphPlannerRunView,
   input: GraphInsideInput,
   runStatus: string,
 ): GraphNodeListRow {
-  // A submitted bootstrap planner under an active revision is an accepted plan:
-  // the revision exists only because the compiler accepted that submission.
+  // A submitted bootstrap planner is an accepted plan when ITS submission
+  // produced the active revision (the revision carries the planner's snapshot
+  // id), or when acceptance stamped its end. A relaunch planner still owed a
+  // compile sees the earlier revision but not its own snapshot, so it waits.
   // A run that stopped short (blocked, cancelled, stale) keeps the clamp.
   const acceptedRevision =
     planner.kind === 'bootstrap' &&
     planner.status === 'submitted' &&
     (ADVANCING_GRAPH_RUN_STATUSES.has(runStatus) || runStatus === 'closed')
-      ? input.revision?.revisionNumber
+      ? acceptedRevisionOf(planner, input.revision)
       : undefined;
   const age = plannerAge(planner, input.now, acceptedRevision);
   const action =

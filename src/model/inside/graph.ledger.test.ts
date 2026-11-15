@@ -181,10 +181,11 @@ describe('graph ledger', () => {
         reason: null,
         startedAt: '2026-10-05T17:01:00.000Z',
         submittedAt: '2026-10-05T17:10:00.000Z',
+        graphSnapshotId: 'fp1',
         ...over,
       },
     ];
-    const rev = { revisionNumber: 1, status: 'active', fingerprint: 'fp' };
+    const rev = { revisionNumber: 1, status: 'active', fingerprint: 'fp', plannerArtifactSnapshotId: 'fp1' };
     const plannerRow = (i: Partial<GraphInsideInput>) => ledger(i).nodes!.find((n) => n.entry === 'planner')!;
 
     it('reads pass with the accepted revision when a submitted planner has an active revision', () => {
@@ -204,6 +205,12 @@ describe('graph ledger', () => {
 
     it('still waits on the compiler when a submitted planner has no revision', () => {
       const row = plannerRow({ plannerRuns: planner(), revision: null });
+      expect(row.displayStatus).toBe('wait');
+      expect(row.age).toMatch(/^submitted .* ago$/);
+    });
+
+    it('keeps a relaunch planner waiting while the active revision came from an earlier submission', () => {
+      const row = plannerRow({ plannerRuns: planner({ graphSnapshotId: 'fp2' }), revision: rev });
       expect(row.displayStatus).toBe('wait');
       expect(row.age).toMatch(/^submitted .* ago$/);
     });
