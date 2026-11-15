@@ -222,6 +222,7 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startBackgroundWaitSweep } from './extension/ops/backgroundWaitWiring.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
+import { autoFireImplMarker as autoFireImplMarkerOp } from './extension/ops/graphAutoMarker.js';
 import { awaitingImplMarkerRuns } from './store/graph/graphRuns.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
 import { reconcilableGraphRunIds } from './approaches/graph/coordinator/reconcileScope.js';
@@ -271,7 +272,6 @@ import { plannerRunIdsForGraphRun, plannerRunStatus, plannerRunTicketId, setPlan
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import {
   blockGraphStage,
-  tryAutoFireGraphImplMarker,
   fireGraphImplMarkerFromHost,
 } from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
@@ -4168,24 +4168,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     settleGraphRun(gs.db, graphRunId);
   };
 
-  /** A marker-ready run fires its impl marker by itself (@arch:IMPLUAT); a
-   *  refusal or a pause leaves the `awaiting-impl-marker` block for the button. */
-  const autoFireImplMarker = (ticketId: number, graphRunId: number): void => {
-    const outcome = tryAutoFireGraphImplMarker(
-      graphCoordinatorStore!,
+  /** A marker-ready run fires its impl marker by itself (@arch:IMPLUAT). */
+  const autoFireImplMarker = (ticketId: number, graphRunId: number): void =>
+    autoFireImplMarkerOp(
+      {
+        store: graphCoordinatorStore!,
+        debug: (m) => logger.debug(m),
+        drive: (id) => maybeDrive(id, 'graph-impl-marker'),
+        refresh: (id) => (provider.refresh(), dashboard.pushState(id)),
+      },
       ticketId,
       graphRunId,
-      () => new Date().toISOString(),
     );
-    if (outcome.kind === 'fired') {
-      logger.debug(`[graph] run ${graphRunId}: auto impl marker fired`);
-      maybeDrive(ticketId, 'graph-impl-marker');
-    } else if (outcome.kind === 'refused' && outcome.firstTime) {
-      logger.debug(`[graph] run ${graphRunId}: auto impl marker refused — ${outcome.reason}`);
-    }
-    provider.refresh();
-    dashboard.pushState(ticketId);
-  };
 
   /** After integration: a blocked node blocks the run, and an END-quiescent
    *  run flips to `completed-awaiting-impl-marker`. A blocked run then gets
