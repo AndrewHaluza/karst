@@ -1,7 +1,8 @@
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-/** Owner is the extension-host pid: slots are per HOST process, so a slot a live host leaks stays held until the host exits. */
+/** Owner is the extension-host pid. A live owner keeps its claim only while it refreshes the heartbeat file (arch:GATE-CONCURRENCY). */
 export function pidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -12,11 +13,20 @@ export function pidAlive(pid: number): boolean {
   }
 }
 
+/** How often a holder sets the mtime of its `heartbeat` file (arch:GATE-CONCURRENCY). */
+export const CLAIM_HEARTBEAT_MS = 30_000;
+/** A claim whose `heartbeat` mtime is older than this is stale, even when the owner pid is alive (arch:GATE-CONCURRENCY). */
+export const CLAIM_HEARTBEAT_STALE_MS = 5 * 60_000;
 const NO_OWNER_STALE_MS = 60_000;
 /** The reclaim mutex guards a few fs calls; one older than this belongs to a dead holder. */
 const RECLAIM_LOCK_STALE_MS = 10_000;
 
-async function isStale(path: string, isAlive: (pid: number) => boolean): Promise<boolean> {
+async function isStale(path: string, isAlive: (pid: number) => boolean, heartbeatStaleMs: number): Promise<boolean> {
+  try {
+    if (Date.now() - (await stat(join(path, 'heartbeat'))).mtimeMs > heartbeatStaleMs) return true;
+  } catch {
+    // No heartbeat file: a claim from older code, so only the pid rules apply.
+  }
   try {
     return !isAlive(Number(((await readFile(join(path, 'owner'), 'utf8')) as string).trim()));
   } catch {
@@ -29,7 +39,7 @@ async function isStale(path: string, isAlive: (pid: number) => boolean): Promise
   }
 }
 
-async function claimFresh(path: string): Promise<boolean> {
+async function claimFresh(path: string, token: string): Promise<boolean> {
   try {
     await mkdir(path);
   } catch (err) {
@@ -37,6 +47,8 @@ async function claimFresh(path: string): Promise<boolean> {
     throw err;
   }
   await writeFile(join(path, 'owner'), String(process.pid));
+  await writeFile(join(path, 'token'), token);
+  await writeFile(join(path, 'heartbeat'), '');
   return true;
 }
 
@@ -46,7 +58,13 @@ async function claimFresh(path: string): Promise<boolean> {
  * first's brand-new claim. A short mutex dir serialises the whole sequence; a
  * loser just reports "busy" and the lease loop polls again.
  */
-async function reclaimStale(dir: string, path: string, isAlive: (pid: number) => boolean): Promise<boolean> {
+async function reclaimStale(
+  dir: string,
+  path: string,
+  isAlive: (pid: number) => boolean,
+  heartbeatStaleMs: number,
+  token: string,
+): Promise<boolean> {
   const lock = join(dir, 'reclaim.lock');
   try {
     await mkdir(lock);
@@ -57,19 +75,25 @@ async function reclaimStale(dir: string, path: string, isAlive: (pid: number) =>
     return false;
   }
   try {
-    if (!(await isStale(path, isAlive))) return false;
+    if (!(await isStale(path, isAlive, heartbeatStaleMs))) return false;
     await rm(path, { recursive: true, force: true });
-    return await claimFresh(path);
+    return await claimFresh(path, token);
   } finally {
     await rm(lock, { recursive: true, force: true });
   }
 }
 
-async function tryClaim(dir: string, slot: number, isAlive: (pid: number) => boolean): Promise<boolean> {
+async function tryClaim(
+  dir: string,
+  slot: number,
+  isAlive: (pid: number) => boolean,
+  heartbeatStaleMs: number,
+  token: string,
+): Promise<boolean> {
   const path = join(dir, `slot-${slot}`);
-  if (await claimFresh(path)) return true;
-  if (!(await isStale(path, isAlive))) return false;
-  return reclaimStale(dir, path, isAlive);
+  if (await claimFresh(path, token)) return true;
+  if (!(await isStale(path, isAlive, heartbeatStaleMs))) return false;
+  return reclaimStale(dir, path, isAlive, heartbeatStaleMs, token);
 }
 
 export interface ClaimLeaseOptions {
@@ -80,6 +104,10 @@ export interface ClaimLeaseOptions {
   pollMs?: number;
   signal?: AbortSignal;
   isAlive?: (pid: number) => boolean;
+  /** Heartbeat period; default `CLAIM_HEARTBEAT_MS`. */
+  heartbeatMs?: number;
+  /** Heartbeat age that makes a claim stale; default `CLAIM_HEARTBEAT_STALE_MS`. */
+  heartbeatStaleMs?: number;
   /** Called once, when the first pass finds every slot held, with the held count. */
   onWait?: (held: number) => void;
 }
@@ -93,8 +121,8 @@ const DEFAULT_POLL_MS = 2_000;
 
 /**
  * Lease one of `slots` host-wide slots from a claim-directory pool. Waits while
- * every slot is held; never shares one. A slot whose owner pid is dead is
- * reclaimed. Rejects with "aborted" when the signal fires during the wait.
+ * every slot is held; never shares one. A slot whose owner pid is dead, or whose
+ * heartbeat is stale, is reclaimed. Rejects with "aborted" when the signal fires during the wait.
  */
 export async function leaseClaimSlot(opts: ClaimLeaseOptions): Promise<ClaimLease> {
   if (!Number.isInteger(opts.slots) || opts.slots < 1) {
@@ -102,19 +130,45 @@ export async function leaseClaimSlot(opts: ClaimLeaseOptions): Promise<ClaimLeas
   }
   const isAlive = opts.isAlive ?? pidAlive;
   const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
+  const heartbeatMs = opts.heartbeatMs ?? CLAIM_HEARTBEAT_MS;
+  const heartbeatStaleMs = opts.heartbeatStaleMs ?? CLAIM_HEARTBEAT_STALE_MS;
+  const token = randomUUID();
   await mkdir(opts.dir, { recursive: true });
   let waited = false;
   for (;;) {
     if (opts.signal?.aborted) throw new Error('claim lease aborted');
     for (let slot = 0; slot < opts.slots; slot++) {
-      if (!(await tryClaim(opts.dir, slot, isAlive))) continue;
+      if (!(await tryClaim(opts.dir, slot, isAlive, heartbeatStaleMs, token))) continue;
+      const claimPath = join(opts.dir, `slot-${slot}`);
+      const ownsClaim = async (): Promise<boolean> => {
+        try {
+          return ((await readFile(join(claimPath, 'token'), 'utf8')) as string).trim() === token;
+        } catch {
+          return false;
+        }
+      };
+      const beat = setInterval(() => { void heartbeat(); }, heartbeatMs);
+      beat.unref();
+      const heartbeat = async (): Promise<void> => {
+        if (!(await ownsClaim())) {
+          clearInterval(beat);
+          return;
+        }
+        try {
+          const now = new Date();
+          await utimes(join(claimPath, 'heartbeat'), now, now);
+        } catch {
+          clearInterval(beat);
+        }
+      };
       let released = false;
       return {
         slot,
         release: async () => {
           if (released) return;
           released = true;
-          await rm(join(opts.dir, `slot-${slot}`), { recursive: true, force: true });
+          clearInterval(beat);
+          if (await ownsClaim()) await rm(claimPath, { recursive: true, force: true });
         },
       };
     }
