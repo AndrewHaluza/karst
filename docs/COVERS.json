@@ -717,6 +717,12 @@
   "src/runtime/slug.ts#worktreeSlug": [
     "arch:ENTRIES"
   ],
+  "src/runtime/spinFixtureOrphans.ts#reapOrphanedSpinServers": [
+    "arch:GATE-ORPHANS"
+  ],
+  "src/runtime/spinFixtureOrphans.ts#recordSpinServers": [
+    "arch:GATE-ORPHANS"
+  ],
   "src/runtime/startService.ts": [
     "arch:WT-00"
   ],
