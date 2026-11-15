@@ -2044,7 +2044,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(fixDeliveryTimer) });
   // Project-scoped, so this manifest's window never reaches another project's fix; its immediate first tick covers activation. After `fixDelivery`: the guard points at the stored brief.
-  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage') }));
+  // The stage driver (`maybeDrive`) is declared later in `activate` (TDZ): the first watchdog tick must not call it.
+  let stageDriverReady = false;
+  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage'), redriveReady: () => stageDriverReady }));
   const turnTracker = new TurnTracker();
   // Mailbox delivery (Wave 3): per-core push to live recipients, plus wakes.
   const mailbox = makeMailDeliveryWiring({
@@ -3939,6 +3941,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const maybeDrive = (ticketId: number, trigger: string): void => {
     void maybeDriveChecked(ticketId, trigger).catch((e) => logError(`karst: stage driver trigger '${trigger}' failed for ticket ${ticketId}`, e));
   };
+  stageDriverReady = true;
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
   // dashboard, so a waiting agent turns amber without opening its terminal.
