@@ -463,6 +463,9 @@
   "src/extension/ops/conflictResolveOps.ts": [
     "arch:AP-01"
   ],
+  "src/extension/ops/conflictResumeOps.ts": [
+    "arch:AP-01"
+  ],
   "src/extension/ops/graphAutoRecoverySweep.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
