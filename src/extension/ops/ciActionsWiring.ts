@@ -346,7 +346,7 @@ export async function baseMovedFailure(i: CiActionsInput, gate: ShipGatesDeps, p
     },
     runGates: (merged) => runShipGates([{ ...pr, cwd: merged.cwd }], {
       ...gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: () => headShaOf(i, pr.cwd), // the TICKET head: the merge sha is a new synthetic commit on every run, so it cannot tell a round that changed nothing (@arch:AP-06)
-      onProgress: i.afterServerChange, uiChanged: merged.uiChanged, uiSkipReason: merged.uiSkipReason, kind: 'base-moved',
+      onProgress: i.afterServerChange, uiChanged: merged.uiChanged, uiSkipReason: merged.uiSkipReason, mergedBaseSha: merged.baseSha, kind: 'base-moved',
     }),
   });
   if (outcome.kind === 'failed') return outcome.reason;

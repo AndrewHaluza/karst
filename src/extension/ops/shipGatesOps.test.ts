@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runShipGates } from './shipGatesOps.js';
+import { runShipGates, scopeLinesOf } from './shipGatesOps.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
@@ -343,5 +343,31 @@ describe('runShipGates on a base-moved merge (D541)', () => {
   });
   it('runs the visual gate when the base delta holds a UI path', async () => {
     expect((await run(true)).ran).toEqual(['test', 'test:visual:docker']);
+  });
+});
+
+describe('runShipGates scope evidence on a base-moved merge (@arch:GATE-BASE-MOVED)', () => {
+  const uat = { gates: [{ name: 'visual', kind: 'script', script: 'test:visual:docker' }], repositories: {} } as never;
+  const output = 'noise\nfull: the merge base moved\nvisual: running ticketForm — 3 of 90 tests; full sweep runs in CI\n';
+  const run = async (mergedBaseSha?: string) => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-9', title: 't' }).id;
+    const seen: string[][] = [];
+    const runProcess: GateProcessRunner = async (_c, args) => { seen.push([...args]); return { kind: 'completed', exitCode: 0, output }; };
+    await runShipGates([repoWith({ 'test:visual:docker': 'x' })], { uat, runProcess, uiChanged: true, ...(mergedBaseSha ? { mergedBaseSha } : {}), kind: 'base-moved', evidence: { store, ticketId }, headSha: async () => 'd'.repeat(40) });
+    return { seen, rows: listDeliverResults(store, ticketId) };
+  };
+  it('passes the merged base sha to the gate and keeps the scope lines in the row', async () => {
+    const { seen, rows } = await run('b'.repeat(40));
+    expect(seen[0]).toContain(`KARST_MERGED_BASE_SHA=${'b'.repeat(40)}`);
+    expect(rows[0]?.summary).toBe('full: the merge base moved\nvisual: running ticketForm — 3 of 90 tests; full sweep runs in CI');
+  });
+  it('leaves a run without a merged base unchanged', async () => {
+    const { seen, rows } = await run();
+    expect(seen[0]?.some((a) => a.startsWith('KARST_MERGED_BASE_SHA'))).toBe(false);
+    expect(rows[0]?.summary).toBeNull();
+  });
+  it('reads no scope line from plain output', () => {
+    expect(scopeLinesOf('ok\n1 passed')).toBeNull();
   });
 });
