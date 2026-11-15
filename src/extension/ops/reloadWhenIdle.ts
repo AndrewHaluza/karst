@@ -12,10 +12,11 @@ export const RELOAD_WHEN_IDLE_TITLE = 'Karst: Reload window when idle';
 export const IDLE_POLL_MS = 2000;
 
 /**
- * Live runs of THIS host: `process_runs` and `stage_runs` (every gate and the
- * ship run live inside a stage run) whose status is 'running' and whose pid is
- * the host's, and the `deliver_runs` rows with state 'running' (an auto-deliver
- * runs its gates outside any stage run). `extra` adds the host gate re-runs, which write no run row (`Drain.track`). A run of another window has another pid and is not counted.
+ * Live runs of THIS host: `process_runs` and `stage_runs` (every gate) whose
+ * status is 'running' and whose pid is the host's, the `ship_runs` rows with
+ * status 'running' (the ship saga writes a ship run, not a stage run), and the
+ * `deliver_runs` rows with state 'running' (an auto-deliver runs its gates
+ * outside any stage run). `extra` adds the host gate re-runs, which write no run row (`Drain.track`). A run of another window has another pid and is not counted.
  * Interactive impl/fix terminals are not counted: the pty host keeps them
  * across a reload (@arch:AC-15).
  */
@@ -29,8 +30,25 @@ export function countLiveRuns(store: Store, hostPid: number, extra = 0): number 
   const deliver = store.db
     .prepare("SELECT COUNT(*) AS n FROM deliver_runs WHERE state = 'running' AND pid = ?")
     .get(hostPid) as { n: number };
-  return count('process_runs') + count('stage_runs') + deliver.n + extra;
+  const ship = store.db
+    .prepare("SELECT COUNT(*) AS n FROM ship_runs WHERE status = 'running' AND pid = ?")
+    .get(hostPid) as { n: number };
+  return count('process_runs') + count('stage_runs') + deliver.n + ship.n + extra;
 }
+
+/**
+ * A new ship start while the drain flag is set (@arch:DRAIN-01): returns true
+ * after it writes one debug line and holds the ticket, so a cancel re-drives it.
+ * A start inside a tracked live run is never refused.
+ */
+export function refuseShipWhileDraining(drain: Drain, ticketId: number, debug: (message: string) => void): boolean {
+  if (!drain.isDraining() || drain.insideRun()) return false;
+  drain.hold(ticketId);
+  debug(`[ship] ticket ${ticketId} ship not started: draining`);
+  return true;
+}
+
+export const SHIP_DRAINING_MESSAGE = 'Karst: a reload is waiting for live runs, so ship does not start. Cancel the reload, or ship again after it.';
 
 export interface ReloadWhenIdleDeps {
   readonly drain: Drain;

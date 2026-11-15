@@ -11,6 +11,7 @@ import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { createDrain } from './runtime/drain.js';
 import { registerReloadWhenIdle } from './extension/reloadWhenIdleBinding.js';
+import { refuseShipWhileDraining, SHIP_DRAINING_MESSAGE } from './extension/ops/reloadWhenIdle.js';
 import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
 import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
@@ -5862,6 +5863,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     warn = false,
     shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean } = {},
   ): Promise<void> => {
+    if (refuseShipWhileDraining(drain, ticketId, (m) => logger.debug(m))) {
+      if (warn) void vscode.window.showInformationMessage(SHIP_DRAINING_MESSAGE);
+      return;
+    }
     // WHO asked decides whether new work is delivered into a PR that is already
     // open. A human re-shipping a ticket whose PR is live wants the new commits
     // pushed onto it (FIX-46); an activation sweep resuming a ship whose host
