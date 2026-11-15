@@ -1,8 +1,44 @@
-import { expect } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
 import { outsideTags } from './projectFilter.js';
 import { screenshotFullPage, VARIANTS } from './variants.js';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
+
+const SETTLE_MAX_FRAMES = 120;
+
+/**
+ * T1150: an anchored popover is placed in a requestAnimationFrame after it opens (T1091) and re-placed on resize (#1071).
+ * Wait until every visible position:fixed box (the popovers) has the same bounding box on two frames in a row, so the
+ * shot never catches a popover mid-placement or mid-flip. A page with no fixed box settles after two frames.
+ */
+async function waitForPopoversSettled(page: Page): Promise<void> {
+  const settled = await page.evaluate(
+    (maxFrames) =>
+      new Promise<boolean>((done) => {
+        const snapshot = (): string =>
+          Array.from(document.body.querySelectorAll<HTMLElement>('*'))
+            .filter((el) => getComputedStyle(el).position === 'fixed')
+            .map((el) => {
+              const r = el.getBoundingClientRect();
+              return r.width === 0 && r.height === 0 ? '' : `${r.x},${r.y},${r.width},${r.height}`;
+            })
+            .join('|');
+        let previous = '';
+        let frames = 0;
+        const tick = (): void => {
+          frames += 1;
+          const current = snapshot();
+          if (frames > 1 && current === previous) return done(true);
+          if (frames >= maxFrames) return done(false);
+          previous = current;
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    SETTLE_MAX_FRAMES,
+  );
+  expect(settled, 'an open popover kept moving: its placement never settled').toBe(true);
+}
 
 /**
  * Full-page screenshot baselines: every registered variant of every webview
@@ -53,9 +89,7 @@ karstTest.describe('full-page screenshots', () => {
         }
         if (v.click !== undefined) await page.locator(v.click).first().click();
         for (const sel of v.clicks ?? []) await page.locator(sel).first().click();
-        // T1091: an anchored popover is placed in a requestAnimationFrame after it opens; wait two frames so the shot never
-        // catches it before its first placement.
-        await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+        await waitForPopoversSettled(page);
         if (v.id.startsWith('drill-')) {
           // UI-R43: no sideways page scroll at any tier.
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
