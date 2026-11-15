@@ -15,6 +15,9 @@ import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deli
 import { deliverTargets, type DeliverPr } from '../../workflow/deliverState.js';
 import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
 import { checkBaseMoved } from './baseMovedCheck.js';
+import { remedyBaseMoved } from './baseMovedRemedy.js';
+import { latestBaseMovedFailedGates } from '../../workflow/baseMovedFailure.js';
+import type { BaseRemedy } from '../../workflow/stages/ship.js';
 import { baseCheckParent, readLastGreenBase, seedMergedState } from './baseMovedHost.js';
 import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
 import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
@@ -102,6 +105,46 @@ export function sendGateFailureAction(i: CiActionsInput): Promise<void> {
   });
 }
 
+type RebasePr = ReturnType<typeof rebaseState> extends infer S ? S extends { available: true; prs: readonly (infer P)[] } ? P : never : never;
+
+/** The deps of one Rebase on base (D558 path), shared by the button, Autopilot and the base-moved remedy (T1169). */
+function rebaseDepsFor(
+  i: CiActionsInput,
+  regenerate: (repo: string) => readonly RegenerateEntry[],
+  pr: RebasePr,
+  h: Pick<Parameters<typeof rebaseOnBase>[0], 'requireMove' | 'confirm' | 'info' | 'error' | 'logError'>,
+): Parameters<typeof rebaseOnBase>[0] {
+  return {
+    repo: pr.repo, cwd: pr.cwd, branch: pr.branch, baseRef: pr.baseRef, regenerate: regenerate(pr.repo).map(regenerateCommand),
+    git: async (cwd, args) => {
+      const r = await i.git([...args], cwd);
+      return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
+    },
+    runScript: runShellCommand,
+    agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
+    sandboxUnsynced: () => i.sandbox.hasUnsynced(i.ticketId),
+    preShip: pr.preShip === true,
+    onRebased: i.retakeGateSnapshot,
+    armLease: pr.number === null ? undefined : () => armForcePushLease(i.store, i.ticketId, pr.repo),
+    prHeadSha: async () => {
+      if (pr.number === null) throw new Error('no pull request to read');
+      const r = await i.gh(['pr', 'view', String(pr.number), '--json', 'headRefOid', '--jq', '.headRefOid'], pr.cwd);
+      const sha = r.stdout.trim();
+      if (r.exitCode !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new Error(`gh could not read the head of PR #${pr.number}`);
+      return sha;
+    },
+    removeSandbox: () => i.sandbox.recreateNoSync(i.ticketId),
+    reopenSandbox: async () => {},
+    reprobe: async () => {
+      if (pr.preShip) return;
+      clearOpenPrProbe(i.store, i.ticketId, pr.repo);
+      await i.reprobe();
+    },
+    afterServerChange: () => {},
+    ...h,
+  };
+}
+
 /** Rebase every PR of the ticket that is behind its base, one repo at a time; the first failure stops the rest. */
 export async function rebaseOnBaseAction(
   i: CiActionsInput,
@@ -129,39 +172,13 @@ export async function rebaseOnBaseAction(
     if (auto && prs.length === 0) return false;
     for (const pr of prs) {
       let failed = false;
-      const pushed = await rebaseOnBase({
-        repo: pr.repo, cwd: pr.cwd, branch: pr.branch, baseRef: pr.baseRef, regenerate: regenerate(pr.repo).map(regenerateCommand),
-        git: async (cwd, args) => {
-          const r = await i.git([...args], cwd);
-          return { code: r.exitCode, stdout: r.stdout, stderr: r.stderr };
-        },
-        runScript: runShellCommand,
-        agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
-        sandboxUnsynced: () => i.sandbox.hasUnsynced(i.ticketId),
-        preShip: pr.preShip === true,
+      const pushed = await rebaseOnBase(rebaseDepsFor(i, regenerate, pr, {
         requireMove: auto !== undefined,
-        onRebased: i.retakeGateSnapshot,
-        armLease: pr.number === null ? undefined : () => armForcePushLease(i.store, i.ticketId, pr.repo),
-        prHeadSha: async () => {
-          if (pr.number === null) throw new Error('no pull request to read');
-          const r = await i.gh(['pr', 'view', String(pr.number), '--json', 'headRefOid', '--jq', '.headRefOid'], pr.cwd);
-          const sha = r.stdout.trim();
-          if (r.exitCode !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new Error(`gh could not read the head of PR #${pr.number}`);
-          return sha;
-        },
-        removeSandbox: () => i.sandbox.recreateNoSync(i.ticketId),
-        reopenSandbox: async () => {},
-        reprobe: async () => {
-          if (pr.preShip) return;
-          clearOpenPrProbe(i.store, i.ticketId, pr.repo);
-          await i.reprobe();
-        },
         confirm: auto ? async () => true : (detail) => i.confirm('Rebase on base?', detail, 'Rebase and push'),
         info,
         error: (m) => { failed = true; error(m); },
         logError,
-        afterServerChange: () => {},
-      });
+      }));
       // The button stops at the first error; a declined confirm goes on to the next PR (as before T1081).
       // Autopilot needs every PR pushed: any refusal stops it. A push that stands is a push even after a later sandbox error.
       if (auto ? !pushed : failed) return false;
@@ -371,6 +388,46 @@ export function shipBaseCheck(
     } finally {
       settled();
     }
+  };
+}
+
+/**
+ * The `remedyBase` seam of the ship stage (T1169, D633): a base-moved failure that holds only a stale generated file gets one
+ * host rebase and regenerate, then the ship gates on the new head. No agent round, no confirm prompt, no push here: ship pushes
+ * the rebased head with the force-push lease armed.
+ */
+export function shipBaseRemedy(
+  i: CiActionsInput, gate: ShipGatesDeps, regenerate: (repo: string) => readonly RegenerateEntry[],
+): (t: { repo: string; cwd: string; branch: string }) => Promise<BaseRemedy | null> {
+  return (t) => {
+    const baseRef = gate.gateEnv?.({ repo: t.repo, number: null, branch: t.branch, cwd: t.cwd }).baseRef;
+    const pr = { repo: t.repo, cwd: t.cwd, branch: t.branch, baseRef: baseRef ?? '', number: null, preShip: true } as RebasePr;
+    const commands = regenerate(t.repo).map(regenerateCommand);
+    return remedyBaseMoved({
+      failedGates: () => latestBaseMovedFailedGates(i.store, i.ticketId, t.repo),
+      regenerate: commands,
+      debug: (m) => i.debug(m),
+      rebase: async () => {
+        if (baseRef === undefined) return { moved: false, error: 'the base branch is unknown' };
+        const before = await headShaOf(i, t.cwd);
+        const errors: string[] = [];
+        // A ship push after a rebase needs a lease: arm it BEFORE ship takes it.
+        await rebaseOnBase(rebaseDepsFor(i, regenerate, pr, {
+          confirm: async () => true,
+          info: (m) => i.debug(`[ship] base-moved remedy: ${m}`),
+          error: (m) => { errors.push(m); },
+          logError: (m, err) => i.debug(`[ship] base-moved remedy: ${m}: ${err instanceof Error ? err.message : String(err)}`),
+        }));
+        const after = await headShaOf(i, t.cwd);
+        const moved = before !== null && after !== null && before !== after;
+        if (moved && errors.length === 0) armForcePushLease(i.store, i.ticketId, t.repo);
+        return { moved, error: errors.length > 0 ? errors.join(' ') : null };
+      },
+      gates: () => runShipGates([{ repo: t.repo, number: null, branch: t.branch, cwd: t.cwd }], {
+        ...gate, git: i.git, signal: new AbortController().signal, evidence: { store: i.store, ticketId: i.ticketId },
+        headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange,
+      }),
+    });
   };
 }
 

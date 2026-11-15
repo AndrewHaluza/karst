@@ -4,7 +4,7 @@ import { createTicket } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { openDeliverRun, recordDeliverGate, finishDeliverRun } from '../store/deliverRuns.js';
 import { transition } from './machine.js';
-import { baseMovedFailureState } from './baseMovedFailure.js';
+import { baseMovedFailureState, latestBaseMovedFailedGates } from './baseMovedFailure.js';
 
 let store: Store;
 let id: number;
@@ -62,5 +62,27 @@ describe('baseMovedFailureState', () => {
     run('base-moved', 'failed');
     store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)').run(id, 'r', 5, 'https://github.com/o/r/pull/5', 'merged');
     expect(baseMovedFailureState(store, id)).toEqual({ available: false, reason: 'landed' });
+  });
+});
+
+describe('latestBaseMovedFailedGates (T1169)', () => {
+  it('returns the failed gates of the newest base-moved run for the repo', () => {
+    run('base-moved', 'failed');
+    const newest = run('base-moved', 'failed');
+    expect(latestBaseMovedFailedGates(store, id, 'r').map((g) => g.runId)).toEqual([newest]);
+  });
+  it('is empty for another repo, a passed run, an auto run, a skipped gate and no run', () => {
+    expect(latestBaseMovedFailedGates(store, id, 'r')).toEqual([]);
+    run('base-moved', 'failed');
+    expect(latestBaseMovedFailedGates(store, id, 'other')).toEqual([]);
+    run('base-moved', 'passed', 0);
+    expect(latestBaseMovedFailedGates(store, id, 'r')).toEqual([]);
+  });
+  it('ignores a newer auto run and a gate that did not exit non-zero', () => {
+    const bm = run('base-moved', 'failed');
+    run('auto', 'failed');
+    expect(latestBaseMovedFailedGates(store, id, 'r').map((g) => g.runId)).toEqual([bm]);
+    store.db.prepare('UPDATE deliver_gate_results SET exit_code = NULL WHERE run_id = ?').run(bm);
+    expect(latestBaseMovedFailedGates(store, id, 'r')).toEqual([]);
   });
 });

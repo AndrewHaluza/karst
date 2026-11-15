@@ -3872,6 +3872,125 @@ setTimeout(() => {
       expect(calls.some((args) => args[0] === 'push')).toBe(true);
     });
 
+    describe('remedyBase (T1169, D633): a stale-only base-moved failure gets one host rebase', () => {
+      const reason = 'fails when merged with origin/develop abcdef123; CI tests this merge — gate "docs-graph" failed';
+
+      async function setup(): Promise<string> {
+        const worktree = join(dir, 'fe');
+        seedWorktree(store, id, '/repo/frontend', worktree);
+        await initRealRepo(worktree);
+        writeFileSync(join(worktree, 'left.txt'), 'work');
+        seedLivePr('/repo/frontend');
+        return worktree;
+      }
+
+      /** A remedy that moves the branch head as a real rebase does. */
+      const rebasing = (worktree: string, seen: string[]) => async (t: { repo: string }) => {
+        seen.push(t.repo);
+        writeFileSync(join(worktree, 'regen.txt'), 'regenerated');
+        await defaultGitRunner(['add', '-A'], worktree);
+        await defaultGitRunner(['commit', '-m', 'chore: regenerate'], worktree);
+        return { kind: 'rebased' as const, detail: 'rebased on origin/develop and regenerated' };
+      };
+
+      it('a rebased remedy starts one rebase, arms no block, and pushes the rebased head', async () => {
+        const worktree = await setup();
+        const calls: string[][] = [];
+        const seen: string[] = [];
+        const before = (await defaultGitRunner(['rev-parse', 'HEAD'], worktree)).stdout.trim();
+
+        await shipTicket(
+          store,
+          { ticketId: id, deliverToOpenPr: true, checkBase: async () => reason, remedyBase: rebasing(worktree, seen) },
+          fakeGh().gh,
+          fakeAdapter(),
+          dirtyRealRepo(calls),
+        );
+
+        expect(seen).toEqual(['/repo/frontend']);
+        expect(stageBlock(store, id, 'ship')?.kind).not.toBe('base-moved-failed');
+        expect(calls.some((args) => args[0] === 'push')).toBe(true);
+        const after = (await defaultGitRunner(['rev-parse', 'HEAD'], worktree)).stdout.trim();
+        const intent = store.db.prepare("SELECT intent_json FROM ship_operation_intents WHERE step = 'push'").get() as { intent_json: string };
+        expect(JSON.parse(intent.intent_json).localHead).toBe(after);
+        expect(after).not.toBe(before);
+        const notes = store.db.prepare("SELECT detail FROM ship_repo_steps WHERE step = 'push' AND status = 'note'").all() as { detail: string }[];
+        expect(notes).toEqual([{ detail: expect.stringContaining('rebased on origin/develop') }]);
+      });
+
+      it('writes one debug line for the host remedy', async () => {
+        const worktree = await setup();
+        const lines: string[] = [];
+
+        await shipTicket(
+          store,
+          { ticketId: id, deliverToOpenPr: true, checkBase: async () => reason, remedyBase: rebasing(worktree, []), debug: (m: string) => lines.push(m) },
+          fakeGh().gh,
+          fakeAdapter(),
+          dirtyRealRepo([]),
+        );
+
+        expect(lines.filter((l) => l.includes('host rebase'))).toHaveLength(1);
+      });
+
+      it('(b) a null remedy (not stale-only) parks base-moved-failed and pushes nothing', async () => {
+        await setup();
+        const calls: string[][] = [];
+        const remedy = vi.fn(async () => null);
+
+        const result = await shipTicket(
+          store,
+          { ticketId: id, deliverToOpenPr: true, checkBase: async () => reason, remedyBase: remedy },
+          fakeGh().gh,
+          fakeAdapter(),
+          dirtyRealRepo(calls),
+        );
+
+        expect(result).toEqual({ prs: [] });
+        expect(remedy).toHaveBeenCalledTimes(1);
+        expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'base-moved-failed', reason: expect.stringContaining(reason) });
+        expect(calls.some((args) => args[0] === 'push')).toBe(false);
+      });
+
+      it('(c) a refused remedy (the gates fail stale again) goes to the D606 path after one rebase only', async () => {
+        await setup();
+        const calls: string[][] = [];
+        const remedy = vi.fn(async () => ({ kind: 'refused' as const, reason: 'gates failed again' }));
+        const checkBase = vi.fn(async () => reason);
+
+        const result = await shipTicket(
+          store,
+          { ticketId: id, deliverToOpenPr: true, checkBase, remedyBase: remedy },
+          fakeGh().gh,
+          fakeAdapter(),
+          dirtyRealRepo(calls),
+        );
+
+        expect(result).toEqual({ prs: [] });
+        expect(remedy).toHaveBeenCalledTimes(1);
+        expect(checkBase).toHaveBeenCalledTimes(1);
+        expect(stageBlock(store, id, 'ship')).toMatchObject({ kind: 'base-moved-failed' });
+        expect(calls.some((args) => args[0] === 'push')).toBe(false);
+        const step = store.db.prepare("SELECT status, detail FROM ship_repo_steps WHERE step = 'push'").get() as { status: string; detail: string };
+        expect(step).toEqual({ status: 'failed', detail: reason });
+      });
+
+      it('a passing check never calls the remedy', async () => {
+        await setup();
+        const remedy = vi.fn(async () => null);
+
+        await shipTicket(
+          store,
+          { ticketId: id, deliverToOpenPr: true, checkBase: async () => null, remedyBase: remedy },
+          fakeGh().gh,
+          fakeAdapter(),
+          dirtyRealRepo([]),
+        );
+
+        expect(remedy).not.toHaveBeenCalled();
+      });
+    });
+
     it('deliverToOpenPr, live PR: never calls gh pr create', async () => {
       seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
       seedLivePr('/repo/frontend');

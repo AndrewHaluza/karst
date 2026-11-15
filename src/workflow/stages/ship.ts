@@ -126,6 +126,9 @@ import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../conventionPresets.js';
  * live in separate files; they share no state beyond the ticket id.
  */
 
+/** The outcome of `ShipOpts.remedyBase`. */
+export type BaseRemedy = { kind: 'rebased'; detail: string } | { kind: 'refused'; reason: string };
+
 export interface ShipOpts {
   ticketId: number;
   /** Sync the parent's sandbox into its worktree before the sub-task fork point is read. */
@@ -197,6 +200,13 @@ export interface ShipOpts {
    * fails with that reason and the ticket stays at ship. Absent → no check.
    */
   checkBase?: (target: { repo: string; cwd: string; branch: string }) => Promise<string | null>;
+  /**
+   * The host remedy of a failed `checkBase` (T1169, D633, @arch:GATE-BASE-MOVED): called at most once per repo and ship run,
+   * only after `checkBase` failed. `rebased` = every failed gate held only a stale generated file, the host rebased and
+   * regenerated, and the gates passed on the new head: the push goes on with that head. `refused` = the rebase or the gates
+   * failed. Null = the failure is not stale-only. Refused and null keep the failure of `checkBase` (D606).
+   */
+  remedyBase?: (target: { repo: string; cwd: string; branch: string }) => Promise<BaseRemedy | null>;
   /** Waits `ms` before the one push retry after a GitHub server error. Absent → a real timer; tests inject a fake. */
   wait?: (ms: number) => Promise<void>;
 }
@@ -654,6 +664,13 @@ function parkShipPushDiverged(
     blockedReason: reason,
     blockedAt: nowIso(),
   });
+}
+
+/** One `push` note row: the host rebased and regenerated for a stale generated file, so the Inside block shows it (T1169). */
+function noteHostRebase(store: Store, shipRunId: number, repo: string, detail: string): void {
+  const at = nowIso();
+  const row = openShipRepoStep(store, { shipRunId, repo, step: 'push', detail, startedAt: at });
+  finishShipRepoStep(store, row.id, { status: 'note', detail, endedAt: at });
 }
 
 /** Park `ship` on `base-moved-failed`: a gate failed on the merge with the moved base, so nothing was pushed. */
@@ -1356,7 +1373,7 @@ export async function shipTicket(
         // crash after git accepted the push but before the result write is
         // reconciled by remote ref, never re-guessed.
         const pushAt = nowIso();
-        const localHead = (await headCommit(git, wt.path)) ?? '';
+        let localHead = (await headCommit(git, wt.path)) ?? '';
         const ref = wt.branch ?? 'HEAD';
         const preRemoteHead = await remoteRefSha(git, wt.path, 'origin', ref);
 
@@ -1406,7 +1423,19 @@ export async function shipTicket(
           });
           // D541: the base-moved check runs BEFORE the intent is prepared and the force-push lease is taken, so a long
           // gate run holds neither: a stop leaves a `failed` intent with nothing applied and the lease still armed.
-          const baseFailure = (await opts.checkBase?.({ repo: wt.repo, cwd: wt.path, branch: ref })) ?? null;
+          let baseFailure = (await opts.checkBase?.({ repo: wt.repo, cwd: wt.path, branch: ref })) ?? null;
+          if (baseFailure !== null && opts.remedyBase !== undefined) {
+            // T1169: a stale generated file alone gets one host rebase; the gates already passed on the new head.
+            const remedy = await opts.remedyBase({ repo: wt.repo, cwd: wt.path, branch: ref });
+            if (remedy?.kind === 'rebased') {
+              noteHostRebase(store, run.id, wt.repo, remedy.detail);
+              opts.debug?.(`[ship] ticket ${opts.ticketId}: host rebase for a stale generated file in ${wt.repo}: ${remedy.detail}`);
+              localHead = (await headCommit(git, wt.path)) ?? ''; // the push carries the rebased head
+              baseFailure = null;
+            } else if (remedy?.kind === 'refused') {
+              opts.debug?.(`[ship] ticket ${opts.ticketId}: host rebase refused in ${wt.repo}: ${remedy.reason}`);
+            }
+          }
           if (baseFailure !== null) {
             reconcileShipOperation(store, pushOp.intentId, 'failed', { resolvedAt: nowIso(), detail: baseFailure });
             finishShipRepoStep(store, pushOp.stepId, { status: 'failed', detail: baseFailure, endedAt: nowIso() });

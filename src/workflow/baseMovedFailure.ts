@@ -43,3 +43,13 @@ export function baseMovedFailureState(store: Store, ticketId: number): BaseMoved
   const failed = listDeliverResults(store, ticketId).filter((g) => g.runId === run.id && g.exitCode !== null && g.exitCode !== 0);
   return { available: true, run, reason: block.reason ?? '', failed };
 }
+
+/**
+ * The failed gates of the repo in the newest `base-moved` run of the ticket, in run order; empty when the run did not fail or
+ * none ran. Ship reads it right after the check failed, before it parks the ship stage (T1169, D633).
+ */
+export function latestBaseMovedFailedGates(store: Store, ticketId: number, repo: string): readonly DeliverGateResult[] {
+  const run = latestBaseMovedRun(store, ticketId);
+  if (run === null || run.state !== 'failed') return [];
+  return listDeliverResults(store, ticketId).filter((g) => g.runId === run.id && g.repo === repo && g.exitCode !== null && g.exitCode !== 0);
+}

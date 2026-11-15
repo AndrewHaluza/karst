@@ -49,7 +49,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { aheadFor, createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
-import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
+import { regenerateEntries, makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, registerAutopilotCommands, startAutopilot, stableWindowId } from './extension/autopilotBinding.js';
 import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, freeSlotOnConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -66,7 +66,7 @@ import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import type { ShipGatesDeps } from './extension/ops/shipGatesOps.js';
-import { autoDeliverAction, shipBaseCheck, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import { autoDeliverAction, shipBaseCheck, shipBaseRemedy, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { sendBackBriefForTicket } from './extension/ops/sendBackBriefForTicket.js';
@@ -5889,6 +5889,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ...(shipOpts.unattended ? { resumeInterrupted: true } : {}),
         // D541: CI tests the branch merged with the current base, so every push tests that merge first.
         checkBase: shipBaseCheck(ciInput(ticketId), shipGateDeps(ticketId), () => gateConsole.flush(ticketId, 'ship')),
+        // T1169: a stale generated file alone gets one host rebase and regenerate, then the gates, with no agent round.
+        remedyBase: shipBaseRemedy(ciInput(ticketId), shipGateDeps(ticketId), (repo) => regenerateEntries(currentManifest(), repo)),
       },
       undefined,
       undefined,
