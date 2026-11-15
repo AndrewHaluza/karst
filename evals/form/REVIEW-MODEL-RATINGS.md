@@ -26,6 +26,8 @@ The case `c17-clean-tempting` was wrong in the first v2 run. Its code cast parse
 
 Rerun of the fixed `c17` and `c18`, claude, 5 runs each (`review-references/claude-sonnet-5-5-c17-c18-fixed/`): 3 of 7 finished clean runs had a false finding, and 3 of 10 calls timed out. The fixed `c17` is still not clean for claude, so check the false findings in `results.json` before you trust the case.
 
+Rerun after the test file was added to `c17` (claude, 5 runs each, `review-references/claude-sonnet-5-5-c17-with-test/` and `claude-sonnet-5-5-c18-rerun/`): `c17` gave 0 false findings in 5 of 5 calls, and `c18` gave 0 false findings in 5 of 5 calls. No call timed out. The "no tests added" finding is gone, so the earlier false findings on `c17` came from the missing test file. The 3 of 7 result above is replaced by this run.
+
 Rerun of opencode2 on `c11` to `c18`, 2 runs each, 15 minute timeout: all 9 calls timed out before I stopped the run. A plain test call to the same model answered in 15 seconds. The slow part is the review call in a checkout. The cause is not known.
 
 ## Findings
