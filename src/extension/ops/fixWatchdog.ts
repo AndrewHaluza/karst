@@ -71,6 +71,12 @@ export interface FixWatchdogDeps {
    */
   redrive?: (ticketId: number) => void;
   /**
+   * Whether the `redrive` seam can run yet. The host declares its stage driver
+   * late in `activate`, after the first tick. `false` = skip the stranded-stage
+   * sweep this tick: no log, no re-drive, no park. Absent = always ready.
+   */
+  redriveReady?: () => boolean;
+  /**
    * `ticket:stage:attempt` keys already re-driven once. A key still stranded on
    * a later tick is parked. In-memory by design: a restart earns one more re-drive.
    */
@@ -189,6 +195,8 @@ export function runFixWatchdog(deps: FixWatchdogDeps): number {
 function recoverStrandedStages(deps: FixWatchdogDeps, opts: DeliveryCheckOpts): number {
   const { redrive, redriven } = deps;
   if (redrive === undefined || redriven === undefined) return 0;
+  // The driver is not wired yet (activation tick): wait for a later tick.
+  if (deps.redriveReady?.() === false) return 0;
   let handled = 0;
   for (const s of selectStrandedStages(deps.store, { at: opts.at, projectId: opts.projectId })) {
     const key = `${s.ticketId}:${s.stageKey}:${s.attempt}`;
@@ -196,8 +204,9 @@ function recoverStrandedStages(deps: FixWatchdogDeps, opts: DeliveryCheckOpts): 
       if (!redriven.has(key)) {
         deps.log(`karst: ticket ${s.ticketId}: ${s.stageKey} read running with no run behind it — re-driving`);
         redrive(s.ticketId);
-        // Only after the call returned: a seam that threw (the host's driver is
-        // wired after the first tick) must not spend the one re-drive.
+        // Only after the call returned: a seam that threw must not spend the one
+        // re-drive. `redriveReady` keeps the activation tick from calling a
+        // driver that does not exist yet.
         redriven.add(key);
       } else {
         parkGateStage(deps.store, {
@@ -401,7 +410,7 @@ export function startFixWatchdog(
   projectId: () => number | null,
   log: (message: string) => void,
   onError: ((message: string, err: unknown) => void) | undefined,
-  delivery: Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket' | 'pointAtFix' | 'redrive'>,
+  delivery: Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket' | 'pointAtFix' | 'redrive' | 'redriveReady'>,
 ): { dispose(): void } {
   const deps: FixWatchdogDeps = {
     store,
@@ -413,6 +422,7 @@ export function startFixWatchdog(
     nudge: delivery.nudge,
     isGraphTicket: delivery.isGraphTicket,
     ...(delivery.pointAtFix !== undefined ? { pointAtFix: delivery.pointAtFix } : {}),
+    ...(delivery.redriveReady !== undefined ? { redriveReady: delivery.redriveReady } : {}),
     ...(delivery.redrive !== undefined ? { redrive: delivery.redrive, redriven: new Set<string>() } : {}),
   };
   const tick = (): void => {
@@ -427,7 +437,8 @@ export function startFixWatchdog(
   // Settle stalls at activation too, once. The boot sweep cannot do this: it
   // runs before the manifest and project are resolvable, so it could never
   // honor the project's configured window. This tick runs after the host's
-  // getters exist, and on the interval thereafter.
+  // getters exist, and on the interval thereafter. The stranded-stage re-drive
+  // waits on `redriveReady`: the host's stage driver does not exist yet here.
   tick();
   const timer = setInterval(tick, FIX_WATCHDOG_INTERVAL_MS);
   return { dispose: () => clearInterval(timer) };
