@@ -224,6 +224,7 @@ import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/grap
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
 import { reconcilableGraphRunIds } from './approaches/graph/coordinator/reconcileScope.js';
+import { sweepOrphanGraphRuns } from './approaches/graph/coordinator/orphanSweep.js';
 import {
   reconcileGraphRun,
   type ReconcileGraphRunDeps,
@@ -5554,6 +5555,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const project = graphSweepProject();
     if (!gs || !project) return;
     try {
+      await sweepOrphanGraphRuns(
+        {
+          db: gs.db,
+          transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
+          facts: systemAsyncProcessFacts,
+          killTree: systemKillTree,
+          debug: (m) => logger.debug(m),
+        },
+        project.id,
+      );
       const runIds = reconcilableGraphRunIds(gs.db, { projectId: project.id }, (m) => logger.debug(m));
       for (const graphRunId of runIds) {
         const result = await reconcileGraphRun(graphReconcileDeps(), { graphRunId });
