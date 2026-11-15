@@ -137,6 +137,16 @@ describe('Queue pane', () => {
     expect(text(h.query('[data-pane="queue"] .pane-count'))).toBe('0');
   });
 
+  it('draws a pre-upgrade snapshot row with no relation chip fields, so a restored state does not blank the page', async () => {
+    const state = fixture('queue');
+    const chipFields = new Set(['waitsOnRefs', 'inheritedRef', 'cycleRef']);
+    const rows = state.queue.rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !chipFields.has(k))) as typeof r);
+    const h = await mount({ ...state, queue: { ...state.queue, rows } });
+    await open(h);
+    expect(h.queryAll('[data-queue-row]')).toHaveLength(rows.length);
+    expect(h.query('.q-rel')).toBeNull();
+  });
+
   it('lists 40 items in the scrolling region', async () => {
     const h = await mount(fixture('queue-long'));
     await open(h);
