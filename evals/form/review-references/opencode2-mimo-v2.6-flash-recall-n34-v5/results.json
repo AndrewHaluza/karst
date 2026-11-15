@@ -1,0 +1,1651 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T17:45:23.175Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider opencode2 --model opencode-go/mimo-v2.6-flash --only c01-loop-bound,c02-sql-concat,c03-null-guard,c04-expiry,c05-missing-await,c06-path-join,c07-math-two,c08-retry-cache,c11-stale-closure,c12-tz-boundary,c13-swallowed-error,c14-mutated-arg,c15-auth-inverted,c16-two-subtle --runs 2 --timeout-min 10",
+    "caseSetVersion": 5,
+    "buildSha": "f3d265ac540b4d193bc898b58bed36ba943229b2",
+    "coreVersions": {
+      "opencode2": "opencode v2.2.7"
+    }
+  },
+  "candidate": {
+    "core": "opencode2",
+    "model": "opencode-go/mimo-v2.6-flash",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c01-loop-bound",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/orderTotal.ts",
+            "line": 8,
+            "title": "Loop bound off-by-one makes orderTotal throw a TypeError on every call",
+            "detail": "The committed change in src/orderTotal.ts line 8 alters the loop condition from `i < lines.length` to `i <= lines.length`. The final iteration therefore evaluates `lines[lines.length]`, which is `undefined`; the `!` non-null assertions are erased at runtime, so `lines[i]!.price` dereferences `undefined` and throws `TypeError: Cannot read properties of undefined (reading 'price')`. This is not an edge case: it fires for every input, including an empty array (i=0 <= length=0 still runs once). Any caller of `orderTotal` crashes — e.g. `orderTotal([{price: 10, qty: 2}])` sums the first line then throws at i=1 instead of returning 20, so checkout/totaling code built on this always fails.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 19984,
+          "outputTokens": 609,
+          "reasoningTokens": 526,
+          "cacheReadTokens": 65984,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 88589,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 35.925,
+        "score": {
+          "found": [
+            "REVEVAL-D-001"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 88589
+      },
+      {
+        "caseId": "c01-loop-bound",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/orderTotal.ts",
+            "line": 8,
+            "title": "Loop bound changed to `<=`, so orderTotal crashes on every call",
+            "detail": "The committed diff changes `for (let i = 0; i < lines.length; i++)` to `i <= lines.length` in `orderTotal`, making the final iteration read `lines[lines.length]`, which is `undefined`. The `!` non-null assertions hide this from the type checker, so it compiles but fails at runtime: for input `[{price: 10, qty: 2}]`, after `i = 0`, the condition `1 <= 1` is true and `lines[1]!.price` throws `TypeError: Cannot read properties of undefined (reading 'price')`. Even `[]` crashes (`0 <= 0` reads `lines[0]`). Every invocation of `orderTotal` throws instead of returning a total — a production crash regression introduced by this diff.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 5889,
+          "outputTokens": 574,
+          "reasoningTokens": 718,
+          "cacheReadTokens": 80320,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 88986,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 48.847,
+        "score": {
+          "found": [
+            "REVEVAL-D-001"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 88986
+      },
+      {
+        "caseId": "c02-sql-concat",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/userQuery.ts",
+            "line": 6,
+            "title": "findUser now builds the SQL by string concatenation, opening a SQL injection hole",
+            "detail": "The committed diff replaces the parameterized query `db.query('SELECT * FROM users WHERE id = ?', [id])` with `db.query(\"SELECT * FROM users WHERE id = '\" + id + \"'\", [])` in src/userQuery.ts:6. The caller-supplied `id` is now interpolated directly into the SQL text with no escaping and with an empty params array, so the database driver never treats it as data. Concrete failure: calling findUser(db, \"' OR '1'='1\") produces the SQL `SELECT * FROM users WHERE id = '' OR '1'='1'`, which matches every row and returns an arbitrary other user's record (auth bypass / data disclosure); an id like `x'; DROP TABLE users;--` executes an attacker-controlled second statement against the users table (data loss). The previous parameterized form bound `id` as a placeholder value and was immune to both. Fix: restore the placeholder form `db.query('SELECT * FROM users WHERE id = ?', [id])`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 5758,
+          "outputTokens": 793,
+          "reasoningTokens": 625,
+          "cacheReadTokens": 80320,
+          "cacheWriteTokens": 1491,
+          "totalTokens": 88987,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 62.549,
+        "score": {
+          "found": [
+            "REVEVAL-D-002"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 88987
+      },
+      {
+        "caseId": "c02-sql-concat",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/userQuery.ts",
+            "line": 6,
+            "title": "SQL injection: user id concatenated into query string instead of bound as a parameter",
+            "detail": "src/userQuery.ts line 6 replaces the parameterized call db.query('SELECT * FROM users WHERE id = ?', [id]) with db.query(\"SELECT * FROM users WHERE id = '\" + id + \"'\", []). The id argument is a caller-supplied string with no escaping or validation in this function (interface Db.query takes raw SQL, and no sanitization exists anywhere in the diff). Input id = \"x' OR '1'='1\" produces the SQL SELECT * FROM users WHERE id = 'x' OR '1'='1', so findUser returns an arbitrary other user's row (broken access control / data exposure); inputs containing quotes or semicolons (e.g. an O'Reilly-style id) instead cause a SQL syntax error that propagates as an unhandled exception from findUser. The previous code parameterized id and was immune to both. Fix: restore the ? placeholder with params [id].",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 5964,
+          "outputTokens": 715,
+          "reasoningTokens": 605,
+          "cacheReadTokens": 102208,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 110982,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 51.763,
+        "score": {
+          "found": [
+            "REVEVAL-D-002"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 110982
+      },
+      {
+        "caseId": "c03-null-guard",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/displayName.ts",
+            "line": 6,
+            "title": "displayName crashes on inputs its signature declares valid",
+            "detail": "The diff replaced the null-safe `user?.profile?.name ?? 'anonymous'` with `user!.profile!.name!`. The non-null assertions do not change runtime behavior: with input `undefined` (explicitly allowed by the parameter type `User | undefined`), `user!.profile` dereferences undefined and throws `TypeError: Cannot read properties of undefined (reading 'profile')`; with input `{}`, `user!.profile!.name` throws `TypeError: Cannot read properties of undefined (reading 'name')`. Previously both inputs returned the string 'anonymous'. The function's public contract promises `string` for `User | undefined`, so any caller passing a missing or partial user now crashes instead of rendering a fallback.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/displayName.ts",
+            "line": 6,
+            "title": "Non-null assertion on name can return undefined from a string-typed function",
+            "detail": "`profile?: { name?: string }` makes `name` optional, so `displayName({ profile: {} })` evaluates `user!.profile!.name!` to `undefined` at runtime while the declared return type is `string`. The `!` on `name` only silences the type checker, so downstream code that does `displayName(u).toUpperCase()` gets a runtime TypeError, and any consumer doing string operations or serialization receives `undefined` where a display string is expected.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6323,
+          "outputTokens": 838,
+          "reasoningTokens": 1485,
+          "cacheReadTokens": 123712,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 133844,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 96.12,
+        "score": {
+          "found": [
+            "REVEVAL-D-003"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 133844
+      },
+      {
+        "caseId": "c03-null-guard",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/displayName.ts",
+            "line": 6,
+            "title": "displayName now throws a TypeError for undefined user or missing profile",
+            "detail": "The diff replaces `user?.profile?.name ?? 'anonymous'` with `user!.profile!.name!` in displayName (src/displayName.ts:6). The function's signature still accepts `User | undefined`, so undefined is a legitimate input, but `!` is only a compile-time assertion: at runtime `undefined.profile` throws `TypeError: Cannot read properties of undefined (reading 'profile')`. Likewise when `user.profile` is undefined, `undefined.name` throws. Additionally, when the user and profile exist but `profile.name` is undefined, the function returns `undefined` while its declared return type is `string`, so callers that do `name.toUpperCase()`/string concatenation get a downstream crash or the literal 'undefined' where the previous code returned 'anonymous'. Input `user = undefined` → previous output 'anonymous', new output: TypeError crash.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 5641,
+          "outputTokens": 511,
+          "reasoningTokens": 649,
+          "cacheReadTokens": 123392,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 131679,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 50.687,
+        "score": {
+          "found": [
+            "REVEVAL-D-003"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 131679
+      },
+      {
+        "caseId": "c04-expiry",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/token.ts",
+            "line": 7,
+            "title": "isExpired predicate is inverted, so valid tokens read as expired and expired tokens read as valid",
+            "detail": "The diff flips the comparison in isExpired from `now >= token.expiresAt` to `now <= token.expiresAt` (src/token.ts:7), inverting the function's meaning. Input: token = {value: \"x\", expiresAt: 1000} with now = 500 (still valid) → returns true (\"expired\"), so a caller rejects/refreshes a perfectly good token. Input: same token with now = 2000 (past expiry) → returns false (\"not expired\"), so a caller accepts an expired token — in an auth path that means an out-of-date credential is treated as live. Every call to isExpired now returns the opposite of what its name and contract state; the boundary case now >= expiresAt → expired is also lost (at now == expiresAt the token is now considered still valid).",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 5929,
+          "outputTokens": 656,
+          "reasoningTokens": 847,
+          "cacheReadTokens": 144768,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 153690,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 61.165,
+        "score": {
+          "found": [
+            "REVEVAL-D-004"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 153690
+      },
+      {
+        "caseId": "c04-expiry",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/token.ts",
+            "line": 7,
+            "title": "isExpired comparison is inverted, rejecting valid tokens and accepting expired ones",
+            "detail": "The diff changes `return now >= token.expiresAt` to `return now <= token.expiresAt` in `isExpired`. The function's contract is now backwards: with input now < expiresAt (a still-valid token) it returns true ('expired'), and with input now > expiresAt (a genuinely expired token) it returns false ('valid'); the boundary case now===expiresAt also flips meaning. Any caller using this to gate access will reject every unexpired token and admit every expired one, so expired sessions/tokens pass validation — a clear regression from the previous behavior and a token-lifetime bypass of the function's stated purpose. The function is exported for exactly this use even though no in-repo caller currently exists.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6807,
+          "outputTokens": 915,
+          "reasoningTokens": 1193,
+          "cacheReadTokens": 146496,
+          "cacheWriteTokens": 1491,
+          "totalTokens": 156902,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 88.454,
+        "score": {
+          "found": [
+            "REVEVAL-D-004"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 156902
+      },
+      {
+        "caseId": "c05-missing-await",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/itemNames.ts",
+            "line": 6,
+            "title": "Dropped await makes itemNames crash on every call",
+            "detail": "In src/itemNames.ts the diff changed `const data = await api.fetchItems()` to `const data = api.fetchItems()`, so `data` is a Promise<{items}> per the Api interface, not the resolved object. `data.items` is therefore `undefined`, and `data.items.map(...)` throws `TypeError: Cannot read properties of undefined (reading 'map')` at runtime — every invocation of itemNames rejects instead of returning the name list (and the expression is also a TypeScript error, since Promise has no `items` property). Restore the `await`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6202,
+          "outputTokens": 585,
+          "reasoningTokens": 746,
+          "cacheReadTokens": 102016,
+          "cacheWriteTokens": 1491,
+          "totalTokens": 111040,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 52.387,
+        "score": {
+          "found": [
+            "REVEVAL-D-005"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 111040
+      },
+      {
+        "caseId": "c05-missing-await",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/itemNames.ts",
+            "line": 6,
+            "title": "Dropping `await` makes itemNames throw a TypeError on every call",
+            "detail": "The diff changes `const data = await api.fetchItems();` to `const data = api.fetchItems();` while the `Api` interface in the same file still declares `fetchItems(): Promise<{ items: { name: string }[] }>`. `data` is therefore a Promise, `data.items` is `undefined`, and `data.items.map(...)` throws `TypeError: Cannot read properties of undefined (reading 'map')`, so `itemNames` rejects for any conforming `Api` implementation instead of returning the name list. TypeScript also rejects the line (`Property 'items' does not exist on type 'Promise<...>'`), so the change is inconsistent with the interface it ships with — either the interface was meant to become synchronous (not done) or the `await` was removed by mistake.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 5845,
+          "outputTokens": 774,
+          "reasoningTokens": 1263,
+          "cacheReadTokens": 123584,
+          "cacheWriteTokens": 1492,
+          "totalTokens": 132958,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 85.552,
+        "score": {
+          "found": [
+            "REVEVAL-D-005"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 132958
+      },
+      {
+        "caseId": "c06-path-join",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/upload.ts",
+            "line": 9,
+            "title": "Path traversal: basename() sanitization removed, allowing arbitrary file reads",
+            "detail": "The diff replaces `readFile(join(UPLOAD_ROOT, basename(name)))` with `readFile(join(UPLOAD_ROOT, name))` in `readUpload`. With `name` = `../../../etc/passwd`, `path.join('/srv/uploads', name)` normalizes to `/etc/passwd`, so any caller passing user-controlled input to this exported function reads arbitrary files outside `/srv/uploads` (e.g. `/srv/uploads/../../etc/shadow` → `/etc/shadow`). The previous `basename()` call was the only thing preventing traversal; the diff removes it with no replacement validation (no `resolve` + prefix check, no rejection of `..` or separators).",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6677,
+          "outputTokens": 939,
+          "reasoningTokens": 1083,
+          "cacheReadTokens": 168064,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 178253,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 89.154,
+        "score": {
+          "found": [
+            "REVEVAL-D-006"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 178253
+      },
+      {
+        "caseId": "c06-path-join",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/upload.ts",
+            "line": 7,
+            "title": "readUpload drops basename() sanitization, allowing path traversal reads outside /srv/uploads",
+            "detail": "The diff removes basename(name) so the path is now join(UPLOAD_ROOT, name). Input name = '../../../etc/passwd' (or any '../'-chain) makes path.join normalize to '/etc/passwd', and readFile returns that file's contents as the 'upload' buffer instead of ENOENT under /srv/uploads. Under the old code basename() reduced the same input to 'passwd', confining reads to /srv/uploads. This is an arbitrary-file-read disclosure in the exported serving API (branch feat/serve-upload): the caller passes a name (e.g. from a request path) and gets back the raw contents of any readable file on the host.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6266,
+          "outputTokens": 782,
+          "reasoningTokens": 1955,
+          "cacheReadTokens": 124032,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 134525,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 148.593,
+        "score": {
+          "found": [
+            "REVEVAL-D-006"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 134525
+      },
+      {
+        "caseId": "c07-math-two",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 2,
+            "title": "clamp always returns max regardless of the input value",
+            "detail": "src/mathUtil.ts line 2: the clamp is composed backwards as Math.max(max, Math.min(min, value)). The inner Math.min(min, value) returns min whenever value >= min, so the result is at most max, and the outer Math.max(max, ...) then always yields max. Concrete input: clamp(5, 0, 10) → Math.min(0,5)=0 → Math.max(10,0)=10, i.e. 10 instead of the correct 5; clamp(100, 0, 10) also returns 10 (accidentally correct) but clamp(3, 5, 8) returns 8 instead of 5. Any caller that bounds a value with this helper gets the upper bound unconditionally.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 8,
+            "title": "average divides by length+1, under-reporting every mean",
+            "detail": "src/mathUtil.ts line 8: return sum / (values.length + 1) uses the element count plus one instead of values.length. Concrete input: average([1,2,3]) → 6/4 = 1.5 instead of the correct 2; average([10,20]) → 30/3 = 10 instead of 15. Every non-empty input produces a wrong (too small) result; only the empty-array guard at line 6 returns the intended value.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 22183,
+          "outputTokens": 542,
+          "reasoningTokens": 1315,
+          "cacheReadTokens": 63872,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 89402,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 47.485,
+        "score": {
+          "found": [
+            "REVEVAL-D-007",
+            "REVEVAL-D-008"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 89402
+      },
+      {
+        "caseId": "c07-math-two",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 2,
+            "title": "clamp() returns max for every input instead of clamping",
+            "detail": "src/mathUtil.ts line 2 implements clamp as Math.max(max, Math.min(min, value)) with the bounds swapped; correct is Math.max(min, Math.min(max, value)). With input clamp(5, 0, 10): Math.min(0, 5) = 0, then Math.max(10, 0) = 10, so it returns 10 instead of 5. For any min <= value <= max it always returns max (and for value < min it also returns max), so every caller relying on clamp to bound a value gets the upper bound unconditionally — e.g. clamping a progress ratio of 0.5 into [0, 1] yields 1.0.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 9,
+            "title": "average() divides by length+1, under-reporting every result",
+            "detail": "src/mathUtil.ts line 9 returns sum / (values.length + 1) instead of sum / values.length. For input [1, 2, 3] the sum is 6 and the divisor is 4, yielding 1.5 instead of the correct average 2 — every non-empty input is systematically scaled down by the factor n/(n+1) (e.g. a single-element array [10] returns 5 instead of 10). Callers computing averages from these helpers get wrong numbers with no error or warning.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 22673,
+          "outputTokens": 852,
+          "reasoningTokens": 1068,
+          "cacheReadTokens": 64064,
+          "cacheWriteTokens": 1491,
+          "totalTokens": 90148,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 52.295,
+        "score": {
+          "found": [
+            "REVEVAL-D-007",
+            "REVEVAL-D-008"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 90148
+      },
+      {
+        "caseId": "c08-retry-cache",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 5,
+            "title": "TtlCache adds ttlSeconds to Date.now(), which is milliseconds, so entries expire 1000x too early",
+            "detail": "In src/ttlCache.ts line 5, `expiresAt: Date.now() + ttlSeconds` mixes units: Date.now() returns milliseconds but the parameter is documented as seconds, so a TTL of 3600 (intended 1 hour) expires after 3600 ms, and 60 (intended 1 min) expires after 60 ms. Input: `cache.set(key, token, 3600)`. Wrong output: any `get()` more than ~3.6 seconds later returns undefined, so the cache effectively never serves hits beyond a few milliseconds. Any consumer relying on the TTL window (dedup, rate-limit buckets, avoiding repeated side effects) silently recomputes/refetches every time, defeating the purpose of the feature. Fix: `Date.now() + ttlSeconds * 1000`.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 10,
+            "title": "TtlCache never evicts expired entries, so the map grows without bound",
+            "detail": "In src/ttlCache.ts lines 8-11, `get()` checks `entry.expiresAt < Date.now()` and returns undefined, but never calls `this.entries.delete(key)`, and there is no sweep, max-size, or LRU policy. With unique or high-cardinality keys (e.g. per-session or per-request keys), expired `{value, expiresAt}` records accumulate for the process lifetime, growing memory monotonically in a long-running server. Expired entries should be deleted on access and/or pruned periodically.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "retry runs the loop maxAttempts+1 times, exceeding the stated maximum",
+            "detail": "In src/retry.ts line 3 the loop condition is `attempt <= maxAttempts + 1`, so `fn` is invoked up to maxAttempts+1 times. Input: `retry(fn, 1)` (or `retry(fn, 3)`). Wrong output: fn runs 2 times (or 4 times), one more call than the `maxAttempts` parameter promises. If the caller's contract is 'at most N attempts', this violates it, and for a non-idempotent fn (e.g. a charge or a write) the extra call duplicates the side effect. If the intent was 'initial attempt plus N retries', the parameter should be named `maxRetries` or the doc/loop should be fixed so the name and behavior agree.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 10,
+            "title": "retry with a negative maxAttempts throws undefined instead of an Error",
+            "detail": "In src/retry.ts lines 3 and 10, if maxAttempts < 0 the loop body never executes, `last` stays `undefined`, and `throw last` throws the value undefined. A caller catching the error gets `undefined` with no message or stack, which breaks `err instanceof Error`, `err.message` logging, and error reporting. Throwing should be guarded (validate maxAttempts >= 1, or throw an Error when no attempt was made).",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "retry fires attempts in a tight loop with no delay or backoff",
+            "detail": "src/retry.ts retries immediately on failure with no sleep/backoff between attempts. For a transient-failure retry helper, maxAttempts+1 attempts against an already-failing dependency are issued within microseconds, amplifying load on the failing service (and on rate limits) rather than backing off. Consider at least an optional delay/backoff between attempts.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7549,
+          "outputTokens": 1314,
+          "reasoningTokens": 3237,
+          "cacheReadTokens": 80512,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 94102,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 181.85,
+        "score": {
+          "found": [
+            "REVEVAL-D-009",
+            "REVEVAL-D-010"
+          ],
+          "missed": [],
+          "falseFindings": 3,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 3,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 94102
+      },
+      {
+        "caseId": "c08-retry-cache",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 5,
+            "title": "TtlCache.set treats ttlSeconds as milliseconds",
+            "detail": "ttlCache.ts:5 computes `expiresAt: Date.now() + ttlSeconds`, but Date.now() is milliseconds while the parameter is named `ttlSeconds`. Input: `cache.set('k', v, 300)` intending a 5-minute TTL; the entry's expiresAt is now+300ms, so `get('k')` returns undefined after ~300ms. The cache misses essentially immediately for any realistic TTL, so the TTL cache does not cache — a caller relying on it (e.g. retry/response caching) re-does the work every time. Fix: `Date.now() + ttlSeconds * 1000` (or rename the unit to ms).",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "retry performs maxAttempts+1 invocations",
+            "detail": "retry.ts:3 loops `attempt <= maxAttempts + 1`, so the parameter named `maxAttempts` is off by one: `retry(fn, 1)` calls fn twice, `retry(fn, 3)` calls it four times. No callers exist yet in the repo, so the intended semantics (total attempts vs. retries after the first) cannot be confirmed from usage; either the loop bound should be `attempt <= maxAttempts` or the parameter should be named `maxRetries`. As written, a caller that believes it bounds work at N attempts gets N+1 calls to a potentially expensive or side-effecting fn.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 10,
+            "title": "Expired cache entries are never removed",
+            "detail": "ttlCache.ts get() (lines 9-11) only reports expiry — it does not delete the expired entry, and the class has no sweep, delete, or size cap. Every key ever set stays in the Map forever until the same key is overwritten, so a long-lived process inserting distinct keys (per-request or per-user) grows `entries` without bound and retains expired values, a slow memory leak. Consider deleting on read (`this.entries.delete(key)` when expired) and/or periodic eviction.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 10,
+            "title": "retry can throw undefined instead of an error",
+            "detail": "retry.ts:2-10: `last` is only assigned inside the catch block. If the loop body never executes — `maxAttempts` negative or NaN makes `attempt <= maxAttempts + 1` false on the first check — the function reaches `throw last` with `last === undefined`, so the caller receives a thrown `undefined` with no message/stack instead of an Error. Guard with an explicit Error (e.g. 'retry: no attempts performed') or validate maxAttempts >= 1.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "retry has no delay or backoff between attempts",
+            "detail": "retry.ts:3-8 retries in a tight loop with no wait, backoff, or jitter, and retries every error indiscriminately (including non-retryable ones such as programming errors). Against a fast-firing dependency this issues maxAttempts+1 back-to-back calls instantly, amplifying load exactly when the dependency is failing. A delay (exponential backoff + jitter) and an error-class filter would make the behavior safe for production use.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7240,
+          "outputTokens": 1404,
+          "reasoningTokens": 3277,
+          "cacheReadTokens": 102144,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 115555,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 162.427,
+        "score": {
+          "found": [
+            "REVEVAL-D-009",
+            "REVEVAL-D-010"
+          ],
+          "missed": [],
+          "falseFindings": 3,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 3,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 115555
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel freezes session state, so labels report stale retry counts",
+            "detail": "createLabel destructures `const { user, retries } = session` at creation time, so the returned closure interpolates the snapshot instead of reading the live session — contradicting its own doc comment \"Returns a function that reports the current state of the session.\" Walk-through: `const s = { user: \"alice\", retries: 0 }; const label = createLabel(s); recordRetry(s);` → `s.retries === 1`, but `label()` returns `\"alice: 0 retries\"` (expected `\"alice: 1 retries\"` per the documented contract). Every retry recorded after the label is created is silently invisible to the label. Fix: read from the captured `session` object inside the closure (e.g. `() => \\`${session.user}: ${session.retries} retries\\``) instead of destructuring.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 22676,
+          "outputTokens": 514,
+          "reasoningTokens": 1174,
+          "cacheReadTokens": 85504,
+          "cacheWriteTokens": 1487,
+          "totalTokens": 111355,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 47.027,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 111355
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel captures a snapshot, so the label never reflects retries recorded afterwards",
+            "detail": "src/sessionLabel.ts line 8 destructures `const { user, retries } = session;` before returning the closure, so the closure reads copied values instead of the live session. Input: session = {user: 'alice', retries: 0}; const label = createLabel(session); recordRetry(session); (session.retries is now 1). Output: label() returns 'alice: 0 retries', while the session's current state is 1 retry — directly contradicting the function's own contract on line 6 ('Returns a function that reports the current state of the session'). Any code that records a retry after creating a label gets a permanently stale count, so the feature silently misreports. Fix: capture the object, not its values — return () => `${session.user}: ${session.retries} retries`.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 9,
+            "title": "Label reads '1 retries' for a single retry",
+            "detail": "src/sessionLabel.ts line 9 renders `${user}: ${retries} retries` unconditionally, so a session with exactly one retry displays 'alice: 1 retries'. Cosmetic/pluralization issue in user-facing output; consider pluralizing ('1 retry').",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 1,
+            "title": "New module has no callers on the branch",
+            "detail": "The diff adds only src/sessionLabel.ts, and a search of origin/feat/session-label shows no file imports or references createLabel/recordRetry (the tree contains only README.md and this file). As committed, the session-label feature is dead code and does nothing for any consumer; if integration is intended for a follow-up commit, that is fine, but as it stands the branch ships unwired code.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6113,
+          "outputTokens": 1108,
+          "reasoningTokens": 2184,
+          "cacheReadTokens": 123712,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 134603,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 134.789,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 134603
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 11,
+            "title": "isInRange excludes most of the end date despite documenting it as included",
+            "detail": "src/dateRange.ts:10-11 compares the input Date against `new Date(range.end)`, but a YYYY-MM-DD string parses to midnight UTC of that day, not the end of the day. Concrete failure: range {start:'2026-01-01', end:'2026-01-31'}, when = new Date('2026-01-31T12:00:00Z') — the doc comment on line 4 says 'The last day is included', but the comparison yields when <= end → 2026-01-31T12:00:00Z <= 2026-01-31T00:00:00Z → false, so any timestamp on the last day after 00:00 UTC is wrongly reported out of range. The mirror-image bug hits the start bound: because start also parses to 00:00 UTC, a `when` early on the start day in a timezone ahead of UTC (e.g. 2026-01-01T02:00+09:00 = 2025-12-31T17:00Z) fails `when >= start` and is excluded even though its local date is the first day. Fix: normalize both bounds to cover the full local day (e.g. compare date parts, or use end-of-day 23:59:59.999 and start-of-day local time) instead of relying on UTC midnight parsing.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 9,
+            "title": "isInRange silently returns false for malformed range strings",
+            "detail": "src/dateRange.ts:9-11: `new Date(range.start)` on an unparseable or loosely formatted string (e.g. '31/01/2026', 'Jan 31 2026', or a typo) produces Invalid Date; every comparison against an Invalid Date is false, so isInRange quietly returns false instead of surfacing the bad input. Likewise, a reversed range (start > end) always returns false with no indication. Consider validating the parsed dates (Number.isNaN(getTime())) and/or the range order, and throwing or returning an explicit error for callers to detect.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 24179,
+          "outputTokens": 1145,
+          "reasoningTokens": 3949,
+          "cacheReadTokens": 109824,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 140583,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 169.111,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 140583
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 11,
+            "title": "End boundary is UTC midnight, so the documented-included last day is excluded for any timestamp with a time-of-day",
+            "detail": "In src/dateRange.ts, `new Date(\"YYYY-MM-DD\")` parses the date-only string as UTC midnight (per ES spec), but `when` is a full timestamp. The doc comment on `end` states \"The last day is included\", yet the check `when <= end` only holds while `when` is at or before 00:00:00Z of that day. Concrete failure: range {start:\"2024-01-01\", end:\"2024-01-31\"} with when = new Date(2024, 0, 31, 12, 0, 0) (noon on Jan 31) yields end = 2024-01-31T00:00:00Z, so when > end and the function returns false even though Jan 31 is documented as in range — the entire last day is effectively dropped for any non-midnight input. The first-day boundary is equally timezone-dependent: in a UTC+N timezone, when = new Date(2024, 0, 1) (local Jan 1 midnight) equals Dec 31 22:00Z in UTC+2, which is < start, so the first day is excluded too. The same input therefore returns different results on different hosts/times of day; the end boundary should be end-of-day (e.g. exclusive `< new Date(end + 1 day)` or compare calendar dates).",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 9,
+            "title": "Malformed date strings silently produce Invalid Date and a false result",
+            "detail": "`new Date(range.start)` / `new Date(range.end)` are not validated: an unparseable string yields Invalid Date, every comparison with it is false, and isInRange returns false for all inputs with no error or indication. Callers get a silent wrong answer instead of a thrown/typed error, and non-ISO formats fall back to engine-specific legacy parsing, so behavior varies across runtimes. A cheap guard (check !isNaN(date.getTime()) or validate the YYYY-MM-DD shape) would surface the bad input.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 24307,
+          "outputTokens": 1039,
+          "reasoningTokens": 4330,
+          "cacheReadTokens": 85760,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 116922,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 107.327,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 116922
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true even when the upload failed, contradicting its documented contract",
+            "detail": "The function's doc comment states 'Resolves to true when the server stored the profile', but when `upload(profile)` rejects (server 500, network error, timeout), the catch block only does `console.warn` and execution falls through to `return true`. So for the input 'upload rejects', the output is `true` — a success signal — while the server never stored the profile. Any caller that gates a retry or a 'synced' flag on this boolean (the only reason a Promise<boolean> is returned here) will treat an unsynced profile as synced and never re-upload it, silently losing the profile. The error is also swallowed entirely, giving the caller no way to distinguish or observe the failure. Fix: return false in the catch path (or rethrow).",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6378,
+          "outputTokens": 634,
+          "reasoningTokens": 966,
+          "cacheReadTokens": 123008,
+          "cacheWriteTokens": 1491,
+          "totalTokens": 132477,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 50.389,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 132477
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true even when the upload fails",
+            "detail": "The function's own doc comment (src/syncProfile.ts:8) states it 'Resolves to true when the server stored the profile', but the catch block at lines 12-14 swallows any rejection from `upload(profile)` and execution falls through to `return true` at line 15 unconditionally — the `Promise<boolean>` can never resolve to false. Input: `upload` rejects (network error, 5xx, auth failure). Wrong output: the call resolves `true` while the server never stored the profile. Consequence: any caller that treats the boolean as confirmation will mark the profile as synced and never retry, silently dropping the profile upload. Fix: return false (or rethrow) in the catch path so the documented contract holds.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 13,
+            "title": "Upload failure is swallowed with only a console.warn",
+            "detail": "src/syncProfile.ts:13 logs the failure via `console.warn` and discards the error, so library callers have no programmatic way to observe or log the failure with their own error handling, and in non-CLI hosts the warning may go nowhere. Prefer propagating the error (or attaching it to a result object) instead of printing from library code.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 5437,
+          "outputTokens": 735,
+          "reasoningTokens": 1285,
+          "cacheReadTokens": 80256,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 89203,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 76.895,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 89203
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks silently mutates the caller's array, and renderBoard depends on that side effect",
+            "detail": "src/taskBoard.ts line 7 uses in-place Array.sort, so topTasks reorders the array passed by the caller. A caller doing `const order = [a(1),b(5),c(3),d(4)]; renderBoard(order);` gets `order` rewritten to [b,d,c,a] with no indication. Worse, renderBoard's `rest` (line 12) is only correct because of this hidden mutation: it slices `tasks` after topTasks sorted it. If topTasks is ever made pure (e.g. `[...tasks].sort(...)`), renderBoard still produces a top-3 list but `rest` falls back to original insertion order, so the board mixes two orderings (e.g. with input [a(4),b(5),c(1),d(3)]: top `['* b','* a','* d']` then rest `['4. d']` — wrong entry, duplicated). The tests mask this by always passing `[...tasks]` copies. Fix: copy before sorting inside topTasks and derive `rest` from the returned sorted array (or sort once in renderBoard).",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks handles negative counts incorrectly via slice",
+            "detail": "src/taskBoard.ts line 7 passes `count` straight to slice(0, count). For a negative count, slice returns all-but-last elements instead of an empty list (topTasks(tasks, -1) returns n-1 tasks; topTasks(tasks, -2) returns n-2), which contradicts the count-as-a-limit contract the count-0 test asserts. Guard with `Math.max(0, count)` or validate the argument.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 23164,
+          "outputTokens": 1023,
+          "reasoningTokens": 2539,
+          "cacheReadTokens": 108800,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 137012,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 127.2,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 137012
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks sorts its input array in place, so callers' arrays are reordered as a hidden side effect",
+            "detail": "src/taskBoard.ts:7 uses tasks.sort(...), and Array.prototype.sort mutates the receiver. topTasks therefore reorders whatever array the caller passes in, even when count is 0 (slice(0, 0) returns [] but the input is still sorted). renderBoard passes the caller's array straight through to topTasks, so renderBoard(myTasks) leaves myTasks priority-sorted: with input [{a,1},{b,5}] the caller's array becomes [{b,5},{a,1}] after the call, and any later use of that array (rendering a full list, JSON export, an insertion-order view) shows a different order than authored. The new test file itself works around the bug by defensively copying at every call site ([...tasks] on lines 13, 16 and 22) rather than asserting the input is unchanged, which is why the side effect is not caught.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "renderBoard's 'rest' ordering silently depends on topTasks mutating the array",
+            "detail": "src/taskBoard.ts:12 computes the tail as tasks.slice(3) and only gets priority order because the topTasks call on line 11 has just sorted tasks in place. The two lines are coupled through a side effect with no indication of it. The natural fix for the in-place-sort finding (make topTasks pure, e.g. [...tasks].sort(...) or tasks.toSorted(...)) silently breaks renderBoard: for the test fixture the output becomes ['* b', '* d', '* c', '4. d'] — task 'd' listed twice and 'a' dropped — because the tail stays in original order while the head is sorted. The rest list should be derived from the sorted result (e.g. one sorted array sliced into head and tail) instead of from the mutated input.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.test.ts",
+            "line": 1,
+            "title": "Added test file imports vitest with no package manifest or TS/vitest config anywhere in the repo",
+            "detail": "The diff adds src/taskBoard.test.ts which does `import { describe, expect, it } from 'vitest'` and `import ... from './taskBoard.js'`, but neither origin/main nor origin/feat/task-board contains a package.json, tsconfig.json or vitest config (the tree is only README.md plus the two new src files). As committed, running the test resolves no 'vitest' package and has no module-resolution settings for the explicit .js extension import, so the test cannot execute in this repository as-is. If the gates harness supplies its own manifest/config outside the tree this is moot, but the committed change declares no way to run its own test.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 11552,
+          "outputTokens": 1245,
+          "reasoningTokens": 6368,
+          "cacheReadTokens": 195520,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 216170,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 247.25,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 216170
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "canEdit fails open for unrecognized visibility values",
+            "detail": "Doc.visibility is documented as free text from the legacy importer, but canEdit only handles the exact strings 'private', 'shared', and 'team'; every other value falls through to `default: return true`, granting edit access to any active user. Walk-through: doc { ownerId: 'u2', teamId: 't1', visibility: 'Private' (capital P, or 'confidential', or 'private' with trailing whitespace), editors: [] } and user { id: 'u9', teamId: 't2', role: 'member', active: true } — the user has no ownership, no admin role, no team relationship, and is not in editors, yet canEdit returns true, so a stranger can write to the document. Real legacy data will contain case variants and unknown tags, so this silently converts closed documents into world-editable ones; the default should deny.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.test.ts",
+            "line": 1,
+            "title": "Default branch of canEdit has no test coverage",
+            "detail": "The new suite in src/access.test.ts exercises inactive, owner, admin, private, shared, and team paths but never passes an unrecognized visibility string, so the fail-open default (line 27 of src/access.ts) is asserted nowhere. A test locking in denial for unknown visibility values would have surfaced the behavior above.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7781,
+          "outputTokens": 746,
+          "reasoningTokens": 3150,
+          "cacheReadTokens": 80896,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 94063,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 164.815,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 94063
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "canEdit fails open on unrecognized visibility values",
+            "detail": "src/access.ts:26-27 — the switch on doc.visibility has `default: return true`, and Doc.visibility is typed as free text (`visibility: string; // free text from the legacy importer`), so any value other than exactly 'private', 'shared', or 'team' (e.g. a legacy-imported doc with visibility 'confidential', 'restricted', '' or a typo) is treated as editable by everyone. Input: active non-admin user u9, teamId 't9', not the owner and not in editors, calling canEdit(u9, {ownerId:'u2', teamId:'t1', visibility:'confidential', editors:[]}) → returns true, so a user with no relationship to the doc is granted write access and can overwrite or destroy it. An authorization check must fail closed (`default: return false`); the new test suite never exercises the default branch, so this bypass is untested.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 18489,
+          "outputTokens": 517,
+          "reasoningTokens": 2559,
+          "cacheReadTokens": 46144,
+          "cacheWriteTokens": 1491,
+          "totalTokens": 69200,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 109.722,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 69200
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by the new value instead of the old value",
+            "detail": "src/metrics.ts line 3 computes ((newValue - oldValue) / newValue) * 100. Percent change is defined relative to the base (old) value: ((newValue - oldValue) / oldValue) * 100, which matches the function's own doc comment 'Percent change from the old value to the new value'. Walk-through: percentChange(100, 150) returns 33.3, but a rise from 100 to 150 is a 50% increase; percentChange(100, 200) returns 50 instead of 100 (a doubling reported as +50%). The bug also poisons the zero case: percentChange(10, 0) divides by zero and returns -Infinity, so describeChange(10, 0) emits the string '-Infinity%' in place of '-100.0%', and describeChange(0, 0) emits 'NaN%'. Every reported metric is wrong except the trivial old==new case.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the entire list when count is 0",
+            "detail": "src/metrics.ts line 8 uses items.slice(-count). In JavaScript -0 === 0, so slice(-0) is slice(0), which returns a copy of the whole array. Walk-through: lastEntries([1, 2, 3], 0) returns [1, 2, 3] instead of the [] that 'the last 0 entries' requires per the function's doc comment. Any caller that disables trimming by passing count=0 (e.g. 'show the last 0 recent errors') silently gets the full, untrimmed list. Negative counts are also mishandled: lastEntries([1,2,3], -1) evaluates slice(1) and returns [2, 3]. A guard such as count <= 0 ? [] : items.slice(-count) (plus clamping to length) is needed.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7647,
+          "outputTokens": 1154,
+          "reasoningTokens": 3259,
+          "cacheReadTokens": 123520,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 137066,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 98.717,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 137066
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue",
+            "detail": "src/metrics.ts line 3 computes ((newValue - oldValue) / newValue) * 100, but percent change from old to new must divide by oldValue (the base). Concrete failure: percentChange(100, 200) returns 50 instead of the correct 100 (percentChange(100, 150) returns 33.3 instead of 50). It also breaks the zero case: percentChange(50, 0) returns -Infinity instead of -100 because the denominator is the new value. describeChange (line 12) inherits the same wrong number and formats it into the reported percentage string.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the whole list when count is 0",
+            "detail": "src/metrics.ts line 8 uses items.slice(-count); in JavaScript -0 is 0, so slice(-0) is slice(0) and returns every element. Concrete failure: lastEntries([1, 2, 3], 0) returns [1, 2, 3] instead of the documented 'last 0 entries', i.e. []. Negative counts are mishandled the same way (lastEntries([1, 2, 3], -1) returns [2, 3]). Guard with count <= 0 returning [] (or slice(items.length - count) after clamping) to fix both.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7558,
+          "outputTokens": 874,
+          "reasoningTokens": 4152,
+          "cacheReadTokens": 125376,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 139446,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 180.824,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 139446
+      }
+    ]
+  }
+}

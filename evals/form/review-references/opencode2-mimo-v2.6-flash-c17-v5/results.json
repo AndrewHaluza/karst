@@ -1,0 +1,443 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T17:02:02.359Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider opencode2 --model opencode-go/mimo-v2.6-flash --only c17-clean-tempting --runs 8 --timeout-min 10",
+    "caseSetVersion": 5,
+    "buildSha": "f3d265ac540b4d193bc898b58bed36ba943229b2",
+    "coreVersions": {
+      "opencode2": "opencode v2.2.7"
+    }
+  },
+  "candidate": {
+    "core": "opencode2",
+    "model": "opencode-go/mimo-v2.6-flash",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 10496,
+          "outputTokens": 446,
+          "reasoningTokens": 8316,
+          "cacheReadTokens": 105024,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 125767,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 307.557,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 125767
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 2,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 12291,
+          "outputTokens": 832,
+          "reasoningTokens": 5712,
+          "cacheReadTokens": 172480,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 192800,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 246.986,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 192800
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 3,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8953,
+          "outputTokens": 673,
+          "reasoningTokens": 7980,
+          "cacheReadTokens": 103296,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 122388,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 333.698,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 122388
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 4,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 28895,
+          "outputTokens": 978,
+          "reasoningTokens": 18036,
+          "cacheReadTokens": 139200,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 188594,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 431.634,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 188594
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "info",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 20,
+            "title": "parseSettings accepts `__proto__`/`constructor`/`prototype` keys as ordinary settings",
+            "detail": "src/loadConfig.ts:20-24 validates only that values are strings, so a config file like '{\"__proto__\":\"...\"}' passes and the returned object carries an own `__proto__` data property (verified: JSON.parse defines it via DefineOwnProperty). There is no pollution path today (string values are required, and the `__proto__` setter ignores non-object values), and this diff has no merging consumer yet, so this is a hardening suggestion only: reject the three special keys in the validation loop so future deep-merge consumers of Settings never inherit a prototype-pollution sink.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 23423,
+          "outputTokens": 1416,
+          "reasoningTokens": 13952,
+          "cacheReadTokens": 201088,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 241364,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 258.813,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 241364
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 6,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 13,
+            "title": "parseSettings rejects valid JSON that carries a UTF-8 BOM",
+            "detail": "Input: '\\uFEFF{\"a\":\"1\"}' — a valid settings file saved with a byte-order mark (common from Windows editors) and passed as utf8 text to parseSettings (the error message shows this function is the read boundary for f.json). JSON.parse throws because U+FEFF is not legal JSON whitespace, so parseSettings throws 'cannot read settings from f.json' instead of returning {a:'1'}. RFC 8259 §8.1 permits parsers to ignore a leading BOM; strip /^\\uFEFF/ (or decode BOM-aware) before JSON.parse so valid settings files load.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 7,
+            "title": "pick returns the value unchecked, relying only on the type-level Settings contract",
+            "detail": "pick's only runtime test is Object.hasOwn; the value is then returned via a non-null assertion. Any Settings-shaped object not produced by parseSettings (a JS caller, or a future producer that relaxes validation) such as {a: 1} passes the hasOwn check, and pick({a:1},'a') returns the number 1 — the failure then surfaces much later as '1.trim is not a function' instead of at the settings boundary. Within this diff parseSettings does guarantee strings, so this is a hardening gap only.",
+            "source": "agent"
+          },
+          {
+            "severity": "info",
+            "repo": "case-repo",
+            "file": "src/loadConfig.test.ts",
+            "line": 12,
+            "title": "Some parseSettings error paths are untested",
+            "detail": "Tests cover '[]', 'null' and '{\"a\":1}', but not top-level non-object JSON primitives such as '\"x\"', '1' or 'true', and the 'settings in f.json must be an object' message is never asserted (only the TypeError class), nor is the empty-object happy path. A regression in that message or class would not be caught.",
+            "source": "agent"
+          },
+          {
+            "severity": "info",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 15,
+            "title": "JSON syntax errors and shape errors use inconsistent error classes",
+            "detail": "Malformed JSON throws a plain Error (line 15) while wrong-shape settings throw TypeError (lines 18 and 22), so a caller using `instanceof TypeError` to detect 'the file is malformed' cannot distinguish syntax failure from shape failure. The cause chain preserves the original SyntaxError, so this is a contract-clarity nit rather than a defect.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 9975,
+          "outputTokens": 1000,
+          "reasoningTokens": 9340,
+          "cacheReadTokens": 171904,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 193704,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 400.02,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 4,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 4,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 193704
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 7,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 5,
+            "title": "Config errors use inconsistent error types between pick and parseSettings",
+            "detail": "parseSettings throws TypeError for malformed config (arrays, null, non-string values) but pick throws a plain Error for a missing key (line 5). A caller that classifies config problems with `err instanceof TypeError` will treat a genuine missing setting as an unexpected internal error instead of a user-facing config error, so the two failure modes of the same configuration surface get different handling paths.",
+            "source": "agent"
+          },
+          {
+            "severity": "info",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 15,
+            "title": "Error messages misdescribe the failure: 'read' for a parse error, 'must be an object' for arrays",
+            "detail": "A JSON syntax error is reported as `cannot read settings from ${source}` (line 15) even though nothing was read — only text was parsed — which sends whoever debugs the failure toward file I/O instead of JSON syntax (the original SyntaxError is only visible via `cause`). Separately, an array root yields `settings in X must be an object` (line 18), but arrays are objects in JavaScript, so the message contradicts the observed type. Both are wording issues that slow down diagnosis.",
+            "source": "agent"
+          },
+          {
+            "severity": "info",
+            "repo": "case-repo",
+            "file": "src/loadConfig.test.ts",
+            "line": 4,
+            "title": "Tests skip primitive JSON roots and inherited-property lookups in pick",
+            "detail": "The suite covers object/array/null/non-string-value roots and present/missing own keys, but never `parseSettings('1')`, `parseSettings('\"s\"')` or `parseSettings('true')` (handled correctly by the `typeof raw !== 'object'` guard, so no bug today), nor `pick(obj, 'toString')` — the inherited-property case that `Object.hasOwn` exists to reject. If the `typeof` guard or `Object.hasOwn` were later weakened to `in` or a plain truthiness check, no test would fail.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8676,
+          "outputTokens": 914,
+          "reasoningTokens": 8418,
+          "cacheReadTokens": 147072,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 166565,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 181.26,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 3,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 3,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 166565
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 8,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 7,
+            "title": "pick returns values without verifying they are strings",
+            "detail": "Object.hasOwn only proves the key exists; `settings[key]!` then trusts the Settings type. A Settings object built outside parseSettings (e.g. `{ a: undefined }` from spreading partial defaults) makes pick return undefined typed as string, so downstream checks like `value === 'true'` silently take the wrong branch, whereas parseSettings rejects that same shape with 'setting a in f.json must be a string'. Re-check typeof settings[key] === 'string' (or drop the `!`) so both entry points enforce the invariant.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 15,
+            "title": "JSON syntax errors are hidden from the error message",
+            "detail": "parseSettings replaces the SyntaxError with 'cannot read settings from f.json' and keeps the detail only in err.cause (line 15). Loggers and callers that print only err.message — the common case — report no reason or position for a malformed file, which is exactly what is needed to fix it. Append the cause message (or otherwise surface it) so the failure is diagnosable from the message alone.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 13,
+            "title": "A UTF-8 BOM makes otherwise-valid config files unparseable",
+            "detail": "JSON.parse rejects a leading U+FEFF, so a settings file saved as UTF-8-with-BOM (common from Windows editors) containing valid JSON fails the load with 'cannot read settings from f.json' — the entire config is rejected and, with message-only logging, the real cause stays invisible. Strip a leading \\uFEFF from text before parsing, or surface the cause message.",
+            "source": "agent"
+          },
+          {
+            "severity": "info",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 1,
+            "title": "Module named loadConfig does no loading and has no callers yet",
+            "detail": "The diff adds only parseSettings (pure text parsing) and pick; nothing in the diff reads a file, resolves a path, or invokes these functions outside the new test. As committed the feature is an unintegrated partial slice — fine as an incremental branch step, but no user-visible behavior ships with it.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8577,
+          "outputTokens": 1104,
+          "reasoningTokens": 10238,
+          "cacheReadTokens": 125696,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 147101,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 439.756,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 4,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 4,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 147101
+      }
+    ]
+  }
+}

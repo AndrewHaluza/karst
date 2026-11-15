@@ -1,0 +1,1289 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T18:32:33.534Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider antigravity --model gemini-3.8-flash-medium --only c01-loop-bound,c02-sql-concat,c03-null-guard,c04-expiry,c05-missing-await,c06-path-join,c07-math-two,c08-retry-cache,c11-stale-closure,c12-tz-boundary,c13-swallowed-error,c14-mutated-arg,c15-auth-inverted,c16-two-subtle --runs 2 --timeout-min 15",
+    "caseSetVersion": 5,
+    "buildSha": "f3d265ac540b4d193bc898b58bed36ba943229b2",
+    "coreVersions": {
+      "antigravity": "1.5.9"
+    }
+  },
+  "candidate": {
+    "core": "antigravity",
+    "model": "gemini-3.8-flash-medium",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c01-loop-bound",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/orderTotal.ts",
+            "line": 8,
+            "title": "Loop condition allows out-of-bounds access causing a runtime crash.",
+            "detail": "In src/orderTotal.ts, the loop condition was changed to `i <= lines.length`. On the final iteration when `i === lines.length` (or on the first iteration `i === 0` if `lines` is empty), `lines[i]` is `undefined`. Accessing `lines[i]!.price` will throw an unhandled `TypeError: Cannot read properties of undefined (reading 'price')`, crashing execution on any input array (e.g. `lines = [{ price: 10, qty: 1 }]` or `lines = []`). The loop condition must remain `i < lines.length`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 83.613,
+        "score": {
+          "found": [
+            "REVEVAL-D-001"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c01-loop-bound",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/orderTotal.ts",
+            "line": 8,
+            "title": "Off-by-one loop condition causes out-of-bounds array access and runtime TypeError.",
+            "detail": "In src/orderTotal.ts, the loop condition was changed from `i < lines.length` to `i <= lines.length`. Because TypeScript arrays are zero-indexed, `lines[lines.length]` is always undefined. For any input, such as `orderTotal([{ price: 10, qty: 1 }])` or `orderTotal([])`, the loop executes an out-of-bounds iteration at `i = lines.length` where accessing `lines[i]!.price` throws `TypeError: Cannot read properties of undefined (reading 'price')`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 121.497,
+        "score": {
+          "found": [
+            "REVEVAL-D-001"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c02-sql-concat",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/userQuery.ts",
+            "line": 6,
+            "title": "Direct string concatenation creates a SQL injection vulnerability.",
+            "detail": "In findUser, the query is constructed by concatenating the raw id parameter into the SQL string instead of using parameterized placeholders. Supplying an input such as \"' OR '1'='1\" alters the query semantics, leading to unauthorized data exposure and arbitrary SQL injection.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 32.189,
+        "score": {
+          "found": [
+            "REVEVAL-D-002"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c02-sql-concat",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/userQuery.ts",
+            "line": 6,
+            "title": "SQL injection vulnerability via string concatenation in findUser query.",
+            "detail": "In src/userQuery.ts at line 6, the parameterized query was replaced with raw string concatenation: db.query(\"SELECT * FROM users WHERE id = '\" + id + \"'\", []). Supplying an input such as id = \"' OR '1'='1\" produces the query \"SELECT * FROM users WHERE id = '' OR '1'='1'\", which causes the database to return unintended user records rather than filtering by a specific ID, leading to unauthorized data exposure and arbitrary SQL execution.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 37.875,
+        "score": {
+          "found": [
+            "REVEVAL-D-002"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c03-null-guard",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/displayName.ts",
+            "line": 6,
+            "title": "Non-null assertions on optional user and profile will cause runtime crash.",
+            "detail": "Calling displayName(undefined) or displayName({}) causes an unhandled runtime TypeError crash when dereferencing user!.profile or profile!.name because user and profile are asserted non-null despite being optional. Furthermore, if profile.name is undefined, the function returns undefined at runtime rather than falling back to 'anonymous', violating the declared string return type.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 74.452,
+        "score": {
+          "found": [
+            "REVEVAL-D-003"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c03-null-guard",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/displayName.ts",
+            "line": 6,
+            "title": "Unsafe non-null assertions cause runtime TypeError crashes on undefined user or profile",
+            "detail": "Replacing optional chaining and default fallback (`user?.profile?.name ?? 'anonymous'`) with non-null assertions (`user!.profile!.name!`) removes runtime null safety. When `user` is undefined (allowed by the parameter type `User | undefined`), calling `displayName(undefined)` crashes with `TypeError: Cannot read properties of undefined (reading 'profile')`. When `user` is an empty object `{}` without a `profile`, calling `displayName({})` crashes with `TypeError: Cannot read properties of undefined (reading 'name')`. Additionally, if `user.profile.name` is undefined, the function returns `undefined` at runtime instead of returning a string as required by the return type contract.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 167.901,
+        "score": {
+          "found": [
+            "REVEVAL-D-003"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c04-expiry",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/token.ts",
+            "line": 7,
+            "title": "Inverted comparison in isExpired causes inverted token validity checks.",
+            "detail": "The condition was changed from `now >= token.expiresAt` to `now <= token.expiresAt`. For an active, unexpired token where `now < token.expiresAt`, `isExpired` returns `true` and incorrectly treats valid tokens as expired. For an expired token where `now > token.expiresAt`, `isExpired` returns `false` and incorrectly treats expired tokens as valid.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 98.649,
+        "score": {
+          "found": [
+            "REVEVAL-D-004"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c04-expiry",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/token.ts",
+            "line": 7,
+            "title": "Inverted expiration check marks valid tokens as expired and accepts expired tokens.",
+            "detail": "In isExpired, the comparison was inverted from `now >= token.expiresAt` to `now <= token.expiresAt`. For an active token where now < token.expiresAt (e.g., token.expiresAt = 1000, now = 500), isExpired returns true, incorrectly treating valid tokens as expired and breaking authentication in production. For an expired token where now > token.expiresAt (e.g., token.expiresAt = 1000, now = 1500), isExpired returns false, allowing expired tokens to be accepted indefinitely as a security bypass.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 123.376,
+        "score": {
+          "found": [
+            "REVEVAL-D-004"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c05-missing-await",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/itemNames.ts",
+            "line": 6,
+            "title": "Missing await on api.fetchItems() causes runtime TypeError crash",
+            "detail": "api.fetchItems() returns a Promise<{ items: { name: string }[] }>. Removing await assigns the unresolved Promise to data instead of the resolved object. Evaluating data.items results in undefined, causing data.items.map(...) to throw TypeError: Cannot read properties of undefined (reading 'map') and reject the returned Promise on every invocation.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 59.663,
+        "score": {
+          "found": [
+            "REVEVAL-D-005"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c05-missing-await",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/itemNames.ts",
+            "line": 6,
+            "title": "Missing await on api.fetchItems() causes runtime TypeError.",
+            "detail": "api.fetchItems() returns Promise<{ items: { name: string }[] }>. Because await was removed, data is assigned the Promise object rather than the resolved object. Consequently, data.items is undefined, and data.items.map(...) throws a runtime TypeError ('Cannot read properties of undefined (reading 'map')'), rejecting the promise returned by itemNames.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 75.257,
+        "score": {
+          "found": [
+            "REVEVAL-D-005"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c06-path-join",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/upload.ts",
+            "line": 7,
+            "title": "Path traversal vulnerability in readUpload allows arbitrary file read.",
+            "detail": "Removing basename(name) allows input containing path traversal sequences (such as '../../etc/passwd') to escape UPLOAD_ROOT when resolved by path.join, enabling unauthorized reading of arbitrary files from the filesystem.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 56.546,
+        "score": {
+          "found": [
+            "REVEVAL-D-006"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c06-path-join",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/upload.ts",
+            "line": 7,
+            "title": "Path traversal vulnerability allows arbitrary file reads outside upload directory.",
+            "detail": "Removing `basename(name)` when resolving the path with `join(UPLOAD_ROOT, name)` allows directory traversal. For input such as `name = '../../etc/passwd'`, `path.join('/srv/uploads', name)` resolves to `/etc/passwd`. When passed to `readFile()`, it reads and returns arbitrary files on the host filesystem accessible by the process instead of restricting reads to the `/srv/uploads` directory.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 60.648,
+        "score": {
+          "found": [
+            "REVEVAL-D-006"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c07-math-two",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 2,
+            "title": "clamp logic inverts min and max, returning max for valid ranges",
+            "detail": "clamp computes Math.max(max, Math.min(min, value)). Whenever min <= max, Math.min(min, value) <= min <= max, causing Math.max(max, ...) to always return max. For example, clamp(5, 0, 10) returns 10 instead of 5.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 8,
+            "title": "average divides sum by length + 1 instead of length",
+            "detail": "average divides the sum by values.length + 1 instead of values.length, producing incorrect arithmetic means. For example, average([10]) returns 5 instead of 10, and average([2, 4]) returns 2 instead of 3.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 44.747,
+        "score": {
+          "found": [
+            "REVEVAL-D-007",
+            "REVEVAL-D-008"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c07-math-two",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 2,
+            "title": "clamp inverts min and max boundary logic",
+            "detail": "In clamp(value, min, max), the expression Math.max(max, Math.min(min, value)) compares value against min first and then takes the maximum with max. For valid ranges where min <= max, Math.min(min, value) is always <= min <= max, so Math.max(max, ...) always evaluates to max. For example, clamp(5, 0, 10) returns 10 instead of 5. The calculation should be Math.min(max, Math.max(min, value)).",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 8,
+            "title": "average divides sum by length plus one instead of length",
+            "detail": "In average(values), the divisor used is (values.length + 1) instead of values.length. For example, average([10]) returns 5 instead of 10, and average([2, 4]) returns 2 instead of 3. The division should be sum / values.length.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 34.919,
+        "score": {
+          "found": [
+            "REVEVAL-D-007",
+            "REVEVAL-D-008"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c08-retry-cache",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 5,
+            "title": "TTL expiration calculated in milliseconds instead of seconds",
+            "detail": "In TtlCache.set, expiresAt is calculated as Date.now() + ttlSeconds. Because Date.now() returns milliseconds, adding ttlSeconds directly sets an expiration measured in milliseconds rather than seconds (e.g., a 60-second TTL expires in 60ms). Any subsequent get() call after a few milliseconds will consider the entry expired and return undefined.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "Retry loop executes one attempt more than maxAttempts",
+            "detail": "In retry(), the loop condition attempt <= maxAttempts + 1 causes fn to execute up to maxAttempts + 1 times. For example, if maxAttempts is 1, fn will be called twice on failure; if maxAttempts is 3, fn will be called 4 times. This violates the maximum attempt limit contract.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 10,
+            "title": "Expired cache entries are never removed from entries map",
+            "detail": "In TtlCache.get, when an entry is found to have expired (expiresAt < Date.now()), undefined is returned but the key is not deleted from this.entries. Without active or passive eviction of expired keys, the Map will grow indefinitely as new keys are inserted, causing a memory leak.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 56.336,
+        "score": {
+          "found": [
+            "REVEVAL-D-009",
+            "REVEVAL-D-010"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c08-retry-cache",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "Off-by-one loop condition causes retry to execute maxAttempts + 1 times.",
+            "detail": "The loop condition 'attempt <= maxAttempts + 1' executes maxAttempts + 1 times instead of maxAttempts. For example, if maxAttempts is 1, fn is invoked 2 times before throwing. The loop should iterate while 'attempt <= maxAttempts'.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 5,
+            "title": "TTL calculation adds seconds directly to millisecond timestamp causing premature expiration.",
+            "detail": "Date.now() returns epoch time in milliseconds, but ttlSeconds is added directly without multiplying by 1000 ('Date.now() + ttlSeconds'). Setting a TTL of 60 seconds expires in 60 milliseconds, resulting in premature cache misses.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 10,
+            "title": "Expired cache entries are not deleted on cache miss causing unbounded memory growth.",
+            "detail": "When get() detects that an entry has expired, it returns undefined but does not remove the key from this.entries. Without active or passive cleanup, expired entries accumulate indefinitely in the Map.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 80.967,
+        "score": {
+          "found": [
+            "REVEVAL-D-009",
+            "REVEVAL-D-010"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel captures stale session state on creation instead of reporting current state.",
+            "detail": "In src/sessionLabel.ts, createLabel destructures user and retries from session into local variables upon initialization. Because retries is a primitive number, the returned closure captures its initial value at creation time. If session.retries is subsequently updated (e.g. by calling recordRetry(session)), calling the returned function will continue to return the old value (such as 'alice: 0 retries' instead of 'alice: 1 retries'), failing to report the current state of the session as documented. The closure should read session.user and session.retries dynamically when invoked.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 52.194,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel captures initial property values instead of reporting current session state.",
+            "detail": "In createLabel, destructuring const { user, retries } = session captures the primitive values of user and retries at the time createLabel is called. Because the returned closure closes over these local variables rather than reading session.user and session.retries dynamically, subsequent mutations to the session are not reflected in the returned label. For example, given const session = { user: 'alice', retries: 0 }, creating const getLabel = createLabel(session) and subsequently calling recordRetry(session) results in getLabel() returning 'alice: 0 retries' instead of 'alice: 1 retries'.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 64.83,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 11,
+            "title": "Inclusive end date excludes timestamps occurring on the last day",
+            "detail": "In src/dateRange.ts, DateRange.end is documented as 'Last day, as YYYY-MM-DD. The last day is included.', but new Date(range.end) parses 'YYYY-MM-DD' as UTC midnight (00:00:00.000Z). For input range = { start: '2026-01-01', end: '2026-01-05' } and when = new Date('2026-01-05T12:00:00Z'), isInRange evaluates when <= end as false and returns false instead of true. Virtually any time on the final day after 00:00:00.000Z is excluded. Furthermore, parsing date-only strings as UTC dates causes unexpected boundary mismatches when when is created in a local timezone.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 62.547,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 10,
+            "title": "Inclusive end date is parsed as midnight, excluding timestamps occurring on the last day.",
+            "detail": "Given range = { start: \"2026-05-01\", end: \"2026-05-10\" } and when = new Date(\"2026-05-10T12:00:00Z\"), isInRange returns false instead of true. The JSDoc specifies that 'The last day is included', but new Date(range.end) evaluates to 2026-05-10T00:00:00.000Z. Consequently, any timestamp later in the day on the end date fails the condition when <= end.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 9,
+            "title": "Parsing date-only strings with Date constructor introduces UTC and local timezone mismatches.",
+            "detail": "new Date('YYYY-MM-DD') parses date-only strings as UTC midnight per the ECMAScript specification, whereas when is a Date object typically created in the caller's local timezone. For instance, in timezones ahead of UTC (such as UTC+8), local midnight on the start date corresponds to 16:00 UTC on the previous day, causing when >= start to unexpectedly return false.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 64.511,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 1,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true when upload fails",
+            "detail": "When upload(profile) throws an exception or rejects, the catch block catches the error and logs a warning, but execution proceeds to line 15 and returns true. According to the function contract, syncProfile should resolve to true when the server stored the profile. When upload rejects, the function returns true instead of false, causing callers to treat failed uploads as successful and skipping error recovery or retry handling.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 37.564,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true even when upload fails",
+            "detail": "When upload(profile) throws or rejects, the catch block logs the error and execution proceeds to line 15 returning true. Callers relying on the documented contract ('Resolves to true when the server stored the profile') will incorrectly conclude the profile was saved on the server even when the upload fails.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 37.457,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks mutates the input tasks array in place and crashes on frozen arrays.",
+            "detail": "Array.prototype.sort mutates the array in place. When topTasks is called, it reorders the caller's array as an unintended side effect. If the input array is frozen (e.g., Object.freeze([]) common in immutable state architectures), topTasks throws a TypeError: Cannot assign to read only property. Furthermore, renderBoard relies on this in-place mutation so that tasks.slice(3) picks up the remaining tasks, meaning renderBoard also mutates caller data and would fail if topTasks were made pure.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "Negative count in topTasks returns elements relative to end of array instead of an empty array.",
+            "detail": "Passing a negative count (e.g., topTasks(tasks, -1)) causes tasks.slice(0, -1) to return all elements except the last one, instead of returning an empty array or clamping count to zero.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 78.579,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks mutates the input array in place",
+            "detail": "Array.prototype.sort mutates the tasks array in place instead of creating a shallow copy. When passed a frozen or read-only array (such as Object.freeze([...])), calling topTasks throws a runtime TypeError ('Cannot assign to read only property...'). Additionally, when callers pass a mutable array, their array order is unexpectedly reordered by descending priority as a side effect. The function should copy the array before sorting, e.g. using [...tasks].sort(...) or tasks.slice().sort(...).",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 11,
+            "title": "renderBoard mutates its input array and couples to topTasks side effect",
+            "detail": "renderBoard passes its tasks argument directly to topTasks, which mutates the caller's array in place (and crashes on frozen arrays with TypeError). Furthermore, renderBoard relies on this in-place mutation so that tasks.slice(3) picks the remaining sorted tasks. If topTasks is made pure and does not mutate tasks in place, tasks.slice(3) slices the original unsorted array: for input [{title: 'a', priority: 1}, {title: 'b', priority: 4}, {title: 'c', priority: 3}, {title: 'd', priority: 2}], 'd' is output in both top and rest while 'a' is omitted entirely. renderBoard should sort a copy of the tasks once and partition that sorted array.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "Negative count parameter in topTasks returns sliced elements instead of empty array",
+            "detail": "When count is negative, Array.prototype.slice(0, count) treats the negative count as an offset from the end of the array rather than returning an empty list. For example, topTasks(tasks, -1) returns all but the last task instead of an empty array. The slice count should be clamped with Math.max(0, count).",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.test.ts",
+            "line": 13,
+            "title": "Tests defensively copy fixtures and do not assert immutability",
+            "detail": "In taskBoard.test.ts, test cases pass [...tasks] instead of tasks directly, which masks the in-place array mutation bug in topTasks and renderBoard. The test suite should test that passing an array does not mutate the input, and test behavior with frozen arrays.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 93.707,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 2,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 2,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "Fail-open default in canEdit grants edit permissions for unknown or legacy document visibility values.",
+            "detail": "In src/access.ts, the switch statement on doc.visibility defaults to returning true. When doc.visibility is any value other than 'private', 'shared', or 'team' (e.g., 'restricted', 'confidential', '', or unhandled strings from legacy imports), canEdit returns true for any active user. For example, given user { id: 'u2', teamId: 't2', role: 'member', active: true } and doc { ownerId: 'u1', teamId: 't1', visibility: 'restricted', editors: [] }, canEdit(user, doc) evaluates to true even though the user is in a different team, not the owner, and not an editor. Authorization must fail closed by returning false for unrecognized visibility types.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.test.ts",
+            "line": 7,
+            "title": "Test suite does not verify authorization behavior for unrecognized document visibility values.",
+            "detail": "src/access.test.ts tests 'private', 'shared', and 'team' visibilities, but lacks coverage for unknown, invalid, or unhandled legacy visibility values, allowing the fail-open default behavior to go untested.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 80.37,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "Default-allow in canEdit creates a fail-open authorization bypass.",
+            "detail": "In src/access.ts line 27, switch (doc.visibility) defaults to 'return true;'. Because doc.visibility is free text from legacy data, any unhandled, restricted, or custom visibility string (such as 'confidential', 'restricted', or '') grants edit access to any active user. For example, for an active member user { id: 'u1', teamId: 'team_b', role: 'member', active: true } and document { ownerId: 'u2', teamId: 'team_a', visibility: 'confidential', editors: [] }, canEdit returns true instead of false. Access control checks must fail closed (default: return false;).",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 19,
+            "title": "Case-sensitive comparison on free-text visibility causes unexpected access evaluation.",
+            "detail": "In src/access.ts line 19, switch (doc.visibility) compares against lowercase literals ('private', 'shared', 'team') without normalizing case or trimming whitespace. Because doc.visibility contains unvalidated free text from the legacy importer, values with uppercase or mixed casing (such as 'Private' or 'Team') will fail exact matching and fall through to default.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.test.ts",
+            "line": 7,
+            "title": "Test suite does not verify behavior for unknown or default visibility values.",
+            "detail": "src/access.test.ts only tests exact matches for 'private', 'shared', and 'team' visibilities. It does not test default handling, case sensitivity, or unrecognized visibility strings imported from legacy records.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 130.474,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue.",
+            "detail": "The formula in percentChange computes ((newValue - oldValue) / newValue) * 100, which divides by newValue instead of oldValue. Percentage change from an old value to a new value is defined as ((newValue - oldValue) / oldValue) * 100. For input percentChange(100, 200), the function outputs 50 instead of 100. In addition, when newValue is 0 (e.g., percentChange(50, 0)), division by zero results in -Infinity rather than -100.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the entire list when count is 0.",
+            "detail": "In JavaScript, -0 evaluates to 0, so items.slice(-count) when count is 0 executes items.slice(0), returning a shallow copy of the entire array instead of an empty array. For input lastEntries([1, 2, 3], 0), the function outputs [1, 2, 3] instead of []. Furthermore, negative count values cause slice to take elements from index -count rather than returning an empty array.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 62.546,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue.",
+            "detail": "The formula divides the difference by newValue instead of oldValue: ((newValue - oldValue) / newValue) * 100. By definition, percent change from an old value to a new value divides by oldValue: ((newValue - oldValue) / oldValue) * 100. For example, percentChange(100, 200) returns 50 instead of 100 (+100%), percentChange(100, 50) returns -100 instead of -50 (-50%), and when newValue is 0 (e.g. percentChange(10, 0)), it returns -Infinity instead of -100.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the entire array when count is 0.",
+            "detail": "When count is 0, items.slice(-count) executes items.slice(-0), which is identical to items.slice(0) in JavaScript. This returns a shallow copy of the entire array instead of an empty array. For example, lastEntries([1, 2, 3], 0) returns [1, 2, 3] rather than [].",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 69.442,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      }
+    ]
+  }
+}

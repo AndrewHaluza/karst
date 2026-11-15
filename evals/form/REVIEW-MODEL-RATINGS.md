@@ -66,6 +66,19 @@ The two intervals do not overlap, so antigravity has fewer false findings than o
 
 Opencode2 failed `c17` in 7 of 8 runs and `c18` in 3 of 7. In 6 of the 7 `c17` runs the finding says the new test file imports `vitest` but the repo has no `package.json` or dependency for it. That is a flaw in the case, not only in the core. Without `c17` the opencode2 result is 3 of 23. Decision needed: add a minimal `package.json` that lists `vitest` to `c17` (case set 5), then rerun `c17`.
 
+## Case set v5 (c17 has a package.json and tsconfig)
+
+Commit `f3d265ac5` adds a `package.json` (with `vitest`) and a `tsconfig.json` (target ES2022) to the base of `c17`. Opencode2 on `c17`, 8 runs (`review-references/opencode2-mimo-v2.6-flash-c17-v5/`): 4 of 8 runs had a false finding, against 7 of 8 before. The `vitest` and ES2022 findings are gone. The rest are design remarks: a UTF-8 BOM, inconsistent error classes, and a `__proto__` key. A case named "clean-tempting" invites these. I stopped tuning the case. The `c17` cell stays a measure of nitpicking, not of real false alarms.
+
+Recall runs on v5: the 14 defect cases (`c01` to `c08`, `c11` to `c16`), 2 runs each, 34 seeded defects (`review-references/*-recall-n34-v5/`). This is the first recall cell with n of 30 or more.
+
+| Core | Model | Recall | 95% interval | Calls with `ok` | Seconds per run |
+|---|---|---|---|---|---|
+| antigravity | gemini-3.8-flash-medium | 34/34 | 89.8% to 100% | 28 of 28 | 73.0 |
+| opencode2 | opencode-go/mimo-v2.6-flash | 34/34 | 89.8% to 100% | 28 of 28 | 101.0 |
+
+Both cores found every seeded defect, and no call timed out. The recall intervals are the same, so recall does not separate these two cores. The clean-case rate does (see above). Claude has no n of 30 cell yet.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
