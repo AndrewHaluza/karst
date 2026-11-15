@@ -2022,6 +2022,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     conflictRoundActive: (id) => conflictRounds.armed(id) !== null || isAutoDelivering(id),
     conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id),
     dropConflictRound: (id) => conflictRounds.disarm(id),
+    startAutoDeliver: (id) => startAutoDeliver(id),
   });
   context.subscriptions.push(autopilot);
   freeSlotOnConflictRoundEnd(localStore);
@@ -3956,6 +3957,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The notify/barrier/provider closures are shared verbatim with the agy
   // conversation watch below: a watch event is a hook event, and the two
   // channels must never disagree about ownership, refresh or the generation.
+  /** Karst's own delivery of a resolved merge: the Stop hook starts it, and Autopilot resumes it after a reload (@arch:AP-01). */
+  const startAutoDeliver = (ticketId: number): void => {
+    const gate = shipGateDeps(ticketId);
+    const input = ciInput(ticketId);
+    gateConsole.reset(ticketId, 'ship');
+    void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e)).finally(() => gateConsole.flush(ticketId, 'ship'));
+  };
   const notifyHookUnguarded = (ticketId: number, payload: HookPayload): void => {
     // UsageUpdate changes only the token ledger. Refresh the two surfaces that
     // read it, then stop: usage is not lifecycle activity and must never kick
@@ -3986,12 +3994,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Store news (a session turned amber, a run closed), not an action's answer.
     dashboard.pushStoreState(ticketId);
     maybeDrive(ticketId, 'hook');
-    if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) {
-      const gate = shipGateDeps(ticketId);
-      const input = ciInput(ticketId);
-      gateConsole.reset(ticketId, 'ship');
-      void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e)).finally(() => gateConsole.flush(ticketId, 'ship'));
-    }
+    if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) startAutoDeliver(ticketId);
   }; const notifyHook = guardHookNotify(localStore, () => currentProject()?.id, (m) => logger.info(m), notifyHookUnguarded); context.subscriptions.push(startBackgroundWaitSweep(localStore, turnTracker, notifyHook, (m) => logger.debug(m)));
   const refusedStateHooks = new Set<string>();
   const logStateHookRefusalOnce = (ticketId: number, launchId: string | undefined, active: string | undefined): void => {

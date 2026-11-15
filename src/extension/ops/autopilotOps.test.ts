@@ -1505,3 +1505,101 @@ describe('a park that lands after a send-back (T1122)', () => {
     expect(await autopilotTick(rig().deps)).toEqual({ kind: 'idle' });
   });
 });
+
+describe('a conflict round that a window reload interrupts (T1162, @arch:AP-01)', () => {
+  const STALLED = 'auto-fix stopped: conflict round did not deliver';
+
+  it('resumes the auto-deliver from the stored slot with no new round and no attempt', async () => {
+    seedPr(PASSING);
+    conflict();
+    markConflictRound(store, id, Date.now());
+    const resume = vi.fn(async () => 'started' as const);
+    const r = rig({ resumeDeliver: resume });
+    expect((await autopilotTick(r.deps)).kind).toBe('busy');
+    expect(resume).toHaveBeenCalledWith(true);
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+    expect(r.notes[0]![0]).toBe('Autopilot: resumed the auto-deliver after a reload');
+    expect(r.debug).toHaveBeenCalledWith(expect.stringContaining('[ship] autopilot ticket AP-1: resumed the auto-deliver after a reload'));
+    expect(getConflictRoundAt(store, id)).not.toBeNull();
+  });
+
+  it('delivers a finished local merge without a stored slot and sends no round', async () => {
+    seedPr(PASSING);
+    conflict();
+    const resume = vi.fn(async () => 'started' as const);
+    const r = rig({ resumeDeliver: resume });
+    expect((await autopilotTick(r.deps)).kind).toBe('busy');
+    expect(resume).toHaveBeenCalledWith(false);
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  it('waits when the PR head is unknown', async () => {
+    seedPr(PASSING);
+    conflict();
+    markConflictRound(store, id, Date.now());
+    const r = rig({ resumeDeliver: async () => 'wait' });
+    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(getConflictRoundAt(store, id)).not.toBeNull();
+  });
+
+  it('parks and drops a reloaded round whose merge is not finished, and the park holds', async () => {
+    seedPr(PASSING);
+    conflict();
+    markConflictRound(store, id, Date.now());
+    const drop = vi.fn();
+    const r = rig({ resumeDeliver: async () => 'unfinished', dropConflictRound: drop });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: STALLED });
+    expect(drop).toHaveBeenCalledTimes(1);
+    expect(r.sendConflict).not.toHaveBeenCalled();
+    expect(getConflictRoundAt(store, id)).toBeNull();
+    // T1160: the local probe reads clean and CI is green on the old PR head. The PR head is not the local head.
+    store.db.prepare("UPDATE prs SET head_oid = 'oldpr', checks = ?").run(JSON.stringify(PASSING));
+    cleanMerge();
+    expect((await autopilotTick(rig().deps)).kind).toBe('idle');
+    expect(getAutopilotTicket(store, id).stoppedReason).toBe(STALLED);
+  });
+
+  it('starts no round from a conflict row of an older head than the local head', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig({ localHead: async () => 'newer' });
+    expect((await autopilotTick(r.deps)).kind).not.toBe('armed');
+    expect(r.sendConflict).not.toHaveBeenCalled();
+  });
+
+  it('starts a round from a conflict row of the local head', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig({ localHead: async () => 'h' });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(r.sendConflict).toHaveBeenCalledTimes(1);
+  });
+
+  describe('provenClean reads GitHub, not only the local merge check', () => {
+    beforeEach(() => { setAutopilotStopped(store, id, STALLED); });
+
+    it('is false while the local head is not the PR head', async () => {
+      seedPr(PASSING);
+      store.db.prepare("UPDATE prs SET head_oid = 'oldpr'").run();
+      cleanMerge();
+      expect((await autopilotTick(rig().deps)).kind).toBe('idle');
+    });
+
+    it('is false while GitHub reports the merge as dirty', async () => {
+      seedPr(PASSING);
+      store.db.prepare("UPDATE prs SET head_oid = 'h', merge_block = 'dirty'").run();
+      cleanMerge();
+      expect((await autopilotTick(rig().deps)).kind).toBe('idle');
+    });
+
+    it('is true when GitHub holds the local head and reports no block', async () => {
+      seedPr(PASSING);
+      store.db.prepare("UPDATE prs SET head_oid = 'h', merge_block = 'clean'").run();
+      cleanMerge();
+      expect((await autopilotTick(rig().deps)).kind).not.toBe('idle');
+    });
+  });
+});

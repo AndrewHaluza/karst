@@ -1,4 +1,5 @@
 import type { AutopilotDeps, FixOutcome, Placement } from './autopilotOps.js';
+import type { ResumeOutcome } from './conflictResumeOps.js';
 import type { CiActionsInput } from './ciActionsWiring.js';
 import { formatId } from '../../model/entityId.js';
 import { sendCiFailureAction, sendGateFailureAction } from './ciActionsWiring.js';
@@ -94,6 +95,8 @@ export interface TicketSeams {
   /** An armed round that never delivered (arch:AC-39). */
   readonly conflictRoundStalled: () => boolean;
   readonly dropConflictRound: () => void;
+  readonly resumeDeliver?: (fromRound: boolean) => Promise<ResumeOutcome>;
+  readonly localHead?: (repo: string) => Promise<string | null>;
   /** gh seams of the transient CI re-run (T1019). Absent: no re-run. */
   readonly transientCi?: TransientCiSeams;
   /** Host seams of the one rebase for a stale generated file (T1081). */
@@ -196,6 +199,8 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         conflictRoundActive: seams.conflictRoundActive,
         conflictRoundStalled: seams.conflictRoundStalled,
         dropConflictRound: seams.dropConflictRound,
+        ...(seams.resumeDeliver ? { resumeDeliver: seams.resumeDeliver } : {}),
+        ...(seams.localHead ? { localHead: seams.localHead } : {}),
         ...(seams.transientCi ? { transientCi: seams.transientCi } : {}),
         ...(seams.staleRebase ? { staleRebase: seams.staleRebase } : {}),
         note: (title, body) => postAutopilotNote(d.store, projectId, t.id, title, body, d.debug),

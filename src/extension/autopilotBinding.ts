@@ -12,7 +12,10 @@ import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
 import type { GhRunner } from '../integrations/github.js';
 import { makeTransientCiSeams } from '../integrations/ciRerun.js';
-import { rebaseOnBaseAction } from './ops/ciActionsWiring.js';
+import { rebaseOnBaseAction, gitFor, headShaOf } from './ops/ciActionsWiring.js';
+import { resumeFinishedMerge, type ResumeDeps } from './ops/conflictResumeOps.js';
+import { conflictRounds, verifyMergeResolved } from './ops/autoDeliverOps.js';
+import { deliverTargets } from '../workflow/deliverState.js';
 import { regenerateCommand, type RegenerateEntry } from '../workflow/gates/regenerate.js';
 import type { StaleRebaseSeams } from './ops/autopilotStaleRebase.js';
 
@@ -137,6 +140,8 @@ export interface AutopilotBindingDeps {
   readonly conflictRoundActive: (ticketId: number) => boolean;
   readonly conflictRoundStalled: (ticketId: number) => boolean;
   readonly dropConflictRound: (ticketId: number) => void;
+  /** Starts the auto-deliver of the armed conflict round in the background (the Stop-hook path). Absent: no resume after a reload. */
+  readonly startAutoDeliver?: (ticketId: number) => void;
   /** Take the pending session launch the last hand-off started for the ticket (undefined: a nudge, no launch). */
   readonly takeLaunch: (ticketId: number) => Promise<SessionOutcome | undefined> | undefined;
   /** Host or sandbox, from the recorded placement; rejects when none is recorded. */
@@ -153,6 +158,19 @@ export interface AutopilotBindingDeps {
  * Start the autopilot sweep. This window controls a ticket when it holds the session, or when the store shows that no
  * window holds one. When the holder is not known, no round starts (a closed terminal also sets agent_state 'idle').
  */
+/** The seams of the resume of a finished local merge (@arch:AP-01), bound to one ticket. */
+function resumeDepsOf(d: AutopilotBindingDeps, id: number): ResumeDeps {
+  const input = d.ciInput(id);
+  return {
+    store: d.store, ticketId: id, rounds: conflictRounds,
+    targets: () => deliverTargets(d.store, id),
+    headOf: (cwd) => headShaOf(input, cwd),
+    verify: (cwd, round) => verifyMergeResolved(gitFor(input), cwd, round),
+    startDeliver: () => d.startAutoDeliver?.(id),
+    debug: d.debug,
+  };
+}
+
 export function startAutopilot(d: AutopilotBindingDeps): {
   dispose(): void;
   /** This window controls the ticket (arch:AC-37): it holds the session, or the store shows that no window does. No lease is taken. */
@@ -245,6 +263,12 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         conflictRoundActive: () => d.conflictRoundActive(id),
         conflictRoundStalled: () => d.conflictRoundStalled(id),
         dropConflictRound: () => d.dropConflictRound(id),
+        ...(d.startAutoDeliver ? { resumeDeliver: (fromRound: boolean) => resumeFinishedMerge(resumeDepsOf(d, id), fromRound) } : {}),
+        localHead: async (repo) => {
+          const t = deliverTargets(d.store, id);
+          const pr = t.available ? t.prs.find((p) => p.repo === repo) : undefined;
+          return pr === undefined ? null : headShaOf(d.ciInput(id), pr.cwd);
+        },
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
         ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseHeld(id, () => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) }))) } : {}),
       }),
