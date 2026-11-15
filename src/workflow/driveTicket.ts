@@ -88,6 +88,8 @@ export interface DriveTicketDeps {
   isDraining?: () => boolean;
   /** Called with the ticket whose start the drain refused, so the host can re-drive it after a cancel. */
   holdForDrain?: (ticketId: number) => void;
+  /** Counts a gate runner as a live run from the drain check until it settles (@arch:DRAIN-01). */
+  trackRun?: <T>(run: () => Promise<T>) => Promise<T>;
   /** The host's Stop, as a signal. Folded into this run's own controller. */
   signal?: AbortSignal;
   /** Called only when a fix attempt remains; the host owns how it resumes. */
@@ -356,6 +358,7 @@ export async function driveTicket(
         shouldContinue,
         isDraining: deps.isDraining,
         holdForDrain: deps.holdForDrain,
+        trackRun: deps.trackRun,
         debug: deps.debug,
         integrateSubtasks: deps.integrateSubtasks,
         // `runUat` reports its own StageRunResult, so it is passed through

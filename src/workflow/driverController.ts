@@ -16,7 +16,7 @@ export function shouldStartDriver(stage: StageKey): boolean {
 }
 
 /** Triggers that mean "the user or host cleared what held the ticket": the unpause command and every resume route. */
-const RESUME_TRIGGERS: readonly string[] = ['unpause', 'stage-resume'];
+const RESUME_TRIGGERS: readonly string[] = ['unpause', 'stage-resume', 'drain-cancelled'];
 
 /**
  * Whether a trigger may start the driver at this stage. A resume trigger also starts it

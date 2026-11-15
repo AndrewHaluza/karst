@@ -65,7 +65,7 @@ export async function reloadWhenIdle(deps: ReloadWhenIdleDeps): Promise<ReloadWh
       try {
         await deps.reload();
       } catch (err) {
-        deps.drain.cancel();
+        deps.onCancelled?.(deps.drain.cancel());
         throw err;
       }
       return 'reloaded';

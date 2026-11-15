@@ -3664,6 +3664,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           shouldContinue: () => driver.shouldContinue(ticketId),
           isDraining: () => drain.isDraining(),
           holdForDrain: (id) => drain.hold(id),
+          trackRun: (run) => drain.track(run),
           // Sub-task integration seam (NDL-75): the parent's next drive absorbs
           // any landed sub-task's work before a boundary or gate runner runs —
           // the deferred half of landing a sub-task while the parent was busy.

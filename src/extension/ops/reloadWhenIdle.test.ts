@@ -56,14 +56,17 @@ describe('reloadWhenIdle', () => {
     expect(onCancelled).toHaveBeenCalledWith([7]);
   });
 
-  it('clears the drain flag when the reload fails', async () => {
+  it('clears the drain flag and hands over held tickets when the reload fails', async () => {
+    const onCancelled = vi.fn();
     const { d, drain } = deps([0], {
+      onCancelled,
       reload: async () => {
         throw new Error('boom');
       },
     });
     await expect(reloadWhenIdle(d)).rejects.toThrow('boom');
     expect(drain.isDraining()).toBe(false);
+    expect(onCancelled).toHaveBeenCalledWith([]);
   });
 });
 

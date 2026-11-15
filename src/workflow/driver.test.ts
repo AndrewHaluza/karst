@@ -60,6 +60,18 @@ describe('runStageDriver', () => {
     store.close();
   });
 
+  it('counts a gate runner as live from the drain check, via trackRun', async () => {
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    let tracked = 0;
+    await runStageDriver(
+      baseDeps(store, { trackRun: (run) => { tracked += 1; return run(); } }),
+      id,
+    );
+    expect(tracked).toBe(2); // uat and review
+    store.close();
+  });
+
   it('stops between two gates when the drain starts after the first gate', async () => {
     const store = openStore(':memory:');
     const id = seedAtUat(store);
