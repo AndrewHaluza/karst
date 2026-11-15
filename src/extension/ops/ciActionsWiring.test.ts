@@ -10,13 +10,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket } from '../../store/tickets.js';
+import { createTicket, getTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
-import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
-import { autoDeliverAction, baseMovedFailure, shipBaseCheck, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput } from './ciActionsWiring.js';
+import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults, finishDeliverRun } from '../../store/deliverRuns.js';
+import { autoDeliverAction, baseMovedFailure, shipBaseCheck, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
 let store: Store;
@@ -290,6 +290,26 @@ describe('sendCiFailureAction', () => {
     expect(files).toContain('lint');
     expect(i.confirm).toHaveBeenCalledWith('Send CI failure to the agent?', expect.any(String), 'Send to agent');
     expect(i.handOff).toHaveBeenCalled();
+  });
+});
+
+describe('sendCiFailureAction on a graph ticket (T1158)', () => {
+  it('passes implRunsGraph through: the ticket enters fix, not Implement', async () => {
+    seedPr({ block: null });
+    const i = input({ implRunsGraph: () => true });
+    await sendCiFailureAction(i);
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    expect(i.handOff).not.toHaveBeenCalled();
+  });
+  it('sendGateFailureAction passes implRunsGraph through too', async () => {
+    setStage(store, id, 'ship', { status: 'pending', blockedKind: 'base-moved-failed', blockedReason: 'r: gate "unit" fails when merged with origin/develop abc - x', blockedAt: 'T0' });
+    const runId = openDeliverRun(store, { ticketId: id, headSha: 'abc', gates: ['unit'], pid: 1, now: 'T0', kind: 'base-moved' });
+    recordDeliverGate(store, runId, { gateName: 'unit', repo: 'r', exitCode: 1, summary: 'FAIL', startedAt: null, endedAt: null });
+    finishDeliverRun(store, runId, 'failed', 'T1');
+    const i = input({ implRunsGraph: () => true });
+    await sendGateFailureAction(i);
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    expect(i.handOff).not.toHaveBeenCalled();
   });
 });
 

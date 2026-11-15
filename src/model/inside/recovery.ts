@@ -78,6 +78,9 @@ export function triggerProse(round: RecoveryRound): string {
       // D159: a dismissed usage-limit park opens a recovery round; the cause is
       // the dismissal, named in curated prose rather than the raw park detail.
       return 'Usage limit dismissed';
+    case 'ci-failure':
+      // T1158: a CI round of a graph ticket enters fix at ship, not a send-back to Implement.
+      return 'CI failure';
     default:
       // A future trigger kind degrades to the recorded prose, never a blank.
       return collapseDiagnostic(round.triggerDetail, TRIGGER_DETAIL_MAX);

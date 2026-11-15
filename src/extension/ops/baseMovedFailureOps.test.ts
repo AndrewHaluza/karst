@@ -4,7 +4,7 @@ import { createTicket, getTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { openDeliverRun, recordDeliverGate, finishDeliverRun } from '../../store/deliverRuns.js';
 import { transition } from '../../workflow/machine.js';
-import { baseRefOf, sendGateFailureToAgent, type BaseMovedFailureOpsDeps } from './baseMovedFailureOps.js';
+import { baseRefOf, failureReason, sendGateFailureToAgent, type BaseMovedFailureOpsDeps } from './baseMovedFailureOps.js';
 
 let store: Store;
 let id: number;
@@ -86,5 +86,45 @@ describe('baseRefOf', () => {
   it('reads the base from the reason', () => {
     expect(baseRefOf(REASON)).toBe('develop');
     expect(baseRefOf('nothing')).toBeNull();
+  });
+});
+
+describe('sendGateFailureToAgent on a graph ticket (T1158)', () => {
+  it('enters a fix round at ship, names three steps and no impl marker, and hands nothing to an impl session', async () => {
+    seed({ block: true, run: 'failed' });
+    const d = deps({ implRunsGraph: () => true });
+    await sendGateFailureToAgent(d);
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship?.status).toBe('failed');
+    expect(ship?.artifactPath).toContain('/art/base-moved-failure-');
+    expect(ship?.verdict).toContain('3. Re-record every baseline');
+    expect(ship?.verdict?.split('\n').at(-1)).toBe('3. Re-record every baseline that the merge changed.');
+    expect(d.confirm).toHaveBeenCalledWith(
+      'This writes the failed gate excerpts and moves the ticket to Fix; UAT and Review will run again. The pull requests stay open.',
+    );
+    expect(d.handOff).not.toHaveBeenCalled();
+    expect(d.drive).toHaveBeenCalledOnce();
+    expect(d.info).toHaveBeenCalledWith('Gate failure sent to a fix session; ticket moved to Fix from ship.');
+  });
+  it('a ticket whose impl runs no graph keeps the four steps and the send-back', async () => {
+    seed({ block: true, run: 'failed' });
+    const d = deps({ implRunsGraph: () => false });
+    await sendGateFailureToAgent(d);
+    expect(getTicket(store, id).stageCurrent).toBe('impl');
+    expect(d.confirm).toHaveBeenCalledWith(
+      'This writes the failed gate excerpts and moves the ticket back to Implement; UAT and Review will run again. The pull requests stay open.',
+    );
+    expect((d.handOff as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toContain('4. Call the karst MCP tool `stage` with { stage: "impl" }.');
+  });
+});
+
+describe('failureReason route (T1158)', () => {
+  const f = { run: {} as never, reason: 'r: gate "lint" fails when merged with origin/develop abc - x', failed: [] };
+  it('keeps the impl marker step by default', () => {
+    expect(failureReason(f, '/p').split('\n').at(-1)).toBe('4. Call the karst MCP tool `stage` with { stage: "impl" }.');
+  });
+  it('drops the impl marker step for a fix round', () => {
+    expect(failureReason(f, '/p', false).split('\n').at(-1)).toBe('3. Re-record every baseline that the merge changed.');
   });
 });

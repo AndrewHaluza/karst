@@ -361,10 +361,10 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
   source_stage TEXT NOT NULL CHECK (source_stage IN ('uat','review','ship')),
-  source_process_id TEXT NOT NULL,  -- 'gates' | 'tester' | 'review' | 'pr-review' (closed)
+  source_process_id TEXT NOT NULL,  -- 'gates' | 'tester' | 'review' | 'pr-review' | 'ci' (closed)
   source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
   source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
-  trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-tester-observations' | 'blocking-review-findings' | 'upstream-changes-requested' | 'usage-limit-dismissed' (closed)
+  trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-tester-observations' | 'blocking-review-findings' | 'upstream-changes-requested' | 'usage-limit-dismissed' | 'ci-failure' (closed)
   trigger_detail TEXT NOT NULL, -- the causal detail captured at failure time
   episode INTEGER NOT NULL DEFAULT 1,
   round INTEGER NOT NULL,

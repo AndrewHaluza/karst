@@ -51,6 +51,8 @@ export interface CiActionsInput {
   readonly debug: (message: string) => void;
   readonly drive: () => void;
   readonly handOff: (prompt: string) => string | null;
+  /** The impl stage of this ticket runs a graph (T1158): a CI or gate round enters fix at ship, not Implement. */
+  readonly implRunsGraph?: () => boolean;
   readonly deliver: DeliverHost;
   readonly afterServerChange: () => void;
   /** Retake the ticket's gate snapshot after a successful rebase on base (@arch:GATE-SNAPSHOT). */
@@ -68,7 +70,7 @@ export function runShellCommand(cwd: string, command: string): Promise<{ code: n
 }
 
 /** The host-specific half of `CiActionsInput` (everything `extension.ts` binds to vscode, gh, git and the sandbox). */
-export type CiHost = Pick<CiActionsInput, 'gh' | 'git' | 'artifactDir' | 'sandbox' | 'reprobe' | 'confirm' | 'info' | 'error' | 'deliver' | 'handOff' | 'retakeGateSnapshot'>;
+export type CiHost = Pick<CiActionsInput, 'gh' | 'git' | 'artifactDir' | 'sandbox' | 'reprobe' | 'confirm' | 'info' | 'error' | 'deliver' | 'handOff' | 'implRunsGraph' | 'retakeGateSnapshot'>;
 
 export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
   return sendCiFailureToAgent({
@@ -81,6 +83,7 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
     },
     confirm: (detail) => i.confirm('Send CI failure to the agent?', detail, 'Send to agent'),
     info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, handOff: i.handOff, afterServerChange: i.afterServerChange,
+    ...(i.implRunsGraph ? { implRunsGraph: i.implRunsGraph } : {}),
   });
 }
 
@@ -95,6 +98,7 @@ export function sendGateFailureAction(i: CiActionsInput): Promise<void> {
     },
     confirm: (detail) => i.confirm('Send gate failure to the agent?', detail, 'Send to agent'),
     info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, handOff: i.handOff, afterServerChange: i.afterServerChange,
+    ...(i.implRunsGraph ? { implRunsGraph: i.implRunsGraph } : {}),
   });
 }
 

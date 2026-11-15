@@ -181,11 +181,28 @@ describe('autofixBanner', () => {
     expect(JSON.stringify(b)).not.toMatch(/host/i);
   });
 
-  it('gives a permanent graph-ticket park no Retry, because a retry parks again', () => {
+  it('gives a sandboxed-ticket park ONE Retry and the sync diff', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix not run: sandboxed ticket' });
     expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry', icon: 'refresh', title: 'Retry the auto-fix' });
     expect(b?.secondary).toEqual({ act: 'sandbox-diff', label: 'Sync diff', icon: 'git-compare', title: 'Open the sandbox sync diff' });
-    expect(autofixBanner({ ...BASE, reason: 'auto-fix not run: graph ticket' })?.primary).toBeNull();
+  });
+
+  // T1158: the graph-ticket park holds only while a graph run is active; after the run closes a Retry reaches an agent.
+  it('gives a graph-ticket park a Retry and says to retry when the graph run closes', () => {
+    const b = autofixBanner({ ...BASE, reason: 'auto-fix not run: graph ticket' });
+    expect(b).toMatchObject({
+      state: 'paused',
+      title: 'Auto-fix paused',
+      titleSuffix: '',
+      cause: 'Auto-fix not run: graph ticket. An active graph run owns the sessions of this ticket. Retry when the run closes.',
+      primary: { act: 'autopilot-retry', label: 'Retry', icon: 'refresh', title: 'Retry the auto-fix' },
+      secondary: null,
+    });
+  });
+
+  it('keeps an unreadable-placement park permanent: no Retry', () => {
+    const b = autofixBanner({ ...BASE, reason: 'auto-fix not run: placement unknown' });
+    expect(b).toMatchObject({ cause: 'Auto-fix not run: placement unknown.', primary: null, secondary: null });
   });
 
   it('gives a pause that is not about the sandbox a Retry and no sandbox action', () => {

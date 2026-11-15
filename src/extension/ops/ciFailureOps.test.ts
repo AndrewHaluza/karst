@@ -4,7 +4,7 @@ import { createTicket, getTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { listInbox } from '../../store/ticketMessages.js';
-import { sendCiFailureToAgent, MAX_CI_LOG_BYTES, type CiFailureOpsDeps } from './ciFailureOps.js';
+import { sendCiFailureToAgent, takesFixRoute, MAX_CI_LOG_BYTES, type CiFailureOpsDeps } from './ciFailureOps.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 
 let store: Store;
@@ -263,5 +263,58 @@ describe('sendCiFailureToAgent', () => {
     expect(d.error).toHaveBeenCalledWith('disk full');
     expect(d.logError).toHaveBeenCalledWith('karst: send CI failure to agent failed', 'disk full');
     expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+});
+
+describe('sendCiFailureToAgent on a graph ticket (T1158)', () => {
+  it('enters a fix round at ship instead of Implement and hands nothing to an impl session', async () => {
+    seed([{ name: 'build', url: 'https://github.com/o/r/actions/runs/1/job/2' }]);
+    const { d } = deps({ implRunsGraph: () => true });
+    await sendCiFailureToAgent(d);
+    expect(getTicket(store, id).stageCurrent).toBe('fix');
+    const ship = getTicket(store, id).stages.find((s) => s.stageKey === 'ship');
+    expect(ship).toMatchObject({ status: 'failed', artifactPath: `/art/${id}/ci-failure-7.log` });
+    expect(ship?.verdict).toContain('CI failed on the pull request head');
+    expect(store.db.prepare("SELECT trigger_kind FROM recovery_rounds WHERE ticket_id = ?").get(id)).toEqual({ trigger_kind: 'ci-failure' });
+    expect(d.confirm).toHaveBeenCalledWith(
+      'This fetches the failing CI logs and moves the ticket to Fix; UAT and Review will run again. The pull requests stay open.',
+    );
+    expect(d.handOff).not.toHaveBeenCalled();
+    expect(d.drive).toHaveBeenCalledOnce();
+    expect(d.info).toHaveBeenCalledWith('CI failure sent to a fix session; ticket moved to Fix from ship.');
+    expect(store.db.prepare('SELECT checks FROM prs WHERE ticket_id = ?').get(id)).toEqual({ checks: null });
+    expect(d.afterServerChange).toHaveBeenCalledOnce();
+  });
+  it('a refused fix round is an error and moves nothing', async () => {
+    seed([{ name: 'build', url: null }]);
+    store.db.prepare(
+      `INSERT INTO recovery_rounds (ticket_id, source_stage, source_process_id, trigger_kind, trigger_detail, round, max_rounds, status, started_at)
+       VALUES (?, 'ship', 'ci', 'ci-failure', 'x', 1, 3, 'pending', 't')`,
+    ).run(id);
+    const { d } = deps({ implRunsGraph: () => true });
+    await sendCiFailureToAgent(d);
+    expect(d.error).toHaveBeenCalledWith(`ship fix round refused: ticket ${id} (round-active)`);
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+    expect(d.handOff).not.toHaveBeenCalled();
+    expect(d.drive).not.toHaveBeenCalled();
+  });
+  it('a ticket whose impl runs no graph keeps the send-back to Implement', async () => {
+    seed([{ name: 'build', url: null }]);
+    const { d } = deps({ implRunsGraph: () => false });
+    await sendCiFailureToAgent(d);
+    expect(getTicket(store, id).stageCurrent).toBe('impl');
+    expect(d.confirm).toHaveBeenCalledWith(
+      'This fetches the failing CI logs and moves the ticket back to Implement; UAT and Review will run again. The pull requests stay open.',
+    );
+    expect(d.handOff).toHaveBeenCalledOnce();
+  });
+});
+
+describe('takesFixRoute (T1158)', () => {
+  it('is true only at ship when the impl stage runs a graph', () => {
+    expect(takesFixRoute(() => true, 'ship')).toBe(true);
+    expect(takesFixRoute(() => true, 'review')).toBe(false);
+    expect(takesFixRoute(() => false, 'ship')).toBe(false);
+    expect(takesFixRoute(undefined, 'ship')).toBe(false);
   });
 });

@@ -226,6 +226,9 @@ describe('recoveryProcess', () => {
     expect(dismissed.process.detail).toBe(
       'Fix started after Usage limit dismissed',
     );
+    // T1158: a graph ticket's CI round enters fix at ship and reads as a CI failure.
+    const ci = recoveryProcess([round({ sourceStage: 'ship', triggerKind: 'ci-failure', triggerDetail: 'raw log head' })], [], NOW)!;
+    expect(ci.process.detail).toBe('Fix started after CI failure');
   });
 
   it('maps round states onto the process status vocabulary', () => {

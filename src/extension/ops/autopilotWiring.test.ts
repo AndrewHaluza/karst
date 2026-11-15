@@ -7,7 +7,7 @@ beforeEach(() => { vi.mocked(sendCiFailureAction).mockReset(); });
 
 
 import { upsertProject } from '../../store/projects.js';
-import { openStore } from '../../store/db.js';
+import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
@@ -60,16 +60,32 @@ describe('autopilotSweep', () => {
     sendConflict: vi.fn(async () => ({ kind: 'sent' }) as const), conflictRoundActive: () => false, conflictRoundStalled: () => false, dropConflictRound: () => {}, ...over,
   });
 
-  it('a ticket with an implementation graph run parks and is not sent a round', async () => {
+  const graphRun = (store: Store, id: number, status: string): void => {
+    store.db.prepare("UPDATE tickets SET approach = 'a' WHERE id = ?").run(id);
+    store.db.prepare("INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at) VALUES (?, 'impl', 1, 'a', ?, 'x')").run(id, status);
+  };
+  const sweepOnce = (store: Store, projectId: number, s: TicketSeams) => autopilotSweep({
+    store, projectId: () => projectId, manifest: () => ({ autopilot: cfg }) as never,
+    caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed: () => {},
+  });
+
+  // T1158: the gate reads the ACTIVE-run surface (`nudgeSurface`), not "any graph run row" (`graphRunIdsForTicket`).
+  it('a ticket whose graph run is active parks and is not sent a round', async () => {
     const { store, projectId, id } = shipTicket();
-    store.db.prepare("INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at) VALUES (?, 'impl', 1, 'a', 'closed', 'x')").run(id);
+    graphRun(store, id, 'running');
     const s = seams();
-    await autopilotSweep({
-      store, projectId: () => projectId, manifest: () => ({ autopilot: cfg }) as never,
-      caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed: () => {},
-    });
+    await sweepOnce(store, projectId, s);
     expect(s.sendCi).not.toHaveBeenCalled();
     expect((store.db.prepare('SELECT title FROM bulletin_notes').get() as { title: string }).title).toBe('Autopilot: auto-fix not run: graph ticket');
+  });
+
+  it('a graph ticket whose graph runs are all closed gets the CI round', async () => {
+    const { store, projectId, id } = shipTicket();
+    graphRun(store, id, 'closed');
+    const s = seams();
+    await sweepOnce(store, projectId, s);
+    expect(s.sendCi).toHaveBeenCalledOnce();
+    expect((store.db.prepare('SELECT title FROM bulletin_notes').get() as { title: string }).title).not.toContain('graph ticket');
   });
 
   it('arms a CI round for a ship ticket and writes a bulletin note', async () => {
