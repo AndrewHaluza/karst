@@ -139,6 +139,9 @@
 #inside .attempt-tab-tail{color:var(--p-muted);font-weight:normal}
 /* The attemptNote banner: host-authored prose only (UI-R31 — the webview
    composes no copy of its own), the selected round's caption, one line under the tabs. */
+#inside .inside-now{padding:var(--p-s2) var(--p-s4);color:var(--p-muted);overflow-wrap:anywhere;white-space:normal}
+#inside .inside-now p{margin:0}
+#inside .inside-now p:first-child{color:var(--p-running)}
 #inside .attempt-note{padding:var(--p-s2) var(--p-s4);color:var(--p-attention);
   font-size:var(--p-sm);border-bottom:var(--k-border-w) solid var(--p-border);
   background:var(--p-tint-wait);white-space:normal;overflow-wrap:anywhere}

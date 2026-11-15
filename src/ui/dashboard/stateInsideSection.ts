@@ -16,7 +16,7 @@ import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../../model/stepper.js';
 import type { StageKey } from '../../model/types.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
-import type { TypedInsideAction, InsideEvidenceTarget } from '../../model/inside/types.js';
+import type { TypedInsideAction, InsideEvidenceTarget, InsideNowView } from '../../model/inside/types.js';
 import type { RoundWithDelivery } from '../../model/inside/recovery.js';
 import { buildTokensFor, readSegmentTokens, readShipFindings, serviceStatusViews, type readEvidence } from './stateEvidence.js';
 import { buildGateSwitches } from './stateGates.js';
@@ -50,6 +50,10 @@ export interface InsideSectionInput {
   deliver?: DeliverRowInput | null;
   /** An open PR's CI is not green (the Merge row's 'waits on CI'). */
   ciOpen?: boolean;
+  /** Only pending CI blocks (T1140). */
+  ciWaiting?: boolean;
+  /** The ship header's Now line, or absent (T1140). */
+  ciNow?: InsideNowView | undefined;
   displayBlocking?: {
     review?: Severity | 'none';
     tester?: Severity | 'none';
@@ -66,7 +70,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
   const {
     ticket, stepper, currentStage, rounds, worktrees, prs, mergeChecks, now, evidence, cellOf, attach,
     assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
-    findingsBlockingSeverity, displayBlocking, autofix, deliver, ciOpen, liveRunUsage,
+    findingsBlockingSeverity, displayBlocking, autofix, deliver, ciOpen, ciWaiting, ciNow, liveRunUsage,
   } = input;
   const { marks, gateRuns, hostRerunRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
   const tokensFor = buildTokensFor(store, ticket.id);
@@ -167,6 +171,8 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     autofix,
     deliver,
     ciOpen,
+    ciWaiting,
+    ciNow,
     reviewBlockingSeverity: displayBlocking?.review,
     testerBlockingSeverity: displayBlocking?.tester,
     reviewStallDetection: displayBlocking?.reviewStall,

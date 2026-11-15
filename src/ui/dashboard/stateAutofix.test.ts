@@ -120,6 +120,16 @@ describe('readAutofix', () => {
     expect(readAutofix(store, id, CONFIG).ciOpen).toBe(true);
   });
 
+  it('reports CI as waiting only when every open PR has readable, pending-only checks (T1140)', () => {
+    const { store, id } = setup();
+    expect(readAutofix(store, id, CONFIG).ciWaiting).toBe(false);
+    const put = (repo: string, n: number, checks: unknown) => store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, ?, ?, ?, 'open', ?)").run(id, repo, n, `https://x/${n}`, JSON.stringify(checks));
+    put('api', 88, { state: 'pending', total: 4, passed: 3, failed: 0, pending: 1, failing: [], failedShown: 0 });
+    expect(readAutofix(store, id, CONFIG).ciWaiting).toBe(true);
+    put('web', 89, { state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 });
+    expect(readAutofix(store, id, CONFIG).ciWaiting).toBe(false);
+  });
+
   it('picks the spent budget of the kind the park names, not the first spent budget', () => {
     const { store, id } = setup();
     for (let i = 0; i < 2; i += 1) takeAutopilotAttempt(store, id, 'web', 'conflicts', 'b', 2);

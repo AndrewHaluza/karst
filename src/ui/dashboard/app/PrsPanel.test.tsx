@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent } from '@testing-library/react';
 import type { Reason } from '../../../model/prMergeReadiness.js';
 import type { DashboardState } from '../state.js';
-import { blockedBy, failing, installRuntimeDoubles, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
+import { blockedBy, waitsOnChecks, failing, installRuntimeDoubles, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
 
 installRuntimeDoubles();
 
@@ -105,6 +105,16 @@ describe('PrsPanel — the PR line', () => {
     mount(stateWith([pr({ status: '' })]));
     expect(document.querySelector('.pst')!.className).toBe('k-chip pst pst-unknown');
     expect(text('.pst')).toBe('');
+  });
+
+  it('chips a pending-only wait as "waits on N checks", not as a blocked count (T1140)', () => {
+    mount(stateWith([pr({ readiness: waitsOnChecks(3) })]));
+    expect(text('.pwait')).toBe('waits on 3 checks');
+    expect(document.querySelector('.pblock')).toBeNull();
+    expect(text('.prblock-head b')).toBe('Merge waits on checks');
+    cleanup();
+    mount(stateWith([pr({ readiness: waitsOnChecks(1) })]));
+    expect(text('.pwait')).toBe('waits on 1 check');
   });
 
   it('chips the CI rollup and the blocked-reason count with their tooltips, only while the PR is live', () => {

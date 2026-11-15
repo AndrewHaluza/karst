@@ -49,6 +49,8 @@ export interface Reason {
   readonly why?: string;
   /** The disclosure summary for `why`/`list`. */
   readonly disclosure?: string;
+  /** How many checks the reason counts (the pending checks of a "Checks running" wait). */
+  readonly count?: number;
 }
 
 export interface PrMergeReadiness {
@@ -162,6 +164,9 @@ function autofixFor(
   };
 }
 
+/** The label of a reason that only waits on pending checks (no failure, no Auto-fix round). */
+export const CHECKS_RUNNING_LABEL = 'Checks running';
+
 function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: AutofixInput): Reason | null {
   const c = pr.checks;
   if (c === null || c.state === 'none' || c.state === 'unknown') return null;
@@ -205,9 +210,10 @@ function checksReason(pr: ReadinessPr, offers: ReadinessOffers, autofix: Autofix
     return {
       kind: 'checks',
       state: 'run',
-      label: 'Checks running',
+      label: CHECKS_RUNNING_LABEL,
       short: `checks running · ${c.pending}`,
       detail: `${c.pending} of ${c.total} pending`,
+      count: c.pending,
       ...(waits ? { extra: waits } : {}),
     };
   }
@@ -259,6 +265,12 @@ const isBad = (r: Reason): boolean => r.state === 'bad' || r.state === 'warn';
 
 /** A reason that counts toward the blocking count: not a passed check and not a non-blocking note. */
 export const isBlocking = (r: Reason): boolean => r.state !== 'ok' && r.state !== 'note';
+
+/** The PR waits on pending checks alone: GitHub CI works, nothing needs the user (T1140). */
+export function waitsOnChecksOnly(reasons: readonly Reason[]): boolean {
+  const blocking = reasons.filter(isBlocking);
+  return blocking.length > 0 && blocking.every((r) => r.kind === 'checks' && r.state === 'run' && r.label === CHECKS_RUNNING_LABEL);
+}
 
 /** Why this pull request can or cannot merge — see the module comment. */
 export function prMergeReadiness(
@@ -341,7 +353,7 @@ export function prMergeReadiness(
   // ok-state reasons are shown only beside a problem; a lone "Checks passed" explains nothing.
   return {
     ready: false,
-    headline: 'Merge blocked',
+    headline: waitsOnChecksOnly(reasons) ? 'Merge waits on checks' : 'Merge blocked',
     facts: '',
     reasons: problem ? reasons : notes,
   };
