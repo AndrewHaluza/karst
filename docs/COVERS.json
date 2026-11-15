@@ -14,6 +14,9 @@
   "scripts/archSchema.ts": [
     "arch:MAP-00"
   ],
+  "scripts/containerWatch.mjs#watchContainer": [
+    "arch:GATE-CONCURRENCY"
+  ],
   "scripts/dockerGate.mjs": [
     "arch:GATE-CAPABILITY",
     "arch:GATE-REPEAT"

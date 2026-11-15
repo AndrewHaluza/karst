@@ -5,7 +5,8 @@
 // reclaimed. The folder is a fixed path, so the extension host and an agent
 // shell share one pool (macOS tmpdir() differs between them).
 
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pidAlive } from './playwrightSlot.mjs';
@@ -16,6 +17,10 @@ export const LEASE_HELD_ENV = 'KARST_GATE_LEASE_HELD';
 export const SLOTS_DIR_ENV = 'KARST_GATE_SLOTS_DIR';
 export const GATE_POLL_MS = 2_000;
 const NO_OWNER_STALE_MS = 60_000;
+/** Heartbeat period of a held lease. Keep in step with src/runtime/claimLease.ts (arch:GATE-CONCURRENCY). */
+export const CLAIM_HEARTBEAT_MS = 30_000;
+/** A claim whose `heartbeat` file is older than this is stale, even when the owner pid is alive. Keep in step with src/runtime/claimLease.ts. */
+export const CLAIM_HEARTBEAT_STALE_MS = 5 * 60_000;
 
 export const defaultGateSlotsDir = (env = process.env) => env[SLOTS_DIR_ENV] || join(homedir(), '.karst', 'gate-slots');
 
@@ -32,7 +37,25 @@ const readOwner = (path) => {
   }
 };
 
-function isStale(path, alive) {
+/** A stale heartbeat counts only when the same mtime stays stale for one heartbeat period on this waiter's monotonic clock (host sleep jumps the wall clock). Keep in step with src/runtime/claimLease.ts. */
+function heartbeatConfirmed(suspects, path, mtimeMs, heartbeatMs) {
+  const seen = suspects.get(path);
+  if (seen === undefined || seen.mtimeMs !== mtimeMs) {
+    suspects.set(path, { mtimeMs, at: performance.now() });
+    return false;
+  }
+  return performance.now() - seen.at >= heartbeatMs;
+}
+
+function isStale(path, alive, staleMs, suspects, heartbeatMs) {
+  try {
+    const mtimeMs = statSync(join(path, 'heartbeat')).mtimeMs;
+    if (Date.now() - mtimeMs > staleMs) {
+      if (heartbeatConfirmed(suspects, path, mtimeMs, heartbeatMs)) return true;
+    } else {
+      suspects.delete(path);
+    }
+  } catch { /* no heartbeat file: a claim of older code, old rules only */ }
   const pid = readOwner(path);
   if (pid !== null) return !alive(pid);
   try {
@@ -42,7 +65,7 @@ function isStale(path, alive) {
   }
 }
 
-function claim(path, ticket) {
+function claim(path, ticket, token) {
   try {
     mkdirSync(path);
   } catch (error) {
@@ -50,14 +73,16 @@ function claim(path, ticket) {
     throw error;
   }
   writeFileSync(join(path, 'owner'), String(process.pid));
+  writeFileSync(join(path, 'token'), token);
+  writeFileSync(join(path, 'heartbeat'), '');
   if (ticket) writeFileSync(join(path, 'ticket'), ticket);
   return true;
 }
 
-function tryClaim(dir, slot, alive, ticket) {
+function tryClaim(dir, slot, alive, ticket, staleMs, token, suspects, heartbeatMs) {
   const path = join(dir, `slot-${slot}`);
-  if (claim(path, ticket)) return true;
-  if (!isStale(path, alive)) return false;
+  if (claim(path, ticket, token)) return true;
+  if (!isStale(path, alive, staleMs, suspects, heartbeatMs)) return false;
   // Serialise the reclaim: a short mutex dir, as in claimLease.ts.
   const lock = join(dir, 'reclaim.lock');
   try {
@@ -70,9 +95,9 @@ function tryClaim(dir, slot, alive, ticket) {
     return false;
   }
   try {
-    if (!isStale(path, alive)) return false;
+    if (!isStale(path, alive, staleMs, suspects, heartbeatMs)) return false;
     rmSync(path, { recursive: true, force: true });
-    return claim(path, ticket);
+    return claim(path, ticket, token);
   } finally {
     rmSync(lock, { recursive: true, force: true });
   }
@@ -96,21 +121,43 @@ function holderOf(dir, slots) {
  * Lease one of `slots` slots of the gate pool. `onWait({pid, ticket})` fires once when all are held.
  * Rejects with "aborted" when the signal fires. `release()` is idempotent and synchronous, so an exit handler can call it.
  */
-export async function acquireGateSlot(gate, { dir = defaultGateSlotsDir(), slots = 1, pollMs = GATE_POLL_MS, signal, alive = pidAlive, onWait, ticket } = {}) {
+export async function acquireGateSlot(gate, { dir = defaultGateSlotsDir(), slots = 1, pollMs = GATE_POLL_MS, signal, alive = pidAlive, onWait, ticket, heartbeatMs = CLAIM_HEARTBEAT_MS, heartbeatStaleMs = CLAIM_HEARTBEAT_STALE_MS } = {}) {
   const pool = join(dir, gatePoolName(gate));
   mkdirSync(pool, { recursive: true });
+  const token = randomUUID();
+  const suspects = new Map();
   let waited = false;
   for (;;) {
     if (signal?.aborted) throw new Error('gate lease aborted');
     for (let slot = 0; slot < slots; slot++) {
-      if (!tryClaim(pool, slot, alive, ticket)) continue;
+      if (!tryClaim(pool, slot, alive, ticket, heartbeatStaleMs, token, suspects, heartbeatMs)) continue;
+      const path = join(pool, `slot-${slot}`);
+      const ownsClaim = () => {
+        try {
+          return readFileSync(join(path, 'token'), 'utf8').trim() === token;
+        } catch {
+          return false;
+        }
+      };
+      const timer = setInterval(() => {
+        if (!ownsClaim()) return clearInterval(timer);
+        try {
+          const now = new Date();
+          utimesSync(join(path, 'heartbeat'), now, now);
+        } catch {
+          clearInterval(timer);
+        }
+      }, heartbeatMs);
+      timer.unref();
       let released = false;
       return {
         slot,
         release: () => {
           if (released) return;
           released = true;
-          rmSync(join(pool, `slot-${slot}`), { recursive: true, force: true });
+          clearInterval(timer);
+          // Delete only the claim this lease made; a reclaimed slot belongs to its new holder.
+          if (ownsClaim()) rmSync(path, { recursive: true, force: true });
         },
       };
     }

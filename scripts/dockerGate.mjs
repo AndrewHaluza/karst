@@ -25,6 +25,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { baseRerunArgv, classifyFailures, classifyHeadRerun, failedTests, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
+import { EXIT_DOCKER_HUNG, RM_TIMEOUT_MS, GRACE_IMAGE_MISSING_MS, GRACE_IMAGE_PRESENT_MS, imageOf, imagePresent, watchContainer } from './containerWatch.mjs';
 import { hasBinary } from './onPath.mjs';
 import { formatTiming, phaseClock } from './gateTiming.mjs';
 import { dockerCpus, gateWorkers, workersLine } from './gateWorkers.mjs';
@@ -457,16 +458,41 @@ async function runContainer(rawArgv, memo = null, clock = phaseClock()) {
   const results = join(process.cwd(), RESULTS_REL);
   rmSync(results, { force: true });
   // Async spawn: spawnSync would block the signal handlers above until docker exits.
-  const run = (dockerArgs, env = process.env) =>
-    new Promise((resolve) => {
+  const run = async (dockerArgs, env = process.env) => {
+    const nameAt = dockerArgs.indexOf('--name');
+    const containerName = nameAt === -1 ? null : dockerArgs[nameAt + 1];
+    const graceMs = (await imagePresent(imageOf(dockerArgs))) ? GRACE_IMAGE_PRESENT_MS : GRACE_IMAGE_MISSING_MS;
+    return new Promise((resolve) => {
       const child = spawn('docker', dockerArgs, { stdio: 'inherit', env });
+      let hung = false;
+      const watch =
+        containerName === null || containerName === undefined
+          ? { stop: () => {} }
+          : watchContainer({
+              name: containerName,
+              graceMs,
+              onHung: ({ name: hungName, waitedMs }) => {
+                console.error(
+                  `visual: docker run has no container "${hungName}" after ${Math.round(waitedMs / 1000)} s; the docker client is stuck. Stopping it (exit ${EXIT_DOCKER_HUNG}).`,
+                );
+                hung = true;
+                child.kill('SIGKILL');
+                // Async with a timeout: the gate must not block its event loop on a stuck docker daemon.
+                spawn('docker', ['rm', '-f', hungName], { stdio: 'ignore', timeout: RM_TIMEOUT_MS }).on('error', () => {});
+              },
+            });
       child.on('error', (error) => {
+        watch.stop();
         cleanup();
         console.error(`docker could not start: ${error.message}`);
         process.exit(EXIT_COMMAND_NOT_FOUND);
       });
-      child.on('close', (status) => resolve(status ?? 1));
+      child.on('close', (status) => {
+        watch.stop();
+        resolve(hung ? EXIT_DOCKER_HUNG : (status ?? 1));
+      });
     });
+  };
   let status = await run(args, await sweepEnv(dockerArgs));
   clock.lap('sweep');
   storeRun(memo, status, status === 0 ? null : readReport(results));
