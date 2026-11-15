@@ -5,6 +5,9 @@ import { getStage } from '../../store/stages.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
+import { mergeHeadFactsByRepo } from '../../store/mergeHeads.js';
+import { isLocalHeadUnpushed } from '../../model/inside/deliver.js';
+import type { ResumeOutcome } from './conflictResumeOps.js';
 import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
@@ -77,6 +80,13 @@ export interface AutopilotDeps {
   /** True when a conflict round is armed but never delivered; the engine drops it with a note. */
   readonly conflictRoundStalled: () => boolean;
   readonly dropConflictRound: () => void;
+  /**
+   * Delivers a merge that is finished in the worktree but not pushed, with no new round (@arch:AP-01). `fromRound`: the store
+   * holds a conflict round slot. Absent: no resume. It re-arms the round from the store and starts the auto-deliver.
+   */
+  readonly resumeDeliver?: (fromRound: boolean) => Promise<ResumeOutcome>;
+  /** The local HEAD of the repo's worktree, or null. A stored conflict of another head is stale and starts no round. */
+  readonly localHead?: (repo: string) => Promise<string | null>;
   /** gh seams of the one re-run of a transient CI failure (T1019). Absent: no re-run, today's rules apply. */
   readonly transientCi?: TransientCiSeams;
   /** Host seams of the one rebase for a stale generated file (T1081, @arch:AP-05). Absent: today's rules apply. */
@@ -238,7 +248,13 @@ function provenClean(d: AutopilotDeps): boolean {
     .prepare("SELECT repo, checks FROM prs WHERE ticket_id = ? AND status = 'open' AND url IS NOT NULL AND dismissed_at IS NULL")
     .all(d.ticketId) as Array<{ repo: string; checks: string | null }>;
   const ci = new Map(rows.map((r) => [r.repo, ciPasses(parseChecks(r.checks))]));
-  return open.every((repo) => merge.get(repo) === 'clean' && ci.get(repo) === true);
+  // A clean check of a merge that exists only locally is not proof: GitHub still holds the old head (@arch:GH-03, T1160).
+  const heads = mergeHeadFactsByRepo(d.store, d.ticketId);
+  const onGitHub = (repo: string): boolean => {
+    const facts = heads.get(repo);
+    return !isLocalHeadUnpushed(facts) && facts?.mergeBlock !== 'dirty';
+  };
+  return open.every((repo) => merge.get(repo) === 'clean' && ci.get(repo) === true && onGitHub(repo));
 }
 
 /** One autopilot pass over a ship-stage ticket. Safe to call every tick: it acts at most once per signature attempt. */
@@ -266,6 +282,9 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   // probed again, so no time cooldown can tell a round in progress from a new one: read the round state itself.
   // A round armed for a long time, with no agent and no delivery running, never delivered (the agent left the merge
   // unfinished or a gate failed). Drop it with a note: the budget then bounds the next attempt.
+  // A reload kills the round in memory but not its slot in the store: a finished local merge is delivered with no new round.
+  const resumed = await resumeStep(d);
+  if (resumed !== null) return resumed;
   // Only a round the engine sent can stall: the round of a manual Resolve conflicts click is not ours to drop.
   if (getConflictRoundAt(d.store, d.ticketId) !== null && d.conflictRoundStalled()) {
     d.dropConflictRound();
@@ -279,6 +298,31 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     return { kind: 'busy' };
   }
   return guardedRound(d, () => runRound(d, cfg, state));
+}
+
+/**
+ * A reload left no round in memory (@arch:AP-01). Without a slot in the store, a finished local merge is delivered all the
+ * same (a hand merge). With a slot, a merge that is not finished means the round never delivered: park, the park stays.
+ */
+async function resumeStep(d: AutopilotDeps): Promise<AutopilotResult | null> {
+  if (!d.resumeDeliver || d.conflictRoundActive()) return null;
+  const fromRound = getConflictRoundAt(d.store, d.ticketId) !== null;
+  const outcome = await d.resumeDeliver(fromRound);
+  if (outcome === 'started') {
+    const what = fromRound ? 'resumed the auto-deliver after a reload' : 'delivers a finished local merge';
+    d.note(`Autopilot: ${what}`, `${d.key}: the resolved merge is finished in the worktree but not pushed. Karst runs the gates and pushes it. No new round and no attempt was used.`);
+    d.debug(`${LOG} ticket ${d.key}: ${what}; no new conflict round`);
+    return { kind: 'busy' };
+  }
+  // An unknown PR head blocks nothing else: no stored CI rollup exists after a round, so the CI path waits by itself.
+  if (outcome === 'wait') return null;
+  if (fromRound) {
+    d.dropConflictRound();
+    clearConflictRound(d.store, d.ticketId);
+    d.debug(`${LOG} ticket ${d.key}: the conflict round did not survive the reload and its merge is not finished; it is dropped`);
+    return park(d, 'conflicts', STALLED_REASON, 'a window reload ended the round and the merge is not finished. Approve one more attempt or resolve the conflict by hand.');
+  }
+  return null;
 }
 
 /** One round per ticket at a time in this process. */
@@ -342,7 +386,9 @@ async function runBaseMovedRound(d: AutopilotDeps, cfg: AutopilotConfig): Promis
 
 async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnType<typeof getAutopilotTicket>): Promise<AutopilotResult> {
   // A conflict comes first: the CI result of a conflicted PR belongs to a head that is about to change.
-  const conflicted = conflictedPrs(d);
+  const { fresh: conflicted, stale: staleRows } = await conflictedPrs(d);
+  // GitHub may still show the PR as conflicted: the CI path must not run on that head either, so wait for the next probe.
+  if (conflicted.length === 0 && staleRows > 0) return { kind: 'nothing' };
   if (conflicted.length > 0) {
     const round = await runConflictRound(d, cfg, conflicted);
     // Policy ask or an unknown base head starts no round: that conflict stays a click and must not block the CI path.
@@ -604,12 +650,22 @@ export function roundDied(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 
 interface ConflictedPr { readonly repo: string; readonly baseSha: string | null }
 
 /** Open PRs whose stored merge check says conflicted, in repo order. A closed or merged PR is never fixed. */
-function conflictedPrs(d: AutopilotDeps): ConflictedPr[] {
+async function conflictedPrs(d: AutopilotDeps): Promise<{ readonly fresh: ConflictedPr[]; readonly stale: number }> {
   const open = openPrRepos(d.store, d.ticketId);
-  return listMergeChecksByTicket(d.store, d.ticketId)
-    .filter((c) => c.state === 'conflicted' && open.has(c.repo))
-    .map((c) => ({ repo: c.repo, baseSha: c.baseSha }))
-    .sort((a, b) => a.repo.localeCompare(b.repo));
+  const rows = listMergeChecksByTicket(d.store, d.ticketId).filter((c) => c.state === 'conflicted' && open.has(c.repo));
+  const fresh: ConflictedPr[] = [];
+  let stale = 0;
+  for (const c of rows) {
+    // A row of another head than the local one is from before a merge commit (a reload): wait for the next probe (@arch:AP-01).
+    const local = c.headSha !== null && d.localHead ? await d.localHead(c.repo).catch(() => null) : null;
+    if (local !== null && local !== c.headSha) {
+      d.debug(`${LOG} ticket ${d.key}: the conflict row of ${c.repo} is for an older head; no round until the next probe`);
+      stale += 1;
+      continue;
+    }
+    fresh.push({ repo: c.repo, baseSha: c.baseSha });
+  }
+  return { fresh: fresh.sort((a, b) => a.repo.localeCompare(b.repo)), stale };
 }
 
 /**

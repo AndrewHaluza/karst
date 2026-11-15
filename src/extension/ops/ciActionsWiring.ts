@@ -194,7 +194,7 @@ export async function headShaOf(i: Pick<CiActionsInput, 'git'>, cwd: string): Pr
   return r.exitCode === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
 }
 
-const gitFor = (i: Pick<CiActionsInput, 'git'>) => async (cwd: string, args: readonly string[]) => {
+export const gitFor = (i: Pick<CiActionsInput, 'git'>) => async (cwd: string, args: readonly string[]) => {
   const r = await i.git([...args], cwd);
   return { code: r.exitCode, stdout: r.stdout };
 };
