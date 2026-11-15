@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { MAX_SUBTASK_DEPTH } from '../../../workflow/stages/subtask.js';
 import { FACETS } from '../facets.js';
 import { sidebarRenderFixtures } from '../renderFixtures.js';
-import type { TicketRow } from '../state.js';
-import { FACET_META, MAX_SUBTASK_INDENT, allRows, findRow, metaLine, relTime, visibleRows } from './format.js';
+import type { QueueRowView, SidebarState, TicketRow } from '../state.js';
+import { EMPTY_STATE, FACET_META, MAX_SUBTASK_INDENT, allRows, findRow, metaLine, relTime, visibleRows, withStateDefaults } from './format.js';
 
 const fixtures = sidebarRenderFixtures();
 const baseRow = fixtures.find((f) => f.scenario === 'all-sections')!.state.sections.current[0]!;
@@ -76,5 +76,42 @@ describe('findRow', () => {
     expect(findRow(s, -1)).toBeNull();
     const done = fixtures.find((f) => f.scenario === 'done-facet')!.state;
     expect(findRow(done, done.done[0]!.ticketId)).toBe(done.done[0]);
+  });
+});
+
+describe('withStateDefaults', () => {
+  const queueFixture = (): SidebarState => sidebarRenderFixtures().find((f) => f.scenario === 'queue')!.state;
+
+  it('returns the empty state when there is no snapshot', () => {
+    expect(withStateDefaults(undefined)).toBe(EMPTY_STATE);
+  });
+
+  it('keeps a current state unchanged in value', () => {
+    const state = queueFixture();
+    expect(withStateDefaults(state)).toEqual(state);
+  });
+
+  it('fills every row field an older snapshot does not have, and keeps the identity', () => {
+    const old = { position: 1, kind: 'draft', id: 7, idLabel: 'D7', title: 'Old row' } as unknown as QueueRowView;
+    const state = { ...queueFixture(), queue: { rows: [old], drafts: 1, sessions: 1, tickets: 0 } };
+    const row = withStateDefaults(state).queue.rows[0]!;
+    expect(row).toMatchObject({ position: 1, kind: 'draft', id: 7, idLabel: 'D7', title: 'Old row' });
+    expect(row).toMatchObject({ sessionLabel: null, sessionTitle: null, level: 'normal', inheritedFrom: null, cycle: false, why: '', whyKind: 'none' });
+    expect(row).toMatchObject({ waitsOn: [], unblocks: [], waitsOnRefs: [], inheritedRef: null, cycleRef: null });
+    expect(row).toMatchObject({ ownLevel: null, prioritySource: null, providerPriority: null, providerLabel: null });
+  });
+
+  it('fills a missing queue and a queue with no row list', () => {
+    const noQueue = { ...queueFixture(), queue: undefined } as unknown as SidebarState;
+    expect(withStateDefaults(noQueue).queue).toEqual(EMPTY_STATE.queue);
+    const noRows = { ...queueFixture(), queue: { drafts: 2 } } as unknown as SidebarState;
+    expect(withStateDefaults(noRows).queue).toEqual({ ...EMPTY_STATE.queue, drafts: 2 });
+  });
+
+  it('does not change the snapshot it receives', () => {
+    const old = { position: 1, kind: 'ticket', id: 3, idLabel: 'T3', title: 'x' } as unknown as QueueRowView;
+    const state = { ...queueFixture(), queue: { rows: [old], drafts: 0, sessions: 0, tickets: 1 } };
+    withStateDefaults(state);
+    expect(old).not.toHaveProperty('unblocks');
   });
 });

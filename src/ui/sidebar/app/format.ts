@@ -4,7 +4,7 @@
  * DOM — unit-testable on their own.
  */
 import type { FacetKey } from '../facets.js';
-import type { SidebarState, TicketRow } from '../state.js';
+import type { QueueRowView, SidebarState, TicketRow } from '../state.js';
 
 /**
  * The deepest indent painted, mirroring `MAX_SUBTASK_INDENT` in
@@ -51,6 +51,45 @@ export const EMPTY_STATE: SidebarState = {
   planning: [],
   unlinkedCloudSessions: [],
 };
+
+/** The fields every Queue row has had since the pane shipped; a snapshot always carries them. */
+type QueueRowIdentity = 'position' | 'kind' | 'id' | 'idLabel' | 'title';
+
+/**
+ * A value for every other Queue row field. The type names every field outside the
+ * identity, so a new field fails typecheck here until it has a default.
+ */
+const QUEUE_ROW_DEFAULTS: Omit<QueueRowView, QueueRowIdentity> = {
+  sessionLabel: null,
+  sessionTitle: null,
+  level: 'normal',
+  inheritedFrom: null,
+  waitsOn: [],
+  unblocks: [],
+  waitsOnRefs: [],
+  inheritedRef: null,
+  cycleRef: null,
+  cycle: false,
+  why: '',
+  whyKind: 'none',
+  ownLevel: null,
+  prioritySource: null,
+  providerPriority: null,
+  providerLabel: null,
+};
+
+/**
+ * Fill the fields a snapshot from an older build does not have. The webview
+ * restores its last snapshot on load, and one missing field the view reads
+ * throws in render and blanks the whole sidebar (#1126, #1133).
+ */
+export function withStateDefaults(prev: SidebarState | undefined): SidebarState {
+  if (!prev) return EMPTY_STATE;
+  const merged = { ...EMPTY_STATE, ...prev };
+  const queue = { ...EMPTY_STATE.queue, ...merged.queue };
+  const rows = Array.isArray(queue.rows) ? queue.rows : [];
+  return { ...merged, queue: { ...queue, rows: rows.map((r) => ({ ...QUEUE_ROW_DEFAULTS, ...r })) } };
+}
 
 /**
  * Compact "4m ago" / "2h ago" from an ISO timestamp, against the viewer's clock
