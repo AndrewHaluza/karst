@@ -29,6 +29,8 @@ export interface GraphRunRow {
   completed_at: string | null;
   workspace_bytes: number;
   active_processes: number;
+  auto_recovery_count: number;
+  auto_recovery_reasons: string | null;
 }
 
 export interface CreateGraphRun {
@@ -413,6 +415,27 @@ export function graphRunIdsByStatusForProject(
   return rows.map((r) => r.id);
 }
 
+/** The blocked graph runs of a project the coordinator may recover by itself:
+ *  the ticket is unpaused, not archived and parked at `impl` (the stage
+ *  `recoverGraphRun` requires). Archived tickets are a separate cleanup. */
+export function blockedGraphRunsForAutoRecovery(
+  db: GraphDb,
+  projectId: number,
+): Array<{ graphRunId: number; ticketId: number }> {
+  const rows = db
+    .prepare(
+      `SELECT r.id AS graphRunId, r.ticket_id AS ticketId
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE r.status = 'blocked' AND t.project_id = ?
+          AND t.paused_at IS NULL AND t.archived_at IS NULL
+          AND t.stage_current = 'impl'
+        ORDER BY r.id`,
+    )
+    .all(projectId) as Array<{ graphRunId: number; ticketId: number }>;
+  return rows;
+}
+
 /** Every `running`, unpaused graph run id of a project, in id order (the
  *  scheduler's eligible set, G1a). */
 export function runningGraphRunIdsForProject(db: GraphDb, projectId: number): number[] {
@@ -520,6 +543,76 @@ export function clearGraphRunBlocked(db: GraphDb, id: number, now: string): bool
   const res = db
     .prepare('UPDATE approach_graph_runs SET blocked_reason = NULL, updated_at = ? WHERE id = ?')
     .run(now, id);
+  return res.changes === 1;
+}
+
+/** Separator of the stored automatic-recovery reasons (a reason is one line). */
+const AUTO_RECOVERY_REASON_SEPARATOR = '\n';
+
+/** Marker text every automatic-recovery stop note carries; the note write is
+ *  idempotent on it. */
+export const AUTO_RECOVERY_STOPPED_MARKER = 'automatic recovery stopped after';
+
+/** How many times the coordinator recovered the run by itself, and the block
+ *  reasons it recovered, oldest first. A human recovery is never counted. */
+export function graphRunAutoRecovery(
+  db: GraphDb,
+  id: number,
+): { count: number; reasons: string[] } {
+  const row = db
+    .prepare('SELECT auto_recovery_count, auto_recovery_reasons FROM approach_graph_runs WHERE id = ?')
+    .get(id) as Pick<GraphRunRow, 'auto_recovery_count' | 'auto_recovery_reasons'> | undefined;
+  if (!row) return { count: 0, reasons: [] };
+  return {
+    count: row.auto_recovery_count,
+    reasons: row.auto_recovery_reasons
+      ? row.auto_recovery_reasons.split(AUTO_RECOVERY_REASON_SEPARATOR)
+      : [],
+  };
+}
+
+/** Count one automatic recovery and append the block reason it recovered.
+ *  Newlines in the reason collapse to spaces so the list stays line-based. */
+export function recordGraphRunAutoRecovery(
+  db: GraphDb,
+  id: number,
+  reason: string,
+  now: string,
+): boolean {
+  const line = reason.replace(/\s+/g, ' ').trim();
+  const res = db
+    .prepare(
+      `UPDATE approach_graph_runs
+          SET auto_recovery_count = auto_recovery_count + 1,
+              auto_recovery_reasons = CASE
+                WHEN auto_recovery_reasons IS NULL OR auto_recovery_reasons = '' THEN ?
+                ELSE auto_recovery_reasons || ? || ? END,
+              updated_at = ?
+        WHERE id = ?`,
+    )
+    .run(line, AUTO_RECOVERY_REASON_SEPARATOR, line, now, id);
+  return res.changes === 1;
+}
+
+/** Append the automatic-recovery stop note to a BLOCKED run's reason, once.
+ *  The reason keeps its original prefix, so the recovery category a human
+ *  Resume reads does not change. Returns false when the run is not blocked or
+ *  already carries the note. */
+export function noteGraphRunAutoRecoveryStopped(
+  db: GraphDb,
+  id: number,
+  note: string,
+  now: string,
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approach_graph_runs
+          SET blocked_reason = COALESCE(blocked_reason, '') || CASE WHEN blocked_reason IS NULL OR blocked_reason = '' THEN '' ELSE ' — ' END || ?,
+              updated_at = ?
+        WHERE id = ? AND status = 'blocked'
+          AND instr(COALESCE(blocked_reason, ''), ?) = 0`,
+    )
+    .run(note, now, id, AUTO_RECOVERY_STOPPED_MARKER);
   return res.changes === 1;
 }
 

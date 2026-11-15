@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import { type Store } from '../store/db.js';
+import { dispatchGraphRecovery, type GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
+import { recoverGraphRun } from '../approaches/graph/coordinator/recovery.js';
 import { graphRecoveryRefusalNotice, graphRefusalHandling } from './ops/graphRecovery.js';
 import { SessionManager } from '../ui/session.js';
-import { recoverGraphRun, type RecoveryDeps } from '../approaches/graph/coordinator/recovery.js';
+import { type RecoveryDeps } from '../approaches/graph/coordinator/recovery.js';
 import type { ReplanLaunchRequest } from '../approaches/graph/coordinator/replan.js';
 import type { BootstrapRelaunchRequest } from '../approaches/graph/coordinator/recovery.js';
 import { resumeBlockedStage } from '../workflow/stageResume.js';
@@ -56,6 +58,13 @@ export function makeInsideActionHost(
   onGraphRecovered: (ticketId: number, graphRunId: number) => void,
   retryShipRepo: (ticketId: number, repo: string) => void,
 ): InsideActionHost {
+  const recoverySeams: GraphRecoverySeams = {
+    recover: (input) => recoverGraphRun(graphRecoveryDeps(input.graphRunId), input),
+    launchReplan: graphReplanLaunch,
+    launchBootstrap: graphBootstrapRelaunch,
+    onRecovered: onGraphRecovered,
+  };
+
   /** Run either explicit graph recovery control. `recoverGraphRun` owns every
    * state transition; this host binding only launches the planner it elected
    * and reports the resulting non-verdict outcome. */
@@ -65,16 +74,7 @@ export function makeInsideActionHost(
     mode: 'resume' | 'replan' | 'force-resume',
   ): void => {
     try {
-      const recovery = recoverGraphRun(
-        graphRecoveryDeps(graphRunId),
-        { ticketId, graphRunId, mode },
-      );
-      if (recovery.kind === 'replanned' && recovery.launch) {
-        graphReplanLaunch(recovery.launch);
-      }
-      if (recovery.kind === 'relaunched' && recovery.launch) {
-        graphBootstrapRelaunch(recovery.launch);
-      }
+      const recovery = dispatchGraphRecovery(recoverySeams, { ticketId, graphRunId, mode });
       if (recovery.kind === 'refused') {
         // A plain Resume on a node that already exited before starting twice is
         // the loop, not a recovery: offer the explicit Force retry the guard
@@ -92,7 +92,6 @@ export function makeInsideActionHost(
         return;
       }
       if (recovery.kind !== 'no-op') {
-        onGraphRecovered(ticketId, graphRunId);
         void vscode.window.showInformationMessage(
           mode === 'replan'
             ? `Ticket ${formatId('ticket', ticketId)}: the implementation graph is replanning (graph run ${graphRunId}).`
@@ -162,10 +161,10 @@ export function makeInsideActionHost(
         // The generic Resume refuses the graph block by design (Slice-3 T9);
         // the typed action runs graph-aware recovery: a retry on the same
         // revision, clearing the block only after it durably entered.
-        const recovery = recoverGraphRun(
-          graphRecoveryDeps(outcome.graphRunId),
-          { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
-        );
+        const recovery = dispatchGraphRecovery(recoverySeams, {
+          ticketId: outcome.ticketId,
+          graphRunId: outcome.graphRunId,
+        });
         if (recovery.kind === 'retried') {
           void vscode.window.showInformationMessage(
             `Ticket ${formatId('ticket', ticketId)}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
@@ -175,12 +174,10 @@ export function makeInsideActionHost(
             `Ticket ${formatId('ticket', ticketId)}: the accepted implementation graph is ready to start again.`,
           );
         } else if (recovery.kind === 'replanned') {
-          if (recovery.launch) graphReplanLaunch(recovery.launch);
           void vscode.window.showInformationMessage(
             `Ticket ${formatId('ticket', ticketId)}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'relaunched') {
-          if (recovery.launch) graphBootstrapRelaunch(recovery.launch);
           void vscode.window.showInformationMessage(
             `Ticket ${formatId('ticket', ticketId)}: the implementation graph's bootstrap planner was relaunched (graph run ${outcome.graphRunId}).`,
           );
@@ -188,17 +185,6 @@ export function makeInsideActionHost(
           void vscode.window.showInformationMessage(
             graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
           );
-        }
-        // Keep this legacy Resume route on the same post-recovery seam as the
-        // typed graph controls. It owns neither a second recovery nor launch:
-        // it only refreshes the surfaces and wakes work recovery made ready.
-        if (
-          recovery.kind === 'retried' ||
-          recovery.kind === 'confirmation-restored' ||
-          recovery.kind === 'replanned' ||
-          recovery.kind === 'relaunched'
-        ) {
-          onGraphRecovered(ticketId, outcome.graphRunId);
         }
       }
     },

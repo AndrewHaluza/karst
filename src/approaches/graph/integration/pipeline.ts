@@ -108,6 +108,9 @@ import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'nod
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+/** The most declared write claims one claim-violation reason lists. */
+const MAX_DECLARED_CLAIMS_IN_REASON = 10;
+
 export const INTEGRATION_COMMIT_PREFIX = 'karst: integrate graph';
 
 export interface CompletionPipelineDeps {
@@ -660,10 +663,13 @@ export async function runCompletionPipeline(
   if (violations.length > 0) {
     const reason = `resource-claim-violated: ${violations.slice(0, 5).join(', ')}`;
     graphDiag('completion-rejection', reason);
+    // The node run's reason also names the declared write claims: the replan
+    // planner reads it as evidence (the block reason keeps the bare form).
+    const claims = [...new Set([...declared.values()].flat())].sort().slice(0, MAX_DECLARED_CLAIMS_IN_REASON);
     parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
       outcome: 'failed',
       failureCategory: 'resource-claim-violated',
-      reason,
+      reason: `${reason} (declared writes: ${claims.length === 0 ? 'none' : claims.join(', ')})`,
     });
     blockGraphRun(deps, input.graphRunId, reason);
     return { kind: 'claim-violated', violations };

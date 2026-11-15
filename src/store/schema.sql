@@ -1065,6 +1065,8 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   completed_at      TEXT,
   workspace_bytes   INTEGER NOT NULL DEFAULT 0,
   active_processes  INTEGER NOT NULL DEFAULT 0,
+  auto_recovery_count   INTEGER NOT NULL DEFAULT 0,
+  auto_recovery_reasons TEXT,
   UNIQUE (ticket_id, stage_attempt)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);

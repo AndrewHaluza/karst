@@ -628,7 +628,8 @@ describe('extension activation', () => {
     expect(source).toMatch(/if \(result\.status === 'blocked'\) \{\s*settleGraphRun\(gs\.db, graphRunId\);/);
     // The recovery's `relaunched` result is handled in BOTH resume paths and
     // launches a fresh bootstrap planner through a dedicated host binding.
-    expect(source).toContain("if (recovery.kind === 'relaunched' && recovery.launch) graphBootstrapRelaunch(recovery.launch);");
+    // (the shared dispatch owns the launch: graphRecoveryDispatch.ts)
+    expect(source).toContain('launchBootstrap: graphBootstrapRelaunch');
     expect(source).toContain('const launchBootstrapRelaunchHost = async (launch: BootstrapRelaunchRequest)');
   });
 
@@ -647,8 +648,8 @@ describe('extension activation', () => {
   it('refreshes and wakes recovered graph work, while describing blocked Stop accurately', () => {
     const source = readExtensionSources();
 
-    expect(source).toContain('onGraphRecovered(ticketId, graphRunId);');
-    expect(source).toContain('provider.refresh();\n      dashboard.pushState(ticketId);\n      void driveGraphRunContinuation(graphRunId);');
+    expect(source).toContain('onRecovered: onGraphRecovered');
+    expect(source).toContain('provider.refresh();\n    dashboard.pushState(ticketId);\n    void driveGraphRunContinuation(graphRunId);');
     expect(source).toContain('void driveGraphRunContinuation(graphRunId);');
     expect(source).toContain('result.drained || result.terminated > 0');
   });
@@ -661,7 +662,7 @@ describe('extension activation', () => {
 
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
-    expect(resumeStage).toContain('onGraphRecovered(ticketId, outcome.graphRunId);');
+    expect(resumeStage).toContain('dispatchGraphRecovery(recoverySeams');
   });
 
   // The sidebar's super-thin edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO) is a

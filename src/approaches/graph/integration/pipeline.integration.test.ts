@@ -276,6 +276,9 @@ describe('runCompletionPipeline — claim validation', () => {
     };
     expect(run.status).toBe('blocked');
     expect(run.blocked_reason).toContain('resource-claim-violated');
+    // The node run carries the declared write claims — the replan evidence.
+    const failed = h.db.prepare('SELECT reason FROM approach_node_runs WHERE id = 11').get() as { reason: string };
+    expect(failed.reason).toMatch(/^resource-claim-violated: b\.ts \(declared writes: .*a\.ts.*\)$/);
     // Nothing was integrated: no new commit, both trees preserved.
     expect(git(h.worktree, ['log', '--format=%H', '-1'])).toBe(logBefore);
     expect(readFileSync(join(h.worktree, 'b.ts'), 'utf8')).toBe('b2\n');

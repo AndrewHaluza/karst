@@ -499,6 +499,31 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
   });
 
+  it('migrates a pre-v125 database by adding the graph run auto-recovery columns, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE approach_graph_runs (id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL)');
+    legacy.exec('INSERT INTO approach_graph_runs (ticket_id) VALUES (1)');
+    legacy.pragma('user_version = 124');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('approach_graph_runs')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toEqual(expect.arrayContaining(['auto_recovery_count', 'auto_recovery_reasons']));
+    expect(
+      migrated.db.prepare('SELECT auto_recovery_count, auto_recovery_reasons FROM approach_graph_runs').get(),
+    ).toEqual({ auto_recovery_count: 0, auto_recovery_reasons: null });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'auto_recovery_count')).toHaveLength(1);
+  });
+
   it('migrates a pre-v124 database by adding prs.head_oid, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

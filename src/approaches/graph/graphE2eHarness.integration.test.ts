@@ -689,9 +689,10 @@ export async function bootAndSubmit(
  *  planner launch shares the numeric id space with node launches (both are
  *  `nodeRunId`), so the session name disambiguates the two. */
 export function nodeCapabilityOf(h: Harness, nodeRunId: number): string {
-  const launch = h.transport.started.find(
-    (s) => s.nodeRunId === nodeRunId && s.interactive.sessionName === `Karst node ${nodeRunId}`,
-  );
+  // The LAST launch: a recovered node run is relaunched with a fresh capability.
+  const launch = h.transport.started
+    .filter((s) => s.nodeRunId === nodeRunId && s.interactive.sessionName === `Karst node ${nodeRunId}`)
+    .at(-1);
   const cap = launch?.graphEnv?.KARST_GRAPH_CAPABILITY;
   if (!cap) throw new Error(`no recorded node launch for node run ${nodeRunId}`);
   return cap;

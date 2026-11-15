@@ -394,15 +394,15 @@ describe('recoverGraphRun', () => {
     expect(launchFailureStreak(store.db, graphRunId)).toBe(0);
   });
 
-  it('resource-claim-violated requires corrected claims + explicit Resume, never auto-retry', () => {
-    const { ticketId, graphRunId } = blockedGraph('resource-claim-violated: b.ts', [
-      { id: 7, status: 'blocked' },
-    ]);
+  it('resource-claim-violated recovers through a replan, never a retry of the same claim', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'resource-claim-violated: b.ts',
+      [{ id: 7, status: 'blocked' }],
+      validGraph(2),
+    );
     const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
-    expect(result).toEqual({ kind: 'refused', reason: 'explicit-resolution' });
+    expect(result.kind).toBe('replanned');
     expect(nodeRow(7).status).toBe('blocked');
-    expect(runRow(graphRunId).status).toBe('blocked');
-    expect(stageBlock(store, ticketId, 'impl')).not.toBeNull();
   });
 
   it('integration-conflict is preserved for replan/expert diagnosis, never auto-retried', () => {
@@ -996,7 +996,7 @@ describe('recoveryCategoryFor — the total function over the closed category se
       ['graph-budget-exhausted', 'config-then-resume'],
       ['output-artifact-missing: artifact "r" produced nothing', 'artifact-recheck'],
       ['artifact-unsafe: artifact "r" failed validation', 'artifact-recheck'],
-      ['resource-claim-violated: b.ts', 'explicit-resolution'],
+      ['resource-claim-violated: b.ts', 'replan'],
       ['integration-conflict: git add refused in web', 'explicit-resolution'],
       ['graph-topology-deadlock', 'explicit-resolution'],
       ['graph-plan-invalid: planner produced an invalid document', 'replan'],

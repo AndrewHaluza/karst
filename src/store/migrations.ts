@@ -165,6 +165,8 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   completed_at      TEXT,
   workspace_bytes   INTEGER NOT NULL DEFAULT 0,
   active_processes  INTEGER NOT NULL DEFAULT 0,
+  auto_recovery_count   INTEGER NOT NULL DEFAULT 0,
+  auto_recovery_reasons TEXT,
   UNIQUE (ticket_id, stage_attempt)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
@@ -3028,6 +3030,13 @@ function migrateLocked(db: Database): void {
     // v124: `prs.head_oid` — the PR head sha GitHub holds (T1143, @arch:GH-03). Current state, re-probed by the PR sweep. Additive; NULL = never stated (no backfill).
     const cols124 = tableColumns(db, 'prs');
     if (cols124.size > 0 && !cols124.has('head_oid')) db.exec('ALTER TABLE prs ADD COLUMN head_oid TEXT');
+  }
+
+  if (current < 125) {
+    // v125: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` — how many times the coordinator recovered a blocked run by itself, and why (@arch:GRAPHRUN). Additive; 0 / NULL = none (no backfill).
+    const cols125 = tableColumns(db, 'approach_graph_runs');
+    if (cols125.size > 0 && !cols125.has('auto_recovery_count')) db.exec('ALTER TABLE approach_graph_runs ADD COLUMN auto_recovery_count INTEGER NOT NULL DEFAULT 0');
+    if (cols125.size > 0 && !cols125.has('auto_recovery_reasons')) db.exec('ALTER TABLE approach_graph_runs ADD COLUMN auto_recovery_reasons TEXT');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
