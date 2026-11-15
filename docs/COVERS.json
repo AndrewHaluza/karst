@@ -205,6 +205,9 @@
   "src/approaches/fetch.ts#installApproach": [
     "arch:APP-01"
   ],
+  "src/approaches/graph/coordinator/autoRecovery.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
   "src/approaches/npmCommand.ts#withCommandConsent": [
     "arch:APP-06"
   ],
@@ -459,6 +462,12 @@
   ],
   "src/extension/ops/conflictResolveOps.ts": [
     "arch:AP-01"
+  ],
+  "src/extension/ops/graphAutoRecoverySweep.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
+  "src/extension/ops/graphRecoveryDispatch.ts": [
+    "arch:GRAPH-AUTORECOVERY"
   ],
   "src/extension/ops/mergeAllOps.ts#mergeAllOp": [
     "arch:GH-09"
