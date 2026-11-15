@@ -181,12 +181,31 @@ function runningServers(store: Store): SpinServerRow[] {
   return store.db.prepare("SELECT pid, port, cwd FROM servers WHERE status='running' AND pid IS NOT NULL").all() as SpinServerRow[];
 }
 
-/** `spinTicket`, then a record of each server so a killed run's servers are reaped (arch:GATE-ORPHANS). */
+/** How often the servers of a running spin are recorded. */
+const RECORD_POLL_MS = 100;
+
+/** Record the running servers; a failure is logged, never thrown, so it cannot hide the spin result. */
+async function recordQuietly(store: Store): Promise<void> {
+  try {
+    await recordSpinServers(runningServers(store));
+  } catch (err) {
+    process.emitWarning(`spin fixture record failed: ${String(err)}`);
+  }
+}
+
+/**
+ * `spinTicket`, with a record of each server so a killed run's servers are reaped
+ * (arch:GATE-ORPHANS). The servers start INSIDE `spinTicket`, so a poll records them while it
+ * runs; a reload in that window would otherwise leak them with no record.
+ */
 async function spinAndRecord(...args: Parameters<typeof spinTicket>): ReturnType<typeof spinTicket> {
+  const store = args[0];
+  const timer = setInterval(() => void recordQuietly(store), RECORD_POLL_MS);
   try {
     return await spinTicket(...args);
   } finally {
-    await recordSpinServers(runningServers(args[0]));
+    clearInterval(timer);
+    await recordQuietly(store);
   }
 }
 
