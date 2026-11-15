@@ -11,7 +11,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { PlanningRow, SidebarState } from '../state.js';
 import type { ActionSpec } from './action.js';
-import { allRows, EMPTY_STATE } from './format.js';
+import { allRows, withStateDefaults } from './format.js';
 import type { OutboundMessage, SidebarHostBridge } from './hostBridge.js';
 import { PlanNotes } from './planNotes.js';
 import { activePreset, presetToggles, type PresetId, PRESETS } from './presets.js';
@@ -86,11 +86,6 @@ export function useSidebar(): SidebarContextValue {
   return value;
 }
 
-/** Restore a prior snapshot defensively: a pre-upgrade one can predate fields the view reads. */
-function restore(prev: SidebarState | undefined): SidebarState {
-  return prev ? { ...EMPTY_STATE, ...prev } : EMPTY_STATE;
-}
-
 function toggled<T>(set: ReadonlySet<T>, value: T): ReadonlySet<T> {
   const next = new Set(set);
   if (next.has(value)) next.delete(value);
@@ -99,7 +94,7 @@ function toggled<T>(set: ReadonlySet<T>, value: T): ReadonlySet<T> {
 }
 
 export function SidebarProvider({ bridge, children }: { readonly bridge: SidebarHostBridge; readonly children: ReactNode }) {
-  const [state, setState] = useState<SidebarState>(() => restore(bridge.getState()));
+  const [state, setState] = useState<SidebarState>(() => withStateDefaults(bridge.getState()));
   const [view, setView] = useState<ViewState>(() => restoreView(bridge.getState()?.view));
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -140,7 +135,7 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
           if (side) document.documentElement.setAttribute('data-edge', side);
           else document.documentElement.removeAttribute('data-edge');
         } else if (msg.type === 'state') {
-          const next = msg.state;
+          const next = withStateDefaults(msg.state);
           stateRef.current = next;
           bridge.setState({ ...next, view: viewRef.current });
           setState(next);

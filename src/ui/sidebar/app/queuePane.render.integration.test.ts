@@ -147,6 +147,15 @@ describe('Queue pane', () => {
     expect(h.query('.q-rel')).toBeNull();
   });
 
+  it('draws a pre-filter snapshot row with no unblocks or session title, so a restored state does not blank the page', async () => {
+    const state = fixture('queue');
+    const newFields = new Set(['unblocks', 'sessionTitle']);
+    const rows = state.queue.rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !newFields.has(k))) as typeof r);
+    const h = await mount({ ...state, queue: { ...state.queue, rows } });
+    await open(h);
+    expect(h.queryAll('[data-queue-row]')).toHaveLength(rows.length);
+  });
+
   it('lists 40 items in the scrolling region', async () => {
     const h = await mount(fixture('queue-long'));
     await open(h);
