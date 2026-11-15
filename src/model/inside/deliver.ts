@@ -82,9 +82,48 @@ export function groupFailuresByHead(failures: readonly DeliverFailureFact[]): Ar
   return out;
 }
 
-export const LOCAL_MERGE_NOTE = 'the local merge commit, not on the PR yet';
+/** The head facts that decide how a clean merge check reads (T1143). */
+export interface MergeHeadFacts {
+  /** `merge_checks.head_sha`: the head the local probe merged. */
+  readonly localHead: string | null;
+  /** `prs.head_oid`: the head GitHub holds for the PR; null when never stored. */
+  readonly prHead: string | null;
+  /** `prs.merge_block`: GitHub's own answer; null when never stated. */
+  readonly mergeBlock: string | null;
+}
 
-/** The merge row / context wording while a round is armed or delivering. */
-export function mergeStateWording(state: string, roundActive: boolean): string {
-  return roundActive && state === 'clean' ? `clean (${LOCAL_MERGE_NOTE})` : state;
+/** True when the local merge head is a head that GitHub does not hold yet. */
+export function isLocalHeadUnpushed(facts: MergeHeadFacts | undefined): boolean {
+  return facts !== undefined && facts.localHead !== null && facts.prHead !== null && facts.localHead !== facts.prHead;
+}
+
+/**
+ * The merge row / context wording. The head facts decide it, not an Autopilot round:
+ * an agent or a user can also merge locally (T1099).
+ */
+export function mergeStateWording(state: string, facts: MergeHeadFacts | undefined): string {
+  if (state !== 'clean' || facts === undefined || facts.localHead === null) return state;
+  const head = shortSha(facts.localHead);
+  if (facts.prHead === null) return `clean locally on ${head} (GitHub head unknown)`;
+  if (facts.prHead === facts.localHead) return state;
+  return `clean locally on ${head} (not pushed; GitHub: ${facts.mergeBlock ?? 'unknown'})`;
+}
+
+const CONFLICT_NOTE = /\((?:a conflict|conflicts) in ([^)]*)\)/;
+
+/**
+ * Rewrite the `(a conflict in <repo>)` note of a stored awaiting-merge reason at read time
+ * when every named repo has a clean local merge that is not pushed (T1143). The stored reason stays as parked.
+ */
+export function wordResolvedConflict(reason: string, heads: ReadonlyMap<string, MergeHeadFacts>): string {
+  const m = CONFLICT_NOTE.exec(reason);
+  if (m === null) return reason;
+  const repos = m[1]!.split(', ');
+  const resolved = repos.map((repo) => ({ repo, facts: heads.get(repo) }));
+  if (!resolved.every((r) => isLocalHeadUnpushed(r.facts))) return reason;
+  const note =
+    resolved.length === 1
+      ? `(conflict resolved locally on ${shortSha(resolved[0]!.facts!.localHead)}, push pending)`
+      : `(conflicts resolved locally: ${resolved.map((r) => `${r.repo} on ${shortSha(r.facts!.localHead)}`).join(', ')}; push pending)`;
+  return reason.replace(CONFLICT_NOTE, note);
 }

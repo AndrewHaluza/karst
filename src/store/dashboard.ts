@@ -84,6 +84,8 @@ export interface PrView {
   reviewDecision: PrReviewDecision;
   approvals: number | null;
   reviewRequests: string[];
+  /** The PR head sha GitHub holds; null when never stated (T1143). */
+  headOid?: string | null;
 }
 
 interface ServerRow {
@@ -212,6 +214,7 @@ interface PrRow {
   review_decision: string | null;
   approvals: number | null;
   review_requests: string | null;
+  head_oid: string | null;
 }
 
 /** The `prs.review_requests` JSON column → reviewer names; malformed reads as none. */
@@ -229,7 +232,7 @@ export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
   const rows = store.db
     .prepare(
       `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, dismissed_at, comments, checks, merge_block,
-              title, author, additions, deletions, changed_files, commit_count, review_decision, approvals, review_requests
+              title, author, additions, deletions, changed_files, commit_count, review_decision, approvals, review_requests, head_oid
          FROM prs WHERE ticket_id = ? ORDER BY number`,
     )
     .all(ticketId) as PrRow[];
@@ -260,5 +263,6 @@ export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
     reviewDecision: normalizeReviewDecision(r.review_decision),
     approvals: r.approvals,
     reviewRequests: parseReviewRequests(r.review_requests),
+    headOid: r.head_oid,
   }));
 }

@@ -499,6 +499,29 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
   });
 
+  it('migrates a pre-v124 database by adding prs.head_oid, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE prs (ticket_id INTEGER, repo TEXT, url TEXT)');
+    legacy.exec("INSERT INTO prs (ticket_id, repo, url) VALUES (1, 'api', 'u')");
+    legacy.pragma('user_version = 123');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('prs')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('head_oid');
+    expect(migrated.db.prepare('SELECT head_oid FROM prs').get()).toEqual({ head_oid: null });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'head_oid')).toHaveLength(1);
+  });
+
   it('migrates a pre-v123 database by adding tickets.background_wait_until, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

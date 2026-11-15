@@ -172,7 +172,8 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
            commit_count  = COALESCE(?, commit_count),
            review_decision = CASE WHEN ? THEN ? ELSE review_decision END,
            approvals       = CASE WHEN ? THEN ? ELSE approvals END,
-           review_requests = CASE WHEN ? THEN ? ELSE review_requests END
+           review_requests = CASE WHEN ? THEN ? ELSE review_requests END,
+           head_oid        = COALESCE(?, head_oid)
          WHERE ticket_id = ? AND repo = ? AND url = ?`,
       )
       .run(
@@ -200,6 +201,7 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
         fresh && detail.approvals != null ? 1 : 0, detail.approvals ?? null,
         fresh && Array.isArray(detail.reviewRequests) ? 1 : 0,
         Array.isArray(detail.reviewRequests) ? JSON.stringify(detail.reviewRequests) : null,
+        detail.headOid ?? null,
         input.ticketId,
         input.repo,
         input.url,
@@ -522,12 +524,12 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
 }
 
 /**
- * Forget the stored rollup and merge block of a ticket's open PRs. Run after a
+ * Forget the stored rollup, merge block and head of a ticket's open PRs. Run after a
  * rebase push: the old rollup belongs to the old head, so it must not feed
  * "Send CI failure to agent" before the re-probe writes the new one.
  */
 export function clearOpenPrProbe(store: Store, ticketId: number, repo: string): void {
   store.db
-    .prepare(`UPDATE prs SET checks = NULL, merge_block = NULL WHERE ticket_id = ? AND repo = ? AND status = 'open'`)
+    .prepare(`UPDATE prs SET checks = NULL, merge_block = NULL, head_oid = NULL WHERE ticket_id = ? AND repo = ? AND status = 'open'`)
     .run(ticketId, repo);
 }

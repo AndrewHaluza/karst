@@ -302,6 +302,8 @@ END_DOC_BLOCK: [@arch:HOOK-LIVE]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
+**PR head (v124).** `prs.head_oid TEXT NULL` holds the PR head sha from `headRefOid`, current state with COALESCE in `updatePrDetail` (@arch:GH-03). NULL = never stated (no backfill).
+
 **Host re-run marker (v121).** `gate_runs.source TEXT NULL` is `'host-rerun'` for a row that the host gate re-run of a fix round wrote (@arch:AC-45), NULL for a UAT or review row (no backfill). `listGateRuns` hides the marked rows unless `includeHostRerun` is true, so `failedGatesOf` and the UAT batch readers never read them.
 
 **Autopilot stop head (v120).** `autopilot_tickets.stopped_head_sha TEXT NULL` holds the head a stop applies to, written with `stopped_reason` and cleared with it. Additive, NULL = none recorded (no backfill). The rules live in `@arch:AP-00`.
