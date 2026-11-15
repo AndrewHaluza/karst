@@ -30,8 +30,9 @@ read a whole file.
    check and any ledger change go through `npm run test:layout:docker`
    (`test:visual:docker` for baselines).
    Known drift: the `settings--route-agents-agents-profiles-builtin-3AuatTester.png` baseline can re-render differently after an update (cause not yet found). After a scoped `:update`, `git status` must show only in-scope PNGs: `git checkout` that one if it appears.
-6. **Screenshot changes need user approval.** Never edit baselines or the layout
-   ledger (`tests/visual/layout-known-failures.json`) to pass a gate; the ledger
+6. **Screenshot changes need user approval.** Re-record a baseline only for an
+   intended change; the user approves it in the baseline review. Never edit
+   baselines or the layout ledger (`tests/visual/layout-known-failures.json`) to pass a gate; the ledger
    shrinks only via `npm run test:layout:docker:prune`. After a DOM structure
    change the ledger reads STALE and NEW at once: follow `ui:LEDGER-SHIFT`.
 7. **New dashboard `data-act`.** Every new `data-act` needs a parity case in `COVERED` (`src/ui/dashboard/parity/parityCases.ts`) or a `NOT_COVERED` reason; the unit test `src/ui/dashboard/parity/coverage.test.ts` fails with the exact hint otherwise.
