@@ -5861,12 +5861,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runShipSaga = async (
     ticketId: number,
     warn = false,
-    shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean } = {},
+    shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean; notifyRefusal?: boolean } = {},
   ): Promise<void> => {
-    if (refuseShipWhileDraining(drain, ticketId, (m) => logger.debug(m))) {
-      if (warn) void vscode.window.showInformationMessage(SHIP_DRAINING_MESSAGE);
-      return;
-    }
+    const notify = warn || shipOpts.notifyRefusal === true ? () => void vscode.window.showInformationMessage(SHIP_DRAINING_MESSAGE) : undefined;
+    if (refuseShipWhileDraining(drain, ticketId, (m) => logger.debug(m), notify)) return;
     // WHO asked decides whether new work is delivered into a PR that is already
     // open. A human re-shipping a ticket whose PR is live wants the new commits
     // pushed onto it (FIX-46); an activation sweep resuming a ship whose host

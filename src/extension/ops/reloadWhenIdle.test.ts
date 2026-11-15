@@ -131,6 +131,15 @@ describe('refuseShipWhileDraining', () => {
     expect(drain.cancel()).toEqual([5]);
   });
 
+  it('tells the user once for a refused click, and stays silent for an unattended start', () => {
+    const drain = createDrain();
+    drain.begin();
+    const notify = vi.fn();
+    refuseShipWhileDraining(drain, 5, () => {}, notify);
+    refuseShipWhileDraining(drain, 6, () => {});
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
   it('does not refuse a start inside a tracked live run', async () => {
     const drain = createDrain();
     drain.begin();

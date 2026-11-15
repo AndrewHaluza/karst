@@ -41,10 +41,16 @@ export function countLiveRuns(store: Store, hostPid: number, extra = 0): number 
  * after it writes one debug line and holds the ticket, so a cancel re-drives it.
  * A start inside a tracked live run is never refused.
  */
-export function refuseShipWhileDraining(drain: Drain, ticketId: number, debug: (message: string) => void): boolean {
+export function refuseShipWhileDraining(
+  drain: Drain,
+  ticketId: number,
+  debug: (message: string) => void,
+  notify?: () => void,
+): boolean {
   if (!drain.isDraining() || drain.insideRun()) return false;
   drain.hold(ticketId);
   debug(`[ship] ticket ${ticketId} ship not started: draining`);
+  notify?.();
   return true;
 }
 
