@@ -1535,13 +1535,14 @@ describe('a conflict round that a window reload interrupts (T1162, @arch:AP-01)'
     expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
   });
 
-  it('waits when the PR head is unknown', async () => {
-    seedPr(PASSING);
-    conflict();
+  it('does not park or drop the round while the PR head is unknown, and the other steps still run', async () => {
+    seedPr(failing('build'));
     markConflictRound(store, id, Date.now());
-    const r = rig({ resumeDeliver: async () => 'wait' });
-    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
-    expect(r.sendConflict).not.toHaveBeenCalled();
+    const drop = vi.fn();
+    const r = rig({ resumeDeliver: async () => 'wait', dropConflictRound: drop });
+    await autopilotTick(r.deps);
+    expect(drop).not.toHaveBeenCalled();
+    expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
     expect(getConflictRoundAt(store, id)).not.toBeNull();
   });
 
@@ -1566,8 +1567,16 @@ describe('a conflict round that a window reload interrupts (T1162, @arch:AP-01)'
     seedPr(PASSING);
     conflict();
     const r = rig({ localHead: async () => 'newer' });
-    expect((await autopilotTick(r.deps)).kind).not.toBe('armed');
+    expect((await autopilotTick(r.deps)).kind).toBe('nothing');
     expect(r.sendConflict).not.toHaveBeenCalled();
+  });
+
+  it('runs no CI round on a PR whose conflict row is stale', async () => {
+    seedPr(failing('build'));
+    conflict();
+    const r = rig({ localHead: async () => 'newer' });
+    await autopilotTick(r.deps);
+    expect(r.sendCi).not.toHaveBeenCalled();
   });
 
   it('starts a round from a conflict row of the local head', async () => {

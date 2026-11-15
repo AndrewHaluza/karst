@@ -32,28 +32,32 @@ export interface ResumeDeps {
   readonly debug: (message: string) => void;
 }
 
-/** The PR head GitHub held at the last probe, per repo of the open PRs. */
-function prHeads(store: Store, ticketId: number): Map<string, string | null> {
-  return new Map(listPrsByTicket(store, ticketId).filter((p) => p.status === 'open').map((p) => [p.repo, p.headOid ?? null] as const));
+interface PrFacts { readonly head: string | null; readonly dirty: boolean }
+
+/** The PR head and merge block GitHub held at the last probe, per repo of the open PRs. */
+function prFacts(store: Store, ticketId: number): Map<string, PrFacts> {
+  return new Map(listPrsByTicket(store, ticketId).filter((p) => p.status === 'open').map((p) => [p.repo, { head: p.headOid ?? null, dirty: p.mergeBlock === 'dirty' }] as const));
 }
 
 /**
  * `fromRound`: the store holds a conflict round slot. Then a stored `conflicted` row of an older head still names the round's
- * base and files. Without a slot, only a clean check of the local head counts (an agent or a person merged by hand).
+ * base and files. A clean check of the local head counts too while GitHub reports the PR as `dirty` (a merge by hand).
  */
 export async function resumeFinishedMerge(d: ResumeDeps, fromRound: boolean): Promise<ResumeOutcome> {
   const targets = d.targets();
   if (!targets.available) return 'none';
-  const heads = prHeads(d.store, d.ticketId);
+  const facts = prFacts(d.store, d.ticketId);
   let result: ResumeOutcome = 'none';
   for (const pr of targets.prs) {
     const check = getMergeCheck(d.store, d.ticketId, pr.repo);
     if (check === null) continue;
     const local = await d.headOf(pr.cwd);
     if (local === null) continue;
-    const eligible = fromRound || (check.state === 'clean' && check.headSha === local);
+    const remote = facts.get(pr.repo)?.head ?? null;
+    // Only a conflict is resumed, never an ordinary unpushed commit: the stored round names the conflicted repo, and a hand
+    // merge is a clean check of the local head while GitHub still reports the PR as `dirty` (T1143).
+    const eligible = (fromRound && check.state === 'conflicted') || (check.state === 'clean' && check.headSha === local && facts.get(pr.repo)?.dirty === true);
     if (!eligible) continue;
-    const remote = heads.get(pr.repo) ?? null;
     if (remote === null) { if (result === 'none') result = 'wait'; continue; }
     if (remote === local) continue;
     const round: ResolvedRound = { repo: pr.repo, baseSha: check.baseSha, files: check.files };

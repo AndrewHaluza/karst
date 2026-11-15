@@ -310,7 +310,8 @@ async function resumeStep(d: AutopilotDeps): Promise<AutopilotResult | null> {
     d.debug(`${LOG} ticket ${d.key}: ${what}; no new conflict round`);
     return { kind: 'busy' };
   }
-  if (outcome === 'wait') return { kind: 'nothing' };
+  // An unknown PR head blocks nothing else: no stored CI rollup exists after a round, so the CI path waits by itself.
+  if (outcome === 'wait') return null;
   if (fromRound) {
     d.dropConflictRound();
     clearConflictRound(d.store, d.ticketId);
@@ -381,7 +382,9 @@ async function runBaseMovedRound(d: AutopilotDeps, cfg: AutopilotConfig): Promis
 
 async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnType<typeof getAutopilotTicket>): Promise<AutopilotResult> {
   // A conflict comes first: the CI result of a conflicted PR belongs to a head that is about to change.
-  const conflicted = await conflictedPrs(d);
+  const { fresh: conflicted, stale: staleRows } = await conflictedPrs(d);
+  // GitHub may still show the PR as conflicted: the CI path must not run on that head either, so wait for the next probe.
+  if (conflicted.length === 0 && staleRows > 0) return { kind: 'nothing' };
   if (conflicted.length > 0) {
     const round = await runConflictRound(d, cfg, conflicted);
     // Policy ask or an unknown base head starts no round: that conflict stays a click and must not block the CI path.
@@ -643,20 +646,22 @@ export function roundDied(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 
 interface ConflictedPr { readonly repo: string; readonly baseSha: string | null }
 
 /** Open PRs whose stored merge check says conflicted, in repo order. A closed or merged PR is never fixed. */
-async function conflictedPrs(d: AutopilotDeps): Promise<ConflictedPr[]> {
+async function conflictedPrs(d: AutopilotDeps): Promise<{ readonly fresh: ConflictedPr[]; readonly stale: number }> {
   const open = openPrRepos(d.store, d.ticketId);
   const rows = listMergeChecksByTicket(d.store, d.ticketId).filter((c) => c.state === 'conflicted' && open.has(c.repo));
   const fresh: ConflictedPr[] = [];
+  let stale = 0;
   for (const c of rows) {
     // A row of another head than the local one is from before a merge commit (a reload): wait for the next probe (@arch:AP-01).
     const local = c.headSha !== null && d.localHead ? await d.localHead(c.repo).catch(() => null) : null;
     if (local !== null && local !== c.headSha) {
       d.debug(`${LOG} ticket ${d.key}: the conflict row of ${c.repo} is for an older head; no round until the next probe`);
+      stale += 1;
       continue;
     }
     fresh.push({ repo: c.repo, baseSha: c.baseSha });
   }
-  return fresh.sort((a, b) => a.repo.localeCompare(b.repo));
+  return { fresh: fresh.sort((a, b) => a.repo.localeCompare(b.repo)), stale };
 }
 
 /**
