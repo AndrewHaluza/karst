@@ -36,10 +36,11 @@ describe('scoreReview', () => {
     expect(r.falseFindings).toBe(4);
   });
 
-  it('lets one defect match at most one finding; the first in output order wins', () => {
+  it('lets one defect match at most one finding; a second finding on it is a duplicate', () => {
     const r = score([DEFECT], [finding({ line: 10, title: 'first' }), finding({ line: 11, title: 'second' })]);
     expect(r.found).toEqual(['D1']);
-    expect(r.falseFindings).toBe(1);
+    expect(r.duplicates).toBe(1);
+    expect(r.falseFindings).toBe(0);
   });
 
   it('matches a finding to the nearest defect when two windows overlap', () => {
@@ -122,6 +123,21 @@ const fake = (raw, probe) => ({
 });
 const run = (adapter, dir, over = {}) => runReviewCase({ adapter, caseDef: CASE, caseDir: dir, model: 'm', timeoutMs: 5000, max: 50, ...over });
 
+describe('scoreReview duplicates', () => {
+  it('counts a second finding on an already found defect as a duplicate, not a false finding', () => {
+    const r = score([DEFECT], [finding({ line: 11 }), finding({ line: 12, title: 'same defect again' })]);
+    expect(r.found).toEqual(['D1']);
+    expect(r.duplicates).toBe(1);
+    expect(r.falseFindings).toBe(0);
+    expect(r.caseFailed).toBe(false);
+  });
+  it('still counts a finding far from every defect as false', () => {
+    const r = score([DEFECT], [finding({ line: 11 }), finding({ line: 40 })]);
+    expect(r.duplicates).toBe(0);
+    expect(r.falseFindings).toBe(1);
+  });
+});
+
 describe('buildReviewCheckout (2a, 2b)', () => {
   it('puts HEAD on the case branch, keeps local main, and gives a local bare origin outside the work tree', () => {
     const w = buildReviewCheckout(makeCase(), CASE);
@@ -146,6 +162,10 @@ describe('buildReviewCheckout (2a, 2b)', () => {
 });
 
 describe('runReviewCase', () => {
+  it('does not call an error that only contains the letters "timeout" inside a word a timeout', async () => {
+    const r = await run(fake(() => { throw new Error('mustertimeoutish failure'); }), makeCase());
+    expect(r.status).toBe('error');
+  });
   it('builds the prompt and call like the lane, and leaks no answer key into the work tree', async () => {
     let seen;
     const r = await run(fake(found(), (o) => {
@@ -274,6 +294,11 @@ describe('renderReviewReport', () => {
     expect(md).toContain('INSUFFICIENT');
     expect(md).toContain('No ranking');
   });
+  it('states how many calls did not finish, because recall counts only finished runs', () => {
+    const md = renderReviewReport({ ...meta, candidates: [{ core: 'c', model: 'm', effort: null, runs: [okRun(), { status: 'timeout', seeded: 1, clean: false }] }] });
+    expect(md).toContain('Recall and false-finding rates count only the runs that finished ok.');
+    expect(md).toContain('1 of 2 calls did not finish');
+  });
   it('escapes pipes in cells', () => {
     const md = renderReviewReport({ ...meta, candidates: [{ ...cand('a|b') }] });
     expect(md).toContain('a\\|b');
@@ -388,5 +413,28 @@ describe('mainReview smoke', () => {
     expect(res.candidate.runs).toHaveLength(1);
     expect(res.candidate.runs[0]).toMatchObject({ caseId: 'c01-loop-bound', status: 'ok', found: 0, seeded: 1 });
     expect(existsSync(join(report, '..'))).toBe(true);
+  });
+});
+
+describe('mainReview case loading and labels', () => {
+  it('names the case file when a case.json cannot be parsed', async () => {
+    const dir = mk();
+    mkdirSync(join(dir, 'bad'));
+    writeFileSync(join(dir, 'bad', 'case.json'), '{ not json');
+    await expect(main(['--pass', 'review', '--model', 'm', '--cases-dir', dir])).rejects.toThrow(/bad[\\/]case\.json/);
+  });
+  it('labels the report with the core that ran, not the alias', async () => {
+    const lines = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((l) => { lines.push(String(l)); });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await main(['--pass', 'review', '--provider', 'opencode', '--model', 'm', '--only', 'c01-loop-bound', '--runs', '1']);
+    } finally {
+      spy.mockRestore();
+      err.mockRestore();
+    }
+    const report = lines.find((l) => l.startsWith('report: '))?.slice('report: '.length);
+    tmps.push(join(report, '..'));
+    expect(JSON.parse(readFileSync(join(report, '..', 'results.json'), 'utf8')).candidate.core).toBe('opencode2');
   });
 });

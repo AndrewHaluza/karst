@@ -11,7 +11,7 @@ import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } fro
 import { parseFindingsResult } from '../../src/workflow/review/findings.ts';
 import { buildFindingsPrompt } from '../../src/workflow/review/findingsLane.ts';
 
-const TIMEOUT = /time(d)?[ -]?out/i;
+const TIMEOUT = /\btime(d)?[ -]?out\b/i;
 const REPO_NAME = 'case-repo';
 const BLOCKING_SEVERITY = 'high';
 const msg = (e) => (e instanceof Error ? e.message : String(e));

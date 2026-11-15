@@ -64,6 +64,9 @@ export function renderReviewReport({ command, caseSetVersion, buildSha, coreVers
     '',
     table1,
     '',
+    ...rows.map(({ c, s }) => `${cell(c.core)}: ${s.errors + s.timeouts} of ${s.runs} calls did not finish.`),
+    'Recall and false-finding rates count only the runs that finished ok.',
+    '',
     enough ? 'Candidates have enough runs to compare.' : `No ranking: a cell has n below ${MIN_N}. Do not draw a conclusion from it.`,
     '',
   ].join('\n');

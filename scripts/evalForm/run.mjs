@@ -337,13 +337,20 @@ async function mainReview(opts) {
   ]);
   const casesDir = resolve(opts.casesDir);
   if (!existsSync(casesDir)) throw new Error(`cases dir not found: ${casesDir}`);
-  let cases = readdirSync(casesDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => {
-    const dir = join(casesDir, d.name);
-    return { dir, def: JSON.parse(readFileSync(join(dir, 'case.json'), 'utf8')) };
+  const names = readdirSync(casesDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+  let cases = names.map((name) => {
+    const dir = join(casesDir, name);
+    const file = join(dir, 'case.json');
+    try {
+      return { dir, def: JSON.parse(readFileSync(file, 'utf8')) };
+    } catch (e) {
+      throw new Error(`cannot read review case ${file}: ${e instanceof Error ? e.message : String(e)}`);
+    }
   });
   if (opts.only) cases = cases.filter((c) => opts.only.includes(c.def.id));
   if (cases.length === 0) throw new Error('no cases selected');
-  const adapter = resolveAdapter(opts.provider === 'opencode' ? 'opencode2' : opts.provider);
+  const core = opts.provider === 'opencode' ? 'opencode2' : opts.provider;
+  const adapter = resolveAdapter(core);
   const startedAt = new Date().toISOString();
   const raw = await runReviewBench({
     adapter, cases, model: opts.model, effort: opts.effort ?? undefined, timeoutMs: opts.timeoutMin * 60_000, max: REVIEW_MAX_FINDINGS,
@@ -354,13 +361,13 @@ async function mainReview(opts) {
     const def = byId.get(r.caseId);
     const sc = scoreReview({ defects: def.defects, findings: r.findings, tier: r.tier, shape: r.shape, droppedCheckoutClaims: r.droppedCheckoutClaims });
     const t = r.usage && (r.usage.totalTokens ?? (r.usage.inputTokens ?? 0) + (r.usage.outputTokens ?? 0));
-    return { ...r, score: sc, seeded: def.defects.length, clean: def.defects.length === 0, found: sc.found.length, falseFindings: sc.falseFindings, blockingFalse: sc.blockingFalse, caseFailed: sc.caseFailed, tokens: t };
+    return { ...r, score: sc, seeded: def.defects.length, clean: def.defects.length === 0, found: sc.found.length, falseFindings: sc.falseFindings, duplicates: sc.duplicates, blockingFalse: sc.blockingFalse, caseFailed: sc.caseFailed, tokens: t };
   });
   let buildSha = 'unknown';
   try { buildSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch { /* keep unknown */ }
   const meta = { startedAt, pass: 'review', command: `npm run -s eval:form -- ${process.argv.slice(2).join(' ')}`, caseSetVersion: REVIEW_CASE_SET_VERSION, buildSha, coreVersions: {} };
-  const candidate = { core: opts.provider, model: opts.model, effort: opts.effort, runs: scored };
-  const dir = join(ROOT, 'eval-results', `review-${startedAt.replace(/[:.]/g, '-')}-${opts.provider}-${process.pid}`);
+  const candidate = { core, model: opts.model, effort: opts.effort, runs: scored };
+  const dir = join(ROOT, 'eval-results', `review-${startedAt.replace(/[:.]/g, '-')}-${core}-${process.pid}`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'report.md'), renderReviewReport({ ...meta, candidates: [candidate] }));
   writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, candidate }, null, 2));

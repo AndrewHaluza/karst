@@ -13,7 +13,7 @@ const distance = (defect, line) => (line < defect.lineStart ? defect.lineStart -
 /**
  * One finding matches at most one defect and one defect matches at most one finding.
  * A finding takes the nearest defect whose window and minimum severity it meets. A tie goes to the first defect.
- * -> `{found, missed, falseFindings, blockingFalse, caseFailed, parseTier, shape, droppedCheckoutClaims}`
+ * -> `{found, missed, falseFindings, duplicates, blockingFalse, caseFailed, parseTier, shape, droppedCheckoutClaims}`
  */
 export function scoreReview({ defects, findings, tier, shape, droppedCheckoutClaims }) {
   const taken = new Set();
@@ -25,11 +25,16 @@ export function scoreReview({ defects, findings, tier, shape, droppedCheckoutCla
     taken.add(d.id);
     matched.add(i);
   });
-  const falses = findings.filter((_, i) => !matched.has(i));
+  // A later finding on a defect that another finding already took is a duplicate, not a false finding.
+  const isDuplicate = (f) => defects.some((d) => taken.has(d.id) && hits(d, f));
+  const unmatched = findings.filter((_, i) => !matched.has(i));
+  const duplicates = unmatched.filter(isDuplicate).length;
+  const falses = unmatched.filter((f) => !isDuplicate(f));
   return {
     found: defects.filter((d) => taken.has(d.id)).map((d) => d.id),
     missed: defects.filter((d) => !taken.has(d.id)).map((d) => d.id),
     falseFindings: falses.length,
+    duplicates,
     blockingFalse: falses.filter((f) => BLOCKING.has(f.severity)).length,
     caseFailed: defects.length === 0 && falses.length > 0,
     parseTier: tier,
