@@ -86,6 +86,8 @@ export interface DriveTicketDeps {
   shouldContinue: () => boolean;
   /** @arch:DRAIN-01: true while the host waits to reload; no new gate or fix run starts. */
   isDraining?: () => boolean;
+  /** Called with the ticket whose start the drain refused, so the host can re-drive it after a cancel. */
+  holdForDrain?: (ticketId: number) => void;
   /** The host's Stop, as a signal. Folded into this run's own controller. */
   signal?: AbortSignal;
   /** Called only when a fix attempt remains; the host owns how it resumes. */
@@ -353,6 +355,7 @@ export async function driveTicket(
         onProgress: deps.onProgress,
         shouldContinue,
         isDraining: deps.isDraining,
+        holdForDrain: deps.holdForDrain,
         debug: deps.debug,
         integrateSubtasks: deps.integrateSubtasks,
         // `runUat` reports its own StageRunResult, so it is passed through
@@ -556,6 +559,7 @@ export async function driveTicket(
     if (outcome.stage === 'fix' && deps.isDraining?.()) {
       // @arch:DRAIN-01: a fix run is a headless agent start; hold it while the host drains.
       deps.debug?.(`[driver] ticket ${ticketId}: host is draining for a reload — not resuming fix`);
+      deps.holdForDrain?.(ticketId);
     } else if (outcome.stage === 'fix') {
       const stages = getTicket(deps.store, ticketId).stages;
       // v30: a failed verdict commits its recovery round atomically, so the

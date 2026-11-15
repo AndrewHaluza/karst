@@ -14,18 +14,18 @@ export const IDLE_POLL_MS = 2000;
 /**
  * Live runs of THIS host: `process_runs` and `stage_runs` (every gate and the
  * ship run live inside a stage run) whose status is 'running' and whose pid is
- * the host's. A run of another window has another pid and is not counted.
+ * the host's. `extra` adds the host gate re-runs, which write no run row (`Drain.track`). A run of another window has another pid and is not counted.
  * Interactive impl/fix terminals are not counted: the pty host keeps them
  * across a reload (@arch:AC-15).
  */
-export function countLiveRuns(store: Store, hostPid: number): number {
+export function countLiveRuns(store: Store, hostPid: number, extra = 0): number {
   const count = (table: 'process_runs' | 'stage_runs'): number => {
     const row = store.db
       .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE status = 'running' AND pid = ?`)
       .get(hostPid) as { n: number };
     return row.n;
   };
-  return count('process_runs') + count('stage_runs');
+  return count('process_runs') + count('stage_runs') + extra;
 }
 
 export interface ReloadWhenIdleDeps {
@@ -37,6 +37,8 @@ export interface ReloadWhenIdleDeps {
   readonly sleep: (ms: number) => Promise<void>;
   readonly signal: AbortSignal;
   readonly log: (message: string) => void;
+  /** Called with the tickets a start was refused for, after a cancel. */
+  readonly onCancelled?: (held: readonly number[]) => void;
   readonly pollMs?: number;
 }
 
@@ -48,8 +50,9 @@ export async function reloadWhenIdle(deps: ReloadWhenIdleDeps): Promise<ReloadWh
   let last = -1;
   for (;;) {
     if (deps.signal.aborted) {
-      deps.drain.cancel();
-      deps.log('reload when idle: cancelled — new runs may start again');
+      const held = deps.drain.cancel();
+      deps.log(`reload when idle: cancelled — new runs may start again (${held.length} held)`);
+      deps.onCancelled?.(held);
       return 'cancelled';
     }
     const live = deps.countLive();

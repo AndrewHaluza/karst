@@ -44,6 +44,18 @@ describe('reloadWhenIdle', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it('hands the held tickets to onCancelled after a cancel', async () => {
+    const ac = new AbortController();
+    const onCancelled = vi.fn();
+    const { d, drain } = deps([3], { signal: ac.signal, onCancelled });
+    d.sleep = async () => {
+      drain.hold(7);
+      ac.abort();
+    };
+    await reloadWhenIdle(d);
+    expect(onCancelled).toHaveBeenCalledWith([7]);
+  });
+
   it('clears the drain flag when the reload fails', async () => {
     const { d, drain } = deps([0], {
       reload: async () => {
@@ -68,6 +80,7 @@ describe('countLiveRuns', () => {
       )
       .run(t.id, t.id, t.id);
     expect(countLiveRuns(store, 111)).toBe(1);
+    expect(countLiveRuns(store, 111, 2)).toBe(3);
     store.close();
   });
 });

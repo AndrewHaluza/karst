@@ -45,6 +45,8 @@ export interface StageDriverDeps {
   shouldContinue: () => boolean;
   /** @arch:DRAIN-01: true while the host waits to reload; no new gate starts. */
   isDraining?: () => boolean;
+  /** Called with the ticket whose start the drain refused, so the host can re-drive it after a cancel. */
+  holdForDrain?: (ticketId: number) => void;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[driver]`.
    * Absent → no debug lines. The host binds it to `Logger.debug`, which is a
@@ -170,6 +172,7 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
 
     if (deps.isDraining?.()) {
       deps.debug?.(`[driver] ticket ${ticketId}: host is draining for a reload — not starting '${stage}'`);
+      deps.holdForDrain?.(ticketId);
       return finish(deps, ticketId, stage, 'stopped', 'draining');
     }
 

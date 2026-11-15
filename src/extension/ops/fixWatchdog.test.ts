@@ -1021,4 +1021,27 @@ describe('fixWatchdog stranded stage', () => {
     expect(runFixWatchdog(deps)).toBe(0);
     store.close();
   });
+
+  it('holds the stranded-stage sweep while the host drains (@arch:DRAIN-01)', () => {
+    const store = openStore(':memory:');
+    const projectId = upsertProject(store, { slug: 'drain-proj' }).id;
+    const id = createTicketFlow(store, { key: 'T-8', title: 't', projectId }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(id);
+    setStage(store, id, 'uat', { status: 'running', startedAt: T0 });
+    const redrive = vi.fn();
+    let draining = true;
+    const deps: FixWatchdogDeps = {
+      store, timeoutMinutes: () => 60, projectId: () => projectId, now: () => T2, log: () => {},
+      isLive: () => false, nudge: () => false, isGraphTicket: () => false,
+      redrive, redriven: new Set<string>(), isDraining: () => draining,
+    };
+    runFixWatchdog(deps);
+    runFixWatchdog(deps);
+    expect(redrive).not.toHaveBeenCalled();
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+    draining = false;
+    runFixWatchdog(deps);
+    expect(redrive).toHaveBeenCalledExactlyOnceWith(id);
+    store.close();
+  });
 });

@@ -2041,13 +2041,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (message) => logger.debug(message),
   });
   // Host CLI fix markers (@arch:AC-45): a refused `stage fix pass` stored a re-run request; the one host gate re-run runs here.
-  const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, projectId: () => currentProject()?.id });
+  const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, drain, projectId: () => currentProject()?.id });
   const requestedRerunTimer = setInterval(() => void requestedRerunSweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(requestedRerunTimer) });
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(fixDeliveryTimer) });
   // Project-scoped, so this manifest's window never reaches another project's fix; its immediate first tick covers activation. After `fixDelivery`: the guard points at the stored brief.
-  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage') }));
+  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage'), isDraining: () => drain.isDraining() }));
   const turnTracker = new TurnTracker();
   // Mailbox delivery (Wave 3): per-core push to live recipients, plus wakes.
   const mailbox = makeMailDeliveryWiring({
@@ -3663,6 +3663,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName })),
           shouldContinue: () => driver.shouldContinue(ticketId),
           isDraining: () => drain.isDraining(),
+          holdForDrain: (id) => drain.hold(id),
           // Sub-task integration seam (NDL-75): the parent's next drive absorbs
           // any landed sub-task's work before a boundary or gate runner runs —
           // the deferred half of landing a sub-task while the parent was busy.
@@ -3715,7 +3716,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, preBriefRerun: preBriefRerunFor(gateRerunDeps), // AC-32; D589 pre-brief re-run
+          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinWithGateSnapshot, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, preBriefRerun: preBriefRerunFor({ ...gateRerunDeps, drain }), // AC-32; D589 pre-brief re-run
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
@@ -4037,7 +4038,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   bridges = createBridgeRegistry({ root: (bridgeRoot = join(settingsDir, 'bridge')), debug: (m) => logger.debug(m), build: makeBridgeBuild({
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath,
-    rerunFailedGates: hostRerunFor(gateRerunDeps), // D403: one host gate re-run for a refused no-commit fix marker
+    rerunFailedGates: hostRerunFor({ ...gateRerunDeps, drain }), // D403: one host gate re-run for a refused no-commit fix marker
     debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-45 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
@@ -7053,7 +7054,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
     // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
-    registerReloadWhenIdle(localStore, drain, (m) => logger.info(m)),
+    registerReloadWhenIdle(localStore, drain, (m) => logger.info(m), (id) => void maybeDrive(id, 'drain-cancelled')),
     ...registerCloseCommands({
       store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,
       activeTicketId: () => activeTicket.get() ?? undefined, stopWork: (id) => { driver.requestStop(id); sessions.disposeSession(id); },

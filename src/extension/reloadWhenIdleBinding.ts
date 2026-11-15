@@ -13,6 +13,7 @@ export function registerReloadWhenIdle(
   store: Store,
   drain: Drain,
   log: (message: string) => void,
+  redrive: (ticketId: number) => void,
 ): vscode.Disposable {
   return vscode.commands.registerCommand(RELOAD_WHEN_IDLE_COMMAND, async () => {
     if (drain.isDraining()) {
@@ -28,7 +29,8 @@ export function registerReloadWhenIdle(
           drain,
           signal: ac.signal,
           log,
-          countLive: () => countLiveRuns(store, process.pid),
+          onCancelled: (held) => held.forEach(redrive),
+          countLive: () => countLiveRuns(store, process.pid, drain.inFlight()),
           onCount: (n) =>
             progress.report({
               message: n === 0 ? 'Reloading…' : `Waiting for ${n} live run${n === 1 ? '' : 's'} — no new runs start`,
