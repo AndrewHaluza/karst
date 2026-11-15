@@ -624,15 +624,17 @@ describe('makeRequestedRerunSweep failure', () => {
 });
 
 describe('host gate re-runs and the drain (@arch:DRAIN-01)', () => {
-  it('refuses a re-run while draining and tracks one that runs', async () => {
+  it('never refuses the bridge or pre-brief re-run while draining, and counts it as live', async () => {
     const store = openStore(':memory:');
     const drain = createDrain();
-    const run = vi.fn();
-    const rerun = hostRerunFor({ store, runnerFor: () => run, gatesFor: () => [], gateSlotsDir: mkdtempSync(join(tmpdir(), 'karst-rerun-slots-')), drain });
-    expect(await rerun(1)).toEqual({ kind: 'not-applicable' });
     drain.begin();
-    expect(await rerun(1)).toEqual({ kind: 'not-applicable' });
-    expect(run).not.toHaveBeenCalled();
+    const base = { store, runnerFor: () => vi.fn(), gatesFor: () => [], gateSlotsDir: mkdtempSync(join(tmpdir(), 'karst-rerun-slots-')), drain };
+    // No fix round exists, so each reaches the workflow and answers 'not-applicable' from it, not from the drain.
+    const spy = vi.spyOn(drain, 'track');
+    expect(await hostRerunFor(base)(1)).toEqual({ kind: 'not-applicable' });
+    expect(await preBriefRerunFor(base)(1)).toEqual({ kind: 'not-applicable' });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(drain.inFlight()).toBe(0);
     store.close();
   });
 });

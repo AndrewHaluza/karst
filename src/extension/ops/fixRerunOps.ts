@@ -37,7 +37,7 @@ import {
 
 export interface GateRerunDeps {
   readonly store: Store;
-  /** @arch:DRAIN-01: a host gate re-run starts nothing while draining, and counts as a live run. */
+  /** @arch:DRAIN-01: the bridge and pre-brief re-runs count as live runs; the requested sweep holds while draining. */
   readonly drain?: Drain;
   /** The ticket's gate process: its sandbox runner, or the host's `runProcess`. */
   readonly runnerFor: (ticketId: number) => GateProcessRunner;
@@ -295,23 +295,25 @@ function rerunDepsOf(deps: GateRerunDeps): HostRerunDeps {
   };
 }
 
-/** A refused start while draining is 'not-applicable', so the caller takes its no-re-run path. */
-function drained(drain: Drain | undefined, run: () => Promise<HostRerunOutcome>): Promise<HostRerunOutcome> {
-  if (drain === undefined) return run();
-  if (drain.isDraining()) return Promise.resolve({ kind: 'not-applicable' });
-  return drain.track(run);
+/**
+ * The bridge and pre-brief re-runs belong to work that is already live (a fix marker, a UAT or
+ * review stage), so the drain never refuses them: a refusal would turn an environment flake into
+ * a fix round, or leave a refused marker with no re-run. They only count as live (@arch:DRAIN-01).
+ */
+function tracked(drain: Drain | undefined, run: () => Promise<HostRerunOutcome>): Promise<HostRerunOutcome> {
+  return drain === undefined ? run() : drain.track(run);
 }
 
 /** Production composition: re-run through the store-backed workflow with the host's gate runner. */
 export function hostRerunFor(deps: GateRerunDeps): (ticketId: number) => Promise<HostRerunOutcome> {
   const rerunDeps = rerunDepsOf(deps);
-  return (ticketId) => drained(deps.drain, () => hostRerunFailedGates(deps.store, ticketId, rerunDeps));
+  return (ticketId) => tracked(deps.drain, () => hostRerunFailedGates(deps.store, ticketId, rerunDeps));
 }
 
 /** Production composition for the pre-brief re-run of an environment-signature gate failure. */
 export function preBriefRerunFor(deps: GateRerunDeps): (ticketId: number) => Promise<HostRerunOutcome> {
   const rerunDeps = rerunDepsOf(deps);
-  return (ticketId) => drained(deps.drain, () => preBriefHostRerun(deps.store, ticketId, rerunDeps));
+  return (ticketId) => tracked(deps.drain, () => preBriefHostRerun(deps.store, ticketId, rerunDeps));
 }
 
 export interface RequestedRerunSweepDeps extends GateRerunDeps {
