@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { Store } from '../store/db.js';
 import type { Drain } from '../runtime/drain.js';
 import { setHeadlessDrain } from '../agent/headlessSpawn.js';
+import { liveDeliverCount, setDeliverDrain } from './ops/autoDeliverOps.js';
 import {
   RELOAD_WHEN_IDLE_COMMAND,
   RELOAD_WHEN_IDLE_TITLE,
@@ -16,6 +17,7 @@ export function registerReloadWhenIdle(
   log: (message: string) => void,
   redrive: (ticketId: number) => void,
 ): vscode.Disposable {
+  setDeliverDrain(() => drain.isDraining()); // no auto-deliver or skipped-gate re-run starts while draining
   setHeadlessDrain(drain); // every headless start is counted live and refused while draining
   return vscode.commands.registerCommand(RELOAD_WHEN_IDLE_COMMAND, async () => {
     if (drain.isDraining()) {
@@ -32,7 +34,7 @@ export function registerReloadWhenIdle(
           signal: ac.signal,
           log,
           onCancelled: (held) => held.forEach(redrive),
-          countLive: () => countLiveRuns(store, process.pid, drain.inFlight()),
+          countLive: () => countLiveRuns(store, process.pid, drain.inFlight() + liveDeliverCount()),
           onCount: (n) =>
             progress.report({
               message: n === 0 ? 'Reloading…' : `Waiting for ${n} live run${n === 1 ? '' : 's'} — no new runs start`,

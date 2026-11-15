@@ -21,6 +21,8 @@ import {
   deliverRerunNote,
   type RerunDeps,
   type RerunResult,
+  setDeliverDrain,
+  liveDeliverCount,
 } from './autoDeliverOps.js';
 import type { DeliverTargets } from '../../workflow/deliverState.js';
 
@@ -548,5 +550,49 @@ describe('rerunSkippedGates (after a manual Deliver took over)', () => {
     expect(re.calls).toHaveLength(0);
     hold();
     await auto;
+  });
+});
+
+describe('the drain (@arch:DRAIN-01)', () => {
+  afterEach(() => setDeliverDrain(undefined));
+
+  it('starts no auto-deliver while draining, leaves the round armed and logs the reason', async () => {
+    setDeliverDrain(() => true);
+    const { deps, rounds, log } = rig();
+    const runGates = vi.fn(async () => null);
+    await autoDeliverAfterConflict({ ...deps, runGates });
+    expect(runGates).not.toHaveBeenCalled();
+    expect(rounds.armed(1)).not.toBeNull();
+    expect(log.some((l) => l.includes('not started: draining'))).toBe(true);
+  });
+
+  it('starts the auto-deliver again once the drain ends', async () => {
+    setDeliverDrain(() => false);
+    const { deps } = rig();
+    const runGates = vi.fn(async () => null);
+    await autoDeliverAfterConflict({ ...deps, runGates });
+    expect(runGates).toHaveBeenCalled();
+  });
+
+  it('refuses a skipped-gate re-run while draining', async () => {
+    setDeliverDrain(() => true);
+    const runGates = vi.fn();
+    const log: string[] = [];
+    const out = await rerunSkippedGates({
+      ticketId: 1, key: 'T1', skipped: ['unit'], agentActive: () => false, runGates,
+      note: () => undefined, log: (m) => log.push(m),
+    });
+    expect(out).toBe('refused');
+    expect(runGates).not.toHaveBeenCalled();
+    expect(log.some((l) => l.includes('draining'))).toBe(true);
+  });
+
+  it('counts a running auto-deliver as live, also before it opens its run row', async () => {
+    expect(liveDeliverCount()).toBe(0);
+    let during = -1;
+    const { deps } = rig({ runGates: async () => { during = liveDeliverCount(); return null; } });
+    await autoDeliverAfterConflict(deps);
+    expect(during).toBe(1);
+    expect(liveDeliverCount()).toBe(0);
   });
 });

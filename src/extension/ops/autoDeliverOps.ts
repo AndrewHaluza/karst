@@ -144,6 +144,20 @@ export function takeOverAutoDeliver(ticketId: number, d: TakeOverDeps): TakeOver
   return 'taken-over';
 }
 
+/**
+ * The host's drain flag (@arch:DRAIN-01). While it answers true, no auto-deliver and no skipped-gate re-run starts.
+ * The armed round stays in memory and in the store, so the resume path of @arch:AP-01 delivers it after the reload.
+ */
+let drainProbe: (() => boolean) | undefined;
+export function setDeliverDrain(probe: (() => boolean) | undefined): void {
+  drainProbe = probe;
+}
+
+/** The auto-delivers and skipped-gate re-runs that run now, including one that has not opened its run row yet. */
+export function liveDeliverCount(): number {
+  return inFlight.size + reruns.size;
+}
+
 /** The auto-deliver of a resolved merge runs now for this ticket (T996: no second conflict round beside it). */
 export function isAutoDelivering(ticketId: number): boolean {
   return inFlight.has(ticketId);
@@ -161,6 +175,10 @@ export function isConflictRoundStalled(rounds: ConflictRounds, ticketId: number,
 export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void> {
   const round = d.rounds.armed(d.ticketId);
   if (round === null || inFlight.has(d.ticketId) || d.agentActive()) return;
+  if (drainProbe?.() === true) {
+    d.log(`[ship] ticket ${d.key} auto-deliver not started: draining`);
+    return;
+  }
   const targets = d.targets();
   if (!targets.available) return; // not at ship, no open PR, or a ship run is in flight: the manual button decides
   const entry: InFlight = { controller: new AbortController(), phase: 'gates', takenOver: false };
@@ -309,6 +327,7 @@ export async function rerunSkippedGates(d: RerunDeps): Promise<RerunOutcome> {
     return 'refused';
   };
   if (d.agentActive()) return refuse('an agent turn is active');
+  if (drainProbe?.() === true) return refuse('draining');
   const auto = inFlight.get(d.ticketId);
   if (auto !== undefined && !auto.takenOver) return refuse('an auto-deliver is running');
   if (pushes.has(d.ticketId)) return refuse('a push is in flight');

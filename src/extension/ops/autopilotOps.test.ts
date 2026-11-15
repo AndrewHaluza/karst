@@ -127,6 +127,17 @@ describe('autopilotTick gating', () => {
   });
 });
 
+describe('the drain (@arch:DRAIN-01)', () => {
+  it('sends no round while the host drains for a reload', async () => {
+    seedPr(failing('build'));
+    const r = rig({ isDraining: () => true });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'busy' });
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect((await autopilotTick(rig({ isDraining: () => false }).deps)).kind).toBe('armed');
+  });
+});
+
 describe('ci', () => {
   it('marks the ticket when a ci round is sent, so the driver can re-ship without the click (T1095)', async () => {
     seedPr(failing('build'));

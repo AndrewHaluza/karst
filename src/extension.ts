@@ -2023,6 +2023,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     conflictRoundActive: (id) => conflictRounds.armed(id) !== null || isAutoDelivering(id),
     conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id),
     dropConflictRound: (id) => conflictRounds.disarm(id),
+    isDraining: () => drain.isDraining(),
     startAutoDeliver: (id) => startAutoDeliver(id),
   });
   context.subscriptions.push(autopilot);

@@ -139,6 +139,8 @@ export interface AutopilotBindingDeps {
   /** A conflict round is armed for the ticket, or karst delivers its resolved merge now. */
   readonly conflictRoundActive: (ticketId: number) => boolean;
   readonly conflictRoundStalled: (ticketId: number) => boolean;
+  /** The host drains for a planned reload (@arch:DRAIN-01): the engine sends no round. */
+  readonly isDraining?: () => boolean;
   readonly dropConflictRound: (ticketId: number) => void;
   /** Starts the auto-deliver of the armed conflict round in the background (the Stop-hook path). Absent: no resume after a reload. */
   readonly startAutoDeliver?: (ticketId: number) => void;
@@ -262,6 +264,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         sendConflict: (repo) => sentRound(id, () => conflictOutcome(d.conflictInput(id, repo))),
         conflictRoundActive: () => d.conflictRoundActive(id),
         conflictRoundStalled: () => d.conflictRoundStalled(id),
+        ...(d.isDraining ? { isDraining: d.isDraining } : {}),
         dropConflictRound: () => d.dropConflictRound(id),
         ...(d.startAutoDeliver ? { resumeDeliver: (fromRound: boolean) => resumeFinishedMerge(resumeDepsOf(d, id), fromRound) } : {}),
         localHead: async (repo) => {

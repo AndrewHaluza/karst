@@ -86,4 +86,18 @@ describe('countLiveRuns', () => {
     expect(countLiveRuns(store, 111, 2)).toBe(3);
     store.close();
   });
+
+  it('counts a running deliver run of this host pid (an auto-deliver runs outside any stage run)', () => {
+    const store = openStore(':memory:');
+    const t = createTicketFlow(store, { key: 'K-2', title: 't' });
+    store.db
+      .prepare(
+        `INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at, kind)
+         VALUES (?, 'h', '[]', 'running', 111, 'x', 'auto'), (?, 'h', '[]', 'running', 222, 'x', 'auto'),
+                (?, 'h', '[]', 'stopped', 111, 'x', 'auto')`,
+      )
+      .run(t.id, t.id, t.id);
+    expect(countLiveRuns(store, 111)).toBe(1);
+    store.close();
+  });
 });
