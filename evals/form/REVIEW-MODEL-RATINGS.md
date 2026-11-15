@@ -30,6 +30,8 @@ Rerun after the test file was added to `c17` (claude, 5 runs each, `review-refer
 
 Rerun of opencode2 on `c11` to `c18`, 2 runs each, 15 minute timeout: all 9 calls timed out before I stopped the run. A plain test call to the same model answered in 15 seconds. The slow part is the review call in a checkout. The cause is not known.
 
+Rerun of opencode2 on `c12` to `c18`, 1 run each, 6 minute timeout (`review-references/opencode2-mimo-v2.6-flash-c12-c18/`): all 7 calls finished ok, 0 timeouts, 156 seconds per run (66 to 243). Recall was 5/6. The core missed the defect in `c12-tz-boundary` and gave 3 false findings there, 1 blocking. It gave 1 false finding on `c14-mutated-arg`. The clean cases `c17` and `c18` had 0 false findings. The earlier hangs did not repeat, so the cause is likely machine load. This is not proven. Every cell has n below 30.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
@@ -39,6 +41,6 @@ Rerun of opencode2 on `c11` to `c18`, 2 runs each, 15 minute timeout: all 9 call
 
 ## Next steps
 
-1. Find why opencode2 review calls hang, then rerun it on `c11` to `c18`.
+1. Confirm the opencode2 hang cause (load is the likely one). Rerun with `--runs 3` for n.
 2. Read the claude false findings on the fixed `c17`.
 3. Add cases until each cell reaches n of 30.

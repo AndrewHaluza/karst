@@ -1,0 +1,389 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T10:16:56.769Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider opencode2 --model opencode-go/mimo-v2.6-flash --only c12-tz-boundary,c13-swallowed-error,c14-mutated-arg,c15-auth-inverted,c16-two-subtle,c17-clean-tempting,c18-clean-refactor --runs 1 --timeout-min 6",
+    "caseSetVersion": 2,
+    "buildSha": "db7c70f1119edab06c5200fa320b3169666d914f",
+    "coreVersions": {
+      "opencode2": "opencode v2.2.7"
+    }
+  },
+  "candidate": {
+    "core": "opencode2",
+    "model": "opencode-go/mimo-v2.6-flash",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": null,
+            "title": "isInRange excludes the documented last day (and part of the first day) due to UTC-vs-local time mixing",
+            "detail": "The new function parses `range.start`/`range.end` with `new Date(\"YYYY-MM-DD\")`, which yields UTC midnight, then compares that against the caller-supplied `when` Date, which carries a local time-of-day. Per the JSDoc \"The last day is included\", a timestamp anywhere on the end day should return true, but `when <= end` compares any end-day time after 00:00 UTC against a bound fixed at 00:00 UTC of that same day, so it fails for essentially every real timestamp on the last day in every timezone: input {start:\"2026-03-01\", end:\"2026-03-31\"} with when = new Date(2026, 2, 31, 12, 0, 0) (local noon on the last day) gives end = 2026-03-31T00:00:00Z and when = 2026-03-31T12:00:00Z (or 10:00Z in UTC+2, 17:00Z in UTC-5), so `when <= end` is false and the function returns false instead of the documented true. The mirror failure hits the start day in timezones east of UTC: when = new Date(2026, 2, 1, 1, 0, 0) in UTC+2 is 2026-02-28T23:00Z, which is < start = 2026-03-01T00:00:00Z, so the first day's early hours return false. Both bounds must be normalized to whole local days (or both compared as UTC day boundaries) for the documented inclusive-day contract to hold.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 9,
+            "title": "Malformed range strings silently return false instead of signalling a contract violation",
+            "detail": "`new Date(range.start)` on a value that is not a YYYY-MM-DD string (e.g. \"03/01/2026\", \"2026-3-1\" in some runtimes, or \"garbage\") produces Invalid Date, and every comparison against an Invalid Date is false, so `isInRange` returns false with no error or signal. Callers cannot distinguish \"outside range\" from \"bad input\", which turns a programming error into a plausible-looking business result. Throwing (or validating with a regex/`Number.isNaN(start.getTime())`) would surface the misuse.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 8,
+            "title": "New exported date helper ships with no tests in the diff",
+            "detail": "The diff adds the entire `src/dateRange.ts` module (interface + `isInRange`) and no accompanying test, so the inclusive-start/inclusive-end contract — the exact behavior that is currently broken by the timezone mixing above — has no regression coverage. A test asserting `isInRange({start, end}, noonOnStartDay)` and `isInRange({start, end}, noonOnEndDay)` in a non-UTC timezone would have caught the high-severity finding.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6835,
+          "outputTokens": 1107,
+          "reasoningTokens": 2944,
+          "cacheReadTokens": 101696,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 114068,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 128.937,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-012"
+          ],
+          "falseFindings": 3,
+          "duplicates": 0,
+          "blockingFalse": 1,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 3,
+        "duplicates": 0,
+        "blockingFalse": 1,
+        "caseFailed": false,
+        "tokens": 114068
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true even when the upload fails",
+            "detail": "src/syncProfile.ts: the doc comment promises 'Resolves to true when the server stored the profile', but the catch block swallows the rejection from upload(profile) and execution always falls through to `return true`. Input: upload rejects (e.g. network error) → wrong output: the caller receives `true`, i.e. 'the server stored the profile'. Any caller that branches on this boolean to mark the profile as synced, suppress a retry, or stop retrying will treat a failed upload as a success, so the profile is never persisted server-side while the client believes sync succeeded (silent data loss / no retry). On the failure path the function should return false (or rethrow) instead of true.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6102,
+          "outputTokens": 907,
+          "reasoningTokens": 770,
+          "cacheReadTokens": 102400,
+          "cacheWriteTokens": 1491,
+          "totalTokens": 111670,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 66.654,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 111670
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks mutates the caller's array via in-place sort",
+            "detail": "Line 7: `return tasks.sort((a, b) => b.priority - a.priority).slice(0, count)` uses Array.prototype.sort, which reorders the input array in place. Input: `const tasks = [{ title: 'low', priority: 1 }, { title: 'high', priority: 9 }]; topTasks(tasks, 1)` returns the top task, but `tasks` is left as `[{ high }, { low }]` — the caller's array is silently reordered. Any caller that reuses `tasks` afterwards (rendering an ID/order list, persisting the array, comparing against the original) sees corrupted ordering it never asked for. `renderBoard` (line 11) propagates the same side effect: calling `renderBoard(myTasks)` reorders `myTasks`. Fix: copy before sorting, e.g. `[...tasks].sort(...)`.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "renderBoard duplicates the top-3 tasks in the 'rest' list",
+            "detail": "Lines 11-12: `top` is built from `topTasks(tasks, 3)`, but `rest` maps over the entire `tasks` array (already sorted in place by the `topTasks` call), so the top 3 titles appear twice in the returned string[] — once as `* Title` and again as `N. Title`. The variable name `rest` implies the remainder after the top 3; with input [A(pri 5), B(pri 4), C(pri 3), D(pri 1)] the output is `['* A', '* B', '* C', '1. A', '2. B', '3. C', '4. D']` instead of a top section plus only D. If the intent really is a highlights section plus a full list, rename `rest` and drop the misleading semantics; otherwise map over `tasks.slice(3)` (or filter out the top entries).",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6819,
+          "outputTokens": 1162,
+          "reasoningTokens": 3932,
+          "cacheReadTokens": 146944,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 160343,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 233.293,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 160343
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "canEdit fails open on unknown visibility values",
+            "detail": "In the new src/access.ts, canEdit() ends with `default: return true;` in its visibility switch, and Doc.visibility is typed as plain `string` with no validation anywhere in the repo (this file is the entire codebase besides README). Input: any active, non-owner user (role 'member') and a doc whose visibility is not exactly 'private', 'shared', or 'team' — e.g. 'public', 'team-wide', a typo like 'Shareed', a future visibility value, or an empty/undefined value at runtime. Output: `true`, i.e. the user is granted edit rights on a document the check was supposed to restrict. For an access-control predicate the default must be fail-closed (`return false`); as written every unrecognized visibility silently becomes world-editable. Fix: return false in the default branch and type visibility as the union 'private'|'shared'|'team' so unknown values are caught at compile time.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6981,
+          "outputTokens": 883,
+          "reasoningTokens": 2484,
+          "cacheReadTokens": 125248,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 137086,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 122.169,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 137086
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue, producing wrong percentages",
+            "detail": "src/metrics.ts line 3 computes ((newValue - oldValue) / newValue) * 100. Percent change from old to new must divide by oldValue. Input percentChange(100, 200) should be 100 (growth of 100 on a base of 100) but returns 50; percentChange(200, 100) should be -50 but returns -100. describeChange inherits the bug: describeChange(100, 200) prints \"50.0%\" instead of \"100.0%\". The same denominator also breaks when newValue is 0: percentChange(100, 0) yields -Infinity and describeChange prints \"-Infinity%\".",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the entire list when count is 0",
+            "detail": "src/metrics.ts line 8 uses items.slice(-count). When count is 0, -0 === 0, so slice(-0) is slice(0) and returns every element: lastEntries([1,2,3], 0) returns [1,2,3] where the documented \"last 0 entries\" must be []. Negative counts are also misrouted: lastEntries([1,2,3], -1) evaluates slice(1) and returns [2,3] instead of an empty result or a rejected argument. Any caller that requests zero or negative entries gets a corrupted (over-long) result rather than an empty one.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 20911,
+          "outputTokens": 886,
+          "reasoningTokens": 3891,
+          "cacheReadTokens": 87616,
+          "cacheWriteTokens": 1487,
+          "totalTokens": 114791,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 122.397,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 114791
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7051,
+          "outputTokens": 685,
+          "reasoningTokens": 3473,
+          "cacheReadTokens": 148288,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 160982,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 174.611,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 160982
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 9391,
+          "outputTokens": 926,
+          "reasoningTokens": 5067,
+          "cacheReadTokens": 172096,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 188970,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 242.614,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 188970
+      }
+    ]
+  }
+}
