@@ -253,6 +253,49 @@ export function latestGraphRunInStatusesForTicket(
     .get(...params) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
 }
 
+/**
+ * The newest run in `statuses` that OWNS the ticket: its `approach_id` is the
+ * ticket's current approach. A ticket with no approach (or no row) is owned by
+ * any run, so a legacy ticket keeps its graph surface. A run left behind by an
+ * approach switch owns nothing (same rule as the impl marker in `cli/stage.ts`).
+ */
+export function latestOwningGraphRunInStatusesForTicket(
+  db: GraphDb,
+  ticketId: number,
+  statuses: readonly string[],
+): Pick<GraphRunRow, 'id' | 'status'> | undefined {
+  const placeholders = statuses.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `SELECT r.id AS id, r.status AS status FROM approach_graph_runs r
+       LEFT JOIN tickets t ON t.id = r.ticket_id
+       WHERE r.ticket_id = ? AND r.status IN (${placeholders})
+         AND (t.approach IS NULL OR t.approach = r.approach_id)
+       ORDER BY r.id DESC LIMIT 1`,
+    )
+    .get(ticketId, ...statuses) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
+}
+
+/**
+ * The newest non-terminal run of the ticket whose `approach_id` differs from
+ * `approachId` (the approach the ticket is switching to), or undefined.
+ */
+export function latestForeignApproachGraphRunForTicket(
+  db: GraphDb,
+  ticketId: number,
+  approachId: string,
+  terminalStatuses: readonly string[],
+): Pick<GraphRunRow, 'id' | 'status'> | undefined {
+  const placeholders = terminalStatuses.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `SELECT id, status FROM approach_graph_runs
+       WHERE ticket_id = ? AND approach_id <> ? AND status NOT IN (${placeholders})
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId, approachId, ...terminalStatuses) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
+}
+
 /** The newest non-terminal graph run for a ticket, or undefined. */
 export function latestNonTerminalGraphRunForTicket(
   db: GraphDb,

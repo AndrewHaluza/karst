@@ -33,6 +33,7 @@ import { baselineDependentsFor } from './store/baselineRefs.js';
 import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { killTree } from './runtime/processTree.js';
+import { bindApproachChangeCancel } from './approaches/graph/approachChange.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
@@ -2135,6 +2136,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       resolveAnalysisProcess: analysisProcess,
       pickUsageLimitAgentModel: makeUsageLimitAgentModelPicker(() => modelCatalog),
       onChange: () => provider.refresh(),
+      cancelGraphRunForApproachChange: bindApproachChangeCancel(
+        () => graphCoordinatorStore && {
+          db: graphCoordinatorStore.db,
+          transaction: <T>(fn: () => T): T => runImmediateTransaction(graphCoordinatorStore!.db, fn),
+          facts: systemAsyncProcessFacts,
+          killTree,
+          debug: (message) => logger.debug(message),
+        },
+        (ticketId) => dashboard.pushState(ticketId),
+      ),
       startTicket,
       requestSubtaskAutostart: () => void subtaskAutostart.sweep(),
       // A started ticket belongs to its dashboard — the ticket form hands off there.

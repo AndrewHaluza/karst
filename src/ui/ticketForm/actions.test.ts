@@ -2275,6 +2275,49 @@ describe('buildTicketFormActions', () => {
     expect(reloaded.selectedRepos).toEqual(['fe', 'be']);
   });
 
+  it('setApproach keeps the old approach and reports the error when the graph cancel refuses', async () => {
+    const t = createTicket(store, { key: 'P-GC', title: 't' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+    const post = vi.fn();
+    const cancel = vi.fn(async () => ({ ok: false as const, message: 'live pid 4242' }));
+    const ctx: TicketFormActionsCtx = { post, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
+    const actions = buildTicketFormActions({ ...deps, cancelGraphRunForApproachChange: cancel })(ctx);
+
+    await actions.setApproach('direct');
+
+    expect(cancel).toHaveBeenCalledWith(t.id, 'direct');
+    expect(getTicket(store, t.id).approach).toBe('rpi');
+    expect(post).toHaveBeenCalledWith({ type: 'error', message: 'live pid 4242' });
+  });
+
+  it('setApproach reports a throwing graph cancel and keeps the old approach', async () => {
+    const t = createTicket(store, { key: 'P-GT', title: 't' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+    const post = vi.fn();
+    const cancel = vi.fn(async () => { throw new Error('boom'); });
+    const ctx: TicketFormActionsCtx = { post, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
+    const actions = buildTicketFormActions({ ...deps, cancelGraphRunForApproachChange: cancel })(ctx);
+
+    await expect(actions.setApproach('direct')).resolves.toBeUndefined();
+
+    expect(getTicket(store, t.id).approach).toBe('rpi');
+    expect(post).toHaveBeenCalledWith({ type: 'error', message: expect.stringContaining('boom') });
+  });
+
+  it('setApproach saves the new approach after the graph cancel succeeds', async () => {
+    const t = createTicket(store, { key: 'P-GD', title: 't' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+    const cancel = vi.fn(async () => ({ ok: true as const }));
+    const onChange = vi.fn();
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
+    const actions = buildTicketFormActions({ ...deps, onChange, cancelGraphRunForApproachChange: cancel })(ctx);
+
+    await actions.setApproach('direct');
+
+    expect(getTicket(store, t.id).approach).toBe('direct');
+    expect(onChange).toHaveBeenCalled();
+  });
+
   it('stores a base ref override on the ticket', () => {
     const t = createTicket(store, { key: 'P-BR', title: 't' });
     // Give fe/be distinct repoPaths for this test — MANIFEST's default (both

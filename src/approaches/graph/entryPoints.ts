@@ -35,11 +35,14 @@ import type { AgentTransport, SupervisedAgentSession } from './transport/supervi
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 import { graphRunHasLiveNodeProcess } from './coordinator/liveness.js';
 import { cancelGraphRun } from './cancel.js';
+import { CANCEL_TERMINAL_GRAPH_STATUSES } from '../../store/graph/cancelRun.js';
 import type { KillOutcome } from '../../runtime/processTree.js';
 import {
   graphMarkerReadyForTicket,
   graphRunStatusForTicket,
   latestGraphRunInStatusesForTicket,
+  latestOwningGraphRunInStatusesForTicket,
+  latestForeignApproachGraphRunForTicket,
 } from '../../store/graph/graphRuns.js';
 import {
   nodeRunExistsOutsideStatusesForGraphRun,
@@ -73,9 +76,22 @@ export interface GraphRunSurface {
   status: string;
 }
 
-/** The most recent graph run of a ticket in an active status, or undefined. */
+/** The most recent graph run of a ticket in an active status that owns the
+ *  ticket (its approach is the ticket's current approach), or undefined. */
 export function activeGraphRunFor(db: GraphDb, ticketId: number): GraphRunSurface | undefined {
-  const row = latestGraphRunInStatusesForTicket(db, ticketId, [...ACTIVE_GRAPH_STATUSES]);
+  const row = latestOwningGraphRunInStatusesForTicket(db, ticketId, [...ACTIVE_GRAPH_STATUSES]);
+  return row ? { graphRunId: row.id, status: row.status } : undefined;
+}
+
+/** The non-terminal graph run a switch to `approachId` leaves behind, or undefined. */
+export function graphRunLeftByApproachChange(
+  db: GraphDb,
+  ticketId: number,
+  approachId: string,
+): GraphRunSurface | undefined {
+  const row = latestForeignApproachGraphRunForTicket(db, ticketId, approachId, [
+    ...CANCEL_TERMINAL_GRAPH_STATUSES,
+  ]);
   return row ? { graphRunId: row.id, status: row.status } : undefined;
 }
 

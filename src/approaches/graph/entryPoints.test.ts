@@ -413,3 +413,21 @@ describe('stop (coordinator-level controller)', () => {
     expect(run.status).toBe('blocked');
   });
 });
+
+describe('a run owns the ticket only for the ticket\'s current approach', () => {
+  it('owns the ticket while the approach matches or is unset', () => {
+    const ctx = harness('planning');
+    expect(activeGraphRunFor(ctx.db, ctx.ticketId)).toBeDefined();
+    ctx.db.prepare('UPDATE tickets SET approach = ? WHERE id = ?').run('karst-graph-engineering', ctx.ticketId);
+    expect(graphTicketSurface(ctx.db, ctx.ticketId)).toBe('active-graph');
+  });
+
+  it('does not own the ticket after the approach moved to direct', () => {
+    const ctx = harness('planning');
+    ctx.db.prepare('UPDATE tickets SET approach = ? WHERE id = ?').run('direct', ctx.ticketId);
+    expect(activeGraphRunFor(ctx.db, ctx.ticketId)).toBeUndefined();
+    expect(graphTicketSurface(ctx.db, ctx.ticketId)).toBe('none');
+    expect(shouldDriveGraphTicket(ctx.db, ctx.ticketId)).toBe(true);
+    expect(nudgeSurface(ctx.db, ctx.ticketId)).toBe('nudge');
+  });
+});
