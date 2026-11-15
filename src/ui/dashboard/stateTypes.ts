@@ -194,6 +194,8 @@ export interface DashboardState {
   subtasks: DashboardSubtaskRow[];
   /** Open or unresolved blocked-by targets, shown as dependency chips. */
   blockers: DashboardBlocker[];
+  /** What this ticket unblocks: tickets and pending drafts that wait on it (host-derived reverse edges). */
+  unblocks: DashboardBlocker[];
   /**
    * `n/m done` over `subtasks`, by their stored `stage_current` (design §8).
    * `0/0` when there are none — rendered as absence, not "0".

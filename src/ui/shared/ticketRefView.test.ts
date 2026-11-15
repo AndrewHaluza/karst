@@ -172,7 +172,7 @@ describe('ticketRefView', () => {
     expect(view.kind).toBe('draft');
     expect(view.displayTextParts).toEqual({ id: 'D498', key: null, stage: null, session: 'P43' });
     expect(formatTicketRefText(view)).toBe('● D498 · P43');
-    expect(view.accessibleName).toBe('D498, draft pending');
+    expect(view.accessibleName).toBe('D498, draft pending, session P43');
   });
 
   it('appends a cross-session label after the stage of an accepted draft', () => {

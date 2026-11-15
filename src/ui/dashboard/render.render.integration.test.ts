@@ -30,16 +30,17 @@ const envelope = (f: InsideRenderFixture) => {
 };
 
 describe('dashboard render — fixture corpus', () => {
-  it('renders a linked blocked-by chip from host state', async () => {
+  it('renders a linked Waits on chip from host state', async () => {
     const h = await renderWebviewReady('dashboard');
     h.receive({
       type: 'state',
       state: { ...renderStateFor('impl'), blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }] },
     });
     await drainReactWork(h);
-    const chip = h.query('#parentRef .k-ticket-ref');
-    expect(chip?.textContent).toContain('Blocked by T42 · CU-123');
-    h.click('#parentRef [data-act="open-dependency"]');
+    const chip = h.query('#refGroups .k-ticket-ref');
+    expect(chip?.textContent).toContain('T42 · CU-123');
+    expect(h.query('#refGroups .refGroupLabel')?.textContent).toBe('Waits on');
+    h.click('#refGroups [data-act="open-dependency"]');
     await drainReactWork(h);
     expect(h.posted[0]).toMatchObject({ type: 'open-dependency', ticketId: 42 });
     h.close();

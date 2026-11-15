@@ -18,7 +18,7 @@ import { AUTOSTART_WORD, GLYPH_WORD, MAX_SUBTASK_INDENT, relTime } from './forma
 import { useSidebar } from './SidebarContext.js';
 import { TicketBody } from './TicketBody.js';
 import { stageWord as stageWordOf } from '../../shared/ticketRefView.js';
-import { TicketRefChip } from '../../shared/TicketRefChip.js';
+import { TicketRefs } from './TicketRefs.js';
 
 export interface TicketRowProps {
   readonly row: Row;
@@ -105,9 +105,6 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
   const glyphWord = row.stageLabel === 'CI running' ? 'CI running' : GLYPH_WORD[row.glyph] || 'Unknown';
   const toggleLabel = isOpen ? 'Collapse ticket details' : 'Expand ticket details';
   const blockedBy = row.blockedBy || [];
-  // Only a row that actually carries reference chips may reserve the title's
-  // full width; an ordinary row keeps the stage on its first line.
-  const refsClass = blockedBy.length ? ' has-refs' : '';
 
   // Decorative content of the row's main click target — never another interactive
   // control (UI-R09). Completed rows swap the karst mark + status dot for a
@@ -127,15 +124,6 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
       <span className="k-id" title={`Ticket ${row.idLabel}`}>{row.idLabel}</span>
       {row.priorityEditable ? <PriorityChip level={row.priority} source={row.prioritySource} provider={{ label: row.providerLabel, level: row.providerPriority }} /> : null}
       <span className="name">{row.label}</span>
-      {blockedBy.map((refView, i) => (
-        <TicketRefChip
-          key={refView.ticketId ?? refView.keyOrRef ?? i}
-          refView={refView}
-          link={false}
-          prefix="Blocked by "
-          showKey={false}
-        />
-      ))}
       {row.subtaskParentKey && !row.subtaskDepth ? (
         <span className="parentref subtaskref" title={`Sub-task of ${row.subtaskParentKey}`}>⊂ {row.subtaskParentKey}</span>
       ) : row.parentKey ? (
@@ -174,9 +162,9 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
         </button>
         {/* Archived tickets have no dashboard action, so the wrapper is a plain, non-interactive span. */}
         {row.archived ? (
-          <span className={`rowopen${refsClass}`}>{content}</span>
+          <span className={`rowopen`}>{content}</span>
         ) : (
-          <ActButton spec={{ open: row.ticketId }} className={`k-btn k-btn--link k-btn--row rowopen${refsClass}`} title="Open ticket dashboard">
+          <ActButton spec={{ open: row.ticketId }} className={`k-btn k-btn--link k-btn--row rowopen`} title="Open ticket dashboard">
             {content}
           </ActButton>
         )}
@@ -185,6 +173,7 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
         {/* Only rendered while COLLAPSED — expanding moves the same quick actions into the body's tools. */}
         {isOpen ? null : <HoverStrip row={row} sessVerb={sessVerb} />}
       </div>
+      {blockedBy.length ? <TicketRefs refs={blockedBy} /> : null}
       <TicketBody row={row} sessVerb={sessVerb} />
     </div>
   );

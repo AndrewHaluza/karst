@@ -2786,4 +2786,16 @@ describe('inside: the re-entry window with two or more recorded attempts (Findin
     expect(chip).toMatchObject({ kind: 'draft', glyph: 'gray', stage: null });
     expect(chip.displayTextParts.id).toBe(`D${draft}`);
   });
+
+  it('lists what the ticket unblocks: waiting tickets then pending drafts that hold it', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 'Plan', core: 'claude', model: null });
+    const t = createTicket(store, { key: 'UNB-1', title: 'target', projectId });
+    const waiter = createTicket(store, { key: 'UNB-2', title: 'waiter', projectId });
+    addRelation(store, { ticketId: waiter.id, kind: 'blocked-by', targetTicketId: t.id, source: 'user' });
+    const draft = insertProposal(store, session.id, { title: 'D', description: 'd', summary: 's', repos: [], dependsOn: [`T${t.id}`] });
+    const unblocks = buildDashboardState(store, t.id).unblocks;
+    expect(unblocks.map((u) => u.displayTextParts.id)).toEqual([`T${waiter.id}`, `D${draft}`]);
+    expect(buildDashboardState(store, waiter.id).unblocks).toEqual([]);
+  });
 });

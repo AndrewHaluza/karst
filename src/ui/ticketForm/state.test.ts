@@ -776,7 +776,7 @@ describe('applyPrefill — approved-draft base picks', () => {
     expect(parentRel?.kindLabel).toBe('Parent');
 
     const blockedByRel = childState.relations?.find((r) => r.kind === 'blocked-by');
-    expect(blockedByRel?.kindLabel).toBe('Blocked by');
+    expect(blockedByRel?.kindLabel).toBe('Waits on');
 
     // On parent ticket, child relation is derived as 'child'
     const parentState = buildTicketFormState(store, MANIFEST, () => [], () => [], parent.id);
@@ -786,7 +786,7 @@ describe('applyPrefill — approved-draft base picks', () => {
     // On blocker ticket, inverse relation is derived as 'blocks'
     const blockerState = buildTicketFormState(store, MANIFEST, () => [], () => [], blocker.id);
     const blocksRel = blockerState.relations?.find((r) => r.kind === 'blocks');
-    expect(blocksRel?.kindLabel).toBe('Blocks');
+    expect(blocksRel?.kindLabel).toBe('Unblocks');
   });
 
   it('renders a proposal-only relation as a draft chip (D<n>, neutral dot, no stage)', () => {

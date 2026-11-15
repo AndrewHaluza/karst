@@ -27,11 +27,12 @@ describe('HeaderMeta — relations', () => {
     const h = mountHeader(
       headerState({ origin: 'from D88', blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-1' }, { ticketId: null, idLabel: null, label: 'external' }] }),
     );
-    expect($('#parentRef').textContent).toBe('from D88 · Blocked by T42 · CU-1 · Blocked by external');
-    const chips = document.querySelectorAll('#parentRef .k-ticket-ref');
+    expect($('#parentRef').textContent).toBe('from D88');
+    expect($('#refGroups [aria-label="Waits on"] .refGroupLabel').textContent).toBe('Waits on');
+    const chips = document.querySelectorAll('#refGroups .k-ticket-ref');
     expect(chips).toHaveLength(2);
     expect(chips[1]!.querySelector('a')).toBeNull();
-    const link = $('#parentRef a[data-act="open-dependency"]');
+    const link = $('#refGroups a[data-act="open-dependency"]');
     expect(link.getAttribute('data-ticket')).toBe('42');
     expect(fireEvent.click(link)).toBe(false);
     fireEvent.click(link);
@@ -41,11 +42,37 @@ describe('HeaderMeta — relations', () => {
 
   it('renders a proposal-only blocker as an inline plain chip, not a whole-chip button', () => {
     mountHeader(headerState({ blockers: [ticketRefView({ draftId: 94 })] }));
-    const chip = $('#parentRef .k-ticket-ref')!;
+    const chip = $('#refGroups .k-ticket-ref')!;
     expect(chip.tagName).toBe('SPAN');
-    expect(chip.textContent).toBe('Blocked by D94');
-    expect(document.querySelector('#parentRef button')).toBeNull();
+    expect(chip.textContent).toContain('D94');
+    expect(chip.textContent).not.toContain('Blocked by');
+    expect(document.querySelector('#refGroups button')).toBeNull();
     expect(chip.querySelector('a')).toBeNull();
+  });
+});
+
+describe('HeaderMeta — Waits on and Unblocks', () => {
+  it('draws Waits on chips, a divider, then Unblocks chips, and never the old words', () => {
+    mountHeader(headerState({ blockers: [ticketRefView({ ticketId: 42, idLabel: 'T42' })], unblocks: [ticketRefView({ draftId: 7 })] }));
+    expect(row().hidden).toBe(false);
+    const kids = [...$('#refGroups').children];
+    expect(kids.map((k) => k.className)).toEqual(['refGroup', 'refDivider', 'refGroup']);
+    expect(kids[0]!.getAttribute('aria-label')).toBe('Waits on');
+    expect(kids[2]!.getAttribute('aria-label')).toBe('Unblocks');
+    expect(kids[2]!.textContent).toContain('D7');
+    expect($('#headerMeta').textContent).not.toMatch(/Blocked by|Blocks/);
+  });
+
+  it('hides the Unblocks group, and the divider, when it is empty', () => {
+    mountHeader(headerState({ blockers: [ticketRefView({ ticketId: 42, idLabel: 'T42' })], unblocks: [] }));
+    expect(document.querySelector('.refDivider')).toBeNull();
+    expect(document.querySelector('[aria-label="Unblocks"]')).toBeNull();
+  });
+
+  it('shows the row for Unblocks alone', () => {
+    mountHeader(headerState({ unblocks: [ticketRefView({ ticketId: 9, idLabel: 'T9' })] }));
+    expect(row().hidden).toBe(false);
+    expect(document.querySelector('[aria-label="Waits on"]')).toBeNull();
   });
 });
 

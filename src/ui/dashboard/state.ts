@@ -220,7 +220,7 @@ export function buildDashboardState(
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
-  const { parent, subtaskParent, subtaskList, blockers, subtasks } = readRelations(store, ticket, {
+  const { parent, subtaskParent, subtaskList, blockers, unblocks, subtasks } = readRelations(store, ticket, {
     defaultProvider,
     agentContext,
     recentByCore,
@@ -366,6 +366,7 @@ export function buildDashboardState(
     subtaskParent,
     subtasks,
     blockers,
+    unblocks,
     subtaskProgress: subtaskProgress(subtaskList),
     canAddSubtask: canAddSubtask(ticket),
     canDetachSubtask: canDetachSubtask(ticket, subtaskList.length),

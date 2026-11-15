@@ -1,6 +1,6 @@
 /**
- * The header's second row (`#headerMeta`): the parent relations, then one chip per capability model that
- * differs from implementation. Hidden when both are empty. The row root is static in webview.html (the region
+ * The header's second row (`#headerMeta`): the parent relations, the "Waits on" and "Unblocks" chip groups, then
+ * one chip per capability model that differs from implementation. Hidden when both are empty. The row root is static in webview.html (the region
  * parity snapshot pins it without any data-* attribute), so its `hidden` is set on the node here.
  */
 import { memo, useLayoutEffect, type ReactNode } from 'react';
@@ -22,7 +22,6 @@ function BlockerChip({ blocker }: { readonly blocker: Blocker }) {
   return (
     <TicketRefChip
       refView={blocker}
-      prefix="Blocked by "
       showKey={true}
       link={true}
       dataAct="open-dependency"
@@ -37,25 +36,30 @@ function BlockerChip({ blocker }: { readonly blocker: Blocker }) {
 
 /** Text parts joined by " · ", with each blocker chip an element between merged text runs (one text node per run). */
 function relationNodes(meta: MetaSlice): { readonly nodes: ReactNode[]; readonly count: number } {
-  const parts: Array<string | Blocker> = [];
+  const parts: string[] = [];
   if (meta.origin) parts.push(meta.origin);
   if (meta.subtaskParent) parts.push(`Sub-task of ${meta.subtaskParent.ref}`);
   if (meta.parent) parts.push(`Follow-up of ${meta.parent.ref}`);
-  parts.push(...meta.blockers);
   const nodes: ReactNode[] = [];
   let text = '';
   parts.forEach((part, i) => {
     if (i > 0) text += ' · ';
-    if (typeof part === 'string') {
-      text += part;
-      return;
-    }
-    if (text) nodes.push(text);
-    text = '';
-    nodes.push(<BlockerChip key={`${part.ticketId ?? 'x'}:${part.label}`} blocker={part} />);
+    text += part;
   });
   if (text) nodes.push(text);
   return { nodes, count: parts.length };
+}
+
+/** One labelled run of dependency chips: "Waits on" (incoming) or "Unblocks" (outgoing). */
+function RefGroup({ label, refs }: { readonly label: string; readonly refs: readonly Blocker[] }) {
+  return (
+    <span className="refGroup" role="group" aria-label={label}>
+      <span className="refGroupLabel">{label}</span>
+      {refs.map((r) => (
+        <BlockerChip key={`${r.kind}:${r.draftId ?? ''}:${r.ticketId ?? 'x'}:${r.label}`} blocker={r} />
+      ))}
+    </span>
+  );
 }
 
 // Variant 2: list only roles whose provider/model differs from implementation (already on #agentButton), grouped by identity.
@@ -93,7 +97,9 @@ export const HeaderMeta = memo(function HeaderMeta() {
   const meta = useSlice(selectMeta);
   const relations = meta ? relationNodes(meta) : { nodes: [], count: 0 };
   const groups = meta ? capabilityGroups(meta) : [];
-  const hidden = relations.count === 0 && groups.length === 0;
+  const waitsOn = meta?.blockers ?? [];
+  const unblocks = meta?.unblocks ?? [];
+  const hidden = relations.count === 0 && groups.length === 0 && waitsOn.length === 0 && unblocks.length === 0;
   useLayoutEffect(() => {
     const row = document.getElementById('headerMeta');
     if (row) row.hidden = hidden;
@@ -103,6 +109,13 @@ export const HeaderMeta = memo(function HeaderMeta() {
       <span id="parentRef" className="ticketParent" hidden={relations.count === 0}>
         {relations.nodes}
       </span>
+      {waitsOn.length || unblocks.length ? (
+        <span id="refGroups" className="refGroups">
+          {waitsOn.length ? <RefGroup label="Waits on" refs={waitsOn} /> : null}
+          {waitsOn.length && unblocks.length ? <span className="refDivider" aria-hidden="true" /> : null}
+          {unblocks.length ? <RefGroup label="Unblocks" refs={unblocks} /> : null}
+        </span>
+      ) : null}
       <span id="capabilityLabels" className="capabilityLabels">
         {meta
           ? groups.map((g) => {

@@ -181,7 +181,6 @@
   .rowopen{min-height:var(--k-hit-min);display:flex;align-items:center;flex-wrap:wrap;
     gap:var(--k-space-1) var(--k-space-4);flex:1;min-width:0;
     text-align:left;color:inherit}
-  .rowopen .k-ticket-ref{flex:0 0 auto}
   .rowopen:hover,.rowopen:focus-visible{color:inherit;text-decoration:none}
 
   /* The row marker is the karst logo tinted by the status glyph: the mark is
@@ -212,8 +211,19 @@
      `auto` basis: the wrap line then reserves the title's content width before
      it hands the rest to the chips, so two chips wrap instead of crushing the
      title (UI-R43, UI-R44). */
+  /* The "Waits on" line sits under the row id (the row's own line 1 keeps the title and stage pill).
+     The +N list opens in flow, not as a flyout: the panes scroll and would clip one. */
+  .refs{padding-left:calc(var(--k-hit-min) + var(--k-space-6))}
+  .refs-line{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-1) var(--k-space-4);min-height:var(--k-hit-min)}
+  .refs .k-ticket-ref{flex:0 0 auto}
+  .refs-verb{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .refs-more{display:inline-flex;align-items:center;justify-content:center;min-width:var(--k-hit-min);min-height:var(--k-hit-min);padding:0;border:0;background:none;color:inherit;font:inherit;cursor:pointer}
+  .refs-more-pill{display:inline-flex;align-items:center;height:var(--k-chip-h);padding:0 var(--k-space-4);border-radius:var(--k-radius-pill);border:var(--k-border-w) solid var(--stage-unknown);font-size:var(--k-text-2xs);font-variant-numeric:tabular-nums}
+  .refs-more:hover .refs-more-pill,.refs-more[aria-expanded="true"] .refs-more-pill{border-color:var(--k-focus)}
+  .refs-more:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .refs-list{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4);margin:var(--k-space-1) 0 var(--k-space-2);padding:var(--k-space-2) var(--k-space-4);list-style:none;border-left:calc(var(--k-border-w) * 2) solid var(--k-border)}
+  .refs-list[hidden]{display:none}
   .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
-  .rowopen.has-refs .name{flex:1 1 auto}
   /* Follow-up marker: says "this is a sub-task of <key>" without stealing row
      width. Capped at a share of the row with its own ellipsis — a long parent
      key must trim itself (full key stays in the tooltip), never starve the
