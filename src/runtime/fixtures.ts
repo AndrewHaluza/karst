@@ -1,7 +1,50 @@
+import { execFile } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+/** One listener on a fixture port, as `lsof` reports it. */
+export interface PortHolder {
+  pid: number;
+  command: string;
+  port: number;
+}
+
+/** Parse `lsof -Fpcn` output (records `p<pid>`, `c<command>`, `n<addr>:<port>`). */
+export function parseLsofHolders(out: string): PortHolder[] {
+  const holders: PortHolder[] = [];
+  let pid = 0;
+  let command = '';
+  for (const line of out.split('\n')) {
+    const tag = line[0];
+    const rest = line.slice(1);
+    if (tag === 'p') pid = Number(rest);
+    else if (tag === 'c') command = rest;
+    else if (tag === 'n') {
+      const port = Number(rest.slice(rest.lastIndexOf(':') + 1));
+      if (Number.isInteger(pid) && pid > 0 && Number.isInteger(port)) holders.push({ pid, command, port });
+    }
+  }
+  return holders;
+}
+
+/** The listeners inside `[from, to]`, or [] where `lsof` is missing or fails (best effort). */
+export function listPortHolders(from: number, to: number): Promise<PortHolder[]> {
+  return new Promise((resolve) => {
+    execFile('lsof', ['-nP', `-iTCP:${from}-${to}`, '-sTCP:LISTEN', '-Fpcn'], { timeout: 5_000 }, (err, stdout) => {
+      resolve(err && stdout.length === 0 ? [] : parseLsofHolders(stdout));
+    });
+  });
+}
+
+/** A short text naming the holders, for the error message. */
+export function describeHolders(holders: readonly PortHolder[], max = 10): string {
+  if (holders.length === 0) return '';
+  const shown = holders.slice(0, max).map((h) => `pid ${h.pid} (${h.command}) on port ${h.port}`);
+  const more = holders.length > max ? `, and ${holders.length - max} more` : '';
+  return ` Holders: ${shown.join('; ')}${more}.`;
+}
 
 /** Can this port be bound on `host` right now? */
 function bindable(port: number, host?: string): Promise<boolean> {
@@ -81,6 +124,7 @@ export async function freePortWindow(
   ceiling = 49_000,
   stride = 20,
   lockDir = join(tmpdir(), 'karst-test-port-bands'),
+  findHolders: (from: number, to: number) => Promise<PortHolder[]> = listPortHolders,
 ): Promise<number> {
   // Ceiling: stay under Windows' ephemeral range (49152+), where a window is free
   // when probed and taken by an outbound socket a second later. Linux' ephemeral
@@ -108,9 +152,10 @@ export async function freePortWindow(
     // stride step (or a later run) may still use it.
     releasePortBand(base, span, lockDir);
   }
+  const holders = describeHolders(await findHolders(from, ceiling).catch(() => []));
   throw new Error(
     `no free window of ${span} ports in [${from}, ${ceiling}] — a previous run probably ` +
-      `leaked servers; kill stray fixture processes and retry`,
+      `leaked servers; kill stray fixture processes and retry.${holders}`,
   );
 }
 
