@@ -36,25 +36,27 @@ export function countLiveRuns(store: Store, hostPid: number, extra = 0): number 
   return count('process_runs') + count('stage_runs') + deliver.n + ship.n + extra;
 }
 
-/**
- * A new ship start while the drain flag is set (@arch:DRAIN-01): returns true
- * after it writes one debug line and holds the ticket, so a cancel re-drives it.
- * A start inside a tracked live run is never refused.
- */
-export function refuseShipWhileDraining(
-  drain: Drain,
-  ticketId: number,
-  debug: (message: string) => void,
-  notify?: () => void,
-): boolean {
-  if (!drain.isDraining() || drain.insideRun()) return false;
-  drain.hold(ticketId);
-  debug(`[ship] ticket ${ticketId} ship not started: draining`);
-  notify?.();
-  return true;
+export const SHIP_DRAINING_MESSAGE = 'a reload is waiting for live runs, so ship does not start. Cancel the reload, or ship again after it.';
+
+/** The error a refused ship start throws, so no caller reports a ship that did not run. */
+export class ShipDrainingError extends Error {
+  constructor() {
+    super(SHIP_DRAINING_MESSAGE);
+    this.name = 'ShipDrainingError';
+  }
 }
 
-export const SHIP_DRAINING_MESSAGE = 'Karst: a reload is waiting for live runs, so ship does not start. Cancel the reload, or ship again after it.';
+/**
+ * A new ship start while the drain flag is set (@arch:DRAIN-01): writes one debug
+ * line, holds the ticket so a cancel re-drives it, and throws `ShipDrainingError`.
+ * A start inside a tracked live run is never refused.
+ */
+export function guardShipStart(drain: Drain, ticketId: number, debug: (message: string) => void): void {
+  if (!drain.isDraining() || drain.insideRun()) return;
+  drain.hold(ticketId);
+  debug(`[ship] ticket ${ticketId} ship not started: draining`);
+  throw new ShipDrainingError();
+}
 
 export interface ReloadWhenIdleDeps {
   readonly drain: Drain;

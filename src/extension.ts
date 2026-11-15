@@ -11,7 +11,7 @@ import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { createDrain } from './runtime/drain.js';
 import { registerReloadWhenIdle } from './extension/reloadWhenIdleBinding.js';
-import { refuseShipWhileDraining, SHIP_DRAINING_MESSAGE } from './extension/ops/reloadWhenIdle.js';
+import { guardShipStart } from './extension/ops/reloadWhenIdle.js';
 import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
 import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
@@ -3766,7 +3766,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       store: localStore, ticketId, key: formatId('ticket', ticketId), config: () => currentManifest()?.autopilot,
       controls: () => autopilot.controlsTicket(ticketId), projectId: () => currentProject()?.id,
       preview: () => makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync)(ticketId),
-      ship: (o) => runShipSaga(ticketId, false, o), debug: (m) => logger.debug(m), warn: (m) => logger.warn(m), error: logError,
+      ship: (o) => runShipSaga(ticketId, false, o), drain, debug: (m) => logger.debug(m), warn: (m) => logger.warn(m), error: logError,
     });
   }
 
@@ -5861,10 +5861,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runShipSaga = async (
     ticketId: number,
     warn = false,
-    shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean; notifyRefusal?: boolean } = {},
+    shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean } = {},
   ): Promise<void> => {
-    const notify = warn || shipOpts.notifyRefusal === true ? () => void vscode.window.showInformationMessage(SHIP_DRAINING_MESSAGE) : undefined;
-    if (refuseShipWhileDraining(drain, ticketId, (m) => logger.debug(m), notify)) return;
+    guardShipStart(drain, ticketId, (m) => logger.debug(m)); // throws while draining: no caller reports a ship that did not run
     // WHO asked decides whether new work is delivered into a PR that is already
     // open. A human re-shipping a ticket whose PR is live wants the new commits
     // pushed onto it (FIX-46); an activation sweep resuming a ship whose host

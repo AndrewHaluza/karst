@@ -3,7 +3,7 @@ import { openStore } from '../../store/db.js';
 import { createDrain } from '../../runtime/drain.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { openShipRun } from '../../store/shipRuns.js';
-import { countLiveRuns, refuseShipWhileDraining, reloadWhenIdle, type ReloadWhenIdleDeps } from './reloadWhenIdle.js';
+import { countLiveRuns, guardShipStart, reloadWhenIdle, ShipDrainingError, type ReloadWhenIdleDeps } from './reloadWhenIdle.js';
 
 function deps(counts: number[], over: Partial<ReloadWhenIdleDeps> = {}) {
   const drain = createDrain();
@@ -114,37 +114,43 @@ describe('countLiveRuns ship runs', () => {
   });
 });
 
-describe('refuseShipWhileDraining', () => {
-  it('starts when not draining', () => {
-    const drain = createDrain();
+describe('guardShipStart', () => {
+  it('lets a start run when not draining', () => {
     const log = vi.fn();
-    expect(refuseShipWhileDraining(drain, 5, log)).toBe(false);
+    expect(() => guardShipStart(createDrain(), 5, log)).not.toThrow();
     expect(log).not.toHaveBeenCalled();
   });
 
-  it('refuses, logs the reason draining and holds the ticket while draining', () => {
+  it('throws, logs the reason draining and holds the ticket while draining', () => {
     const drain = createDrain();
     const log = vi.fn();
     drain.begin();
-    expect(refuseShipWhileDraining(drain, 5, log)).toBe(true);
+    expect(() => guardShipStart(drain, 5, log)).toThrow(ShipDrainingError);
     expect(log).toHaveBeenCalledWith(expect.stringContaining('draining'));
     expect(drain.cancel()).toEqual([5]);
   });
 
-  it('tells the user once for a refused click, and stays silent for an unattended start', () => {
+  it('opens no ship run when the guard refuses the start', () => {
+    const store = openStore(':memory:');
+    const t = createTicketFlow(store, { key: 'K-4', title: 't' });
     const drain = createDrain();
     drain.begin();
-    const notify = vi.fn();
-    refuseShipWhileDraining(drain, 5, () => {}, notify);
-    refuseShipWhileDraining(drain, 6, () => {});
-    expect(notify).toHaveBeenCalledTimes(1);
+    const start = (): void => {
+      guardShipStart(drain, t.id, () => {});
+      openShipRun(store, { ticketId: t.id, attempt: 1, startedAt: 'x', pid: 111 });
+    };
+    expect(start).toThrow(ShipDrainingError);
+    expect(countLiveRuns(store, 111)).toBe(0);
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM ship_runs').get()).toEqual({ n: 0 });
+    expect(drain.cancel()).toEqual([t.id]);
+    store.close();
   });
 
   it('does not refuse a start inside a tracked live run', async () => {
     const drain = createDrain();
     drain.begin();
     await drain.track(async () => {
-      expect(refuseShipWhileDraining(drain, 5, () => {})).toBe(false);
+      expect(() => guardShipStart(drain, 5, () => {})).not.toThrow();
     });
   });
 });

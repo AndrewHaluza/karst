@@ -121,7 +121,7 @@ export function makeDashboardActions(
   // with the stranded-ship recovery at activation (a ship killed by a dead
   // host resumes through the same path as the click that started it): the
   // click owns only the capability guard and the failure toast.
-  runShipSaga: (ticketId: number, warn?: boolean, shipOpts?: { repos?: readonly string[]; notifyRefusal?: boolean }) => Promise<void>,
+  runShipSaga: (ticketId: number, warn?: boolean, shipOpts?: { repos?: readonly string[] }) => Promise<void>,
   // Dispatch one opaque inside action id: the panel posts only the id; the
   // dashboard manager resolves it through the ticket's current registry.
   onInsideAction: (actionId: string) => void,
@@ -307,7 +307,7 @@ export function makeDashboardActions(
     // capability guard and the failure toast.
     shipTicket: async () => {
       if (!(await guardCapability('ship'))) return;
-      void runShipSaga(ticketId, false, { notifyRefusal: true }).catch((e) => {
+      void runShipSaga(ticketId).catch((e) => {
         logError('ship failed', e);
         // `shipTicket` already recorded the reason on the ship stage, so the
         // dashboard now explains itself — but the user just clicked a button
@@ -603,7 +603,7 @@ export function makeDashboardActions(
     ...makeTesterSkipActions({ store, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
     ...makePushDivergedActions({
       store, ticketId, notify: vscodeNotify, debug,
-      runShip: (id) => void runShipSaga(id, false, { notifyRefusal: true }).catch((e) => logError('push-diverged overwrite: ship failed', e)),
+      runShip: (id) => void runShipSaga(id).catch((e) => logError('push-diverged overwrite: ship failed', e)),
       redrive: driveAfterResume, refresh: afterServerChange,
       handOff: guardedHandOff({ paused: () => getTicket(store, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), isGraphTicket: () => nudgeSurface(store.db, ticketId) === 'no-op', handOff: handOffToSession }),
     }),
