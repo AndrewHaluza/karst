@@ -6,13 +6,17 @@
  * Intent arrives as env (npm scripts, docker): KARST_LAYOUT_SEED=1,
  * KARST_LAYOUT_PRUNE=1, KARST_LAYOUT_AUTHORITATIVE=1 (only the docker script
  * sets it). See docs/ui/VISUAL-COVERAGE.md `ui:LAYOUT-SANITY`.
+ *
+ * In the CI merge run (KARST_LAYOUT_MERGE=1, see layoutShards.ts) the shards
+ * come from all layout CI shards, and a run key without a shard fails the
+ * verdict: the union must hold every route of the whole sweep.
  */
 import { writeFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { LAYOUT_WIDTHS, layoutWidthsFor } from '../../src/ui/layout/layoutBreakpoints.js';
 import type { LayoutFailure } from '../../src/ui/layout/layoutChecks.js';
 import { grepSelectsNoRoute, isFullRun, matchLedger, prune, runKey, seed } from '../../src/ui/layout/layoutLedger.js';
-import { readLedger, readShards, REPORT_PATH, writeLedger, type Shard } from './layoutShards.js';
+import { isMergeRun, mergeGap, readLedger, readShards, REPORT_PATH, writeLedger, type Shard } from './layoutShards.js';
 import { resizeRouteId, settingsRoutes } from './settingsRoutes.js';
 import { extraLayoutTargets } from './variants.js';
 
@@ -69,6 +73,10 @@ function verdict(shards: readonly Shard[]): string {
     fullRun: isFullRun(ran, expectedRunKeys()),
   };
   const existing = readLedger();
+  if (isMergeRun()) {
+    const gap = mergeGap(ran, expectedRunKeys());
+    if (gap) return gap;
+  }
 
   if (process.env['KARST_LAYOUT_SEED'] === '1') {
     const keys = seed(failures, existing, guard);

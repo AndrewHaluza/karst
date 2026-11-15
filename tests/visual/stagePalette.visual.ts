@@ -21,9 +21,6 @@ import { test as karstTest, expect } from './fixtures.js';
 import { STAGE_COLORS } from '../../src/model/stagePalette.js';
 import { THEMES, type ThemeId } from './themes.js';
 
-/** Only the three real theme projects derive a body class worth checking. */
-const THEME_PROJECTS = new Set(['dark', 'light', 'hc']);
-
 /** Stages the dashboard's pending fixture renders as a chip. */
 const STAGES = ['done', 'impl'] as const;
 
@@ -43,11 +40,7 @@ function hexToRgb(hex: string): string {
 }
 
 karstTest.describe('NDL-219: the theme body class reaches the stage palette', () => {
-  karstTest('document.body carries the theme class', async ({ gotoView, page, theme }, testInfo) => {
-    if (!THEME_PROJECTS.has(testInfo.project.name)) {
-      testInfo.skip();
-      return;
-    }
+  karstTest('document.body carries the theme class', async ({ gotoView, page, theme }) => {
     await gotoView('dashboard');
     const className = await page.evaluate(() => document.body.className);
     expect(className).toBe(THEMES[theme].bodyClass);
@@ -56,11 +49,7 @@ karstTest.describe('NDL-219: the theme body class reaches the stage palette', ()
   for (const stage of STAGES) {
     karstTest(
       `.stg-${stage} computes its stage token from the theme's layer`,
-      async ({ gotoView, page, theme }, testInfo) => {
-        if (!THEME_PROJECTS.has(testInfo.project.name)) {
-          testInfo.skip();
-          return;
-        }
+      async ({ gotoView, page, theme }) => {
         await gotoView('dashboard');
 
         // `span.stage` — the subtask chip. The dashboard's stepper also carries
