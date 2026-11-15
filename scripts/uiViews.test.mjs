@@ -8,6 +8,7 @@ import {
   gateGrep,
   isUiPath,
   readSettingsSections,
+  mergedSelection,
   scopedSelection,
   selectDeltaViews,
   selectViews,
@@ -283,6 +284,28 @@ describe('selectionLine with an origin', () => {
     expect(selectionLine('test:visual:docker', { all: true, views: [] }, null, { kind: 'red', since, failed: 0 })).toBe(
       'visual: running every view; full sweep also runs in CI',
     );
+  });
+});
+
+describe('mergedSelection (@arch:GATE-BASE-MOVED)', () => {
+  const failed = [{ project: 'chromium', title: 'ticketForm opens' }];
+  it('selects the views of the ticket diff, not of the base delta', () => {
+    const scoped = mergedSelection({ since: 'abc', ticketPaths: ['src/ui/ticketForm/app/Form.tsx'], failed: [] });
+    expect(scoped.selection).toEqual({ all: false, views: ['ticketForm'] });
+  });
+  it('selects every view when the ticket diff holds package-lock.json', () => {
+    expect(mergedSelection({ since: 'abc', ticketPaths: ['package-lock.json'], failed: [] }).selection.all).toBe(true);
+  });
+  it('selects every view when the ticket diff is unreadable', () => {
+    expect(mergedSelection({ since: 'abc', ticketPaths: null, failed: [] }).selection.all).toBe(true);
+  });
+  it('keeps the failed tests of the seeded state', () => {
+    const scoped = mergedSelection({ since: 'abc', ticketPaths: ['src/ui/ticketForm/app/Form.tsx'], failed });
+    expect(scoped.failed).toEqual(failed);
+    expect(scoped.origin).toEqual({ kind: 'red', since: 'abc', failed: 1 });
+  });
+  it('selects nothing when the ticket diff holds no UI path and nothing failed', () => {
+    expect(mergedSelection({ since: 'abc', ticketPaths: ['src/a.ts'], failed: [] })).toBeNull();
   });
 });
 
