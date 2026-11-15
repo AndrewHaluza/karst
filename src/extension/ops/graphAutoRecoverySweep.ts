@@ -8,6 +8,8 @@ import { autoRecoverBlockedRuns, createAutoRecoveryMemory } from '../../approach
 import type { Store } from '../../store/db.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import { blockedGraphRunsForAutoRecovery } from '../../store/graph/graphRuns.js';
+import { GRAPH_FAILED_BLOCKER } from '../../approaches/graph/coordinator/recovery.js';
+import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { dispatchGraphRecovery, type GraphRecoverySeams } from './graphRecoveryDispatch.js';
 
 export interface AutoRecoverySweepHost {
@@ -29,6 +31,19 @@ export function makeAutoRecoverySweep(
           now: () => new Date().toISOString(),
           debug: host.debug,
           recover: async (input) => dispatchGraphRecovery(seams, input),
+          onStopped: ({ ticketId }, note) => {
+            const block = stageBlock(store, ticketId, 'impl');
+            if (block === null || block.kind !== GRAPH_FAILED_BLOCKER) return;
+            if (block.reason.includes(note)) return;
+            parkGateStage(store, {
+              ticketId,
+              stageKey: 'impl',
+              kind: GRAPH_FAILED_BLOCKER,
+              reason: `${block.reason} — ${note}`,
+              runAt: new Date().toISOString(),
+              gates: [],
+            });
+          },
           postNote: (note) =>
             void postAgentNote(store, {
               projectId,

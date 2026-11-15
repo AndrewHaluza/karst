@@ -62,6 +62,9 @@ export interface AutoRecoveryDeps {
   }) => Promise<RecoveryResult>;
   /** Post one project bulletin note. */
   postNote: (note: { ticketId: number; title: string; body: string }) => void;
+  /** The limit note was written on a blocked run, once: show it where the
+   *  human reads the block (the stage block behind the Inside banner). */
+  onStopped?: (target: { ticketId: number; graphRunId: number }, note: string) => void;
 }
 
 /** What the sweep remembers between ticks: the block it last saw refused, per
@@ -113,6 +116,7 @@ async function recoverOne(
         graphRunId,
         detail: `${note}; a human Resume or Replan is needed — ${reason}`,
       });
+      deps.onStopped?.({ ticketId, graphRunId }, note);
       deps.postNote({
         ticketId,
         title: `graph run ${graphRunId}: automatic recovery stopped`,

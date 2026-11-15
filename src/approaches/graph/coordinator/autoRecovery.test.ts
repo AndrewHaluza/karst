@@ -161,6 +161,25 @@ describe('autoRecoverBlockedRuns', () => {
     expect(deps.notes.filter((n) => n.title.includes('stopped'))).toHaveLength(1);
   });
 
+  it('tells the onStopped seam once when the limit note is written', async () => {
+    const f = fixture('node-blocked: n1');
+    const onStopped = vi.fn();
+    const deps = { ...depsFor(f, async () => retried), onStopped };
+    const memory = createAutoRecoveryMemory();
+    for (let i = 0; i < AUTO_RECOVERY_LIMIT; i += 1) {
+      markGraphRunBlocked(f.store.db, f.graphRunId, 'node-blocked: n1', NOW);
+      await sweep(f, deps, memory);
+    }
+    markGraphRunBlocked(f.store.db, f.graphRunId, 'node-blocked: n1', NOW);
+    await sweep(f, deps, memory);
+    await sweep(f, deps, memory);
+    expect(onStopped).toHaveBeenCalledTimes(1);
+    expect(onStopped).toHaveBeenCalledWith(
+      { ticketId: f.ticketId, graphRunId: f.graphRunId },
+      expect.stringContaining('automatic recovery stopped after 3 attempts'),
+    );
+  });
+
   it('does not count a human recovery and does not reset the count', async () => {
     const f = fixture('node-blocked: n1');
     const deps = depsFor(f, async () => retried);

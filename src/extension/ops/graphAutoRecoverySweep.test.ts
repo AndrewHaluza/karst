@@ -1,3 +1,6 @@
+import { AUTO_RECOVERY_LIMIT } from '../../approaches/graph/coordinator/autoRecovery.js';
+import { GRAPH_FAILED_BLOCKER } from '../../approaches/graph/coordinator/recovery.js';
+import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
@@ -83,5 +86,37 @@ describe('makeAutoRecoverySweep', () => {
     await sweep(store, projectId);
     await sweep(store, projectId);
     expect(s.recover).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds the stop note to the impl stage block once, so the Inside banner shows it', async () => {
+    const { store, projectId, runId } = blockedRun('node-blocked: n1');
+    const ticketId = (store.db.prepare('SELECT ticket_id AS t FROM approach_graph_runs WHERE id = ?').get(runId) as { t: number }).t;
+    parkGateStage(store, {
+      ticketId,
+      stageKey: 'impl',
+      kind: GRAPH_FAILED_BLOCKER,
+      reason: `${GRAPH_FAILED_BLOCKER}: node-blocked: n1`,
+      runAt: NOW,
+      gates: [],
+    });
+    store.db.prepare('UPDATE approach_graph_runs SET auto_recovery_count = ? WHERE id = ?').run(AUTO_RECOVERY_LIMIT, runId);
+    const s = seams(RETRIED);
+    const sweep = makeAutoRecoverySweep(s, host());
+    await sweep(store, projectId);
+    await sweep(store, projectId);
+    expect(s.recover).not.toHaveBeenCalled();
+    const reason = stageBlock(store, ticketId, 'impl')?.reason ?? '';
+    expect(reason).toContain('node-blocked: n1');
+    expect(reason.match(/automatic recovery stopped after 3 attempts/g)).toHaveLength(1);
+  });
+
+  it('leaves a stage block of another kind alone', async () => {
+    const { store, projectId, runId } = blockedRun('node-blocked: n1');
+    const owner = (store.db.prepare('SELECT ticket_id AS t FROM approach_graph_runs WHERE id = ?').get(runId) as { t: number }).t;
+    parkGateStage(store, { ticketId: owner, stageKey: 'impl', kind: 'nothing-to-run', reason: 'other', runAt: NOW, gates: [] });
+    store.db.prepare('UPDATE approach_graph_runs SET auto_recovery_count = ? WHERE id = ?').run(AUTO_RECOVERY_LIMIT, runId);
+    await makeAutoRecoverySweep(seams(RETRIED), host())(store, projectId);
+    const ticketId = (store.db.prepare('SELECT ticket_id AS t FROM approach_graph_runs WHERE id = ?').get(runId) as { t: number }).t;
+    expect(stageBlock(store, ticketId, 'impl')?.reason).toBe('other');
   });
 });

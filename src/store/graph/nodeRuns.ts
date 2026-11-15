@@ -338,9 +338,14 @@ export function countNodeRunsInStatusesExcludingOutcome(
       `SELECT COUNT(*) AS n FROM approach_node_runs
        WHERE graph_run_id = ? AND status IN (${placeholders})
          AND (outcome IS NULL OR outcome <> ?)
-         AND NOT (status = 'blocked' AND failure_category IS ?)`,
+         ${exclude.blockedCategory === undefined ? '' : "AND NOT (status = 'blocked' AND failure_category IS ?)"}`,
     )
-    .get(graphRunId, ...statuses, excludedOutcome, exclude.blockedCategory ?? null) as { n: number };
+    .get(
+      graphRunId,
+      ...statuses,
+      excludedOutcome,
+      ...(exclude.blockedCategory === undefined ? [] : [exclude.blockedCategory]),
+    ) as { n: number };
   return row.n;
 }
 
