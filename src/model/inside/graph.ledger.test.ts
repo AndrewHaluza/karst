@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { graphDagView } from './graphDag.js';
 import { graphInsideProcess, type GraphInsideInput, type GraphNodeRunView } from './graph.js';
 
 function node(over: Partial<GraphNodeRunView> & Pick<GraphNodeRunView, 'nodeRunId' | 'nodeId'>): GraphNodeRunView {
@@ -168,5 +169,61 @@ describe('graph ledger', () => {
       ],
     });
     expect(nodes!.map((n) => n.nodeId)).toEqual(['c', 'b', 'a']);
+  });
+
+  describe('bootstrap planner after the plan is accepted', () => {
+    const planner = (over: Partial<GraphInsideInput['plannerRuns'][number]> = {}): GraphInsideInput['plannerRuns'] => [
+      {
+        plannerRunNumber: 1,
+        kind: 'bootstrap',
+        status: 'submitted',
+        compileAttempt: 0,
+        reason: null,
+        startedAt: '2026-10-05T17:01:00.000Z',
+        submittedAt: '2026-10-05T17:10:00.000Z',
+        ...over,
+      },
+    ];
+    const rev = { revisionNumber: 1, status: 'active', fingerprint: 'fp' };
+    const plannerRow = (i: Partial<GraphInsideInput>) => ledger(i).nodes!.find((n) => n.entry === 'planner')!;
+
+    it('reads pass with the accepted revision when a submitted planner has an active revision', () => {
+      const row = plannerRow({ plannerRuns: planner(), revision: rev });
+      expect(row.displayStatus).toBe('pass');
+      expect(row.age).toBe('plan accepted · rev 1 · ran 9m');
+    });
+
+    it('keeps the ran duration from ended_at when the planner run has an end', () => {
+      const row = plannerRow({
+        plannerRuns: planner({ endedAt: '2026-10-05T17:12:00.000Z' }),
+        revision: rev,
+      });
+      expect(row.displayStatus).toBe('pass');
+      expect(row.age).toBe('plan accepted · rev 1 · ran 11m');
+    });
+
+    it('still waits on the compiler when a submitted planner has no revision', () => {
+      const row = plannerRow({ plannerRuns: planner(), revision: null });
+      expect(row.displayStatus).toBe('wait');
+      expect(row.age).toMatch(/^submitted .* ago$/);
+    });
+
+    it('does not read a submitted replan planner as accepted', () => {
+      const row = plannerRow({ plannerRuns: planner({ kind: 'replan' }), revision: rev });
+      expect(row.displayStatus).toBe('wait');
+    });
+
+    it('feeds the DAG chip the accepted reading', () => {
+      const nodes = ledger({ plannerRuns: planner(), revision: rev }).nodes!;
+      const chip = graphDagView({ nodes: [{ id: 'design' }], edges: [] }, nodes).columns[0]![0]!;
+      expect(chip).toMatchObject({ displayStatus: 'pass', state: 'plan accepted · rev 1 · ran 9m' });
+    });
+  });
+
+  it('reads a running node with a start time as running, not never started', () => {
+    const row = ledger({
+      nodeRuns: [node({ nodeRunId: 9, nodeId: 'w', status: 'running', outcome: null, startedAt: '2026-10-05T17:32:00.000Z' })],
+    }).nodes!.find((n) => n.nodeId === 'w')!;
+    expect(row.age).toBe('running 18m');
   });
 });

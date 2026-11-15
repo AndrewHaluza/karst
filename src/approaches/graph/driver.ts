@@ -65,6 +65,7 @@ import {
   nodeRunStatus,
   runnableNodeRunsForGraphRun,
   setNodeRunFailure,
+  markNodeRunStarted,
   setNodeRunLaunchIdentity,
   setNodeRunOutcome,
   type NodeRunRow,
@@ -815,6 +816,7 @@ async function executeReadyNode(
       capabilityHash: sha256Hex(new TextEncoder().encode(nodeCapability)),
       ownerNonce: nodeOwnerNonce,
     });
+    markNodeRunStarted(deps.db, row.id, deps.now());
     if (row.status === 'launching') return true;
     return casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'ready', 'launching');
   });

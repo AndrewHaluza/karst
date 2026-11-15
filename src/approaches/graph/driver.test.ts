@@ -409,6 +409,35 @@ describe('acceptSubmittedPlan', () => {
     expect(planArtifacts.n).toBe(1);
   });
 
+  it('stamps the bootstrap planner run ended_at when it accepts the plan', () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
+    mkdirSync(snapshotDir, { recursive: true });
+    writeFileSync(join(snapshotDir, 'fp1.json'), gateGraphJson());
+    const planDir = join(h.root, String(graphRunId), 'artifacts');
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, 'plan.md'), '# plan');
+
+    expect(acceptSubmittedPlan(h.deps, graphRunId).kind).toBe('accepted');
+    const planner = h.db
+      .prepare('SELECT status, ended_at FROM approach_planner_runs WHERE graph_run_id = ?')
+      .get(graphRunId) as { status: string; ended_at: string | null };
+    expect(planner.status).toBe('submitted');
+    expect(planner.ended_at).toBe(NOW);
+  });
+
   it('numbers a recovery bootstrap revision monotonically past a surviving draining revision', () => {
     // The replan-park leaves revision #1 `draining`; a bootstrap relaunch then
     // re-accepts. A hardcoded revision number 1 would collide with the
@@ -1469,6 +1498,98 @@ describe('driveReadyNodeRuns', () => {
       .prepare('SELECT owner_nonce FROM approach_node_runs WHERE id = ?')
       .get(nodeRunId) as { owner_nonce: string | null };
     expect(node.owner_nonce).toBe(observed[0]!.nonce);
+  });
+
+  it('stamps started_at in the claim transaction, so a launching row already has its start time', async () => {
+    const h = harness();
+    const seen: (string | null)[] = [];
+    const baseStart = h.deps.transport.start;
+    h.deps.transport.start = async (request) => {
+      const row = h.db
+        .prepare('SELECT started_at FROM approach_node_runs WHERE id = ?')
+        .get(request.nodeRunId) as { started_at: string | null };
+      seen.push(row.started_at);
+      return baseStart(request);
+    };
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const doc = gateGraphJson({
+      entries: ['impl'],
+      artifacts: [
+        {
+          id: 'task',
+          path: 'artifacts/task.md',
+          producer: '$planner',
+          consumers: ['impl'],
+          mediaType: 'text/markdown',
+          maxBytes: 1000,
+          required: true,
+        },
+      ],
+      nodes: [
+        {
+          id: 'impl',
+          kind: 'agent',
+          label: 'Implement',
+          profile: 'worker',
+          instructionsArtifact: 'task',
+          inputs: [],
+          outputs: [],
+          resources: { reads: [{ repo: 'api', paths: ['src'] }], writes: [{ repo: 'api', paths: ['src/api'] }] },
+          outcomes: ['complete', 'blocked', 'replan'],
+          budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [{ id: 'e1', from: 'impl', on: 'complete', to: 'END' }],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: doc,
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (?, ?, 'impl', 'agent', 1, 'ready')`,
+        )
+        .run(graphRunId, revisionId)
+        .lastInsertRowid,
+    );
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(join(artRoot, 'artifacts'), { recursive: true });
+    writeFileSync(join(artRoot, 'artifacts', 'task.md'), '# task');
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const taskSnap = h.deps.readBytes(graphRunId, 'artifacts/task.md')!;
+    h.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, ?, 'task', ?, ?, ?, 'text/markdown', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
+
+    const result = await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(result.launched).toBe(1);
+    expect(seen).toEqual([NOW]);
+    const node = h.db
+      .prepare('SELECT started_at FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { started_at: string | null };
+    expect(node.started_at).toBe(NOW);
   });
 
   it('releases the active process slot when launch parking blocks the node', async () => {
