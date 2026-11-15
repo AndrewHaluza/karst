@@ -170,6 +170,9 @@ describe('makeReviewArtifactsBinding — operator manifest', () => {
   });
   it('keeps an impl-stage change visible after a fix round recorded the changed sha', async () => {
     const { b, id, path } = setup('new: 1', 'new: 1');
+    // The file is written before the ticket row: pin its mtime past the ticket, so the test does not race the clock.
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(path, later, later);
     expect((await b(id))?.operatorManifest?.changed).toBe(true);
   });
 });
