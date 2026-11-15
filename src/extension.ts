@@ -159,6 +159,7 @@ import {
   activeRecoverySeries,
   FIX_PARKED_PROCESS_UNAVAILABLE,
   FIX_PARKED_NO_EXECUTION,
+  ticketsWithPendingFix,
 } from './store/recoveryRounds.js';
 import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
@@ -5800,6 +5801,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const id of strandedFixResumes) {
       if (!projectTicketIds.has(id)) continue;
       logger.info(`stage driver: activation-sweep → reopen interrupted fix round for ticket ${id}`);
+      void driveTicket(id);
+    }
+    // A fix the drain held (@arch:DRAIN-01) rests at fix with a pending round; the in-memory hold
+    // did not survive the reload, so the round is the durable record. `driver.begin` single-flights.
+    for (const id of ticketsWithPendingFix(localStore, startupProject.id)) {
+      if (strandedFixResumes.has(id)) continue;
+      logger.info(`stage driver: activation-sweep → start the pending fix of ticket ${id}`);
       void driveTicket(id);
     }
   }

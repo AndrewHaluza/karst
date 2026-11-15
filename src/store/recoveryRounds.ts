@@ -52,6 +52,7 @@ export {
   recoveryDecision,
   listRecoveryRounds,
   roundById,
+  ticketsWithPendingFix,
 } from './recoveryRoundsRead.js';
 
 export {
