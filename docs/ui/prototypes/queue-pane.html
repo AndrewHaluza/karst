@@ -115,7 +115,7 @@ pre .u{color:#ff6b6b}pre .h{color:#f0a24b}pre .d{color:#8a8a8a}
 <li><b>Position</b> 1, 2, 3 … is the computed order: dependencies first, then priority, then age.</li>
 <li><b>Priority chip</b>: <span class="p u">URG</span> <span class="p h">HIGH</span> <span class="p l">LOW</span>. No chip for <i>normal</i>, so most rows stay quiet.</li>
 <li><b>Id chip with session</b>: <code>D452 · P17</code> for a draft, <code>T997</code> for a ticket.</li>
-<li><b>Why</b>, on the right: <span class="why up">↑ D498</span> = priority inherited from a draft that waits on this one. <span class="why">waits D452</span> = an open blocker comes first.</li>
+<li><b>Why</b> (T1104, supersedes the muted text drawn here): the reason is the D561 verb and the D560 stage chip. <i>Unblocks D498</i> = priority raised by an item that waits on this one (the priority chip gets an up arrow). <i>Waits on D452 +1</i> = an open blocker comes first. <i>Cycle with D501</i> = a dependency cycle (error color). The layout is <code>sidebar-ref-chip.html</code>, region <code>queue</code>: one line above 400px, a second line at 400px and less.</li>
 <li><b>Click</b> a draft row → Review form. Click a ticket row → its dashboard.</li>
 <li><b>Planning pane</b> (D502): the draft card gets the priority chip. (D501): a cross-session dependency shows as <span class="dep">needs D452 · P17</span>.</li>
 <li><b>Tickets pane</b>: a not-started ticket shows its priority chip too.</li>
@@ -188,10 +188,10 @@ pre .u{color:#ff6b6b}pre .h{color:#f0a24b}pre .d{color:#8a8a8a}
 <h2>4 · The same order for a planner — <code>karst queue</code> <span class="tag">D501 + D503</span></h2>
 <pre>$ karst queue
  #  ID     SESSION  PRIO    TITLE                                              WHY
- 1  D497   P43      <span class="u">urgent</span>  perf: a host-wide limit for gate runs              <span class="u">↑ from D498</span>
+ 1  D497   P43      <span class="u">urgent</span>  perf: a host-wide limit for gate runs              <span class="u">unblocks D498</span>
  2  D498   P43      <span class="u">urgent</span>  fix: an IDE reload leaves gate processes alive
  3  T997   -        <span class="h">high</span>    Autopilot: auto-fix CI on sandbox tickets
- 4  D452   P17      <span class="h">high</span>    fix(ui): one ticket reference chip                 <span class="h">↑ from D399</span>
+ 4  D452   P17      <span class="h">high</span>    fix(ui): one ticket reference chip                 <span class="h">unblocks D399</span>
  5  D399   P38      <span class="h">high</span>    PR merge readiness                                 waits on D452
  6  D475   P45      <span class="d">normal</span>  perf: reduce the work of each refresh
  7  D465   P37      <span class="d">normal</span>  feat: a live token count in Inside                 waits on D475

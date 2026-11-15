@@ -159,7 +159,7 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     priority, then age; a blocker takes the highest priority of the items that
     wait on it): position, id
     (\`D<n>\`/\`T<n>\`), session (\`P<n>\`, drafts only), \`priority\` (a ticket's own value is its override, else the provider's; \`--json\` adds \`prioritySource\` = you|provider|planner|null and a draft's reason as \`priorityReason\`), title (90 chars), and
-    what each one waits on (\`waitsOn\`), and a short \`why\` (\`↑ from D498\`, \`waits on T12\`, \`cycle\`). Use it to find the
+    what each one waits on (\`waitsOn\`), and a short \`why\` (\`unblocks D498\`, \`waits on T12\`, \`cycle with D501\`). Use it to find the
     ids to put in a draft's \`dependsOn\`. A planning session reads it through
     \`KARST_DB_READONLY\`, scoped by \`KARST_PROJECT\`.
  - \`draft list\` — ONLY inside a planning session. Reads the session's proposal

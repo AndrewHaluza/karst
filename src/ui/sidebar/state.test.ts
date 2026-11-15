@@ -862,11 +862,37 @@ describe('buildSidebarState queue', () => {
     const cycleA = insertProposal(store, session, { ...draft, title: 'Plain' });
     const { queue } = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
     expect(queue.rows.map((r) => [r.position, r.idLabel, r.sessionLabel, r.level, r.why, r.whyKind])).toEqual([
-      [1, `D${blocker}`, `P${session}`, 'urgent', `↑ D${urgent}`, 'raised'],
-      [2, `D${urgent}`, `P${session}`, 'urgent', `waits D${blocker}`, 'waits'],
+      [1, `D${blocker}`, `P${session}`, 'urgent', `unblocks D${urgent}`, 'raised'],
+      [2, `D${urgent}`, `P${session}`, 'urgent', `waits on D${blocker}`, 'waits'],
       [3, `D${cycleA}`, `P${session}`, 'normal', '', 'none'],
     ]);
     expect(queue).toMatchObject({ drafts: 3, sessions: 1, tickets: 0 });
     expect(queue.rows[1]).toMatchObject({ kind: 'draft', id: urgent, ownLevel: 'urgent' });
+  });
+
+  it('sends a chip view for each waited item, the raiser and the cycle partner', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;
+    const blocker = insertProposal(store, session, { ...draft, title: 'Blocker' });
+    const urgent = insertProposal(store, session, { ...draft, title: 'Urgent', priority: 'urgent', dependsOn: [blocker] });
+    const { queue } = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    const [raised, waiting] = queue.rows;
+    expect(raised!.inheritedRef).toMatchObject({ kind: 'draft', idLabel: `D${urgent}`, draftId: urgent });
+    expect(raised!.inheritedRef!.displayTextParts.session).toBe(`P${session}`);
+    expect(raised!.waitsOnRefs).toEqual([]);
+    expect(raised!.cycleRef).toBeNull();
+    expect(waiting!.waitsOnRefs.map((r) => r.idLabel)).toEqual([`D${blocker}`]);
+    expect(waiting!.inheritedRef).toBeNull();
+  });
+
+  it('draws a ticket the queue holds with its real stage and a gone blocker as a missing ref', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const t = createTicket(store, { key: 'K1', title: 'a ticket', projectId });
+    store.db.prepare("UPDATE tickets SET stage_current = 'scope' WHERE id = ?").run(t.id);
+    const session = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;
+    insertProposal(store, session, { ...draft, title: 'Waiter', dependsOn: [`T${t.id}`] });
+    const { queue } = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    const waiter = queue.rows.find((r) => r.title === 'Waiter')!;
+    expect(waiter.waitsOnRefs[0]).toMatchObject({ kind: 'ticket', ticketId: t.id, stage: 'scope' });
   });
 });

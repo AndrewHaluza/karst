@@ -76,6 +76,18 @@ describe('orderQueue', () => {
     expect(r[0]).toMatchObject({ id: 'D2', priority: 'high', inheritedFrom: null });
   });
 
+  it('names a partner of the same cycle, not a member of another cycle (cycleWith)', () => {
+    const r = orderQueue(
+      [item('D3'), item('D4'), item('D5'), item('D6')],
+      [waits('D3', 'D4'), waits('D4', 'D3'), waits('D5', 'D4'), waits('D5', 'D6'), waits('D6', 'D5')],
+    );
+    const by = new Map(r.map((x) => [x.id, x.cycleWith]));
+    expect(by.get('D5')).toBe('D6');
+    expect(by.get('D6')).toBe('D5');
+    expect(by.get('D3')).toBe('D4');
+    expect(by.get('D4')).toBe('D3');
+  });
+
   it('never throws on a cycle: places the members by the tie keys and marks them', () => {
     const r = orderQueue(
       [item('D1', null, '2026-01-02 00:00:00'), item('D2', null, '2026-01-01 00:00:00'), item('D3', 'high'), item('D4')],
@@ -83,6 +95,7 @@ describe('orderQueue', () => {
     );
     expect(ids(r)).toEqual(['D3', 'D2', 'D1', 'D4']);
     expect(r.map((x) => x.cycle)).toEqual([false, true, true, false]);
+    expect(r.map((x) => x.cycleWith)).toEqual([null, 'D1', 'D2', null]);
   });
 
   it('ignores a self edge, a duplicate edge and an edge to an unknown id', () => {
@@ -113,12 +126,16 @@ describe('queueWhy', () => {
     expect(queueWhy(base)).toBe('');
   });
   it('names a cycle first', () => {
-    expect(queueWhy({ ...base, cycle: true, inheritedFrom: 'D2', waitsOn: ['D3'] })).toBe('cycle');
+    expect(queueWhy({ ...base, cycle: true, cycleWith: 'D3', inheritedFrom: 'D2', waitsOn: ['D3'] })).toBe('cycle with D3');
+  });
+  it('names a cycle without a partner by the word alone', () => {
+    expect(queueWhy({ ...base, cycle: true })).toBe('cycle');
   });
   it('names the item that raised the priority', () => {
-    expect(queueWhy({ ...base, inheritedFrom: 'D498' })).toBe('↑ from D498');
+    expect(queueWhy({ ...base, inheritedFrom: 'D498' })).toBe('unblocks D498');
   });
   it('names the open blockers', () => {
-    expect(queueWhy({ ...base, waitsOn: ['T12', 'D4'] })).toBe('waits on T12, D4');
+    expect(queueWhy({ ...base, waitsOn: ['T12', 'D4'] })).toBe('waits on T12 +1');
+    expect(queueWhy({ ...base, waitsOn: ['T12'] })).toBe('waits on T12');
   });
 });

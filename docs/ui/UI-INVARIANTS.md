@@ -250,14 +250,22 @@ opens inline, not as a flyout, because the menu window scrolls and would clip it
 A third pane, **Queue** (`QueuePane.tsx` on `Pane.tsx`), sits between Planning and
 Tickets and shows the one computed order of `@arch:QUEUE-ORDER`. It is collapsed
 by default (pure view state, never posted) and has no actions. Open, it takes at
-most about 30% of the height and its body scrolls on its own. Each row is one line:
-position (tabular digits), the priority chip (none for normal), the id with a muted
-session suffix (`D452 · P17`, `T997`), the title with an ellipsis, and a muted
-reason (`↑ D498`, `waits T12`, `cycle`). A click opens a draft's Review or a
+most about 30% of the height and its body scrolls on its own. A row has the main
+button (position in tabular digits, the priority chip (none for normal), the id with
+a muted session suffix (`D452 · P17`, `T997`), and the title with an ellipsis), then
+the relation, then the row menu: three siblings, never nested (@ui:UI-R09). The
+relation is the D561 verb and the D560 stage chip, built by the host (`waitsOnRefs`,
+`inheritedRef`, `cycleRef`): `Waits on` with the first chip and a `+N` button that
+opens the rest in the row, `Unblocks` with the chip of the item that raised the
+level (the priority chip gets a small up arrow, and the main button name keeps
+"Raised to high because D498 waits on it"), and `Cycle with` in the error color
+with the cycle icon and an error-color chip border. Above 400px of the region the
+row is one line. At 400px and less the relation takes a second line under the
+position, so the title keeps the full width (@ui:UI-R44). A click opens a draft's Review or a
 ticket's dashboard. The row menu reuses the Priority submenu. The pane refreshes
 with the sidebar snapshot: it adds no timer. The region is `data-region="queue"`
 and declares `container-type: inline-size`, so at a narrow width (about 20em) the
-reason and the session suffix drop first. The states are empty, populated,
+session suffix drops first. The sidebar variants `queue-chips-{460,300}` record both tiers. The states are empty, populated,
 long-content (40 items), loading, error and collapsed. The prototype is
 `docs/ui/prototypes/queue-pane.html` (sections 1 and 3).
 END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
