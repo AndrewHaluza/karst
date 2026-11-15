@@ -360,6 +360,102 @@ describe('WorktreesPanel — base-branch form', () => {
     });
   });
 
+  describe('a refused base change', () => {
+    const refuse = (message?: string): void => {
+      const h = current!;
+      const calls = h.send.changeBaseRef!.mock.calls;
+      const requestId = calls[calls.length - 1]![3] as string;
+      h.emit({ type: 'action-result', requestId, ok: false, ...(message === undefined ? {} : { message }) } as HostMessage);
+      pending.clear(); // the runtime settles the control on the result; the harness fakes it
+    };
+    let current: Harness | undefined;
+    const submitDraft = (repos: string[] = ['web'], repo = 'web'): void => {
+      current = mount(stateWith(repos.map((r) => wt(r))));
+      open(repo);
+      fireEvent.input(input(), { target: { value: 'origin/develop' } });
+      fireEvent.click(one('change-base-ref'));
+    };
+    const alert = (): HTMLElement | null => document.querySelector<HTMLElement>('.wbase-popover .k-field-error');
+
+    it('shows the reason in the popover as an alert, linked to the input, under the buttons', () => {
+      submitDraft();
+      expect(alert()).toBeNull();
+      expect(input().getAttribute('aria-describedby')).toBeNull();
+      refuse('an agent is working on this ticket — rebase when it is idle');
+      const el = alert()!;
+      expect(el.textContent).toBe('an agent is working on this ticket — rebase when it is idle');
+      expect(el.getAttribute('role')).toBe('alert');
+      expect(el.id).toBe('wbaseerr-web');
+      expect(input().getAttribute('aria-describedby')).toBe('wbaseerr-web');
+      expect(el.previousElementSibling?.classList.contains('wbaseformacts')).toBe(true);
+      expect(input().value).toBe('origin/develop');
+    });
+
+    it('falls back to a generic reason when the message is empty or missing', () => {
+      submitDraft();
+      refuse('');
+      expect(alert()!.textContent).toBe('That action failed.');
+      fireEvent.input(input(), { target: { value: 'x' } });
+      fireEvent.click(one('change-base-ref'));
+      refuse();
+      expect(alert()!.textContent).toBe('That action failed.');
+    });
+
+    it('clears when the user types', () => {
+      submitDraft();
+      refuse('nope');
+      fireEvent.input(input(), { target: { value: 'other' } });
+      expect(alert()).toBeNull();
+      expect(input().getAttribute('aria-describedby')).toBeNull();
+    });
+
+    it('clears when the rebase switch is toggled', () => {
+      submitDraft();
+      refuse('nope');
+      fireEvent.click(one('toggle-rebase-switch'));
+      expect(alert()).toBeNull();
+    });
+
+    it('clears when a new request starts', () => {
+      submitDraft();
+      refuse('nope');
+      fireEvent.click(one('change-base-ref'));
+      expect(alert()).toBeNull();
+    });
+
+    it.each([
+      ['Cancel', () => fireEvent.click(one('toggle-base-form'))],
+      ['Escape', () => fireEvent.keyDown(document.body, { key: 'Escape' })],
+      ['an outside click', () => fireEvent.click(document.body)],
+    ])('is gone after the form closes by %s and is reopened', (_name, close) => {
+      submitDraft();
+      refuse('nope');
+      close();
+      expect(form()).toBeNull();
+      open();
+      expect(alert()).toBeNull();
+    });
+
+    it('closes the form on a success and shows no reason on reopen', () => {
+      submitDraft();
+      refuse('nope');
+      fireEvent.click(one('change-base-ref'));
+      const calls = current!.send.changeBaseRef!.mock.calls;
+      current!.emit({ type: 'action-result', requestId: calls[calls.length - 1]![3] as string, ok: true });
+      expect(form()).toBeNull();
+      open();
+      expect(alert()).toBeNull();
+    });
+
+    it('does not show a refusal of another repo in this popover', () => {
+      submitDraft(['web', 'api'], 'web');
+      refuse('nope');
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      open('api');
+      expect(alert()).toBeNull();
+    });
+  });
+
   it('discards the draft when the form closes', () => {
     mount(stateWith([wt('web')]));
     open();

@@ -58,6 +58,9 @@ function HeaderBranch({ branch, send }: { readonly branch: string; readonly send
   );
 }
 
+/** Shown when the host refuses without a reason. */
+const REFUSAL_FALLBACK = 'That action failed.';
+
 const firstOpen = (open: Record<string, boolean>): string | undefined => Object.keys(open).find((repo) => open[repo]);
 
 export const WorktreesPanel = memo(function WorktreesPanel() {
@@ -67,39 +70,69 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   // The rebase switch is ON unless the user turned it off (the safe reading of a never-touched switch).
   const [rebase, setRebase] = useState<Record<string, boolean>>({});
+  /** repo -> the reason its last base change was refused; shown inside that repo's open popover. */
+  const [refusals, setRefusals] = useState<Record<string, string>>({});
   /** requestId -> repo, for the one base-change request in flight per repo. */
   const requests = useRef(new Map<string, string>());
 
   // Flushed synchronously: the vanilla form opened (and the switch flipped) within the click, and the
   // popover is positioned from the committed DOM.
-  const toggleForm = useCallback((repo: string) => flushSync(() => setOpen((o) => ({ ...o, [repo]: !o[repo] }))), []);
-  const toggleRebase = useCallback(
-    (repo: string) => flushSync(() => setRebase((r) => ({ ...r, [repo]: r[repo] === false }))),
-    [],
-  );
-  const trackRequest = useCallback((requestId: string, repo: string) => {
-    requests.current.set(requestId, repo);
+  const clearRefusal = useCallback((repo: string) => {
+    setRefusals((r) => {
+      if (!(repo in r)) return r;
+      return Object.fromEntries(Object.entries(r).filter(([key]) => key !== repo));
+    });
   }, []);
+  const toggleForm = useCallback(
+    (repo: string) =>
+      flushSync(() => {
+        setOpen((o) => ({ ...o, [repo]: !o[repo] }));
+        // Opening starts clean and closing discards the reason: a reopened form never shows a stale one.
+        clearRefusal(repo);
+      }),
+    [clearRefusal],
+  );
+  const toggleRebase = useCallback(
+    (repo: string) =>
+      flushSync(() => {
+        setRebase((r) => ({ ...r, [repo]: r[repo] === false }));
+        clearRefusal(repo);
+      }),
+    [clearRefusal],
+  );
+  const trackRequest = useCallback(
+    (requestId: string, repo: string) => {
+      requests.current.set(requestId, repo);
+      clearRefusal(repo);
+    },
+    [clearRefusal],
+  );
 
   // A base-change SUCCESS closes its own form; a refusal leaves it open with the draft intact
-  // (the reason lands through the runtime's error toast).
+  // (the reason shows in the popover under its buttons, and the runtime's error toast still shows it too).
   useHostMessage((message) => {
     if (message.type !== 'action-result') return;
     const repo = requests.current.get(message.requestId);
     if (repo === undefined) return;
     requests.current.delete(message.requestId);
-    if (message.ok === true) setOpen((o) => ({ ...o, [repo]: false }));
+    if (message.ok === true) {
+      setOpen((o) => ({ ...o, [repo]: false }));
+      clearRefusal(repo);
+      return;
+    }
+    setRefusals((r) => ({ ...r, [repo]: message.message || REFUSAL_FALLBACK }));
   });
 
   // Escape and an outside click close the open form.
   const anyOpen = firstOpen(open) !== undefined;
   useEffect(() => {
     if (!anyOpen) return undefined;
-    const closeFirst = (): void =>
-      setOpen((o) => {
-        const repo = firstOpen(o);
-        return repo === undefined ? o : { ...o, [repo]: false };
-      });
+    const closeFirst = (): void => {
+      const repo = firstOpen(open);
+      if (repo === undefined) return;
+      setOpen((o) => ({ ...o, [repo]: false }));
+      clearRefusal(repo);
+    };
     const onKey = (e: KeyboardEvent): void => {
       // The overlay stack claims Escape (preventDefault) when it closes an overlay: that press is spent.
       if (e.key === 'Escape' && !e.defaultPrevented) closeFirst();
@@ -113,7 +146,7 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('click', onClick);
     };
-  }, [anyOpen]);
+  }, [anyOpen, open, clearRefusal]);
 
   const showChanges = usePendingAction(useCallback((requestId: string) => send.showChanges(requestId), [send]));
 
@@ -156,6 +189,8 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
             rebaseOn={rebase[w.repo] !== false}
             onToggleForm={toggleForm}
             onToggleRebase={toggleRebase}
+            refusal={refusals[w.repo]}
+            onClearRefusal={clearRefusal}
             onChangeRequested={trackRequest}
           />
         ))

@@ -29,5 +29,7 @@
 .wbase-popover .k-field{margin-bottom:var(--k-space-3)}
 .wbase-popover .k-field-help{margin-top:var(--k-space-2)}
 .wbaseformacts{display:flex;justify-content:flex-end;gap:var(--k-space-2);margin-top:var(--k-space-3)}
+/* A refused change's reason: wraps inside the fixed-width popover, never a horizontal scroll. */
+.wbase-popover .k-field-error{margin-top:var(--k-space-2);overflow-wrap:anywhere}
 /* Copy confirmation flash (was `.ib.ok`; a data attribute so React never rewrites className and wipes the runtime `is-pending`). The extra class outranks `.ib.t-copy` whatever the sheet order. */
 .ib.t-copy[data-copied]{color:var(--k-passed)}
