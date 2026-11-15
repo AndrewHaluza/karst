@@ -62,16 +62,20 @@ interface BasePopoverProps {
   readonly onToggleForm: (repo: string) => void;
   readonly onToggleRebase: (repo: string) => void;
   readonly onChangeRequested: (requestId: string, repo: string) => void;
+  /** Why the last base change was refused; shown under the buttons until the user edits the form. */
+  readonly refusal?: string | undefined;
+  readonly onClearRefusal: (repo: string) => void;
 }
 
 /** Sits OUTSIDE `.wt` (inside `.wtwrap`) so it overlays content without shifting the row height. */
-function BasePopover({ w, rebaseOn, send, popRef, onToggleForm, onToggleRebase, onChangeRequested }: BasePopoverProps) {
+function BasePopover({ w, rebaseOn, send, popRef, onToggleForm, onToggleRebase, onChangeRequested, refusal, onClearRefusal }: BasePopoverProps) {
   const repo = w.repo;
   const current = w.baseRef || w.baseDefault || '';
   // A mid-typed value lives here, so it survives every push and dies with the form (cancel, Esc, success).
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const listId = `wbase-list-${repo}`;
+  const refusalId = `wbaseerr-${repo}`;
   const submit = usePendingAction(
     useCallback(
       (requestId: string) => {
@@ -94,7 +98,11 @@ function BasePopover({ w, rebaseOn, send, popRef, onToggleForm, onToggleRebase, 
           defaultValue=""
           placeholder={current}
           data-base-input={repo}
-          onInput={(e) => setDraft(e.currentTarget.value)}
+          aria-describedby={refusal ? refusalId : undefined}
+          onInput={(e) => {
+            setDraft(e.currentTarget.value);
+            onClearRefusal(repo);
+          }}
         />
         <datalist id={listId}>
           {(w.baseCandidates || []).map((c) => (
@@ -142,6 +150,11 @@ function BasePopover({ w, rebaseOn, send, popRef, onToggleForm, onToggleRebase, 
           {rebaseOn && draft.trim() === current ? `Rebase onto ${current}` : 'Change base'}
         </button>
       </div>
+      {refusal ? (
+        <div className="k-field-error" id={refusalId} role="alert">
+          {refusal}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -157,9 +170,11 @@ export interface WorktreeRowProps {
   readonly onToggleForm: (repo: string) => void;
   readonly onToggleRebase: (repo: string) => void;
   readonly onChangeRequested: (requestId: string, repo: string) => void;
+  readonly refusal?: string | undefined;
+  readonly onClearRefusal: (repo: string) => void;
 }
 
-export function WorktreeRow({ w, stats, headerBranch, send, formOpen, rebaseOn, onToggleForm, onToggleRebase, onChangeRequested }: WorktreeRowProps) {
+export function WorktreeRow({ w, stats, headerBranch, send, formOpen, rebaseOn, onToggleForm, onToggleRebase, onChangeRequested, refusal, onClearRefusal }: WorktreeRowProps) {
   const editRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   // A form that holds a typed base stays open (pinned in view) until the user closes it; a pristine one closes with its trigger.
@@ -267,6 +282,8 @@ export function WorktreeRow({ w, stats, headerBranch, send, formOpen, rebaseOn, 
           onToggleForm={onToggleForm}
           onToggleRebase={onToggleRebase}
           onChangeRequested={onChangeRequested}
+          refusal={refusal}
+          onClearRefusal={onClearRefusal}
         />
       ) : null}
     </div>
