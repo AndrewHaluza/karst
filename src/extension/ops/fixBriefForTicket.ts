@@ -20,7 +20,12 @@ import { formatTicketRef } from '../../model/entityId.js';
  *
  * Reads the store; imports no `vscode`.
  */
-export function fixBriefForTicket(store: Store, ticketId: number, label?: string): string | null {
+export function fixBriefForTicket(
+  store: Store,
+  ticketId: number,
+  label?: string,
+  markerAppended = false,
+): string | null {
   const t = getTicket(store, ticketId);
   const shipRound = activeRecoverySeries(store, ticketId, 'ship');
   const brief = renderFixBrief(
@@ -29,7 +34,7 @@ export function fixBriefForTicket(store: Store, ticketId: number, label?: string
     latestReviewBatch(store, ticketId),
     listGateRuns(store, ticketId),
     shipRound === null ? undefined : listPrFeedbackForRound(store, ticketId, shipRound.id),
-    { hasPrototype: hasLinkedPrototype(t), hostRerunSpent: (stage) => hostRerunSpent(store, t.id, stage) },
+    { hasPrototype: hasLinkedPrototype(t), hostRerunSpent: (stage) => hostRerunSpent(store, t.id, stage), markerAppended },
   );
   // The note of an applied stall option leads the brief (D99 path): the fix
   // agent reads the direction first, and findings on removed scope lapse.

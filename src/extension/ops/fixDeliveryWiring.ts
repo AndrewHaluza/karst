@@ -53,7 +53,7 @@ export function composeFixSnapshot(
   const t = getTicket(store, ticketId);
   const label = formatTicketRef(ticketId, t.key);
   const brief =
-    fixBriefForTicket(store, ticketId, label) ??
+    fixBriefForTicket(store, ticketId, label, true) ??
     `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
   if (sandbox) {
     const marker = renderSandboxMarkerInstruction({ runDir: sandbox.runDir, core: sandbox.core, stage: 'fix' });
