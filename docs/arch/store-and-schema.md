@@ -238,6 +238,7 @@ The rules, in this order:
 3. A cycle never throws. When no item is ready, the remaining items that can reach themselves are marked `cycle` and the best one by the same keys is placed. Validation prevents a new cycle, but stored data can be old.
 
 Each output item carries `position`, `priority`, `inheritedFrom`, `waitsOn`, `cycle` and `cycleWith` (the first blocker that is a cycle member too, or null). `queueWhy` gives the short reason in lower case: `cycle with <id>` (`cycle` when there is no partner), `unblocks <id>`, `waits on <first id>` with ` +N` for the N other blockers, or empty. The Queue pane draws the same three reasons as the D561 verb and the D560 chip. Rejected: a sort only in the Planning pane, a Tickets-pane preset, a score formula, and tracks.
+`readProjectQueue` also reads the session title of a draft (`planning_sessions.title`, null for a ticket) as `sessionTitle`. The order does not use it: the sidebar shows it and filters by it.
 END_DOC_BLOCK: [@arch:QUEUE-ORDER]
 
 ## [@arch:BULLETIN] Project bulletin (v72)

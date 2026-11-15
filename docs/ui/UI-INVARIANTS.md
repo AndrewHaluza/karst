@@ -268,6 +268,22 @@ and declares `container-type: inline-size`, so at a narrow width (about 20em) th
 session suffix drops first. The sidebar variants `queue-chips-{460,300}` record both tiers. The states are empty, populated,
 long-content (40 items), loading, error and collapsed. The prototype is
 `docs/ui/prototypes/queue-pane.html` (sections 1 and 3).
+The Queue has its own filters (`queueFilter.ts`, pure; `QueueFilterMenu.tsx`,
+`QueueFilterChips.tsx`). The host sends each row the session title (`sessionTitle`)
+and the in-queue ids that wait on it (`unblocks`); it never filters. The sidebar
+search box also filters the Queue (id, session id, session title, title), marks the
+match and opens the pane while a row matches. A funnel in the Queue header offers
+multi-select `menuitemcheckbox` entries with counts in four groups (Kind, Session
+`P52 · offloading`, Priority, State: Not blocked / Blocked). The choices are OR in a
+group and AND across groups. A chip row (`data-region="queue-filters"`) shows one
+chip with a remove button for each filter and a Clear link; the pane count reads
+`shown / total` while a filter or a search is active. A row with a link in the queue
+gets a link icon button (`aria-pressed`, title `Show chain`); it sets the chain
+filter (the row and all it waits on or that wait on it, transitively) as the chip
+`Chain: D562 · 3`. Rows keep their computed positions and a `···` gap marks each run
+of hidden rows. When no row matches the pane says `No queue items match.` with a
+Clear filters link. The filters are `queueFilters` in the webview `view` state: they
+survive a reload and are never posted.
 END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
 
 ## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926, T972, T1021)

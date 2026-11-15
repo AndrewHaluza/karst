@@ -225,6 +225,8 @@ export interface QueueRowView {
   idLabel: string;
   /** `P<n>` of a draft's session; null for a ticket. */
   sessionLabel: string | null;
+  /** The title of a draft's planning session; null for a ticket. */
+  sessionTitle: string | null;
   title: string;
   /** The effective level; `normal` shows no chip. */
   level: PriorityLevel;
@@ -232,6 +234,8 @@ export interface QueueRowView {
   inheritedFrom: string | null;
   /** Open blockers, in-queue ones first. */
   waitsOn: string[];
+  /** The in-queue ids that wait on this row: the reverse of `waitsOn`. */
+  unblocks: string[];
   /** One chip view per `waitsOn` id, same order. The host builds each; the view never derives a stage (@ui:UI-R31). */
   waitsOnRefs: TicketRefView[];
   /** The chip of the item that raised the level (`inheritedFrom`), or null. */
@@ -284,6 +288,12 @@ function queueView(store: Store, projectId: number | undefined, providerId?: str
   const q = readProjectQueue(store, projectId, providerId);
   const inQueue = new Map(q.entries.map((e) => [e.id, e]));
   const ref = (id: string): TicketRefView => queueRef(store, id, inQueue);
+  const unblocks = new Map<string, string[]>();
+  for (const e of q.entries) {
+    for (const dep of e.waitsOn) {
+      if (inQueue.has(dep)) unblocks.set(dep, [...(unblocks.get(dep) ?? []), e.id]);
+    }
+  }
   return {
     drafts: q.drafts,
     sessions: q.sessions,
@@ -297,10 +307,12 @@ function queueView(store: Store, projectId: number | undefined, providerId?: str
         id: e.numId,
         idLabel: e.id,
         sessionLabel: e.session,
+        sessionTitle: e.sessionTitle,
         title: e.title,
         level: e.priority,
         inheritedFrom: e.inheritedFrom,
         waitsOn: [...e.waitsOn],
+        unblocks: unblocks.get(e.id) ?? [],
         waitsOnRefs: e.waitsOn.map(ref),
         inheritedRef: e.inheritedFrom === null ? null : ref(e.inheritedFrom),
         cycleRef: partner === null ? null : ref(partner),

@@ -24,6 +24,8 @@ export interface QueueEntry extends OrderedQueueItem {
   readonly numId: number;
   /** `P<n>` of a draft's planning session; null for a ticket. */
   readonly session: string | null;
+  /** The title of a draft's planning session; null for a ticket. */
+  readonly sessionTitle: string | null;
   readonly title: string;
   /** The item's own priority (a draft's override, else the planner's; a ticket's own); null reads as normal. */
   readonly ownPriority: PriorityLevel | null;
@@ -62,6 +64,7 @@ interface Node {
   readonly kind: 'draft' | 'ticket';
   readonly numId: number;
   readonly session: string | null;
+  readonly sessionTitle: string | null;
   readonly title: string;
   readonly ownPriority: PriorityLevel | null;
   readonly priorityReason: string | null;
@@ -72,12 +75,13 @@ interface Node {
 
 const CLOSED_STAGES: ReadonlySet<string> = new Set(['done', 'closed']);
 
-function draftNode(p: PlanningProposal): Node {
+function draftNode(p: PlanningProposal, sessionTitle: string | null): Node {
   const id = formatId('draft', p.id);
   return {
     kind: 'draft',
     numId: p.id,
     session: formatId('plan', p.sessionId),
+    sessionTitle,
     title: p.payload.title,
     ownPriority: effectiveProposalPriority(p),
     priorityReason: p.priorityOverride === null ? (p.payload.priorityReason ?? null) : null,
@@ -95,6 +99,7 @@ function ticketNode(t: TicketRow, waits: readonly string[], providerId: string |
     kind: 'ticket',
     numId: t.id,
     session: null,
+    sessionTitle: null,
     title: t.title,
     ownPriority: priority,
     priorityReason: null,
@@ -149,6 +154,12 @@ function readTickets(store: Store, projectId: number): TicketRow[] {
     .all(projectId, QUEUE_TICKET_STAGE) as TicketRow[];
 }
 
+/** The title of each planning session of the project, by session id. */
+function readSessionTitles(store: Store, projectId: number): Map<number, string> {
+  const rows = store.db.prepare('SELECT id, title FROM planning_sessions WHERE project_id = ?').all(projectId) as { id: number; title: string }[];
+  return new Map(rows.map((r) => [r.id, r.title]));
+}
+
 /** `providerId` is the project's ticketing provider (`clickup`); it names the system in a ticket's tooltip. */
 export function readProjectQueue(store: Store, projectId: number, providerId?: string): ProjectQueue {
   const proposals = listProjectProposals(store, projectId);
@@ -158,12 +169,13 @@ export function readProjectQueue(store: Store, projectId: number, providerId?: s
   const blockers = listOpenBlockersFor(store, tickets.map((t) => t.id));
   const inSet = new Set([...pending.map((p) => formatId('draft', p.id)), ...tickets.map((t) => formatId('ticket', t.id))]);
 
+  const titles = readSessionTitles(store, projectId);
   const nodes: Node[] = [];
   const edges: QueueEdge[] = [];
   for (const p of pending) {
     const { edges: e, waits } = draftEdges(store, p, inSet, byProposal);
     edges.push(...e);
-    const node = draftNode(p);
+    const node = draftNode(p, titles.get(p.sessionId) ?? null);
     nodes.push({ ...node, item: { ...node.item, externalWaits: waits } });
   }
   for (const t of tickets) {
@@ -181,7 +193,7 @@ export function readProjectQueue(store: Store, projectId: number, providerId?: s
   const ordered = orderQueue(nodes.map((n) => n.item), edges);
   const entries = ordered.map((o): QueueEntry => {
     const n = byId.get(o.id)!;
-    return { ...o, kind: n.kind, numId: n.numId, session: n.session, title: n.title, ownPriority: n.ownPriority, priorityReason: n.priorityReason, prioritySource: n.prioritySource, providerPriority: n.providerPriority, providerLabel: n.providerLabel };
+    return { ...o, kind: n.kind, numId: n.numId, session: n.session, sessionTitle: n.sessionTitle, title: n.title, ownPriority: n.ownPriority, priorityReason: n.priorityReason, prioritySource: n.prioritySource, providerPriority: n.providerPriority, providerLabel: n.providerLabel };
   });
   return {
     entries,

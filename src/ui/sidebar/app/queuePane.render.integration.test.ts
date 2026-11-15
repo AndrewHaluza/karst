@@ -154,3 +154,151 @@ describe('Queue pane', () => {
     expect(h.queryAll('[data-region="queue"]')).toHaveLength(1);
   });
 });
+
+describe('Queue pane filters', () => {
+  const funnel = '[data-pane="queue"] [data-queue-filter-menu]';
+  const pick = async (h: RenderedSidebar, key: string) => {
+    await h.click(`[data-queue-filter="${key}"]`);
+  };
+  const shownIds = (h: RenderedSidebar) => h.queryAll('[data-queue-row]').map((r) => r.getAttribute('data-queue-row'));
+  const chips = (h: RenderedSidebar) => h.queryAll('[data-region="queue-filters"] .q-fchip-text').map((c) => text(c));
+
+  it('offers four groups of checkbox items, each with a count', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    await h.click(funnel);
+    const groups = h.queryAll('[data-filter-group]').map((g) => g.getAttribute('data-filter-group'));
+    expect(groups).toEqual(['kind', 'session', 'priority', 'state']);
+    const entry = (k: string) => text(h.query(`[data-queue-filter="${k}"]`));
+    expect(entry('kind:draft')).toBe('Drafts5');
+    expect(entry('kind:ticket')).toBe('Tickets1');
+    expect(entry('session:P17')).toBe('P17 · offloading4');
+    expect(entry('session:P18')).toBe('P18 · auth1');
+    expect(entry('priority:urgent')).toBe('Urgent2');
+    expect(entry('state:free')).toBe('Not blocked3');
+    expect(entry('state:blocked')).toBe('Blocked3');
+    expect(h.queryAll('[role="menuitemcheckbox"]').length).toBe(10);
+    expect(h.query(`${funnel} [data-queue-filter-dot]`)).toBeNull();
+  });
+
+  it('shows a chip row, a dot and shown / total for an active filter, and posts nothing', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    const before = h.posted.length;
+    await h.click(funnel);
+    await pick(h, 'priority:urgent');
+    await pick(h, 'session:P17');
+    expect(chips(h)).toEqual(['P17 · offloading', 'Urgent']);
+    expect(shownIds(h)).toEqual(['D497', 'D498']);
+    expect(h.query(`${funnel} [data-queue-filter-dot]`)).not.toBeNull();
+    expect(text(h.query('[data-pane="queue"] .pane-count'))).toBe('2 / 6');
+    expect(h.posted.length).toBe(before);
+  });
+
+  it('keeps the computed positions and draws a gap for hidden rows', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    await h.click(funnel);
+    await pick(h, 'priority:low');
+    expect(text(h.query('[data-queue-row="D460"] .q-pos'))).toBe('5');
+    expect(h.queryAll('[data-queue-gap]').map((g) => g.getAttribute('data-queue-gap'))).toEqual(['4', '1']);
+    expect(text(h.query('[data-queue-gap]'))).toBe('···');
+  });
+
+  it('removes one chip with its x and all with Clear', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    await h.click(funnel);
+    await pick(h, 'priority:urgent');
+    await pick(h, 'priority:high');
+    await h.click('[data-queue-chip="level:urgent"] .q-fchip-x');
+    expect(chips(h)).toEqual(['High']);
+    await h.click('[data-queue-clear]');
+    expect(h.query('[data-region="queue-filters"]')).toBeNull();
+    expect(text(h.query('[data-pane="queue"] .pane-count'))).toBe('6');
+  });
+
+  it('filters by blocked state and by kind', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    await h.click(funnel);
+    await pick(h, 'state:free');
+    expect(shownIds(h)).toEqual(['D497', 'D452', 'D460']);
+    await pick(h, 'state:free');
+    await pick(h, 'kind:ticket');
+    expect(shownIds(h)).toEqual(['T997']);
+  });
+
+  it('shows the no-match text with Clear filters instead of the empty text', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    await h.click(funnel);
+    await pick(h, 'kind:ticket');
+    await pick(h, 'priority:urgent');
+    expect(text(h.query('[data-pane="queue"] .pane-empty'))).toContain('No queue items match.');
+    expect(text(h.query('[data-pane="queue"] .pane-empty'))).not.toContain('Nothing waits');
+    await h.click('[data-queue-clear-all]');
+    expect(h.queryAll('[data-queue-row]')).toHaveLength(6);
+  });
+
+  it('draws the chain control only on linked rows and sets the chain chip', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    expect(h.queryAll('[data-queue-chain]').map((b) => b.getAttribute('data-queue-chain'))).toEqual(['D497', 'D498']);
+    expect(h.query('[data-queue-row="D452"] .q-chain')).toBeNull();
+    const btn = h.query('[data-queue-chain="D498"]')!;
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.getAttribute('title')).toBe('Show chain');
+    await h.click(btn);
+    expect(chips(h)).toEqual(['Chain: D498 · 2']);
+    expect(h.query('[data-queue-chain="D498"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(shownIds(h)).toEqual(['D497', 'D498']);
+    await h.click('[data-queue-chain="D498"]');
+    expect(h.query('[data-region="queue-filters"]')).toBeNull();
+    await h.click('[data-queue-chain="D497"]');
+    await h.click('[data-queue-chip="chain"] .q-fchip-x');
+    expect(h.queryAll('[data-queue-row]')).toHaveLength(6);
+  });
+
+  it('opens the pane and marks the match when the search matches a row', async () => {
+    const h = await mount({ ...fixture('queue'), filter: 'auth' });
+    expect(h.query('[data-pane="queue"] .pane-toggle')!.getAttribute('aria-expanded')).toBe('true');
+    expect(shownIds(h)).toEqual(['D452']);
+    expect(text(h.query('[data-queue-row="D452"] mark'))).toBe('auth');
+    expect(text(h.query('[data-queue-row="D452"] .q-id'))).toContain('P18 · auth');
+  });
+
+  it('matches the id, the session id and the title; a search with no row keeps the pane collapsed', async () => {
+    const h = await mount({ ...fixture('queue'), filter: 'D461' });
+    expect(shownIds(h)).toEqual(['D461']);
+    const none = await mount({ ...fixture('queue'), filter: 'zzzz' });
+    expect(none.query('[data-pane="queue"] .pane-toggle')!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('posts nothing for a filter: the filters are view state', async () => {
+    const h = await mount(fixture('queue'));
+    await open(h);
+    await h.click(funnel);
+    await pick(h, 'priority:urgent');
+    await h.click('[data-queue-clear]');
+    expect(sent(h)).toEqual([]);
+  });
+
+  it('lists 40 items and filters them', async () => {
+    const h = await mount(fixture('queue-long'));
+    await open(h);
+    await h.click(funnel);
+    await pick(h, 'priority:high');
+    expect(text(h.query('[data-pane="queue"] .pane-count'))).toBe('8 / 40');
+  });
+
+  it('closes a revealed pane with one click and keeps the saved state when the search ends', async () => {
+    const h = await mount({ ...fixture('queue'), filter: 'auth' });
+    const toggle = () => h.query('[data-pane="queue"] .pane-toggle')!;
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    await h.click(toggle());
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    await h.receive({ type: 'state', state: { ...fixture('queue'), filter: '' } });
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  });
+});

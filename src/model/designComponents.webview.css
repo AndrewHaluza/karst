@@ -186,7 +186,7 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
   text-transform:uppercase;letter-spacing:var(--k-chip-tracking);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold)}
 @container (max-width: 400px){
   /* Queue row relation (T1104): the verb and chip take a second line under the position (@ui:UI-R44). */
-  [data-region="queue"] .q-row{grid-template-columns:minmax(0,1fr) var(--k-space-8);grid-template-areas:"main menu" "rel rel"}
+  [data-region="queue"] .q-row{grid-template-columns:minmax(0,1fr) auto var(--k-space-8);grid-template-areas:"main chain menu" "rel rel rel"}
   [data-region="queue"] .q-row .q-rel{padding-bottom:var(--k-space-1)}
   [data-region="queue"] .q-rel .refs-line{min-height:calc(var(--k-space-8) - var(--k-space-2))}
   .k-ticket-ref-word::before{content:"· " attr(data-short)}

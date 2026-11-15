@@ -4,7 +4,7 @@
  * `aria-expanded`/`aria-controls`), the title, the count, then the pane's own
  * actions. The body scrolls on its own. Collapsing is pure view state.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Icon } from './Icon.js';
 import { useSidebar } from './SidebarContext.js';
 import type { PaneKey } from './viewState.js';
@@ -12,16 +12,27 @@ import type { PaneKey } from './viewState.js';
 export interface PaneProps {
   readonly pane: PaneKey;
   readonly title: string;
-  readonly count: number;
+  /** The count text: a number, or `shown / total` while a filter is active. */
+  readonly count: number | string;
   readonly actions: ReactNode;
+  /** Open the pane although the user collapsed it (a search that matches a row inside). */
+  readonly revealed?: boolean;
   /** Rendered between the header and the body while expanded (the Tickets attention line). */
   readonly sub?: ReactNode;
   readonly children: ReactNode;
 }
 
-export function Pane({ pane, title, count, actions, sub, children }: PaneProps) {
+export function Pane({ pane, title, count, actions, sub, revealed, children }: PaneProps) {
   const { view, togglePane } = useSidebar();
-  const collapsed = view.collapsed[pane];
+  // A search reveal opens a collapsed pane without touching the saved state. A click on the
+  // header of a revealed pane closes it for the length of the reveal and never flips the saved state.
+  const [dismissed, setDismissed] = useState(false);
+  const reveal = revealed === true;
+  useEffect(() => {
+    if (!reveal) setDismissed(false);
+  }, [reveal]);
+  const forced = reveal && view.collapsed[pane];
+  const collapsed = forced ? dismissed : view.collapsed[pane];
   const bodyId = `pane-body-${pane}`;
   return (
     <section className="pane" data-pane={pane} data-collapsed={collapsed} aria-label={title}>
@@ -31,7 +42,7 @@ export function Pane({ pane, title, count, actions, sub, children }: PaneProps) 
           className="pane-toggle"
           aria-expanded={!collapsed}
           aria-controls={collapsed ? undefined : bodyId}
-          onClick={() => togglePane(pane)}
+          onClick={() => (forced ? setDismissed((d) => !d) : togglePane(pane))}
         >
           <span className="pane-chev"><Icon name="chevron-right" size={12} /></span>
           <span className="pane-title">{title}</span>

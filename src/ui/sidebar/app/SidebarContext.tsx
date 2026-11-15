@@ -16,6 +16,7 @@ import type { OutboundMessage, SidebarHostBridge } from './hostBridge.js';
 import { PlanNotes } from './planNotes.js';
 import { activePreset, presetToggles, type PresetId, PRESETS } from './presets.js';
 import { ds } from './runtime.js';
+import type { QueueFilters } from './queueFilter.js';
 import { restoreView, type PaneKey, type ViewState } from './viewState.js';
 
 /** One entry of the shared context window. */
@@ -52,6 +53,8 @@ export interface SidebarContextValue {
   readonly view: ViewState;
   readonly togglePane: (pane: PaneKey) => void;
   readonly toggleShowArchivedPlans: () => void;
+  /** Replace the Queue filters with the result of `update` (view state: never posted). */
+  readonly updateQueueFilters: (update: (prev: QueueFilters) => QueueFilters) => void;
   /** Sessions whose accepted drafts the user has revealed. */
   readonly acceptedOpen: ReadonlySet<number>;
   readonly toggleAccepted: (sessionId: number) => void;
@@ -205,6 +208,9 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
   const toggleShowArchivedPlans = useCallback(() => {
     setView((v) => ({ ...v, showArchivedPlans: !v.showArchivedPlans }));
   }, []);
+  const updateQueueFilters = useCallback((update: (prev: QueueFilters) => QueueFilters) => {
+    setView((v) => ({ ...v, queueFilters: update(v.queueFilters) }));
+  }, []);
   const toggleAccepted = useCallback((sessionId: number) => {
     setAcceptedOpen((prev) => toggled(prev, sessionId));
   }, []);
@@ -242,12 +248,12 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
 
   const value = useMemo<SidebarContextValue>(
     () => ({
-      state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, acceptedOpen, toggleAccepted,
+      state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted,
       openIds, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist,
       planOpen, setPlanOpen, collapseAllPlans, planFocus, setPlanFocus,
       menu, openMenu, closeMenu,
     }),
-    [state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, acceptedOpen, toggleAccepted, openIds, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
+    [state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted, openIds, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
