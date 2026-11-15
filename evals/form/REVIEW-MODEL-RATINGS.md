@@ -24,6 +24,10 @@ The case `c17-clean-tempting` was wrong in the first v2 run. Its code cast parse
 | antigravity | gemini-3.8-flash-medium | 5/5 | 0/2 | 6 of 8 | `c13` and `c14` timed out at 10 minutes. Report in `review-references/antigravity-gemini-3.8-flash-medium-c11-c18/`. |
 | opencode2 | opencode-go/mimo-v2.6-flash | 1/1 | 1/1 | 2 of 8 | Six calls timed out at 10 minutes. The core answered a test call in 10 seconds, so a load on the machine may be a cause. Report in `review-references/opencode2-mimo-v2.6-flash-c11-c18/`. |
 
+Rerun of the fixed `c17` and `c18`, claude, 5 runs each (`review-references/claude-sonnet-5-5-c17-c18-fixed/`): 3 of 7 finished clean runs had a false finding, and 3 of 10 calls timed out. The fixed `c17` is still not clean for claude, so check the false findings in `results.json` before you trust the case.
+
+Rerun of opencode2 on `c11` to `c18`, 2 runs each, 15 minute timeout: all 9 calls timed out before I stopped the run. A plain test call to the same model answered in 15 seconds. The slow part is the review call in a checkout. The cause is not known.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
@@ -33,6 +37,6 @@ The case `c17-clean-tempting` was wrong in the first v2 run. Its code cast parse
 
 ## Next steps
 
-1. Rerun opencode2 on `c11` to `c18` when the machine has no other load.
-2. Rerun claude on the fixed `c17` with more runs.
+1. Find why opencode2 review calls hang, then rerun it on `c11` to `c18`.
+2. Read the claude false findings on the fixed `c17`.
 3. Add cases until each cell reaches n of 30.
