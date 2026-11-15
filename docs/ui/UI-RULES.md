@@ -441,7 +441,7 @@ Success has no presentation of its own on the control: no green border, no
 checkmark. The only exception is tier 3 (`confirm`, an action with no other
 visible result), which shows an in-place check for 1.2s plus a role=status tip.
 A failure never passes through that presentation (UI-R15) and its error toast
-stays until dismissed.
+shows a Dismiss button and closes after 15 s (hover or focus pauses it; see `ui:11.17`).
 
 An unparsed message posts NOTHING: no action ran, so there is no outcome to
 report. One exception: a baseline decision message (`baseline-approve`,

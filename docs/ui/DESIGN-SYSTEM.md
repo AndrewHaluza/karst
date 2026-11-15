@@ -1010,7 +1010,16 @@ Variants:
 - error;
 - info.
 
-A persistent error toast includes a real dismiss button.
+Anatomy, left to right: a round kind glyph (✕ error, ! warning, ✓ success, i info; `aria-hidden`), the text in
+`--k-text` for every kind, and a Dismiss button (`.k-toast-close`, at least `--k-hit-min`). A visually hidden word
+('Error:', 'Warning:', 'Done:', 'Info:') leads the text so the kind does not depend on colour. A 3 px left border in
+the kind colour and a 2 px countdown bar at the bottom edge repeat the kind; the bar is hidden under
+`prefers-reduced-motion` and the timer still runs.
+
+Every toast has a real Dismiss button and a timer. An error closes after `TOAST_ERROR_MS` (15 s). Success and warning
+close after `TOAST_SUCCESS_MS` (6 s). Hover or focus pauses the timer and the bar. Leave or blur restarts the full time.
+At most `MAX_TOASTS` (3) show at once: a new toast past the cap removes the oldest. A toast with the same kind and text
+as one on screen replaces it. The tier ladder is `@ui:RD-LADDERS2`.
 
 An error that belongs to a field, modal, drawer, or workflow remains recorded
 there rather than existing only as a toast.

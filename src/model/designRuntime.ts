@@ -52,8 +52,14 @@ import { CONFIRM_DWELL_MS, SPINNER_DELAY_MS, SPINNER_MIN_VISIBLE_MS } from './cl
 export const PENDING_WATCHDOG_MS = 45_000;
 
 
-/** Success toast dwell. Errors never auto-dismiss. */
-const TOAST_SUCCESS_MS = 6000;
+/** Success and warning toast dwell. */
+export const TOAST_SUCCESS_MS = 6000;
+
+/** Error toast dwell: longer than success so a failure can be read, but it never piles up. */
+export const TOAST_ERROR_MS = 15000;
+
+/** Toasts on screen at once; a new one past the cap removes the oldest. */
+export const MAX_TOASTS = 3;
 
 /** Hard cap on any message that reaches a toast — see UI-R32. */
 const MAX_TOAST_CHARS = 240;
@@ -78,6 +84,8 @@ export function designRuntimeJs(): string {
     .replace('__KARST_SPINNER_DELAY_MS__', String(SPINNER_DELAY_MS))
     .replace('__KARST_SPINNER_MIN_MS__', String(SPINNER_MIN_VISIBLE_MS))
     .replace('__KARST_TOAST_SUCCESS_MS__', String(TOAST_SUCCESS_MS))
+    .replace('__KARST_TOAST_ERROR_MS__', String(TOAST_ERROR_MS))
+    .replace('__KARST_MAX_TOASTS__', String(MAX_TOASTS))
     .replace('__KARST_MAX_TOAST_CHARS__', String(MAX_TOAST_CHARS))
     .trim();
 }

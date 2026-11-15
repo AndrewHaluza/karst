@@ -4,6 +4,8 @@ var KARST_CONFIRM_MS = __KARST_CONFIRM_MS__;
 var KARST_SPINNER_DELAY_MS = __KARST_SPINNER_DELAY_MS__;
 var KARST_SPINNER_MIN_MS = __KARST_SPINNER_MIN_MS__;
 var KARST_TOAST_SUCCESS_MS = __KARST_TOAST_SUCCESS_MS__;
+var KARST_TOAST_ERROR_MS = __KARST_TOAST_ERROR_MS__;
+var KARST_MAX_TOASTS = __KARST_MAX_TOASTS__;
 var KARST_MAX_TOAST_CHARS = __KARST_MAX_TOAST_CHARS__;
 
 /** requestId -> { el, timer, wasDisabled }. The single source of "what is in flight". */
@@ -210,25 +212,81 @@ function karstToastRoot() {
   return root;
 }
 
+var KARST_TOAST_MARKS = {
+  error: { glyph: '\u2715', word: 'Error:' },
+  warning: { glyph: '!', word: 'Warning:' },
+  success: { glyph: '\u2713', word: 'Done:' },
+  info: { glyph: 'i', word: 'Info:' }
+};
+var karstToasts = [];
+
+function karstToastPart(tag, cls, text) {
+  var el = document.createElement(tag);
+  el.classList.add(cls);
+  if (text) el.textContent = text;
+  return el;
+}
+
+/** Remove one toast and clear its timer. Safe to call twice. */
+function karstToastDrop(root, entry) {
+  clearTimeout(entry.timer);
+  var at = karstToasts.indexOf(entry);
+  if (at >= 0) karstToasts.splice(at, 1);
+  try { root.removeChild(entry.node); } catch (e) { /* already detached */ }
+}
+
+/** (Re)start the dwell: a fresh countdown bar node restarts the CSS animation, the timer takes the same duration. */
+function karstToastArm(root, entry) {
+  clearTimeout(entry.timer);
+  var ms = entry.kind === 'error' ? KARST_TOAST_ERROR_MS : KARST_TOAST_SUCCESS_MS;
+  var bar = karstToastPart('span', 'k-toast-bar');
+  bar.setAttribute('aria-hidden', 'true');
+  bar.setAttribute('style', '--k-toast-ms:' + ms + 'ms');
+  if (entry.bar) { try { entry.node.removeChild(entry.bar); } catch (e) { /* gone */ } }
+  entry.bar = bar;
+  entry.node.appendChild(bar);
+  entry.timer = setTimeout(function () { karstToastDrop(root, entry); }, ms);
+}
+
 /**
- * Surface a terminal outcome. Success and warning self-dismiss; an ERROR never
- * does — a failure the user has not read yet is not a failure that has been
- * reported.
+ * Surface a terminal outcome. Every toast has a Dismiss button and a timer:
+ * an error dwells TOAST_ERROR_MS, the rest TOAST_SUCCESS_MS. Hover or focus
+ * pauses the timer; leaving restarts the full time. At most KARST_MAX_TOASTS
+ * stay; the same kind and text replaces the one on screen.
  */
 function karstToast(kind, message) {
   var text = karstOneLine(message);
   if (!text) return null;
   var root = karstToastRoot();
+  var mark = KARST_TOAST_MARKS[kind] || KARST_TOAST_MARKS.info;
+  karstToasts.slice().forEach(function (e) {
+    if (e.kind === kind && e.text === text) karstToastDrop(root, e);
+  });
+  while (karstToasts.length >= KARST_MAX_TOASTS) karstToastDrop(root, karstToasts[0]);
   var node = document.createElement('div');
   node.classList.add('k-toast');
   node.classList.add('k-toast--' + kind);
-  node.textContent = text;
+  node.setAttribute('title', text);
+  var glyph = karstToastPart('span', 'k-toast-glyph', mark.glyph);
+  glyph.setAttribute('aria-hidden', 'true');
+  node.appendChild(glyph);
+  node.appendChild(karstToastPart('span', 'k-toast-sr', mark.word));
+  node.appendChild(karstToastPart('span', 'k-toast-text', text));
+  var close = karstToastPart('button', 'k-toast-close', '\u00d7');
+  close.setAttribute('type', 'button');
+  close.setAttribute('aria-label', 'Dismiss');
+  node.appendChild(close);
+  var entry = { node: node, kind: kind, text: text, timer: null, bar: null };
+  close.addEventListener('click', function () { karstToastDrop(root, entry); });
+  var pause = function () { clearTimeout(entry.timer); };
+  var restart = function () { karstToastArm(root, entry); };
+  node.addEventListener('mouseenter', pause);
+  node.addEventListener('focusin', pause);
+  node.addEventListener('mouseleave', restart);
+  node.addEventListener('focusout', restart);
+  karstToasts.push(entry);
   root.appendChild(node);
-  if (kind !== 'error') {
-    setTimeout(function () {
-      try { root.removeChild(node); } catch (e) { /* already detached */ }
-    }, KARST_TOAST_SUCCESS_MS);
-  }
+  karstToastArm(root, entry);
   return node;
 }
 
