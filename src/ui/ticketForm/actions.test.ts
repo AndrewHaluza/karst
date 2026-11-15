@@ -2472,6 +2472,28 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).agent).toBe('reviewer');
   });
 
+  it('reports an agent, model, effort, provider and preset pick to the host (T1138)', () => {
+    const t = createTicket(store, { key: 'P-NOTE', title: 't' });
+    const picked: number[] = [];
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
+    const actions = buildTicketFormActions({ ...deps, onAgentChoiceChanged: (id) => picked.push(id) })(ctx);
+
+    actions.setAgent('reviewer');
+    actions.setModel('claude-sonnet-5');
+    actions.setEffort('high');
+    actions.setProvider('claude');
+    actions.setPreset('');
+    expect(picked).toEqual([t.id, t.id, t.id, t.id, t.id]);
+  });
+
+  it('does not report a pick in create mode with no bound ticket (T1138)', () => {
+    const picked: number[] = [];
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
+    const actions = buildTicketFormActions({ ...deps, onAgentChoiceChanged: (id) => picked.push(id) })(ctx);
+    actions.setModel('claude-sonnet-5');
+    expect(picked).toEqual([]);
+  });
+
   it('setAgent is a no-op in create mode with no bound ticket', () => {
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);

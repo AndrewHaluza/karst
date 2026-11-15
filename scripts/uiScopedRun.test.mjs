@@ -10,6 +10,14 @@ describe('planScopedRun', () => {
     expect(layout.env.KARST_UI_GREP).toBe('');
   });
 
+  it('writes the fixture pages of the view only for the visual part, and every page for the layout part', () => {
+    const [visual, layout] = planScopedRun('sidebar', []);
+    expect(visual.env.KARST_VISUAL_FIXTURE_VIEWS).toBe('sidebar');
+    expect(layout.env.KARST_VISUAL_FIXTURE_VIEWS).toBe('');
+    expect(planScopedRun('status', [])[0].env.KARST_VISUAL_FIXTURE_VIEWS).toBe('dashboard');
+    expect(planScopedRun('catalog', [])[0].env.KARST_VISUAL_FIXTURE_VIEWS).toBe('');
+  });
+
   it('rejects an unknown view', () => {
     expect(() => planScopedRun('nope', [])).toThrow(/unknown view "nope"/);
   });

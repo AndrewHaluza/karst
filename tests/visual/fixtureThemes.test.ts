@@ -1,4 +1,4 @@
-import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -24,6 +24,21 @@ describe('fixture themes for Playwright projects', () => {
       expect(attention?.themes).toEqual(['dark-reduced-motion']);
       expect(existsSync(join(out, 'dark', fixtureFile('dashboard', 'attention')))).toBe(true);
       expect(existsSync(join(out, 'light', fixtureFile('dashboard', 'attention')))).toBe(false);
+    });
+
+    it('writes only the pages of the listed views, and the catalog page', () => {
+      const scoped = mkdtempSync(join(tmpdir(), 'karst-fixture-scope-'));
+      try {
+        writeFixtures(scoped, ['settings']);
+        const dark = readdirSync(join(scoped, 'dark'));
+        expect(dark).toContain('settings.html');
+        expect(dark.some((file) => file.startsWith('settings-'))).toBe(true);
+        expect(dark.filter((file) => file.startsWith('dashboard-'))).toEqual([]);
+        expect(dark.every((file) => file.startsWith('settings'))).toBe(true);
+        expect(existsSync(join(scoped, 'catalog.html'))).toBe(true);
+      } finally {
+        rmSync(scoped, { recursive: true, force: true });
+      }
     });
   });
 });

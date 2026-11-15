@@ -164,6 +164,12 @@ export interface TicketFormActionsDeps {
     ticketId: number,
     approachId: string,
   ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /**
+   * An agent, provider, model, effort or preset pick was saved on a ticket. The
+   * host says when the ticket's graph run owns it: the pick applies to the next
+   * launch, not to the running graph (T1138).
+   */
+  onAgentChoiceChanged?: (ticketId: number) => void;
   confirmBlockedStart?: (message: string) => Promise<boolean>;
   /**
    * Kick off a just-finished ticket: create worktrees for its selected repos,
@@ -1145,6 +1151,7 @@ export function buildTicketFormActions(
     setAgent(id: string): void {
       if (ctx.ticketId !== undefined) {
         updateTicketFields(deps.store, ctx.ticketId, { agent: id });
+        deps.onAgentChoiceChanged?.(ctx.ticketId);
       }
     },
 
@@ -1155,6 +1162,7 @@ export function buildTicketFormActions(
       // precedence, so leaving the preset would make the pick look ignored.
       if (ctx.ticketId !== undefined) {
         updateTicketFields(deps.store, ctx.ticketId, { model: id, agentPreset: '' });
+        deps.onAgentChoiceChanged?.(ctx.ticketId);
       }
     },
 
@@ -1164,6 +1172,7 @@ export function buildTicketFormActions(
       // An explicit pick also clears the ticket preset (see setModel).
       if (ctx.ticketId !== undefined) {
         updateTicketFields(deps.store, ctx.ticketId, { effort: id, agentPreset: '' });
+        deps.onAgentChoiceChanged?.(ctx.ticketId);
       }
     },
 
@@ -1176,6 +1185,7 @@ export function buildTicketFormActions(
       // explicit pick also clears the ticket preset (see setModel).
       if (ctx.ticketId !== undefined) {
         updateTicketFields(deps.store, ctx.ticketId, { agentProvider: id, agentPreset: '' });
+        deps.onAgentChoiceChanged?.(ctx.ticketId);
         ctx.pushState();
       }
     },
@@ -1193,6 +1203,7 @@ export function buildTicketFormActions(
           ? { agentPreset: '' }
           : { agentPreset: id, agentProvider: '', model: '', effort: '' },
       );
+      deps.onAgentChoiceChanged?.(ctx.ticketId);
       ctx.pushState();
     },
 

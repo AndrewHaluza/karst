@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -44,7 +44,7 @@ describe('bindGateRuns', () => {
     const kill = vi.fn((_pid: number) => 'killed' as const);
     await writeFile(join(dir, '4242'), JSON.stringify({ hostPid: 1, pgid: 4242, startMs: 9, ticketId: 3, gateName: 'sast', worktree: 'w' }));
     const facts = { isAlive: (pid: number) => pid !== 1, processStartMs: () => 9, liveCwd: () => ({ path: '/r/.karst/worktrees/t', deleted: false }) };
-    await bindGateRuns(l, { dir, facts, kill }).reapOrphans();
+    await bindGateRuns(l, { dir, spinDir: join(dir, 'spin'), facts, kill }).reapOrphans();
     expect(kill).toHaveBeenCalledWith(4242);
     expect(l.info).toHaveBeenCalledWith(expect.stringContaining('sast'));
   });
@@ -53,7 +53,19 @@ describe('bindGateRuns', () => {
     const l = log();
     await writeFile(join(dir, '4242'), JSON.stringify({ hostPid: 1, pgid: 4242, startMs: 9, ticketId: 3, gateName: 'sast', worktree: 'w' }));
     const facts = { isAlive: () => { throw new Error('probe'); }, processStartMs: () => 9, liveCwd: () => null };
-    await bindGateRuns(l, { dir, facts }).reapOrphans();
+    await bindGateRuns(l, { dir, spinDir: join(dir, 'spin'), facts }).reapOrphans();
     expect(l.error).toHaveBeenCalledWith(expect.stringContaining('orphaned-gate'), expect.any(Error));
+  });
+
+  it('reapOrphans kills a spin fixture group of a dead owner and logs the reap', async () => {
+    const l = log();
+    const kill = vi.fn((_pid: number) => 'killed' as const);
+    const spinDir = join(dir, 'spin');
+    await mkdir(spinDir);
+    await writeFile(join(spinDir, '5001'), JSON.stringify({ ownerPid: 1, pgid: 5001, startMs: 9, port: 28689, cwd: '/t/karst-spin-x/api' }));
+    const facts = { isAlive: (pid: number) => pid !== 1, processStartMs: () => 9, liveCwd: () => ({ path: '/t/karst-spin-x/api', deleted: false }) };
+    await bindGateRuns(l, { dir, spinDir, facts, kill }).reapOrphans();
+    expect(kill).toHaveBeenCalledWith(5001);
+    expect(l.info).toHaveBeenCalledWith(expect.stringContaining('28689'));
   });
 });
