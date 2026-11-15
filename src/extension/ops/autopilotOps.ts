@@ -61,7 +61,11 @@ export interface AutopilotDeps {
    * reason, or null when the round may go out. A rejection is a blocker too. Never called for a host ticket.
    */
   readonly sandboxPreflight?: () => Promise<string | null>;
-  /** The ticket ran an implementation graph: a hand-off to Implement would reach no agent. */
+  /**
+   * A graph run owns the sessions of this ticket (an ACTIVE run, `nudgeSurface`): a hand-off would reach no agent, so the
+   * ticket parks. A ticket whose graph runs are all closed gets the normal rounds (T1158): a CI round goes to a fix-stage
+   * session, a conflict round to a plain session at ship.
+   */
   readonly isGraphTicket: () => boolean;
   readonly sendCiFailure: () => Promise<FixOutcome>;
   /** The send-back of a failed base-moved run (@arch:AP-00). Absent: a `base-moved-failed` block gets no round. */
@@ -373,7 +377,7 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     }
     return parked ? { kind: 'cleared' } : { kind: 'nothing' };
   }
-  // A network fault is re-run once before any park or CI round (T1019). A graph ticket and an unreadable placement keep today's rules.
+  // A network fault is re-run once before any park or CI round (T1019). An active graph run and an unreadable placement keep today's rules.
   // A stale generated file is fixed by one host rebase first (T1081); a host ticket only.
   const stale = await staleStep(d, problem);
   if ('result' in stale) return stale.result;
@@ -388,7 +392,7 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     const reason = `auto-fix not run: ci check ${name} is not on the allowlist${again}`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
   }
-  // A graph ticket, or a placement that cannot be read, gets no round: park, write a note, spend no attempt.
+  // An active graph run, or a placement that cannot be read, gets no round: park, write a note, spend no attempt.
   const placed = await placementOf(d, 'ci');
   if (placed.kind === 'park') return placed.result;
   if (d.concurrencyFull()) return queueWait(d, problem.kind, problem.repo, problem.signature);
@@ -443,7 +447,7 @@ async function noChangeStepOf(d: AutopilotDeps, problem: Problem): Promise<Autop
 async function staleStep(d: AutopilotDeps, problem: Problem): Promise<{ result: AutopilotResult } | { earlier: ReadonlySet<string> }> {
   const none = { earlier: new Set<string>() };
   if (!d.staleRebase || !problem.fails) return none;
-  // A graph ticket and a sandboxed ticket keep today's rules: Rebase on base never runs in a sandbox round (@arch:AP-04).
+  // An active graph run and a sandboxed ticket keep today's rules: Rebase on base never runs in a sandbox round (@arch:AP-04).
   const placed = await d.placement().catch(() => null);
   if (d.isGraphTicket() || placed === null || placed === 'sandbox') return none;
   const step = await staleRebaseStep(
@@ -470,11 +474,11 @@ async function transientStep(d: AutopilotDeps, problem: Problem): Promise<{ kind
 
 type PlacementGate = { readonly kind: 'go'; readonly placement: Placement } | { readonly kind: 'park'; readonly result: AutopilotResult };
 
-/** A graph ticket or an unreadable placement gets no round: park with a note and spend no attempt. */
+/** An active graph run or an unreadable placement gets no round: park with a note and spend no attempt. */
 async function placementOf(d: AutopilotDeps, kind: AutopilotKind): Promise<PlacementGate> {
   const hand = kind === 'ci' ? 'Send the failure to the agent' : 'Resolve the conflict';
   if (d.isGraphTicket()) {
-    return { kind: 'park', result: park(d, kind, GRAPH_REASON, `the ticket ran an implementation graph, so a hand-off to Implement would reach no agent. ${hand} by hand.`) };
+    return { kind: 'park', result: park(d, kind, GRAPH_REASON, `an active graph run owns the sessions of this ticket, so a hand-off would reach no agent. Retry when the run closes, or ${hand.toLowerCase()} by hand.`) };
   }
   try {
     return { kind: 'go', placement: await d.placement() };

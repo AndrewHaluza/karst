@@ -4,7 +4,9 @@ import { fetchCheckLog, type CheckLog } from '../../integrations/ciLog.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState, type CiFailurePr } from '../../workflow/ciFailure.js';
 import { sendBackToImplement, SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
+import { enterShipFixRound } from '../../workflow/shipFixRound.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
+import { getTicket } from '../../store/tickets.js';
 import { listPrFeedback, type PrFeedbackRow } from '../../store/prFeedback.js';
 
 /**
@@ -43,8 +45,24 @@ export interface CiFailureOpsDeps {
    * it starts gate stages only, never an Implement session.
    */
   readonly handOff: (prompt: string) => string | null;
+  /**
+   * The impl stage of this ticket runs a graph (T1158). A send-back to Implement would then start a new graph run, so
+   * the round enters a fix round at ship instead (`enterShipFixRound`) and the driver resumes it. Absent: false.
+   */
+  readonly implRunsGraph?: () => boolean;
   /** Settles the webview's pending state. Must run on EVERY exit. */
   readonly afterServerChange: () => void;
+}
+
+/** The confirm text of a round that enters fix, not Implement (T1158). */
+export const FIX_ROUTE_CONFIRM_TAIL = 'moves the ticket to Fix; UAT and Review will run again. The pull requests stay open.';
+
+/**
+ * True when the round goes to a fix-stage session: the impl stage runs a graph and the ticket is at ship.
+ * At another stage the send-back to Implement stays as it is.
+ */
+export function takesFixRoute(implRunsGraph: (() => boolean) | undefined, stage: string | null): boolean {
+  return stage === 'ship' && implRunsGraph?.() === true;
 }
 
 interface PrReport {
@@ -163,9 +181,12 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
       );
       return;
     }
+    const fixRoute = takesFixRoute(deps.implRunsGraph, getTicket(deps.store, deps.ticketId).stageCurrent);
     const confirmed = await deps.confirm(
-      'This fetches the failing CI logs and moves the ticket back to Implement; UAT and Review will run again. ' +
-        'The pull requests stay open.',
+      fixRoute
+        ? `This fetches the failing CI logs and ${FIX_ROUTE_CONFIRM_TAIL}`
+        : 'This fetches the failing CI logs and moves the ticket back to Implement; UAT and Review will run again. ' +
+            'The pull requests stay open.',
     );
     if (!confirmed) return;
 
@@ -173,6 +194,14 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
     for (const pr of state.prs) reports.push(await reportFor(deps, pr));
     const paths = reports.map((r) => deps.writeLog(logName(r.pr, state.prs), r.body));
     const reason = reasonText(reports, paths);
+    if (fixRoute) {
+      enterShipFixRound(deps.store, deps.ticketId, { reason, artifactPath: paths[0] ?? null, debug: deps.debug });
+      for (const pr of state.prs) clearOpenPrProbe(deps.store, deps.ticketId, pr.repo);
+      // The driver resumes the pending round in a fix session (stage-resume); no impl session gets a hand-off.
+      deps.drive();
+      deps.info('CI failure sent to a fix session; ticket moved to Fix from ship.');
+      return;
+    }
     const result = sendBackToImplement(deps.store, deps.ticketId, { debug: deps.debug, reason });
     // The rollup belongs to the head the agent is about to replace: forget it so a
     // stale 'failing' never re-offers this action once the ticket is back at ship.

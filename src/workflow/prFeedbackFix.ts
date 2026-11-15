@@ -66,7 +66,7 @@ export interface EnterPrFeedbackFixResult {
  * same expression `openRecoveryRound` uses, and the `'exhausted'` regression
  * test pins that the two agree.
  */
-function nextRoundNumber(store: Store, ticketId: number): number {
+export function nextRoundNumber(store: Store, ticketId: number): number {
   const episode = currentEpisode(store, ticketId, 'ship');
   const prev = store.db
     .prepare(

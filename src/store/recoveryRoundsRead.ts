@@ -1,7 +1,7 @@
 import type { Store } from './db.js';
 
 export type RecoverySourceStage = 'uat' | 'review' | 'ship';
-export type RecoverySourceProcessId = 'gates' | 'tester' | 'review' | 'pr-review';
+export type RecoverySourceProcessId = 'gates' | 'tester' | 'review' | 'pr-review' | 'ci';
 export type RecoveryTriggerKind =
   | 'gate-failure'
   | 'tester-verifier-failure'
@@ -22,7 +22,12 @@ export type RecoveryTriggerKind =
    * The user dismissed a usage/quota-limit park (D159). The failed verdict
    * enters recovery with the limitation detail as the cause.
    */
-  | 'usage-limit-dismissed';
+  | 'usage-limit-dismissed'
+  /**
+   * A CI or base-moved gate failure on a graph ticket at `ship` (T1158). The impl stage of a graph ticket runs a
+   * graph, so the round goes to a direct fix-stage session instead of a send-back to Implement.
+   */
+  | 'ci-failure';
 export type RecoveryStatus =
   | 'pending'
   | 'fixing'
@@ -84,7 +89,7 @@ interface RecoveryRoundRow {
   fix_commit_sha: string | null;
 }
 
-const SOURCE_PROCESS_IDS: readonly string[] = ['gates', 'tester', 'review', 'pr-review'];
+const SOURCE_PROCESS_IDS: readonly string[] = ['gates', 'tester', 'review', 'pr-review', 'ci'];
 const TRIGGER_KINDS: readonly string[] = [
   'gate-failure',
   'tester-verifier-failure',
@@ -92,6 +97,7 @@ const TRIGGER_KINDS: readonly string[] = [
   'blocking-review-findings',
   'upstream-changes-requested',
   'usage-limit-dismissed',
+  'ci-failure',
 ];
 const STATUSES: readonly string[] = [
   'pending',

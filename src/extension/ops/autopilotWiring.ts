@@ -12,7 +12,7 @@ import type { AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { autopilotTick } from './autopilotOps.js';
 import type { TransientCiSeams } from './autopilotRerun.js';
 import type { StaleRebaseSeams } from './autopilotStaleRebase.js';
-import { graphRunIdsForTicket } from '../../store/graph/graphRuns.js';
+import { nudgeSurface } from '../../approaches/graph/entryPoints.js';
 import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
 import { resolveConflictRound, type ResolveConflictInput } from './conflictResolveOps.js';
 
@@ -189,7 +189,8 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         concurrencyFull: () => concurrencyFullFor([...new Map([...listSlotHolders(d.store, projectId), ...armed.values()].map((h) => [h.id, h])).values()], t, d.caps()),
         placement: seams.placement,
         ...(seams.sandboxPreflight ? { sandboxPreflight: seams.sandboxPreflight } : {}),
-        isGraphTicket: () => graphRunIdsForTicket(d.store.db, t.id).length > 0,
+        // T1158: only an ACTIVE graph run owns the sessions (the same surface as the session hand-off guard).
+        isGraphTicket: () => nudgeSurface(d.store.db, t.id) === 'no-op',
         sendCiFailure: seams.sendCi,
         ...(seams.sendGateFailure ? { sendGateFailure: seams.sendGateFailure } : {}),
         sendConflict: seams.sendConflict,

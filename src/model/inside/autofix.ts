@@ -104,9 +104,12 @@ const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
 const ENGINE_GH = /^auto-fix stopped: ci could not run \((.*)\)$/;
 const GH_FAILED = /^auto-fix (?:paused: could not read CI\b|stopped: ci could not run \()/;
 const SANDBOX_WORD = /sandbox/i;
-// A permanent park (a graph ticket): the cause is the ticket kind, so a retry parks again. A sandbox park keeps ONE Retry (the ticket requires it).
+// A permanent park (an unreadable placement): a retry parks again. A sandbox park keeps ONE Retry (the ticket requires it).
 const NOT_RUN = /^auto-fix not run:/;
 const SANDBOXED = 'auto-fix not run: sandboxed ticket';
+// T1158: a graph-ticket park holds only while a graph run is active. After the run closes, a Retry reaches an agent.
+const GRAPH_PARK = 'auto-fix not run: graph ticket';
+const GRAPH_CAUSE = 'Auto-fix not run: graph ticket. An active graph run owns the sessions of this ticket. Retry when the run closes.';
 
 const prLabel = (t: AutofixTarget): string => {
   const repo = t.repoLabel ?? t.repo;
@@ -244,7 +247,7 @@ export interface AutofixBannerView {
   readonly titleHref?: string;
   readonly titleSuffix: string;
   readonly cause: string;
-  /** Null for a permanent park (`auto-fix not run: …`): a Retry would only park again. */
+  /** Null for a permanent park (`auto-fix not run: …`, except the graph-ticket park, T1158): a Retry would only park again. */
   readonly primary: AutofixBannerAction | null;
   readonly secondary: AutofixBannerAction | null;
   readonly history: readonly string[];
@@ -302,8 +305,8 @@ export function autofixBanner(f: AutofixFacts): AutofixBannerView | null {
     state: 'paused',
     title: 'Auto-fix paused',
     titleSuffix: reason === SANDBOXED ? 'sandbox ticket' : '',
-    cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Fix the sandbox, then retry.' : NOT_RUN.test(reason) ? `${capitalize(reason)}.` : `${capitalize(reason)}. Fix the cause, then retry.`,
-    primary: NOT_RUN.test(reason) && !SANDBOX_WORD.test(reason) ? null : RETRY,
+    cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Fix the sandbox, then retry.' : reason === GRAPH_PARK ? GRAPH_CAUSE : NOT_RUN.test(reason) ? `${capitalize(reason)}.` : `${capitalize(reason)}. Fix the cause, then retry.`,
+    primary: NOT_RUN.test(reason) && !SANDBOX_WORD.test(reason) && reason !== GRAPH_PARK ? null : RETRY,
     secondary: SANDBOX_WORD.test(reason) ? SYNC_DIFF : null,
     history: [],
   };

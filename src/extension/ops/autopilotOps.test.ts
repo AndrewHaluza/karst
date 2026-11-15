@@ -634,6 +634,16 @@ describe('notes and debug lines (the history matches a manual click)', () => {
     expect(r.sendCi).not.toHaveBeenCalled();
     expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
     expect(r.notes[0]![0]).toBe('Autopilot: auto-fix not run: graph ticket');
+    expect(r.notes[0]![1]).toContain('an active graph run owns the sessions of this ticket, so a hand-off would reach no agent. Retry when the run closes, or send the failure to the agent by hand.');
+  });
+
+  // T1158: a graph ticket whose runs are all closed (the seam reads false) is an ordinary ticket: the round goes out.
+  it('sends a CI round to a graph ticket with no active graph run and spends one attempt', async () => {
+    seedPr(failing('build'));
+    const r = rig({ isGraphTicket: () => false });
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
+    expect(r.sendCi).toHaveBeenCalledOnce();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
   });
 
   it('a second tick on an unchanged park does not report a new action', async () => {

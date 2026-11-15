@@ -3010,6 +3010,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     retakeGateSnapshot: async () => { await takeGateSnapshot(gateSnapshotDeps, ticketId); },
     // Nudge the live Implement session, else open one seeded with the CI reason (the driver starts gate stages only).
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), ...sessionSeams(ticketId) }),
+    // T1158: a graph approach's impl runs a graph, so a CI or gate round at ship enters a fix round instead.
+    implRunsGraph: () => Boolean(withBuiltInApproaches(currentManifest() ?? emptyManifest()).approaches?.find((a) => a.id === getTicket(localStore, ticketId).approach)?.graph),
     deliver: { tracker: undelivered, shipGates: () => { gateConsole.reset(ticketId, 'ship'); return { deps: shipGateDeps(ticketId), settled: () => gateConsole.flush(ticketId, 'ship') }; }, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
     gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
     reprobe: async () => { await runPrSync(true); },

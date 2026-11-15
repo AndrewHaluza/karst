@@ -457,6 +457,9 @@
   "src/extension/ops/ciActionsWiring.ts": [
     "arch:AP-05"
   ],
+  "src/extension/ops/ciFailureOps.ts#takesFixRoute": [
+    "arch:AP-08"
+  ],
   "src/extension/ops/cloudSessionLinkOps.ts": [
     "arch:CLOUD-01"
   ],
@@ -1125,6 +1128,9 @@
   ],
   "src/workflow/reviewStallRead.ts#reviewStallAttempts": [
     "arch:REVIEW-STALL"
+  ],
+  "src/workflow/shipFixRound.ts": [
+    "arch:AP-08"
   ],
   "src/workflow/stages/implement.ts": [
     "arch:ADR-00"
