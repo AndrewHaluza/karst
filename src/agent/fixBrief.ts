@@ -6,6 +6,7 @@ import type { PrFeedbackRow } from '../store/prFeedback.js';
 import { lastFailedGate } from '../workflow/fixAttempts.js';
 import { isCoverageRecord } from '../model/coverageRecord.js';
 import { NON_GATE_RUNS } from '../model/artifacts.js';
+import { signatureOfSummary } from '../workflow/gates/environmentSignature.js';
 import { PROCESS_KILL_RULE } from './promptText.js';
 
 export const PROTOTYPE_REGION_CHECKLIST_RULE =
@@ -26,6 +27,8 @@ export function hasLinkedPrototype(ticket: {
 export interface RenderFixBriefOptions {
   /** The ticket has a linked prototype (ui:UI-R39-REJECT per-region checklist rule). */
   readonly hasPrototype?: boolean;
+  /** True when the failed stage's round already used its host re-run (ran or requested). */
+  readonly hostRerunSpent?: (stageKey: StageKey) => boolean;
 }
 
 /**
@@ -110,6 +113,13 @@ export const FIX_REFUSED_STOP_RULE =
 export const FIX_NO_FAULT_RULE =
   'If the failure output shows no fault in the ticket code (a timeout, a server that did not start, a port window) and you change no file, call the done marker now. The host re-runs the gate.';
 
+/** Said instead of FIX_NO_FAULT_RULE once the round's host re-run already ran: the marker cannot re-run the gate. */
+export const FIX_NO_FAULT_SPENT_RULE =
+  'The host re-run of this round already ran and still failed. If you find no fault in the ticket code, say what you found and stop for the user.';
+
+/** Leads a failed gate row with no environment signature: the ticket needs a change. */
+export const TICKET_FAILURE_LABEL = 'ticket failure';
+
 /** Said once in a failed review gate brief: repair the whole defect class, not only the reported site. */
 export const REVIEW_SWEEP_RULE =
   'For each finding, name the rule it breaks. Search the repository for each site of that rule. Fix each site. List the sites in the commit body.';
@@ -188,7 +198,9 @@ export function renderFixBrief(
     PROCESS_KILL_RULE,
   ];
   if (!isPrFeedback) lines.push('', FIX_REFUSED_STOP_RULE);
-  if (!isPrFeedback && gate.stageKey !== 'review') lines.push('', FIX_NO_FAULT_RULE);
+  if (!isPrFeedback && gate.stageKey !== 'review') {
+    lines.push('', options?.hostRerunSpent?.(gate.stageKey) ? FIX_NO_FAULT_SPENT_RULE : FIX_NO_FAULT_RULE);
+  }
   if (gate.stageKey === 'review') lines.push('', REVIEW_SWEEP_RULE);
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
   if (options?.hasPrototype && (!gate.verdict || !gate.verdict.includes('@ui:UI-R39-REJECT'))) {
@@ -200,7 +212,8 @@ export function renderFixBrief(
   if (failures.some((f) => f.summary)) {
     lines.push('', 'The failing gates reported:');
     for (const f of failures) {
-      lines.push(`- ${f.gateName} (exit ${f.exitCode})`);
+      const label = signatureOfSummary(f.summary) === null ? ` — ${TICKET_FAILURE_LABEL}` : '';
+      lines.push(`- ${f.gateName} (exit ${f.exitCode})${label}`);
       if (f.summary) {
         for (const line of f.summary.split('\n')) lines.push(`    ${line}`);
       }

@@ -36,6 +36,24 @@ describe('environmentSignature', () => {
     expect(environmentSignature('visual', 'Failed to generate fixtures: spawnSync /bin/sh ENOENT')).toBeNull();
   });
 
+  it('gives a signature for a gate timeout with no real failure before it', () => {
+    expect(environmentSignature('visual', 'running 300 tests\nCommand timed out after 2700000ms\n')).toBe(
+      'the gate timed out with no failing test or screenshot before it',
+    );
+  });
+
+  it('gives no signature for a gate timeout after a screenshot mismatch', () => {
+    const out = 'Error: 1200 pixels (ratio 0.02 of all image pixels) are different.\nCommand timed out after 2700000ms';
+    expect(environmentSignature('visual', out)).toBeNull();
+    expect(environmentSignature('visual', 'Expected an image 800px by 600px, received 1px\nCommand timed out after 5ms')).toBeNull();
+  });
+
+  it('gives no signature for a gate timeout after a failing test line', () => {
+    expect(environmentSignature('test:unit', ' FAIL a.test.ts > x\nCommand timed out after 5ms'.replace(' FAIL', 'FAIL'))).toBeNull();
+    expect(environmentSignature('test:unit', '  × a.test.ts > x 12ms\nCommand timed out after 5ms')).toBeNull();
+    expect(environmentSignature('test:unit', 'FAIL a.test.ts\nCommand timed out after 5ms')).toBeNull();
+  });
+
   it('returns null for empty output', () => {
     expect(environmentSignature('lint', '')).toBeNull();
   });
