@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { acquireGateSlot, defaultGateSlotsDir, gatePoolName, leaseHeld } from './gateSlot.mjs';
@@ -82,5 +82,73 @@ describe('acquireGateSlot', () => {
     setTimeout(() => abort.abort(), 20);
     await expect(waiting).rejects.toThrow(/aborted/);
     first.release();
+  });
+  describe('heartbeat and token', () => {
+    const TEN_MIN_S = 10 * 60;
+    const back = (file) => {
+      const old = new Date(Date.now() - TEN_MIN_S * 1000);
+      utimesSync(file, old, old);
+    };
+    const abortAfter = (ms) => {
+      const abort = new AbortController();
+      setTimeout(() => abort.abort(), ms);
+      return abort.signal;
+    };
+
+    it('writes owner, token, heartbeat and ticket on claim', async () => {
+      const dir = mkDir();
+      const lease = await acquireGateSlot('visual', { dir, pollMs: 5, ticket: 'T1' });
+      expect(readdirSync(join(dir, 'visual', 'slot-0')).sort()).toEqual(['heartbeat', 'owner', 'ticket', 'token']);
+      lease.release();
+    });
+
+    it('reclaims a live owner whose heartbeat is older than the stale age', async () => {
+      const dir = mkDir();
+      const slot = join(dir, 'visual', 'slot-0');
+      mkdirSync(slot, { recursive: true });
+      writeFileSync(join(slot, 'owner'), String(process.pid));
+      writeFileSync(join(slot, 'token'), 'other');
+      writeFileSync(join(slot, 'heartbeat'), '');
+      back(join(slot, 'heartbeat'));
+      const lease = await acquireGateSlot('visual', { dir, pollMs: 5 });
+      expect(lease.slot).toBe(0);
+      expect(readFileSync(join(slot, 'token'), 'utf8')).not.toBe('other');
+      lease.release();
+    });
+
+    it('keeps a live owner with no heartbeat file', async () => {
+      const dir = mkDir();
+      const slot = join(dir, 'visual', 'slot-0');
+      mkdirSync(slot, { recursive: true });
+      writeFileSync(join(slot, 'owner'), String(process.pid));
+      await expect(acquireGateSlot('visual', { dir, pollMs: 5, signal: abortAfter(60) })).rejects.toThrow(/aborted/);
+      expect(readFileSync(join(slot, 'owner'), 'utf8')).toBe(String(process.pid));
+    });
+
+    it('release does not delete a claim that another lease took over', async () => {
+      const dir = mkDir();
+      const lease = await acquireGateSlot('visual', { dir, pollMs: 5 });
+      const slot = join(dir, 'visual', 'slot-0');
+      writeFileSync(join(slot, 'token'), 'other');
+      lease.release();
+      expect(existsSync(slot)).toBe(true);
+    });
+
+    it('release does not throw when the claim folder is gone', async () => {
+      const dir = mkDir();
+      const lease = await acquireGateSlot('visual', { dir, pollMs: 5 });
+      rmSync(join(dir, 'visual', 'slot-0'), { recursive: true, force: true });
+      expect(() => lease.release()).not.toThrow();
+    });
+
+    it('the heartbeat refreshes the mtime', async () => {
+      const dir = mkDir();
+      const lease = await acquireGateSlot('visual', { dir, pollMs: 5, heartbeatMs: 20 });
+      const beat = join(dir, 'visual', 'slot-0', 'heartbeat');
+      back(beat);
+      await new Promise((r) => setTimeout(r, 80));
+      expect(Math.abs(Date.now() - statSync(beat).mtimeMs)).toBeLessThan(5_000);
+      lease.release();
+    });
   });
 });
