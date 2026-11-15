@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { opencode2Config, resetOpencode2Config } from '../agent/opencode2Binary.js';
 import { basename, dirname, join } from 'node:path';
 import { assertPlanningVerbAllowed, exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
 import { openStore, type Store } from '../store/db.js';
@@ -1011,5 +1012,32 @@ describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
     const row = check.db.prepare("SELECT stage_current AS s FROM tickets WHERE key = 'K-1'").get() as { s: string };
     check.close();
     expect(row.s).toBe('scope');
+  });
+});
+
+describe('runCliAsync — setup check opencode2 env', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-setup-check-oc2-'));
+  });
+  afterEach(() => {
+    resetOpencode2Config();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('configures the opencode2 binary and home from the session env', async () => {
+    const out = await runCliAsync(['setup', 'check', '--manifest', join(dir, 'missing.yml')], {
+      KARST_OPENCODE2_BINARY: '/bin/opencode',
+      KARST_OPENCODE2_HOME: '/gs/opencode2',
+    });
+    expect(JSON.parse(out).ok).toBe(false);
+    expect(opencode2Config()).toEqual({ binaryPath: '/bin/opencode', home: '/gs/opencode2' });
+  });
+
+  it('leaves opencode2 unconfigured when the home is missing', async () => {
+    await runCliAsync(['setup', 'check', '--manifest', join(dir, 'missing.yml')], {
+      KARST_OPENCODE2_BINARY: '/bin/opencode',
+    });
+    expect(opencode2Config()).toEqual({ binaryPath: '', home: '' });
   });
 });

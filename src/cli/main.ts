@@ -35,6 +35,7 @@ import { runCloseCommand } from './closeCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { parseBlockedArgs, runBlockedCommand } from './blockedCommand.js';
 import { parseQueueArgs, runQueueCommand } from './queueCommand.js';
+import { configureOpencode2FromEnv } from '../agent/opencode2Binary.js';
 import { KARST_DB_READONLY_ENV, KARST_MANIFEST_ENV, KARST_PROJECT_ENV, KARST_REVIEW_FLOOR_ENV } from '../agent/cliEnv.js';
 import { BLOCKING_SEVERITIES, reviewBlockingFloor } from '../manifest/qualityDefaults.js';
 import { getProjectById, getProjectBySlug } from '../store/projects.js';
@@ -831,6 +832,9 @@ export async function runCliAsync(
   // `setup check` dry-runs everything a first ticket needs. Ticketless; it
   // opens a store only to run `setup verify` on declared services (needs --db).
   if (rest[0] === 'setup' && rest[1] === 'check') {
+    // The host exports its opencode2 binary + isolated home to the setup
+    // session (setupOps.ts); without them the core reads as not installed.
+    configureOpencode2FromEnv(env);
     if (!manifestPath) throw new Error('missing --manifest <path>');
     const parsed = parseSetupCheckArgs(rest);
     let loaded: ReturnType<typeof loadManifestWithDiagnostics> | undefined;
