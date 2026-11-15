@@ -45,6 +45,7 @@ import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.j
 import { BUILT_IN_PACKAGE_ID } from '../approaches/builtInId.js';
 import { cleanupTerminalGraphRunWorkspaces } from '../approaches/graph/workspace/cleanup.js';
 import { runImmediateTransaction } from '../store/transactions.js';
+import { openGatingSubtasks } from './subtaskGate.js';
 import { assertMarkerNotWhileWaiting, liveAgentState } from './markerGuard.js';
 
 export { GRAPH_FAILED_BLOCKER };
@@ -280,31 +281,52 @@ export function markGraphAwaitingImplMarker(
 
 export type AutoFireOutcome =
   | { kind: 'fired'; graphRunId: number }
-  | { kind: 'paused' }
+  | { kind: 'paused'; firstTime: boolean }
+  | { kind: 'busy' }
   | { kind: 'refused'; reason: string; firstTime: boolean };
+
+/** A lock-contention refusal (the coordinator store has no busy timeout): retry next tick. */
+const TRANSIENT_LOCK = /SQLITE_BUSY|database is (locked|busy)/i;
 
 /**
  * The impl marker's third caller: the graph coordinator (`@arch:IMPLUAT`).
  * When a run is marker-ready it fires the SAME guarded marker as the button,
  * through `fireGraphImplMarkerFromHost`, so the waiting-agent refusal holds.
- * A paused ticket is not fired (`@arch:PAUSE`). A refusal leaves the
- * `awaiting-impl-marker` block, with the reason in its text, so the button
+ * The CLI's sub-task gate applies too (`openGatingSubtasks`), and a caller
+ * that ran an async pre-check (the docs block cap) passes its refusal as
+ * `preRefusal`. A paused ticket is not fired (`@arch:PAUSE`). A refusal leaves
+ * the `awaiting-impl-marker` block, with the reason in its text, so the button
  * stays as the manual fallback. `firstTime` is false when the block already
- * carries the same reason, so a sweep logs one refusal per run, not per tick.
+ * carries the same text, so a sweep reports one refusal per run, not per tick.
  */
 export function tryAutoFireGraphImplMarker(
   store: Store,
   ticketId: number,
   graphRunId: number,
   now: () => string,
+  preRefusal?: string,
 ): AutoFireOutcome {
   if (getTicket(store, ticketId).pausedAt !== null) {
-    parkAwaitingMarker(store, ticketId, graphRunId, now, 'completed, ticket paused — the impl marker fires after unpause');
-    return { kind: 'paused' };
+    const firstTime = parkAwaitingMarker(
+      store,
+      ticketId,
+      graphRunId,
+      now,
+      'completed, ticket paused — the impl marker fires after unpause',
+    );
+    return { kind: 'paused', firstTime };
   }
-  const result = fireGraphImplMarkerFromHost(store, ticketId);
-  if (result.ok) return { kind: 'fired', graphRunId: result.graphRunId ?? graphRunId };
-  const reason = result.reason ?? 'impl marker refused';
+  const open = openGatingSubtasks(store, ticketId, 'leave-impl');
+  let reason: string | undefined = preRefusal;
+  if (reason === undefined && open.length > 0) {
+    reason = `open blocking sub-tasks: ${open.map((o) => `${o.key} (${o.stage})`).join(', ')}`;
+  }
+  if (reason === undefined) {
+    const result = fireGraphImplMarkerFromHost(store, ticketId);
+    if (result.ok) return { kind: 'fired', graphRunId: result.graphRunId ?? graphRunId };
+    reason = result.reason ?? 'impl marker refused';
+  }
+  if (TRANSIENT_LOCK.test(reason)) return { kind: 'busy' };
   const firstTime = parkAwaitingMarker(
     store,
     ticketId,

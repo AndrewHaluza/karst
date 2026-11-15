@@ -4170,7 +4170,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** A marker-ready run fires its impl marker by itself (@arch:IMPLUAT). */
   const autoFireImplMarker = (ticketId: number, graphRunId: number): void =>
-    autoFireImplMarkerOp(
+    void autoFireImplMarkerOp(
       {
         store: graphCoordinatorStore!,
         debug: (m) => logger.debug(m),

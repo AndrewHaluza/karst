@@ -499,9 +499,34 @@ describe('tryAutoFireGraphImplMarker', () => {
   it('does not fire for a paused ticket and leaves the wait block', () => {
     const { ticketId, graphRunId } = ready('AF-2');
     store.db.prepare("UPDATE tickets SET paused_at = datetime('now') WHERE id = ?").run(ticketId);
-    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toEqual({ kind: 'paused' });
+    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toEqual({ kind: 'paused', firstTime: true });
     expect(stageOf(ticketId)).toBe('impl');
     expect(stageBlock(store, ticketId, 'impl')?.kind).toBe('awaiting-impl-marker');
+  });
+
+  it('refuses while a blocking sub-task is open, like the CLI marker', () => {
+    const { ticketId, graphRunId } = ready('AF-4');
+    const projectId = (store.db.prepare('SELECT project_id AS p FROM tickets WHERE id = ?').get(ticketId) as { p: number }).p;
+    const child = createTicket(store, { key: 'AF-4-s1', title: 'sub', projectId }).id;
+    store.db.prepare('UPDATE tickets SET subtask_parent_id = ?, blocks_parent = 1 WHERE id = ?').run(ticketId, child);
+    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now);
+    expect(out).toMatchObject({ kind: 'refused', firstTime: true });
+    expect(stageBlock(store, ticketId, 'impl')?.reason).toMatch(/open blocking sub-tasks: AF-4-s1/);
+    expect(stageOf(ticketId)).toBe('impl');
+  });
+
+  it('refuses with a caller pre-check reason and does not fire', () => {
+    const { ticketId, graphRunId } = ready('AF-5');
+    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now, 'cannot mark this stage done: docs');
+    expect(out).toMatchObject({ kind: 'refused' });
+    expect(stageOf(ticketId)).toBe('impl');
+  });
+
+  it('treats a lock error as busy and writes no block', () => {
+    const { ticketId, graphRunId } = ready('AF-6');
+    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now, 'SQLITE_BUSY: database is locked');
+    expect(out).toEqual({ kind: 'busy' });
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
   });
 
   it('keeps the block with the reason on a waiting agent and reports the refusal once', () => {

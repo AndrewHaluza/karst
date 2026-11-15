@@ -54,12 +54,13 @@ impl→uat is explicit marker (`markImplementDone`), never inferred from Stop ho
 The marker is REFUSED while `tickets.agent_state = 'waiting'` — the agent asked
 the user a question and is blocked on their input, so the stage is not done.
 `cli/stage.ts`'s `assertMarkerNotWhileWaiting` is the choke point: the CLI is the
-CLI is the entry for an agent's marker (impl and fix both), so the guard lives there.
+entry for an agent's marker (impl and fix both), so the guard lives there.
 A graph ticket's impl marker has two more entries under the same guard
 (`fireGraphImplMarkerFromHost`, which keeps the waiting-agent refusal): the host
 button, and the graph coordinator. When a run reaches END quiescence, and on each
 sweep for a run already parked at `completed-awaiting-impl-marker`, the coordinator
-fires the marker (`tryAutoFireGraphImplMarker`). A paused ticket is not fired. A
+fires the marker (`tryAutoFireGraphImplMarker`). A paused ticket is not fired. An
+open blocking sub-task or an oversize `docs/**` block refuses it, like the CLI. A
 refusal keeps the `awaiting-impl-marker` block with the reason, and the button
 stays as the manual fallback (`@arch:GRAPH-AUTORECOVERY` is the sibling sweep).
 The CLI marker path also refuses (`cannot mark this stage done`) when a `docs/**`
