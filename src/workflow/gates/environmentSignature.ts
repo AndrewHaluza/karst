@@ -35,10 +35,21 @@ const GATE_TIMEOUT_RE = /Command timed out after \d+\s*ms/;
 const SCREENSHOT_DIFF_RE = /(\d+ pixels? \(ratio [\d.]+[^)]*\) are different|Expected an image [^\n]+)/;
 const TEST_FAIL_LINE_RE = /^(?:FAIL|×)\s+(\S.*?)(?:\s+\d+ms)?$/;
 
+// Playwright list reporter: a failed test mark (`✘  12 [project] › file`), a numbered failure
+// header (`1) [project] › file`) and the `N failed` summary line.
+const PLAYWRIGHT_FAIL_LINE_RES: readonly RegExp[] = [
+  /^[✘✗×]\s+\d+\s+\[/,
+  /^\d+\)\s+\[[^\]]+\]\s+›/,
+  /^\d+ failed\b/,
+];
+
 /** True when the output holds a real screenshot mismatch or a failing test line. */
 function holdsRealFailure(plain: string): boolean {
   if (SCREENSHOT_DIFF_RE.test(plain)) return true;
-  return plain.split(/\r?\n/).some((line) => TEST_FAIL_LINE_RE.test(line.trim()));
+  return plain.split(/\r?\n/).some((raw) => {
+    const line = raw.trim();
+    return TEST_FAIL_LINE_RE.test(line) || PLAYWRIGHT_FAIL_LINE_RES.some((re) => re.test(line));
+  });
 }
 
 const GATE_TIMEOUT_REASON = 'the gate timed out with no failing test or screenshot before it';

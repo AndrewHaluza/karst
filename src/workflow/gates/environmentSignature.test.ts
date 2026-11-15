@@ -54,6 +54,12 @@ describe('environmentSignature', () => {
     expect(environmentSignature('test:unit', 'FAIL a.test.ts\nCommand timed out after 5ms')).toBeNull();
   });
 
+  it('gives no signature for a gate timeout after a Playwright failure mark', () => {
+    for (const line of ['  ✘  12 [chromium] › a.visual.ts:3:1 › title (1.2s)', '  1) [chromium] › a.visual.ts:3:1 › title', '  11 failed']) {
+      expect(environmentSignature('visual', `${line}\nCommand timed out after 2700000ms`)).toBeNull();
+    }
+  });
+
   it('returns null for empty output', () => {
     expect(environmentSignature('lint', '')).toBeNull();
   });
