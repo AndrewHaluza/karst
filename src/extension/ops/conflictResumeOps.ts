@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import { getMergeCheck } from '../../store/mergeChecks.js';
 import { listPrsByTicket } from '../../store/dashboard.js';
+import { getConflictRoundAt, markConflictRound } from '../../store/autopilot.js';
 import type { DeliverTargets } from '../../workflow/deliverState.js';
 import type { ConflictRounds, ResolvedRound } from './autoDeliverOps.js';
 
@@ -67,6 +68,9 @@ export async function resumeFinishedMerge(d: ResumeDeps, fromRound: boolean): Pr
       result = 'unfinished';
       continue;
     }
+    // A hand merge has no stored slot yet. Take one now: the stall clock and the sub-task slot read it, so a deliver that
+    // fails (a red gate) is dropped and parked, never left armed forever (@arch:AP-01).
+    if (getConflictRoundAt(d.store, d.ticketId) === null) markConflictRound(d.store, d.ticketId, Date.now());
     d.rounds.arm(d.ticketId, round);
     d.startDeliver();
     return 'started';

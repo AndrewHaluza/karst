@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
+import { getConflictRoundAt } from '../../store/autopilot.js';
 import { createConflictRounds } from './autoDeliverOps.js';
 import { resumeFinishedMerge, type ResumeDeps } from './conflictResumeOps.js';
 
@@ -65,6 +66,8 @@ describe('resumeFinishedMerge', () => {
     const d = deps();
     expect(await resumeFinishedMerge(d, false)).toBe('started');
     expect(d.start).toHaveBeenCalledTimes(1);
+    // The hand merge takes a stored slot, so a failed deliver stalls and parks instead of staying armed forever.
+    expect(getConflictRoundAt(store, id)).not.toBeNull();
   });
 
   it('never delivers an ordinary unpushed commit (the PR is not dirty)', async () => {

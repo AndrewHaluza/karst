@@ -1612,3 +1612,17 @@ describe('a conflict round that a window reload interrupts (T1162, @arch:AP-01)'
     });
   });
 });
+
+describe('a hand-merge resume whose deliver fails (T1162, @arch:AP-01)', () => {
+  it('drops the stalled round and parks, so the engine is never blocked forever', async () => {
+    seedPr(PASSING);
+    // The resume stored a slot when it armed the hand merge; the deliver failed and the round stalled.
+    markConflictRound(store, id, Date.now() - 1);
+    const drop = vi.fn();
+    const r = rig({ resumeDeliver: async () => 'none', conflictRoundActive: () => true, conflictRoundStalled: () => true, dropConflictRound: drop });
+    await autopilotTick(r.deps);
+    expect(drop).toHaveBeenCalled();
+    expect(getConflictRoundAt(store, id)).toBeNull();
+    expect(getAutopilotTicket(store, id).stoppedReason).toContain('did not deliver');
+  });
+});
