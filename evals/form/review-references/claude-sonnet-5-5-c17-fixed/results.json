@@ -1,0 +1,114 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T03:47:21.439Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider claude --model claude-sonnet-5-5 --only c17-clean-tempting --runs 3 --timeout-min 8",
+    "caseSetVersion": 2,
+    "buildSha": "4b9da59ac03c6032de45b93d16b51bde52607e4e",
+    "coreVersions": {}
+  },
+  "candidate": {
+    "core": "claude",
+    "model": "claude-sonnet-5-5",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 481,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 34983,
+          "cacheWriteTokens": 36019,
+          "totalTokens": 71487,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.927,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71487
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 2,
+        "status": "timeout",
+        "error": "headless agent run timed out after 480000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 899.79,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 3,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 495,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45523,
+          "cacheWriteTokens": 25472,
+          "totalTokens": 71494,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.287,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71494
+      }
+    ]
+  }
+}

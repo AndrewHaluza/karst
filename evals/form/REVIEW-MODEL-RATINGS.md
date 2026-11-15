@@ -14,23 +14,25 @@ Every cell with n below 30 is INSUFFICIENT. Do not rank cores from this table.
 The antigravity row comes from the run log. Two runs wrote one report directory, so the report file was overwritten. A later commit fixes the name.
 The claude v1 row is a subset of the v2 report. The opencode2 report is in `review-references/opencode2-mimo-v2.6-flash-v1/`.
 
-## Case set v2 (18 cases)
+## Case set v2 (cases c11 to c18, 1 run each, except claude)
 
-| Core | Model | Recall | Clean cases with a false finding | Note |
-|---|---|---|---|---|
-| claude | claude-sonnet-5-5 | 51/51 | 3/12 | Case `c17-clean-tempting` failed in 3 of 3 runs. Report in `review-references/claude-sonnet-5-5-v2/`. |
-| antigravity | gemini-3.8-flash-medium | not scored | not scored | Stopped before the report. New cases c11 to c16 returned `ok` in 18 of 18 calls. Case c17 run 1 timed out at 8 minutes. |
-| opencode2 | opencode-go/mimo-v2.6-flash | not scored | not scored | Stopped before the report. Cases c11 to c15 returned `ok` in 15 of 15 calls. Case c16 timed out in 3 of 3 runs. |
+The case `c17-clean-tempting` was wrong in the first v2 run. Its code cast parsed JSON without a check. The fix is commit `db2cd3d39`. The claude row for v2 below used the old `c17`.
+
+| Core | Model | Recall | Clean cases with a false finding | Calls with `ok` | Note |
+|---|---|---|---|---|---|
+| claude | claude-sonnet-5-5 | 51/51 (18 cases, 3 runs) | 3/12 | all | All 3 false findings came from the old `c17`. A run of the fixed `c17` gave 0/2 false findings and 1 timeout. Reports in `review-references/claude-sonnet-5-5-v2/` and `claude-sonnet-5-5-c17-fixed/`. |
+| antigravity | gemini-3.8-flash-medium | 5/5 | 0/2 | 6 of 8 | `c13` and `c14` timed out at 10 minutes. Report in `review-references/antigravity-gemini-3.8-flash-medium-c11-c18/`. |
+| opencode2 | opencode-go/mimo-v2.6-flash | 1/1 | 1/1 | 2 of 8 | Six calls timed out at 10 minutes. The core answered a test call in 10 seconds, so a load on the machine may be a cause. Report in `review-references/opencode2-mimo-v2.6-flash-c11-c18/`. |
 
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
 - The new clean case `c17-clean-tempting` is the first case that separates a core. Claude reports false findings on it.
-- The slow cores time out on the harder cases at 8 minutes. Use `--timeout-min 15` for them.
+- The slow cores time out on the harder cases at 10 minutes. Opencode2 has 6 timeouts in 8 calls. Its recall on v2 is not measured.
 - A run writes its report only at the end. A stopped run loses its data. Add a partial write if long runs are common.
 
 ## Next steps
 
-1. Rerun antigravity and opencode2 on `c11` to `c18` with `--timeout-min 15`.
-2. Check the false findings of claude on `c17` in `results.json`. Decide if the case or the model is wrong.
+1. Rerun opencode2 on `c11` to `c18` when the machine has no other load.
+2. Rerun claude on the fixed `c17` with more runs.
 3. Add cases until each cell reaches n of 30.

@@ -1,0 +1,299 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T04:19:31.036Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider antigravity --model gemini-3.8-flash-medium --only c11-stale-closure,c12-tz-boundary,c13-swallowed-error,c14-mutated-arg,c15-auth-inverted,c16-two-subtle,c17-clean-tempting,c18-clean-refactor --runs 1 --timeout-min 10",
+    "caseSetVersion": 2,
+    "buildSha": "db2cd3d397fb1ed4cf31eca2671f947f78b21bf6",
+    "coreVersions": {}
+  },
+  "candidate": {
+    "core": "antigravity",
+    "model": "gemini-3.8-flash-medium",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c11-stale-closure",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel captures retries by value, returning stale session state.",
+            "detail": "In src/sessionLabel.ts, createLabel destructures session into { user, retries } upon initialization instead of accessing session properties when called. Given session = { user: 'alice', retries: 0 } and const getLabel = createLabel(session), calling recordRetry(session) increments session.retries to 1, but subsequent invocations of getLabel() still return 'alice: 0 retries'. The returned closure must access session.retries and session.user dynamically to report the current state of the session.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 45.259,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 11,
+            "title": "isInRange excludes timestamps on the last day after midnight.",
+            "detail": "DateRange.end specifies that 'The last day is included', but new Date(range.end) parses 'YYYY-MM-DD' as UTC midnight (00:00:00.000Z). In isInRange, when <= end evaluates to false for any timestamp on the end date after 00:00:00.000Z. For example, given range = { start: '2026-01-01', end: '2026-01-05' } and when = new Date('2026-01-05T12:00:00Z'), isInRange returns false instead of true, incorrectly excluding the last day.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 71.602,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 1876.216,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-013"
+          ],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 3736.33,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-014"
+          ],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 18,
+            "title": "Admin role grants cross-tenant edit access and bypasses private visibility.",
+            "detail": "Input: user = { id: 'admin1', teamId: 'team-a', role: 'admin', active: true }, doc = { ownerId: 'user2', teamId: 'team-b', visibility: 'private', editors: [] }. Wrong output: canEdit returns true because line 18 unconditionally returns true for any admin without verifying team matching (doc.teamId === user.teamId) or checking document visibility. This allows an admin from one team to view and edit private documents of other teams, creating a critical multi-tenant authorization bypass.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "Default case in visibility switch fails open by granting edit access.",
+            "detail": "Input: user = { id: 'user1', teamId: 'team-a', role: 'member', active: true }, doc = { ownerId: 'user2', teamId: 'team-b', visibility: 'public', editors: [] } (or any unhandled/unknown visibility value). Wrong output: canEdit falls through to the switch default on line 27 and returns true. Authorization checks must fail closed by returning false; returning true allows any authenticated active user to edit documents with public, unexpected, or misspelled visibility values across teams.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 11,
+            "title": "Document visibility is loosely typed as string instead of a union of supported visibility levels.",
+            "detail": "Doc.visibility is declared as string rather than a strict union type such as 'private' | 'shared' | 'team'. This allows arbitrary or misspelled strings to bypass type checking at compile time.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 124.454,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 1,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "blockingFalse": 1,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange incorrectly divides by newValue instead of oldValue.",
+            "detail": "Percentage change from an old value to a new value is defined as ((newValue - oldValue) / oldValue) * 100. In line 3, the formula divides by newValue instead of oldValue. For input percentChange(100, 150), it returns 33.333333333333336 instead of the expected 50 (+50%). Additionally, when newValue is 0 (e.g., percentChange(100, 0)), division by zero results in -Infinity instead of -100.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the entire array when count is 0.",
+            "detail": "In JavaScript, -0 evaluates to 0, so items.slice(-count) when count is 0 calls items.slice(0), which returns a shallow copy of the entire array instead of an empty array. For input lastEntries([1, 2, 3], 0), the function returns [1, 2, 3] instead of []. The function should guard against count <= 0 and return [].",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 68.038,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 108.421,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 50.92,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      }
+    ]
+  }
+}
