@@ -252,6 +252,23 @@ export function listPendingProposals(store: Store, projectId: number): PlanningP
 }
 
 /**
+ * The pending drafts, in non-archived sessions, whose `depends_on_tickets` holds
+ * `ticketId`: the drafts this ticket unblocks once it finishes. The LIKE only
+ * narrows the scan; the decoded id array decides the match (T1 never matches T12).
+ */
+export function listPendingProposalsDependingOn(store: Store, ticketId: number): PlanningProposal[] {
+  const rows = store.db
+    .prepare(
+      `SELECT ${COLUMNS} FROM planning_proposals p
+       JOIN planning_sessions s ON s.id = p.session_id
+       WHERE s.status <> 'archived' AND p.status = 'pending' AND p.depends_on_tickets LIKE ?
+       ORDER BY p.id`,
+    )
+    .all(`%${ticketId}%`) as ProposalRow[];
+  return rows.filter((r) => parseIdArray(r.depends_on_tickets ?? null).includes(ticketId)).map(toProposal);
+}
+
+/**
  * The proposals the sidebar shows under the project's sessions (archived
  * ones included): pending first, then accepted, each newest first like the ticket list — discarded ones are gone.
  */

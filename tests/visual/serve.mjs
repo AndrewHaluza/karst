@@ -8,11 +8,13 @@ import {
   buildWebviewBundles,
 } from '../../scripts/build-webview-send.mjs';
 import { FIXTURE_TIMEOUT_MS, formatStepTiming } from './serveLimits.mjs';
+import { fixtureDir } from './fixtureDir.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PORT = 4317;
-const ROOT = join(__dirname, '.tmp');
+// KARST_VISUAL_TMP_DIR moves the pages out of the repo (fixtureDir.mjs); writeFixtures.ts reads the same value.
+const ROOT = fixtureDir(process.env, join(__dirname, '.tmp'));
 const START = performance.now();
 let stepStart = START;
 

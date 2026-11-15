@@ -40,7 +40,7 @@ function Deps({ draft }: { readonly draft: PlanningProposalRow }) {
   if (!deps.length) return null;
   return (
     <div className="pt-deps-row">
-      <span>needs</span>
+      <span>Waits on</span>
       {deps.map((x) => (
         <TicketRefChip
           key={`${x.kind}:${x.draftId ?? ''}:${x.ticketId ?? ''}:${x.idLabel}`}

@@ -181,7 +181,7 @@ covers: src/runtime/orphanPorts.ts#reapOrphanedPorts, src/runtime/orphanPorts.ts
 END_DOC_BLOCK: [@arch:ORPHANS]
 
 ## [@arch:GATE-ORPHANS] A gate process group that outlives its host is killed from a record file
-covers: src/runtime/gateRuns.ts#createGateRunRegistry, src/runtime/gateRuns.ts#reapOrphanedGates, src/runtime/gateRuns.ts#describeGateReap
+covers: src/runtime/gateRuns.ts#createGateRunRegistry, src/runtime/gateRuns.ts#reapOrphanedGates, src/runtime/gateRuns.ts#describeGateReap, src/runtime/spinFixtureOrphans.ts#recordSpinServers, src/runtime/spinFixtureOrphans.ts#reapOrphanedSpinServers
 
 `runProcess` starts each gate detached, in its own process group, so Stop, Pause and the 30-minute timeout can kill the whole tree with `killTree`. A window reload or a quit ends the host that owns the timeout and the abort signal, and the group keeps running (for example npm, `sastGate.mjs`, semgrep and semgrep-core). `@arch:ORPHANS` cannot see it, because a gate holds no karst port.
 
@@ -190,6 +190,8 @@ Each running gate therefore writes a record file `$TMPDIR/karst-gate-runs/<pgid>
 - **Reload or quit:** `deactivate()` calls `killTree` on every live group of this host. It is synchronous and does not wait for the gates to end.
 - **Crash or forced quit:** at activation, beside `reapOrphanedPorts`, `reapOrphanedGates` reads each record whose host pid is dead. It kills the group only when the leader runs, its start time matches the record, and its live cwd is inside a `.karst/worktrees/` directory. A reused pid, a cwd outside a worktree or a live host pid is never killed. A record whose leader is dead is removed. Each reap is logged with the gate name, ticket id and pid.
 - **Rejected:** `detached: false` (the group kill needs the separate group), and a kill by process name (it could kill a scan of the user).
+
+Spin fixture servers are covered by a second record. `spinTicket` starts each server detached, in its OWN process group, so the gate `killTree` never reaches it and a reload leaves it on its port (a leak set held ports 28689-28845 and failed the integration gate of six tickets). The spin integration suites call `recordSpinServers` after each `spinTicket`. It writes `$TMPDIR/karst-spin-fixtures/<pid>` for each running server: owner (test) pid, group leader start time, port and cwd. The record is test code only; the production supervisor does not change. The suite removes the records when it stops its servers. At activation, `reapOrphanedSpinServers` (called by `reapOrphans` beside `reapOrphanedGates`) kills a group only when the owner pid is dead, the leader start time matches, and the live cwd has a `karst-spin-*` segment. A port or a process name alone never proves ownership. `freePortWindow` names the pids that hold the band (from `lsof`) in its error.
 
 The headless review agent is not covered here.
 END_DOC_BLOCK: [@arch:GATE-ORPHANS]

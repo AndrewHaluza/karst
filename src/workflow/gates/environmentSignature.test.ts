@@ -66,4 +66,12 @@ describe('summarizeWithSignature', () => {
     const output = `exceeded the test timeout\n${'x'.repeat(50)}\n`.repeat(1) + Array.from({ length: 30 }, (_, i) => `line ${i} ${'y'.repeat(40)}`).join('\n');
     expect(signatureOfSummary(summarizeWithSignature('visual', output))).toBe('a gate or test timeout');
   });
+
+  it('names the port window when the unparseable-failure line also appears', () => {
+    const output = [
+      'Error: no free window of 140 ports in [28600, 29000] — a previous run probably leaked servers',
+      'base check skipped: some vitest failures are not parseable',
+    ].join('\n');
+    expect(environmentSignature('integration', output)).toBe('no free port window');
+  });
 });

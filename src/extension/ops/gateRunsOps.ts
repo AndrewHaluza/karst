@@ -1,10 +1,13 @@
 import type { KillOutcome } from '../../runtime/processTree.js';
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
+import { describeSpinReap, reapOrphanedSpinServers } from '../../runtime/spinFixtureOrphans.js';
 import { createGateRunRegistry, describeGateReap, reapOrphanedGates, type GateRunRegistry, type TrackedGate } from '../../runtime/gateRuns.js';
 
 /** Test seams: a record directory, process probes and a kill function. */
 export interface GateRunsSeams {
   dir?: string;
+  /** The spin fixture record directory. */
+  spinDir?: string;
   hostPid?: number;
   startTime?: (pid: number) => Promise<number | null>;
   facts?: ProcessFactsSource;
@@ -41,6 +44,11 @@ export function bindGateRuns(log: {
         for (const r of await reapOrphanedGates({ dir: seams.dir, facts: seams.facts, kill: seams.kill, debug: log.debug })) log.info(describeGateReap(r));
       } catch (err) {
         log.error('karst: orphaned-gate sweep failed', err);
+      }
+      try {
+        for (const r of await reapOrphanedSpinServers({ dir: seams.spinDir, facts: seams.facts, kill: seams.kill, debug: log.debug })) log.info(describeSpinReap(r));
+      } catch (err) {
+        log.error('karst: orphaned spin-fixture sweep failed', err);
       }
     },
   };

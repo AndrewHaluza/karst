@@ -7,6 +7,7 @@ import { createPlanningSession, listPlanningTickets, setPlanningSessionStatus } 
 import {
   insertProposal,
   listPendingProposals,
+  listPendingProposalsDependingOn,
   listSessionProposals,
   listVisibleProposals,
   getProposal,
@@ -625,6 +626,30 @@ describe('planning proposals', () => {
       const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
       markProposalAccepted(store, id, t.id);
       expect(getTicket(store, t.id).priority).toBeNull();
+    });
+  });
+
+  describe('listPendingProposalsDependingOn', () => {
+    it('returns the pending drafts whose depends_on_tickets holds the ticket, and no other', () => {
+      const t = createTicket(store, { key: 'DEP-1', title: 'target', projectId });
+      const other = createTicket(store, { key: 'DEP-2', title: 'other', projectId });
+      const holds = insertProposal(store, sessionId, { ...payload, dependsOn: [`T${t.id}`] });
+      insertProposal(store, sessionId, { ...payload, dependsOn: [`T${other.id}`] });
+      insertProposal(store, sessionId, payload);
+      expect(listPendingProposalsDependingOn(store, t.id).map((p) => p.id)).toEqual([holds]);
+    });
+
+    it('does not match an id that only shares digits (T1 vs T12)', () => {
+      const a = createTicket(store, { key: 'A', title: 'a', projectId });
+      insertProposal(store, sessionId, { ...payload, dependsOn: [`T${a.id + 10}`] });
+      expect(listPendingProposalsDependingOn(store, a.id)).toEqual([]);
+    });
+
+    it('skips a discarded draft', () => {
+      const t = createTicket(store, { key: 'DEP-3', title: 'target', projectId });
+      const id = insertProposal(store, sessionId, { ...payload, dependsOn: [`T${t.id}`] });
+      discardProposal(store, id);
+      expect(listPendingProposalsDependingOn(store, t.id)).toEqual([]);
     });
   });
 });

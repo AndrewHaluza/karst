@@ -26,10 +26,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { baseRerunArgv, classifyFailures, classifyHeadRerun, failedTests, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
 import { hasBinary } from './onPath.mjs';
+import { formatTiming, phaseClock } from './gateTiming.mjs';
+import { dockerCpus, gateWorkers, workersLine } from './gateWorkers.mjs';
 import { acquireGateSlot, leaseHeld } from './gateSlot.mjs';
 import { gitDirOf, isCleanRun, loadPassInput, planSkip, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
 import { mergeBase } from './gateScope.mjs';
-import { LAYOUT_BOOKENDS, gateGrep, isUiPath, parseListLayout, parseListTotal, mergedSelection, readSettingsSections, scopedSelection, selectViews, selectionLine, selectsLayoutRoute } from './uiViews.mjs';
+import { LAYOUT_BOOKENDS, fixtureViews, gateGrep, isUiPath, parseListLayout, parseListTotal, mergedSelection, readSettingsSections, scopedSelection, selectViews, selectionLine, selectsLayoutRoute } from './uiViews.mjs';
 import {
   VOLUME_PREFIX,
   acquireSlot,
@@ -139,6 +141,11 @@ export function envFromDockerArgs(argv) {
   return env;
 }
 
+/** Does the docker argv pass KARST_VISUAL_WORKERS into the container (`-e KARST_VISUAL_WORKERS`)? */
+export function passesWorkers(argv) {
+  return argv.some((arg, i) => arg === 'KARST_VISUAL_WORKERS' && argv[i - 1] === '-e');
+}
+
 /** The `--local "<command>"` pair, if the script names one. */
 export function readLocalCommand(argv) {
   const index = argv.indexOf('--local');
@@ -237,7 +244,12 @@ export function narrowSweep(script, scope = null) {
   if (grep !== null && script === 'test:layout:docker' && failed.length === 0 && !selectsLayoutRoute(selection)) {
     return `layout: skipped, ${selection.views.join(', ')} has no layout route; full sweep runs in CI`;
   }
-  if (grep !== null) process.env.KARST_UI_GREP = grep;
+  if (grep !== null) {
+    process.env.KARST_UI_GREP = grep;
+    // The fixture server writes only the pages of the selected views (@ui:FIXTURE-SCOPE). The re-runs inherit it.
+    const views = fixtureViews(selection, failed);
+    if (views !== null && process.env.KARST_VISUAL_FIXTURE_VIEWS === undefined) process.env.KARST_VISUAL_FIXTURE_VIEWS = views;
+  }
   const shown = grep === null ? { all: true, views: [] } : selection;
   console.error(selectionLine(script, shown, countTests(script, grep), grep === null || scoped === null ? null : scoped.origin));
   return null;
@@ -256,6 +268,14 @@ export function baseRunArgv(rawArgv, baseDir, screenshots, name, volume = null) 
     [...(volume ? withNamedNodeModules(mounted, volume) : mounted), '/bin/sh', '-c', `(test -e node_modules/.package-lock.json || npm ci) && ${baseRerunArgv(screenshots).map(shellQuote).join(' ')}`],
     name,
   );
+}
+
+/**
+ * The env of the flake re-run and the base re-run: a new object, no grep (the argv names the failing
+ * screenshots), and 1 worker, so that a screenshot that failed under load gets a calm second try (@ui:WORKERS).
+ */
+export function rerunEnv(env) {
+  return { ...env, KARST_UI_GREP: '', KARST_VISUAL_WORKERS: '1' };
 }
 
 const shellQuote = (arg) => `'${arg.replace(/'/g, `'\\''`)}'`;
@@ -306,6 +326,7 @@ export function storeRun(memo, status, report) {
 }
 
 async function main(argv) {
+  const clock = phaseClock();
   const script = process.env.npm_lifecycle_event ?? 'this gate';
   const repeat = await planRepeat(script, argv);
   if (repeat.skip !== null) {
@@ -317,6 +338,7 @@ async function main(argv) {
     console.error(nothingToRun);
     process.exit(0);
   }
+  clock.lap('plan');
   const local = readLocalCommand(argv);
   const plan = gatePlan({
     docker: hasDocker(),
@@ -344,7 +366,7 @@ async function main(argv) {
     if (result.signal === null) storeRun(repeat.memo, status, status === 0 ? null : readReport(results));
     process.exit(status);
   }
-  runContainer(local ? local.rest : argv, repeat.memo);
+  runContainer(local ? local.rest : argv, repeat.memo, clock);
 }
 
 /** The lockfile hash of a directory, or null when it has none. */
@@ -372,7 +394,19 @@ function collectVolumes(cwd) {
   for (const name of volumesToRemove(volumes, referenced)) spawnSync('docker', ['volume', 'rm', name], { stdio: 'ignore' });
 }
 
-async function runContainer(rawArgv, memo = null) {
+/**
+ * The env of the first container (@ui:WORKERS): a new object with the worker count of gateWorkers, when the
+ * argv passes KARST_VISUAL_WORKERS into the container. process.env does not change, so the re-runs do not get it.
+ */
+async function sweepEnv(dockerArgs) {
+  if (!passesWorkers(dockerArgs)) return process.env;
+  const cpus = process.env.KARST_VISUAL_WORKERS === undefined ? await dockerCpus() : null;
+  const choice = gateWorkers({ env: process.env, cpus });
+  console.error(workersLine({ ...choice, cpus }));
+  return { ...process.env, KARST_VISUAL_WORKERS: choice.workers };
+}
+
+async function runContainer(rawArgv, memo = null, clock = phaseClock()) {
   const ticket = process.env.KARST_TICKET;
   const name = gateContainerName({ event: process.env.npm_lifecycle_event, ticket });
   const volume = lockVolume(process.cwd());
@@ -419,6 +453,7 @@ async function runContainer(rawArgv, memo = null) {
     onWait: () => console.error(`waiting for visual slot (ticket ${ticket ?? basename(process.cwd())})`),
   });
   if (!holding) process.exit(130);
+  clock.lap('wait');
   const results = join(process.cwd(), RESULTS_REL);
   rmSync(results, { force: true });
   // Async spawn: spawnSync would block the signal handlers above until docker exits.
@@ -432,10 +467,16 @@ async function runContainer(rawArgv, memo = null) {
       });
       child.on('close', (status) => resolve(status ?? 1));
     });
-  let status = await run(args);
+  let status = await run(args, await sweepEnv(dockerArgs));
+  clock.lap('sweep');
   storeRun(memo, status, status === 0 ? null : readReport(results));
-  if (status !== 0) status = await judgeAgainstBase({ status, rawArgv, name, volume, run, results });
+  if (status !== 0) {
+    status = await judgeAgainstBase({ status, rawArgv, name, volume, run, results });
+    clock.lap('re-run');
+  }
   cleanup();
+  const timing = formatTiming(clock.phases());
+  if (timing !== null) console.error(timing);
   if (status === 0) collectVolumes(process.cwd());
   process.exit(status);
 }
@@ -473,10 +514,7 @@ async function judgeAtHead({ status, rawArgv, name, volume, run, results, failin
   console.error(`re-running ${failing.screenshots.length} failing screenshot(s) at the ticket head`);
   const cwd = process.cwd();
   rmSync(results, { force: true });
-  const headStatus = await run(baseRunArgv(rawArgv, cwd, failing.screenshots, `${name}-head`, volume), {
-    ...process.env,
-    KARST_UI_GREP: '',
-  });
+  const headStatus = await run(baseRunArgv(rawArgv, cwd, failing.screenshots, `${name}-head`, volume), rerunEnv(process.env));
   const headReport = readReport(results);
   if (headReport === null) {
     console.error(`flake re-run skipped: the re-run left no report (exit ${headStatus})`);
@@ -520,10 +558,7 @@ async function judgeAgainstBase({ status, rawArgv, name, volume, run, results })
       return status;
     }
     console.error(`re-running ${failing.screenshots.length} failing screenshot(s) at the merge base ${sha.slice(0, 12)}`);
-    const baseStatus = await run(baseRunArgv(rawArgv, baseDir, failing.screenshots, `${name}-base`, volume), {
-      ...process.env,
-      KARST_UI_GREP: '',
-    });
+    const baseStatus = await run(baseRunArgv(rawArgv, baseDir, failing.screenshots, `${name}-base`, volume), rerunEnv(process.env));
     const baseReport = readReport(join(baseDir, RESULTS_REL));
     if (baseReport === null) {
       console.error(`base check skipped: the base run left no report (exit ${baseStatus})`);

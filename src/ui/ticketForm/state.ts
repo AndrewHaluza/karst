@@ -30,8 +30,8 @@ import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 
 export const RELATION_LABEL: Record<string, string> = {
-  'blocked-by': 'Blocked by',
-  'blocks': 'Blocks',
+  'blocked-by': 'Waits on',
+  'blocks': 'Unblocks',
   'parent': 'Parent',
   'child': 'Child',
   'related-to': 'Related',

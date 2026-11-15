@@ -4,6 +4,7 @@ import {
   ALL_VIEWS,
   LAYOUT_BOOKENDS,
   VIEW_DIRS,
+  fixtureViews,
   gateGrep,
   isUiPath,
   readSettingsSections,
@@ -305,5 +306,38 @@ describe('mergedSelection (@arch:GATE-BASE-MOVED)', () => {
   });
   it('selects nothing when the ticket diff holds no UI path and nothing failed', () => {
     expect(mergedSelection({ since: 'abc', ticketPaths: ['src/a.ts'], failed: [] })).toBeNull();
+  });
+});
+
+describe('fixtureViews', () => {
+  it('writes every view for a full selection', () => {
+    expect(fixtureViews({ all: true, views: ALL_VIEWS }, [])).toBeNull();
+  });
+
+  it('gives the selected views as a sorted comma list with no duplicates', () => {
+    expect(fixtureViews({ all: false, views: ['settings'] }, [])).toBe('settings');
+    expect(fixtureViews({ all: false, views: ['sidebar', 'diffs', 'sidebar'] }, [])).toBe('diffs,sidebar');
+  });
+
+  it('maps status to the dashboard pages it loads', () => {
+    expect(fixtureViews({ all: false, views: ['status'] }, [])).toBe('dashboard');
+    expect(fixtureViews({ all: false, views: ['dashboard', 'status'] }, [])).toBe('dashboard');
+  });
+
+  it('writes every view when only the catalog is selected (catalog.html is always written)', () => {
+    expect(fixtureViews({ all: false, views: ['catalog'] }, [])).toBeNull();
+    expect(fixtureViews({ all: false, views: ['catalog', 'usage'] }, [])).toBe('usage');
+  });
+
+  it('writes every view when the run carries a failed test, which can come from any spec', () => {
+    expect(fixtureViews({ all: false, views: ['settings'] }, [{ project: 'dark', title: 'stage palette' }])).toBeNull();
+  });
+
+  it('gives only ids that the fixture writer knows', async () => {
+    const { ALL_VIEWS: corpusViews } = await import('../tests/visual/corpora.ts');
+    for (const view of ALL_VIEWS) {
+      const out = fixtureViews({ all: false, views: [view] }, []);
+      for (const id of out === null ? [] : out.split(',')) expect(corpusViews).toContain(id);
+    }
   });
 });

@@ -26,6 +26,7 @@ export type SidebarScenario =
   | 'filtered'
   | 'subtasks'
   | 'planning-deps'
+  | 'waits-on'
   | 'priority'
   | 'queue'
   | 'queue-long'
@@ -33,7 +34,7 @@ export type SidebarScenario =
   | 'cloud-sessions';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'priority', 'queue', 'queue-long', 'hostile', 'cloud-sessions',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'priority', 'queue', 'queue-long', 'hostile', 'cloud-sessions',
 ];
 
 export interface SidebarRenderFixture {
@@ -373,6 +374,26 @@ function planningDepsState(): SidebarState {
   };
 }
 
+/** T1103: rows with one, three and no "Waits on" references (+N list at 460px and 300px, @ui:UI-R57). */
+function waitsOnState(): SidebarState {
+  const dep = (id: number, key: string, stage: string) =>
+    ticketRefView({ ticket: { id, key, stageCurrent: stage, stages: [{ stageKey: stage, status: 'running' }] } as any });
+  return {
+    ...emptyState(),
+    sections: {
+      current: [
+        fixtureRow(0, { label: 'Waits on three things', glyph: 'blue', blockedBy: [dep(610, 'DEP-3', 'impl'), dep(611, 'DEP-4', 'review'), ticketRefView({ draftId: 94, draftLabel: 'D94' })] }),
+        fixtureRow(1, { label: 'Waits on one thing', glyph: 'blue', blockedBy: [dep(612, 'DEP-5', 'uat')] }),
+        fixtureRow(2, { label: 'Waits on nothing', glyph: 'blue' }),
+      ],
+      awaitingReview: [],
+      recentlyDone: [],
+      olderDone: [],
+    },
+    queue: EMPTY_QUEUE,
+  };
+}
+
 /** Priority chips: a draft at every level, a planner reason, a user override, and not-started tickets at every level. */
 function priorityState(): SidebarState {
   // A ticket's chip: the effective level, who set it, and the provider's own level beside a user value.
@@ -491,6 +512,7 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   filtered: filteredState,
   subtasks: subtasksState,
   'planning-deps': planningDepsState,
+  'waits-on': waitsOnState,
   priority: priorityState,
   queue: queueState,
   'queue-long': queueLongState,

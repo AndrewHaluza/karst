@@ -156,6 +156,15 @@ export interface TicketFormActionsDeps {
   /** Notify the host to refresh sidebar/dashboard after a create/edit. */
   onChange: () => void;
   /**
+   * Before a picked approach is saved on an existing ticket: close the open
+   * graph run the old approach left behind. `ok: false` keeps the old approach
+   * and its `message` is shown to the user. Absent → no graph runs to close.
+   */
+  cancelGraphRunForApproachChange?: (
+    ticketId: number,
+    approachId: string,
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /**
    * An agent, provider, model, effort or preset pick was saved on a ticket. The
    * host says when the ticket's graph run owns it: the pick applies to the next
    * launch, not to the running graph (T1138).
@@ -1121,8 +1130,22 @@ export function buildTicketFormActions(
       updateTicketFields(deps.store, ctx.ticketId, { baseRefs: next });
     },
 
-    setApproach(id: string): void {
+    async setApproach(id: string): Promise<void> {
+      if (ctx.ticketId !== undefined && deps.cancelGraphRunForApproachChange) {
+        let cancel: { ok: true } | { ok: false; message: string };
+        try {
+          cancel = await deps.cancelGraphRunForApproachChange(ctx.ticketId, id);
+        } catch (e) {
+          cancel = { ok: false, message: `The approach was not changed: ${errorMessage(e)}` };
+        }
+        if (!cancel.ok) {
+          ctx.post({ type: 'error', message: cancel.message });
+          ctx.pushState();
+          return;
+        }
+      }
       setApproach(id);
+      deps.onChange();
     },
 
     setAgent(id: string): void {

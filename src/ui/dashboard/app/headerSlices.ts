@@ -26,6 +26,8 @@ export interface MetaSlice {
   readonly subtaskParent: Relation;
   readonly parent: Relation;
   readonly blockers: readonly Blocker[];
+  /** The reverse edges: tickets and drafts that wait on this ticket. */
+  readonly unblocks: readonly Blocker[];
   readonly capabilities: { readonly implementation: Capability; readonly uatTester: Capability; readonly review: Capability };
   readonly modelsByCore: Readonly<Record<string, ReadonlyArray<{ readonly id: string; readonly label?: string }>>>;
 }
@@ -70,6 +72,7 @@ export const selectMeta = (snapshot: DashboardSnapshot): MetaSlice | null => {
     subtaskParent: s.subtaskParent ? { ref: s.subtaskParent.ref } : null,
     parent: s.parent ? { ref: s.parent.ref } : null,
     blockers: s.blockers || [],
+    unblocks: s.unblocks || [],
     capabilities: { implementation: ids.implementation, uatTester: ids.uatTester, review: ids.review },
     modelsByCore: (s.agentSwitch?.modelsByCore ?? {}) as MetaSlice['modelsByCore'],
   };
