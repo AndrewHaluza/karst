@@ -172,12 +172,47 @@ export function headlessPreview(text: string, max = 500): string {
  * that already check `opts.signal?.aborted` (tester, findings lane) keep working
  * unchanged; `instrumentedAdapter` records the failed call either way.
  */
+/**
+ * The host's drain (@arch:DRAIN-01), set once at activation. While it drains, every headless
+ * start is refused with `HEADLESS_DRAINING_MESSAGE`; a run that starts is counted as live until
+ * its child closes. Unset (the default, and every test) → no drain.
+ */
+export interface HeadlessDrain {
+  isDraining(): boolean;
+  insideRun(): boolean;
+  track<T>(run: () => Promise<T>): Promise<T>;
+}
+let headlessDrain: HeadlessDrain | undefined;
+export function setHeadlessDrain(drain: HeadlessDrain | undefined): void {
+  headlessDrain = drain;
+}
+export const HEADLESS_DRAINING_MESSAGE =
+  'the host is waiting to reload the window — no new agent run starts; cancel the reload or retry after it';
+
 export function spawnHeadlessCli(
   command: string,
   args: readonly string[],
   cwd: string,
   options: HeadlessSpawnOptions = {},
   spawnImpl: typeof spawn = spawn,
+): Promise<HeadlessSpawnResult> {
+  const drain = headlessDrain;
+  if (drain === undefined) return spawnHeadlessNow(command, args, cwd, options, spawnImpl);
+  // A start inside a live run (a retry, a fallback) belongs to that run: it is counted, not refused.
+  if (drain.isDraining() && !drain.insideRun()) {
+    options.onDebug?.('[agent] headless run: not spawned — the host is draining for a reload');
+    return Promise.reject(new Error(HEADLESS_DRAINING_MESSAGE));
+  }
+  // Counted as live from here until the child closes, whether or not a run row exists.
+  return drain.track(() => spawnHeadlessNow(command, args, cwd, options, spawnImpl));
+}
+
+function spawnHeadlessNow(
+  command: string,
+  args: readonly string[],
+  cwd: string,
+  options: HeadlessSpawnOptions,
+  spawnImpl: typeof spawn,
 ): Promise<HeadlessSpawnResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_HEADLESS_TIMEOUT_MS;
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_HEADLESS_MAX_OUTPUT_BYTES;

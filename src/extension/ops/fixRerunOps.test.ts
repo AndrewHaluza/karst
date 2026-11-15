@@ -8,6 +8,7 @@ import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import type { ResolvedGate } from '../../workflow/gates/resolve.js';
 import { leaseGateSlot } from '../../workflow/gates/gateLease.js';
 import { listGateRuns, HOST_RERUN_SOURCE } from '../../store/gateRuns.js';
+import { createDrain } from '../../runtime/drain.js';
 import { hostRerunFor, makeGateRerun, makeManifestGatesFor, makeRecoverRefusal, makeRequestedRerunSweep, preBriefRerunFor } from './fixRerunOps.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { addHostGates } from '../../store/ticketGates.js';
@@ -619,5 +620,21 @@ describe('makeRequestedRerunSweep failure', () => {
     const broken = { db: { prepare: () => { throw new Error('db gone'); } } } as unknown as Store;
     await makeRequestedRerunSweep({ store: broken, runnerFor: () => vi.fn() as never, projectId: () => 1, debug })();
     expect(debug).toHaveBeenCalledWith('[fix-rerun] sweep failed: db gone');
+  });
+});
+
+describe('host gate re-runs and the drain (@arch:DRAIN-01)', () => {
+  it('never refuses the bridge or pre-brief re-run while draining, and counts it as live', async () => {
+    const store = openStore(':memory:');
+    const drain = createDrain();
+    drain.begin();
+    const base = { store, runnerFor: () => vi.fn(), gatesFor: () => [], gateSlotsDir: mkdtempSync(join(tmpdir(), 'karst-rerun-slots-')), drain };
+    // No fix round exists, so each reaches the workflow and answers 'not-applicable' from it, not from the drain.
+    const spy = vi.spyOn(drain, 'track');
+    expect(await hostRerunFor(base)(1)).toEqual({ kind: 'not-applicable' });
+    expect(await preBriefRerunFor(base)(1)).toEqual({ kind: 'not-applicable' });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(drain.inFlight()).toBe(0);
+    store.close();
   });
 });

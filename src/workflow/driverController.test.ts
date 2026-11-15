@@ -126,6 +126,7 @@ describe('shouldStartDriverOn', () => {
   it('starts at fix only for an unpause', () => {
     expect(shouldStartDriverOn('fix', 'unpause')).toBe(true);
     expect(shouldStartDriverOn('fix', 'stage-resume')).toBe(true);
+    expect(shouldStartDriverOn('fix', 'drain-cancelled')).toBe(true);
     expect(shouldStartDriverOn('fix', 'hook')).toBe(false);
     expect(shouldStartDriverOn('fix', 'sweep')).toBe(false);
   });

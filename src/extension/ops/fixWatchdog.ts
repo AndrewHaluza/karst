@@ -70,6 +70,8 @@ export interface FixWatchdogDeps {
    * Absent = the stranded-stage sweep does not run.
    */
   redrive?: (ticketId: number) => void;
+  /** @arch:DRAIN-01: while true the stranded-stage sweep holds, since the drain stopped those stages on purpose. */
+  isDraining?: () => boolean;
   /**
    * Whether the `redrive` seam can run yet. The host declares its stage driver
    * late in `activate`, after the first tick. `false` = skip the stranded-stage
@@ -195,6 +197,7 @@ export function runFixWatchdog(deps: FixWatchdogDeps): number {
 function recoverStrandedStages(deps: FixWatchdogDeps, opts: DeliveryCheckOpts): number {
   const { redrive, redriven } = deps;
   if (redrive === undefined || redriven === undefined) return 0;
+  if (deps.isDraining?.()) return 0;
   // The driver is not wired yet (activation tick): wait for a later tick.
   if (deps.redriveReady?.() === false) return 0;
   let handled = 0;
@@ -410,7 +413,7 @@ export function startFixWatchdog(
   projectId: () => number | null,
   log: (message: string) => void,
   onError: ((message: string, err: unknown) => void) | undefined,
-  delivery: Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket' | 'pointAtFix' | 'redrive' | 'redriveReady'>,
+  delivery: Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket' | 'pointAtFix' | 'redrive' | 'isDraining' | 'redriveReady'>,
 ): { dispose(): void } {
   const deps: FixWatchdogDeps = {
     store,
@@ -422,6 +425,7 @@ export function startFixWatchdog(
     nudge: delivery.nudge,
     isGraphTicket: delivery.isGraphTicket,
     ...(delivery.pointAtFix !== undefined ? { pointAtFix: delivery.pointAtFix } : {}),
+    ...(delivery.isDraining !== undefined ? { isDraining: delivery.isDraining } : {}),
     ...(delivery.redriveReady !== undefined ? { redriveReady: delivery.redriveReady } : {}),
     ...(delivery.redrive !== undefined ? { redrive: delivery.redrive, redriven: new Set<string>() } : {}),
   };

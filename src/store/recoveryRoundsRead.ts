@@ -307,3 +307,26 @@ export function listRecoveryRounds(store: Store, ticketId: number): RecoveryRoun
 }
 
 export { RecoveryRoundRow, ROUND_SELECT, rowToRound };
+
+/**
+ * Tickets resting at `fix` whose round is still `pending`: a fix that never started (the drain
+ * held it, @arch:DRAIN-01, and a reload cleared the in-memory hold). Paused, archived and
+ * parked-blocked tickets are left alone. Only this project's tickets: the registry is shared.
+ */
+export function ticketsWithPendingFix(store: Store, projectId: number): number[] {
+  return (
+    store.db
+      .prepare(
+        `SELECT t.id AS id
+           FROM tickets t
+          WHERE t.stage_current = 'fix' AND t.project_id = ?
+            AND t.paused_at IS NULL AND t.archived_at IS NULL
+            AND EXISTS (SELECT 1 FROM recovery_rounds r WHERE r.ticket_id = t.id AND r.status = 'pending')
+            AND NOT EXISTS (SELECT 1 FROM recovery_rounds r WHERE r.ticket_id = t.id AND r.status = 'fixing')
+            AND NOT EXISTS (SELECT 1 FROM stages s WHERE s.ticket_id = t.id AND s.stage_key = 'fix'
+                              AND s.blocked_kind IS NOT NULL)
+          ORDER BY t.id`,
+      )
+      .all(projectId) as { id: number }[]
+  ).map((r) => r.id);
+}

@@ -23,6 +23,7 @@ import {
   sweepAbandonedFixLaunches,
   describeStrandedFixRound,
   listRecoveryRounds,
+  ticketsWithPendingFix,
   parkFixStage,
   hasFixingRound,
   FIX_PARKED_INTERRUPTED,
@@ -87,6 +88,19 @@ describe('recovery rounds — store', () => {
       ['uat', 2],
       ['review', 1],
     ]);
+  });
+
+  it('selects a ticket at fix with a pending round, and skips paused, blocked or fixing ones', () => {
+    const projectId = upsertProject(store, { slug: 'pending-fix' }).id;
+    store.db.prepare('UPDATE tickets SET project_id = ?, stage_current = ? WHERE id = ?').run(projectId, 'fix', ticketId);
+    round();
+    expect(ticketsWithPendingFix(store, projectId)).toEqual([ticketId]);
+    expect(ticketsWithPendingFix(store, projectId + 1)).toEqual([]);
+    store.db.prepare('UPDATE tickets SET paused_at = ? WHERE id = ?').run(T1, ticketId);
+    expect(ticketsWithPendingFix(store, projectId)).toEqual([]);
+    store.db.prepare('UPDATE tickets SET paused_at = NULL WHERE id = ?').run(ticketId);
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE ticket_id = ?").run(ticketId);
+    expect(ticketsWithPendingFix(store, projectId)).toEqual([]);
   });
 
   it('round-trips a ship source with pr-review and upstream-changes-requested', () => {

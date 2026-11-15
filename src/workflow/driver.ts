@@ -43,6 +43,12 @@ export interface StageDriverDeps {
   worktreeFor: (ticketId: number) => string | null;
   onProgress: (ticketId: number, stage: StageKey, status: DriverStatus) => void;
   shouldContinue: () => boolean;
+  /** @arch:DRAIN-01: true while the host waits to reload; no new gate starts. */
+  isDraining?: () => boolean;
+  /** Called with the ticket whose start the drain refused, so the host can re-drive it after a cancel. */
+  holdForDrain?: (ticketId: number) => void;
+  /** Counts a gate runner as a live run from the drain check until it settles (@arch:DRAIN-01). */
+  trackRun?: <T>(run: () => Promise<T>) => Promise<T>;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[driver]`.
    * Absent → no debug lines. The host binds it to `Logger.debug`, which is a
@@ -166,14 +172,21 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
       return finish(deps, ticketId, stage, 'stopped');
     }
 
+    if (deps.isDraining?.()) {
+      deps.debug?.(`[driver] ticket ${ticketId}: host is draining for a reload — not starting '${stage}'`);
+      deps.holdForDrain?.(ticketId);
+      return finish(deps, ticketId, stage, 'stopped', 'draining');
+    }
+
     const cwd = deps.worktreeFor(ticketId);
     if (!cwd) throw new Error(`ticket ${ticketId} has no worktree for stage '${stage}'`);
     deps.debug?.(`[driver] ticket ${ticketId}: dispatching '${stage}' runner (cwd ${cwd})`);
 
     deps.onProgress(ticketId, stage, 'running');
-    const result = stage === 'uat'
-      ? await deps.runUat(ticketId, cwd)
-      : await deps.runReview(ticketId, cwd);
+    const runStage = (): Promise<StageRunResult> =>
+      stage === 'uat' ? deps.runUat(ticketId, cwd) : deps.runReview(ticketId, cwd);
+    // No await between the drain check above and this call, so the count never reads 0 in between.
+    const result = await (deps.trackRun ? deps.trackRun(runStage) : runStage());
 
     // Exhaustive by construction. Two `if`s and a fallthrough read ANY unknown
     // kind as `advanced`, so a fourth `StageRunResult` variant would silently
