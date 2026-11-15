@@ -415,6 +415,51 @@ export function graphRunIdsByStatusForProject(
   return rows.map((r) => r.id);
 }
 
+/** Non-terminal graph runs of a project whose ticket no longer owns them: the
+ *  ticket is archived, at stage `done`, no longer at the run's stage, or on a
+ *  different approach than the run's `approach_id` (T1139 orphan sweep). */
+export function orphanGraphRunIdsForProject(
+  db: GraphDb,
+  projectId: number,
+  statuses: readonly string[],
+): number[] {
+  const placeholders = statuses.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT r.id AS id
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE t.project_id = ? AND r.status IN (${placeholders})
+          AND (t.archived_at IS NOT NULL
+               OR t.stage_current = 'done'
+               OR t.stage_current IS NOT r.stage_key
+               OR t.approach IS NOT r.approach_id)
+        ORDER BY r.id`,
+    )
+    .all(projectId, ...statuses) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
+/** Graph runs (in `statuses`) of a project's archived tickets, in id order. */
+export function archivedTicketGraphRunIds(
+  db: GraphDb,
+  projectId: number,
+  statuses: readonly string[],
+): number[] {
+  const placeholders = statuses.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT r.id AS id
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE t.project_id = ? AND r.status IN (${placeholders})
+          AND t.archived_at IS NOT NULL
+        ORDER BY r.id`,
+    )
+    .all(projectId, ...statuses) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
 /** The blocked graph runs of a project the coordinator may recover by itself:
  *  the ticket is unpaused, not archived and parked at `impl` (the stage
  *  `recoverGraphRun` requires). Archived tickets are a separate cleanup. */
