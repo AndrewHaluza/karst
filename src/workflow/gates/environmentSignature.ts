@@ -28,10 +28,38 @@ const SIGNATURES: readonly { pattern: RegExp; reason: string }[] = [
   { pattern: /screenshots fail \(cap \d+\)/i, reason: MORE_THAN_CAP },
 ];
 
+/** The gate runner's own timeout line (`src/workflow/gates/run.ts`). */
+const GATE_TIMEOUT_RE = /Command timed out after \d+\s*ms/;
+// Same shapes as DIFF_LINE (scripts/visual-sweep-gate.mjs) and FAIL_LINE (scripts/vitestDrift.mjs).
+// src does not import scripts/, so the two regexes are copied. Keep them in step.
+const SCREENSHOT_DIFF_RE = /(\d+ pixels? \(ratio [\d.]+[^)]*\) are different|Expected an image [^\n]+)/;
+const TEST_FAIL_LINE_RE = /^(?:FAIL|×)\s+(\S.*?)(?:\s+\d+ms)?$/;
+
+// Playwright list reporter: a failed test mark (`✘  12 [project] › file`), a numbered failure
+// header (`1) [project] › file`) and the `N failed` summary line.
+const PLAYWRIGHT_FAIL_LINE_RES: readonly RegExp[] = [
+  /^[✘✗×]\s+\d+\s+\[/,
+  /^\d+\)\s+\[[^\]]+\]\s+›/,
+  /^\d+ failed\b/,
+];
+
+/** True when the output holds a real screenshot mismatch or a failing test line. */
+function holdsRealFailure(plain: string): boolean {
+  if (SCREENSHOT_DIFF_RE.test(plain)) return true;
+  return plain.split(/\r?\n/).some((raw) => {
+    const line = raw.trim();
+    return TEST_FAIL_LINE_RE.test(line) || PLAYWRIGHT_FAIL_LINE_RES.some((re) => re.test(line));
+  });
+}
+
+const GATE_TIMEOUT_REASON = 'the gate timed out with no failing test or screenshot before it';
+
 /** The reason a failed gate's output looks like an environment fault, or null. */
 export function environmentSignature(_gateName: string, output: string): string | null {
   const plain = output.replace(ANSI_RE, '');
   for (const { pattern, reason } of SIGNATURES) if (pattern.test(plain)) return reason;
+  // A timeout after a real mismatch or a failing test is a ticket failure that needs the agent.
+  if (GATE_TIMEOUT_RE.test(plain) && !holdsRealFailure(plain)) return GATE_TIMEOUT_REASON;
   return null;
 }
 
