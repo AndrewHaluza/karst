@@ -152,8 +152,38 @@ export function attributeServer(row: ServerIdentity, facts: ProcessFacts): Attri
   return Math.abs(liveStart - recordedStart) <= START_TIME_TOLERANCE_MS ? 'attributable' : 'foreign';
 }
 
-/** `process.kill(pid, 0)` — a permission-denied answer still proves it exists. */
-const isAliveNow = pidAlive;
+/**
+ * Whether a `ps -o stat=` state means the process is already gone: a zombie
+ * (`Z`) or, on macOS, one that is exiting (`E`). Signal 0 still succeeds for
+ * such a pid, but nothing can be signalled or reclaimed, so it is not alive.
+ */
+export function isProcessStateGone(stat: string): boolean {
+  const state = stat.trim();
+  return state.startsWith('Z') || state.includes('E');
+}
+
+/** Liveness for server attribution: signal 0 AND not a zombie or exiting process. */
+function isAliveNow(pid: number): boolean {
+  if (!pidAlive(pid)) return false;
+  if (process.platform === 'win32') return true;
+  const r = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+  if (r.status !== 0 || !r.stdout) return true;
+  return !isProcessStateGone(r.stdout);
+}
+
+/** Async twin of `isAliveNow`; never blocks the extension host. */
+export async function isAliveAsync(
+  pid: number,
+  alive: (pid: number) => boolean = pidAlive,
+  platform: NodeJS.Platform = process.platform,
+  run: typeof commandOutput = commandOutput,
+): Promise<boolean> {
+  if (!alive(pid)) return false;
+  if (platform === 'win32') return true;
+  const stdout = await run('ps', ['-o', 'stat=', '-p', String(pid)]);
+  if (!stdout) return true;
+  return !isProcessStateGone(stdout);
+}
 
 /**
  * Read a live process's cwd where the OS exposes it. Linux publishes it as a
@@ -250,7 +280,7 @@ export async function processStartMsAsync(
 
 /** Real async probes for paths that run on the VS Code extension-host thread. */
 export const systemAsyncProcessFacts: ProcessFactsSource = {
-  isAlive: isAliveNow,
+  isAlive: (pid) => isAliveAsync(pid),
   liveCwd: liveCwdAsync,
   processStartMs: processStartMsAsync,
 };
