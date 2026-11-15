@@ -48,8 +48,8 @@ export function registerDoctorCommand(deps: DoctorWiringDeps): DoctorWiring {
         void vscode.window.showErrorMessage(`Karst doctor: ${(e as Error).message}`);
       }
     };
-    panel.webview.onDidReceiveMessage((m: { type?: string }) => {
-      if (m.type === 'fix') void show(true);
+    panel.webview.onDidReceiveMessage((m: unknown) => {
+      if (typeof m === 'object' && m !== null && (m as { type?: unknown }).type === 'fix') void show(true);
     });
     await show(false);
   };

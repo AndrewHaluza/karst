@@ -1,3 +1,4 @@
+import { cspMetaTag } from '../model/csp.js';
 import type { DoctorReport } from './types.js';
 
 export function escapeHtml(s: string): string {
@@ -25,5 +26,5 @@ export function renderDoctorHtml(r: DoctorReport, nonce: string): string {
     .map((a) => `<li>${a.ok ? 'Fixed' : 'Skipped'}: ${escapeHtml(a.what)} — ${escapeHtml(a.why)} <code>${escapeHtml(a.evidence)}</code></li>`)
     .join('');
   const button = autoCount > 0 ? `<button id="fix">Fix safe issues (${autoCount})</button>` : '';
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${escapeHtml(nonce)}'"><title>Karst Doctor</title></head><body><h1>Karst Doctor</h1><p>${r.summary.ok} ok, ${r.summary.warn} warn, ${r.summary.fail} fail</p>${button}<ul>${rows}</ul>${applied ? `<h2>Applied fixes</h2><ul>${applied}</ul>` : ''}<script nonce="${escapeHtml(nonce)}">const v=acquireVsCodeApi();document.getElementById('fix')?.addEventListener('click',()=>v.postMessage({type:'fix'}));</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8">${cspMetaTag(nonce)}<title>Karst Doctor</title></head><body><h1>Karst Doctor</h1><p>${r.summary.ok} ok, ${r.summary.warn} warn, ${r.summary.fail} fail</p>${button}<ul>${rows}</ul>${applied ? `<h2>Applied fixes</h2><ul>${applied}</ul>` : ''}<script nonce="${escapeHtml(nonce)}">const v=acquireVsCodeApi();document.getElementById('fix')?.addEventListener('click',()=>v.postMessage({type:'fix'}));</script></body></html>`;
 }
