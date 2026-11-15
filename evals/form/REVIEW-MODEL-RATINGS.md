@@ -46,6 +46,15 @@ Commit after this note adds a test file to `c14` and `c15`, widens the `c14` def
 
 Run of claude on `c14` and `c15`, 5 runs each (`review-references/claude-sonnet-5-5-c14-c15-v4/`): recall 10/10, 0 blocking false findings, 9 seconds per run. The runs with a false finding fell from 10 of 10 to 5 of 10. The rest are low comments on a negative `count`, the magic number 3, and the `visibility` type. A defect case does not fail on a false finding, so these do not change the score. Only a blocking false finding or a clean-case false finding counts against a core. The cases are good enough to use.
 
+Runs on case set v4, `c11` to `c18` (reports in `review-references/*-c11-c18-v4/`):
+
+| Core | Model | Recall | Clean cases with a false finding | Blocking false | Calls with `ok` | Seconds per run |
+|---|---|---|---|---|---|---|
+| antigravity | gemini-3.8-flash-medium | 21/21 | 0/6 | 0 | 24 of 24 | 79.4 |
+| opencode2 | opencode-go/mimo-v2.6-flash | 13/13 | 1/3 | 0 | 14 of 16 | 157.1 |
+
+Antigravity had no blocking false finding on v4, against 6 on v2 and v3. The fixes to `c14` and `c15` worked for this core. Opencode2 timed out on 2 of 16 calls at 10 minutes (`c12` run 2 and `c17` run 1). It found the `c12` defect in run 1, which it missed in the earlier 1-run batch. Its clean-case false finding was in `c18` run 2. Every cell has n below 30.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
