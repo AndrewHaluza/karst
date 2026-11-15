@@ -138,14 +138,14 @@ describe('graphInsideProcess', () => {
     if (process.evidence?.kind !== 'rows') return;
     const rows = process.evidence.rows;
     expect(rows.map((r) => r.label)).toEqual([
-      'graph',
-      'revision',
+      'run 7',
       '<script>alert(1)</script>red alert(2) x plain',
       'edge-outcome-undeclared',
       '<script>alert(1)</script>red alert(2) x plain',
     ]);
     expect(rows[0]!.status).toBe('run');
-    expect(rows[0]!.detail).toContain('run 7');
+    expect(rows[0]!.detail).toContain('rev 1');
+    expect(rows).not.toContainEqual(expect.objectContaining({ label: 'revision' }));
     // The planner and node run moved to the structured ledger (Slice 6 T4).
     expect(process.evidence.nodes!.map((n) => n.entry)).toEqual(['planner', 'node']);
   });
@@ -155,7 +155,7 @@ describe('graphInsideProcess', () => {
       input({ graphRun: { ...input({}).graphRun!, id: 99, runNumber: 2 } }),
     )!;
     if (view.evidence?.kind !== 'rows') return;
-    expect(view.evidence.rows[0]!.detail).toContain('run 2');
+    expect(view.evidence.rows[0]!.label).toBe('run 2');
     expect(view.evidence.rows[0]!.detail).not.toContain('run 99');
   });
 
@@ -170,11 +170,7 @@ describe('graphInsideProcess', () => {
     )!;
     if (closed.evidence?.kind !== 'rows') return;
     const planner = closed.evidence.nodes!.find((n) => n.entry === 'planner')!;
-    const revision = closed.evidence.rows.find((r) => r.label === 'revision')!;
     expect(planner.displayStatus).toBe('pass');
-    // The revision is bookkeeping, not an outcome: a closed run confirms what
-    // the PLANNER delivered, never the plan version it was delivered under.
-    expect(revision.status).toBe('note');
     // Not every terminal outcome confirms the row: a run that never landed
     // must not read as a pass either.
     const cancelled = graphInsideProcess(
@@ -182,7 +178,6 @@ describe('graphInsideProcess', () => {
     )!;
     if (cancelled.evidence?.kind !== 'rows') return;
     expect(cancelled.evidence.nodes!.find((n) => n.entry === 'planner')!.displayStatus).toBe('note');
-    expect(cancelled.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('note');
   });
 
   it('clamps a still-submitted planner to a wait once the run is blocked', () => {
@@ -204,9 +199,9 @@ describe('graphInsideProcess', () => {
     )!;
     if (blocked.evidence?.kind !== 'rows') return;
     expect(blocked.evidence.nodes!.find((n) => n.entry === 'planner')!.displayStatus).toBe('wait');
-    // The revision never waits on anything either — it is a neutral marker
-    // under every run status.
-    expect(blocked.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('note');
+    // The replan and stop rows sit directly under the header and draw before the ledger.
+    expect(blocked.evidence.rows.map((r) => r.label).slice(0, 3)).toEqual(['run 1', 'replan', 'stop graph']);
+    expect(blocked.evidence.leadRows).toBe(3);
   });
 
   it('never confirms a blocked or launch-unknown planner with the run it never delivered for', () => {
@@ -254,7 +249,7 @@ describe('graphInsideProcess', () => {
     // Both the process header and its own evidence row read the run status.
     expect(view.status).toBe('wait');
     if (view.evidence?.kind !== 'rows') return;
-    expect(view.evidence.rows[0]!.label).toBe('graph');
+    expect(view.evidence.rows[0]!.label).toBe('run 1');
     expect(view.evidence.rows[0]!.status).toBe('wait');
   });
 
@@ -283,13 +278,15 @@ describe('graphInsideProcess', () => {
     // durable fact with no outcome of its own.
     const running = graphInsideProcess(input({}))!;
     if (running.evidence?.kind !== 'rows') return;
-    expect(running.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('note');
-    // A completed revision is still the one row here that can read `pass`.
-    const completed = graphInsideProcess(
-      input({ revision: { revisionNumber: 1, status: 'completed', fingerprint: null } }),
+    expect(running.evidence.rows.find((r) => r.label === 'revision')).toBeUndefined();
+    expect(running.evidence.rows[0]!.status).toBe('run');
+    expect(running.evidence.leadRows).toBe(1);
+    // A replan revision names the revision it replaced.
+    const replanned = graphInsideProcess(
+      input({ revision: { revisionNumber: 2, status: 'active', fingerprint: 'abc' } }),
     )!;
-    if (completed.evidence?.kind !== 'rows') return;
-    expect(completed.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('pass');
+    if (replanned.evidence?.kind !== 'rows') return;
+    expect(replanned.evidence.rows[0]!.detail).toContain('rev 2 (from rev 1)');
   });
 
   it('shows the node identity, visit count and budget, and its live session action', () => {
@@ -1289,7 +1286,7 @@ describe('graphInsideProcess', () => {
 describe('graph run ages', () => {
   it('ages the graph run row from its creation', () => {
     const view = graphInsideProcess(input())!;
-    const row = view.evidence!.rows.find((r) => r.label === 'graph')!;
+    const row = view.evidence!.rows.find((r) => r.label === 'run 7')!;
     expect(row.detail).toContain('started 1h ago');
   });
 
@@ -1383,5 +1380,20 @@ describe('graph run ages', () => {
     const nodes = view.evidence.nodes!;
     expect(nodes.find((n) => n.nodeId === 'implement')!.age).toBe('running 10m');
     expect(nodes.find((n) => n.nodeId === 'review')!.age).toBe('ran 5m');
+  });
+});
+
+describe('run header detail', () => {
+  it('counts the running nodes against all node runs', () => {
+    const base = input({});
+    const done = { ...base.nodeRuns[0]!, nodeRunId: 50, status: 'completed' };
+    const view = graphInsideProcess({ ...base, nodeRuns: [...base.nodeRuns, done] })!;
+    if (view.evidence?.kind !== 'rows') return;
+    // A second visit of the same node is still one node.
+    expect(view.evidence.rows[0]!.detail).toContain('1 of 1 nodes running');
+    const other = { ...base.nodeRuns[0]!, nodeRunId: 51, nodeId: 'other', status: 'ready' };
+    const two = graphInsideProcess({ ...base, nodeRuns: [...base.nodeRuns, done, other] })!;
+    if (two.evidence?.kind !== 'rows') return;
+    expect(two.evidence.rows[0]!.detail).toContain('1 of 2 nodes running');
   });
 });

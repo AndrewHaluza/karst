@@ -73,6 +73,18 @@ function depths(ids: readonly string[], fwd: Map<string, string[]>): Map<string,
   return depth;
 }
 
+/** The planner chip reads `plan` with `planner N · rev R · ran Xm`: the host words it, the webview presents it. */
+function plannerChip(planner: GraphNodeListRow): GraphDagChip {
+  const id = sanitizeGraphText(planner.nodeId);
+  const detail = planner.age ? sanitizeGraphText(planner.age).replace(/^plan accepted · /, '') : sanitizeGraphText(planner.status);
+  return { id, label: 'plan', displayStatus: planner.displayStatus, state: `${id} · ${detail}` };
+}
+
+/** The hand-off the run ends in. It never reads pass: a closed run only means UAT is next, not that it ran. */
+function uatChip(runClosed: boolean): GraphDagChip {
+  return { id: 'uat', label: 'uat', displayStatus: 'pending', state: runClosed ? 'next stage' : 'after all nodes' };
+}
+
 function chipFor(label: string, latest: GraphNodeListRow | undefined): GraphDagChip {
   if (!latest) return { id: label, label, displayStatus: 'pending', state: 'pending' };
   const state =
@@ -83,6 +95,8 @@ function chipFor(label: string, latest: GraphNodeListRow | undefined): GraphDagC
 export function graphDagView(
   topology: GraphTopology,
   ledger: readonly GraphNodeListRow[],
+  /** Given → one trailing pending `uat` chip (`true` = run closed, UAT is next). Absent → no chip. */
+  runClosed?: boolean,
 ): GraphDagView {
   const seen = new Set<string>();
   const ids: string[] = [];
@@ -104,7 +118,7 @@ export function graphDagView(
   }
 
   const cols: GraphDagChip[][] = [];
-  if (planner) cols.push([chipFor(sanitizeGraphText(planner.nodeId), planner)]);
+  if (planner) cols.push([plannerChip(planner)]);
   const offset = cols.length;
   for (const id of ids) {
     const c = (depth.get(id) ?? 0) + offset;
@@ -126,5 +140,6 @@ export function graphDagView(
     dropped += col.length - shown.length;
     columns.push(shown);
   }
+  if (runClosed !== undefined) columns.push([uatChip(runClosed)]);
   return { columns, ...(dropped > 0 ? { more: `+${dropped} more` } : {}) };
 }

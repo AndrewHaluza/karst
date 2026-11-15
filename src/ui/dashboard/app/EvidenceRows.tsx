@@ -29,27 +29,31 @@ export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceVi
   const shown = useDagShown();
   const rich = ev.kind === 'rows' ? ev : null;
   const hasDag = !!(rich?.dag && rich.dag.columns && rich.dag.columns.length);
+  const lead = rich?.nodes && rich.nodes.length ? Math.min(rich.leadRows ?? 0, ev.rows.length) : 0;
+  const keyed = withKeys(ev.rows, rowKey);
+  const renderRow = ([key, r]: (typeof keyed)[number], index: number) => (
+    <div className="evidence-row" key={key} data-region={deliverRegion(id, r)}>
+      <EvGlyph r={r} />
+      <span className="ev-key" role="group" aria-label={r.label}>{r.label}</span>
+      <span className="ev-detail">
+        {r.detail || ''}
+        <PrState state={r.prState} />
+        <EvOutput text={r.output} />
+      </span>
+      <EvAction r={r} />
+      <EvTiming r={r} cls="ev-state" stage={stage} id={id} index={index} />
+    </div>
+  );
   return (
     <>
+      {keyed.slice(0, lead).map((k, i) => renderRow(k, i))}
       {rich?.nodes && rich.nodes.length ? (
         <>
           {hasDag ? <GraphViewToggle /> : null}
           {hasDag && shown && rich.dag ? <GraphDag dag={rich.dag} /> : <GraphNodeList nodes={rich.nodes} stage={stage} id={id} />}
         </>
       ) : null}
-      {withKeys(ev.rows, rowKey).map(([key, r], index) => (
-        <div className="evidence-row" key={key} data-region={deliverRegion(id, r)}>
-          <EvGlyph r={r} />
-          <span className="ev-key" role="group" aria-label={r.label}>{r.label}</span>
-          <span className="ev-detail">
-            {r.detail || ''}
-            <PrState state={r.prState} />
-            <EvOutput text={r.output} />
-          </span>
-          <EvAction r={r} />
-          <EvTiming r={r} cls="ev-state" stage={stage} id={id} index={index} />
-        </div>
-      ))}
+      {keyed.slice(lead).map((k, i) => renderRow(k, i + lead))}
       {id === 'autofix' ? <StopNowConfirm /> : null}
     </>
   );
