@@ -23,9 +23,11 @@ import { CHAINS, type ViewId } from './chains.js';
 import { THEMES, type ThemeId, THEME_IDS, fixtureThemeOf } from './themes.js';
 import { getCorpus, dashboardCorpora, ALL_VIEWS, SETTINGS_SCENARIOS } from './corpora.js';
 import { VARIANTS, fixtureFile } from './variants.js';
+import { fixtureDir } from './fixtureDir.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(HERE, '.tmp');
+// serve.mjs and tmpCleanupReporter.ts resolve the same directory (fixtureDir.mjs).
+const OUT_DIR = fixtureDir(process.env, join(HERE, '.tmp'));
 const CATALOG_SRC = join(HERE, '..', '..', 'docs', 'ui', 'KARST-UI-CATALOG.html');
 
 /** Fixed nonce matching the one used in chains.ts. */
@@ -192,14 +194,15 @@ export function resetFixtureDir(outDir: string): void {
   mkdirSync(outDir, { recursive: true });
 }
 
-export function writeFixtures(outDir: string = OUT_DIR): void {
+// `views` limits the write to the views of a scoped run (@ui:FIXTURE-SCOPE). The catalog page is always written.
+export function writeFixtures(outDir: string = OUT_DIR, views: readonly ViewId[] = ALL_VIEWS): void {
   resetFixtureDir(outDir);
 
   for (const theme of THEME_IDS) {
     const themeDir = join(outDir, theme);
     mkdirSync(themeDir, { recursive: true });
 
-    for (const view of ALL_VIEWS) {
+    for (const view of views) {
       if (view === 'dashboard') {
         // Dashboard: one page per scenario.
         const corpora = dashboardCorpora();

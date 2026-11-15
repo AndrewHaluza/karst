@@ -10,7 +10,7 @@
 // Both parts go through dockerGate.mjs (docker, or the baseline sandbox).
 
 import { spawnSync } from 'node:child_process';
-import { ALL_VIEWS, gateGrep, readSettingsSections } from './uiViews.mjs';
+import { ALL_VIEWS, fixtureViews, gateGrep, readSettingsSections } from './uiViews.mjs';
 
 /** The two parts, in order. `env` is merged over the caller's environment. */
 export function planScopedRun(view, settingsSections) {
@@ -18,9 +18,11 @@ export function planScopedRun(view, settingsSections) {
     throw new Error(`unknown view "${view}"; expected one of: ${ALL_VIEWS.join(', ')}`);
   }
   const grep = gateGrep({ all: false, views: [view] }, settingsSections);
+  // Part (a) writes only the fixture pages of its view; part (b) is the full run and writes every page (@ui:FIXTURE-SCOPE).
+  const views = fixtureViews({ all: false, views: [view] }, []) ?? '';
   return [
-    { name: 'visual', script: 'test:visual:screens:docker', env: { KARST_UI_GREP: grep } },
-    { name: 'layout', script: 'test:layout:docker', env: { KARST_UI_GREP: '' } },
+    { name: 'visual', script: 'test:visual:screens:docker', env: { KARST_UI_GREP: grep, KARST_VISUAL_FIXTURE_VIEWS: views } },
+    { name: 'layout', script: 'test:layout:docker', env: { KARST_UI_GREP: '', KARST_VISUAL_FIXTURE_VIEWS: '' } },
   ];
 }
 
