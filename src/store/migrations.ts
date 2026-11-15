@@ -3024,5 +3024,11 @@ function migrateLocked(db: Database): void {
     if (cols123.size > 0 && !cols123.has('background_wait_until')) db.exec('ALTER TABLE tickets ADD COLUMN background_wait_until TEXT');
   }
 
+  if (current < 124) {
+    // v124: `prs.head_oid` — the PR head sha GitHub holds (T1143, @arch:GH-03). Current state, re-probed by the PR sweep. Additive; NULL = never stated (no backfill).
+    const cols124 = tableColumns(db, 'prs');
+    if (cols124.size > 0 && !cols124.has('head_oid')) db.exec('ALTER TABLE prs ADD COLUMN head_oid TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

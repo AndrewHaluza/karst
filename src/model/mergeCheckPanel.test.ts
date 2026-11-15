@@ -33,11 +33,28 @@ describe('buildMergeCheckPanelRows', () => {
     expect(out!.reason).toBe('');
   });
 
-  it('says a clean check is the local merge commit while a conflict round is active', () => {
-    const [clean] = buildMergeCheckPanelRows([row()], NOW, true);
-    expect(clean!.headline).toBe('clean · the local merge commit, not on the PR yet · vs develop · 4m ago');
-    const [conflicted] = buildMergeCheckPanelRows([row({ state: 'conflicted', files: ['a.ts'] })], NOW, true);
-    expect(conflicted!.headline).toBe('conflicted · 1 file · vs develop · 4m ago');
+  describe('head facts word a clean check (T1143)', () => {
+    const H = 'a'.repeat(40);
+    const P = 'b'.repeat(40);
+    const facts = (prHead: string | null, mergeBlock: string | null) => new Map([['/repos/api', { prHead, mergeBlock }]]);
+    const headline = (r: MergeCheckRow, f: ReturnType<typeof facts>) => buildMergeCheckPanelRows([r], NOW, f)[0]!.headline;
+
+    it('stays plain when the heads are equal', () => {
+      expect(headline(row({ headSha: H }), facts(H, 'clean'))).toBe('clean · vs develop · 4m ago');
+    });
+    it('says clean locally and not pushed with the GitHub state, without a round (T1099)', () => {
+      expect(headline(row({ headSha: H }), facts(P, 'dirty'))).toBe('clean locally on aaaaaaaaa (not pushed; GitHub: dirty) · vs develop · 4m ago');
+    });
+    it('words the same for a conflict round (T1120)', () => {
+      expect(headline(row({ headSha: H }), facts(P, 'blocked'))).toBe('clean locally on aaaaaaaaa (not pushed; GitHub: blocked) · vs develop · 4m ago');
+    });
+    it('says the GitHub head is unknown when no PR head is stored', () => {
+      expect(headline(row({ headSha: H }), facts(null, null))).toBe('clean locally on aaaaaaaaa (GitHub head unknown) · vs develop · 4m ago');
+    });
+    it('leaves a conflicted check and a repo without a PR alone', () => {
+      expect(headline(row({ state: 'conflicted', files: ['a.ts'], headSha: H }), facts(P, 'dirty'))).toBe('conflicted · 1 file · vs develop · 4m ago');
+      expect(headline(row({ headSha: H }), new Map())).toBe('clean · vs develop · 4m ago');
+    });
   });
 
   it('puts the conflict count on the line and the paths in the body', () => {

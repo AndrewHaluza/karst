@@ -6,6 +6,7 @@ import { getEnvOverrides, type TicketEnvOverrides } from '../../store/ticketEnvO
 import { buildPrPanelRows, type PrPanelRow } from '../../model/prPanelView.js';
 import { NO_AUTOFIX, NO_OFFERS, type AutofixInput, type ReadinessOffers } from '../../model/prMergeReadiness.js';
 import { deliverFactsFor } from '../../store/deliverFacts.js';
+import { mergeHeadFactsByRepo } from '../../store/mergeHeads.js';
 import { buildMergeCheckPanelRows, type MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 import type { DashboardWorktreeView } from './stateTypes.js';
@@ -124,7 +125,7 @@ export function buildDashboardRows(store: Store, input: DashboardRowsInput): Das
     prs,
     prRows,
     mergeChecks,
-    mergeCheckRows: buildMergeCheckPanelRows(mergeChecks, now, deliverFactsFor(store, ticketId).roundActive),
+    mergeCheckRows: buildMergeCheckPanelRows(mergeChecks, now, mergeHeadFactsByRepo(store, ticketId)),
     mergeableRepos,
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live

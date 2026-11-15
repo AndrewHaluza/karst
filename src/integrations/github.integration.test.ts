@@ -598,7 +598,7 @@ describe('fetchPrDetail', () => {
       'view',
       'https://github.com/o/r/pull/9',
       '--json',
-      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files,title,author,additions,deletions,changedFiles,commits,reviewDecision,latestReviews,reviewRequests',
+      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files,title,author,additions,deletions,changedFiles,commits,reviewDecision,latestReviews,reviewRequests,headRefOid',
     ]);
     expect(calls[0]!.cwd).toBe('/wt/a');
     expect(detail).toEqual({
@@ -621,6 +621,7 @@ describe('fetchPrDetail', () => {
       reviewDecision: null,
       approvals: null,
       reviewRequests: null,
+      headOid: null,
     });
   });
 
@@ -681,6 +682,7 @@ describe('fetchPrDetail', () => {
       reviewDecision: null,
       approvals: null,
       reviewRequests: null,
+      headOid: null,
     });
   });
 
@@ -817,6 +819,13 @@ describe('fetchPrDetail', () => {
         approvals: null,
         reviewRequests: null,
       });
+    });
+
+    it('reads the PR head from headRefOid and drops a value that is not a sha (T1143)', async () => {
+      const ok: GhRunner = async () => ({ stdout: viewJson({ state: 'OPEN', headRefOid: 'a'.repeat(40) }), exitCode: 0 });
+      expect(await fetchPrDetail(ok, '9', '/wt')).toMatchObject({ headOid: 'a'.repeat(40) });
+      const bad: GhRunner = async () => ({ stdout: viewJson({ state: 'OPEN', headRefOid: 'not a sha' }), exitCode: 0 });
+      expect(await fetchPrDetail(bad, '9', '/wt')).toMatchObject({ headOid: null });
     });
 
     const rollup = [
