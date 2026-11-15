@@ -101,7 +101,7 @@ describe('graph ledger', () => {
 
   it('no longer renders planner or deferral entries as flat rows', () => {
     const { rows } = ledger();
-    expect(rows.map((r) => r.label)).toEqual(['graph', 'orphan']);
+    expect(rows.map((r) => r.label)).toEqual(['run 1', 'orphan']);
   });
 
   it('carries the deferral reason and wait on its ledger entry', () => {
@@ -223,7 +223,7 @@ describe('graph ledger', () => {
     it('feeds the DAG chip the accepted reading', () => {
       const nodes = ledger({ plannerRuns: planner(), revision: rev }).nodes!;
       const chip = graphDagView({ nodes: [{ id: 'design' }], edges: [] }, nodes).columns[0]![0]!;
-      expect(chip).toMatchObject({ displayStatus: 'pass', state: 'plan accepted · rev 1 · ran 9m' });
+      expect(chip).toMatchObject({ displayStatus: 'pass', label: 'plan', state: 'planner 1 · rev 1 · ran 9m' });
     });
   });
 

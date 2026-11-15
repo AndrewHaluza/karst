@@ -604,6 +604,12 @@ export type ProcessEvidenceView =
       kind: 'rows';
       rows: readonly EvidenceRow[];
       /**
+       * How many leading `rows` the webview draws BEFORE `nodes` / `dag` (the
+       * graph run header and the blocked-run controls under it). Absent → all
+       * rows follow the ledger, as for every other process.
+       */
+      leadRows?: number;
+      /**
        * The graph process's ONE chronological ledger: planner runs, node runs
        * and deferred nodes as structured entries, ordered oldest first by the
        * projection (no status sections), so the webview renders them in order

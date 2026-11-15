@@ -36,6 +36,12 @@ describe('Evidence — the implementation graph', () => {
     expect(text(must('.evidence-row .ev-key'))).toBe('row');
   });
 
+  it('draws the leading run header rows before the ledger and the rest after it', () => {
+    withEvidence({ kind: 'rows', rows: [{ label: 'run 1', detail: 'head', status: 'run' }, { label: 'log', detail: 'tail', status: 'note' }], leadRows: 1, nodes, dag });
+    const order = all('.evidence-row .ev-key, .graph-nodes').map((e) => (e.classList.contains('graph-nodes') ? 'ledger' : text(e)));
+    expect(order).toEqual(['run 1', 'ledger', 'log']);
+  });
+
   it('offers the DAG switch only when the host shipped columns, local to the ticket and kept across pushes', () => {
     const h = mountInside(insideState({ stageCurrent: 'uat', views: { uat: view('uat', { processes: [proc('p', { evidence: graph() })] }) } }));
     const toggle = () => must<HTMLButtonElement>('[data-act="toggle-graph-view"]');

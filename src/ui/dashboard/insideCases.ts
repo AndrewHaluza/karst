@@ -291,7 +291,13 @@ const longGraphNodePatch = (s: DashboardState): DashboardState => {
     kind: 'graph',
     label: 'Implementation graph',
     status: 'fail',
-    evidence: { kind: 'rows', rows: [], nodes: [node] },
+    evidence: {
+      kind: 'rows',
+      // The run header leads the ledger: its long detail wraps to row 2 at the narrow tiers.
+      rows: [{ label: 'run 1', detail: `Blocked · ${LONG_WORDS} · rev 1 (aa5fe61e0657) · started 22m ago · 0 of 3 nodes running`, status: 'wait' }],
+      leadRows: 1,
+      nodes: [node],
+    },
   } as InsideProcessView;
   const processes = [...view.processes, graph];
   return { ...s, insideViews: { ...s.insideViews, impl: { ...view, processes } } };

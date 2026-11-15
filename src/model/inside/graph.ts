@@ -48,12 +48,12 @@ import { sanitizeGraphText, GRAPH_TEXT_MAX } from './graphText.js';
 import {
   AMBIGUOUS_NODE_STATUSES,
   NODE_OVERRIDE_EDITABLE,
-  clampToRunOutcome,
   deferredListView,
   formatBytes,
   hasLiveSession,
   nodeListView,
   nodeRowAction,
+  nodeRunStatus,
   plannerListView,
   plannerStatus,
   type LedgerEntry,
@@ -339,23 +339,6 @@ function graphRunStatus(status: string): InsideStatus {
   }
 }
 
-function revisionStatus(status: string, runStatus: string): InsideStatus {
-  const raw = ((): InsideStatus => {
-    switch (status) {
-      // A revision is the compiled plan version the run executes under — a
-      // durable bookkeeping fact, never an actor. It has no outcome of its
-      // own, so `active` is a neutral marker and never a spinner or a pass.
-      case 'active':
-        return 'note';
-      case 'completed':
-        return 'pass';
-      default:
-        return 'note';
-    }
-  })();
-  return clampToRunOutcome(raw, runStatus);
-}
-
 /**
  * The graph-run statuses a Stop action is offered on: the coordinator is
  * live and a drain is a meaningful signal. A blocked run may still have a
@@ -390,6 +373,27 @@ const STOPPABLE_RUN_STATUSES: readonly string[] = [
 ] as const;
 
 /**
+ * The ONE run header detail: `Status · approach · rev R (fingerprint12) · started age · K of M
+ * nodes running` (the status word keeps the glyph from being the only carrier). A replan revision names the one it replaced. Every part is
+ * host-worded and sanitized as one string.
+ */
+function runHeaderDetail(input: GraphInsideInput): string {
+  const run = input.graphRun!;
+  const parts: string[] = [graphRunStatusCopy(run.status), run.approachId];
+  const revision = input.revision;
+  if (revision) {
+    const from = revision.revisionNumber > 1 ? ` (from rev ${revision.revisionNumber - 1})` : '';
+    const print = revision.fingerprint ? ` (${revision.fingerprint.slice(0, 12)})` : '';
+    parts.push(`rev ${revision.revisionNumber}${from || print}`);
+  }
+  const age = relativeAge(run.createdAt, input.now);
+  if (age) parts.push(`started ${age}`);
+  const running = input.nodeRuns.filter((n) => nodeRunStatus(n.status) === 'run').length;
+  if (input.nodeRuns.length > 0) parts.push(`${running} of ${input.nodeRuns.length} nodes running`);
+  return sanitizeGraphText(parts.join(' · '));
+}
+
+/**
  * The impl-strip process for a graph ticket. A pure function of persisted
  * rows; null when the flag is off or no graph run exists.
  */
@@ -400,13 +404,8 @@ export function graphInsideProcess(
   const rows: EvidenceRow[] = [];
 
   rows.push({
-    label: 'graph',
-    detail: sanitizeGraphText(
-      `run ${input.graphRun.runNumber} · ${graphRunStatusCopy(input.graphRun.status)} · ${input.graphRun.approachId}` +
-        (relativeAge(input.graphRun.createdAt, input.now)
-          ? ` · started ${relativeAge(input.graphRun.createdAt, input.now)}`
-          : ''),
-    ),
+    label: `run ${input.graphRun.runNumber}`,
+    detail: runHeaderDetail(input),
     status: graphRunStatus(input.graphRun.status),
     ...(input.attach && input.graphRun.status === 'blocked'
       ? { action: input.attach({ kind: 'graph-resume', graphRunId: input.graphRun.id }) }
@@ -435,6 +434,9 @@ export function graphInsideProcess(
       action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }),
     });
   }
+
+  // The header (and the blocked-run controls under it) draw before the ledger.
+  const leadRows = rows.length;
 
   // Slice 6 Task 4: the ONE ledger — planner runs, node runs and deferred
   // nodes as entries of `evidence.nodes`, oldest first by instant. An entry
@@ -489,17 +491,6 @@ export function graphInsideProcess(
       label: 'deferred nodes',
       detail: `+${deferrals.remaining} more`,
       status: 'note',
-    });
-  }
-
-  if (input.revision) {
-    rows.push({
-      label: 'revision',
-      detail: sanitizeGraphText(
-        `rev ${input.revision.revisionNumber} · ${input.revision.status}` +
-          (input.revision.fingerprint ? ` · ${input.revision.fingerprint.slice(0, 12)}` : ''),
-      ),
-      status: revisionStatus(input.revision.status, input.graphRun.status),
     });
   }
 
@@ -591,9 +582,10 @@ export function graphInsideProcess(
     evidence: {
       kind: 'rows',
       rows,
+      leadRows,
       ...(ledgerRows.length > 0 ? { nodes: ledgerRows } : {}),
       ...(input.topology && input.topology.nodes.length > 0
-        ? { dag: graphDagView(input.topology, ledgerRows) }
+        ? { dag: graphDagView(input.topology, ledgerRows, input.graphRun.status === 'closed') }
         : {}),
     },
   };
