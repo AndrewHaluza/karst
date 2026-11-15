@@ -40,7 +40,7 @@ import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNo
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
 import { ticketHandOff } from './extension/ops/guardedHandOff.js';
-import { compileExpertSpend, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
+import { compileExpertSpend, compileSpentNodeRuns, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
@@ -4933,6 +4933,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         graphCoordinatorStore?.db,
         graphRunId,
       ),
+      spentNodeRuns: compileSpentNodeRuns(graphCoordinatorStore?.db, graphRunId),
       projectMaxima: {
         maxNodeRuns: config?.limits.maxNodeRuns ?? DEFAULT_GRAPH_LIMITS.maxNodeRuns,
         maxExpertRuns: config?.limits.maxExpertRuns ?? DEFAULT_GRAPH_LIMITS.maxExpertRuns,

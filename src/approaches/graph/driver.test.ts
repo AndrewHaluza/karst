@@ -93,6 +93,7 @@ function compileContextOf(): CompileContext {
     repositories: new Map([['api', { id: 'api', root: '', domain: 'domain-api' }]]),
     artifactFileExists: () => true,
     expertSpend: { spentPlannerRuns: 0, permittedReplans: 0, bootstrapUnspent: true },
+    spentNodeRuns: 0,
     projectMaxima: { maxNodeRuns: 200, maxExpertRuns: 10, maxReplans: 5 },
   };
 }

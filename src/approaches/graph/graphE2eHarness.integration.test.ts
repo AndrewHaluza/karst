@@ -398,6 +398,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
       permittedReplans: config.limits.maxReplans,
       bootstrapUnspent: false,
     },
+    spentNodeRuns: 0,
     projectMaxima: {
       maxNodeRuns: config.limits.maxNodeRuns,
       maxExpertRuns: config.limits.maxExpertRuns,

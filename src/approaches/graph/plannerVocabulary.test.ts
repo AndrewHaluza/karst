@@ -9,6 +9,7 @@ function context(): CompileContext {
     repositories: new Map(),
     artifactFileExists: () => true,
     expertSpend: { spentPlannerRuns: 1, permittedReplans: 0, bootstrapUnspent: false },
+    spentNodeRuns: 0,
     projectMaxima: { maxNodeRuns: 4, maxExpertRuns: 1, maxReplans: 0 },
   };
 }
@@ -27,6 +28,12 @@ describe('plannerVocabulary — the artifact root', () => {
     const block = plannerVocabulary(context(), ROOT);
     expect(block).toContain('artifacts/');
     expect(block).toMatch(/do not prefix|never prefix/i);
+  });
+
+  it('states the node runs already spent in the run', () => {
+    const block = plannerVocabulary({ ...context(), spentNodeRuns: 3 }, ROOT);
+    expect(block).toContain('3 node runs already spent in this graph run; maxNodeRuns counts them');
+    expect(plannerVocabulary(context(), ROOT)).not.toContain('node runs already spent');
   });
 
   it('omits the artifact-root line when no root is known', () => {
