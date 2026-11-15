@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { PROCESS_KILL_RULE } from './promptText.js';
 import { FIX_NO_FAULT_RULE, REVIEW_SWEEP_RULE, VISUAL_RERECORD_RULE } from './fixBrief.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
@@ -82,6 +83,17 @@ function feedback(over: Partial<PrFeedbackRow> = {}): PrFeedbackRow {
 }
 
 describe('renderFixBrief', () => {
+  describe('process-kill rule', () => {
+    const count = (t: string | null): number => (t ?? '').split(PROCESS_KILL_RULE).length - 1;
+    it('states the rule once when the brief stands alone', () => {
+      expect(count(renderFixBrief('P-1', [{ stageKey: 'uat', status: 'failed' }]))).toBe(1);
+    });
+    it('leaves the rule to the appended marker text when markerAppended is set', () => {
+      const stages = [{ stageKey: 'uat', status: 'failed' }] as const;
+      expect(count(renderFixBrief('P-1', stages, [], [], [], { markerAppended: true }))).toBe(0);
+    });
+  });
+
   it('names the gate that failed, its reason and its log', () => {
     const brief = renderFixBrief('PROJ-3', [
       { stageKey: 'uat', status: 'passed' },

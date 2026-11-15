@@ -29,6 +29,8 @@ export interface RenderFixBriefOptions {
   readonly hasPrototype?: boolean;
   /** True when the failed stage's round already used its host re-run (ran or requested). */
   readonly hostRerunSpent?: (stageKey: StageKey) => boolean;
+  /** The caller appends the done-marker text, which already states PROCESS_KILL_RULE: the brief omits its copy. */
+  readonly markerAppended?: boolean;
 }
 
 /**
@@ -202,8 +204,7 @@ export function renderFixBrief(
         'If your fix changes no UI path, leave a UI gate (visual, layout) to the host.',
     // A fix session runs shell commands to reproduce and re-run checks; it must
     // stop only what it started (`kill $!`), never a process-wide `pkill`.
-    '',
-    PROCESS_KILL_RULE,
+    ...(options?.markerAppended ? [] : ['', PROCESS_KILL_RULE]),
   ];
   if (!isPrFeedback) lines.push('', FIX_REFUSED_STOP_RULE);
   if (!isPrFeedback && gate.stageKey !== 'review') {

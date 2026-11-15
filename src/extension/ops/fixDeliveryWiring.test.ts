@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { ackFixDeliveryRef } from './fixDeliveryOps.js';
-import { MARKER_REFUSED } from '../../agent/promptText.js';
+import { MARKER_REFUSED, PROCESS_KILL_RULE } from '../../agent/promptText.js';
 import { composeFixSnapshot, makeFixDeliveryWiring, type FixDeliveryWiringDeps } from './fixDeliveryWiring.js';
 
 const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
@@ -76,6 +76,11 @@ describe('fixDeliveryWiring', () => {
       const { body } = composeFixSnapshot(store, ticketId, LITERAL, undefined, true);
       expect(body).toContain('call the karst MCP tool `stage` with { stage: "fix" }');
       expect(body).toContain(MARKER_REFUSED);
+    });
+
+    it('states PROCESS_KILL_RULE exactly once: the marker text carries it, the brief does not', () => {
+      const { body } = composeFixSnapshot(store, ticketId, LITERAL);
+      expect(body.split(PROCESS_KILL_RULE).length - 1).toBe(1);
     });
 
     it('footer names the live brief command with literals', () => {

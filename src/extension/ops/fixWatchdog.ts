@@ -389,7 +389,7 @@ export function redeliveryPrompt(store: Store, ticketId: number): string {
         );
   const brief =
     t.stageCurrent === 'fix'
-      ? (fixBriefForTicket(store, ticketId, label) ??
+      ? (fixBriefForTicket(store, ticketId, label, true) ??
         `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`)
       : `Your launch brief did not reach you. Load ticket ${label}'s context by running \`${composeContextCommand(refs.cli, refs.db, refs.manifest)} ${label} --md\` and continue the work it describes.`;
   return `${brief}\n\n${marker}`;
