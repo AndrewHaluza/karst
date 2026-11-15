@@ -342,7 +342,7 @@ if [ "$installed_any" = true ]; then
   echo ""
   echo "Installed karst v${VERSION}"
   echo "Check version in Settings > General > Version"
-  echo "Done. Reload window in each installed IDE (Cmd+Shift+P -> Reload Window)."
+  echo "Done. Reload each installed IDE without killing live gates: Cmd+Shift+P -> 'Karst: Reload window when idle'."
 else
   echo "Nothing installed."
   exit 1

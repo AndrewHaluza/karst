@@ -38,6 +38,52 @@ describe('runStageDriver', () => {
     store.close();
   });
 
+  it('refuses a new gate start while the host drains, and logs one line', async () => {
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    let uatRan = 0;
+    const lines: string[] = [];
+    const out = await runStageDriver(
+      baseDeps(store, {
+        isDraining: () => true,
+        debug: (m) => lines.push(m),
+        runUat: async () => {
+          uatRan += 1;
+          return { kind: 'advanced', next: 'review' };
+        },
+      }),
+      id,
+    );
+    expect(out).toEqual({ stage: 'uat', status: 'stopped', reason: 'draining' });
+    expect(uatRan).toBe(0);
+    expect(lines.filter((l) => l.includes('draining'))).toHaveLength(1);
+    store.close();
+  });
+
+  it('stops between two gates when the drain starts after the first gate', async () => {
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    let draining = false;
+    let reviewRan = 0;
+    const out = await runStageDriver(
+      baseDeps(store, {
+        isDraining: () => draining,
+        runUat: async (tid) => {
+          draining = true;
+          return { kind: 'advanced', next: transition(store, tid, 'uat', { kind: 'passed' }) };
+        },
+        runReview: async () => {
+          reviewRan += 1;
+          return { kind: 'advanced', next: 'ship' };
+        },
+      }),
+      id,
+    );
+    expect(out).toEqual({ stage: 'review', status: 'stopped', reason: 'draining' });
+    expect(reviewRan).toBe(0);
+    store.close();
+  });
+
   it('stops at the integration seam when it parks, before running any gate', async () => {
     const store = openStore(':memory:');
     const id = seedAtUat(store);

@@ -43,6 +43,8 @@ export interface StageDriverDeps {
   worktreeFor: (ticketId: number) => string | null;
   onProgress: (ticketId: number, stage: StageKey, status: DriverStatus) => void;
   shouldContinue: () => boolean;
+  /** @arch:DRAIN-01: true while the host waits to reload; no new gate starts. */
+  isDraining?: () => boolean;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[driver]`.
    * Absent → no debug lines. The host binds it to `Logger.debug`, which is a
@@ -164,6 +166,11 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
     if (!deps.shouldContinue()) {
       deps.debug?.(`[driver] ticket ${ticketId}: stop requested at '${stage}'`);
       return finish(deps, ticketId, stage, 'stopped');
+    }
+
+    if (deps.isDraining?.()) {
+      deps.debug?.(`[driver] ticket ${ticketId}: host is draining for a reload — not starting '${stage}'`);
+      return finish(deps, ticketId, stage, 'stopped', 'draining');
     }
 
     const cwd = deps.worktreeFor(ticketId);

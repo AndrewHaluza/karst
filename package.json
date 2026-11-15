@@ -245,6 +245,10 @@
         "title": "Karst: Clean Up Orphan Sandboxes"
       },
       {
+        "command": "karst.reloadWhenIdle",
+        "title": "Karst: Reload window when idle"
+      },
+      {
         "command": "karst.closeTicket",
         "title": "Karst: Close Ticket (resolved outside Karst)"
       },

@@ -9,6 +9,8 @@ import { packagedApproachDefs } from './approaches/withBuiltInApproaches.js';
 import { listTicketLifecycle } from './store/runningServers.js';
 import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { registerCloseCommands } from './extension/ops/closeCommands.js';
+import { createDrain } from './runtime/drain.js';
+import { registerReloadWhenIdle } from './extension/reloadWhenIdleBinding.js';
 import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
 import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
@@ -616,6 +618,7 @@ const pendingSessionRecoveryTasks = new Set<Promise<void>>();
 
 /** Per-ticket single-flight + Stop bookkeeping for the auto-driver (§11/§12). */
 const driver = new DriverController();
+const drain = createDrain(); // @arch:DRAIN-01, in memory only
 
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -3659,6 +3662,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             gateRuns.spawned({ ticketId: id, gateName, pid, cwd: gateCwd }, () =>
               resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName })),
           shouldContinue: () => driver.shouldContinue(ticketId),
+          isDraining: () => drain.isDraining(),
           // Sub-task integration seam (NDL-75): the parent's next drive absorbs
           // any landed sub-task's work before a boundary or gate runner runs —
           // the deferred half of landing a sub-task while the parent was busy.
@@ -7049,6 +7053,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
     // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
+    registerReloadWhenIdle(localStore, drain, (m) => logger.info(m)),
     ...registerCloseCommands({
       store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,
       activeTicketId: () => activeTicket.get() ?? undefined, stopWork: (id) => { driver.requestStop(id); sessions.disposeSession(id); },
