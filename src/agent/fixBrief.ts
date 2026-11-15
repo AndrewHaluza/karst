@@ -114,6 +114,14 @@ export const FIX_NO_FAULT_RULE =
 export const REVIEW_SWEEP_RULE =
   'For each finding, name the rule it breaks. Search the repository for each site of that rule. Fix each site. List the sites in the commit body.';
 
+/** The visual sweep's ticket-break line (scripts/baseDrift.mjs) — the cue for an intended-change re-record. */
+const VISUAL_TICKET_BREAK = /ticket breaks \(pass at the base, fail here\)/u;
+export const VISUAL_RERECORD_RULE =
+  'A visual view passes at the base and fails here. If this brief intends that UI change, ' +
+  're-record only the failing views with `KARST_UI_GREP=<view> npm run -s test:visual:docker:update`, ' +
+  'commit the baselines, and call the done marker. Do not ask the user in chat: the user approves the baselines once, in the baseline review. ' +
+  'If the change is not intended, repair the UI and do not re-record.';
+
 /** The docs gate's BLOCK line (scripts/docsGate.mjs) — the cue that a cite is a way out. */
 const DOCS_GATE_BLOCK = /BLOCK diff changes /u;
 const DOCS_GATE_CITE_RULE =
@@ -205,6 +213,9 @@ export function renderFixBrief(
         for (const line of f.summary.split('\n')) lines.push(`    ${line}`);
       }
     }
+  }
+  if (failures.some((f) => f.summary && /visual|layout/iu.test(f.gateName) && VISUAL_TICKET_BREAK.test(f.summary))) {
+    lines.push('', VISUAL_RERECORD_RULE);
   }
   if (failures.some((f) => f.summary && DOCS_GATE_BLOCK.test(f.summary)) || (gate.verdict && DOCS_GATE_BLOCK.test(gate.verdict))) {
     lines.push('', DOCS_GATE_CITE_RULE);

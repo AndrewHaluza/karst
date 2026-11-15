@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FIX_NO_FAULT_RULE, REVIEW_SWEEP_RULE } from './fixBrief.js';
+import { FIX_NO_FAULT_RULE, REVIEW_SWEEP_RULE, VISUAL_RERECORD_RULE } from './fixBrief.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
@@ -116,6 +116,34 @@ describe('renderFixBrief', () => {
         } as never,
       ]);
       expect(ship).not.toContain(REVIEW_SWEEP_RULE);
+    });
+  });
+
+  describe('visual re-record rule', () => {
+    const stages = [{ stageKey: 'uat', status: 'failed' }] as const;
+    const breaks = 'ticket breaks (pass at the base, fail here) — 1:\n  - settings-a';
+
+    it('adds one re-record step for a visual ticket-break failure', () => {
+      const brief = renderFixBrief('PROJ-9', [...stages], [], [
+        gate({ stageKey: 'uat', gateName: 'test:visual:docker', exitCode: 1, summary: breaks }),
+      ]);
+      expect(brief?.split(VISUAL_RERECORD_RULE).length).toBe(2);
+      expect(VISUAL_RERECORD_RULE).toContain('KARST_UI_GREP=<view> npm run -s test:visual:docker:update');
+      expect(VISUAL_RERECORD_RULE).toContain('do not re-record');
+    });
+
+    it('omits the step for a non-visual failure', () => {
+      const brief = renderFixBrief('PROJ-9', [...stages], [], [
+        gate({ stageKey: 'uat', gateName: 'lint', exitCode: 1, summary: breaks }),
+      ]);
+      expect(brief).not.toContain(VISUAL_RERECORD_RULE);
+    });
+
+    it('omits the step for a visual failure that is not a ticket break', () => {
+      const brief = renderFixBrief('PROJ-9', [...stages], [], [
+        gate({ stageKey: 'uat', gateName: 'test:visual:docker', exitCode: 1, summary: 'timeout' }),
+      ]);
+      expect(brief).not.toContain(VISUAL_RERECORD_RULE);
     });
   });
 

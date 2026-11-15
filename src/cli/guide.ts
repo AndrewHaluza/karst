@@ -63,8 +63,14 @@ work and the gates re-run.
 Visual baselines: when the manifest sets \`uat.baselineReview.paths\`, any file
 you change under those globs (re-recorded screenshots, a ratchet ledger) needs
 the USER's approval in the dashboard before UAT continues. Re-recording a
-baseline never makes a visual change pass. If the user rejects one, the reason
-is in your fix prompt — repair the UI, do not re-record. A ledger change that
+baseline only for an intended UI change: when a visual gate fails with
+'ticket breaks (pass at the base, fail here)' and the brief intends the change,
+re-record only the failing views with
+\`KARST_UI_GREP=<view> npm run -s test:visual:docker:update\`, commit the
+baselines, and fire the marker. Do not ask for approval in chat: the user
+approves once in the dashboard baseline review, after you commit. Never
+re-record to hide an unintended change — repair the UI. If the user rejects a
+baseline, the reason is in your fix prompt — repair the UI, do not re-record. A ledger change that
 only removes entries needs no approval (\`npm run test:layout:docker:prune\`).
 
 ## The CLI

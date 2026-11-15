@@ -14,6 +14,12 @@ import { SERVERS_VIA_CLI_RULE, MCP_TOOLS_PREFERRED } from '../agent/promptText.j
  */
 
 describe('karst guide — content', () => {
+  it('tells the agent to re-record an intended visual change and not to ask in chat', () => {
+    expect(AGENT_GUIDE).toContain('test:visual:docker:update');
+    expect(AGENT_GUIDE).toContain('Do not ask for approval in chat');
+    expect(AGENT_GUIDE).not.toContain('Re-recording a\nbaseline never makes a visual change pass');
+  });
+
   it('documents every verb runCli accepts', () => {
     // runCli accepts exactly: context, stats, stage, phase, graph, node, test, guide,
     // compact, subtask, fix-brief, conflict-brief (main.ts unknown-verb message); servers
