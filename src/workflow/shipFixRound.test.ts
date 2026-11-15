@@ -105,6 +105,13 @@ describe('ship fix round (T1158)', () => {
       .toEqual({ stopped_reason: null, stopped_head_sha: null, paused_reason: null });
   });
 
+  it('clears the ship block, so a base-moved-failed park does not hold the round', () => {
+    const id = shipTicket();
+    setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null, blockedKind: 'base-moved-failed', blockedReason: 'gate failed', blockedAt: T0 });
+    enterShipFixRound(store, id, { reason: REASON, artifactPath: null, now: () => T1 });
+    expect(getStage(store, id, 'ship')).toMatchObject({ status: 'failed', blockedKind: null, blockedReason: null, blockedAt: null });
+  });
+
   it('bounds the trigger detail to one short line', () => {
     const id = shipTicket();
     enterShipFixRound(store, id, { reason: 'x'.repeat(500), artifactPath: null });

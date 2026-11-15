@@ -71,7 +71,10 @@ export function enterShipFixRound(store: Store, ticketId: number, opts: EnterShi
       opts.debug?.(`[ship] ship fix round ticket ${ticketId}: refused — ${state.reason} (no mutation)`);
       throw new Error(`ship fix round refused: ticket ${ticketId} (${state.reason})`);
     }
-    setStage(store, ticketId, 'ship', { status: 'failed', verdict: opts.reason, attempt: state.round, artifactPath: opts.artifactPath, endedAt: at });
+    setStage(store, ticketId, 'ship', { status: 'failed', verdict: opts.reason, attempt: state.round, artifactPath: opts.artifactPath, endedAt: at,
+      // The round answers the block (`base-moved-failed`, `awaiting-merge`): a stale block would re-run the same gate round.
+      blockedKind: null, blockedReason: null, blockedAt: null,
+    });
     const round = openRecoveryRound(store, {
       ticketId,
       sourceStage: 'ship',
