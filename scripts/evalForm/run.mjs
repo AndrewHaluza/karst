@@ -332,7 +332,7 @@ async function mainRejudge(opts) {
 }
 
 async function mainReview(opts) {
-  const [{ resolveAdapter }, { runReviewBench }, { scoreReview }, { renderReviewReport }] = await Promise.all([
+  const [{ resolveAdapter }, { runReviewBench, probeCoreVersion }, { scoreReview }, { renderReviewReport }] = await Promise.all([
     import('../../src/agent/registry.ts'), import('./reviewRun.mjs'), import('./reviewChecks.mjs'), import('./reviewReport.mjs'),
   ]);
   const casesDir = resolve(opts.casesDir);
@@ -365,7 +365,7 @@ async function mainReview(opts) {
   });
   let buildSha = 'unknown';
   try { buildSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch { /* keep unknown */ }
-  const meta = { startedAt, pass: 'review', command: `npm run -s eval:form -- ${process.argv.slice(2).join(' ')}`, caseSetVersion: REVIEW_CASE_SET_VERSION, buildSha, coreVersions: {} };
+  const meta = { startedAt, pass: 'review', command: `npm run -s eval:form -- ${process.argv.slice(2).join(' ')}`, caseSetVersion: REVIEW_CASE_SET_VERSION, buildSha, coreVersions: { [core]: probeCoreVersion(core) } };
   const candidate = { core, model: opts.model, effort: opts.effort, runs: scored };
   const dir = join(ROOT, 'eval-results', `review-${startedAt.replace(/[:.]/g, '-')}-${core}-${process.pid}`);
   mkdirSync(dir, { recursive: true });

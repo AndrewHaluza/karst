@@ -48,6 +48,20 @@ export function buildReviewCheckout(caseDir, caseDef) {
   return { root, checkout, origin, cleanup };
 }
 
+const CORE_BINARIES = { claude: 'claude', codex: 'codex', antigravity: 'agy', opencode2: 'opencode' };
+const defaultVersionRunner = (bin, args) => execFileSync(bin, args, { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] });
+
+/** First line of `<binary> --version` for a core, or `'unknown'` when the core or the probe is not available. */
+export function probeCoreVersion(core, runner = defaultVersionRunner) {
+  const bin = CORE_BINARIES[core];
+  if (!bin) return 'unknown';
+  try {
+    return runner(bin, ['--version']).split('\n')[0].trim() || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 const failure = (status, error, seconds) => ({ status, error, findings: [], tier: undefined, shape: undefined, droppedCheckoutClaims: 0, usage: undefined, seconds });
 
 /** Parse, split coverage and drop disproven wrong-checkout claims, all while the checkout still exists. */

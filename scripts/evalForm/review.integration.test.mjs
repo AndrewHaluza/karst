@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { REVIEW_MATCH_WINDOW, scoreReview } from './reviewChecks.mjs';
-import { buildReviewCheckout, runReviewCase } from './reviewRun.mjs';
+import { buildReviewCheckout, probeCoreVersion, runReviewCase } from './reviewRun.mjs';
 
 const tmps = [];
 afterEach(() => { for (const d of tmps.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -436,5 +436,18 @@ describe('mainReview case loading and labels', () => {
     const report = lines.find((l) => l.startsWith('report: '))?.slice('report: '.length);
     tmps.push(join(report, '..'));
     expect(JSON.parse(readFileSync(join(report, '..', 'results.json'), 'utf8')).candidate.core).toBe('opencode2');
+  });
+});
+
+describe('probeCoreVersion', () => {
+  it('returns the first line of the version output for the binary of a core', () => {
+    const seen = [];
+    const v = probeCoreVersion('opencode2', (bin, args) => { seen.push([bin, args]); return '1.4.2\nextra line\n'; });
+    expect(v).toBe('1.4.2');
+    expect(seen).toEqual([['opencode', ['--version']]]);
+  });
+  it('returns "unknown" for an unknown core or a failing probe', () => {
+    expect(probeCoreVersion('nope', () => 'x')).toBe('unknown');
+    expect(probeCoreVersion('claude', () => { throw new Error('missing'); })).toBe('unknown');
   });
 });
