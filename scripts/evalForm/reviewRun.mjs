@@ -90,6 +90,8 @@ export async function runReviewCase({ adapter, caseDef, caseDir, model, effort, 
       return failure(TIMEOUT.test(msg(e)) ? 'timeout' : 'error', msg(e), secs());
     }
     const done = await finalizeFindings({ res, checkout: work.checkout, branch: caseDef.branch, max, warn, git: gitRunner });
+    // A reply with no findings container is a failed call, not a clean review. A whole-message `[]` has shape 'empty'.
+    if (done.shape === 'unreadable') return failure('error', 'unreadable output: no findings container in the reply', secs());
     return { status: 'ok', ...done, usage: res.usage, seconds: secs() };
   } catch (e) {
     return failure('error', msg(e), secs());

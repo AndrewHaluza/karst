@@ -42,6 +42,20 @@ describe('scoreReview', () => {
     expect(r.falseFindings).toBe(1);
   });
 
+  it('matches a finding to the nearest defect when two windows overlap', () => {
+    const d7 = { ...DEFECT, id: 'D7', lineStart: 4, lineEnd: 4 };
+    const d8 = { ...DEFECT, id: 'D8', lineStart: 8, lineEnd: 8 };
+    const r = score([d7, d8], [finding({ line: 7 }), finding({ line: 4 })]);
+    expect(r.found.sort()).toEqual(['D7', 'D8']);
+    expect(r.falseFindings).toBe(0);
+  });
+
+  it('does not match a finding that is below the defect minimum severity', () => {
+    const r = score([DEFECT], [finding({ line: 11, severity: 'low' })]);
+    expect(r.found).toEqual([]);
+    expect(r.missed).toEqual(['D1']);
+  });
+
   it('lets one finding match at most one defect', () => {
     const near = { ...DEFECT, id: 'D2', lineStart: 13, lineEnd: 14 };
     const r = score([DEFECT, near], [finding({ line: 12 })]);
@@ -183,6 +197,23 @@ describe('runReviewCase', () => {
     expect(r.status).toBe('error');
     expect(r.findings).toEqual([]);
     expect(() => statSync(cwd)).toThrow();
+  });
+
+  it('reports unreadable output as an error, not as a clean pass', async () => {
+    const r = await run(fake('I cannot help with that.'), makeCase());
+    expect(r.status).toBe('error');
+    expect(r.error).toContain('unreadable');
+  });
+
+  it('reports blank output as an error', async () => {
+    const r = await run(fake('   '), makeCase());
+    expect(r.status).toBe('error');
+  });
+
+  it('still reports a whole-message empty array as a clean answer', async () => {
+    const r = await run(fake('[]'), makeCase());
+    expect(r.status).toBe('ok');
+    expect(r.findings).toEqual([]);
   });
 
   it('maps a timeout error to status timeout and never throws', async () => {

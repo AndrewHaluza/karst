@@ -365,6 +365,10 @@ async function mainReview(opts) {
   writeFileSync(join(dir, 'report.md'), renderReviewReport({ ...meta, candidates: [candidate] }));
   writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, candidate }, null, 2));
   console.log(`report: ${join(dir, 'report.md')}`);
+  if (!scored.some((r) => r.status === 'ok')) {
+    console.error(`review pass: no run finished ok. First error: ${scored.find((r) => r.error)?.error ?? 'none'}`);
+    process.exitCode = 1;
+  }
 }
 
 export async function main(argv) {
