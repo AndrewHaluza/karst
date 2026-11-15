@@ -70,6 +70,7 @@ import { buildTicketArtifacts } from '../model/artifacts.js';
 import { formatId } from '../model/entityId.js';
 import { type CapabilityGuard } from './insideActionHost.js';
 import { planRetryShip } from '../ui/dashboard/insideActions.js';
+import { ShipDrainingError } from './ops/reloadWhenIdle.js';
 
 /**
  * Bind dashboard actions to real vscode side-effects. Server lifecycle: stop and
@@ -308,6 +309,11 @@ export function makeDashboardActions(
     shipTicket: async () => {
       if (!(await guardCapability('ship'))) return;
       void runShipSaga(ticketId).catch((e) => {
+        if (e instanceof ShipDrainingError) {
+          onInsideProgress(shipClearedEvent(ticketId));
+          void vscode.window.showInformationMessage(`Karst: ${e.message}`);
+          return;
+        }
         logError('ship failed', e);
         // `shipTicket` already recorded the reason on the ship stage, so the
         // dashboard now explains itself — but the user just clicked a button
@@ -332,6 +338,10 @@ export function makeDashboardActions(
         return;
       }
       void runShipSaga(ticketId, true, { repos: plan.repos }).catch((e) => {
+        if (e instanceof ShipDrainingError) {
+          void vscode.window.showInformationMessage(`Karst: ${e.message}`);
+          return;
+        }
         logError('retry ship failed', e);
         afterServerChange();
         void vscode.window.showErrorMessage(

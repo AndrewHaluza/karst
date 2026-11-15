@@ -11,7 +11,7 @@ import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { createDrain } from './runtime/drain.js';
 import { registerReloadWhenIdle } from './extension/reloadWhenIdleBinding.js';
-import { guardShipStart } from './extension/ops/reloadWhenIdle.js';
+import { guardShipStart, ShipDrainingError } from './extension/ops/reloadWhenIdle.js';
 import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
 import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
@@ -3296,6 +3296,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     async (ticketId, repo) => {
       if (!(await guardCapability('ship'))) return;
       void runShipSaga(ticketId, true, { repos: [repo] }).catch((e) => {
+        if (e instanceof ShipDrainingError) {
+          void vscode.window.showInformationMessage(`Karst: ${e.message}`);
+          return;
+        }
         logError('karst: per-repo ship retry failed', e);
         provider.refresh();
         dashboard.pushState(ticketId);
@@ -5864,6 +5868,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean } = {},
   ): Promise<void> => {
     guardShipStart(drain, ticketId, (m) => logger.debug(m)); // throws while draining: no caller reports a ship that did not run
+    // Live from the check, so the drain never sees 0 between the check and the ship run row (@arch:DRAIN-01).
+    await drain.track(() => runShipSagaTracked(ticketId, warn, shipOpts));
+  };
+  const runShipSagaTracked = async (
+    ticketId: number,
+    warn: boolean,
+    shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean },
+  ): Promise<void> => {
     // WHO asked decides whether new work is delivered into a PR that is already
     // open. A human re-shipping a ticket whose PR is live wants the new commits
     // pushed onto it (FIX-46); an activation sweep resuming a ship whose host
