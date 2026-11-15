@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { Store } from '../store/db.js';
 import type { Drain } from '../runtime/drain.js';
+import { setHeadlessDrain } from '../agent/headlessSpawn.js';
 import {
   RELOAD_WHEN_IDLE_COMMAND,
   RELOAD_WHEN_IDLE_TITLE,
@@ -15,6 +16,7 @@ export function registerReloadWhenIdle(
   log: (message: string) => void,
   redrive: (ticketId: number) => void,
 ): vscode.Disposable {
+  setHeadlessDrain(drain); // every headless start is counted live and refused while draining
   return vscode.commands.registerCommand(RELOAD_WHEN_IDLE_COMMAND, async () => {
     if (drain.isDraining()) {
       void vscode.window.showInformationMessage('Karst: a reload is already waiting for live runs.');
