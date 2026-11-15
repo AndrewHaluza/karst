@@ -77,6 +77,8 @@ export interface AutopilotDeps {
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or karst delivers its resolved merge now: no other round starts beside it. */
   readonly conflictRoundActive: () => boolean;
+  /** The host drains for a planned reload (@arch:DRAIN-01): no round starts. Absent: never draining. */
+  readonly isDraining?: () => boolean;
   /** True when a conflict round is armed but never delivered; the engine drops it with a note. */
   readonly conflictRoundStalled: () => boolean;
   readonly dropConflictRound: () => void;
@@ -276,6 +278,10 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (blockKind !== 'awaiting-merge' && blockKind !== 'base-moved-failed') return { kind: 'idle' };
   if (blockKind === 'base-moved-failed' && (!d.sendGateFailure || state.stoppedReason !== null)) return { kind: 'idle' };
   if (!d.controls()) return { kind: 'not-controller' };
+  if (d.isDraining?.() === true) {
+    d.debug(`${LOG} ticket ${d.key}: no round, the host drains for a reload`);
+    return { kind: 'busy' };
+  }
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
   if (blockKind === 'base-moved-failed') return guardedRound(d, () => runBaseMovedRound(d, cfg));
   // The merge check stays 'conflicted' (and the CI rollup stays on the old head) until the resolved merge is pushed and
