@@ -262,6 +262,7 @@ export function markGraphAwaitingImplMarker(
   ticketId: number,
   graphRunId: number,
   now: () => string,
+  detail = 'completed, waiting for the impl marker',
 ): void {
   const ticket = getTicket(store, ticketId);
   if (ticket.stageCurrent !== 'impl') return; // stage-scoped write path
@@ -271,12 +272,63 @@ export function markGraphAwaitingImplMarker(
     ticketId,
     stageKey: 'impl',
     kind: GRAPH_MARKER_WAIT_BLOCKER,
-    reason:
-      `${GRAPH_MARKER_WAIT_BLOCKER}: graph run ${graphRunOrdinal(store.db, ticketId, run.id)} ` +
-      'completed, waiting for the impl marker',
+    reason: `${GRAPH_MARKER_WAIT_BLOCKER}: graph run ${graphRunOrdinal(store.db, ticketId, run.id)} ${detail}`,
     runAt: now(),
     gates: [],
   });
+}
+
+export type AutoFireOutcome =
+  | { kind: 'fired'; graphRunId: number }
+  | { kind: 'paused' }
+  | { kind: 'refused'; reason: string; firstTime: boolean };
+
+/**
+ * The impl marker's third caller: the graph coordinator (`@arch:IMPLUAT`).
+ * When a run is marker-ready it fires the SAME guarded marker as the button,
+ * through `fireGraphImplMarkerFromHost`, so the waiting-agent refusal holds.
+ * A paused ticket is not fired (`@arch:PAUSE`). A refusal leaves the
+ * `awaiting-impl-marker` block, with the reason in its text, so the button
+ * stays as the manual fallback. `firstTime` is false when the block already
+ * carries the same reason, so a sweep logs one refusal per run, not per tick.
+ */
+export function tryAutoFireGraphImplMarker(
+  store: Store,
+  ticketId: number,
+  graphRunId: number,
+  now: () => string,
+): AutoFireOutcome {
+  if (getTicket(store, ticketId).pausedAt !== null) {
+    parkAwaitingMarker(store, ticketId, graphRunId, now, 'completed, ticket paused — the impl marker fires after unpause');
+    return { kind: 'paused' };
+  }
+  const result = fireGraphImplMarkerFromHost(store, ticketId);
+  if (result.ok) return { kind: 'fired', graphRunId: result.graphRunId ?? graphRunId };
+  const reason = result.reason ?? 'impl marker refused';
+  const firstTime = parkAwaitingMarker(
+    store,
+    ticketId,
+    graphRunId,
+    now,
+    `completed, impl marker not fired automatically: ${reason}`,
+  );
+  return { kind: 'refused', reason, firstTime };
+}
+
+/** Write the wait block unless the same text is already there; true when written. */
+function parkAwaitingMarker(
+  store: Store,
+  ticketId: number,
+  graphRunId: number,
+  now: () => string,
+  detail: string,
+): boolean {
+  const existing = stageBlock(store, ticketId, 'impl');
+  const ordinal = graphRunOrdinal(store.db, ticketId, graphRunId);
+  const expected = `${GRAPH_MARKER_WAIT_BLOCKER}: graph run ${ordinal} ${detail}`;
+  if (existing?.kind === GRAPH_MARKER_WAIT_BLOCKER && existing.reason === expected) return false;
+  markGraphAwaitingImplMarker(store, ticketId, graphRunId, now, detail);
+  return true;
 }
 
 /** The widened resume outcome (the typed graph-recovery action is defined

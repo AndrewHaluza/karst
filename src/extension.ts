@@ -222,6 +222,7 @@ import { startHookEndpoint, type HookEndpoint } from './hooks/endpoint.js';
 import { startBackgroundWaitSweep } from './extension/ops/backgroundWaitWiring.js';
 import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/graphEndpoint.js';
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
+import { awaitingImplMarkerRuns } from './store/graph/graphRuns.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
 import { reconcilableGraphRunIds } from './approaches/graph/coordinator/reconcileScope.js';
 import { sweepOrphanGraphRuns } from './approaches/graph/coordinator/orphanSweep.js';
@@ -270,7 +271,7 @@ import { plannerRunIdsForGraphRun, plannerRunStatus, plannerRunTicketId, setPlan
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import {
   blockGraphStage,
-  markGraphAwaitingImplMarker,
+  tryAutoFireGraphImplMarker,
   fireGraphImplMarkerFromHost,
 } from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
@@ -4167,6 +4168,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     settleGraphRun(gs.db, graphRunId);
   };
 
+  /** A marker-ready run fires its impl marker by itself (@arch:IMPLUAT); a
+   *  refusal or a pause leaves the `awaiting-impl-marker` block for the button. */
+  const autoFireImplMarker = (ticketId: number, graphRunId: number): void => {
+    const outcome = tryAutoFireGraphImplMarker(
+      graphCoordinatorStore!,
+      ticketId,
+      graphRunId,
+      () => new Date().toISOString(),
+    );
+    if (outcome.kind === 'fired') {
+      logger.debug(`[graph] run ${graphRunId}: auto impl marker fired`);
+      maybeDrive(ticketId, 'graph-impl-marker');
+    } else if (outcome.kind === 'refused' && outcome.firstTime) {
+      logger.debug(`[graph] run ${graphRunId}: auto impl marker refused — ${outcome.reason}`);
+    }
+    provider.refresh();
+    dashboard.pushState(ticketId);
+  };
+
   /** After integration: a blocked node blocks the run, and an END-quiescent
    *  run flips to `completed-awaiting-impl-marker`. A blocked run then gets
    *  its `approach-graph-failed` stage block, once, via the boundary module. */
@@ -4223,14 +4243,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (result.flipped) {
         logger.debug(`[graph] run ${graphRunId} quiescent — waiting for the impl marker`);
-        // Make the wait visible on the stage row itself (needs-you amber),
-        // the same way blockGraphStage makes a graph fault visible.
-        markGraphAwaitingImplMarker(
-          graphCoordinatorStore!,
-          run.ticket_id,
-          graphRunId,
-          () => new Date().toISOString(),
-        );
+        autoFireImplMarker(run.ticket_id, graphRunId);
       }
       return;
     }
@@ -5645,6 +5658,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // This sweep is the one place that sees a run leave graph ownership,
         // so it is where the kick belongs; `driveTicket`'s single-flight guard
         // makes the repeat on the next tick a no-op.
+        try {
+          for (const parked of awaitingImplMarkerRuns(gs.db, { projectId: project.id })) {
+            autoFireImplMarker(parked.ticketId, parked.graphRunId);
+          }
+        } catch (e) {
+          logError('karst: graph auto impl marker failed', e);
+        }
         try {
           for (const ticketId of ticketsAwaitingGraphDrive(gs.db, { projectId: project.id })) {
             maybeDrive(ticketId, 'graph-handoff');

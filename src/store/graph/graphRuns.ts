@@ -532,6 +532,32 @@ export function ticketIdsAwaitingGraphDrive(
   return rows.map((r) => r.id);
 }
 
+/**
+ * Runs parked at `completed-awaiting-impl-marker` whose ticket is still at
+ * `impl`, unpaused and not archived — the sweep's catch-up read for the auto
+ * impl marker (@arch:IMPLUAT). A paused ticket starts nothing on its own
+ * (@arch:PAUSE), so it is left out until the unpause.
+ */
+export function awaitingImplMarkerRuns(
+  db: GraphDb,
+  scope: { projectId: number },
+): Array<{ ticketId: number; graphRunId: number }> {
+  const rows = db
+    .prepare(
+      `SELECT t.id AS ticketId, r.id AS graphRunId
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE t.project_id = ?
+          AND r.status = 'completed-awaiting-impl-marker'
+          AND t.stage_current = 'impl'
+          AND t.paused_at IS NULL
+          AND t.archived_at IS NULL
+        ORDER BY r.id`,
+    )
+    .all(scope.projectId) as Array<{ ticketId: number; graphRunId: number }>;
+  return rows;
+}
+
 /** The diagnostic reference a graph run resolves to: its stage attempt and the
  *  owning ticket/project slugs. */
 export function graphRunDiagnosticRef(
