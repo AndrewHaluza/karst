@@ -55,6 +55,17 @@ Runs on case set v4, `c11` to `c18` (reports in `review-references/*-c11-c18-v4/
 
 Antigravity had no blocking false finding on v4, against 6 on v2 and v3. The fixes to `c14` and `c15` worked for this core. Opencode2 timed out on 2 of 16 calls at 10 minutes (`c12` run 2 and `c17` run 1). It found the `c12` defect in run 1, which it missed in the earlier 1-run batch. Its clean-case false finding was in `c18` run 2. Every cell has n below 30.
 
+Clean-case runs on case set v4: the 4 clean cases (`c09`, `c10`, `c17`, `c18`), 8 runs each (`review-references/*-clean-n32-v4/`). This is the first cell with n of 30 or more.
+
+| Core | Model | Clean cases with a false finding | 95% interval | Calls with `ok` | Seconds per run |
+|---|---|---|---|---|---|
+| antigravity | gemini-3.8-flash-medium | 0/32 | 0.0% to 10.7% | 32 of 32 | 62.9 |
+| opencode2 | opencode-go/mimo-v2.6-flash | 10/31 | 18.6% to 49.9% | 31 of 32 | 200.7 |
+
+The two intervals do not overlap, so antigravity has fewer false findings than opencode2 on these cases. The conclusion holds only for these 4 cases, and it is a statement about clean cases, not about recall. Recall is still n below 30 for every core.
+
+Opencode2 failed `c17` in 7 of 8 runs and `c18` in 3 of 7. In 6 of the 7 `c17` runs the finding says the new test file imports `vitest` but the repo has no `package.json` or dependency for it. That is a flaw in the case, not only in the core. Without `c17` the opencode2 result is 3 of 23. Decision needed: add a minimal `package.json` that lists `vitest` to `c17` (case set 5), then rerun `c17`.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
