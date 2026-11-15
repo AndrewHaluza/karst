@@ -8,9 +8,16 @@ describe('restoreView', () => {
     expect(restoreView({})).toEqual(DEFAULT_VIEW);
   });
   it('restores saved flags and ignores non-boolean junk', () => {
-    expect(restoreView({ collapsed: { planning: true, tickets: false }, showArchivedPlans: true })).toEqual({ collapsed: { planning: true, queue: true, tickets: false }, showArchivedPlans: true });
+    expect(restoreView({ collapsed: { planning: true, tickets: false }, showArchivedPlans: true })).toEqual({ ...DEFAULT_VIEW, collapsed: { planning: true, queue: true, tickets: false }, showArchivedPlans: true });
     expect(restoreView({ collapsed: { queue: false } }).collapsed.queue).toBe(false);
-    expect(restoreView({ collapsed: { planning: 'yes', tickets: true }, showArchivedPlans: 1 })).toEqual({ collapsed: { planning: false, queue: true, tickets: true }, showArchivedPlans: false });
+    expect(restoreView({ collapsed: { planning: 'yes', tickets: true }, showArchivedPlans: 1 })).toEqual({ ...DEFAULT_VIEW, collapsed: { planning: false, queue: true, tickets: true }, showArchivedPlans: false });
+  });
+});
+
+describe('restoreView queue filters', () => {
+  it('restores saved queue filters and defaults the rest', () => {
+    expect(restoreView({ queueFilters: { levels: ['urgent'], chain: 'D5' } }).queueFilters).toEqual({ kinds: [], sessions: [], levels: ['urgent'], blocked: [], chain: 'D5' });
+    expect(restoreView({ queueFilters: 7 }).queueFilters).toEqual(DEFAULT_VIEW.queueFilters);
   });
 });
 

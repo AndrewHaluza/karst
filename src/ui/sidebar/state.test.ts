@@ -870,6 +870,26 @@ describe('buildSidebarState queue', () => {
     expect(queue.rows[1]).toMatchObject({ kind: 'draft', id: urgent, ownLevel: 'urgent' });
   });
 
+  it('sends the session title and the reverse of waitsOn (unblocks)', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 'offloading', core: 'claude', model: null }).id;
+    const blocker = insertProposal(store, session, { ...draft, title: 'Blocker' });
+    const waiter = insertProposal(store, session, { ...draft, title: 'Waiter', dependsOn: [blocker] });
+    const { queue } = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    const first = queue.rows.find((r) => r.id === blocker)!;
+    const second = queue.rows.find((r) => r.id === waiter)!;
+    expect(first).toMatchObject({ sessionTitle: 'offloading', unblocks: [`D${waiter}`] });
+    expect(second).toMatchObject({ sessionTitle: 'offloading', unblocks: [], waitsOn: [`D${blocker}`] });
+  });
+
+  it('sends sessionTitle null for a ticket', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;
+    insertProposal(store, session, { ...draft, title: 'Only draft' });
+    const { queue } = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    expect(queue.rows.every((r) => (r.kind === 'ticket') === (r.sessionTitle === null))).toBe(true);
+  });
+
   it('sends a chip view for each waited item, the raiser and the cycle partner', () => {
     const projectId = upsertProject(store, { slug: 'p' }).id;
     const session = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;

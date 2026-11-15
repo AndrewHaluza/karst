@@ -11,10 +11,28 @@ import { Pane } from './Pane.js';
 import { PriorityChip } from './PriorityChip.js';
 import { priorityMenuItem } from './priority.js';
 import { TicketRefs } from './TicketRefs.js';
+import { QueueFilterChips } from './QueueFilterChips.js';
+import { QueueFilterMenu } from './QueueFilterMenu.js';
+import { filterQueue, hasChain, hasQueueFilters, liveFilters, matchesQuery, NO_QUEUE_FILTERS } from './queueFilter.js';
 import { useSidebar } from './SidebarContext.js';
 import type { ActionSpec } from './action.js';
 
 export const QUEUE_EMPTY_TEXT = 'Nothing waits. New drafts and not-started tickets show here.';
+export const QUEUE_NO_MATCH_TEXT = 'No queue items match.';
+
+/** The text with each match of the search query wrapped in a mark. */
+function Marked({ text, query }: { readonly text: string; readonly query: string }) {
+  const needle = query.trim().toLowerCase();
+  const at = needle === '' ? -1 : text.toLowerCase().indexOf(needle);
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark className="q-hit">{text.slice(at, at + needle.length)}</mark>
+      {text.slice(at + needle.length)}
+    </>
+  );
+}
 
 function openSpec(row: QueueRowView): ActionSpec {
   return row.kind === 'draft' ? { act: 'plan-proposal-review', proposal: row.id } : { act: 'open-dashboard', id: row.id };
@@ -52,7 +70,16 @@ function QueueRelation({ row }: { readonly row: QueueRowView }) {
   return null;
 }
 
-function QueueRow({ row }: { readonly row: QueueRowView }) {
+interface QueueRowProps {
+  readonly row: QueueRowView;
+  readonly query: string;
+  /** The row shows the chain control. */
+  readonly linked: boolean;
+  readonly chainOn: boolean;
+  readonly onChain: (id: string) => void;
+}
+
+function QueueRow({ row, query, linked, chainOn, onChain }: QueueRowProps) {
   const { fire, menu, openMenu, closeMenu } = useSidebar();
   const owner = `q${row.idLabel}`;
   const menuOpen = menu?.owner === owner;
@@ -78,12 +105,33 @@ function QueueRow({ row }: { readonly row: QueueRowView }) {
           raised={row.whyKind === 'raised'}
         />
         <span className="q-id">
-          {row.idLabel}
-          {row.sessionLabel ? <span className="q-sx"> · {row.sessionLabel}</span> : null}
+          <Marked text={row.idLabel} query={query} />
+          {row.sessionLabel ? (
+            <span className="q-sx">
+              {' · '}
+              <Marked text={row.sessionLabel} query={query} />
+              {row.sessionTitle && query.trim() !== '' && row.sessionTitle.toLowerCase().includes(query.trim().toLowerCase()) ? (
+                <span className="q-sx-title"> · <Marked text={row.sessionTitle} query={query} /></span>
+              ) : null}
+            </span>
+          ) : null}
         </span>
-        <span className="q-title" title={row.title} aria-label={row.title}>{row.title}</span>
+        <span className="q-title" title={row.title} aria-label={row.title}><Marked text={row.title} query={query} /></span>
       </button>
       <QueueRelation row={row} />
+      {linked ? (
+        <button
+          type="button"
+          className="k-iconbtn q-chain"
+          data-queue-chain={row.idLabel}
+          aria-pressed={chainOn}
+          aria-label={`Show chain of ${row.idLabel}`}
+          title="Show chain"
+          onClick={() => onChain(row.idLabel)}
+        >
+          <Icon name="link" />
+        </button>
+      ) : null}
       <button
         type="button"
         className="k-iconbtn q-menu"
@@ -104,16 +152,53 @@ function QueueRow({ row }: { readonly row: QueueRowView }) {
 }
 
 export function QueuePane() {
-  const { state } = useSidebar();
+  const { state, view, updateQueueFilters, post } = useSidebar();
   const rows = state.queue?.rows ?? [];
+  const query = state.filter || '';
+  const filters = liveFilters(rows, view.queueFilters);
+  const searching = query.trim() !== '';
+  const active = hasQueueFilters(filters) || searching;
+  const { shown, items } = filterQueue(rows, filters, query);
+  const revealed = searching && rows.some((r) => matchesQuery(r, query));
+  const toggleChain = (id: string): void =>
+    updateQueueFilters((f) => ({ ...f, chain: f.chain === id ? null : id }));
+  const clear = (): void => {
+    updateQueueFilters(() => NO_QUEUE_FILTERS);
+    if (searching) post({ type: 'set-filter', query: '' });
+  };
   return (
-    <Pane pane="queue" title="Queue" count={rows.length} actions={null}>
-      {rows.length ? (
-        <div className="q-list" data-region="queue">
-          {rows.map((r) => <QueueRow key={r.idLabel} row={r} />)}
+    <Pane
+      pane="queue"
+      title="Queue"
+      count={active ? `${shown} / ${rows.length}` : rows.length}
+      revealed={revealed}
+      actions={rows.length ? <QueueFilterMenu rows={rows} /> : null}
+      sub={rows.length ? <QueueFilterChips rows={rows} /> : null}
+    >
+      {!rows.length ? (
+        <div className="pane-empty" data-region="queue">{QUEUE_EMPTY_TEXT}</div>
+      ) : shown === 0 ? (
+        <div className="pane-empty" data-region="queue">
+          {QUEUE_NO_MATCH_TEXT}{' '}
+          <button type="button" className="k-link q-clear-all" data-queue-clear-all="1" onClick={clear}>Clear filters</button>
         </div>
       ) : (
-        <div className="pane-empty" data-region="queue">{QUEUE_EMPTY_TEXT}</div>
+        <div className="q-list" data-region="queue">
+          {items.map((it, i) =>
+            'row' in it ? (
+              <QueueRow
+                key={it.row.idLabel}
+                row={it.row}
+                query={query}
+                linked={hasChain(it.row, rows)}
+                chainOn={filters.chain === it.row.idLabel}
+                onChain={toggleChain}
+              />
+            ) : (
+              <div key={`gap-${i}`} className="q-gap" data-queue-gap={it.gap} role="separator" aria-label={`${it.gap} hidden`}>···</div>
+            ),
+          )}
+        </div>
       )}
     </Pane>
   );

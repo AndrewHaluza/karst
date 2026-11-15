@@ -472,8 +472,8 @@ function cloudSessionsState(): SidebarState {
 export function fixtureQueueRow(position: number, overrides: Partial<QueueRowView> = {}): QueueRowView {
   const id = 450 + position;
   return {
-    position, kind: 'draft', id, idLabel: `D${id}`, sessionLabel: 'P17', title: `Queue item ${position}`,
-    level: 'normal', inheritedFrom: null, waitsOn: [], waitsOnRefs: [], inheritedRef: null, cycleRef: null, cycle: false, why: '', whyKind: 'none', ownLevel: null,
+    position, kind: 'draft', id, idLabel: `D${id}`, sessionLabel: 'P17', sessionTitle: 'offloading', title: `Queue item ${position}`,
+    level: 'normal', inheritedFrom: null, waitsOn: [], unblocks: [], waitsOnRefs: [], inheritedRef: null, cycleRef: null, cycle: false, why: '', whyKind: 'none', ownLevel: null,
     prioritySource: null, providerPriority: null, providerLabel: null,
     ...overrides,
   };
@@ -484,9 +484,9 @@ function queueRows(): QueueRowView[] {
   const draftRef = (n: number, session = 'P17') => ticketRefView({ draftId: n, draftLabel: `D${n}`, sessionLabel: session });
   const ticketRef = (id: number, stage: string) => ticketRefView({ ticketId: id, stage });
   return [
-    fixtureQueueRow(1, { id: 497, idLabel: 'D497', title: 'Add the shared retry helper', level: 'urgent', inheritedFrom: 'D498', inheritedRef: draftRef(498), why: 'unblocks D498', whyKind: 'raised' }),
+    fixtureQueueRow(1, { id: 497, idLabel: 'D497', title: 'Add the shared retry helper', level: 'urgent', inheritedFrom: 'D498', inheritedRef: draftRef(498), unblocks: ['D498'], why: 'unblocks D498', whyKind: 'raised' }),
     fixtureQueueRow(2, { id: 498, idLabel: 'D498', title: 'Fix the data loss on a failed accept', level: 'urgent', ownLevel: 'urgent', waitsOn: ['D497'], waitsOnRefs: [draftRef(497)], why: 'waits on D497', whyKind: 'waits' }),
-    fixtureQueueRow(3, { id: 452, idLabel: 'D452', title: 'Split the auth module', level: 'high', ownLevel: 'high', sessionLabel: 'P18' }),
+    fixtureQueueRow(3, { id: 452, idLabel: 'D452', title: 'Split the auth module', level: 'high', ownLevel: 'high', sessionLabel: 'P18', sessionTitle: 'auth' }),
     fixtureQueueRow(4, { kind: 'ticket', id: 997, idLabel: 'T997', sessionLabel: null, title: 'Cut the cold start of the sidebar', waitsOn: ['T12', 'T13'], waitsOnRefs: [ticketRef(12, 'impl'), ticketRef(13, 'review')], why: 'waits on T12 +1', whyKind: 'waits' }),
     fixtureQueueRow(5, { id: 460, idLabel: 'D460', title: 'Rename the stage runner option', level: 'low', ownLevel: 'low' }),
     fixtureQueueRow(6, { id: 461, idLabel: 'D461', title: 'Move the gate log to its own table', why: 'cycle with D462', whyKind: 'cycle', cycle: true, cycleRef: draftRef(462), waitsOn: ['D462'], waitsOnRefs: [draftRef(462)] }),

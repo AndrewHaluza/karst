@@ -12,16 +12,19 @@ import type { PaneKey } from './viewState.js';
 export interface PaneProps {
   readonly pane: PaneKey;
   readonly title: string;
-  readonly count: number;
+  /** The count text: a number, or `shown / total` while a filter is active. */
+  readonly count: number | string;
   readonly actions: ReactNode;
+  /** Open the pane although the user collapsed it (a search that matches a row inside). */
+  readonly revealed?: boolean;
   /** Rendered between the header and the body while expanded (the Tickets attention line). */
   readonly sub?: ReactNode;
   readonly children: ReactNode;
 }
 
-export function Pane({ pane, title, count, actions, sub, children }: PaneProps) {
+export function Pane({ pane, title, count, actions, sub, revealed, children }: PaneProps) {
   const { view, togglePane } = useSidebar();
-  const collapsed = view.collapsed[pane];
+  const collapsed = view.collapsed[pane] && revealed !== true;
   const bodyId = `pane-body-${pane}`;
   return (
     <section className="pane" data-pane={pane} data-collapsed={collapsed} aria-label={title}>
