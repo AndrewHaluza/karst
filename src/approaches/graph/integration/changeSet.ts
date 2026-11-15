@@ -116,6 +116,24 @@ export function isPathWithinClaim(path: string, claim: string): boolean {
   return path.startsWith(`${claim}/`);
 }
 
+/**
+ * Split a change set into the entries a node may report and the entries inside
+ * a path a `ship.regenerate` command owns. The host rebuilds an owned path
+ * before the gates, so a node's change to it is dropped, never a violation.
+ */
+export function splitRegenerated(
+  entries: readonly ChangeSetEntry[],
+  regeneratedPaths: readonly string[],
+): { kept: ChangeSetEntry[]; dropped: ChangeSetEntry[] } {
+  const kept: ChangeSetEntry[] = [];
+  const dropped: ChangeSetEntry[] = [];
+  for (const entry of entries) {
+    const owned = regeneratedPaths.some((p) => isPathWithinClaim(entry.path, p));
+    (owned ? dropped : kept).push(entry);
+  }
+  return { kept, dropped };
+}
+
 export type ClaimValidation =
   | { ok: true }
   | { ok: false; violations: string[] };

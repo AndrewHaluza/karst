@@ -1047,6 +1047,25 @@ describe('repository ship exclude', () => {
     }
   });
 
+  it('parses owned paths on a regenerate entry and refuses an escaping path', () => {
+    const ok = fixture(
+      withBackend('    ship:\n      regenerate:\n        - { run: "make gen", paths: ["docs/COVERS.json", "docs/gen/"] }\n'),
+    );
+    try {
+      expect(loadManifest(ok.path).repositories.backend!.ship).toEqual({
+        regenerate: [{ run: 'make gen', paths: ['docs/COVERS.json', 'docs/gen'] }],
+      });
+    } finally {
+      ok.cleanup();
+    }
+    const bad = fixture(withBackend('    ship:\n      regenerate:\n        - { run: "x", paths: ["../etc"] }\n'));
+    try {
+      expect(() => loadManifest(bad.path)).toThrow(/paths\[0\]/);
+    } finally {
+      bad.cleanup();
+    }
+  });
+
   it('drops an empty exclude list — the block is absent', () => {
     const { path, cleanup } = fixture(withBackend('    ship:\n      exclude: []\n'));
     try {

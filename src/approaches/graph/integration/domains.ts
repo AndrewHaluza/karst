@@ -22,11 +22,19 @@ import { canonicalRepoId } from '../../../runtime/repoId.js';
 export interface DomainEntry {
   repoName: string;
   worktreePath: string;
+  /** Repo-relative paths a `ship.regenerate` command owns (the host rebuilds them). */
+  regeneratedPaths?: string[];
 }
 
 /** The subset of a manifest repository entry this resolver needs. */
 export interface ResolvableRepositoryEntry {
   repoPath: string;
+  ship?: { regenerate?: readonly (string | { paths?: readonly string[] })[] };
+}
+
+/** The `paths` every `ship.regenerate` entry of a repository declares. */
+export function regeneratedPathsOf(def: ResolvableRepositoryEntry): string[] {
+  return (def.ship?.regenerate ?? []).flatMap((e) => (typeof e === 'string' ? [] : [...(e.paths ?? [])]));
 }
 
 /**
@@ -49,7 +57,9 @@ export function resolveRepoWorktrees(
   const byRepoPath = new Map(worktrees.map((wt) => [wt.repo, wt.path]));
   return Object.entries(repositories).flatMap(([repoName, def]) => {
     const path = byRepoPath.get(def.repoPath);
-    return path ? [{ repoName, worktreePath: path }] : [];
+    if (!path) return [];
+    const regeneratedPaths = regeneratedPathsOf(def);
+    return [{ repoName, worktreePath: path, ...(regeneratedPaths.length > 0 ? { regeneratedPaths } : {}) }];
   });
 }
 
@@ -78,6 +88,8 @@ export interface PhysicalDomain {
   gitCommonDir: string | null;
   /** Manifest repository names aliasing this one domain. */
   repoNames: string[];
+  /** Union of the repos' `ship.regenerate` owned paths. */
+  regeneratedPaths: string[];
 }
 
 const DOMAIN_SEPARATOR = '\u0000';
@@ -141,10 +153,14 @@ export function resolvePhysicalDomains(
         canonicalWorktree,
         gitCommonDir: gitCommonDirOf(canonicalWorktree),
         repoNames: [],
+        regeneratedPaths: [],
       };
       byKey.set(key, domain);
     }
     domain.repoNames.push(entry.repoName);
+    for (const p of entry.regeneratedPaths ?? []) {
+      if (!domain.regeneratedPaths.includes(p)) domain.regeneratedPaths.push(p);
+    }
   }
   return [...byKey.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }

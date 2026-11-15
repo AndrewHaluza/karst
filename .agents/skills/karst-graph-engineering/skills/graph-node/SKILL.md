@@ -61,6 +61,7 @@ until a human or a replan resolves the block.
 
 - Work inside your isolated workspaces and the staging paths you were given.
 - Do not modify anything outside the declared resource claims.
+- Files that `ship.regenerate` makes are rebuilt by the host; a node does not need to claim them.
 - Do not run git operations that rewrite history or force anything; karst
   owns integration.
 - Do not fire the ticket-driving verbs — `stage`, `phase`, `graph submit` — or
