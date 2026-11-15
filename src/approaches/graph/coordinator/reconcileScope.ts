@@ -27,7 +27,7 @@
  */
 
 import { GRAPH_RUN_TRANSITIONS, type GraphDb } from '../../../store/graph/transitions.js';
-import { graphRunIdsByStatusForProject } from '../../../store/graph/graphRuns.js';
+import { graphRunIdsByStatusForProject, archivedTicketGraphRunIds } from '../../../store/graph/graphRuns.js';
 
 /** Every graph-run status whose transition map has at least one exit —
  *  i.e. every status that is not terminal (`closed`, `stale`, `cancelled`). */
@@ -49,11 +49,16 @@ export function reconcilableGraphRunIds(
   scope: ReconcilableGraphRunsScope,
   debug?: (message: string) => void,
 ): number[] {
+  // An archived ticket's run is never driven: the orphan sweep cancels it, and
+  // a refused cancel must not make reconcile drive an archived ticket.
+  const archived = new Set(
+    archivedTicketGraphRunIds(db, scope.projectId, NON_TERMINAL_GRAPH_RUN_STATUSES),
+  );
   const ids = graphRunIdsByStatusForProject(
     db,
     scope.projectId,
     NON_TERMINAL_GRAPH_RUN_STATUSES,
-  );
+  ).filter((id) => !archived.has(id));
   // The scope is where a project-scoping bug hides in plain sight: a tick that
   // reconciles NOTHING and a tick whose window holds the wrong project read
   // identically from the outside (G1 of the reliability audit was exactly

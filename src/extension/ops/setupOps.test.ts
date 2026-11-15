@@ -6,6 +6,7 @@ import { repo } from '../../manifest/fixtures.js';
 import type { CreateTerminalOpts, SessionTerminal, TerminalHost } from '../../ui/session.js';
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import { hashInstructions } from '../../agent/instructions.js';
+import { configureOpencode2, resetOpencode2Config } from '../../agent/opencode2Binary.js';
 import { createSetupOps, type SetupOpsDeps } from './setupOps.js';
 import { trustKeyFor } from '../../agent/workspaceTrust.js';
 
@@ -63,6 +64,7 @@ describe('setup ops', () => {
     };
   });
   afterEach(() => {
+    resetOpencode2Config();
     rmSync(scratch, { recursive: true, force: true });
     vi.unstubAllEnvs();
     rmSync(home, { recursive: true, force: true });
@@ -110,6 +112,23 @@ describe('setup ops', () => {
     expect(existsSync(join(opts.cwd, 'outbox'))).toBe(true);
     expect(ops.isLive('abc123')).toBe(true);
     expect(created[0]!.shown).toBe(1);
+  });
+
+  it('exports the configured opencode2 binary and home to the setup session', async () => {
+    configureOpencode2({ binaryPath: '/bin/opencode', home: '/gs/opencode2' });
+    const ops = createSetupOps(deps);
+    expect(await ops.create()).toBe(true);
+    expect(created[0]!.opts.env).toEqual(expect.objectContaining({
+      KARST_OPENCODE2_BINARY: '/bin/opencode',
+      KARST_OPENCODE2_HOME: '/gs/opencode2',
+    }));
+  });
+
+  it('exports no opencode2 env when the binary path is unset', async () => {
+    const ops = createSetupOps(deps);
+    expect(await ops.create()).toBe(true);
+    expect(created[0]!.opts.env).not.toHaveProperty('KARST_OPENCODE2_BINARY');
+    expect(created[0]!.opts.env).not.toHaveProperty('KARST_OPENCODE2_HOME');
   });
 
   it('launches the setup session under the attended policy (kill + home-config denies)', async () => {

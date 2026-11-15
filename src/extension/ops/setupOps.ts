@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
 import { KARST_INSTRUCTIONS_ENV, sessionCliEnv } from '../../agent/cliEnv.js';
+import { opencode2ConfigEnv } from '../../agent/opencode2Binary.js';
 import { writeSessionInstructions } from '../../agent/instructions.js';
 import { measureSeed } from '../../agent/seed.js';
 import { SETUP_OUTBOX_ENV } from '../../setup/proposal.js';
@@ -128,6 +129,9 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
           env: {
             ...cmd.env,
             ...cliEnv,
+            // The CLI cannot read the VS Code setting: `setup check` needs the same
+            // opencode2 binary and isolated home as the host to probe the core.
+            ...opencode2ConfigEnv(),
             [KARST_INSTRUCTIONS_ENV]: instructions.path,
             [SETUP_OUTBOX_ENV]: outbox,
             [KARST_SETUP_SESSION_ENV]: id,

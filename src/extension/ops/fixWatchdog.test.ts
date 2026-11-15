@@ -1044,4 +1044,92 @@ describe('fixWatchdog stranded stage', () => {
     expect(redrive).toHaveBeenCalledExactlyOnceWith(id);
     store.close();
   });
+
+  describe('redrive readiness', () => {
+    let store: Store;
+    let id: number;
+    let projectId: number;
+    beforeEach(() => {
+      store = openStore(':memory:');
+      projectId = upsertProject(store, { slug: 'ready-proj' }).id;
+      id = createTicketFlow(store, { key: 'T-10', title: 't', projectId }).id;
+      store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(id);
+      setStage(store, id, 'uat', { status: 'running', startedAt: T0 });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      store.close();
+    });
+    const makeDeps = (extra: Partial<FixWatchdogDeps>, logs: string[]): FixWatchdogDeps => ({
+      store,
+      timeoutMinutes: () => 60,
+      projectId: () => projectId,
+      now: () => T2,
+      log: (m) => logs.push(m),
+      isLive: () => false,
+      nudge: () => false,
+      isGraphTicket: () => false,
+      redriven: new Set<string>(),
+      ...extra,
+    });
+
+    it('does nothing while the driver is not ready, then re-drives, never parks', () => {
+      let ready = false;
+      const redrive = vi.fn();
+      const logs: string[] = [];
+      const deps = makeDeps({ redrive, redriveReady: () => ready }, logs);
+      expect(runFixWatchdog(deps)).toBe(0);
+      expect(runFixWatchdog(deps)).toBe(0);
+      expect(redrive).not.toHaveBeenCalled();
+      expect(logs).toEqual([]);
+      expect(stageBlock(store, id, 'uat')).toBeNull();
+      expect(getTicket(store, id)!.stageCurrent).toBe('uat');
+      ready = true;
+      expect(runFixWatchdog(deps)).toBe(1);
+      expect(redrive).toHaveBeenCalledExactlyOnceWith(id);
+      expect(stageBlock(store, id, 'uat')).toBeNull();
+    });
+
+    it('re-drives at once when the readiness seam is absent or true', () => {
+      for (const extra of [{}, { redriveReady: () => true }]) {
+        const redrive = vi.fn();
+        const deps = makeDeps({ redrive, ...extra }, []);
+        expect(runFixWatchdog(deps)).toBe(1);
+        expect(redrive).toHaveBeenCalledExactlyOnceWith(id);
+      }
+    });
+
+    it('startFixWatchdog logs no recovery failure when the driver is not ready at the first tick', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(T2));
+      let ready = false;
+      const redrive = vi.fn();
+      const logs: string[] = [];
+      const watchdog = startFixWatchdog(store, () => undefined, () => projectId, (m) => logs.push(m), undefined, {
+        isLive: () => false,
+        nudge: () => false,
+        isGraphTicket: () => false,
+        redrive,
+        redriveReady: () => ready,
+      });
+      expect(redrive).not.toHaveBeenCalled();
+      expect(logs.some((l) => l.includes('recovery failed'))).toBe(false);
+      expect(logs.some((l) => l.includes('re-driving'))).toBe(false);
+      ready = true;
+      vi.advanceTimersByTime(FIX_WATCHDOG_INTERVAL_MS);
+      expect(redrive).toHaveBeenCalledExactlyOnceWith(id);
+      watchdog.dispose();
+    });
+
+    it('a seam that throws does not spend the re-drive', () => {
+      const redrive = vi.fn(() => {
+        throw new Error('boom');
+      });
+      const logs: string[] = [];
+      const deps = makeDeps({ redrive, redriveReady: () => true }, logs);
+      expect(runFixWatchdog(deps)).toBe(0);
+      expect(logs.some((l) => l.includes('stranded-stage recovery failed (boom)'))).toBe(true);
+      expect(deps.redriven!.size).toBe(0);
+    });
+  });
 });

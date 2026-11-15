@@ -227,6 +227,7 @@ import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/grap
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
 import { reconcilableGraphRunIds } from './approaches/graph/coordinator/reconcileScope.js';
+import { sweepOrphanGraphRuns } from './approaches/graph/coordinator/orphanSweep.js';
 import {
   reconcileGraphRun,
   type ReconcileGraphRunDeps,
@@ -2048,7 +2049,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(fixDeliveryTimer) });
   // Project-scoped, so this manifest's window never reaches another project's fix; its immediate first tick covers activation. After `fixDelivery`: the guard points at the stored brief.
-  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage'), isDraining: () => drain.isDraining() }));
+  // The stage driver (`maybeDrive`) is declared later in `activate` (TDZ): the first watchdog tick must not call it.
+  let stageDriverReady = false;
+  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage'), redriveReady: () => stageDriverReady, isDraining: () => drain.isDraining() }));
   const turnTracker = new TurnTracker();
   // Mailbox delivery (Wave 3): per-core push to live recipients, plus wakes.
   const mailbox = makeMailDeliveryWiring({
@@ -3946,6 +3949,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const maybeDrive = (ticketId: number, trigger: string): void => {
     void maybeDriveChecked(ticketId, trigger).catch((e) => logError(`karst: stage driver trigger '${trigger}' failed for ticket ${ticketId}`, e));
   };
+  stageDriverReady = true;
 
   // The hook channel fans liveness/needs-you out to the sidebar + any open
   // dashboard, so a waiting agent turns amber without opening its terminal.
@@ -5561,6 +5565,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const project = graphSweepProject();
     if (!gs || !project) return;
     try {
+      await sweepOrphanGraphRuns(
+        {
+          db: gs.db,
+          transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
+          facts: systemAsyncProcessFacts,
+          killTree: systemKillTree,
+          debug: (m) => logger.debug(m),
+        },
+        project.id,
+      );
       const runIds = reconcilableGraphRunIds(gs.db, { projectId: project.id }, (m) => logger.debug(m));
       for (const graphRunId of runIds) {
         const result = await reconcileGraphRun(graphReconcileDeps(), { graphRunId });

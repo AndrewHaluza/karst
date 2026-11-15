@@ -11,6 +11,12 @@
   },
   "type": "module",
   "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Karst runs commands from karst.yml and launches coding agents."
+    }
+  },
   "engines": {
     "vscode": "^1.105.1"
   },

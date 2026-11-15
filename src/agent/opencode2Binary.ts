@@ -19,6 +19,14 @@
 export const OPENCODE2_BINARY_SENTINEL = 'opencode2';
 
 /**
+ * Env names the host sets on a setup session terminal so the standalone CLI
+ * (`karst setup check`) resolves the same opencode2 binary and isolated home
+ * as the extension. The CLI cannot read the VS Code setting.
+ */
+export const KARST_OPENCODE2_BINARY_ENV = 'KARST_OPENCODE2_BINARY';
+export const KARST_OPENCODE2_HOME_ENV = 'KARST_OPENCODE2_HOME';
+
+/**
  * The version this core was live-verified against (SPIKE-OPENCODE2-V2-0-24-LIVE,
  * `@opencode/cli@2.0.24`). A newer version is accepted with a warning, because
  * v2 changes daily and refusing it would strand every user on upgrade.
@@ -62,6 +70,30 @@ export function opencode2BinaryPath(): string {
 /** The command to spawn: the configured path, or the sentinel when unset. */
 export function opencode2Command(): string {
   return config.binaryPath || OPENCODE2_BINARY_SENTINEL;
+}
+
+/**
+ * The env that carries the current config to a child CLI process. Both values
+ * or nothing: a binary without the karst-owned home would probe the user's
+ * real XDG dirs.
+ */
+export function opencode2ConfigEnv(): Record<string, string> {
+  const { binaryPath, home } = config;
+  if (binaryPath === '' || home === '') return {};
+  return { [KARST_OPENCODE2_BINARY_ENV]: binaryPath, [KARST_OPENCODE2_HOME_ENV]: home };
+}
+
+/**
+ * Configure the resolver from the env `opencode2ConfigEnv` wrote. Applies only
+ * when both values are non-blank after trim; otherwise the config is left
+ * unchanged. Returns true when it applied.
+ */
+export function configureOpencode2FromEnv(env: Readonly<Record<string, string | undefined>>): boolean {
+  const binaryPath = (env[KARST_OPENCODE2_BINARY_ENV] ?? '').trim();
+  const home = (env[KARST_OPENCODE2_HOME_ENV] ?? '').trim();
+  if (binaryPath === '' || home === '') return false;
+  configureOpencode2({ binaryPath, home });
+  return true;
 }
 
 /** Parse a `opencode v2.0.24` style version string; null when none is present. */
