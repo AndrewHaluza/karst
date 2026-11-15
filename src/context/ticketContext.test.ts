@@ -1985,9 +1985,9 @@ describe('ticket context — auto-deliver of a resolved merge (T1018)', () => {
     setStage(store, id, 'ship', { status: 'running' });
   });
   afterEach(() => store.close());
-  const render = (): string => {
+  const render = (mergeHeads?: { localHead: string | null; prHead: string | null; mergeBlock: string | null }): string => {
     const ctx = buildTicketContext(store, undefined, id);
-    const withPr = { ...ctx, prs: [{ repo: 'web', number: 5, url: null, status: 'open', mergeCheck: { state: 'clean' as const, files: [], reason: null } }] };
+    const withPr = { ...ctx, prs: [{ repo: 'web', number: 5, url: null, status: 'open', mergeCheck: { state: 'clean' as const, files: [], reason: null }, ...(mergeHeads ? { mergeHeads } : {}) }] };
     return renderTicketContext(withPr);
   };
 
@@ -1998,11 +1998,25 @@ describe('ticket context — auto-deliver of a resolved merge (T1018)', () => {
     expect(md).not.toContain('local merge commit');
   });
 
-  it('prints the progress line under Current stage and words clean as the local merge', () => {
+  it('prints the progress line under Current stage; the merge wording comes from the head facts, not the round', () => {
     openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit', 'docs', 'visual'], pid: 1, now: 'T' });
     const md = render();
     expect(md).toContain('- delivery: Delivering resolved merge: gate 1/3 (unit), push after the gates');
-    expect(md).toContain('merge: clean (the local merge commit, not on the PR yet)');
+    expect(md).toContain('merge: clean');
+    expect(md).not.toContain('clean locally');
+  });
+
+  it('words a clean local merge that GitHub does not hold, with a round (T1120) or without one (T1099)', () => {
+    const heads = { localHead: 'a'.repeat(40), prHead: 'b'.repeat(40), mergeBlock: 'dirty' };
+    expect(render(heads)).toContain(`merge: clean locally on ${'a'.repeat(9)} (not pushed; GitHub: dirty)`);
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit'], pid: 1, now: 'T' });
+    expect(render(heads)).toContain(`merge: clean locally on ${'a'.repeat(9)} (not pushed; GitHub: dirty)`);
+  });
+
+  it('keeps clean for equal heads and says the GitHub head is unknown when none is stored', () => {
+    const h = 'a'.repeat(40);
+    expect(render({ localHead: h, prHead: h, mergeBlock: 'clean' })).toMatch(/merge: clean$/m);
+    expect(render({ localHead: h, prHead: null, mergeBlock: null })).toContain(`merge: clean locally on ${'a'.repeat(9)} (GitHub head unknown)`);
   });
 
   it('keeps a failure and the takeover facts after a manual Deliver', () => {
@@ -2012,6 +2026,37 @@ describe('ticket context — auto-deliver of a resolved merge (T1018)', () => {
     const md = render();
     expect(md).toContain('- delivery: Delivery taken over by a manual Deliver; failed: unit; skipped: docs');
     expect(md).toContain(`- delivery failure: Gate unit failed (exit 2) on ${'a'.repeat(9)} — boom`);
-    expect(md).not.toContain('local merge commit');
+    expect(md).not.toContain('clean locally');
+  });
+});
+
+describe('ticket context — head facts and the blocked reason from the store (T1143)', () => {
+  const HEAD = 'a'.repeat(40);
+  const PR_HEAD = 'b'.repeat(40);
+  const REASON = 'blocked: the pull request for "web" has changes and is not merged yet (a conflict in web).';
+  function seed(prHead: string | null): { store: Store; id: number } {
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'PROJ-11', title: 't' }).id;
+    store.db
+      .prepare("INSERT INTO prs (ticket_id, repo, number, url, status, merge_block, head_oid) VALUES (?, 'web', 5, 'https://x/pr/5', 'open', 'dirty', ?)")
+      .run(id, prHead);
+    setMergeCheck(store, { ticketId: id, repo: 'web', state: 'clean', files: [], reason: null, headSha: HEAD, baseSha: null, baseRef: 'develop', checkedAt: '2026-01-01T00:00:00.000Z' });
+    setStage(store, id, 'ship', { status: 'passed', blockedKind: 'awaiting-merge', blockedReason: REASON, blockedAt: 'T' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('ship', id);
+    return { store, id };
+  }
+  it('words the merge and the stored conflict reason from the stored heads', () => {
+    const { store, id } = seed(PR_HEAD);
+    const ctx = buildTicketContext(store, undefined, id);
+    expect(renderTicketContext(ctx)).toContain(`merge: clean locally on ${'a'.repeat(9)} (not pushed; GitHub: dirty)`);
+    expect(ctx.stage?.blocked?.reason).toContain(`(conflict resolved locally on ${'a'.repeat(9)}, push pending)`);
+    store.close();
+  });
+  it('keeps the stored reason when the PR head is unknown', () => {
+    const { store, id } = seed(null);
+    const ctx = buildTicketContext(store, undefined, id);
+    expect(renderTicketContext(ctx)).toContain('(GitHub head unknown)');
+    expect(ctx.stage?.blocked?.reason).toBe(REASON);
+    store.close();
   });
 });

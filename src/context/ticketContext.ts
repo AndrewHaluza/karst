@@ -34,7 +34,8 @@ import {
 import { subtaskPrSuffix } from './subtaskPrSuffix.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckView.js';
-import { deliverFailureLine, deliverProgressLine, deliverTakeOverLine, mergeStateWording, type DeliverFacts } from '../model/inside/deliver.js';
+import { mergeHeadFactsByRepo } from '../store/mergeHeads.js';
+import { deliverFailureLine, deliverProgressLine, deliverTakeOverLine, mergeStateWording, wordResolvedConflict, type DeliverFacts, type MergeHeadFacts } from '../model/inside/deliver.js';
 import { deliverFactsFor } from '../store/deliverFacts.js';
 import { listGateRuns, HOST_RERUN_SOURCE } from '../store/gateRuns.js';
 import { latestFindingBatch } from '../store/reviewFindings.js';
@@ -75,6 +76,8 @@ export interface TicketContextPr {
    * this existed renders exactly as it did before, and never as "clean".
    */
   mergeCheck?: MergeCheckView;
+  /** The head facts of a clean merge check beside the stored PR head (T1143); omitted when there is none. */
+  mergeHeads?: MergeHeadFacts;
 }
 
 /**
@@ -429,6 +432,7 @@ function deliveryLines(d: DeliverFacts | undefined): string[] {
 /** A ticket's cached PR rows with their last merge check, as the context shows them. */
 function contextPrs(store: Store, ticketId: number): TicketContextPr[] {
   const checks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
+  const heads = mergeHeadFactsByRepo(store, ticketId);
   return listPrsByTicket(store, ticketId).map((p) => {
     const check = checks.get(p.repo);
     return {
@@ -436,6 +440,7 @@ function contextPrs(store: Store, ticketId: number): TicketContextPr[] {
       number: p.number,
       url: p.url,
       status: p.status,
+      ...(heads.has(p.repo) ? { mergeHeads: heads.get(p.repo)! } : {}),
       ...(p.baseRef ? { baseRef: p.baseRef } : {}),
       // Spread rather than `mergeCheck: undefined`, so a never-checked PR
       // serializes to the exact JSON the CLI emitted before this existed.
@@ -571,7 +576,7 @@ export function buildTicketContext(
             }
           : null,
         blocked: blockedRow?.blockedKind
-          ? { kind: blockedRow.blockedKind, reason: blockedRow.blockedReason ?? '' }
+          ? { kind: blockedRow.blockedKind, reason: wordResolvedConflict(blockedRow.blockedReason ?? '', mergeHeadFactsByRepo(store, ticketId)) }
           : null,
         gates: latestBatch(listGateRuns(store, ticketId), stageRow.stageKey).map((g) => ({
           name: g.gateName,
@@ -928,7 +933,7 @@ export function renderTicketContext(
       const status = p.status ? ` [${p.status}]` : '';
       // Suffixed on the existing line rather than given a section of its own: an
       // agent already reads this list, and mergeability is a fact ABOUT the PR.
-      const merge = p.mergeCheck ? ` · merge: ${mergeStateWording(summarizeMergeCheck(p.mergeCheck), ctx.delivery?.roundActive === true)}` : '';
+      const merge = p.mergeCheck ? ` · merge: ${mergeStateWording(summarizeMergeCheck(p.mergeCheck), p.mergeHeads)}` : '';
       return `- ${p.repo} ${num}${status}${url}${merge}`;
     });
     parts.push(`## Pull requests\n${rows.join('\n')}`);

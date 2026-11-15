@@ -83,6 +83,19 @@ describe('findWaste — worktree-gone', () => {
     expect(findings[0]!.reason).toContain('web server still running in a worktree that no longer exists');
   });
 
+  it('names the agent kind and the missing worktree itself for an agent row', () => {
+    const findings = findWaste({
+      inventory: inv([attr({ kind: 'agent' })], []),
+      servers: [server({})],
+      lifecycle: new Map(),
+      worktreeRoots: [],
+      dirs: dirs(['/wt']),
+    });
+    expect(findings[0]!.reason).toBe(
+      'web agent still running in a worktree that no longer exists (/wt/abc)',
+    );
+  });
+
   it('yields NOTHING when the parent is also gone (unmounted volume regression)', () => {
     const findings = findWaste({
       inventory: inv([attr({})], []),
@@ -130,6 +143,17 @@ describe('findWaste — ticket-finished', () => {
     expect(findings[0]!.kind).toBe('ticket-finished');
     expect(findings[0]!.killable).toBe(true);
     expect(findings[0]!.reason).toContain('a completed ticket A');
+  });
+
+  it('names the agent kind for an agent row of a done ticket', () => {
+    const findings = findWaste({
+      inventory: inv([attr({ kind: 'agent' })], []),
+      servers: [server({})],
+      lifecycle: new Map([[7, lifecycle({ stageCurrent: 'done' })]]),
+      worktreeRoots: [],
+      dirs: dirs(['/wt', '/wt/abc']),
+    });
+    expect(findings[0]!.reason).toContain('web agent still running for a completed ticket A');
   });
 
   it('flags a server of an archived ticket', () => {

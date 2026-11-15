@@ -31,7 +31,7 @@ import { dockerCpus, gateWorkers, workersLine } from './gateWorkers.mjs';
 import { acquireGateSlot, leaseHeld } from './gateSlot.mjs';
 import { gitDirOf, isCleanRun, loadPassInput, planSkip, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
 import { mergeBase } from './gateScope.mjs';
-import { LAYOUT_BOOKENDS, fixtureViews, gateGrep, isUiPath, parseListLayout, parseListTotal, readSettingsSections, scopedSelection, selectViews, selectionLine, selectsLayoutRoute } from './uiViews.mjs';
+import { LAYOUT_BOOKENDS, fixtureViews, gateGrep, isUiPath, parseListLayout, parseListTotal, mergedSelection, readSettingsSections, scopedSelection, selectViews, selectionLine, selectsLayoutRoute } from './uiViews.mjs';
 import {
   VOLUME_PREFIX,
   acquireSlot,
@@ -209,9 +209,15 @@ function countTests(script, grep) {
   return { selected: selected.total, total: all.total, layoutSelected: selected.layout, layoutTotal: all.layout };
 }
 
+/**
+ * The base tip a base-moved deliver check merged (`KARST_MERGED_BASE_SHA`, @arch:GATE-BASE-MOVED), or null. In that
+ * merged worktree the diff against it is the TICKET diff; the base delta never selects views.
+ */
+const mergedBaseSha = () => process.env.KARST_MERGED_BASE_SHA || null;
+
 /** The selection of the branch diff (merge base to the working tree). Unknown diff = full. */
 function branchSelection() {
-  const paths = changedPaths();
+  const paths = changedPaths(process.cwd(), mergedBaseSha() ?? process.env.KARST_BASE_REF);
   return paths === null ? { all: true, views: [] } : selectViews(paths);
 }
 
@@ -224,7 +230,8 @@ export function narrowSweep(script, scope = null) {
   if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return null;
   // A ledger seed/prune must see the full run (its full-run guard refuses a partial one).
   if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return null;
-  const scoped = scope === null ? null : scopedSelection(scope);
+  const merged = mergedBaseSha();
+  const scoped = scope === null ? null : merged === null ? scopedSelection(scope) : mergedSelection({ since: scope.since, ticketPaths: changedPaths(process.cwd(), merged), failed: scope.failed });
   const selection = scoped === null ? branchSelection() : scoped.selection;
   const failed = scoped === null ? [] : scoped.failed;
   let grep = null;

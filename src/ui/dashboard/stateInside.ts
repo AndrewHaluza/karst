@@ -15,6 +15,7 @@ import {
   type InsideLiveView,
   type InsideProcessView,
   type InsideStageKey,
+  type InsideNowView,
   type InsideStageView,
   type TypedInsideAction,
 } from '../../model/inside/types.js';
@@ -114,6 +115,8 @@ export interface InsideViewsInput {
   autofix?: AutofixRowView | null;
   deliver?: DeliverRowInput | null;
   ciOpen?: boolean;
+  ciWaiting?: boolean;
+  ciNow?: InsideNowView | undefined;
   reviewBlockingSeverity?: Severity | 'none';
   testerBlockingSeverity?: Severity | 'none';
   reviewStallDetection?: ReviewStallDetection;
@@ -181,6 +184,8 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     autofix,
     deliver,
     ciOpen,
+    ciWaiting,
+    ciNow,
     reviewBlockingSeverity,
     testerBlockingSeverity,
     reviewStallDetection,
@@ -290,7 +295,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
       consoleFor('review', cellOf),
       reviewRoundSwitcher,
     ),
-    ship: stageView(
+    ship: withNow(stageView(
       'ship',
       cellOf('ship'),
       shipProcesses({
@@ -311,9 +316,10 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         autofix: autofix ?? null,
         deliver: deliver ?? null,
         ciOpen: ciOpen === true,
+        ciWaiting: ciWaiting === true,
       }),
       now,
-    ),
+    ), ciNow),
     done: doneStageView(
       cellOf('done'),
       doneReceipt({
@@ -363,6 +369,11 @@ function liveFor(processes: readonly InsideProcessView[]): InsideLiveView | unde
     label: active.label,
     ...(active.duration ? { duration: active.duration } : {}),
   };
+}
+
+/** The ship view with its Now line, when the host states one (T1140). */
+function withNow(view: InsideStageView, ciNow: InsideNowView | undefined): InsideStageView {
+  return ciNow ? { ...view, now: ciNow } : view;
 }
 
 /** One inside stage's presentation shell around its ordered processes. */

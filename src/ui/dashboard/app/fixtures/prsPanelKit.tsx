@@ -53,6 +53,14 @@ export const blockedBy = (...reasons: Array<[Reason['kind'], Reason['state']]>):
   reasons: reasons.map(([kind, state]) => ({ kind, state, label: `${kind} label`, short: `${kind} short`, detail: `${kind} detail` })),
 });
 
+/** A readiness block that waits on `count` pending checks alone: GitHub CI works, nothing needs the user (T1140). */
+export const waitsOnChecks = (count: number): Row['readiness'] => ({
+  ready: false,
+  headline: 'Merge waits on checks',
+  facts: '',
+  reasons: [{ kind: 'checks', state: 'run', label: 'Checks running', short: `checks running · ${count}`, detail: `${count} of ${count + 1} pending`, count }],
+});
+
 /** A blocked readiness block with one hand-written reason (an action, a list, ...). */
 export const blockedWith = (reason: Partial<Reason> & Pick<Reason, 'kind'>): Row['readiness'] => ({
   ready: false,

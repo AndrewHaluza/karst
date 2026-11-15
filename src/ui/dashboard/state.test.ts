@@ -399,6 +399,23 @@ describe('buildDashboardState', () => {
     expect(build({ hostAhead: 1, sandboxAhead: 2 }).available).toBe(false);
   });
 
+  it('states the Inside ship Now line only while CI alone waits and nothing needs the user (T1140)', () => {
+    const t = createTicket(store, { key: 'NOW-1', title: 'ci wait' });
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, t.id, from, { kind: 'passed' });
+    setStage(store, t.id, 'ship', { status: 'running', startedAt: '2026-08-09T10:00:00.000Z' });
+    const checks = (over: object) => JSON.stringify({ state: 'pending', total: 14, passed: 13, failed: 0, pending: 1, failing: [], failedShown: 0, ...over });
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, head_ref, base_ref, checks) VALUES (?, ?, 5, ?, ?, ?, ?, ?)')
+      .run(t.id, 'r', 'https://github.com/o/r/pull/5', 'open', 'feat/x', 'develop', checks({}));
+    const ship = () => buildDashboardState(store, t.id).insideViews.ship;
+    expect(ship().now?.now).toBe('Now: GitHub CI runs on r #5 — 13 of 14 passed, 1 pending. Nothing for you to do.');
+    expect(ship().now?.next).toContain('Next: all green → Merge.');
+    expect(ship().processes.find((p) => p.id === 'merge')?.status).toBe('run');
+    store.db.prepare('UPDATE prs SET checks = ?').run(checks({ state: 'unknown' }));
+    expect(ship().now).toBeUndefined();
+    store.db.prepare('UPDATE prs SET checks = ?').run(checks({ state: 'failing', failed: 1, pending: 0 }));
+    expect(ship().now).toBeUndefined();
+  });
+
   it('marks only the PR whose own repo lacks commits as unpushed (per-repo count)', () => {
     const t = createTicket(store, { key: 'UNP-1', title: 'unpushed' });
     for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, t.id, from, { kind: 'passed' });

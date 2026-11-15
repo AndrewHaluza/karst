@@ -762,7 +762,10 @@ CREATE TABLE IF NOT EXISTS prs (
   commit_count    INTEGER,
   review_decision TEXT,
   approvals       INTEGER,
-  review_requests TEXT
+  review_requests TEXT,
+  -- v124: the PR head sha GitHub holds (headRefOid), current state re-probed every sweep (arch:GH-03).
+  -- NULL = never stated; the merge-check wording reads it to tell a local merge that is not pushed.
+  head_oid        TEXT
 );
 
 -- v47: one row per (ticket, repo, url) — see recordShippedPr (store/prs.ts) and

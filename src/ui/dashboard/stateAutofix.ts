@@ -20,6 +20,7 @@ import {
 } from '../../model/inside/autofix.js';
 import type { AutofixInput } from '../../model/prMergeReadiness.js';
 import { parseChecks } from '../../model/prChecks.js';
+import type { CiWaitingPr } from '../../model/inside/ciNow.js';
 import {
   effectiveAutopilot,
   getAutopilotBudget,
@@ -55,6 +56,10 @@ export interface AutofixReading {
   readonly row: AutofixRowView | null;
   /** An open PR still waits on CI (a failing, pending or unknown rollup): the Merge row says "waits on CI". */
   readonly ciOpen: boolean;
+  /** CI is the only open question: every open PR has readable checks and some are pending, none failed (T1140). */
+  readonly ciWaiting: boolean;
+  /** The open PRs that wait on pending checks: the data of the Inside "Now" line (T1140). Empty unless `ciWaiting`. */
+  readonly ciWaitingPrs: readonly CiWaitingPr[];
   /** The same reading, shaped for the PR panel's merge-readiness reasons (`model/prMergeReadiness.ts`). */
   readonly input: AutofixInput;
 }
@@ -205,6 +210,16 @@ function ciOpenOf(store: Store, ticketId: number): boolean {
   return rows.some((r) => { const c = parseChecks(r.checks); return c === null || c.state === 'failing' || c.state === 'unknown' || c.pending > 0; });
 }
 
+/** Every open PR has readable checks with none failed, and at least one check still pends: GitHub CI works, nothing needs the user. */
+function ciWaitingOf(store: Store, ticketId: number, nameOf: RepoNameOf): CiWaitingPr[] {
+  const rows = store.db
+    .prepare("SELECT repo, number, checks FROM prs WHERE ticket_id = ? AND status = 'open' AND url IS NOT NULL AND dismissed_at IS NULL")
+    .all(ticketId) as PrRow[];
+  const reads = rows.map((r) => ({ r, c: parseChecks(r.checks) }));
+  if (reads.length === 0 || !reads.every(({ c }) => c !== null && c.state !== 'unknown' && c.state !== 'failing')) return [];
+  return reads.flatMap(({ r, c }) => (c !== null && c.pending > 0 ? [{ label: nameOf(r.repo), number: r.number ?? null, total: c.total, passed: c.passed, pending: c.pending }] : []));
+}
+
 export function readAutofix(
   store: Store,
   ticketId: number,
@@ -240,10 +255,13 @@ export function readAutofix(
     attempts: readAttempts(store, ticketId),
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
   };
+  const ciWaitingPrs = ciWaitingOf(store, ticketId, nameOf);
   return {
     slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), roundActive: facts.round !== null, roundRunning: facts.round !== null },
     row: autofixRow(facts),
     ciOpen: ciOpenOf(store, ticketId),
+    ciWaiting: ciWaitingPrs.length > 0,
+    ciWaitingPrs,
     input: autofixInputOf(facts),
   };
 }

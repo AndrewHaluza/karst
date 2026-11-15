@@ -86,6 +86,17 @@ export function scopedSelection({ since, paths, failed }) {
   return { selection, failed: carried, origin: { kind: failed.length > 0 ? 'red' : 'green', since, failed: carried.length } };
 }
 
+/**
+ * The selection of a base-moved merged pass (@arch:GATE-BASE-MOVED): the views of the TICKET diff (`ticketPaths`,
+ * merge base to ticket head) plus the failed tests of the seeded state. The base delta does not select: a UI change
+ * on the base alone passed its own gates. `ticketPaths` null (unreadable diff) selects every view. Null when it
+ * selects nothing; the caller then uses the branch diff.
+ */
+export function mergedSelection({ since, ticketPaths, failed }) {
+  if (ticketPaths === null) return { selection: { all: true, views: ALL_VIEWS }, failed: [], origin: null };
+  return scopedSelection({ since, paths: ticketPaths, failed });
+}
+
 /** `SETTINGS_SECTIONS` read from source: layout titles for settings are the bare section ids. */
 export function readSettingsSections(repo = process.cwd()) {
   const source = readFileSync(join(repo, 'src/ui/settings/sections.ts'), 'utf8');

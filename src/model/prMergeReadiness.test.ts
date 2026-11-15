@@ -196,6 +196,19 @@ describe('prMergeReadiness', () => {
     expect(kinds(pr({ checks: passing, mergeBlock: 'behind' }))).toEqual(['checks:ok', 'behind:warn']);
   });
 
+  it('does not call a pending-only wait "Merge blocked" (T1140)', () => {
+    const pending: PrChecks = { ...passing, state: 'pending', passed: 1, pending: 3 };
+    const r = read(pr({ checks: pending }));
+    expect(r.ready).toBe(false);
+    expect(r.headline).toBe('Merge waits on checks');
+    expect(blockingReasonsTitle(r)).toBe('Checks running — 3 of 4 pending');
+  });
+
+  it('keeps "Merge blocked" when a pending check sits beside a real blocker (T1140)', () => {
+    const pending: PrChecks = { ...passing, state: 'pending', passed: 1, pending: 3 };
+    expect(read(pr({ checks: pending, mergeBlock: 'behind' })).headline).toBe('Merge blocked');
+  });
+
   it('no checks reason for none or unknown', () => {
     expect(kinds(pr({ checks: null, mergeBlock: 'behind' }))).toEqual(['behind:warn']);
     expect(kinds(pr({ checks: { ...passing, state: 'none' }, mergeBlock: 'behind' }))).toEqual(['behind:warn']);

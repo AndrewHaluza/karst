@@ -5,6 +5,7 @@ import { listPrsByTicket } from './dashboard.js';
 import {
   updatePrStatus,
   updatePrDetail,
+  clearOpenPrProbe,
   findTicketPr,
   listSyncablePrs,
   recordShippedPr,
@@ -177,6 +178,21 @@ describe('updatePrDetail', () => {
     const other = prs.find((p) => p.repo === 'web')!;
     expect(other.status).toBe('open');
     expect(other.headRef).toBeNull();
+  });
+
+  it('stores the PR head and keeps it when a probe states none (v124)', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    const base = { status: 'open', headRef: null, baseRef: null, createdAt: null, mergedAt: null, comments: null, checks: null, mergeBlock: 'unknown', mergeSha: null, changedPaths: null } as const;
+    expect(listPrsByTicket(store, a.id)[0]!.headOid).toBeNull();
+    updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail: { ...base, headOid: 'c'.repeat(40) } });
+    expect(listPrsByTicket(store, a.id)[0]!.headOid).toBe('c'.repeat(40));
+    updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail: { ...base, headOid: null } });
+    expect(listPrsByTicket(store, a.id)[0]!.headOid).toBe('c'.repeat(40));
+    updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail: { ...base, headOid: 'd'.repeat(40) } });
+    expect(listPrsByTicket(store, a.id)[0]!.headOid).toBe('d'.repeat(40));
+    clearOpenPrProbe(store, a.id, 'api');
+    expect(listPrsByTicket(store, a.id)[0]!.headOid).toBeNull();
   });
 
   describe('PR facts (v114)', () => {

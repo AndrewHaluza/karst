@@ -32,6 +32,18 @@ describe('Inside — the shell', () => {
     expect(q('.vbar')).toBeNull();
   });
 
+  it('draws the Now line as its own region under the header, wrapping, with the PR number whole (T1140)', () => {
+    const now = { now: 'Now: GitHub CI runs on extention #1090 — 13 of 14 passed, 1 pending. Nothing for you to do.', next: 'Next: all green → Merge. A red check → you choose.' };
+    mountInside(insideState({ stageCurrent: 'ship', views: { ship: view('ship', { title: 'Ship', now }) } }));
+    const region = must('[data-region="inside-now"]');
+    expect(text(region)).toContain('#1090');
+    expect(all('[data-region="inside-now"] p').map((p) => text(p))).toEqual([now.now, now.next]);
+    expect(must('.inside-head').nextElementSibling).toBe(region);
+    cleanupInside();
+    mountInside(insideState({ stageCurrent: 'ship', views: { ship: view('ship', { title: 'Ship' }) } }));
+    expect(q('[data-region="inside-now"]')).toBeNull();
+  });
+
   it('falls back from the presented stage to the current one to scope', () => {
     mountInside(insideState({ stageCurrent: 'uat', presentedStage: 'review' }));
     expect(text(must('#inside-title'))).toBe('Inside review');

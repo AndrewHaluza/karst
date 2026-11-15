@@ -70,6 +70,8 @@ export interface ShipGatesDeps {
   readonly uiChanged?: boolean;
   /** The summary a gate cut by `uiChanged` records; absent → `NO_UI_CHANGE_REASON`. */
   readonly uiSkipReason?: string | null;
+  /** The base tip of a base-moved merge: the sweep gates select views from the ticket diff against it, and each gate row keeps its scope line. */
+  readonly mergedBaseSha?: string;
   readonly gateEnv?: (pr: DeliverPr) => { readonly prBody: string; readonly baseRef?: string };
 }
 
@@ -153,6 +155,7 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
   const ran = await runGateList(p.gates, pr.cwd, {
     ...(env ? { prBody: env.prBody } : {}),
     ...(env?.baseRef ? { baseRef: env.baseRef } : {}),
+    ...(d.mergedBaseSha ? { mergedBaseSha: d.mergedBaseSha } : {}),
     scriptsAvailable: (script, derived) => (probe.kind === 'ok' ? probe.scripts[script] !== undefined : derived),
     ...(d.runProcess ? { runProcess: d.runProcess } : {}),
     ...(d.hostProcess ? { hostProcess: d.hostProcess } : {}),
@@ -168,7 +171,7 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
         const failed = exitCode !== null && exitCode !== 0;
         recordDeliverGate(store, runId, {
           gateName: name, repo: pr.repo, exitCode, headSha: head,
-          summary: failed ? summarizeGateFailure(output ?? '') ?? null : null, startedAt, endedAt,
+          summary: gateSummary(failed ? summarizeGateFailure(output ?? '') ?? null : null, d.mergedBaseSha ? scopeLinesOf(output ?? '') : null), startedAt, endedAt,
         });
       }
       d.onProgress?.();
@@ -182,6 +185,19 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
   }
   return null;
 }
+
+/**
+ * The scope and selection lines a sweep gate prints (`full: ...`, `visual: 12 files, delta since ...`, `visual: running ...`,
+ * `layout: skipped, ...`), or null. A base-moved row keeps them: the deliver output is not stored (@arch:GATE-BASE-MOVED).
+ */
+const SCOPE_LINE = /^(?:full: .+|skipped: no UI change .+|(?:visual|layout): (?:running|skipped|\d+ files).+)$/;
+export function scopeLinesOf(output: string): string | null {
+  const lines = output.split('\n').map((l) => l.trim()).filter((l) => SCOPE_LINE.test(l));
+  return lines.length === 0 ? null : lines.join('\n');
+}
+
+const gateSummary = (failure: string | null, scope: string | null): string | null =>
+  scope === null ? failure : failure === null ? scope : `${scope}\n${failure}`;
 
 const summaryOf = (output: string): string => {
   const summary = summarizeGateFailure(output);

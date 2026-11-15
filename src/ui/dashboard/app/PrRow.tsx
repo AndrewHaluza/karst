@@ -6,7 +6,7 @@
  * only places them, and never decides that a PR is mergeable or that a check failed.
  */
 import { memo } from 'react';
-import { isBlocking } from '../../../model/prMergeReadiness.js';
+import { isBlocking, waitsOnChecksOnly } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CopyUrl, DismissButton, MergeButton, OpenLink } from './PrActionButtons.js';
 import { Icon } from './Icon.js';
@@ -91,6 +91,7 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
   const head = prHead(p.branches);
   const showBranches = p.branches !== '' && (head === '' || head !== headerBranch);
   const blocking = live && !p.dismissed ? p.readiness.reasons.filter(isBlocking).length : 0;
+  const waitCount = live && !p.dismissed && waitsOnChecksOnly(p.readiness.reasons) ? (p.readiness.reasons.find((r) => r.state === 'run')?.count ?? blocking) : 0;
   const sub = (
     <>
       <PrReadiness p={p} ciBusy={ciBusy} mergeOpen={mergeOpen} onMergeToggle={onMergeToggle} />
@@ -136,7 +137,11 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
             {p.checks.label}
           </span>
         ) : null}
-        {blocking > 0 ? (
+        {waitCount > 0 ? (
+          <span className="k-chip pwait" title={p.mergeBlockedReason}>
+            {`waits on ${waitCount} ${waitCount === 1 ? 'check' : 'checks'}`}
+          </span>
+        ) : blocking > 0 ? (
           <span className="k-chip pblock" title={p.mergeBlockedReason}>
             {`blocked · ${blocking} ${blocking === 1 ? 'reason' : 'reasons'}`}
           </span>

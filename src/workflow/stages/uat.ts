@@ -595,7 +595,7 @@ export async function runUat(
   let fingerprint: string | null = null;
   if (baselineReviewOn && opts.manifest && !rerun) {
     fingerprint = await (deps.fingerprint ?? fingerprintTicket)(
-      store, opts.manifest, opts.ticketId, targets, { git },
+      store, opts.manifest, opts.ticketId, targets, { git, debug: opts.debug },
     );
   }
   const skipGates = fingerprint !== null && hasUatGatePass(store, opts.ticketId, uatAttempt, fingerprint);

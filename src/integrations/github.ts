@@ -436,6 +436,8 @@ export interface PrDetail {
   approvals?: number | null;
   /** Requested reviewers (`reviewRequests[].login|name`), or null when not stated. */
   reviewRequests?: string[] | null;
+  /** The PR head sha (`headRefOid`), or null when gh did not state a valid one (T1143). */
+  headOid?: string | null;
 }
 
 /**
@@ -463,11 +465,12 @@ export const UNKNOWN_PR_DETAIL: PrDetail = {
   reviewDecision: null,
   approvals: null,
   reviewRequests: null,
+  headOid: null,
 };
 
 /** The `--json` fields `fetchPrDetail` requests, in one round trip. */
 const PR_DETAIL_FIELDS =
-  'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files,title,author,additions,deletions,changedFiles,commits,reviewDecision,latestReviews,reviewRequests';
+  'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files,title,author,additions,deletions,changedFiles,commits,reviewDecision,latestReviews,reviewRequests,headRefOid';
 
 /** gh caps `--json files` at 100 entries with no paging; at the cap the list is incomplete. */
 const GH_FILES_CAP = 100;
@@ -475,6 +478,11 @@ const GH_FILES_CAP = 100;
 /** A gh string field, or null for absent/empty/wrong-typed. */
 function text(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** `headRefOid` when it is a hex sha, else null. */
+function headOid(value: unknown): string | null {
+  return typeof value === 'string' && /^[0-9a-f]{7,64}$/i.test(value) ? value : null;
 }
 
 /** `mergeCommit.oid`, or null when absent/empty/wrong-typed. */
@@ -609,6 +617,7 @@ export async function fetchPrDetail(
     reviewDecision: normalizeReviewDecision(view.reviewDecision),
     approvals: approvalCount(view.latestReviews),
     reviewRequests: requestedReviewers(view.reviewRequests),
+    headOid: headOid(view.headRefOid),
   };
 }
 

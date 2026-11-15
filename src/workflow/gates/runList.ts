@@ -90,6 +90,11 @@ export interface RunGatesOptions {
   /** The base ref named in the stale-branch reason. */
   baseRef?: string;
   /**
+   * The base tip a base-moved check merged (@arch:GATE-BASE-MOVED). Every gate process gets
+   * `KARST_MERGED_BASE_SHA=<sha>`: the sweep gates select views from the ticket diff against it, not from the base delta.
+   */
+  mergedBaseSha?: string;
+  /**
    * The ticket's rendered arch citations (@arch:CLI-22). When set (an empty string is a value:
    * "nothing cited"), every gate process gets `PR_BODY=<text>` and `BASE_REF=<baseRef>`, which is
    * what `scripts/docsGate.mjs` reads. The text is passed as one argv element of `env`, never
@@ -239,6 +244,7 @@ export async function runGateList(
       // The gate script (dockerGate.mjs) skips its own lease: this run already holds the slot.
       ...(gateLease ? [`${GATE_LEASE_HELD_ENV}=1`] : []),
       ...(opts.baseRef ? [`KARST_BASE_REF=${opts.baseRef}`] : []),
+      ...(opts.mergedBaseSha ? [`KARST_MERGED_BASE_SHA=${opts.mergedBaseSha}`] : []),
       ...(opts.prBody !== undefined ? [`PR_BODY=${opts.prBody}`, ...(opts.baseRef ? [`BASE_REF=${opts.baseRef}`] : [])] : []),
     ];
     const launch = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>

@@ -7,6 +7,8 @@ import {
   attributeServer,
   parseStartedAt,
   processStartMsAsync,
+  isProcessStateGone,
+  isAliveAsync,
   systemAsyncProcessFacts,
   systemProcessFacts,
   type ProcessFacts,
@@ -50,6 +52,43 @@ describe('processStartMsAsync', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.command).toBe('powershell.exe');
     expect(calls[0]!.args.join(' ')).toContain('4242');
+  });
+});
+
+describe('isProcessStateGone', () => {
+  it.each(['Z', 'Zs', '?Es', 'E', 'UE'])('treats %s as gone', (stat) => {
+    expect(isProcessStateGone(stat)).toBe(true);
+  });
+  it.each(['S', 'Ss', 'R+', 'S<s', ''])('treats %s as running', (stat) => {
+    expect(isProcessStateGone(stat)).toBe(false);
+  });
+});
+
+describe('isAliveAsync', () => {
+  const live = () => true;
+  it('is false for an exiting (E) pid and a zombie (Z) pid', async () => {
+    expect(await isAliveAsync(1, live, 'darwin', async () => '?Es\n')).toBe(false);
+    expect(await isAliveAsync(1, live, 'linux', async () => 'Z\n')).toBe(false);
+  });
+  it('is true for a normal state, and when ps gives no answer', async () => {
+    expect(await isAliveAsync(1, live, 'darwin', async () => 'Ss\n')).toBe(true);
+    expect(await isAliveAsync(1, live, 'darwin', async () => null)).toBe(true);
+  });
+  it('is false without probing when the pid is not alive', async () => {
+    let probed = false;
+    const run = async (): Promise<string> => {
+      probed = true;
+      return 'S';
+    };
+    expect(await isAliveAsync(1, () => false, 'darwin', run)).toBe(false);
+    expect(probed).toBe(false);
+  });
+  it('does not probe on win32', async () => {
+    expect(await isAliveAsync(1, live, 'win32', async () => 'Z')).toBe(true);
+  });
+  it('gives attributeServer the answer dead and findWaste nothing', async () => {
+    const alive = await isAliveAsync(1, live, 'darwin', async () => '?Es');
+    expect(attributeServer({ pid: 1, cwd: '/w', startedAt: null }, facts({ isAlive: () => alive }))).toBe('dead');
   });
 });
 
