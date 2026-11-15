@@ -1,0 +1,17 @@
+{
+  "id": "c03-null-guard",
+  "title": "Show the display name",
+  "baseRef": "main",
+  "branch": "feat/display-name",
+  "defects": [
+    {
+      "id": "REVEVAL-D-003",
+      "file": "src/displayName.ts",
+      "lineStart": 6,
+      "lineEnd": 6,
+      "kind": "regression",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

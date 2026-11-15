@@ -1,0 +1,17 @@
+{
+  "id": "c05-missing-await",
+  "title": "Load the item names",
+  "baseRef": "main",
+  "branch": "feat/item-names",
+  "defects": [
+    {
+      "id": "REVEVAL-D-005",
+      "file": "src/itemNames.ts",
+      "lineStart": 6,
+      "lineEnd": 6,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

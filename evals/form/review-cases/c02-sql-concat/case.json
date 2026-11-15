@@ -1,0 +1,17 @@
+{
+  "id": "c02-sql-concat",
+  "title": "Look up a user by id",
+  "baseRef": "main",
+  "branch": "feat/user-lookup",
+  "defects": [
+    {
+      "id": "REVEVAL-D-002",
+      "file": "src/userQuery.ts",
+      "lineStart": 6,
+      "lineEnd": 6,
+      "kind": "security",
+      "minSeverity": "high"
+    }
+  ],
+  "cleanFiles": []
+}

@@ -355,3 +355,14 @@ Known gaps against a real session: the instructions ride the prompt, not the sys
 Known gaps in the run record: `meta` in `results.json` does not record `--effort` or `--plan-extra`, so a saved run does not show its planner effort or its added rules. `--publish` replaces the whole of `PLANNER-MODEL-RATINGS.md`, which also holds tables that are kept by hand.
 
 END_DOC_BLOCK: [@arch:FORMEVAL-PLAN]
+
+## [@arch:FORMEVAL-REVIEW] Review findings bench of the eval:form runner
+covers: scripts/evalForm/review*.mjs
+
+`--pass review --model <id> [--provider <core>] [--effort <level>] [--runs 1] [--only caseId] [--max-calls N] [--timeout-min 10] [--cases-dir <dir>]` runs the real review findings call site on seeded diffs and scores it without a model judge. Cases: `evals/form/review-cases/<id>/` with `case.json` (`id`, `title`, `baseRef`, `branch`, `defects`, `cleanFiles`), `repo/base/` and `repo/change/`. Version 1 has 10 cases: 6 with one defect, 2 with two, 2 clean. `reviewRun.mjs` builds a temporary git checkout (base on `main`, change on the case branch, a local bare `origin` outside the work tree) and copies only `repo/`, so no defect id or title reaches the agent. It builds the prompt with `buildFindingsPrompt` (11 arguments), calls `adapter.runHeadless` with `policy: 'reviewer'`, and parses with `parseFindingsResult`. It then removes the coverage entry with `splitCoverage(stripCoverageLabel(...))` and drops a disproven "wrong checkout" claim with `verifyCheckout` and `dropDisprovenCheckoutClaims`, as the lane does. Cases run one at a time and stop at `--max-calls`.
+
+`reviewChecks.mjs` is a pure matcher: a finding matches a defect in the same file with a line in `[lineStart - 3, lineEnd + 3]`; one defect matches one finding; the first in output order wins. A false finding matches no defect. A clean case with a false finding fails. `reviewReport.mjs` shows recall and the share of clean cases with a false finding, each with a Wilson 95% interval. A cell with n below 30 shows INSUFFICIENT, and the report ranks nothing then. Output: `eval-results/review-<ts>/report.md` and `results.json`.
+
+Known gaps: the lane check `endedOnBackgroundCommand` is not run. The line window can reward a finding that only sits near a defect. `eval-form-review` is not in `AI_CALL_SITES`. The core versions in the report are not filled yet.
+
+END_DOC_BLOCK: [@arch:FORMEVAL-REVIEW]

@@ -1,0 +1,25 @@
+{
+  "id": "c08-retry-cache",
+  "title": "Add retry and a small cache",
+  "baseRef": "main",
+  "branch": "feat/retry-cache",
+  "defects": [
+    {
+      "id": "REVEVAL-D-009",
+      "file": "src/retry.ts",
+      "lineStart": 3,
+      "lineEnd": 3,
+      "kind": "bug",
+      "minSeverity": "medium"
+    },
+    {
+      "id": "REVEVAL-D-010",
+      "file": "src/ttlCache.ts",
+      "lineStart": 5,
+      "lineEnd": 5,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

@@ -1,0 +1,17 @@
+{
+  "id": "c04-expiry",
+  "title": "Check token expiry",
+  "baseRef": "main",
+  "branch": "feat/token-expiry",
+  "defects": [
+    {
+      "id": "REVEVAL-D-004",
+      "file": "src/token.ts",
+      "lineStart": 7,
+      "lineEnd": 7,
+      "kind": "bug",
+      "minSeverity": "high"
+    }
+  ],
+  "cleanFiles": []
+}

@@ -1,0 +1,17 @@
+{
+  "id": "c06-path-join",
+  "title": "Serve an uploaded file",
+  "baseRef": "main",
+  "branch": "feat/serve-upload",
+  "defects": [
+    {
+      "id": "REVEVAL-D-006",
+      "file": "src/upload.ts",
+      "lineStart": 7,
+      "lineEnd": 7,
+      "kind": "security",
+      "minSeverity": "high"
+    }
+  ],
+  "cleanFiles": []
+}
