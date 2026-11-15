@@ -32,6 +32,9 @@ function whyTitle(row: QueueRowView): string {
  * main button, never inside it, so no link nests in a button (@ui:UI-R09).
  */
 function QueueRelation({ row }: { readonly row: QueueRowView }) {
+  // A snapshot restored from the webview state can predate the chip fields
+  // (@ui:UI-R31): a missing field draws no relation, never a crash that blanks the page.
+  const waitsOnRefs = row.waitsOnRefs ?? [];
   if (row.whyKind === 'cycle') {
     const refs = row.cycleRef ? [row.cycleRef] : [];
     return (
@@ -46,8 +49,8 @@ function QueueRelation({ row }: { readonly row: QueueRowView }) {
   if (row.whyKind === 'raised' && row.inheritedRef) {
     return <TicketRefs refs={[row.inheritedRef]} verb="Unblocks" className="q-rel q-rel--raised" />;
   }
-  if (row.whyKind === 'waits' && row.waitsOnRefs.length) {
-    return <TicketRefs refs={row.waitsOnRefs} className="q-rel q-rel--waits" />;
+  if (row.whyKind === 'waits' && waitsOnRefs.length) {
+    return <TicketRefs refs={waitsOnRefs} className="q-rel q-rel--waits" />;
   }
   return null;
 }
