@@ -40,6 +40,12 @@ The antigravity rerun gave the same false findings on `c14` and `c15` in every r
 
 Run of claude on `c14` and `c15`, 5 runs each (`review-references/claude-sonnet-5-5-c14-c15-v3/`): recall 10/10, 0 blocking false findings, 10 seconds per run. Every run still had 1 or 2 false findings of low or medium severity. Two kinds remain: low comments about no tests or no input validation (the same cause as the old `c17`), and a medium finding on line 12 of `c14` that says `renderBoard` depends on the hidden sort mutation. That second finding is a true consequence of the seeded defect, but it is outside the 3-line window. Decision needed: add a test file to both cases, and widen the `c14` defect to lines 7 to 12.
 
+## Case set v4 (test files in c14 and c15)
+
+Commit after this note adds a test file to `c14` and `c15`, widens the `c14` defect to lines 7 to 12, and raises the case-set version to 4. Do not compare v4 cells with v3 cells for these two cases.
+
+Run of claude on `c14` and `c15`, 5 runs each (`review-references/claude-sonnet-5-5-c14-c15-v4/`): recall 10/10, 0 blocking false findings, 9 seconds per run. The runs with a false finding fell from 10 of 10 to 5 of 10. The rest are low comments on a negative `count`, the magic number 3, and the `visibility` type. A defect case does not fail on a false finding, so these do not change the score. Only a blocking false finding or a clean-case false finding counts against a core. The cases are good enough to use.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.

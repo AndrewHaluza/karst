@@ -8,7 +8,7 @@
       "id": "REVEVAL-D-014",
       "file": "src/taskBoard.ts",
       "lineStart": 7,
-      "lineEnd": 7,
+      "lineEnd": 12,
       "kind": "bug",
       "minSeverity": "medium"
     }
