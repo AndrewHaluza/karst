@@ -2,7 +2,7 @@ import { memoryWaitNotes } from '../../store/memoryQueue.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
-import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubtasks, getTicket, type TicketWithStages } from '../../store/tickets.js';
+import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubtasks, getTicket, findTicketById, type TicketWithStages } from '../../store/tickets.js';
 import type { PriorityLevel } from '../../planning/proposal.js';
 import { asPriorityLevel, effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel, ticketProviderPriority } from '../../model/priority.js';
 import { PRIORITY_EDITABLE_STAGE } from '../../extension/ops/ticketPriorityOps.js';
@@ -239,7 +239,7 @@ export interface QueueRowView {
   /** The chip of the cycle partner, or null when the row is not in a cycle. */
   cycleRef: TicketRefView | null;
   cycle: boolean;
-  /** The short reason (`↑ D498`, `waits D452`, `cycle`), or ''. */
+  /** The short reason (`unblocks D498`, `waits on D452`, `cycle with D462`), or ''. */
   why: string;
   whyKind: 'raised' | 'waits' | 'cycle' | 'none';
   /** The item's own level (the menu's checked entry); null when none. */
@@ -273,11 +273,8 @@ function queueRef(store: Store, id: string, inQueue: ReadonlyMap<string, QueueEn
   }
   if (parsed?.kind === 'draft') return ticketRefView({ draftId: parsed.n, draftLabel: id });
   if (parsed?.kind === 'ticket') {
-    try {
-      return ticketRefView({ ticket: getTicket(store, parsed.n) });
-    } catch {
-      return ticketRefView({ ref: id });
-    }
+    // A missing ticket is a plain ref; a store error propagates.
+    return findTicketById(store, parsed.n) ? ticketRefView({ ticket: getTicket(store, parsed.n) }) : ticketRefView({ ref: id });
   }
   return ticketRefView({ ref: id });
 }

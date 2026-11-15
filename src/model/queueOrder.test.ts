@@ -76,6 +76,18 @@ describe('orderQueue', () => {
     expect(r[0]).toMatchObject({ id: 'D2', priority: 'high', inheritedFrom: null });
   });
 
+  it('names a partner of the same cycle, not a member of another cycle (cycleWith)', () => {
+    const r = orderQueue(
+      [item('D3'), item('D4'), item('D5'), item('D6')],
+      [waits('D3', 'D4'), waits('D4', 'D3'), waits('D5', 'D4'), waits('D5', 'D6'), waits('D6', 'D5')],
+    );
+    const by = new Map(r.map((x) => [x.id, x.cycleWith]));
+    expect(by.get('D5')).toBe('D6');
+    expect(by.get('D6')).toBe('D5');
+    expect(by.get('D3')).toBe('D4');
+    expect(by.get('D4')).toBe('D3');
+  });
+
   it('never throws on a cycle: places the members by the tie keys and marks them', () => {
     const r = orderQueue(
       [item('D1', null, '2026-01-02 00:00:00'), item('D2', null, '2026-01-01 00:00:00'), item('D3', 'high'), item('D4')],

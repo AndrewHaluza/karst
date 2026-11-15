@@ -39,7 +39,7 @@ export interface QueueRow {
   /** Open blockers: pending drafts and tickets that come first, and open blockers outside the queue. */
   readonly waitsOn: readonly string[];
   readonly cycle: boolean;
-  /** The short reason for the place: `cycle`, `↑ from D498`, `waits on T12`, or ''. */
+  /** The short reason for the place: `cycle with D501`, `unblocks D498`, `waits on T12`, or ''. */
   readonly why: string;
 }
 

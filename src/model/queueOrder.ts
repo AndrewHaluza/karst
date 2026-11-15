@@ -111,6 +111,20 @@ function cycleMembers(remaining: ReadonlySet<string>, blockers: ReadonlyMap<stri
   return members;
 }
 
+/** Whether `to` is reachable from `from` along the blocker edges. */
+function reaches(from: string, to: string, blockers: ReadonlyMap<string, readonly string[]>): boolean {
+  const seen = new Set<string>();
+  const stack = [from];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    if (cur === to) return true;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    stack.push(...(blockers.get(cur) ?? []));
+  }
+  return false;
+}
+
 /** Keep the edges between two known, different items, once each. */
 function cleanEdges(known: ReadonlySet<string>, edges: readonly QueueEdge[]): QueueEdge[] {
   const seen = new Set<string>();
@@ -157,7 +171,8 @@ export function orderQueue(items: readonly QueueItem[], edges: readonly QueueEdg
       inheritedFrom: source.get(next) ?? null,
       waitsOn: [...new Set([...[...blockers.get(next)!].sort(compareIds), ...(byId.get(next)!.externalWaits ?? [])])],
       cycle: cycle.has(next),
-      cycleWith: cycle.has(next) ? (sortedBlockers.find((b) => cycle.has(b)) ?? null) : null,
+      // A blocker in the same cycle only: it must lead back to this item (another cycle's member does not).
+      cycleWith: cycle.has(next) ? (sortedBlockers.find((b) => cycle.has(b) && reaches(b, next, blockers)) ?? null) : null,
     });
   }
   return out;
