@@ -211,12 +211,13 @@ export function plannerRunsForGraphRun(
     | 'started_at'
     | 'submitted_at'
     | 'ended_at'
+    | 'graph_snapshot_id'
   >
 > {
   return db
     .prepare(
       `SELECT id, planner_run_number, kind, status, compile_attempt, reason,
-              started_at, submitted_at, ended_at
+              started_at, submitted_at, ended_at, graph_snapshot_id
          FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY planner_run_number`,
     )
     .all(graphRunId) as Array<
@@ -231,6 +232,7 @@ export function plannerRunsForGraphRun(
       | 'started_at'
       | 'submitted_at'
       | 'ended_at'
+      | 'graph_snapshot_id'
     >
   >;
 }

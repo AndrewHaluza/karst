@@ -13,6 +13,7 @@ import {
   markSubmittedBootstrapPlannerRunsStale,
   markSubmittedReplanPlannerRunsStale,
   plannerRunIdsForGraphRun,
+  setPlannerRunEndedAt,
   setPlannerRunReason,
   setPlannerRunReasonEndedAt,
   submittedPlannerRunForGraphRun,
@@ -230,6 +231,9 @@ export function acceptSubmittedPlan(
         `acceptSubmittedPlan: run ${graphRunId} left planning before its transition`,
       );
     }
+    // The planner's answer is in: stamp its end in the same transaction, as the
+    // replan path does, so the run does not read as still owed an answer.
+    setPlannerRunEndedAt(deps.db, planner.id, deps.now());
     return { id, revisionNumber, already: false } as const;
   });
   if (outcome.already) {

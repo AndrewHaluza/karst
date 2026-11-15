@@ -174,6 +174,7 @@ describe('buildGraphInsideInput', () => {
         startedAt: null,
         submittedAt: null,
         endedAt: null,
+        graphSnapshotId: null,
       },
     ]);
     expect(input.nodeRuns).toEqual([
@@ -195,7 +196,12 @@ describe('buildGraphInsideInput', () => {
         endedAt: null,
       },
     ]);
-    expect(input.revision).toEqual({ revisionNumber: 1, status: 'active', fingerprint: 'fp' });
+    expect(input.revision).toEqual({
+      revisionNumber: 1,
+      status: 'active',
+      fingerprint: 'fp',
+      plannerArtifactSnapshotId: null,
+    });
     expect(input.overrides).toEqual([]);
     expect(input.artifacts).toEqual([
       {

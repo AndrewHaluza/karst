@@ -152,7 +152,9 @@ export function nodeRunModelIdentity(
     .get(id) as Pick<NodeRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined;
 }
 
-/** A graph run's node runs in id order, narrowed to the Inside-view columns. */
+/** A graph run's node runs in id order, narrowed to the Inside-view columns.
+ *  A row with no `started_at` (written before the claim stamped it) reads the
+ *  start of its process run, so an old running node still shows its age. */
 export function nodeRunsForGraphRunDisplay(
   db: GraphDb,
   graphRunId: number,
@@ -178,9 +180,12 @@ export function nodeRunsForGraphRunDisplay(
 > {
   return db
     .prepare(
-      `SELECT id, node_id, node_kind, revision_id, visit_number, status, outcome, reason,
-              provider, model, effort, profile, launch_attempt, started_at, ended_at
-         FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
+      `SELECT n.id, n.node_id, n.node_kind, n.revision_id, n.visit_number, n.status, n.outcome,
+              n.reason, n.provider, n.model, n.effort, n.profile, n.launch_attempt,
+              COALESCE(n.started_at, p.started_at) AS started_at, n.ended_at
+         FROM approach_node_runs n
+         LEFT JOIN process_runs p ON p.id = n.process_run_id
+        WHERE n.graph_run_id = ? ORDER BY n.id`,
     )
     .all(graphRunId) as Array<
     Pick<
@@ -733,8 +738,9 @@ export function createNodeRun(db: GraphDb, input: CreateNodeRun): number {
 }
 
 /** Reserve a node run at claim time WITHOUT `started_at` — the visit is
- *  reserved `ready`, and its clock starts only when the launch claims it. The
- *  claim path is the only caller. */
+ *  reserved `ready`. The launch claim stamps the start (`markNodeRunStarted`)
+ *  in the same transaction that moves the row to `launching`. The claim path
+ *  is the only caller. */
 export function insertReservedNodeRun(
   db: GraphDb,
   input: Omit<CreateNodeRun, 'now'>,
@@ -796,6 +802,15 @@ export function setNodeRunLaunchIdentity(
       'UPDATE approach_node_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
     )
     .run(identity.generation, identity.capabilityHash, identity.ownerNonce, id);
+  return res.changes === 1;
+}
+
+/** Stamp `started_at` only when the node run still has none: a launch retry
+ *  keeps the wall-clock its FIRST claim began at. */
+export function markNodeRunStarted(db: GraphDb, id: number, now: string): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET started_at = ? WHERE id = ? AND started_at IS NULL')
+    .run(now, id);
   return res.changes === 1;
 }
 

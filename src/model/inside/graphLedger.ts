@@ -65,7 +65,14 @@ export function clampToRunOutcome(status: InsideStatus, runStatus: string): Insi
   return 'wait';
 }
 
-export function plannerStatus(status: string, runStatus: string): InsideStatus {
+export function plannerStatus(
+  status: string,
+  runStatus: string,
+  planAccepted = false,
+): InsideStatus {
+  // A `submitted` planner has no status after it. When the compiler already
+  // produced the run's revision from it, the answer is given: the row passed.
+  if (planAccepted && status === 'submitted') return 'pass';
   // A planner that never delivered — `blocked`, or launched with no known
   // result — must not inherit the run's outcome: under a `closed` run the
   // clamp would confirm it with a `pass` for work it never produced. It has
@@ -220,7 +227,20 @@ const LIVE_NODE_DISPLAY_STATUSES: readonly string[] = [
  * session ran, which is the number that distinguishes a compile in flight from
  * a run stranded behind one.
  */
-function plannerAge(planner: GraphPlannerRunView, now: string): string | null {
+function plannerAge(
+  planner: GraphPlannerRunView,
+  now: string,
+  acceptedRevision?: number,
+): string | null {
+  if (acceptedRevision !== undefined) {
+    // An old row has no `ended_at`; its submission is when the session ended.
+    const ran = runAge(
+      { startedAt: planner.startedAt, endedAt: planner.endedAt ?? planner.submittedAt },
+      now,
+      { live: false },
+    );
+    return `plan accepted · rev ${acceptedRevision}${ran ? ` · ${ran}` : ''}`;
+  }
   if (!planner.endedAt && planner.submittedAt) {
     const waited = durationBetween(planner.submittedAt, now);
     return waited === null ? null : `submitted ${waited} ago`;
@@ -240,11 +260,9 @@ export function nodeListView(
   now: string,
 ): GraphNodeListRow {
   const kinds = overrideKindsFor(overrides, node.revisionId, node.nodeId);
-  // A node run's `started_at` is stamped when the RUN ROW is created (at
-  // `ready`), not at spawn — `createNodeRun` is the writer. So the age answers
-  // "how long has this node been the run's concern", which is exactly the
-  // number a node stuck at `waiting-resource` or `launching` needs, and it is
-  // never later than the spawn it precedes.
+  // A node run's `started_at` is stamped by the launch claim (the row is
+  // reserved `ready` with none), so the age answers "how long has this node
+  // been claimed" — the number a node stuck at `launching` needs.
   const age = runAge({ startedAt: node.startedAt, endedAt: node.endedAt }, now, {
     live: LIVE_NODE_DISPLAY_STATUSES.includes(node.status),
   });
@@ -274,12 +292,33 @@ export interface LedgerEntry {
   plannerRunNumber?: number;
 }
 
+function acceptedRevisionOf(
+  planner: GraphPlannerRunView,
+  revision: GraphInsideInput['revision'],
+): number | undefined {
+  if (!revision) return undefined;
+  const producedIt =
+    !!planner.graphSnapshotId && planner.graphSnapshotId === revision.plannerArtifactSnapshotId;
+  return planner.endedAt || producedIt ? revision.revisionNumber : undefined;
+}
+
 export function plannerListView(
   planner: GraphPlannerRunView,
   input: GraphInsideInput,
   runStatus: string,
 ): GraphNodeListRow {
-  const age = plannerAge(planner, input.now);
+  // A submitted bootstrap planner is an accepted plan when ITS submission
+  // produced the active revision (the revision carries the planner's snapshot
+  // id), or when acceptance stamped its end. A relaunch planner still owed a
+  // compile sees the earlier revision but not its own snapshot, so it waits.
+  // A run that stopped short (blocked, cancelled, stale) keeps the clamp.
+  const acceptedRevision =
+    planner.kind === 'bootstrap' &&
+    planner.status === 'submitted' &&
+    (ADVANCING_GRAPH_RUN_STATUSES.has(runStatus) || runStatus === 'closed')
+      ? acceptedRevisionOf(planner, input.revision)
+      : undefined;
+  const age = plannerAge(planner, input.now, acceptedRevision);
   const action =
     input.attach &&
     planner.plannerRunId !== undefined &&
@@ -295,7 +334,7 @@ export function plannerListView(
     nodeId: `planner ${planner.plannerRunNumber}`,
     nodeKind: sanitizeGraphText(planner.kind),
     status: sanitizeGraphText(planner.status),
-    displayStatus: plannerStatus(planner.status, runStatus),
+    displayStatus: plannerStatus(planner.status, runStatus, acceptedRevision !== undefined),
     identity: `compile attempt ${planner.compileAttempt}`,
     ...(planner.reason ? { reason: sanitizeGraphText(planner.reason) } : {}),
     ...(action ? { action } : {}),

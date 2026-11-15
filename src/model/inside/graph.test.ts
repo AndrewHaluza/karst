@@ -262,7 +262,7 @@ describe('graphInsideProcess', () => {
     // `submitted` is the planner's terminal phase: the session finished and
     // the compile is outstanding. Rendered as `run` it spun beside its own
     // "submitted 3m ago" detail.
-    const view = graphInsideProcess(input({}))!;
+    const view = graphInsideProcess(input({ revision: null }))!;
     if (view.evidence?.kind !== 'rows') return;
     const planner = view.evidence.nodes!.find((n) => n.entry === 'planner')!;
     expect(planner.displayStatus).toBe('wait');
@@ -1296,6 +1296,7 @@ describe('graph run ages', () => {
   it('reports how long a submitted planner has owed the compiler an answer', () => {
     const view = graphInsideProcess(
       input({
+        revision: null,
         plannerRuns: [
           {
             plannerRunNumber: 1,

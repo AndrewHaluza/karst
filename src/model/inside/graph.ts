@@ -83,12 +83,16 @@ export interface GraphPlannerRunView {
    *  is thinking" and "the compiler owes an answer". */
   submittedAt?: string | null;
   endedAt?: string | null;
+  /** The snapshot this planner submitted — the revision it produced carries the same id. */
+  graphSnapshotId?: string | null;
 }
 
 export interface GraphRevisionView {
   revisionNumber: number;
   status: string;
   fingerprint: string | null;
+  /** The planner submission this revision was compiled from. */
+  plannerArtifactSnapshotId?: string | null;
 }
 
 export interface GraphArtifactView {
