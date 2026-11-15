@@ -73,6 +73,11 @@ export interface CompileContext {
     permittedReplans: number;
     bootstrapUnspent: boolean;
   };
+  /** Node runs the graph run already reserved across ALL revisions. The run's
+   *  `node_run_count` is never reset by a revision, so a revision's
+   *  `budgets.maxNodeRuns` must exceed it or the scheduler refuses the first
+   *  node at once. */
+  spentNodeRuns: number;
   /** Project-configured maxima (never above the product hard ceilings). */
   projectMaxima: { maxNodeRuns: number; maxExpertRuns: number; maxReplans: number };
 }
@@ -105,6 +110,7 @@ export type CompileDiagnosticCode =
   | 'unknown-gate-outcome'
   | 'unknown-gate-artifact'
   | 'expert-budget-exceeded'
+  | 'node-budget-exhausted'
   | 'budget-exceeds-project-maximum'
   | 'join-unknown-fork'
   | 'join-unknown-branch'
@@ -986,6 +992,20 @@ export function compileGraphDocument(
         `declared ${key} ${declared} exceeds the project maximum ${project}`,
       );
     }
+  }
+
+  // Node-run budget: the run-wide count is never reset by a revision, and the
+  // scheduler refuses a visit once count >= maxNodeRuns. A graph needs at least
+  // one more node run to admit its first node.
+  const minNodeRuns = context.spentNodeRuns + 1;
+  if (document.budgets.maxNodeRuns < minNodeRuns) {
+    error(
+      'node-budget-exhausted',
+      'budgets.maxNodeRuns',
+      `declared maxNodeRuns ${document.budgets.maxNodeRuns} leaves no node run:` +
+        ` ${context.spentNodeRuns} node run(s) already spent in this graph run, and maxNodeRuns counts them` +
+        ` — declare maxNodeRuns at least ${minNodeRuns} plus the node runs this graph needs`,
+    );
   }
 
   // Expert-budget rule, exactly the design's formula. Failing it is a

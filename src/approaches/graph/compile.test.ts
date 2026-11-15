@@ -178,6 +178,7 @@ function context(overrides?: Partial<CompileContext>): CompileContext {
     repositories: new Map([['api', { id: 'api', root: '', domain: 'domain-api' }]]),
     artifactFileExists: () => true,
     expertSpend: { spentPlannerRuns: 0, permittedReplans: 0, bootstrapUnspent: true },
+    spentNodeRuns: 0,
     projectMaxima: { maxNodeRuns: 200, maxExpertRuns: 10, maxReplans: 5 },
     ...overrides,
   };
@@ -638,6 +639,27 @@ describe('compileGraphDocument — budgets', () => {
       ctx,
     );
     expect(result.ok).toBe(true);
+  });
+
+  it('rejects a revision whose maxNodeRuns does not exceed the node runs already spent', () => {
+    const ctx = context({ spentNodeRuns: 3 });
+    const diag = expectError(
+      ref((d) => {
+        (d['budgets'] as Record<string, unknown>)['maxNodeRuns'] = 3;
+      }),
+      'node-budget-exhausted',
+      'budgets.maxNodeRuns',
+      ctx,
+    );
+    expect(diag.message).toContain('3 node run(s) already spent');
+    expect(diag.message).toContain('at least 4');
+    const accepted = compile(
+      ref((d) => {
+        (d['budgets'] as Record<string, unknown>)['maxNodeRuns'] = 6;
+      }),
+      ctx,
+    );
+    expect(accepted.ok).toBe(true);
   });
 
   it('never charges a negative replan reserve when the remaining budget is below zero', () => {

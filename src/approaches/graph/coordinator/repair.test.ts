@@ -91,6 +91,7 @@ function harness(): {
       repositories: context.repositories,
       artifactFileExists: () => true,
       expertSpend: { spentPlannerRuns: 0, permittedReplans: 0, bootstrapUnspent: true },
+      spentNodeRuns: 0,
       projectMaxima: { maxNodeRuns: 200, maxExpertRuns: 10, maxReplans: 5 },
     });
     return compiled;

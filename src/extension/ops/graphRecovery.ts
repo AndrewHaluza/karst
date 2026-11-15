@@ -7,7 +7,7 @@
  */
 
 import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
-import { graphRunStatusReplanCount } from '../../store/graph/graphRuns.js';
+import { graphRunNodeRunCount, graphRunStatusReplanCount } from '../../store/graph/graphRuns.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
 import type { CompileContext } from '../../approaches/graph/compile.js';
 import { parkNodeLaunchExit, type GraphDriverDeps } from '../../approaches/graph/driver.js';
@@ -99,6 +99,11 @@ export function compileExpertSpend(
     permittedReplans: Math.max(0, projectMaxReplans(configuredMaxReplans) - replanCount),
     bootstrapUnspent: false,
   };
+}
+
+/** Node runs the graph run already reserved, across every revision. */
+export function compileSpentNodeRuns(db: GraphDb | undefined, graphRunId: number): number {
+  return db ? graphRunNodeRunCount(db, graphRunId) : 0;
 }
 
 /**

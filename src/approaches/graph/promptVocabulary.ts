@@ -32,6 +32,12 @@ export function plannerVocabulary(context: CompileContext, artifactRoot = ''): s
     `- commands: ${
       commands.length ? fmt(commands) : 'none — this run cannot use `command` nodes'
     }`,
+    ...(context.spentNodeRuns > 0
+      ? [
+          `- node runs: ${context.spentNodeRuns} node runs already spent in this graph run; maxNodeRuns counts them,`,
+          `  so declare \`budgets.maxNodeRuns\` above ${context.spentNodeRuns} plus the node runs this graph needs.`,
+        ]
+      : []),
     ...(artifactRoot
       ? [
           `- artifact root: \`${artifactRoot}\` — every \`artifacts[].path\` resolves`,

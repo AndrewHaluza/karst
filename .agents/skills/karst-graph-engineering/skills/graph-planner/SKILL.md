@@ -238,7 +238,7 @@ graph; an END token exists only when no pending work remains.
 
 Graph-level budgets cap spend:
 
-- `maxNodeRuns` — total node visits across the graph (gates and joins count).
+- `maxNodeRuns` — total node visits across the graph (gates and joins count). It counts the node runs of ALL revisions of the run: a replan must declare it above the node runs already spent (the replan prompt states the count), or the compile rejects it with `node-budget-exhausted`.
 - `maxExpertRuns` — the arithmetic rule the compiler enforces:
   `spentPlannerRuns + permittedReplans + (bootstrap unspent ? 1 : 0) +
   Σ maxVisits over agent nodes whose profile resolves to "expert"` must not
