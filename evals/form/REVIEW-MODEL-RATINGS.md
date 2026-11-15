@@ -32,6 +32,8 @@ Rerun of opencode2 on `c11` to `c18`, 2 runs each, 15 minute timeout: all 9 call
 
 Rerun of opencode2 on `c12` to `c18`, 1 run each, 6 minute timeout (`review-references/opencode2-mimo-v2.6-flash-c12-c18/`): all 7 calls finished ok, 0 timeouts, 156 seconds per run (66 to 243). Recall was 5/6. The core missed the defect in `c12-tz-boundary` and gave 3 false findings there, 1 blocking. It gave 1 false finding on `c14-mutated-arg`. The clean cases `c17` and `c18` had 0 false findings. The earlier hangs did not repeat, so the cause is likely machine load. This is not proven. Every cell has n below 30.
 
+Rerun of antigravity on `c11` to `c18`, 3 runs each, 15 minute timeout (`review-references/antigravity-gemini-3.8-flash-medium-c11-c18-rerun/`): all 24 calls finished ok, 0 timeouts, 72 seconds per run. Recall was 21/21. The clean cases `c17` and `c18` had 0 false findings in 6 of 6 calls. The core gave the same false findings in every run of two defect cases: 1 on `c14-mutated-arg` and 2 on `c15-auth-inverted`, 6 blocking in total. Read these in `results.json`. They may be real issues in the seeded code, or a matcher window miss. The earlier 2 timeouts did not repeat.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
