@@ -67,9 +67,21 @@ const IDENTITY = ['-c', 'user.name=karst', '-c', 'user.email=karst@localhost'];
 const words = (r: { stderr: string; stdout: string; exitCode: number }): string =>
   r.stderr.trim() || r.stdout.trim() || `git exit ${r.exitCode}`;
 
-/** The reason a failed merged run gives for the ship gate (@arch:SHIP-CI-ACTIONS offers the actions). */
+/** `<repo>: gate "<name>" failed (exit <n>)[ — <first failing line>]`, the failure string of `runShipGates`. */
+const GATE_FAILURE = /^(.+?): gate "([^"]+)" failed \(exit -?\d+\)(?: — (.*))?$/s;
+
+/**
+ * The reason a failed merged run gives for the ship block `base-moved-failed` (@arch:BLOCKED, @arch:SHIP-CI-ACTIONS offers
+ * the action): `<repo>: gate "<name>" fails when merged with origin/<base> <sha> - <first failing test line>`. A failure
+ * that is not a gate verdict (a refused or stopped gate) keeps its own text after the merge note.
+ */
 export function baseMovedReason(baseRef: string, baseSha: string, failure: string): string {
-  return `fails when merged with ${REMOTE}/${baseRef} ${baseSha.slice(0, SHA_SHOWN)}; CI tests this merge — ${failure}`;
+  const merged = `fails when merged with ${REMOTE}/${baseRef} ${baseSha.slice(0, SHA_SHOWN)}`;
+  const m = GATE_FAILURE.exec(failure);
+  if (m === null) return `${merged}; CI tests this merge - ${failure}`;
+  const [, repo, gate, detail] = m;
+  const line = (detail ?? '').split('\n')[0]?.trim() ?? '';
+  return `${repo}: gate "${gate}" ${merged}${line === '' ? '' : ` - ${line}`}`;
 }
 
 export async function checkBaseMoved(d: BaseMovedDeps): Promise<BaseMovedOutcome> {

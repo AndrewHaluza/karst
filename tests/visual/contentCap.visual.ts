@@ -38,8 +38,7 @@ const UNCAPPED: readonly ViewId[] = ['dashboard', 'diffs', 'serverLogs', 'sideba
 
 karstTest.describe('content width cap (UI-R48)', () => {
   for (const [view, cap] of CAPPED) {
-    karstTest(`${view}: capped and centered at 2560`, async ({ gotoView, page }, testInfo) => {
-      if (testInfo.project.name !== 'dark') { testInfo.skip(); return; }
+    karstTest(`${view}: capped and centered at 2560`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width: 2560, height: LAYOUT_HEIGHT });
       await gotoView(view);
       assertCapped(await bodyGeo(page), 2560, cap);
@@ -47,8 +46,7 @@ karstTest.describe('content width cap (UI-R48)', () => {
   }
 
   for (const [view, cap] of [['gettingStarted', undefined], ['settings', 1200]] as const) {
-    karstTest(`${view}: centered at 1280`, async ({ gotoView, page }, testInfo) => {
-      if (testInfo.project.name !== 'dark') { testInfo.skip(); return; }
+    karstTest(`${view}: centered at 1280`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width: 1280, height: LAYOUT_HEIGHT });
       await gotoView(view);
       assertCapped(await bodyGeo(page), 1280, cap);
@@ -56,8 +54,7 @@ karstTest.describe('content width cap (UI-R48)', () => {
   }
 
   for (const view of UNCAPPED) {
-    karstTest(`${view}: full width at 2560`, async ({ gotoView, page }, testInfo) => {
-      if (testInfo.project.name !== 'dark') { testInfo.skip(); return; }
+    karstTest(`${view}: full width at 2560`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width: 2560, height: LAYOUT_HEIGHT });
       await gotoView(view);
       const w = await page.evaluate(() => document.body.getBoundingClientRect().width);

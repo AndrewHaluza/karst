@@ -776,3 +776,64 @@ describe('SupervisedCLITransport', () => {
     ]);
   });
 });
+
+describe('SupervisedCLITransport terminal close of a live process (orphan)', () => {
+  async function closeWith(opts: {
+    exitCode: number | undefined;
+    alive: boolean;
+    cwd: string | null;
+    adopt?: boolean;
+  }): Promise<{ killed: number[]; logs: string[] }> {
+    const killed: number[] = [];
+    const logs: string[] = [];
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const base = harness(4242).deps;
+    const transport = createSupervisedCliTransport({
+      ...base,
+      terminalHost: { createTerminal: () => terminal },
+      killTree: (pid) => {
+        killed.push(pid);
+        return 'killed';
+      },
+      debug: (m) => logs.push(m),
+      facts: {
+        isAlive: () => opts.alive,
+        liveCwd: () => (opts.cwd === null ? null : { path: opts.cwd, deleted: false }),
+        processStartMs: () => Date.parse('2026-08-12T00:00:00.000Z'),
+      },
+    });
+    const session = await transport.start(LAUNCH);
+    if (opts.adopt) {
+      closeHandler = undefined;
+      transport.adopt({ ...session, terminal });
+    }
+    closeHandler?.(opts.exitCode);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return { killed, logs };
+  }
+
+  for (const adopt of [false, true]) {
+    const mode = adopt ? 'adopt' : 'start';
+    it(`${mode}: kills the process tree of an interrupted close with a live attributable pid`, async () => {
+      const { killed, logs } = await closeWith({ exitCode: undefined, alive: true, cwd: '/wt/n1', adopt });
+      expect(killed).toEqual([4242]);
+      expect(logs.join('\n')).toMatch(/exitCode none.*pid 4242.*orphan.*killed/);
+    });
+
+    it(`${mode}: leaves a dead pid alone and logs the liveness`, async () => {
+      const { killed, logs } = await closeWith({ exitCode: 1, alive: false, cwd: null, adopt });
+      expect(killed).toEqual([]);
+      expect(logs.join('\n')).toMatch(/exitCode 1.*pid 4242.*pid dead/);
+    });
+
+    it(`${mode}: does not kill a foreign pid and logs it`, async () => {
+      const { killed, logs } = await closeWith({ exitCode: undefined, alive: true, cwd: '/elsewhere', adopt });
+      expect(killed).toEqual([]);
+      expect(logs.join('\n')).toMatch(/pid 4242.*foreign.*not killed/);
+    });
+  }
+});

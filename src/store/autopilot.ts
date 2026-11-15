@@ -356,7 +356,9 @@ export function repairStaleAutopilotParks(store: Store): number {
         WHERE stopped_reason LIKE 'auto-fix%'
           AND EXISTS (SELECT 1 FROM tickets t WHERE t.id = autopilot_tickets.ticket_id AND t.stage_current = 'ship')
           AND NOT EXISTS (SELECT 1 FROM stages s WHERE s.ticket_id = autopilot_tickets.ticket_id AND s.stage_key = 'ship'
-                            AND s.blocked_kind = 'awaiting-merge' AND s.blocked_reason = autopilot_tickets.stopped_reason)`,
+                            AND ((s.blocked_kind = 'awaiting-merge' AND s.blocked_reason = autopilot_tickets.stopped_reason)
+                              -- a base-moved park keeps its own block, which never carries the stop reason (T1129)
+                              OR s.blocked_kind = 'base-moved-failed'))`,
     ).run().changes;
     return stale.length + stops;
   });

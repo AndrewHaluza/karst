@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
 
-const STATUS_PROJECTS = new Set(['dark', 'dark-grayscale', 'dark-reduced-motion']);
 
 /**
  * Status/state surface screenshots for UI-R28 (grayscale) and UI-R30
@@ -14,7 +13,7 @@ const STATUS_PROJECTS = new Set(['dark', 'dark-grayscale', 'dark-reduced-motion'
  *
  * Run in the `dark`, `dark-grayscale`, and `dark-reduced-motion` projects
  * only — status primitives live in one place and do not need per-theme
- * baselines.
+ * baselines. FILE_PROJECTS in tests/visual/projectFilter.ts holds that list.
  *
  * The grayscale baseline (UI-R28) is expected to show G1's five identical
  * `.k-dot` circles — that is the documented defect, not a sweep failure.
@@ -22,11 +21,6 @@ const STATUS_PROJECTS = new Set(['dark', 'dark-grayscale', 'dark-reduced-motion'
 
 karstTest.describe('status/state screenshots', () => {
   karstTest('status primitives: full-page screenshot', async ({ gotoView, page }, testInfo) => {
-    if (!STATUS_PROJECTS.has(testInfo.project.name)) {
-      testInfo.skip();
-      return;
-    }
-
     // UI-R28: apply grayscale filter for the dark-grayscale project.
     if (testInfo.project.name === 'dark-grayscale') {
       await page.addInitScript(() => {

@@ -420,13 +420,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # The visual sweep runs in 4 parallel shards. scripts/visual-shards.mjs holds
-  # the plan and the measured times: dark split in two, the whole layout chain
-  # in one shard (its ledger verdict must see every route), and the other five
-  # projects in one shard. Each shard writes a blob report. The `visual` job
+  # The visual sweep runs in 6 parallel shards. scripts/visual-shards.mjs holds
+  # the plan and the measured times: dark in three parts, the layout tests in
+  # two parts, and the other five projects in one shard. Each shard writes a
+  # blob report, and each layout shard also uploads its layout shard files. The
+  # `visual` job runs the layout ledger verdict once over all layout files,
   # merges the blobs and runs the gate; a screenshot diff never fails a shard.
   visual-shard:
-    name: Visual shard (${{ matrix.shard }}/4)
+    name: Visual shard (${{ matrix.shard }}/6)
     # Scheduled runs only carry branch-drift; skip the visual sweep on a timer.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
@@ -438,13 +439,16 @@ jobs:
     # tag must stay in lockstep with the pinned @playwright/test version —
     # a different tag ships a different Chromium and invalidates every PNG.
     container: mcr.microsoft.com/playwright:v1.63.0-noble
-    # The longest shard ran about 310 s of tests on develop (run 43596873718).
+    # The longest shard ran about 191 s of tests on develop (run 43650510835).
     timeout-minutes: 20
+    # One npm cache path that the cache action and npm agree on inside the container.
+    env:
+      npm_config_cache: /github/home/.npm
     strategy:
       # Every shard must report: the `visual` job fails when one did not.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v4
 
@@ -454,7 +458,16 @@ jobs:
           node --version
           echo "expected major: $(cat .nvmrc)"
 
-      - run: npm ci
+      # The npm cache holds the package tarballs only, never node_modules: npm ci
+      # still installs from package-lock.json. A cache miss only costs the download.
+      - name: Restore the npm cache
+        uses: actions/cache@v4
+        with:
+          path: /github/home/.npm
+          key: npm-playwright-v1.63.0-noble-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-playwright-v1.63.0-noble-
+
+      - run: npm ci --prefer-offline --no-audit --no-fund
 
       # Fixture generation needs the webview sender bundles (see the `visual` job history, NDL-218).
       - name: Build the webview bundles
@@ -462,13 +475,19 @@ jobs:
 
       # A red screenshot does not fail the shard: the `visual` job judges the
       # merged report. A shard that writes no blob fails at the upload step.
+      # PWTEST_SHARD_WEIGHTS cuts a split project by measured time, not by count
+      # (scripts/visual-shards.mjs).
       - name: Run the visual shard
+        id: run
         shell: bash
         env:
           PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report
           PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
         run: |
           read -r -a args <<< "$(node scripts/visual-shards.mjs '${{ matrix.shard }}')"
+          weights="$(node scripts/visual-shards.mjs '${{ matrix.shard }}' weights)"
+          echo "layout=$(node scripts/visual-shards.mjs '${{ matrix.shard }}' layout)" >> "$GITHUB_OUTPUT"
+          if [ -n "$weights" ]; then export PWTEST_SHARD_WEIGHTS="$weights"; fi
           set +e
           npx playwright test "${args[@]}" --add-reporter=blob
           code=$?
@@ -481,6 +500,19 @@ jobs:
           name: visual-blob-${{ matrix.shard }}
           path: blob-report/
           if-no-files-found: error
+          retention-days: 1
+
+      # A layout shard runs with --no-deps: no layout-setup, no ledger verdict.
+      # Its shard files go to the `visual` job, which judges the union once.
+      # `.layout-shards` is a hidden directory, so include-hidden-files is on.
+      - name: Upload the shard's layout files
+        if: steps.run.outputs.layout == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-layout-${{ matrix.shard }}
+          path: tests/visual/.layout-shards/
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 1
 
   visual:
@@ -497,6 +529,8 @@ jobs:
     # Same image as the shards, so the merge and the gate run on the same Node.
     container: mcr.microsoft.com/playwright:v1.63.0-noble
     timeout-minutes: 15
+    env:
+      npm_config_cache: /github/home/.npm
     steps:
       # Never pass on missing data: a shard that failed, was cancelled or was
       # skipped leaves part of the sweep without a report.
@@ -538,7 +572,14 @@ jobs:
       # serve.mjs now also builds them on demand (it is the path the docker
       # script takes); each shard builds them as well to fail fast and name the
       # prerequisite in the job log.
-      - run: npm ci
+      - name: Restore the npm cache
+        uses: actions/cache@v4
+        with:
+          path: /github/home/.npm
+          key: npm-playwright-v1.63.0-noble-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-playwright-v1.63.0-noble-
+
+      - run: npm ci --prefer-offline --no-audit --no-fund
 
       # tests/visual is excluded from the main tsconfig, so its type errors are
       # only visible through this config — and they belong to this job, not to
@@ -601,6 +642,35 @@ jobs:
           path: all-blob
           merge-multiple: true
 
+      # The layout shards ran only the `layout` tests (--no-deps) and uploaded
+      # their shard files. The union goes into the shard directory, and
+      # layout-setup and layout-teardown run once over it (KARST_LAYOUT_MERGE,
+      # tests/visual/layoutShards.ts): setup keeps the files, and the ledger
+      # verdict judges every layout route of the sweep. A run key with no shard
+      # file fails the verdict, so a missing layout shard fails closed. The
+      # merge run starts no web server. It writes its own blob directory (the
+      # blob reporter empties its directory first), and the merge step below
+      # adds that blob, so the gate reads the verdict as `layout-teardown`.
+      - name: Download the layout shard files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: visual-layout-*
+          path: tests/visual/.layout-shards
+          merge-multiple: true
+
+      - name: Run the layout ledger verdict over every layout shard
+        shell: bash
+        env:
+          KARST_LAYOUT_MERGE: '1'
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: verdict-blob
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-layout-verdict.zip
+        run: |
+          set +e
+          npx playwright test --project=layout-setup --add-reporter=blob
+          code=$?
+          set -e
+          echo "Playwright exit code: ${code} (advisory here; the gate reads the verdict from the merged report)"
+
       # merge-reports runs the reporters of playwright.config.ts over the
       # blobs: the json reporter writes tests/visual/.results.json and the html
       # reporter writes tests/visual/.report/, as a single run did.
@@ -618,6 +688,7 @@ jobs:
         id: visual
         run: |
           rm -f tests/visual/.results.json
+          cp verdict-blob/report-layout-verdict.zip all-blob/
           npx playwright test --list --reporter=json > visual-listed.json
           set +e
           npx playwright merge-reports --config playwright.config.ts all-blob
