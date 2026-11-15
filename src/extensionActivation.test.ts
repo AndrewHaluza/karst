@@ -255,7 +255,8 @@ describe('extension activation', () => {
     );
     // …and openSession re-attaches BEFORE showing the "not attached" message.
     expect(source).toMatch(/if \(!session\) await reattachGraphSessions\(\);/);
-    expect(source).toContain('its session is not attached to this window');
+    // The message itself lives in the graph-owned notice (T1138).
+    expect(readFileSync(join(process.cwd(), 'src/approaches/graph/graphOwnedNotice.ts'), 'utf8')).toContain('its session is not attached to this window');
   });
 
   it('fires the impl marker for a graph run awaiting its impl marker', () => {

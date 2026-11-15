@@ -1,0 +1,69 @@
+/**
+ * The vscode-facing binding for the graph-owned launch notice (T1138). It
+ * takes every host seam as a dependency, so `extension.ts` only passes them.
+ */
+
+import type { GraphDb } from '../store/graph/transitions.js';
+import type { ProcessFactsSource } from '../runtime/serverIdentity.js';
+import type { KillOutcome } from '../runtime/processTree.js';
+import { cancelGraphRun } from '../approaches/graph/cancel.js';
+import {
+  graphOwnedChangeMessage,
+  graphRunLiveness,
+  showGraphOwnedNotice,
+  type GraphOwnedRun,
+} from '../approaches/graph/graphOwnedNotice.js';
+
+export interface GraphOwnedBindingDeps {
+  readonly db: () => GraphDb | undefined;
+  readonly transaction: <T>(fn: () => T) => T;
+  readonly facts: ProcessFactsSource;
+  readonly killTree: (pid: number) => KillOutcome;
+  readonly activeRun: (db: GraphDb, ticketId: number) => GraphOwnedRun | undefined;
+  readonly label: (ticketId: number) => string;
+  readonly warn: (message: string, ...actions: string[]) => PromiseLike<string | undefined>;
+  readonly confirm: (message: string, accept: string) => PromiseLike<boolean>;
+  readonly inform: (message: string) => void;
+  readonly refresh: (ticketId: number) => void;
+  readonly logError: (message: string, error: unknown) => void;
+  readonly debug: (message: string) => void;
+}
+
+export function makeGraphOwnedBinding(deps: GraphOwnedBindingDeps) {
+  return {
+    /** A launch on a graph-owned ticket started nothing: say why, offer Cancel graph. */
+    async launchBlocked(ticketId: number, run: GraphOwnedRun): Promise<void> {
+      const db = deps.db();
+      if (!db) return;
+      const liveness = await graphRunLiveness(db, deps.facts, run.graphRunId);
+      await showGraphOwnedNotice(
+        {
+          warn: deps.warn,
+          confirm: deps.confirm,
+          cancel: (graphRunId) =>
+            cancelGraphRun(
+              {
+                db,
+                transaction: deps.transaction,
+                facts: deps.facts,
+                killTree: deps.killTree,
+                debug: deps.debug,
+              },
+              graphRunId,
+              'cancelled by user from a blocked launch',
+            ),
+          refresh: () => deps.refresh(ticketId),
+          inform: deps.inform,
+          logError: deps.logError,
+        },
+        { ticketLabel: deps.label(ticketId), run, liveness },
+      );
+    },
+    /** An agent, model or preset pick applies to the next launch, not to the running graph. */
+    agentChoiceChanged(ticketId: number): void {
+      const db = deps.db();
+      const run = db ? deps.activeRun(db, ticketId) : undefined;
+      if (run) deps.inform(graphOwnedChangeMessage(deps.label(ticketId), run));
+    },
+  };
+}
