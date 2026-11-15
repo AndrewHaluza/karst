@@ -31,11 +31,11 @@ describe('graphDagView', () => {
     expect(d.columns[0]![0]).toMatchObject({ label: 'plan', state: 'planner 2 · running 3m' });
   });
 
-  it('ends with one uat chip: pending while the run is open, pass once it closed, absent when not asked', () => {
+  it('ends with one uat chip: pending while the run is open and after it closed (UAT has not run), absent when not asked', () => {
     expect(ids(graphDagView(topo(['a'], []), []))).toEqual([['a']]);
     const open = graphDagView(topo(['a'], []), [], false);
     expect(open.columns.at(-1)).toEqual([{ id: 'uat', label: 'uat', displayStatus: 'pending', state: 'after all nodes' }]);
-    expect(graphDagView(topo(['a'], []), [], true).columns.at(-1)![0]).toMatchObject({ label: 'uat', displayStatus: 'pass' });
+    expect(graphDagView(topo(['a'], []), [], true).columns.at(-1)![0]).toMatchObject({ label: 'uat', displayStatus: 'pending', state: 'next stage' });
   });
 
   it('uses the latest ledger entry for status/state and pending otherwise', () => {

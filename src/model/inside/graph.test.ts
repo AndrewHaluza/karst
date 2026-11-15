@@ -1389,6 +1389,11 @@ describe('run header detail', () => {
     const done = { ...base.nodeRuns[0]!, nodeRunId: 50, status: 'completed' };
     const view = graphInsideProcess({ ...base, nodeRuns: [...base.nodeRuns, done] })!;
     if (view.evidence?.kind !== 'rows') return;
-    expect(view.evidence.rows[0]!.detail).toContain('1 of 2 nodes running');
+    // A second visit of the same node is still one node.
+    expect(view.evidence.rows[0]!.detail).toContain('1 of 1 nodes running');
+    const other = { ...base.nodeRuns[0]!, nodeRunId: 51, nodeId: 'other', status: 'ready' };
+    const two = graphInsideProcess({ ...base, nodeRuns: [...base.nodeRuns, done, other] })!;
+    if (two.evidence?.kind !== 'rows') return;
+    expect(two.evidence.rows[0]!.detail).toContain('1 of 2 nodes running');
   });
 });

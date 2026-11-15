@@ -80,11 +80,9 @@ function plannerChip(planner: GraphNodeListRow): GraphDagChip {
   return { id, label: 'plan', displayStatus: planner.displayStatus, state: `${id} · ${detail}` };
 }
 
-/** The hand-off the run ends in: pending until the run closes, then pass. */
+/** The hand-off the run ends in. It never reads pass: a closed run only means UAT is next, not that it ran. */
 function uatChip(runClosed: boolean): GraphDagChip {
-  return runClosed
-    ? { id: 'uat', label: 'uat', displayStatus: 'pass', state: 'done' }
-    : { id: 'uat', label: 'uat', displayStatus: 'pending', state: 'after all nodes' };
+  return { id: 'uat', label: 'uat', displayStatus: 'pending', state: runClosed ? 'next stage' : 'after all nodes' };
 }
 
 function chipFor(label: string, latest: GraphNodeListRow | undefined): GraphDagChip {
@@ -97,7 +95,7 @@ function chipFor(label: string, latest: GraphNodeListRow | undefined): GraphDagC
 export function graphDagView(
   topology: GraphTopology,
   ledger: readonly GraphNodeListRow[],
-  /** Given → one trailing `uat` chip (pass when true). Absent → no chip. */
+  /** Given → one trailing pending `uat` chip (`true` = run closed, UAT is next). Absent → no chip. */
   runClosed?: boolean,
 ): GraphDagView {
   const seen = new Set<string>();

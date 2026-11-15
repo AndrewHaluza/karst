@@ -388,8 +388,11 @@ function runHeaderDetail(input: GraphInsideInput): string {
   }
   const age = relativeAge(run.createdAt, input.now);
   if (age) parts.push(`started ${age}`);
-  const running = input.nodeRuns.filter((n) => nodeRunStatus(n.status) === 'run').length;
-  if (input.nodeRuns.length > 0) parts.push(`${running} of ${input.nodeRuns.length} nodes running`);
+  // Count graph NODES, not visits: a node run again after a retry or loop is still one node.
+  const known = new Set(input.nodeRuns.map((n) => n.nodeId));
+  for (const n of input.topology?.nodes ?? []) known.add(n.id);
+  const running = new Set(input.nodeRuns.filter((n) => nodeRunStatus(n.status) === 'run').map((n) => n.nodeId));
+  if (known.size > 0) parts.push(`${running.size} of ${known.size} nodes running`);
   return sanitizeGraphText(parts.join(' · '));
 }
 
