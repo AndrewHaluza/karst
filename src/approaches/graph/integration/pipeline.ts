@@ -80,6 +80,7 @@ import {
   captureChangeSet,
   captureUntrackedPaths,
   isPathWithinClaim,
+  splitRegenerated,
   validateChangeSet,
   type ChangeSetEntry,
 } from './changeSet.js';
@@ -383,7 +384,30 @@ async function captureDomainChangeSet(
       if (!merged.has(path)) merged.set(path, { path, kind: 'added' });
     }
   }
-  return { entries: [...merged.values()], workspaceCwds, workspaceBaseRef };
+  const { kept, dropped } = splitRegenerated([...merged.values()], domain.regeneratedPaths);
+  for (const entry of dropped) {
+    // A workspace clone is discarded after integration, so only a node that
+    // wrote straight into the canonical tree leaves the path to restore.
+    if (workspaceCwds.length === 0) await restoreFromBase(deps, domain.canonicalWorktree, baseRef, entry);
+    deps.debug?.(`[graph] node ${nodeRunId}: dropped regenerated path ${entry.path}`);
+  }
+  return { entries: kept, workspaceCwds, workspaceBaseRef };
+}
+
+/** Put a path back to its state at `baseRef`; a path absent there is removed. */
+async function restoreFromBase(
+  deps: CompletionPipelineDeps,
+  cwd: string,
+  baseRef: string,
+  entry: ChangeSetEntry,
+): Promise<void> {
+  const restored =
+    entry.kind === 'added'
+      ? { exitCode: 1, stderr: '' }
+      : await deps.git(['restore', `--source=${baseRef}`, '--staged', '--worktree', '--', entry.path], cwd);
+  if (restored.exitCode === 0) return;
+  await deps.git(['rm', '-f', '--cached', '--ignore-unmatch', '--', entry.path], cwd);
+  rmSync(join(cwd, entry.path), { recursive: true, force: true });
 }
 
 type LandResult = { ok: true } | { ok: false; stderr: string; reason: string };

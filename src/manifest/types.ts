@@ -135,8 +135,11 @@ export interface ShipDef {
    * (sandbox for a sandboxed ticket), committing what changed. An entry may be
    * `{ run, sandbox: 'host' }` to run on the host; a command the sandbox cannot run
    * parks capability-missing, and one that fails is the pass's reported failure.
+   * The object form may list `paths` (repo-relative files or directories) that
+   * the command owns: a graph node's change to such a path is dropped at
+   * integration, not counted as a claim violation (@arch:GRAPHRUN).
    */
-  regenerate?: (string | { run: string; sandbox?: 'host' })[];
+  regenerate?: (string | { run: string; sandbox?: 'host'; paths?: string[] })[];
 }
 
 /**

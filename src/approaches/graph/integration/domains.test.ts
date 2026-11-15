@@ -113,6 +113,25 @@ describe('resolveRepoWorktrees', () => {
     ]);
   });
 
+  it('carries the paths every ship.regenerate entry owns, ignoring string entries', () => {
+    const entries = resolveRepoWorktrees(
+      {
+        api: {
+          repoPath: '/repo/api',
+          ship: { regenerate: ['npm run gen', { paths: ['docs/COVERS.json'] }, { paths: ['docs/gen'] }] },
+        },
+      },
+      worktrees,
+    );
+    expect(entries).toEqual([
+      {
+        repoName: 'api',
+        worktreePath: '/repo/api/.karst/worktrees/T-1',
+        regeneratedPaths: ['docs/COVERS.json', 'docs/gen'],
+      },
+    ]);
+  });
+
   it('a monorepo: two manifest entries sharing one repoPath resolve to the ONE worktree', () => {
     const entries = resolveRepoWorktrees(repos, worktrees);
     expect(entries.filter((e) => e.repoName === 'web' || e.repoName === 'docs')).toEqual([

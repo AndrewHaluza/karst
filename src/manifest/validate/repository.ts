@@ -404,7 +404,20 @@ function validateShip(raw: unknown, repo: string): ShipDef | undefined {
   };
 }
 
-function validateRegenerate(raw: unknown, where: string): (string | { run: string; sandbox?: 'host' })[] {
+type RegenerateEntry = string | { run: string; sandbox?: 'host'; paths?: string[] };
+
+function validateRegeneratePaths(raw: unknown, at: string): string[] {
+  if (!Array.isArray(raw)) throw new ManifestError(`${at}.paths must be an array of repo-relative paths`);
+  return raw.map((p, i) => {
+    const path = requireString(p, `${at}.paths[${i}]`);
+    if (path.startsWith('/') || path.split('/').includes('..')) {
+      throw new ManifestError(`${at}.paths[${i}] must be a repo-relative path without ".." (got "${path}")`);
+    }
+    return path.replace(/\/+$/, '');
+  });
+}
+
+function validateRegenerate(raw: unknown, where: string): RegenerateEntry[] {
   if (!Array.isArray(raw)) {
     throw new ManifestError(`${where}.regenerate must be an array of shell command strings`);
   }
@@ -412,9 +425,15 @@ function validateRegenerate(raw: unknown, where: string): (string | { run: strin
     const at = `${where}.regenerate[${i}]`;
     if (!isObject(c)) return requireString(c, at);
     const run = requireString(c.run, `${at}.run`);
-    if (c.sandbox === undefined) return { run };
-    if (c.sandbox !== 'host') throw new ManifestError(`${at}.sandbox must be "host"`);
-    return { run, sandbox: 'host' as const };
+    const paths = c.paths === undefined ? undefined : validateRegeneratePaths(c.paths, at);
+    if (c.sandbox !== undefined && c.sandbox !== 'host') {
+      throw new ManifestError(`${at}.sandbox must be "host"`);
+    }
+    return {
+      run,
+      ...(c.sandbox === 'host' ? { sandbox: 'host' as const } : {}),
+      ...(paths ? { paths } : {}),
+    };
   });
 }
 

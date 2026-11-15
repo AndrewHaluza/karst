@@ -287,6 +287,50 @@ describe('runCompletionPipeline — claim validation', () => {
     expect(leaseRow(h, 11)).toEqual({ status: 'held' });
   });
 
+  it('drops a path a ship.regenerate command owns: restored, logged, not a violation', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 13, 'completing');
+    lease(h, 13, 'dom-regen');
+    writeFileSync(join(h.worktree, 'a.ts'), 'a2\n');
+    writeFileSync(join(h.worktree, 'b.ts'), 'b2\n'); // generated, not claimed
+    writeFileSync(join(h.worktree, 'gen.json'), '{}\n'); // generated, new
+    const debug: string[] = [];
+
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        debug: (m) => debug.push(m),
+        domainsFor: () => [
+          { repoName: 'api', worktreePath: h.worktree, regeneratedPaths: ['b.ts', 'gen.json'] },
+        ],
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 13 },
+    );
+    expect(result.kind).toBe('integrated');
+    expect(readFileSync(join(h.worktree, 'b.ts'), 'utf8')).toBe('b\n');
+    expect(existsSync(join(h.worktree, 'gen.json'))).toBe(false);
+    expect(git(h.worktree, ['show', '--name-only', '--format=', 'HEAD'])).toBe('a.ts');
+    expect(debug).toContain('[graph] node 13: dropped regenerated path b.ts');
+    expect(debug).toContain('[graph] node 13: dropped regenerated path gen.json');
+  });
+
+  it('an unclaimed path no ship.regenerate command owns still violates', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 14, 'completing');
+    lease(h, 14, 'dom-regen2');
+    writeFileSync(join(h.worktree, 'b.ts'), 'b2\n');
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        domainsFor: () => [
+          { repoName: 'api', worktreePath: h.worktree, regeneratedPaths: ['other.json'] },
+        ],
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 14 },
+    );
+    expect(result).toEqual({ kind: 'claim-violated', violations: ['b.ts'] });
+  });
+
   it('a node with no declared writes and a dirty worktree violates every path', async () => {
     const h = harness();
     cleanups.push(h.close);
