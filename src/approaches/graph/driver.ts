@@ -770,6 +770,19 @@ async function executeReadyNode(
     deps.debug?.(`[graph] run ${graphRunId}: agent node ${row.node_id} parked — ${reason}`);
     return 'blocked';
   }
+  if (workspace.kind === 'deps-failed') {
+    // A typed result, not a throw: a throw parks `failed-to-launch` and the
+    // automatic recovery retries it three times, each one a full install.
+    const why = collapseDiagnostic(workspace.reason, WORKSPACE_REASON_MAX);
+    parkLaunchFailure(deps, graphRunId, row.id, `workspace dependencies: ${why}`, false, `graph-workspace-deps: node run ${row.id} (${why})`);
+    deps.debug?.(`[graph] run ${graphRunId}: agent node ${row.node_id} parked — workspace dependencies: ${why}`);
+    return 'blocked';
+  }
+  if (workspace.kind === 'budget-exhausted') {
+    const why = `${workspace.currentBytes + workspace.estimatedBytes} bytes over the ${workspace.limitBytes} workspace ceiling`;
+    parkLaunchFailure(deps, graphRunId, row.id, `workspace budget exhausted: ${why}`, false, `graph-budget-exhausted: node run ${row.id} (${why})`);
+    return 'blocked';
+  }
   if (workspace.kind !== 'created') {
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
@@ -1118,6 +1131,9 @@ export function parkLaunchFailure(
   /** What could not be launched — recorded verbatim as the node's reason. */
   reason = 'launch failed before the session started',
   providerExit = false,
+  /** The graph run's block reason when it is not the default `failed-to-launch`
+   *  (the prefix picks the recovery category: `recoveryCategoryFor`). */
+  runReason = `failed-to-launch: node run ${nodeRunId}`,
 ): void {
   deps.transaction(() => {
     const status = nodeRunStatus(deps.db, nodeRunId);
@@ -1158,7 +1174,7 @@ export function parkLaunchFailure(
       now: deps.now(),
     });
     if (casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')) {
-      markGraphRunBlocked(deps.db, graphRunId, `failed-to-launch: node run ${nodeRunId}`, deps.now());
+      markGraphRunBlocked(deps.db, graphRunId, runReason, deps.now());
     }
     releaseGraphProcessSlot(deps.db, graphRunId, deps.now());
   });
@@ -1167,6 +1183,8 @@ export function parkLaunchFailure(
 /** Cap for the captured provider line recorded as a launch-failure reason,
  *  after the untrusted CLI text is collapsed to one line. */
 export const LAUNCH_FAILURE_LINE_MAX = 200;
+/** Cap for a workspace-dependency failure reason (a setup output tail inside). */
+const WORKSPACE_REASON_MAX = 500;
 
 /**
  * Record a provider process that exited before its session started (the

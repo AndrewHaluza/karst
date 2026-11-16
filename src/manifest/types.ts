@@ -155,6 +155,13 @@ export interface RepoConventions {
   pullRequestDescription?: string;
 }
 
+/** A repository's `graphWorkspace:` block (see `RepositoryDef.graphWorkspace`). */
+export interface GraphWorkspaceDef {
+  link?: string[];
+  setup?: string;
+  setupWhen?: string[];
+}
+
 /**
  * The PRIMARY ENTITY: a git repository karst can worktree, scope to a ticket,
  * classify, and ship. Runnability is the optional part (`service`), not the
@@ -226,6 +233,18 @@ export interface RepositoryDef {
    * sandbox may reach WHILE the setup runs; absent = `DEFAULT_SETUP_HOSTS`.
    */
   sandbox?: { setup: string; setupHosts?: string[] };
+  /**
+   * How a graph NODE workspace (a git clone under globalStorage) gets the
+   * untracked dependencies its ticket worktree resolves (`@arch:GRAPHRUN`,
+   * `approaches/graph/workspace/depsPlan.ts`). `link` paths are symlinked from
+   * the worktree (or the main checkout); `setup` runs on the HOST in the clone
+   * when a link is missing, unsafe or stale; `setupWhen` lists repo-relative
+   * files (a lockfile) whose clone copy must equal the copy beside the link
+   * target. An explicit block REPLACES the language defaults. There is no
+   * fallback to `sandbox.setup`: that command is written for the sandbox
+   * network window (`@arch:AC-36`), not the host.
+   */
+  graphWorkspace?: GraphWorkspaceDef;
   /**
    * Ship behaviour for this repository. Absent means "ship the whole worktree"
    * — the default. The one knob today is `exclude`, the pathspecs ship's sweep

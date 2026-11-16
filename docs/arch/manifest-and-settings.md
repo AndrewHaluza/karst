@@ -156,5 +156,7 @@ New `Manifest` field checklist: add to `types.ts` + `validateManifest` (schema.t
 
 `sandboxMemory` also carries the sbx keys `sbxMemory` (the `sbx run --memory` ceiling; default 40% of host RAM clamped 2–8 GB) and `sbxMinFree` (free host memory below which a sandbox start waits in the memory queue; default `1536m`). Both use the Docker memory grammar (`2g`, `1536m`); they are manifest-only for now (no Settings control), see `arch:AC-49`.
 
+`graphWorkspace` (repository field, manifest-only like `sandbox`) holds `link`, `setup` and `setupWhen`. It follows the checklist (`types.ts`, `validate/repository.ts`, `write.ts` overlay). An explicit block REPLACES the defaults of that repository and never falls back to `sandbox.setup`. See `arch:GRAPHDEPS`.
+
 `sandboxLimits` (manifest-only, T964) holds `cpus` (whole number ≥ 1, the `sbx run --cpus` value on create), `workers` (boolean; `false` opts out of the vitest worker and node heap env) and `gateSlots` (whole number ≥ 0, project-wide concurrent sandbox gates; default 2, 0 = unlimited). See `arch:AC-49` and `arch:AC-36`.
 END_DOC_BLOCK: [@arch:FIELDCHK]
