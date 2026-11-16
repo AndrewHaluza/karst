@@ -396,6 +396,47 @@ describe('createNodeWorkspace', () => {
     }
   });
 
+  it('provisions dependencies in the clone before it measures the clone', async () => {
+    const h = harness();
+    try {
+      const order: string[] = [];
+      const deps = makeDeps(h, {
+        measureBytes: () => {
+          order.push('measure');
+          return 10;
+        },
+        provisionDeps: async (domain, clone) => {
+          order.push('provision');
+          expect(domain.repoName).toBe('web');
+          expect(existsSync(join(clone, '.git'))).toBe(true);
+          return { kind: 'ready', created: [] };
+        },
+      });
+      expect((await createNodeWorkspace(deps, input(h, 1))).kind).toBe('created');
+      // The pre-clone estimate measures first; the clone is measured AFTER provisioning.
+      expect(order.indexOf('provision')).toBeGreaterThan(-1);
+      expect(order.lastIndexOf('measure')).toBeGreaterThan(order.indexOf('provision'));
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a dependency failure returns deps-failed, removes the workspace and records nothing', async () => {
+    const h = harness();
+    try {
+      const deps = makeDeps(h, {
+        provisionDeps: async () => ({ kind: 'failed', reason: 'web: lockfile mismatch' }),
+      });
+      const result = await createNodeWorkspace(deps, input(h, 1));
+      expect(result).toEqual({ kind: 'deps-failed', reason: 'web: lockfile mismatch' });
+      expect(existsSync(nodeWorkspaceDir(h.globalRoot, 'proj', h.ticketId, h.graphRunId, 1))).toBe(false);
+      expect(workspacesForNode(h.db, 1)).toHaveLength(0);
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(0);
+    } finally {
+      h.close();
+    }
+  });
+
   it('refuses before cloning when the ESTIMATE alone exceeds the ceiling', async () => {
     const h = harness();
     try {

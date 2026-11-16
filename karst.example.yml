@@ -344,6 +344,13 @@ repositories:
 #     #   # Hosts reachable ONLY while setup runs (port 443; default: registry.npmjs.org, github.com,
 #     #   # objects.githubusercontent.com, release-assets.githubusercontent.com, nodejs.org). Closed again afterwards.
 #     #   setupHosts: [registry.npmjs.org, github.com, objects.githubusercontent.com, release-assets.githubusercontent.com, nodejs.org]
+#     # Dependencies for a GRAPH NODE workspace (a clone). Karst detects Node (package.json),
+#     # uv, poetry and requirements*.txt by itself; Go, Rust, JVM and Ruby need nothing. An
+#     # explicit block REPLACES the detected defaults. It never falls back to sandbox.setup.
+#     # graphWorkspace:
+#     #   link: [.venv]              # repo-relative paths linked from the ticket worktree
+#     #   setup: uv sync --frozen    # host command run in the clone when a link is missing or stale
+#     #   setupWhen: [uv.lock]       # files that must equal the copy beside the link target
 # COOKBOOK-REPOS-END
 
   # MONOREPO with several runnable processes. Use `services:` as a NAMED MAP

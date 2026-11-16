@@ -132,6 +132,44 @@ describe('loadManifest', () => {
     }
   });
 
+  it('reads repository graphWorkspace and refuses a bad path, key or type', () => {
+    const withBlock = (block: string) =>
+      VALID.replace('    repoPath: ../backend', `    repoPath: ../backend\n    graphWorkspace:\n${block}`);
+    const ok = fixture(withBlock('      link: [.venv, vendor/bundle]\n      setup: uv sync --frozen\n      setupWhen: [uv.lock]'));
+    try {
+      const m = loadManifest(ok.path);
+      expect(m.repositories.backend!.graphWorkspace).toEqual({
+        link: ['.venv', 'vendor/bundle'],
+        setup: 'uv sync --frozen',
+        setupWhen: ['uv.lock'],
+      });
+      expect(m.repositories.frontend!.graphWorkspace).toBeUndefined();
+    } finally {
+      ok.cleanup();
+    }
+    const empty = fixture(withBlock('      link: []'));
+    try {
+      expect(loadManifest(empty.path).repositories.backend!.graphWorkspace).toEqual({ link: [] });
+    } finally {
+      empty.cleanup();
+    }
+    for (const bad of [
+      '      link: [/abs]',
+      '      link: [../up]',
+      '      link: [.git]',
+      '      setup: ""',
+      '      setupWhen: [42]',
+      '      other: 1',
+    ]) {
+      const f = fixture(withBlock(bad));
+      try {
+        expect(() => loadManifest(f.path), bad).toThrow(/graphWorkspace/);
+      } finally {
+        f.cleanup();
+      }
+    }
+  });
+
   it('reads a repository baselineBranch override while leaving others inherited', () => {
     const yaml = VALID.replace(
       '    repoPath: ../backend',

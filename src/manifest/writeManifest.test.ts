@@ -69,6 +69,20 @@ function fixture(body = RAW): { path: string; cleanup: () => void } {
 }
 
 describe('writeManifest', () => {
+  it('round-trips repository graphWorkspace', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const graphWorkspace = { link: ['.venv'], setup: 'uv sync --frozen', setupWhen: ['uv.lock'] };
+      writeManifest(path, { ...m, repositories: { ...m.repositories, backend: { ...m.repositories.backend!, graphWorkspace } } });
+      expect(loadManifest(path).repositories.backend!.graphWorkspace).toEqual(graphWorkspace);
+      writeManifest(path, loadManifest(path));
+      expect(loadManifest(path).repositories.backend!.graphWorkspace).toEqual(graphWorkspace);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('round-trips an edited manifest through validation', () => {
     const { path, cleanup } = fixture();
     try {

@@ -286,6 +286,7 @@ import { runGraphCommand } from './cli/graph.js';
 import { buildGraphSessionEnv } from './approaches/graph/transport/env.js';
 import { envRef, sessionCliEnv } from './agent/cliEnv.js';
 import { createNodeWorkspace } from './approaches/graph/workspace/provider.js';
+import { createDepsProvisioner } from './approaches/graph/workspace/workspaceDeps.js';
 import type {
   CommandDefinition,
   CompileContext,
@@ -4869,6 +4870,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             globalStorageRoot: context.globalStorageUri.fsPath,
             now: () => new Date().toISOString(),
             facts: systemAsyncProcessFacts,
+            // @arch:GRAPHRUN: a clone gets the dependencies of its ticket worktree.
+            provisionDeps: createDepsProvisioner({ manifest: currentManifest, run: runProcess, debug: (message) => logger.debug(message) }),
             debug: (message) => logger.debug(message),
           },
           {

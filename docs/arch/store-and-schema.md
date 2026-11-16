@@ -137,6 +137,28 @@ Two deliberate, documented exceptions remain:
   back (`docs/arch/diagnostics.md`). They read; they never write state.
 END_DOC_BLOCK: [@arch:GRAPHRUN]
 
+## [@arch:GRAPHDEPS] A graph node workspace gets the dependencies of its ticket worktree, for any language
+covers: src/approaches/graph/workspace/depsPlan.ts, src/approaches/graph/workspace/workspaceDeps.ts
+
+A graph node workspace is a git clone. It has none of the untracked dependency folders that its ticket worktree resolves, so a gate command fails there. The provider calls `provisionWorkspaceDeps` for each clone before it measures the clone. The rule is the same for every language. `DEPS_DEFAULTS` in `depsPlan.ts` is the one table of defaults.
+
+| Detected file | The clone receives | Setup command |
+| --- | --- | --- |
+| `package.json` | a real `node_modules` folder of symlinks (see below) | none: a lockfile mismatch parks |
+| `uv.lock` | link `.venv` | `uv sync --frozen`, when `uv.lock` differs |
+| `poetry.lock` | link `.venv` | `POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --no-interaction` (the venv stays in the clone), when `poetry.lock` differs |
+| `requirements*.txt` only | link `.venv`, when the worktree has one | none |
+| Go, Rust, JVM, Ruby, unknown | nothing (their caches are user-level); a debug line | none |
+
+The Node merge links, for each package, the entry of the worktree `node_modules` first, then the entries of each ancestor `node_modules`, then the main checkout. The nearest entry wins. Dot-entries are skipped. `.bin` is a merge of the `.bin` folders. After the merge, `checkNodeDeps` compares the merged tree with the lockfile.
+
+A link target is never linked when it holds an editable or workspace link. The check compares the real paths of links, `.pth` files and `__editable__` entries with the ticket worktree and the main checkout. A hit runs the setup command, or parks the run when no setup exists. A setup command runs in the clone only (async, `WORKSPACE_SETUP_TIMEOUT_MS`, exit code checked). The links are removed before it runs. The setup bytes count in the node ledger.
+
+The optional manifest block `repositories.<name>.graphWorkspace` (`link`, `setup`, `setupWhen`) REPLACES the defaults of that repository. There is no fallback to `sandbox.setup` (`@arch:AC-36`): that command is written for the sandbox network window. Each created path goes to `<clone>/.git/info/exclude`, so `git status` stays empty. A link target is never written and never removed.
+
+A dependency failure is a typed result (`deps-failed`), not a throw. The run parks with the reason `graph-workspace-deps: node run N (<repo>: <why>)`. That category is `config-then-resume` and is not automatic (`@arch:GRAPH-AUTORECOVERY`). A workspace byte-ceiling stop parks with `graph-budget-exhausted`.
+END_DOC_BLOCK: [@arch:GRAPHDEPS]
+
 ## [@arch:SHELF] The artifact shelf is a READ over existing evidence, never a new write surface
 covers: src/model/artifacts.ts
 

@@ -14,6 +14,7 @@ import { ManifestError } from '../error.js';
 import type {
   BindVar,
   DependsOn,
+  GraphWorkspaceDef,
   PortSlot,
   RepoConventions,
   RepositoryDef,
@@ -31,6 +32,7 @@ import {
   isObject,
   requirePort,
   requireString,
+  requireStringArrayAllowEmpty,
 } from './primitives.js';
 
 /** A repository's optional `sandbox:` block: `setup`, a non-empty command, and its `setupHosts` network window. */
@@ -48,6 +50,45 @@ function validateRepoSandbox(raw: unknown, repo: string): { setup: string; setup
     return host;
   });
   return { setup, setupHosts };
+}
+
+/** A `graphWorkspace` path: repo-relative, inside the clone, never `.git`. */
+function graphWorkspacePath(raw: string, where: string): string {
+  const parts = raw.split(/[\\/]+/).filter((part) => part !== '' && part !== '.');
+  if (/^([\\/]|[A-Za-z]:)/.test(raw) || parts.includes('..')) {
+    throw new ManifestError(`${where} must be a relative path inside the repository`);
+  }
+  if (parts[0] === '.git') throw new ManifestError(`${where} must not point into .git`);
+  return parts.join('/');
+}
+
+/**
+ * A repository's optional `graphWorkspace:` block: how a graph node clone gets
+ * the untracked dependencies of its ticket worktree. An empty block is a valid
+ * "link nothing, run nothing" override of the language defaults.
+ */
+function validateGraphWorkspace(raw: unknown, repo: string): GraphWorkspaceDef | undefined {
+  if (raw === undefined) return undefined;
+  const where = `repository "${repo}" graphWorkspace`;
+  if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
+  for (const key of Object.keys(raw)) {
+    if (key !== 'link' && key !== 'setup' && key !== 'setupWhen') {
+      throw new ManifestError(`${where}.${key} is not a known key (link, setup, setupWhen)`);
+    }
+  }
+  const def: GraphWorkspaceDef = {};
+  if (raw.link !== undefined) {
+    def.link = requireStringArrayAllowEmpty(raw.link, where, 'link').map((p, i) =>
+      graphWorkspacePath(p, `${where}.link[${i}]`),
+    );
+  }
+  if (raw.setup !== undefined) def.setup = requireString(raw.setup, `${where}.setup`);
+  if (raw.setupWhen !== undefined) {
+    def.setupWhen = requireStringArrayAllowEmpty(raw.setupWhen, where, 'setupWhen').map((p, i) =>
+      graphWorkspacePath(p, `${where}.setupWhen[${i}]`),
+    );
+  }
+  return def;
 }
 
 /** The three templates a repository may override, in the global block's order. */
@@ -494,6 +535,7 @@ export function validateRepository(raw: unknown, name: string): RepositoryDef {
     ship: validateShip(raw.ship, name),
     conventions: validateRepoConventions(raw.conventions, name),
     sandbox: validateRepoSandbox(raw.sandbox, name),
+    graphWorkspace: validateGraphWorkspace(raw.graphWorkspace, name),
   };
 
   if (raw.service !== undefined && raw.services !== undefined) {

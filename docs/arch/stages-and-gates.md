@@ -521,9 +521,11 @@ The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` r
 | `discard-required` | `launch-unknown`, `termination-unknown` | no |
 | `artifact-recheck` | `output-artifact-missing`, `artifact-unsafe` | no |
 | `explicit-resolution` | `integration-conflict`, `graph-topology-deadlock` | no |
-| `config-then-resume` | `graph-budget-exhausted` | no |
+| `config-then-resume` | `graph-budget-exhausted`, `graph-workspace-deps` | no |
 | `prompt-resnapshot` | `prompt-config-changed` | no |
 | unknown reason | any other text | no |
+
+A `graph-workspace-deps` block means a node clone could not get the dependencies of its ticket worktree (`@arch:GRAPHDEPS`). A retry would repeat the same install, so a human installs the dependencies or sets `graphWorkspace`, then runs Replan.
 
 An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file. A `blocked` node run with that failure category does not hold the drain open.
 
