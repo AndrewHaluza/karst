@@ -64,11 +64,12 @@ let currentSpec = parseArgs(process.argv.slice(2));
 let state = 'booting';
 let probeRunning = false;
 let resetRunning = false;
+let bootRunning = true; // the first launch: a reset now would start a second host
 let current;
 let shuttingDown = false;
 const viewProcs = [];
 
-const busy = () => probeRunning || resetRunning;
+const busy = () => probeRunning || resetRunning || bootRunning;
 const fixtureLabel = (spec) => spec.fixture ?? relative(WORK_ROOT, spec.fixtureFile);
 
 async function shutdown(code) {
@@ -110,11 +111,18 @@ async function reset(spec) {
   }
 }
 
-async function chownEvidence(dir) {
+/** The evidence dir and every parent this probe created, owned by the operator after the run (the container runs as root). */
+async function chownEvidence(dir, createdParents) {
   const { HOST_UID, HOST_GID } = process.env;
   if (!HOST_UID || HOST_UID === '0') return;
-  await new Promise((done) => {
-    const p = spawn('chown', ['-R', `${HOST_UID}:${HOST_GID ?? HOST_UID}`, dir], { stdio: 'inherit' });
+  const owner = `${HOST_UID}:${HOST_GID ?? HOST_UID}`;
+  await chown(['-R', owner, dir]);
+  if (createdParents.length > 0) await chown([owner, ...createdParents]);
+}
+
+function chown(args) {
+  return new Promise((done) => {
+    const p = spawn('chown', args, { stdio: 'inherit' });
     p.on('error', (err) => { console.error(`uat-serve: chown failed — ${err.message}`); done(); });
     p.on('exit', (code) => { if (code !== 0) console.error(`uat-serve: chown exited ${code}`); done(); });
   });
@@ -123,14 +131,17 @@ async function chownEvidence(dir) {
 async function runProbe(name, script) {
   probeRunning = true;
   const dir = join(WORK_ROOT, EVIDENCE_REL, name);
+  const createdParents = [];
   try {
     resolveInsideCheckout(dir, WORK_ROOT);
+    for (let d = dirname(dir); d !== WORK_ROOT && !existsSync(d); d = dirname(d)) createdParents.unshift(d);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'script.json'), `${JSON.stringify(script, null, 2)}\n`);
     try {
-      await hostRequest(UI_SOCKET, { control: 'setOut', outDir: dir }, UI_CONTROL_TIMEOUT_MS);
+      const ack = await hostRequest(UI_SOCKET, { control: 'setOut', outDir: dir }, UI_CONTROL_TIMEOUT_MS);
+      if (ack.timedOut || ack.status !== 'pass') return { ok: false, error: 'ui driver setOut failed: no pass reply' };
     } catch (err) {
-      log(`ui driver setOut failed — ${err.message}`);
+      return { ok: false, error: `ui driver setOut failed: ${err.message}` };
     }
     let reply;
     try {
@@ -147,7 +158,7 @@ async function runProbe(name, script) {
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   } finally {
-    await chownEvidence(dir);
+    await chownEvidence(dir, createdParents);
     probeRunning = false;
   }
 }
@@ -269,8 +280,10 @@ await startDisplay();
 await new Promise((ok) => server.listen(SERVE_CONTAINER_PORT, '0.0.0.0', ok));
 try {
   current = await launchHost(currentSpec, hostCtx);
+  bootRunning = false;
   log(`ready on container port ${SERVE_CONTAINER_PORT} (fixture ${fixtureLabel(currentSpec)})`);
 } catch (err) {
+  bootRunning = false;
   console.error(`uat-serve: FAILED — ${err instanceof Error ? err.message : err}`);
   await shutdown(1);
 }
