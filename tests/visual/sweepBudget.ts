@@ -34,7 +34,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
   // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
-  sidebar: { screenshots: 28, layout: 70 },
+  // T1171 peek-460 / peek-300 variants (every state family's open row), @ui:RD-TIERS: 2 widths x 2 themes (+2 screenshots as counted) and their layout runs (+5).
+  sidebar: { screenshots: 30, layout: 75 },
   ticketForm: { screenshots: 30, layout: 90 },
   usage: { screenshots: 10, layout: 40 },
 };

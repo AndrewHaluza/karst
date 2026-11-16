@@ -24,7 +24,7 @@ import type { DashboardState } from '../../src/ui/dashboard/state.js';
 import { ticketRefView } from '../../src/ui/shared/ticketRefView.js';
 import { INSIDE_CASES } from '../../src/ui/dashboard/insideCases.js';
 import { stallFixtureState, type StallFixtureKind } from '../../src/ui/dashboard/stallFixtures.js';
-import { sidebarRenderFixtures } from '../../src/ui/sidebar/renderFixtures.js';
+import { PEEK_STATE_IDS, sidebarRenderFixtures } from '../../src/ui/sidebar/renderFixtures.js';
 import { usageRenderFixtures } from '../../src/ui/usage/renderFixtures.js';
 import { resourcesRenderFixtures } from '../../src/ui/resources/renderFixtures.js';
 import { gettingStartedRenderFixtures } from '../../src/ui/gettingStarted/renderFixtures.js';
@@ -800,6 +800,13 @@ const sidebarVariants = (): Variant[] => {
     // T1103: a row with 3 references (Waits on + one chip + +N) at a full-word and a short-word host (@ui:UI-R57).
     ...CHIP_TIERS.map(([tier, width]) =>
       variant('sidebar', `waits-on-${tier}`, s('waits-on'), { width, themes: CHIP_THEMES }),
+    ),
+    // T1171: every state family's expanded row (the mini-dashboard card) at the 460 and 300 px hosts (@ui:RD-TIERS).
+    ...CHIP_TIERS.map(([tier, width]) =>
+      variant('sidebar', `peek-${tier}`, s('peek-states'), {
+        width,
+        clicks: PEEK_STATE_IDS.map((id) => `[data-id="${id}"] .chev`),
+      }),
     ),
     variant('sidebar', 'filtered', s('filtered')),
     variant('sidebar', 'cloud-sessions', s('cloud-sessions')),

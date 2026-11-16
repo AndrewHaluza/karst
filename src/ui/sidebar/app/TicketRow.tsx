@@ -12,7 +12,7 @@ import { ActButton } from './action.js';
 import { CloudLinks } from './CloudSessions.js';
 import { Icon, KarstMark } from './Icon.js';
 import { IconAct } from './IconAct.js';
-import { MenuTrigger } from './MenuTrigger.js';
+import { TicketTools } from './TicketTools.js';
 import { PriorityChip } from './PriorityChip.js';
 import { AUTOSTART_WORD, GLYPH_WORD, MAX_SUBTASK_INDENT, relTime } from './format.js';
 import { useSidebar } from './SidebarContext.js';
@@ -66,7 +66,7 @@ function SubtreeToggle({ row }: { readonly row: Row }) {
   );
 }
 
-/** The collapsed hover strip: Spin / Terminal + the "⋯" trigger (archived rows: Restore / Delete). */
+/** The collapsed hover strip: Session / Pause-Resume / "⋯" (archived rows: Restore / Delete). */
 function HoverStrip({ row, sessVerb }: { readonly row: Row; readonly sessVerb: string }) {
   const id = row.ticketId;
   return (
@@ -77,11 +77,7 @@ function HoverStrip({ row, sessVerb }: { readonly row: Row; readonly sessVerb: s
           <IconAct spec={{ act: 'delete', id }} label="Delete ticket permanently" danger><Icon name="trash" /></IconAct>
         </>
       ) : (
-        <>
-          <IconAct spec={{ act: 'spin', id }} label="Spin up worktree and dev servers"><Icon name="player-play" /></IconAct>
-          <IconAct spec={{ act: 'open-session', id }} label={`${sessVerb} session`}><Icon name="terminal-2" /></IconAct>
-          <MenuTrigger row={row} />
-        </>
+        <TicketTools row={row} sessVerb={sessVerb} />
       )}
     </span>
   );

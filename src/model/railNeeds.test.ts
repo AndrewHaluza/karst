@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { railNeeds, type RailNeedsInput } from './railNeeds.js';
+import { railNeeds, gatedRailNeeds, type RailNeedsInput, type GatedRailNeedsInput } from './railNeeds.js';
+import type { StepperCell } from './stepper.js';
 
 const EMPTY = { mergeableRepos: [] as readonly string[] };
 
@@ -259,5 +260,62 @@ describe('railNeeds', () => {
     expect(
       railNeeds(input({ stage: 'ship', shipStatus: 'failed', shipAwaitingMerge: true, mergeGate: null })),
     ).toBeNull();
+  });
+});
+
+describe('gatedRailNeeds — the one gate the dashboard rail and the sidebar peek share', () => {
+  const shipCell = (over: Partial<StepperCell> = {}): StepperCell => ({ stageKey: 'ship', status: 'pending', ...over });
+  const gated = (over: Partial<GatedRailNeedsInput> = {}): ReturnType<typeof gatedRailNeeds> =>
+    gatedRailNeeds({
+      stageCurrent: 'ship',
+      agentState: null,
+      blocked: true,
+      currentCell: shipCell(),
+      shipCell: shipCell(),
+      mergeGate: null,
+      mergeableRepos: [],
+      ...over,
+    });
+
+  it('reads nothing when the ticket does not need the user', () => {
+    expect(gated({ blocked: false })).toBeNull();
+  });
+
+  it('reads Confirm ship for a parked ship that needs the user', () => {
+    expect(gated()?.cta).toEqual({ kind: 'ship-confirm' });
+  });
+
+  it('widens to a failed ship even when the glyph reads failure, not needs-you', () => {
+    const failed = shipCell({ status: 'failed', reason: 'push rejected' });
+    expect(gated({ blocked: false, currentCell: failed, shipCell: failed })).toEqual({
+      detail: 'push rejected',
+      action: 'Retry ship',
+      cta: { kind: 'retry-ship' },
+    });
+  });
+
+  it('does not widen a failed cell that is awaiting merge', () => {
+    const failed = shipCell({
+      status: 'failed',
+      blocked: { kind: 'awaiting-merge', reason: '', at: '2026-01-01T00:00:00Z', resumable: false },
+    });
+    expect(gated({ blocked: false, currentCell: failed, shipCell: failed })).toBeNull();
+  });
+
+  it('passes the agent state and the mergeable repos through', () => {
+    expect(gated({ stageCurrent: 'impl', agentState: 'waiting' })?.cta).toEqual({ kind: 'open-session' });
+    expect(gated({ stageCurrent: 'impl', agentState: 'not-started' })?.detail).toBe('the session did not start');
+    const awaiting = shipCell({
+      status: 'passed',
+      blocked: { kind: 'awaiting-merge', reason: '', at: '2026-01-01T00:00:00Z', resumable: false },
+    });
+    expect(
+      gated({
+        currentCell: awaiting,
+        shipCell: awaiting,
+        mergeGate: { kind: 'awaiting', repos: ['api'] },
+        mergeableRepos: ['api'],
+      })?.cta,
+    ).toEqual({ kind: 'merge', repo: 'api' });
   });
 });

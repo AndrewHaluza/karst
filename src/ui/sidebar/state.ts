@@ -38,6 +38,12 @@ import { buildPeek, type TicketPeek } from './peek.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
+import type { StageKey } from '../../model/types.js';
+import { nowIso } from '../../model/time.js';
+import { buildStepper } from '../../model/stepper.js';
+import { needsUser } from '../../model/ticketGlyph.js';
+import { gatedRailNeeds } from '../../model/railNeeds.js';
+import { shipMergeableRepos } from '../dashboard/stateRows.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { listVisibleProposals, effectiveProposalPriority, type PlanningProposal } from '../../store/planningProposals.js';
@@ -505,6 +511,19 @@ export function buildSidebarState(
       const mergeGate = t.stageCurrent === 'ship' ? mergeGateState(store, t.id) : null;
       const ci = t.stageCurrent === 'ship' ? ciFailureState(store, t.id) : null;
       const ciFailingRepos = ci?.available ? ci.prs.map((p) => p.repo) : [];
+      const stageRows = buildStepper(t.stages);
+      const cellOf = (key: StageKey) => stageRows.find((c) => c.stageKey === key) ?? { stageKey: key, status: 'pending' as const };
+      // The action strip reads the dashboard rail's own model behind the rail's own gate, so
+      // the two surfaces never disagree. The merge read is for a ship ticket only.
+      const needs = gatedRailNeeds({
+        stageCurrent: t.stageCurrent,
+        agentState: t.agentState,
+        blocked: needsUser(t),
+        currentCell: stageRows.find((c) => c.stageKey === t.stageCurrent) ?? null,
+        shipCell: cellOf('ship'),
+        mergeGate,
+        mergeableRepos: t.stageCurrent === 'ship' ? shipMergeableRepos(store, t.id, nowIso()) : [],
+      });
       return {
         ...node,
         stageCurrent: t.stageCurrent,
@@ -550,6 +569,10 @@ export function buildSidebarState(
           model: t.model,
           prs,
           ciFailingRepos,
+          paused: t.pausedAt != null,
+          glyph: node.glyph,
+          needs,
+          lastHookAt: t.lastHookAt ?? null,
         }),
       };
     });

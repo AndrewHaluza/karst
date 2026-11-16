@@ -313,70 +313,63 @@
   .ticket.open .rowacts{display:none}
   .ticket.open .row:hover .stage{opacity:1}
 
-  /* expanded body — the compact mini-dashboard. Left padding matches the
-     collapsed row's own left padding (now 0 after the chevron alignment), so
-     the minidashboard starts at the chevron's visible left edge rather than
-     indented under the glyph. */
-  .body{display:none;padding:var(--k-space-1) var(--k-space-4) var(--k-space-5) 0}
-  .ticket.open .body{display:block}
+  /* An open ticket is ONE card: sunken surface, hairline border, a gap under it,
+     and a hairline between the header row and the body. Two open rows next to
+     each other no longer run together. */
+  .ticket.open{background:var(--k-surface-sunken);border:var(--k-border-w) solid var(--k-border);
+    border-radius:var(--k-radius-md);margin-bottom:var(--k-space-2)}
 
-  .nextact{font-size:var(--k-text-sm);margin:var(--k-space-2) 0 var(--k-space-1);color:var(--k-text)}
-  .nextact.warn{color:var(--k-failed)}
-  .nextact .att{color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
-    margin-left:var(--k-space-2)}
+  /* expanded body — the compact mini-dashboard. */
+  .body{display:none;padding:var(--k-space-2) var(--k-space-4) var(--k-space-4) var(--k-space-4)}
+  .ticket.open .body{display:block;border-top:var(--k-border-w) solid var(--k-border)}
 
-  /* The stage-aware summary (peek.ts): the strongest current-state headline
-     plus one small context line. Host-derived, so the standalone webview never
-     phrases domain state (UI-R31). The head row puts the quick-action tools at
-     the top right (the prototype's peek-tools) and the contextual CTA at the
-     bottom, right-aligned — the action surface follows the prototype, not the
-     card-footer bar this view shipped with. */
-  .peek{margin:var(--k-space-2) 0 var(--k-space-1)}
-  .peek-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--k-space-3)}
-  .peek-copy{min-width:0;flex:1}
+  /* The stage-aware card (peek.ts). Host-derived, so the standalone webview
+     never phrases domain state (UI-R31). One headline line with the tools at
+     its right, quiet fact lines with no label column, then at most one amber
+     action strip. */
+  .peek{margin:0}
+  .peek-head{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3)}
+  .peek-copy{min-width:0;flex:1;display:flex;align-items:baseline;gap:var(--k-space-2);flex-wrap:wrap}
+  .peek-dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:50%;flex:none;align-self:center;
+    background:currentColor}
   .peek-title{font-size:var(--k-text-sm);color:var(--k-text);font-weight:var(--k-weight-medium)}
-  .peek-detail{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
-  /* The stable toolbar — Spin / Terminal / Dashboard / ⋯. Same quick actions
-     as the collapsed hover strip, moved to the mini-dashboard's top-right so
-     expanding never duplicates them (the hover strip is suppressed while open).
-     The head row's justify-content:space-between pins it to the right edge. */
-  .peek-tools{display:flex;align-items:center;gap:var(--k-space-1);flex:none;
-    margin-top:calc(-1 * var(--k-space-1))}
+  .peek-age,.peek-attempt{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .peek-attempt{font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
+  /* The toolbar: Session / Pause-Resume / More, the same as the collapsed hover strip. */
+  .peek-tools{display:flex;align-items:center;gap:var(--k-space-1);flex:none}
+  /* Pause/Resume toggle: pressed (paused) wears the amber state color. */
+  .pausebtn[aria-pressed="true"]{color:var(--k-attention)}
+  /* A needs-you with no button of its own rings the Session tool. */
+  .needs-ring{box-shadow:0 0 0 var(--k-border-w) var(--k-attention)}
 
-  /* Gate progress (prototype progress): a thin local composition — a track +
-     a fill whose width is set inline from the host-derived passed/total.
-     Sits in the top zone (below the title/detail, above the separator). */
-  .peek-progress{height:var(--k-space-1);border-radius:var(--k-radius-lg);overflow:hidden;
-    margin-top:var(--k-space-3);
-    background:color-mix(in srgb,var(--k-running) 18%,transparent)}
-  .peek-progress>span{display:block;height:100%;border-radius:var(--k-radius-lg);
-    background:var(--k-running)}
-
-  /* Divider between the summary zone (title + detail + tools + progress) and
-     the metadata zone (agent identity / repos / meta). The rule is always
-     present when the expanded body has content — it is structural to the card,
-     not conditional on any one context row. */
-  .peek-sep{height:var(--k-border-w);background:var(--k-border);margin:var(--k-space-2) 0}
-
-  /* Agent identity (prototype agentline): who is working on the ticket — the
-     canonical [icon] Core · Model identity (UI-R10c), compact variant. */
+  .peek-facts{display:grid;gap:var(--k-space-1);margin-top:var(--k-space-2)}
+  .peek-line{font-size:var(--k-text-xs);color:var(--k-text-dim);min-width:0;word-break:break-word}
+  .peek-gates.ok{color:var(--k-passed)}
+  .peek-gates.running{color:var(--k-running)}
+  .peek-gates.failed{color:var(--k-failed)}
+  .peek-agentline{display:flex;align-items:center;flex-wrap:wrap}
   .peek-agent{margin-top:0}
+  .peek-where{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
+  .peek-where-text{font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
+  .peek-followup{margin-left:auto}
 
-  /* Ship landing rows (prototype repo-list): PR number + ready/conflict per
-     repo. The state word is the non-color carrier (UI-R28), color reinforces. */
-  .peek-repos{margin-top:var(--k-space-2);display:grid;gap:var(--k-space-2)}
-  .peek-artifacts{margin-top:var(--k-space-2);padding:0 var(--k-space-3);font-size:var(--k-text-2xs);
+  /* The ship PR line: the state word is the non-color carrier (UI-R28), color reinforces. */
+  .peek-repos{display:flex;flex-wrap:wrap;gap:var(--k-space-1) var(--k-space-4)}
+  .peek-repo{font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
+  .peek-repo-state{font-weight:var(--k-weight-semibold)}
+  .peek-repo-state.ready{color:var(--k-passed)}
+  .peek-repo-state.conflict{color:var(--k-failed)}
+  .peek-artifacts{padding:0 var(--k-space-3);font-size:var(--k-text-2xs);
     color:var(--k-text-dim);background:none;border:var(--k-border-w) solid var(--k-border);
     border-radius:var(--k-radius-pill);cursor:pointer}
   .peek-artifacts:hover{background:var(--k-surface-hover)}
   .peek-artifacts:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .peek-repo{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-xs)}
-  .peek-repo-pr{font-family:var(--k-font-mono);color:var(--k-text-dim);flex:none}
-  .peek-repo-name{font-family:var(--k-font-mono);color:var(--k-text-dim);flex:1;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .peek-repo-state{flex:none;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold)}
-  .peek-repo-state.ready{color:var(--k-passed)}
-  .peek-repo-state.conflict{color:var(--k-failed)}
+
+  /* The one action strip, at the bottom, on an amber wash: the rail's detail and its button. */
+  .peek-strip{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3);
+    margin-top:var(--k-space-3);padding:var(--k-space-2) var(--k-space-3);border-radius:var(--k-radius-md);
+    background:color-mix(in srgb,var(--k-attention) 14%,transparent)}
+  .peek-strip-text{font-size:var(--k-text-xs);color:var(--k-text);min-width:0}
 
   .meta{font-size:var(--k-text-2xs);color:var(--k-text-dim);
     font-family:var(--k-font-mono);margin:var(--k-space-2) 0 var(--k-space-1);word-break:break-word}
@@ -384,15 +377,6 @@
   /* Archived rows keep their labeled restore/delete pair in a plain flex row —
      the live mini-dashboard toolbar only exists for active rows. */
   .actions{display:flex;gap:var(--k-space-3);margin-top:var(--k-space-4)}
-
-  /* The suggested next step — the labeled primary CTA pinned to the bottom of
-     the mini-dashboard, right-aligned (the prototype's contextual actions bar).
-     It may share intent with a toolbar icon action ("Continue session" beside
-     Terminal); that is an emphasis, not the duplication the acceptance bans
-     (which is the collapsed hover strip, suppressed while expanded). A ticket
-     whose only move is to watch renders no actions bar at all. */
-  .peek-actions{display:flex;justify-content:flex-end;margin-top:var(--k-space-3);
-    padding-top:var(--k-space-3);border-top:var(--k-border-w) solid var(--k-border)}
 
   /* The shared ticket-actions context window (Edit / Follow Up / Archive).
      POSITIONED — one fixed element, rebuilt per open — so the list's scroll

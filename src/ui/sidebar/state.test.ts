@@ -427,8 +427,8 @@ describe('buildSidebarState', () => {
       .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'open');
 
     const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.awaitingReview[0]!;
-    expect(row.peek.title).toBe('1 pull request awaiting merge');
-    expect(row.peek.detail).toBe('api');
+    expect(row.peek.title).toBe('Awaiting merge');
+    expect(row.peek.repos).toEqual([{ repo: 'api', number: 1, state: 'ready' }]);
     expect(row.peek.next).toBeNull();
   });
 
@@ -445,7 +445,7 @@ describe('buildSidebarState', () => {
     const { sections } = buildSidebarState(store, { facets: ['all'], filter: '' });
     expect(sections.awaitingReview).toEqual([]);
     const row = sections.current[0]!;
-    expect(row.peek.title).toBe('CI failing on api');
+    expect(row.peek.title).toBe('Awaiting merge');
     expect(row.peek.next).toEqual({ kind: 'send-ci-failure', label: 'Send CI failure to agent' });
   });
 
@@ -487,8 +487,8 @@ describe('buildSidebarState', () => {
     const row = sections.current[0]!;
     expect(row.conflicted).toBe(true);
     expect(row.stageCurrent).toBe('ship');
-    expect(row.peek.title).toBe('1 merge conflict in api');
-    expect(row.peek.next).toEqual({ kind: 'resolve-conflicts', label: 'Resolve conflicts', repo: 'api' });
+    expect(row.peek.title).toBe('Merge conflict');
+    expect(row.peek.repos).toEqual([{ repo: 'api', number: 1, state: 'conflict' }]);
   });
 
   it('a ship ticket with an open PR lands in awaitingReview, not current', () => {
@@ -626,8 +626,88 @@ describe('buildSidebarState', () => {
     });
 
     const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.current[0]!;
-    expect(row.peek.title).toBe('UAT running');
-    expect(row.peek.detail).toBe('1/2 gates passed');
+    expect(row.peek.title).toBe('Gates running');
+    expect(row.peek.gates).toEqual({ text: '1 passed · 1 running', tone: 'running' });
+  });
+
+  describe('peek action strip and facts', () => {
+    const parkShip = (key: string, blockedKind: string | null) => {
+      const t = createTicket(store, { key, title: 'ship' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+      setStage(store, t.id, 'ship', { status: 'passed' });
+      if (blockedKind) {
+        store.db
+          .prepare("UPDATE stages SET blocked_kind = ?, blocked_reason = 'x', blocked_at = '2026-08-12T10:00:00Z' WHERE ticket_id = ? AND stage_key = 'ship'")
+          .run(blockedKind, t.id);
+      }
+      return t;
+    };
+    const pr = (ticketId: number, repo: string, n: number) =>
+      store.db
+        .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?,?,?,?,?)')
+        .run(ticketId, repo, n, `https://github.com/x/pull/${n}`, 'open');
+    const first = () => buildSidebarState(store, { facets: ['all'], filter: '' }).sections;
+
+    it('a freshly parked ship carries the Confirm ship strip', () => {
+      const t = createTicket(store, { key: 'S-9', title: 'ship' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+      setStage(store, t.id, 'ship', { status: 'pending' });
+      store.db
+        .prepare("UPDATE stages SET blocked_kind = 'awaiting-merge' WHERE 0")
+        .run();
+      const row = first().current[0]!;
+      expect(row.peek.title).toBe('Ready to ship');
+      expect(row.peek.needs?.cta).toEqual({ kind: 'ship-confirm' });
+    });
+
+    it('a single waiting repo with a mergeable PR carries the Merge strip', () => {
+      const t = parkShip('S-10', 'awaiting-merge');
+      pr(t.id, 'api', 5);
+      const row = first().awaitingReview[0]!;
+      expect(row.peek.needs?.cta).toEqual({ kind: 'merge', repo: 'api' });
+    });
+
+    it('two waiting repos point at the merge panel', () => {
+      const t = parkShip('S-11', 'awaiting-merge');
+      pr(t.id, 'api', 5);
+      pr(t.id, 'web', 6);
+      const row = first().awaitingReview[0]!;
+      expect(row.peek.needs?.cta).toEqual({ kind: 'merge-panel' });
+      expect(row.peek.repos).toHaveLength(2);
+    });
+
+    it('a failed ship carries the Retry ship strip and the verdict line', () => {
+      const t = createTicket(store, { key: 'S-12', title: 'ship' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+      setStage(store, t.id, 'ship', { status: 'failed', verdict: 'push rejected' });
+      const row = first().current[0]!;
+      expect(row.peek.title).toBe('Ship failed');
+      expect(row.peek.needs?.cta).toEqual({ kind: 'retry-ship' });
+      expect(row.peek.gates).toEqual({ text: 'push rejected', tone: 'failed' });
+    });
+
+    it('a waiting agent carries the Open session strip', () => {
+      const t = createTicket(store, { key: 'I-1', title: 'impl' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'impl', agent_state = 'waiting' WHERE id = ?").run(t.id);
+      const row = first().current[0]!;
+      expect(row.peek.title).toBe('Waiting for you');
+      expect(row.peek.needs?.cta).toEqual({ kind: 'open-session' });
+    });
+
+    it('a ticket that needs nothing carries no strip', () => {
+      createTicket(store, { key: 'I-2', title: 'scope' });
+      expect(first().current[0]!.peek.needs).toBeNull();
+    });
+
+    it('carries the paused note and the last hook time', () => {
+      const t = createTicket(store, { key: 'I-3', title: 'impl' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'uat', paused_at = datetime('now'), last_hook_at = '2026-08-12T10:00:00.000Z' WHERE id = ?").run(t.id);
+      store.db.prepare("UPDATE tickets SET session_id = 's1', agent_provider = 'claude' WHERE id = ?").run(t.id);
+      const row = first().current[0]!;
+      expect(row.peek.title).toBe('Paused');
+      expect(row.peek.pausedNote).toBe('No stage starts until you resume');
+      expect(row.peek.agent?.activeAt).toBe('2026-08-12T10:00:00.000Z');
+    });
   });
 });
 
