@@ -7,6 +7,8 @@ import { openRecoveryRound } from '../../store/recoveryRounds.js';
 import type { PrReviewThread } from '../../model/prReview.js';
 import { recordStallNote } from '../../store/stallNote.js';
 import { recordFindings } from '../../store/reviewFindings.js';
+import { PROCESS_KILL_RULE } from '../../agent/promptText.js';
+import { FIX_NO_FAULT_RULE, FIX_NO_FAULT_SPENT_RULE } from '../../agent/fixBrief.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
 
 const T0 = '2026-01-01T00:00:00.000Z';
@@ -128,5 +130,44 @@ describe('fixBriefForTicket', () => {
     setStage(store, ticket.id, 'uat', { status: 'failed', verdict: 'visual diff' });
     const brief = fixBriefForTicket(store, ticket.id);
     expect(brief).toContain('@ui:UI-R39-REJECT');
+  });
+  describe('brief options', () => {
+    const failedUat = (key: string): number => {
+      const ticket = createTicket(store, { key, title: 't' });
+      setStage(store, ticket.id, 'uat', { status: 'failed', verdict: 'lint failed' });
+      return ticket.id;
+    };
+
+    it('names the ticket by the label it is given, else by id and key', () => {
+      const id = failedUat('PROJ-7');
+      expect(fixBriefForTicket(store, id, 'LBL-1')).toContain('failed for ticket LBL-1.');
+      expect(fixBriefForTicket(store, id)).toContain('failed for ticket T1 · PROJ-7.');
+    });
+
+    it('states the kill rule unless the done marker is appended', () => {
+      const id = failedUat('PROJ-8');
+      expect(fixBriefForTicket(store, id)).toContain(PROCESS_KILL_RULE);
+      expect(fixBriefForTicket(store, id, undefined, true)).not.toContain(PROCESS_KILL_RULE);
+    });
+
+    it('states the spent host-rerun rule only once the active round used its host re-run', () => {
+      const id = failedUat('PROJ-9');
+      openRecoveryRound(store, {
+        ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: null,
+        sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'x', maxRounds: 3, startedAt: T0,
+      });
+      expect(fixBriefForTicket(store, id)).toContain(FIX_NO_FAULT_RULE);
+      store.db.prepare('UPDATE recovery_rounds SET host_rerun_at = ? WHERE ticket_id = ?').run(T0, id);
+      const spent = fixBriefForTicket(store, id) ?? '';
+      expect(spent).toContain(FIX_NO_FAULT_SPENT_RULE);
+      expect(spent).not.toContain(FIX_NO_FAULT_RULE);
+    });
+
+    it('separates the stall note from the brief by a rule line', () => {
+      const id = failedUat('PROJ-10');
+      recordStallNote(store, id, 1, T0, 'split the module');
+      const brief = fixBriefForTicket(store, id) ?? '';
+      expect(brief).toContain('no longer apply.\n\n---\n\nThe uat gate failed');
+    });
   });
 });

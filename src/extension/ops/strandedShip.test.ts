@@ -89,6 +89,48 @@ describe('resumeStrandedShips', () => {
     expect(onResumeFailed).toHaveBeenCalledWith(ticketId);
   });
 
+  it('parks a stranded ship failed, says why and refreshes the ticket when the capability guard rejects', async () => {
+    seedStranded(ticketId);
+    const info = vi.fn();
+    const onResumeFailed = vi.fn();
+    const runShip = vi.fn(async () => undefined);
+    await resumeStrandedShips(deps({ info, onResumeFailed, runShip, guardCapability: () => false }));
+    expect(runShip).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(
+      `karst: stranded ship for ticket ${ticketId} parked failed — the ship capability is unavailable; retry ship to continue`,
+    );
+    expect(onResumeFailed).toHaveBeenCalledWith(ticketId);
+    expect(onResumeFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing and refreshes nothing when the stage was already parked', async () => {
+    seedStranded(ticketId);
+    store.db.prepare("UPDATE stages SET status = 'failed' WHERE ticket_id = ? AND stage_key = 'ship'").run(ticketId);
+    const info = vi.fn();
+    const onResumeFailed = vi.fn();
+    await resumeStrandedShips(deps({ info, onResumeFailed, guardCapability: () => false }));
+    expect(info).not.toHaveBeenCalled();
+    expect(onResumeFailed).not.toHaveBeenCalled();
+  });
+
+  it('resumes only the ships of the given project', async () => {
+    store.db.prepare('INSERT INTO projects (id, slug) VALUES (?, ?)').run(2, 'other');
+    const foreign = createTicket(store, { key: 'T-9', title: 'f', projectId: 2 }).id;
+    seedStranded(ticketId);
+    seedStranded(foreign);
+    const runShip = vi.fn(async () => undefined);
+    await resumeStrandedShips(deps({ runShip }));
+    expect(runShip.mock.calls).toEqual([[ticketId]]);
+  });
+
+  it('describes the resume to the log before it starts the ship', async () => {
+    seedStranded(ticketId);
+    const info = vi.fn();
+    await resumeStrandedShips(deps({ info }));
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info.mock.calls[0]![0]).toContain('pid 4242');
+  });
+
   it('fires no callback when no ship is stranded', async () => {
     const runShip = vi.fn(async () => undefined);
     const info = vi.fn();

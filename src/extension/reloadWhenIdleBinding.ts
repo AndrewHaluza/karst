@@ -1,54 +1,37 @@
 import * as vscode from 'vscode';
 import type { Store } from '../store/db.js';
 import type { Drain } from '../runtime/drain.js';
-import { setHeadlessDrain } from '../agent/headlessSpawn.js';
-import { liveDeliverCount, setDeliverDrain } from './ops/autoDeliverOps.js';
+import { RELOAD_WHEN_IDLE_COMMAND } from './ops/reloadWhenIdle.js';
 import {
-  RELOAD_WHEN_IDLE_COMMAND,
-  RELOAD_WHEN_IDLE_TITLE,
-  countLiveRuns,
-  reloadWhenIdle,
-} from './ops/reloadWhenIdle.js';
+  installReloadDrain,
+  makeReloadWhenIdleHandler,
+  type ReloadWhenIdleHost,
+} from './ops/reloadWhenIdleHost.js';
 
-/** The vscode binding of `ops/reloadWhenIdle.ts`: a cancellable progress notification. */
+const vscodeHost: ReloadWhenIdleHost = {
+  inform: (message) => void vscode.window.showInformationMessage(message),
+  withProgress: (title, run) =>
+    Promise.resolve(
+      vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title, cancellable: true },
+        (progress, token) => run((message) => progress.report({ message }), (listener) => void token.onCancellationRequested(listener)),
+      ),
+    ),
+  reloadWindow: async () => {
+    await vscode.commands.executeCommand('workbench.action.reloadWindow');
+  },
+};
+
+/** The vscode binding of `ops/reloadWhenIdleHost.ts`: a cancellable progress notification. */
 export function registerReloadWhenIdle(
   store: Store,
   drain: Drain,
   log: (message: string) => void,
   redrive: (ticketId: number) => void,
 ): vscode.Disposable {
-  setDeliverDrain(() => drain.isDraining()); // no auto-deliver or skipped-gate re-run starts while draining
-  setHeadlessDrain(drain); // every headless start is counted live and refused while draining
-  return vscode.commands.registerCommand(RELOAD_WHEN_IDLE_COMMAND, async () => {
-    if (drain.isDraining()) {
-      void vscode.window.showInformationMessage('Karst: a reload is already waiting for live runs.');
-      return;
-    }
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: RELOAD_WHEN_IDLE_TITLE, cancellable: true },
-      async (progress, token) => {
-        const ac = new AbortController();
-        token.onCancellationRequested(() => ac.abort());
-        await reloadWhenIdle({
-          drain,
-          signal: ac.signal,
-          log,
-          onCancelled: (held) => held.forEach(redrive),
-          countLive: () => countLiveRuns(store, process.pid, drain.inFlight() + liveDeliverCount()),
-          onCount: (n) =>
-            progress.report({
-              message: n === 0 ? 'Reloading…' : `Waiting for ${n} live run${n === 1 ? '' : 's'} — no new runs start`,
-            }),
-          reload: async () => {
-            await vscode.commands.executeCommand('workbench.action.reloadWindow');
-          },
-          sleep: (ms) =>
-            new Promise((resolve) => {
-              const t = setTimeout(resolve, ms);
-              ac.signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
-            }),
-        });
-      },
-    );
-  });
+  installReloadDrain(drain);
+  return vscode.commands.registerCommand(
+    RELOAD_WHEN_IDLE_COMMAND,
+    makeReloadWhenIdleHandler(store, drain, log, redrive, vscodeHost),
+  );
 }
