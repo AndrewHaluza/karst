@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderGateOnlyInstruction } from '../../agent/workflowCommand.js';
-import { guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, wantsSbxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
+import { ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST, guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, wantsSbxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
 import type { LaunchBackend } from './sandboxSyncOps.js';
 
 const backend = (over: Partial<LaunchBackend> = {}): LaunchBackend => ({ options: {}, sandboxed: false, placement: { backend: 'host', core: null, sandboxName: null, reason: null }, ...over });
@@ -150,6 +150,58 @@ describe('launchWithoutSilentHostFallback (F14)', () => {
     expect(i.confirmHost).toHaveBeenCalledWith(expect.stringContaining('WITHOUT the sandbox boundary'));
     const kept = base({ choose: vi.fn(async () => HOST_FALLBACK_HOST), removeSandbox: vi.fn(async () => false) });
     expect(await launchWithoutSilentHostFallback(kept)).toEqual({ kind: 'cancelled' });
+  });
+});
+
+describe('launchWithoutSilentHostFallback: account block on a sandbox backend', () => {
+  const reason = "claude account 'nd' has its own login, which the sbx sandbox does not use";
+  const blocked = { sandboxed: false, blocked: { kind: 'account' as const, reason } };
+  const base = (over: Record<string, unknown>) => ({
+    ticketLabel: 'K-1', wantsSandbox: true, hasSandbox: async () => false,
+    choose: vi.fn(async () => undefined as string | undefined), confirmHost: vi.fn(async () => true), removeSandbox: vi.fn(async () => true),
+    launch: vi.fn(async () => blocked), ...over,
+  });
+  it('asks, never launches on the host unasked, and offers no Retry (no sandbox)', async () => {
+    const i = base({});
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'cancelled' });
+    expect(i.choose).toHaveBeenCalledTimes(1);
+    const [message, options] = i.choose.mock.calls[0] as unknown as [string, string[]];
+    expect(message).toContain(reason);
+    expect(options).toEqual([ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST]);
+    expect(i.removeSandbox).not.toHaveBeenCalled();
+  });
+  it('offers no Retry with an existing sandbox, and removes nothing', async () => {
+    const i = base({ hasSandbox: async () => true });
+    await launchWithoutSilentHostFallback(i);
+    expect((i.choose.mock.calls[0] as unknown as [string, string[]])[1]).not.toContain(HOST_FALLBACK_RETRY);
+    expect(i.removeSandbox).not.toHaveBeenCalled();
+  });
+  it('Start fresh under default: restarts, no second launch here, no host run', async () => {
+    const i = base({ choose: vi.fn(async () => ACCOUNT_BLOCK_DEFAULT) });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'restart-default' });
+    expect(i.launch).toHaveBeenCalledTimes(1);
+    expect(i.confirmHost).not.toHaveBeenCalled();
+  });
+  it('Run on host: launches the host backend after an explicit confirm', async () => {
+    const i = base({ choose: vi.fn(async () => ACCOUNT_BLOCK_HOST) });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'launched', backend: blocked, freshSession: false });
+    expect(i.confirmHost).toHaveBeenCalledTimes(1);
+    expect(i.removeSandbox).not.toHaveBeenCalled();
+  });
+  it('Run on host without the confirm cancels', async () => {
+    const i = base({ choose: vi.fn(async () => ACCOUNT_BLOCK_HOST), confirmHost: vi.fn(async () => false) });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'cancelled' });
+  });
+  it.each([['failClosed'], ['refuseOnBlock']])('%s: no modal, refused with the account reason', async (flag) => {
+    const i = base({ [flag]: true, hasSandbox: async () => true });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'refused', reason: `${reason}; the launch never runs on the host unasked` });
+    expect(i.choose).not.toHaveBeenCalled();
+    expect(i.launch).toHaveBeenCalledTimes(1);
+  });
+  it('a host-backend ticket (wantsSandbox false) is not asked', async () => {
+    const i = base({ wantsSandbox: false });
+    expect(await launchWithoutSilentHostFallback(i)).toMatchObject({ kind: 'launched' });
+    expect(i.choose).not.toHaveBeenCalled();
   });
 });
 

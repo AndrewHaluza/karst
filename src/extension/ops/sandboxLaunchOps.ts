@@ -169,7 +169,12 @@ import type { AgentBackends } from '../../agent/backendChoices.js';
 export const HOST_FALLBACK_RETRY = 'Retry';
 export const HOST_FALLBACK_HOST = 'Sync and remove sandbox, then run on host with a fresh session';
 
-export interface HostFallbackInput<T extends { readonly sandboxed: boolean }> {
+/** The two choices of an account block on a sandbox backend; Cancel is the dismissal. Add a choice here (D650/D652: 'Add a token'). */
+export const ACCOUNT_BLOCK_DEFAULT = 'Start fresh under default for this ticket';
+export const ACCOUNT_BLOCK_HOST = 'Run on host';
+const ACCOUNT_BLOCK_CHOICES: readonly string[] = [ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST];
+
+export interface HostFallbackInput<T extends { readonly sandboxed: boolean; readonly blocked?: { readonly kind: 'account'; readonly reason: string } }> {
   readonly ticketLabel: string;
   readonly launch: () => Promise<T>;
   /** The project/ticket asked for a sandbox backend. */
@@ -182,21 +187,27 @@ export interface HostFallbackInput<T extends { readonly sandboxed: boolean }> {
   readonly removeSandbox: () => Promise<boolean>;
   /** An Autopilot round (arch:AC-31): never offer the host, never list sandboxes; a host backend is refused. */
   readonly failClosed?: boolean;
+  /** A recovery relaunch: no modal, an account block is refused with its reason like an Autopilot round. */
+  readonly refuseOnBlock?: boolean;
 }
 
 export type HostFallbackResult<T> =
   | { readonly kind: 'launched'; readonly backend: T; readonly freshSession: boolean }
   | { readonly kind: 'cancelled' }
+  /** The user chose a NEW session under the explicit `default` account: the caller relaunches with it; nothing ran. */
+  | { readonly kind: 'restart-default' }
   /** `failClosed` and the backend came up on the host: no choice was offered, nothing was removed. */
   | { readonly kind: 'refused'; readonly reason: string };
 
 export const FAIL_CLOSED_REASON = 'the sandbox backend is unavailable and auto-fix never runs on the host';
 
 /** F14: a ticket with a sandbox never silently falls back to the host; the user picks Retry / host-after-removal / Cancel. */
-export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
+export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean; readonly blocked?: { readonly kind: 'account'; readonly reason: string } }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
   for (;;) {
     const backend = await input.launch();
     if (backend.sandboxed || !input.wantsSandbox) return { kind: 'launched', backend, freshSession: false };
+    // An account block is never a silent host run, whether or not a sandbox exists (@arch:AC-55).
+    if (backend.blocked) return accountBlockChoice(input, backend, backend.blocked.reason);
     // Checked BEFORE hasSandbox: a sandbox listing that fails must not let an auto round run on the host.
     if (input.failClosed) return { kind: 'refused', reason: FAIL_CLOSED_REASON };
     if (!(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
@@ -212,6 +223,15 @@ export async function launchWithoutSilentHostFallback<T extends { readonly sandb
     if (!ok || !(await input.removeSandbox())) return { kind: 'cancelled' };
     return { kind: 'launched', backend: await input.launch(), freshSession: true };
   }
+}
+
+async function accountBlockChoice<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>, backend: T, reason: string): Promise<HostFallbackResult<T>> {
+  if (input.failClosed || input.refuseOnBlock) return { kind: 'refused', reason: `${reason}; the launch never runs on the host unasked` };
+  const picked = await input.choose(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, ACCOUNT_BLOCK_CHOICES);
+  if (picked === ACCOUNT_BLOCK_DEFAULT) return { kind: 'restart-default' };
+  if (picked !== ACCOUNT_BLOCK_HOST) return { kind: 'cancelled' };
+  const ok = await input.confirmHost(`${input.ticketLabel} will run on the host WITHOUT the sandbox boundary, under its own account. Continue?`);
+  return ok ? { kind: 'launched', backend, freshSession: false } : { kind: 'cancelled' };
 }
 
 export function wantsSandboxBackend(backends: AgentBackends | undefined, core: string, override: 'host' | null | undefined): boolean {

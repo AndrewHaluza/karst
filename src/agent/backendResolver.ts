@@ -46,6 +46,8 @@ export interface ResolvedBackend {
   readonly runner: SessionRunner;
   /** One diagnostics line: `sbx (<name>)`, `docker (<container>)` or `host (<reason>)`. */
   readonly line: string;
+  /** Why a configured sandbox backend refused this launch's account; the launch asks instead of running on the host (@arch:AC-55). */
+  readonly blocked?: { readonly kind: 'account'; readonly reason: string };
 }
 
 /**
@@ -62,7 +64,7 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   const accountBlock = (ACCOUNT_CORES as readonly string[]).includes(input.core)
     ? sandboxAccountBlock(input.core as AccountCore, input.account, backend === 'sbx' ? 'sbx' : 'docker')
     : undefined;
-  if (accountBlock) return onHost(accountBlock);
+  if (accountBlock) return { ...onHost(accountBlock), blocked: { kind: 'account', reason: accountBlock } };
   if (backend === 'docker') {
     const docker = await resolveDocker({
       core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId, worktree: input.worktree,
