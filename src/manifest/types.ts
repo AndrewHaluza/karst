@@ -79,8 +79,9 @@ export interface ServiceDef {
   health?: string;
   /**
    * Optional command that resets the service's state between agent UAT and
-   * user UAT in a sandboxed ticket (arch:AC-32 decision 8). Run inside the
-   * sandbox (`sh -c`, in the service's cwd) on the SAME running instance.
+   * user UAT (arch:AC-32 decision 8), on the SAME running instance (`sh -c`, in
+   * the service's directory). A sandboxed stack runs it inside the sandbox; a
+   * host stack kept by `uat.keepStackForUser` runs it on the host.
    * Absent → state is left as the Tester left it.
    */
   reset?: string;
@@ -669,6 +670,14 @@ export interface UatConfig {
   gates?: UatGateDef[];
   /** Every gate off: false/absent = run nothing (stage bypassed); true = probe package.json scripts. */
   probeWhenAllDisabled?: boolean;
+  /**
+   * Opt-in, manifest-only. `true`: a HOST stack that agent UAT started and that
+   * passed stays running for the user to test, after each service's `reset`; the
+   * done/archive stop rules stop it later. Absent/false: UAT stops a host stack
+   * it started (the default). A sandboxed stack is always kept after a pass
+   * (arch:AC-32 decision 7), whatever this says.
+   */
+  keepStackForUser?: boolean;
   /**
    * Task 8: an optional deterministic verification command for the UAT
    * Tester's work — a host-authored `GateDef` (script/command) run through the

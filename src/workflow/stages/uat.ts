@@ -1202,8 +1202,9 @@ export async function runUat(
     }
     return await finishAfterServices();
   } finally {
-    // Decision 7: a sandboxed stack that passed agent UAT stays up for user
-    // UAT — same instance — after its optional reset (decision 8).
+    // Decision 7: a stack that passed agent UAT stays up for user UAT — same
+    // instance — after its optional reset (decision 8): always for a sandboxed
+    // stack, and for a host stack when `uat.keepStackForUser` is on.
     const keep = ownsStack && verdictPassed && deps.keepStackForUserUat?.(opts.ticketId) === true;
     if (keep) await resetForUserUat(store, opts.ticketId, deps, opts.debug);
     if (ownsStack) deps.agentUatPhase?.(opts.ticketId, 'end');
@@ -1234,7 +1235,7 @@ async function resetForUserUat(
   try {
     const warnings = (await deps.prepareUserUat?.(store, ticketId)) ?? [];
     for (const w of warnings) deps.warn?.(`uat: ${w}`);
-    debug?.(`[gate] uat ticket ${ticketId}: kept the sandboxed services for user UAT (${warnings.length} reset warning(s))`);
+    debug?.(`[gate] uat ticket ${ticketId}: kept the services for user UAT (${warnings.length} reset warning(s))`);
   } catch (error) {
     deps.warn?.(`uat: reset before user UAT failed: ${error instanceof Error ? error.message : String(error)}`);
   }

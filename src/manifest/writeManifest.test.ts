@@ -349,6 +349,7 @@ describe('writeManifest', () => {
           testDir: 'e2e/karst',
           maxFixAttempts: 2,
           stallTimeoutMinutes: 45,
+          keepStackForUser: true,
           gates: [
             { name: 'test', kind: 'script', script: 'test' },
             { name: 'gotest', kind: 'command', command: 'go', args: ['test', './...'], repo: 'backend' },

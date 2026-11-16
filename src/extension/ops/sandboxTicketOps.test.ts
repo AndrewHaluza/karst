@@ -347,6 +347,42 @@ describe('bindings.userUat (decisions 7-8)', () => {
     expect(other.b.userUat.keepStackForUserUat(7)).toBe(false);
   });
 
+  const hostManifest = (uat: boolean): Manifest =>
+    ({
+      ...(uat ? { uat: { keepStackForUser: true } } : {}),
+      repositories: { api: { repoPath: '/r', service: { start: 'x', reset: 'npm run reset', ports: [{ name: 'http', default: 1 }] } } },
+    }) as unknown as Manifest;
+  const HOST_ROW = "INSERT INTO servers (ticket_id, repo, host, port, status, cwd, sandbox) VALUES (7, 'api', '127.0.0.1', 4100, 'running', '/wt', NULL)";
+
+  it('keeps a running host stack only when uat.keepStackForUser is true', async () => {
+    const on = await make({ coreOf: () => null }, hostManifest(true));
+    expect(on.b.userUat.keepStackForUserUat(7)).toBe(false);
+    on.store.db.prepare(HOST_ROW).run();
+    expect(on.b.userUat.keepStackForUserUat(7)).toBe(true);
+    expect(on.b.userUat.keepStackForUserUat(8)).toBe(false);
+    const off = await make({ coreOf: () => null }, hostManifest(false));
+    off.store.db.prepare(HOST_ROW).run();
+    expect(off.b.userUat.keepStackForUserUat(7)).toBe(false);
+    const none = await make({ coreOf: () => null });
+    none.store.db.prepare(HOST_ROW).run();
+    expect(none.b.userUat.keepStackForUserUat(7)).toBe(false);
+  });
+
+  it('resets the kept host services on the host when uat.keepStackForUser is true', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    const on = await make({ coreOf: () => null }, hostManifest(true));
+    on.store.db.prepare(HOST_ROW).run();
+    vi.mocked(runProcess).mockClear();
+    vi.mocked(runProcess).mockResolvedValue({ kind: 'completed', exitCode: 0, output: '' });
+    await expect(on.b.userUat.prepareUserUat(on.store, 7)).resolves.toEqual([]);
+    expect(vi.mocked(runProcess).mock.calls[0]).toEqual(['sh', ['-c', 'npm run reset'], '/wt', { timeoutMs: 30_000 }]);
+    const off = await make({ coreOf: () => null }, hostManifest(false));
+    off.store.db.prepare(HOST_ROW).run();
+    vi.mocked(runProcess).mockClear();
+    await expect(off.b.userUat.prepareUserUat(off.store, 7)).resolves.toEqual([]);
+    expect(runProcess).not.toHaveBeenCalled();
+  });
+
   it('withholds the link between start and end, per ticket', async () => {
     const { b } = await make();
     b.userUat.agentUatPhase(7, 'start');

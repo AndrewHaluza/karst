@@ -30,7 +30,7 @@ Legend: **UI** = editable in Settings · **GAP** = yml-only.
 | `conventions.branchName` / `.commitMessage` / `.pullRequestTitle` / `.pullRequestDescription` / `.defaultType` | Git (+ presets) |
 | `repositories.<n>.repoPath` / `.baselineBranch` / `.hasMigrations` / `.signals` / `.enabled` / `.ship.exclude[]` | Repositories |
 | `repositories.<n>.conventions.{commitMessage,pullRequestTitle,pullRequestDescription}` | Repositories |
-| `repositories.<n>.service.start` / `.health` / `.portRange` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
+| `repositories.<n>.service.start` / `.health` / `.healthTimeoutSeconds` / `.portRange` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
 | `approaches[].id` / `.label` / `.description` / `.entrypoint` / `.recommended` / `.enabled` / `.source` (git: repo/ref/include; npm: package/command/collect) | Approaches |
 | `agents.<n>.enabled` | Agents |
 | `ticketing.provider` / `.teamId` / `.listId` / `.advanceOnStart` / `.startStatus` / `.advanceOnShip` / `.shipStatus` / `.searchEnabled` / `.syncSubtasks` | Ticketing |
@@ -66,6 +66,7 @@ stderr.
 | `uat.maxFixAttempts` | **wired** — `workflow/driveTicket.ts` (per-gate fix budget) — **Quality tab** |
 | `uat.gates[]` | **wired** — `workflow/uat/gates.ts` — **Quality tab** |
 | `uat.repositories.<n>.gates` | **wired** — same, as a REPLACE override — **Quality tab** |
+| `uat.keepStackForUser` | **wired** — `extension/ops/hostUserUat.ts` via `sandboxTicketOps.ts` `userUat` (keep a passed host stack for user UAT) — yml-only |
 | `uat.testDir`, `uat.repositories.<n>.testDir` | none — inert, reported at load |
 | `uat.env`, `uat.repositories.<n>.env` | none — inert, reported at load |
 | `uat.secrets`, `uat.repositories.<n>.secrets` | none — inert, reported at load |
