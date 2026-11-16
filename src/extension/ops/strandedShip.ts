@@ -2,7 +2,6 @@ import {
   listStrandedShipTickets,
   describeStrandedShip,
   parkInterruptedShipStage,
-  parkShipsOfOtherProjects,
 } from '../../store/shipRuns.js';
 import { getTicket } from '../../store/tickets.js';
 import type { Store } from '../../store/db.js';
@@ -66,13 +65,5 @@ export async function resumeStrandedShips(deps: StrandedShipDeps): Promise<void>
       deps.logError('karst: stranded ship resume failed', e);
       deps.onResumeFailed(stranded.ticketId);
     });
-  }
-  // `reconcileShipRuns` is global but this resume is scoped to one project:
-  // park the dead ships of the other projects, whose windows may never open.
-  for (const ticketId of parkShipsOfOtherProjects(deps.store, deps.projectId, new Date().toISOString())) {
-    deps.info(
-      `karst: ticket ${ticketId}: ship is parked failed — its project is not open in this window; retry ship to continue`,
-    );
-    deps.onResumeFailed(ticketId);
   }
 }
