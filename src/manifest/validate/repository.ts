@@ -21,6 +21,7 @@ import type {
   ServiceDef,
   ShipDef,
 } from '../types.js';
+import { MAX_HEALTH_TIMEOUT_SECONDS } from '../types.js';
 import { validateDocker } from './docker.js';
 import {
   validateArtifactTemplate,
@@ -159,6 +160,7 @@ const RUNTIME_FIELDS = [
   'start',
   'health',
   'healthIdentity',
+  'healthTimeoutSeconds',
   'ports',
   'dependsOn',
   'portRange',
@@ -269,6 +271,17 @@ function validateDependsOn(raw: unknown, label: string, selfKey: string, i: numb
   return { target, port: strictString(raw.port, `${where}.port`, strict), bind };
 }
 
+/** A whole number of seconds, 1..MAX_HEALTH_TIMEOUT_SECONDS; absent → undefined (the 30 s default). */
+function validateHealthTimeoutSeconds(v: unknown, where: string): number | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > MAX_HEALTH_TIMEOUT_SECONDS) {
+    throw new ManifestError(
+      `${where} must be a whole number of seconds from 1 to ${MAX_HEALTH_TIMEOUT_SECONDS}`,
+    );
+  }
+  return v;
+}
+
 /**
  * The runnable relation. `start` and a non-empty `ports` are required HERE
  * rather than at repository level: that is the whole inversion. A repository
@@ -317,6 +330,7 @@ function validateService(
   // Opt-in, and only ever a boolean: a truthy string here would silently arm a
   // contract the service does not keep, and nothing would ever become healthy.
   const healthIdentity = optionalBoolean(raw.healthIdentity, `${where}.healthIdentity`);
+  const healthTimeoutSeconds = validateHealthTimeoutSeconds(raw.healthTimeoutSeconds, `${where}.healthTimeoutSeconds`);
   // Optional like `health`: blank means "no reset" (arch:AC-32 decision 8).
   const reset = optionalString(raw.reset, `${where}.reset`);
 
@@ -347,6 +361,7 @@ function validateService(
     ...(cwd ? { cwd } : {}),
     health,
     healthIdentity,
+    ...(healthTimeoutSeconds !== undefined ? { healthTimeoutSeconds } : {}),
     ...(reset ? { reset } : {}),
     ports,
     portRange,

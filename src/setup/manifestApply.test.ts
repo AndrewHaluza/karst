@@ -161,6 +161,15 @@ describe('applyManifestProposal', () => {
 });
 
 describe('diffManifest', () => {
+  it('reports a healthTimeoutSeconds change', () => {
+    const current = manifest({ repositories: { web: repo('/w/web', { service: service('npm run dev') }) } });
+    const proposed = manifest({
+      repositories: { web: repo('/w/web', { service: { ...service('npm run dev'), healthTimeoutSeconds: 300 } }) },
+    });
+    const diff = diffManifest(current, proposed);
+    expect(diff.entries[0]!.details.join()).toMatch(/healthTimeoutSeconds: \(default\) -> 300/);
+  });
+
   it('reports added, changed and removed repositories and lists start commands', () => {
     const current = manifest({
       repositories: {

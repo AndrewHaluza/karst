@@ -65,6 +65,9 @@ export interface DockerDef {
   args: string[];
 }
 
+/** Upper bound for `ServiceDef.healthTimeoutSeconds` (one hour): a typo must not make a start wait for a day. */
+export const MAX_HEALTH_TIMEOUT_SECONDS = 3600;
+
 export interface ServiceDef {
   /**
    * The start command, or `''` when `docker` carries the process instead.
@@ -101,6 +104,13 @@ export interface ServiceDef {
    * while wired to another branch's process.
    */
   healthIdentity?: boolean;
+  /**
+   * How long a start waits for `health` to pass before karst gives up and
+   * stops the process, in whole seconds (1 to `MAX_HEALTH_TIMEOUT_SECONDS`).
+   * Absent → the 30-second default of `waitForHealth`. Set it for a service
+   * that is slow to become ready, for example an image that builds on first start.
+   */
+  healthTimeoutSeconds?: number;
   ports: PortSlot[]; // validated non-empty — a service without a port cannot be addressed
   /**
    * Optional per-service allocation window. When present, ticket-hot ports for

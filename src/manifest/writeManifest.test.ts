@@ -251,6 +251,7 @@ describe('writeManifest', () => {
               start: 'npm run dev',
               health: 'http://{host}:{port}/health',
               healthIdentity: true,
+              healthTimeoutSeconds: 600,
               reset: 'npm run db:reset',
               ports: [{ name: 'http', env: 'PORT', default: 3000 }],
               portRange: [5000, 5100],
