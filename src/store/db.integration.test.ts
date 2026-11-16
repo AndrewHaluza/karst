@@ -499,6 +499,29 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
   });
 
+  it('migrates a pre-v126 database by adding ship_runs.unattended, idempotently, as 0 without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE ship_runs (id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, pid INTEGER)');
+    legacy.exec('INSERT INTO ship_runs (ticket_id, pid) VALUES (1, 4242)');
+    legacy.pragma('user_version = 125');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('ship_runs')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('unattended');
+    expect(migrated.db.prepare('SELECT unattended FROM ship_runs').get()).toEqual({ unattended: 0 });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'unattended')).toHaveLength(1);
+  });
+
   it('migrates a pre-v125 database by adding the graph run auto-recovery columns, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

@@ -17,6 +17,7 @@ const shipRun: ShipRun = {
   attempt: 1,
   status: 'passed',
   pid: null,
+  unattended: false,
   startedAt: '2026-07-20T12:00:00.000Z',
   endedAt: '2026-07-20T12:03:00.000Z',
 };

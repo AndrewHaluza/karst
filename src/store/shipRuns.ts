@@ -72,6 +72,12 @@ export interface ShipRun {
    * conservatively as `reconcileStageRuns` does.
    */
   pid: number | null;
+  /**
+   * True when the run was an unattended resume of a dead ship (v126,
+   * @arch:SHIP-RESUME). A dead run with this mark is parked, never resumed
+   * again: a ship that kills the host would otherwise resume on every activation.
+   */
+  unattended: boolean;
   startedAt: string;
   endedAt: string | null;
 }
@@ -165,6 +171,7 @@ interface ShipRunRowShape {
   attempt: number;
   status: string;
   pid: number | null;
+  unattended: number;
   started_at: string;
   ended_at: string | null;
 }
@@ -217,6 +224,7 @@ function rowToShipRun(r: ShipRunRowShape): ShipRun {
     // read as `running` (which would authorize a continuation) or as success.
     status: (RUN_STATUSES.includes(r.status) ? r.status : 'failed') as ShipRunStatus,
     pid: r.pid,
+    unattended: r.unattended === 1,
     startedAt: r.started_at,
     endedAt: r.ended_at,
   };
@@ -270,7 +278,7 @@ function rowToShipOperationIntent(r: ShipOperationIntentRowShape): ShipOperation
 }
 
 const RUN_SELECT =
-  'SELECT id, ticket_id, attempt, status, started_at, ended_at, pid FROM ship_runs';
+  'SELECT id, ticket_id, attempt, status, started_at, ended_at, pid, unattended FROM ship_runs';
 const STEP_SELECT =
   `SELECT id, ship_run_id, repo, step, status, detail, pr_number,
           existed_before_ship, process_run_id, operation_intent_id,
@@ -297,6 +305,8 @@ export interface OpenShipRunInput {
    * the saga. NULL records no evidence, exactly like a pre-v34 row.
    */
   pid?: number | null;
+  /** True for an unattended resume (v126). Absent = a click. */
+  unattended?: boolean;
   startedAt: string;
 }
 
@@ -304,10 +314,10 @@ export interface OpenShipRunInput {
 export function openShipRun(store: Store, input: OpenShipRunInput): ShipRun {
   const info = store.db
     .prepare(
-      `INSERT INTO ship_runs (ticket_id, attempt, status, started_at, ended_at, pid)
-       VALUES (?, ?, 'running', ?, NULL, ?)`,
+      `INSERT INTO ship_runs (ticket_id, attempt, status, started_at, ended_at, pid, unattended)
+       VALUES (?, ?, 'running', ?, NULL, ?, ?)`,
     )
-    .run(input.ticketId, input.attempt, input.startedAt, input.pid ?? null);
+    .run(input.ticketId, input.attempt, input.startedAt, input.pid ?? null, input.unattended === true ? 1 : 0);
   const row = store.db
     .prepare(`${RUN_SELECT} WHERE id = ?`)
     .get(Number(info.lastInsertRowid)) as ShipRunRowShape | undefined;
@@ -392,11 +402,20 @@ export function listStrandedShipTickets(
     // any live pid anywhere proves the ship is still executing somewhere.
     const siblings = rows.filter((r) => r.ticket_id === row.ticket_id);
     if (siblings.some((r) => r.pid !== null && isAlive(r.pid))) continue;
+    // No running row: name the newest interrupted run `reconcileShipRuns` closed, so the log line states it.
+    const closed =
+      row.run_id === null
+        ? (store.db
+            .prepare(
+              "SELECT id, started_at, pid FROM ship_runs WHERE ticket_id = ? AND status = 'interrupted' ORDER BY id DESC LIMIT 1",
+            )
+            .get(row.ticket_id) as { id: number; started_at: string; pid: number | null } | undefined)
+        : undefined;
     stranded.push({
       ticketId: row.ticket_id,
-      runId: row.run_id,
-      startedAt: row.started_at,
-      pid: row.pid,
+      runId: closed?.id ?? row.run_id,
+      startedAt: closed?.started_at ?? row.started_at,
+      pid: closed?.pid ?? row.pid,
     });
   }
   return stranded;
@@ -973,10 +992,34 @@ const INTERRUPTED_STEP_DETAIL = 'interrupted — the host that ran it died; retr
 const INTERRUPTED_STAGE_VERDICT =
   'ship was interrupted — the host that ran it died before the PRs opened; retry ship to continue';
 
+/**
+ * Park a ship stage `failed` with the interrupted verdict, so the failed-ship
+ * surface offers "Retry ship". Only a stage that reads `running` and unblocked
+ * is written; the single-writer rule holds (`setStage` does the write).
+ * Returns true when it parked the stage.
+ */
+export function parkInterruptedShipStage(store: Store, ticketId: number, now: string): boolean {
+  const stage = store.db
+    .prepare("SELECT status, blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+    .get(ticketId) as { status: string; blocked_kind: string | null } | undefined;
+  if (stage === undefined || stage.status !== 'running' || stage.blocked_kind !== null) return false;
+  setStage(store, ticketId, 'ship', {
+    status: 'failed',
+    verdict: INTERRUPTED_STAGE_VERDICT,
+    endedAt: now,
+  });
+  return true;
+}
+
 /** A run this sweep found dead, reported so the loss is never silent. */
 export interface StaleShipRun {
   run: ShipRun;
   reason: string;
+  /**
+   * True = the stage was left `running` for `resumeStrandedShips` to resume;
+   * false = the stage was parked `failed` (or was never `running`).
+   */
+  resume: boolean;
 }
 
 /**
@@ -987,8 +1030,13 @@ export interface StaleShipRun {
  * reconciliation runs only at the START of the next `shipTicket` invocation,
  * and the ticket at `ship` `running` with no block offers no retry anywhere —
  * the Now line shows no button for a running ship, and no sweep re-drives a
- * user-confirmed stage. Closing the dead run and parking the stage `failed`
- * is what turns "a ship that has been running for a day with no PR" into the
+ * user-confirmed stage. Closing the dead run is the first half; the stage then
+ * follows ONE rule (@arch:SHIP-RESUME), decided here so that no second sweep
+ * can disagree: a dead run of an unpaused ticket whose stage reads `running`
+ * and unblocked keeps the stage `running` and returns `resume: true`, and
+ * `resumeStrandedShips` runs the saga again unattended. A dead run that was
+ * itself an unattended resume (crash-loop guard) or a paused ticket is parked
+ * `failed` instead. Parking `failed` is what turns "a ship that has been running for a day with no PR" into the
  * one state that HAS a recovery path: the existing failed-ship surface, whose
  * Now line offers "Retry ship" and whose retry re-invokes the saga, which
  * reconciles what the dead run persisted and redoes what never landed.
@@ -1025,9 +1073,11 @@ export function reconcileShipRuns(
   const stageRow = store.db.prepare(
     "SELECT status, blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = 'ship'",
   );
+  const pausedRow = store.db.prepare('SELECT paused_at FROM tickets WHERE id = ?');
   for (const run of rows) {
     if (run.pid === null) continue;
     if (isAlive(run.pid)) continue;
+    let resume = false;
     const apply = store.db.transaction(() => {
       markRun.run(now, run.id);
       markSteps.run(INTERRUPTED_STEP_DETAIL, now, run.id);
@@ -1037,6 +1087,15 @@ export function reconcileShipRuns(
       // The single-writer rule is still honoured — `setStage` is the only
       // stage writer; the guarded read only decides whether to call it.
       if (stage !== undefined && stage.status === 'running' && stage.blocked_kind === null) {
+        // The ONE place that decides resume or park, so the two sweeps never
+        // disagree on the stage. A dead click-run of an unpaused ticket stays
+        // `running` and `resumeStrandedShips` resumes it; a dead unattended
+        // resume (crash-loop guard) or a paused ticket is parked.
+        const paused = (pausedRow.get(run.ticketId) as { paused_at: string | null } | undefined)?.paused_at != null;
+        if (!run.unattended && !paused) {
+          resume = true;
+          return;
+        }
         setStage(store, run.ticketId, 'ship', {
           status: 'failed',
           verdict: INTERRUPTED_STAGE_VERDICT,
@@ -1047,9 +1106,12 @@ export function reconcileShipRuns(
     apply();
     stale.push({
       run: { ...run, status: 'interrupted' },
+      resume,
       reason:
         `${run.startedAt} ship run (pid ${run.pid}) did not finish — its process is gone; ` +
-        'ship is parked failed so a retry can resume it',
+        (resume
+          ? 'ship stays running so the activation resume continues it'
+          : 'ship is parked failed so a retry can resume it'),
     });
   }
   return stale;

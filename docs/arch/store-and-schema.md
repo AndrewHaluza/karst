@@ -60,7 +60,7 @@ flowchart TD
 | An older build meets a newer registry | Graph verbs throw "requires exactly v<N>" | Update that window's extension |
 
 ### Rules
-@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:PLANNING-DEPS · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:V89 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
+@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:PLANNING-DEPS · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:V89 · @arch:V126 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
 END_DOC_BLOCK: [@arch:ST-00]
 
 ## [@arch:SQLITE] SQLite is source of truth
@@ -302,8 +302,16 @@ covers: src/store/hookActivity.ts, src/store/recoveryRoundsSweeps.ts#sweepStalle
 **Background wait deadline (v123).** `tickets.background_wait_until TEXT NULL` holds the ISO deadline of the agent's open background wait. Additive, NULL = no wait (no backfill). `dispatchHook` writes it when a background launch extends the wait (it only moves forward). A woken task-notification turn, a real prompt, the done marker, or `SessionEnd` clears it. The fix stall watchdog reads the column, not memory, so a sweep in another window sees the wait. A ticket with a deadline later than the sweep clock is skipped, and a past deadline counts as a progress moment. A wait lasts its deadline plus the stall window, so a hung job still parks (T1136).
 END_DOC_BLOCK: [@arch:HOOK-LIVE]
 
+## [@arch:V126] Ship run unattended mark (v126)
+covers: src/store/shipRuns.ts#reconcileShipRuns, src/store/shipRuns.ts#openShipRun
+
+`ship_runs.unattended INTEGER NOT NULL DEFAULT 0` is 1 for a run that was an unattended resume of a dead ship. Additive, 0 = a click or a pre-v126 run (no backfill). `reconcileShipRuns` parks a dead marked run `failed` instead of resuming it again, so a ship that kills the host does not resume on each activation (`@arch:SHIP-RESUME`).
+END_DOC_BLOCK: [@arch:V126]
+
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
+
+**v126:** `@arch:V126`.
 
 **Graph auto recovery (v125).** `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` record the automatic recoveries (`@arch:GRAPH-AUTORECOVERY`).
 

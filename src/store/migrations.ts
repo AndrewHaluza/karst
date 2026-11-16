@@ -3039,5 +3039,11 @@ function migrateLocked(db: Database): void {
     if (cols125.size > 0 && !cols125.has('auto_recovery_reasons')) db.exec('ALTER TABLE approach_graph_runs ADD COLUMN auto_recovery_reasons TEXT');
   }
 
+  if (current < 126) {
+    // v126: `ship_runs.unattended` — 1 when the run was an unattended resume of a dead ship (@arch:SHIP-RESUME). The activation sweep parks a dead unattended run `failed` instead of resuming it again. Additive; 0 = a click or a pre-v126 run (no backfill).
+    const cols126 = tableColumns(db, 'ship_runs');
+    if (cols126.size > 0 && !cols126.has('unattended')) db.exec('ALTER TABLE ship_runs ADD COLUMN unattended INTEGER NOT NULL DEFAULT 0');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

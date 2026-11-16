@@ -928,6 +928,8 @@ export async function shipTicket(
     // executing (reconcileShipRuns parks it failed, the stranded-ship sweep
     // resumes it).
     pid: process.pid,
+    // An unattended resume is marked so a second host death parks the stage instead of resuming again (@arch:SHIP-RESUME).
+    unattended: opts.resumeInterrupted === true,
     startedAt,
   });
 
