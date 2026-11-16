@@ -455,7 +455,7 @@
     "arch:GATE-REPEAT"
   ],
   "src/extension/ops/baseMovedRemedy.ts": [
-    "arch:GATE-BASE-MOVED"
+    "arch:GATE-BASE-MOVED-STALE"
   ],
   "src/extension/ops/ciActionsWiring.ts": [
     "arch:AP-05"
