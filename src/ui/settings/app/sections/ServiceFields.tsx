@@ -62,8 +62,9 @@ export function ServiceFields({
   const setHealthTimeout = (raw: string): void => {
     const parsed = Number(raw);
     const valid = raw.trim() !== '' && Number.isInteger(parsed) && parsed >= 1 && parsed <= MAX_HEALTH_TIMEOUT_SECONDS;
-    const { healthTimeoutSeconds: _drop, ...rest } = def;
-    onDef((valid ? { ...rest, healthTimeoutSeconds: parsed } : rest) as ServiceDef);
+    const next: ServiceDef = { ...def };
+    delete next.healthTimeoutSeconds;
+    onDef(valid ? { ...next, healthTimeoutSeconds: parsed } : next);
   };
 
   return (
