@@ -87,6 +87,17 @@ describe('Node merge', () => {
     expect(readFileSync(join(clone, '.git', 'info', 'exclude'), 'utf8')).toContain('/node_modules');
   });
 
+  it('copies better-sqlite3, so the clone rebuild script finds a real folder, not a symlink', async () => {
+    nodeRepo(worktree, { 'better-sqlite3': '1' }, { 'better-sqlite3': '1.0.0' });
+    nodeRepo(clone, { 'better-sqlite3': '1' }, { 'better-sqlite3': '1.0.0' });
+    pkg(worktree, 'better-sqlite3');
+    pkg(worktree, 'other');
+    expect((await run()).kind).toBe('ready');
+    expect(lstatSync(join(clone, 'node_modules', 'better-sqlite3')).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(clone, 'node_modules', 'better-sqlite3', 'package.json'))).toBe(true);
+    expect(lstatSync(join(clone, 'node_modules', 'other')).isSymbolicLink()).toBe(true);
+  });
+
   it('merges a scope across trees', async () => {
     nodeRepo(worktree, {}, {});
     nodeRepo(clone, {}, {});
@@ -230,8 +241,8 @@ describe('review findings', () => {
     put(join(worktree, '.venv', 'bin', 'python'), '');
     for (let i = 0; i < 3; i++) put(join(worktree, '.venv', 'lib', `f${i}`), '');
     const { editableHit } = await import('./workspaceDeps.js');
-    expect(editableHit(join(worktree, '.venv'), [worktree], 2)).toContain('scan limit');
-    expect(editableHit(join(worktree, '.venv'), [worktree])).toBeUndefined();
+    expect(await editableHit(join(worktree, '.venv'), [worktree], 2)).toContain('scan limit');
+    expect(await editableHit(join(worktree, '.venv'), [worktree])).toBeUndefined();
   });
 
   it('a Python setup keeps the merged node_modules of a Node + Python repo', async () => {

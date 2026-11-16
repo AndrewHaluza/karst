@@ -681,6 +681,24 @@ describe('recoverGraphRun', () => {
     expect(told).not.toContain('raise limits.maxReplans');
   });
 
+  it('a workspace byte-ceiling stop names the byte limit, not the replan limit', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'graph-budget-exhausted: node run 7 (9 bytes over the 5 workspace ceiling)',
+      [{ id: 7, status: 'blocked' }],
+      validGraph(1),
+      0,
+    );
+    const lines: string[] = [];
+    const result = recoverGraphRun(makeDeps({ debug: (m) => lines.push(m) }), {
+      ticketId,
+      graphRunId,
+      mode: 'resume',
+    });
+    expect(result).toEqual({ kind: 'refused', reason: 'config-then-resume' });
+    expect(lines.join('\n')).toContain('limits.maxAggregateWorkspaceBytes');
+    expect(lines.join('\n')).not.toContain('maxReplans');
+  });
+
   it('an automatic (node-requested) replan still enforces the document budget', () => {
     // Project headroom is irrelevant to an automatic replan: the document's
     // frozen maxReplans is the ceiling, exactly as before this ticket.

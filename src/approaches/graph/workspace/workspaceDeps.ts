@@ -22,8 +22,10 @@
  * the clone stays empty. A link target is never written and never removed.
  */
 
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import {
   appendFileSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -46,6 +48,9 @@ import { planCreatedPaths, planIsEmpty, planWorkspaceDeps, resolvePlanPath, type
 export const WORKSPACE_SETUP_TIMEOUT_MS = 10 * 60 * 1000;
 /** The tail of the setup output kept in a failure reason. */
 export const SETUP_OUTPUT_TAIL_CHARS = 400;
+/** Packages the Node merge copies, not links: the clone rebuilds their native addon for its own ABI. */
+const COPIED_PACKAGES: ReadonlySet<string> = new Set(['better-sqlite3']);
+
 /** Bounds of the editable scan of one link target. */
 const EDITABLE_SCAN_MAX_DEPTH = 6;
 /** A venv can hold many files; a scan that reaches the cap fails CLOSED (the target is not linked). */
@@ -230,7 +235,10 @@ function mergeNodeModules(clone: string, entries: readonly MergeEntry[], bins: r
     if (real === undefined) return;
     const dest = join(root, ...relative.split('/'));
     mkdirSync(dirname(dest), { recursive: true });
-    symlinkSync(real, dest);
+    // A package with a native addon is copied: the rebuild script of the clone
+    // refuses a symlinked addon and would otherwise exit 1 (shared install guard).
+    if (COPIED_PACKAGES.has(relative)) cpSync(real, dest, { recursive: true });
+    else symlinkSync(real, dest);
   };
   for (const entry of entries) link(entry.name, entry.target);
   for (const bin of bins) link(`.bin/${bin.name}`, bin.target);
@@ -243,10 +251,10 @@ function mergeNodeModules(clone: string, entries: readonly MergeEntry[], bins: r
 const EDITABLE_FILE = /(\.pth|\.egg-link)$|^__editable__/;
 
 /** Absolute paths named by a `.pth` / `.egg-link` / `__editable__` file. */
-function pathsInEditableFile(file: string): string[] {
+async function pathsInEditableFile(file: string): Promise<string[]> {
   let text: string;
   try {
-    text = readFileSync(file, 'utf8').slice(0, EDITABLE_FILE_MAX_BYTES);
+    text = (await readFile(file, 'utf8')).slice(0, EDITABLE_FILE_MAX_BYTES);
   } catch {
     return [];
   }
@@ -259,39 +267,56 @@ function pathsInEditableFile(file: string): string[] {
   return found;
 }
 
+async function realpathOrUndefined(path: string): Promise<string | undefined> {
+  try {
+    return await realpath(path);
+  } catch {
+    return undefined;
+  }
+}
+
+async function listDirAsync(path: string): Promise<string[]> {
+  try {
+    return await readdir(path);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Whether anything inside `target` (a venv, a vendor folder) leads into one of
  * `guarded`: a symlink, or a path in an editable file. Returns the first hit.
+ * The walk is async, so a large venv never blocks the extension host event loop.
  */
-export function editableHit(
+export async function editableHit(
   target: string,
   guarded: readonly string[],
   maxEntries: number = EDITABLE_SCAN_MAX_ENTRIES,
-): string | undefined {
+): Promise<string | undefined> {
   let visited = 0;
-  const walk = (dir: string, depth: number): string | undefined => {
-    for (const name of listDir(dir)) {
+  const walk = async (dir: string, depth: number): Promise<string | undefined> => {
+    for (const name of await listDirAsync(dir)) {
       if (++visited > maxEntries) return `${target}: scan limit of ${maxEntries} entries reached`;
       const full = join(dir, name);
       let stat;
       try {
-        stat = lstatSync(full);
+        stat = await lstat(full);
       } catch {
         continue;
       }
       if (stat.isSymbolicLink()) {
-        const real = safeRealpath(full);
+        const real = await realpathOrUndefined(full);
         if (real !== undefined && !isPathUnder(real, target) && underAny(real, guarded) !== undefined) {
           return `${full} → ${real}`;
         }
         continue;
       }
       if (stat.isDirectory()) {
-        const inner = depth < EDITABLE_SCAN_MAX_DEPTH ? walk(full, depth + 1) : undefined;
+        const inner = depth < EDITABLE_SCAN_MAX_DEPTH ? await walk(full, depth + 1) : undefined;
         if (inner !== undefined) return inner;
       } else if (EDITABLE_FILE.test(name)) {
-        for (const path of pathsInEditableFile(full)) {
-          const real = safeRealpath(path) ?? resolve(path);
+        for (const path of await pathsInEditableFile(full)) {
+          const real = (await realpathOrUndefined(path)) ?? resolve(path);
           if (!isPathUnder(real, target) && underAny(real, guarded) !== undefined) return `${full} → ${real}`;
         }
       }
@@ -359,7 +384,7 @@ interface Applied {
   problems: Problem[];
 }
 
-function applyLinks(input: WorkspaceDepsInput, plan: DepsPlan, guarded: readonly string[]): Applied {
+async function applyLinks(input: WorkspaceDepsInput, plan: DepsPlan, guarded: readonly string[]): Promise<Applied> {
   const created: string[] = [];
   const problems: Problem[] = [];
   const roots = [input.worktree, ...(input.mainCheckout === undefined ? [] : [input.mainCheckout])];
@@ -374,7 +399,7 @@ function applyLinks(input: WorkspaceDepsInput, plan: DepsPlan, guarded: readonly
       problems.push({ text: `${relative} is a broken link in the worktree`, soft: false });
       continue;
     }
-    const hit = editableHit(real, guarded);
+    const hit = await editableHit(real, guarded);
     if (hit !== undefined) {
       problems.push({ text: `${relative} holds an editable or workspace link into another tree (${hit})`, soft: false });
       continue;
@@ -466,7 +491,7 @@ export async function provisionWorkspaceDeps(
         };
       }
     }
-    const links = applyLinks(input, plan, guarded);
+    const links = await applyLinks(input, plan, guarded);
     created.push(...links.created);
     problems.push(...links.problems);
     const hard = problems.filter((problem) => !problem.soft).map((problem) => problem.text);

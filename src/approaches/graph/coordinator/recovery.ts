@@ -808,6 +808,9 @@ export function recoverGraphRun(
         detail: run.blocked_reason?.startsWith('graph-workspace-deps')
           ? `refused (config-then-resume): ${run.blocked_reason} — install the dependencies in the ` +
             `ticket worktree or set repositories.<name>.graphWorkspace in the manifest, then Replan`
+          : run.blocked_reason?.startsWith('graph-budget-exhausted') && run.blocked_reason.includes('workspace ceiling')
+            ? `refused (config-then-resume): ${run.blocked_reason} — raise limits.maxAggregateWorkspaceBytes ` +
+              `in the manifest, or free workspace space, then Replan`
           : `refused (config-then-resume): ${run.blocked_reason ?? 'unknown reason'} — ` +
             `Replan bypasses the revision document’s frozen budget; raise limits.maxReplans ` +
             `if the project hard cap is reached`,
