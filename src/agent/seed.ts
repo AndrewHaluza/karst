@@ -102,6 +102,11 @@ export interface BuildSessionSeedInput {
    * ticket context stays because the new core has no history.
    */
   leadBrief?: string | null;
+  /**
+   * An entry command line that stays FIRST in the kickoff, ahead of `leadBrief`
+   * (the `fix` entry on a fresh launch at `fix`). Ignored without a `leadBrief`.
+   */
+  leadInvocation?: string | null;
   /** Used by the approach-method truncation pointer. */
   ticketKey?: string;
   /**
@@ -124,6 +129,7 @@ export function buildSessionSeed(input: BuildSessionSeedInput): SessionSeed {
   const facts = input.factsContext?.trim();
   const lead = input.leadBrief?.trim();
   const inv = lead ? undefined : input.invocation?.trim();
+  const leadInv = lead ? input.leadInvocation?.trim() : undefined;
   const marker = input.markerInstruction?.trim();
   const guide = input.guideInstruction?.trim();
   const servers = input.serversInstruction?.trim();
@@ -149,13 +155,13 @@ export function buildSessionSeed(input: BuildSessionSeedInput): SessionSeed {
     // invocation, authored text, servers rule, approach, guide, marker.
     return {
       instructions: null,
-      kickoff: composeKickoff([lead, inv, authored, servers, approachSection, guide, marker]),
+      kickoff: composeKickoff([leadInv, lead, inv, authored, servers, approachSection, guide, marker]),
     };
   }
 
   return {
     instructions: composeInstructionsBody([facts, servers, guide, marker]),
-    kickoff: composeKickoff([lead, inv, authored, approachSection]),
+    kickoff: composeKickoff([leadInv, lead, inv, authored, approachSection]),
   };
 }
 
