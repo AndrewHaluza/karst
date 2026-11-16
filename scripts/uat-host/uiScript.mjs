@@ -1,4 +1,6 @@
 // Gate for the UI driver (arch:UATHOST-02). Plain JS: run.mjs runs before `dist` is guaranteed and must not import the TS steps module.
+import { isAbsolute } from 'node:path';
+
 export const UI_STEP_TYPES = ['click', 'type', 'press', 'read'];
 /** Chromium debugging port. It is published by nothing: `docker.mjs` passes no `-p`, so it stays inside the container. */
 export const UI_CDP_PORT = 9222;
@@ -39,3 +41,13 @@ export function diffLines(before, after) {
 }
 
 export const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A driver control line (serve mode), or null for a normal step line. */
+export function parseDriverControl(msg) {
+  if (msg === null || typeof msg !== 'object' || !('control' in msg)) return null;
+  if (msg.control === 'setOut') {
+    if (typeof msg.outDir !== 'string' || !isAbsolute(msg.outDir)) throw new Error('setOut needs an absolute outDir');
+    return { outDir: msg.outDir };
+  }
+  throw new Error(`unknown control "${msg.control}"`);
+}
