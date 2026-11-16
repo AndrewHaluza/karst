@@ -13,6 +13,7 @@
  * single-service snapshots stay byte-identical).
  */
 import type { DependsOn, PortSlot, ServiceDef } from '../../../../manifest/types.js';
+import { MAX_HEALTH_TIMEOUT_SECONDS } from '../../../../manifest/types.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
@@ -54,6 +55,16 @@ export function ServiceFields({
   const ports: readonly PortSlot[] = def.ports ?? NO_PORTS;
   const touch = (key: string): void => onTouch(`${keyPrefix}.${key}`);
   const error = (key: string): string | undefined => fieldError(`${keyPrefix}.${key}`);
+  // Blankable like General's archive days: the control holds a STRING, and the
+  // manifest holds only a whole number 1..MAX. Anything else removes the key, so
+  // the start falls back to the 30-second default.
+  const timeoutText = def.healthTimeoutSeconds === undefined ? '' : String(def.healthTimeoutSeconds);
+  const setHealthTimeout = (raw: string): void => {
+    const parsed = Number(raw);
+    const valid = raw.trim() !== '' && Number.isInteger(parsed) && parsed >= 1 && parsed <= MAX_HEALTH_TIMEOUT_SECONDS;
+    const { healthTimeoutSeconds: _drop, ...rest } = def;
+    onDef((valid ? { ...rest, healthTimeoutSeconds: parsed } : rest) as ServiceDef);
+  };
 
   return (
     <>
@@ -129,6 +140,22 @@ export function ServiceFields({
           name: `f-svc-health-identity-${scope}`,
           checked: def.healthIdentity === true,
           onChange: (checked) => onDef({ ...def, healthIdentity: checked } as ServiceDef),
+        }}
+      />
+
+      <Field
+        label="Health timeout (seconds)"
+        help="How long a start waits for the health check to pass. Blank = 30 seconds. Raise it for a service that is slow to become ready, for example an image that builds on first start."
+        control={{
+          kind: 'input',
+          name: `f-svc-health-timeout-${scope}`,
+          type: 'number',
+          min: 1,
+          max: MAX_HEALTH_TIMEOUT_SECONDS,
+          step: 1,
+          value: timeoutText,
+          placeholder: '30',
+          onChange: setHealthTimeout,
         }}
       />
 
