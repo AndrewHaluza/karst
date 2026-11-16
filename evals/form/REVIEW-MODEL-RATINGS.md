@@ -98,6 +98,21 @@ So 1 of the 3 misses is a real miss. 1 is a finding without a location, which a 
 
 Defect cases also drew 0 to 3 false findings per run. They do not count against the core.
 
+Second run of the same 6 cases, 3 runs each (`review-references/opencode2-mimo-v2.6-flash-hard-c19-c24-v6-run2/`): 18 of 18 calls ok, recall 16/18, 123.6 seconds per run. The two runs together have 36 calls, all ok, which gives n of 36. This is the first n of 30 or more on the hard cases.
+
+| Case | Found in 6 runs |
+|---|---|
+| `c19-unit-mismatch` | 6 |
+| `c20-lost-update` | 5 |
+| `c21-pagination` | 5 |
+| `c22-path-prefix` | 6 |
+| `c23-regex-state` | 6 |
+| `c24-contract-break` | 3 |
+
+Recall on the hard cases: 31/36 (86.1%, interval 71.3% to 93.9%), 4 blocking false findings, 117.1 seconds per run. The easy cases gave 34/34, so the hard cases do separate opencode2 from 100%.
+
+`c24` explains 3 of the 5 misses. In all 3 runs the finding is correct, but it points to the caller `handler.ts` (line 9 or 10) and the case accepts only `parseId.ts`. If the case accepted the caller line, recall would be 34/36 (94.4%). I report the strict number. A later case-set version may accept the caller line. Of the 2 other misses, one is a finding without a file and a line (`c20`), and one is a real miss (`c21`).
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
