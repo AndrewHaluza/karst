@@ -5,7 +5,7 @@ import { createServer } from 'node:net';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
-import { diffLines, escapeRegex } from './uiScript.mjs';
+import { diffLines, escapeRegex, parseDriverControl } from './uiScript.mjs';
 
 const argValue = (name) => {
   const at = process.argv.indexOf(name);
@@ -13,7 +13,7 @@ const argValue = (name) => {
 };
 const socketPath = argValue('--socket');
 const port = Number(argValue('--port'));
-const outDir = argValue('--out');
+let outDir = argValue('--out');
 if (!socketPath || !Number.isFinite(port) || !outDir) {
   console.error('uat-ui: usage: uiDriver.mjs --socket <path> --port <cdp port> --out <dir>');
   process.exit(2);
@@ -262,7 +262,16 @@ const server = createServer((conn) => {
     queue = queue.then(async () => {
       let reply;
       try {
-        reply = await runStep(JSON.parse(line));
+        const msg = JSON.parse(line);
+        const control = parseDriverControl(msg);
+        if (control) {
+          mkdirSync(control.outDir, { recursive: true });
+          outDir = control.outDir;
+          lastText = null;
+          reply = { status: 'pass' };
+        } else {
+          reply = await runStep(msg);
+        }
       } catch (err) {
         reply = { status: 'fail', detail: `ui driver error: ${String(err?.message ?? err)}` };
       }

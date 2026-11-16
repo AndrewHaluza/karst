@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { UI_CDP_PORT, diffLines, scriptHasUiStep, uiHostPlan, uiHostRefusal } from './uiScript.mjs';
+import { UI_CDP_PORT, diffLines, parseDriverControl, scriptHasUiStep, uiHostPlan, uiHostRefusal } from './uiScript.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -71,5 +71,25 @@ describe('uiHostRefusal: a UI script runs only inside the container', () => {
   });
   it('the Dockerfile sets the variable', () => {
     expect(readFileSync(join(here, '..', '..', 'docker', 'uat-host', 'Dockerfile'), 'utf8')).toContain('ENV UAT_HOST_CONTAINER=1');
+  });
+});
+
+describe('parseDriverControl', () => {
+  it('is null for a normal step line', () => {
+    expect(parseDriverControl({ index: 0, step: { type: 'read' }, timeoutMs: 5 })).toBeNull();
+  });
+  it('is null for a value that is not an object', () => {
+    expect(parseDriverControl(null)).toBeNull();
+    expect(parseDriverControl('setOut')).toBeNull();
+  });
+  it('reads a setOut line', () => {
+    expect(parseDriverControl({ control: 'setOut', outDir: '/work/.karst/uat-scratch/out/a' })).toEqual({ outDir: '/work/.karst/uat-scratch/out/a' });
+  });
+  it('refuses a relative or missing outDir', () => {
+    expect(() => parseDriverControl({ control: 'setOut', outDir: 'rel/dir' })).toThrow('setOut needs an absolute outDir');
+    expect(() => parseDriverControl({ control: 'setOut' })).toThrow('setOut needs an absolute outDir');
+  });
+  it('refuses an unknown control', () => {
+    expect(() => parseDriverControl({ control: 'other' })).toThrow('unknown control "other"');
   });
 });
