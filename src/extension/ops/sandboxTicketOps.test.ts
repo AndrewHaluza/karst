@@ -383,6 +383,42 @@ describe('bindings.userUat (decisions 7-8)', () => {
     expect(runProcess).not.toHaveBeenCalled();
   });
 
+  const placedManifest = {
+    repositories: { api: { repoPath: '/r', service: { start: 'x', reset: 'npm run reset', sandbox: 'host', ports: [{ name: 'http', default: 1 }] } } },
+  } as unknown as Manifest;
+
+  it('keeps a sandboxed ticket whose only running service is sandbox: host', async () => {
+    const { store, b } = await make({}, placedManifest);
+    store.db.prepare(HOST_ROW).run();
+    expect(b.userUat.keepStackForUserUat(7)).toBe(true);
+    expect(b.userUat.keepStackForUserUat(8)).toBe(false);
+  });
+
+  it('does not keep a host row of a sandboxed ticket without sandbox: host', async () => {
+    const { store, b } = await make({}, hostManifest(false));
+    store.db.prepare(HOST_ROW).run();
+    expect(b.userUat.keepStackForUserUat(7)).toBe(false);
+  });
+
+  it('resets sandbox: host services on the host for a sandboxed ticket without the opt-in', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    const { store, b } = await make({ proc: fakeSbxProcess() }, placedManifest);
+    store.db.prepare(HOST_ROW).run();
+    vi.mocked(runProcess).mockClear();
+    vi.mocked(runProcess).mockResolvedValue({ kind: 'completed', exitCode: 0, output: '' });
+    await expect(b.userUat.prepareUserUat(store, 7)).resolves.toEqual([]);
+    expect(vi.mocked(runProcess)).toHaveBeenCalledWith('sh', ['-c', 'npm run reset'], '/wt', { timeoutMs: 30_000 });
+  });
+
+  it('does not reset a host row without sandbox: host on a sandboxed ticket', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    const { store, b } = await make({ proc: fakeSbxProcess() }, hostManifest(false));
+    store.db.prepare(HOST_ROW).run();
+    vi.mocked(runProcess).mockClear();
+    await b.userUat.prepareUserUat(store, 7);
+    expect(vi.mocked(runProcess)).not.toHaveBeenCalledWith('sh', ['-c', 'npm run reset'], expect.anything(), expect.anything());
+  });
+
   it('withholds the link between start and end, per ticket', async () => {
     const { b } = await make();
     b.userUat.agentUatPhase(7, 'start');

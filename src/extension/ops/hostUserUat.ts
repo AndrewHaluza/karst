@@ -26,6 +26,15 @@ export function hasRunningHostServices(store: Store, ticketId: number): boolean 
   return hostRows(store, ticketId).length > 0;
 }
 
+/** Does the ticket have a running host service whose manifest places it on the host (`sandbox: host`)? */
+export function hasRunningHostPlacedServices(
+  store: Store,
+  ticketId: number,
+  isHostPlaced: (unitKey: string) => boolean,
+): boolean {
+  return hostRows(store, ticketId).some((row) => isHostPlaced(row.repo));
+}
+
 /**
  * Run each running host service's declared `reset` (`sh -c`) in the directory
  * the service was spawned in. The row's `cwd` already includes the service's
