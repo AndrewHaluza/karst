@@ -928,7 +928,7 @@ function planArtifactStatus(
     case 'cancelled':
       return 'info';
     default:
-      return 'info'; // planning / awaiting-confirmation / running / draining
+      return 'info'; // planning / running / draining
   }
 }
 

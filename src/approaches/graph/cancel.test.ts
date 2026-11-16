@@ -104,7 +104,7 @@ const statusOf = (ctx: Ctx, table: string, id: number): string =>
   (ctx.db.prepare(`SELECT status FROM ${table} WHERE id = ?`).get(id) as { status: string }).status;
 
 describe('cancelGraphRun', () => {
-  it.each(['planning', 'awaiting-confirmation', 'running', 'draining', 'blocked'])(
+  it.each(['planning', 'running', 'draining', 'blocked'])(
     'cancels a run from %s',
     async (status) => {
       const ctx = harness(status);

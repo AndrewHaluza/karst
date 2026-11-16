@@ -132,6 +132,44 @@ describe('loadManifest', () => {
     }
   });
 
+  it('reads repository graphWorkspace and refuses a bad path, key or type', () => {
+    const withBlock = (block: string) =>
+      VALID.replace('    repoPath: ../backend', `    repoPath: ../backend\n    graphWorkspace:\n${block}`);
+    const ok = fixture(withBlock('      link: [.venv, vendor/bundle]\n      setup: uv sync --frozen\n      setupWhen: [uv.lock]'));
+    try {
+      const m = loadManifest(ok.path);
+      expect(m.repositories.backend!.graphWorkspace).toEqual({
+        link: ['.venv', 'vendor/bundle'],
+        setup: 'uv sync --frozen',
+        setupWhen: ['uv.lock'],
+      });
+      expect(m.repositories.frontend!.graphWorkspace).toBeUndefined();
+    } finally {
+      ok.cleanup();
+    }
+    const empty = fixture(withBlock('      link: []'));
+    try {
+      expect(loadManifest(empty.path).repositories.backend!.graphWorkspace).toEqual({ link: [] });
+    } finally {
+      empty.cleanup();
+    }
+    for (const bad of [
+      '      link: [/abs]',
+      '      link: [../up]',
+      '      link: [.git]',
+      '      setup: ""',
+      '      setupWhen: [42]',
+      '      other: 1',
+    ]) {
+      const f = fixture(withBlock(bad));
+      try {
+        expect(() => loadManifest(f.path), bad).toThrow(/graphWorkspace/);
+      } finally {
+        f.cleanup();
+      }
+    }
+  });
+
   it('reads a repository baselineBranch override while leaving others inherited', () => {
     const yaml = VALID.replace(
       '    repoPath: ../backend',
@@ -1362,6 +1400,31 @@ describe('approaches', () => {
     }
   });
 
+  it.each(['true', 'false'])('loads a retired limits.confirmGeneratedGraph: %s with one warning and drops the key', (value) => {
+    const yaml = withApproaches(
+      '  - id: karst-graph-engineering\n' +
+      '    label: Dynamic Graph\n' +
+      '    enabled: false\n' +
+      '    graph:\n' +
+      '      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }\n' +
+      '      profiles:\n' +
+      '        expert: { provider: claude, model: claude-opus-5, effort: high }\n' +
+      '        worker: { provider: claude, model: claude-sonnet-5, effort: low }\n' +
+      '      limits:\n' +
+      `        confirmGeneratedGraph: ${value}\n` +
+      '        maxParallel: 1\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const { manifest, warnings } = loadManifestWithDiagnostics(path);
+      expect(warnings.filter((w) => w.includes('confirmGeneratedGraph'))).toHaveLength(1);
+      expect(manifest.approaches![0]!.graph!.limits).not.toHaveProperty('confirmGeneratedGraph');
+      expect(manifest.approaches![0]!.graph!.limits.maxParallel).toBe(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('parses a nested graph: block with defaults applied', () => {
     const yaml = withApproaches(
       '  - id: karst-graph-engineering\n' +
@@ -1404,7 +1467,6 @@ describe('approaches', () => {
       // itself configures maxParallel 1 explicitly, so it round-trips as 1
       // (the packaged default is 4 since the Slice-5 T7 concurrency flip).
       expect(g.limits).toMatchObject({
-        confirmGeneratedGraph: true,
         maxParallel: 1,
         maxNodeRuns: 40,
         maxExpertRuns: 5,

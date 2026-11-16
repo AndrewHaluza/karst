@@ -31,6 +31,10 @@
  * the ceiling gate excludes them, so a retry costs one workspace rather than
  * two and a node that filled the ceiling can still replace its own workspace.
  *
+ * Dependencies: each clone gets the untracked dependency folders of its ticket
+ * worktree (`workspaceDeps.ts`) before it is measured. A dependency failure
+ * returns `deps-failed` and removes the workspace.
+ *
  * Host-agnostic: store, transaction, git runner, probes and the device/byte
  * decisions are injected; no vscode. Registration of workspace processes with
  * the `servers` registry is the LAUNCH path's job — the provider returns the
@@ -44,6 +48,7 @@ import { attributeServer, type ProcessFactsSource } from '../../../runtime/serve
 import { workspaceRootDir } from '../artifacts/snapshot.js';
 import { domainKeyOf } from '../integration/domains.js';
 import { describeGitFailure, type GitRunner } from '../../../integrations/git.js';
+import type { WorkspaceDepsResult } from './workspaceDeps.js';
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import {
   addWorkspaceBytes,
@@ -93,6 +98,12 @@ export interface NodeWorkspaceDeps {
   /** Recursive byte total of a directory (the ceiling's estimate/ledger).
    *  Default: a symlink-safe fs walk. */
   measureBytes?: (dir: string) => number;
+  /**
+   * Give one fresh clone the dependencies of its ticket worktree
+   * (`workspaceDeps.ts`, @arch:GRAPHRUN). Runs BEFORE the clone is measured, so
+   * its bytes count in the ledger. Absent → the clone gets none.
+   */
+  provisionDeps?: (domain: WorkspaceDomain, clone: string) => Promise<WorkspaceDepsResult>;
   debug?: (message: string) => void;
 }
 
@@ -104,7 +115,9 @@ export type CreateNodeWorkspaceResult =
       limitBytes: number;
       estimatedBytes: number;
     }
-  | { kind: 'live-process'; reason: string };
+  | { kind: 'live-process'; reason: string }
+  /** A clone could not get its dependencies: a typed result, never a throw. */
+  | { kind: 'deps-failed'; reason: string };
 
 /** The mandated per-node workspace path (Decision 15). */
 export function nodeWorkspaceDir(
@@ -296,6 +309,16 @@ export async function createNodeWorkspace(
         throw new Error(
           describeGitFailure(`git checkout --detach ${domain.baseCommit} in ${dest}`, co),
         );
+      }
+      if (deps.provisionDeps) {
+        const provisioned = await deps.provisionDeps(domain, dest);
+        if (provisioned.kind === 'failed') {
+          deps.debug?.(
+            `[graph] workspace: node ${input.nodeRunId} refused — dependencies of ${domain.repoName}: ${provisioned.reason}`,
+          );
+          rmSync(nodeDir, { recursive: true, force: true });
+          return { kind: 'deps-failed', reason: provisioned.reason };
+        }
       }
       const bytes = measureBytes(dest);
       created.push({ domain, cwd: dest, bytes });

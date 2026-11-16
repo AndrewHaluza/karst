@@ -1,5 +1,6 @@
 import type { MergeGateState } from '../workflow/mergeGate.js';
 import type { BlockerKind, StageStatus } from './types.js';
+import type { StepperCell } from './stepper.js';
 
 /**
  * The words a needs-you segment carries: why the ticket stopped, and what the
@@ -247,4 +248,45 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
   }
 
   return null;
+}
+
+/** What the dashboard rail and the sidebar peek both know about a ticket. */
+export interface GatedRailNeedsInput {
+  stageCurrent: string | null;
+  agentState: string | null | undefined;
+  /** `needsUser(ticket)`: the ticket parks on the user. */
+  blocked: boolean;
+  /** The stepper cell of the current stage; null before any stage exists. */
+  currentCell: StepperCell | null;
+  /** The stepper cell of the ship stage (a pending cell when none is stored). */
+  shipCell: StepperCell;
+  mergeGate: MergeGateState | null;
+  mergeableRepos: readonly string[];
+}
+
+/**
+ * `railNeeds` behind the gate the dashboard rail applies: only when the ticket
+ * needs the user, or when ship failed. A failed ship parks on the user (Retry
+ * ship) while the ticket glyph keeps reading failure, so only this gate widens
+ * `blocked`. The dashboard rail and the sidebar peek both call it, so the two
+ * surfaces never disagree.
+ */
+export function gatedRailNeeds(input: GatedRailNeedsInput): RailNeeds | null {
+  const { shipCell } = input;
+  const shipFailed =
+    input.stageCurrent === 'ship' && shipCell.status === 'failed' && shipCell.blocked?.kind !== 'awaiting-merge';
+  if (!input.blocked && !shipFailed) return null;
+  const agentState = input.agentState ?? 'none';
+  return railNeeds({
+    stage: input.stageCurrent,
+    blockedKind: input.currentCell?.blocked?.kind,
+    agentWaiting: agentState === 'waiting',
+    agentNotStarted: agentState === 'not-started',
+    // A RUNNING ship is the driver's own work: the agent-waiting banner must not outrank it (869ed7bpd).
+    shipStatus: shipCell.status,
+    shipReason: shipCell.reason,
+    shipAwaitingMerge: shipCell.blocked?.kind === 'awaiting-merge',
+    mergeGate: input.mergeGate,
+    mergeableRepos: input.mergeableRepos,
+  });
 }

@@ -499,6 +499,26 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
   });
 
+  it('migrates a pre-v127 database by moving awaiting-confirmation graph runs to running and setting updated_at', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE approach_graph_runs (id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, status TEXT NOT NULL, updated_at TEXT)');
+    legacy.exec("INSERT INTO approach_graph_runs (ticket_id, status, updated_at) VALUES (1, 'awaiting-confirmation', '2020-01-01T00:00:00.000Z'), (2, 'blocked', '2020-01-01T00:00:00.000Z')");
+    legacy.pragma('user_version = 126');
+    legacy.close();
+
+    const rows = (s: ReturnType<typeof openStore>) =>
+      s.db.prepare('SELECT status, updated_at FROM approach_graph_runs ORDER BY id').all() as { status: string; updated_at: string }[];
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    const [moved, untouched] = rows(migrated);
+    expect(moved!.status).toBe('running');
+    expect(moved!.updated_at).not.toBe('2020-01-01T00:00:00.000Z');
+    expect(untouched).toEqual({ status: 'blocked', updated_at: '2020-01-01T00:00:00.000Z' });
+  });
+
   it('migrates a pre-v126 database by adding ship_runs.unattended, idempotently, as 0 without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

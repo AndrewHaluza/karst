@@ -147,6 +147,15 @@ function renderManifest(path: string, manifest: Manifest): string {
       sandbox: repo.sandbox
         ? { ...(isRecord(rawRepo.sandbox) ? rawRepo.sandbox : {}), setup: repo.sandbox.setup, setupHosts: repo.sandbox.setupHosts }
         : undefined,
+      // Written when set, dropped when cleared (undefined → omitted by the dumper).
+      graphWorkspace: repo.graphWorkspace
+        ? {
+            ...(isRecord(rawRepo.graphWorkspace) ? rawRepo.graphWorkspace : {}),
+            link: repo.graphWorkspace.link,
+            setup: repo.graphWorkspace.setup,
+            setupWhen: repo.graphWorkspace.setupWhen,
+          }
+        : undefined,
       // Per-repo convention overrides. Overlay each modeled key onto the raw
       // block (like the global `conventions`) so an unmodeled nested key
       // survives; assign every modeled child even when absent so clearing one

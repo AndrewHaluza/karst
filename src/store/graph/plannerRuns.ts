@@ -138,6 +138,38 @@ export function submittedPlannerRunForGraphRun(
     .get(graphRunId, kind) as Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined;
 }
 
+/** The bootstrap planner run whose submission the graph run ACCEPTED, or
+ *  undefined. The accept transaction stamps `ended_at` on a `submitted` run; a
+ *  rejected or repairing run is never `submitted` with an end. */
+export function acceptedBootstrapPlannerRunId(db: GraphDb, graphRunId: number): number | undefined {
+  const row = db
+    .prepare(
+      `SELECT id FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = 'bootstrap' AND status = 'submitted' AND ended_at IS NOT NULL
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(graphRunId) as { id: number } | undefined;
+  return row?.id;
+}
+
+/** The replan planner run that produced revision `revisionNumber`, or
+ *  undefined. A replan accept does not stamp `ended_at`; the planner is bound
+ *  to its drain by `target_revision_number`, and stays `submitted`. */
+export function acceptedReplanPlannerRunId(
+  db: GraphDb,
+  graphRunId: number,
+  revisionNumber: number,
+): number | undefined {
+  const row = db
+    .prepare(
+      `SELECT id FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = 'replan' AND status = 'submitted' AND target_revision_number = ?
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(graphRunId, revisionNumber) as { id: number } | undefined;
+  return row?.id;
+}
+
 /** The submitted replan planner that serves a specific target revision (the
  *  drain's successor). STRICTLY target-scoped: a legacy NULL-target row is a
  *  PRIOR drain's already-submitted plan, so accepting it would re-land a stale
@@ -263,6 +295,14 @@ export function plannerRunModelIdentity(
   return db
     .prepare('SELECT id, profile, provider, model FROM approach_planner_runs WHERE id = ?')
     .get(id) as Pick<PlannerRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined;
+}
+
+/** The launch attempt that names a planner's terminal tab, or undefined when the row is gone. */
+export function plannerRunLaunchAttempt(db: GraphDb, id: number): number | undefined {
+  const row = db
+    .prepare('SELECT launch_attempt FROM approach_planner_runs WHERE id = ?')
+    .get(id) as Pick<PlannerRunRow, 'launch_attempt'> | undefined;
+  return row?.launch_attempt;
 }
 
 /** The launch identity a reattach compares against a live session (planner runs). */

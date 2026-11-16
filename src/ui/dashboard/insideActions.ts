@@ -86,7 +86,6 @@ export type InsideActionTarget =
   // security property of the AGENT-facing surface (prompt injection reaches
   // CLI argv); it says nothing about a host-triggered click.
   | { kind: 'graph-mark-impl'; ticketId: number; graphRunId: number }
-  | { kind: 'graph-confirm'; ticketId: number; graphRunId: number }
   // Slice 4 Task 4: discard an ambiguous node run (`launch-unknown` /
   // `termination-unknown`). The nodeRunId is a RECORDED node-run row id — the
   // dispatch re-loads it and proves it belongs to the registry's ticket; the
@@ -213,7 +212,6 @@ export interface InsideActionHost {
   /** Elect a new graph revision from a blocked run's recorded evidence. */
   graphReplan(ticketId: number, graphRunId: number): void | Promise<void>;
   /** Confirm a compiled graph plan that is durably awaiting the user. */
-  graphConfirm(ticketId: number, graphRunId: number): void | Promise<void>;
   /**
    * Fire the impl marker for a run at `completed-awaiting-impl-marker`. Runs
    * the SAME `graphImplMarkerGuard` transition `karst stage impl pass` runs —
@@ -258,7 +256,6 @@ export type InsideDispatchOutcome =
  */
 const GRAPH_STOPPABLE_STATUSES: readonly string[] = [
   'planning',
-  'awaiting-confirmation',
   'running',
   'blocked',
 ] as const;
@@ -525,14 +522,6 @@ export function dispatchInsideAction(
       } else {
         void deps.host.graphReplan(target.ticketId, target.graphRunId);
       }
-      return { outcome: 'dispatched' };
-    }
-    case 'graph-confirm': {
-      const status = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId);
-      if (status !== 'awaiting-confirmation') {
-        return { outcome: 'rejected', reason: 'graph is not awaiting confirmation' };
-      }
-      void deps.host.graphConfirm(target.ticketId, target.graphRunId);
       return { outcome: 'dispatched' };
     }
     case 'graph-mark-impl': {

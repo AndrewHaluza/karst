@@ -251,6 +251,7 @@ import { graphLaunchDecision } from './approaches/graph/launchGuard.js';
 import { makeGraphOwnedBinding } from './extension/graphOwnedBinding.js';
 import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
+import { createGraphTabClosers, graphSessionNameOf } from './extension/ops/graphTerminalTabs.js';
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
@@ -279,12 +280,13 @@ import {
   fireGraphImplMarkerFromHost,
 } from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
-import { acceptSubmittedPlan, acceptSubmittedReplan, bootstrapAndLaunchPlanner, confirmGraphRun, driveReadyNodeRuns, launchReplanPlanner, plannerVocabularyFor, relaunchBootstrapPlanner, readPlannerDiagnostics, compileDiagnosticsSection, PLANNER_SUBMIT_INSTRUCTION, type GraphDriverDeps } from './approaches/graph/driver.js';
+import { acceptSubmittedPlan, acceptSubmittedReplan, bootstrapAndLaunchPlanner, driveReadyNodeRuns, launchReplanPlanner, plannerVocabularyFor, relaunchBootstrapPlanner, readPlannerDiagnostics, compileDiagnosticsSection, PLANNER_SUBMIT_INSTRUCTION, type GraphDriverDeps } from './approaches/graph/driver.js';
 import { visitMailboxFacts } from './approaches/graph/visitMailboxFacts.js';
 import { runGraphCommand } from './cli/graph.js';
 import { buildGraphSessionEnv } from './approaches/graph/transport/env.js';
 import { envRef, sessionCliEnv } from './agent/cliEnv.js';
 import { createNodeWorkspace } from './approaches/graph/workspace/provider.js';
+import { createDepsProvisioner } from './approaches/graph/workspace/workspaceDeps.js';
 import type {
   CommandDefinition,
   CompileContext,
@@ -767,6 +769,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     openDashboard: (id) => void vscode.commands.executeCommand('karst.openDashboard', id),
     spin: (id) => void vscode.commands.executeCommand('karst.spinTicket', id),
+    // The peek action strip: the dashboard rail's own actions (same capability guard and merge confirm).
+    shipTicket: (id) => dashboard.actionsForTicket(id).shipTicket(),
+    retryShip: (id) => dashboard.actionsForTicket(id).retryShip(),
+    mergePr: (id, repo) => dashboard.actionsForTicket(id).mergePr(repo),
     openSession: (id) => void vscode.commands.executeCommand('karst.openSession', id),
     edit: (id) => void vscode.commands.executeCommand('karst.editTicket', id),
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),
@@ -2976,7 +2982,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError, debug: (m) => logger.debug(m),
   });
   let restartGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
-  let confirmGraphRunForTicket: ((ticketId: number, graphRunId: number) => void) | undefined;
 
   const serverLogsManager = new ServerLogsManager(
     makeServerLogsPanelHost(context, brandIcon),
@@ -3203,7 +3208,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const handler = restartGraphRun;
         if (handler) void handler(ticketId, graphRunId);
       },
-      graphConfirm: (ticketId, graphRunId) => confirmGraphRunForTicket?.(ticketId, graphRunId),
       // Fire the impl marker for a run that finished all its node work and is
       // durably waiting (Slice 7). Runs the SAME guarded transition
       // `karst stage impl pass` runs, including the waiting-agent refusal —
@@ -4161,6 +4165,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return route;
   };
 
+  const graphTabClosers = createGraphTabClosers({
+    db: () => graphCoordinatorStore?.db,
+    transport: () => graphTransport,
+    ticketIdOf: (id) => graphRunTicketId(id),
+    debug: (m) => logger.debug(m),
+    logError,
+  });
+
   /** Run the completing pipeline for every completing node of a graph run,
    *  ascending node-run order (deterministic integration order), then settle
    *  the run: a blocked node blocks the run (earliest failure by durable
@@ -4175,7 +4187,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const deps = graphCompletionPipelineDeps(graphRunId);
         if (!deps) return;
-        await runCompletionPipeline(deps, { graphRunId, nodeRunId });
+        graphTabClosers.node(graphRunId, nodeRunId, await runCompletionPipeline(deps, { graphRunId, nodeRunId }));
       } catch (err) {
         // A failed pipeline never retries itself; the next tick re-drives the
         // node, which is still `completing` unless a transition already moved
@@ -4858,6 +4870,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             globalStorageRoot: context.globalStorageUri.fsPath,
             now: () => new Date().toISOString(),
             facts: systemAsyncProcessFacts,
+            // @arch:GRAPHRUN: a clone gets the dependencies of its ticket worktree.
+            provisionDeps: createDepsProvisioner({ manifest: currentManifest, run: runProcess, debug: (message) => logger.debug(message) }),
             debug: (message) => logger.debug(message),
           },
           {
@@ -4868,22 +4882,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             domains: input.domains,
           },
         ),
-      sessionNamingOf: (graphRunId, runId, kind) => {
-        // A graph session's terminal reads like any other session terminal:
-        // the manifest's terminal-name template + the brand mark. The ticket is
-        // resolved through the graph run so a session can be named for the
-        // ticket it belongs to, not for an opaque run id ("Karst planner 4").
-        let name = `Karst ${kind} ${runId}`;
-        try {
-          const ticket = getTicket(localStore, graphRunTicketId(graphRunId));
-          name = terminalTicketName(ticket, currentManifest()?.terminalNameTemplate);
-        } catch {
-          // The graph run (or its ticket) vanished after the launch was queued
-          // — fall back to the opaque name rather than letting the naming
-          // resolver throw out of a terminal creation.
-        }
-        return terminalNaming({ name, brandIcon });
-      },
+      sessionNamingOf: (graphRunId, runId, kind) =>
+        // Ticket name (manifest template) + role + node id; the brand mark.
+        terminalNaming({
+          name: graphSessionNameOf(
+            {
+              db: () => graphCoordinatorStore?.db,
+              ticketNameOf: (id) =>
+                terminalTicketName(getTicket(localStore, graphRunTicketId(id)), currentManifest()?.terminalNameTemplate),
+              debug: (m) => logger.debug(m),
+            },
+            graphRunId,
+            runId,
+            kind,
+          ),
+          brandIcon,
+        }),
       cliNodeCompletionCommand: () => `node ${envRef('KARST_GRAPH_CLI')} node complete`,
     };
   };
@@ -5039,21 +5053,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await launchPlannerRepairHost(graphRunId, accepted.plannerRunId, accepted.attempt);
           return;
         }
+        if (accepted.kind === 'accepted') graphTabClosers.bootstrapPlanner(graphRunId);
         if (accepted.kind === 'accepted' || accepted.kind === 'rejected') {
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
           const afterStatus = graphRunStatus(gs.db, graphRunId);
-          if (afterStatus === 'awaiting-confirmation') {
-            // The human gate: the plan compiled and is awaiting review.
-            void vscode.window
-              .showInformationMessage(
-                `Ticket ${ticketRefOrUnknown(graphRunTicketId(graphRunId))}: the implementation graph plan is ready — review it, then start the run.`,
-                'Start graph',
-              )
-              .then((choice) => {
-                if (choice === 'Start graph') void confirmGraphRunHost(graphRunId);
-              });
-          } else if (afterStatus === 'running') {
+          if (afterStatus === 'running') {
             void runGraphCoordinatorTick(graphRunId);
           }
           settleGraphRun(gs.db, graphRunId);
@@ -5064,6 +5069,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A submitted replan planner lands revision N+1 here.
         const accepted = acceptSubmittedReplan(graphDriverDeps(), graphRunId);
         if (accepted.kind === 'accepted') {
+          graphTabClosers.replanPlanner(graphRunId, accepted.revisionNumber);
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
           void runGraphCoordinatorTick(graphRunId);
@@ -5090,7 +5096,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return;
       }
-      if (status === 'awaiting-confirmation') return;
       if (status === 'blocked') {
         settleGraphRun(gs.db, graphRunId);
         return;
@@ -5153,26 +5158,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dashboard.pushState(ticketId);
     logger.info(`karst: graph run ${result.graphRunId} launched for ticket ${formatId('ticket', ticketId)}`);
     return true;
-  };
-
-  /** The human confirm gate: awaiting-confirmation → running, then a sweep
-   *  tick claims the entry tokens and the tick's continuation executes them. */
-  const confirmGraphRunHost = async (graphRunId: number): Promise<void> => {
-    const gs = graphCoordinatorStore;
-    if (!gs) return;
-    if (confirmGraphRun(graphDriverDeps(), graphRunId)) {
-      provider.refresh();
-      dashboard.pushState(graphRunTicketId(graphRunId));
-      void runGraphCoordinatorTick(graphRunId);
-    }
-  };
-  confirmGraphRunForTicket = (ticketId, graphRunId) => {
-    const gs = graphCoordinatorStore;
-    if (!gs) return;
-    const run = activeGraphRunFor(gs.db, ticketId);
-    if (run?.graphRunId === graphRunId && run.status === 'awaiting-confirmation') {
-      void confirmGraphRunHost(graphRunId);
-    }
   };
 
   /** Terminal-close fallback for a planner that did not complete the explicit
@@ -5458,7 +5443,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (graphRunId === undefined) return;
         const deps = graphCompletionPipelineDeps(graphRunId);
         if (!deps) return;
-        void runCompletionPipeline(deps, { graphRunId, nodeRunId });
+        void runCompletionPipeline(deps, { graphRunId, nodeRunId })
+          .then((result) => graphTabClosers.node(graphRunId, nodeRunId, result))
+          .catch((err) => logError(`karst: resumed completion pipeline failed for node ${nodeRunId}`, err));
       },
       relaunchPlanner: (graphRunId) => void relaunchBootstrapPlannerHost(graphRunId),
       relaunchReplanPlanner: (graphRunId) => void relaunchReplanPlannerHost(graphRunId),

@@ -27,7 +27,6 @@ import { sanitizeGraphText } from './graphText.js';
  */
 export const ADVANCING_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set([
   'planning',
-  'awaiting-confirmation',
   'running',
   'draining',
 ]);

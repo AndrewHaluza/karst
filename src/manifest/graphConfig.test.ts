@@ -40,7 +40,6 @@ function packagedGraphFixture(): Record<string, unknown> {
       },
     },
     limits: {
-      confirmGeneratedGraph: true,
       maxParallel: 1,
       maxNodeRuns: 40,
       maxExpertRuns: 5,
@@ -61,7 +60,6 @@ describe('validateGraphConfig', () => {
   it('defaults every absent field to the packaged defaults', () => {
     const cfg = validateGraphConfig({}, 'approaches[0].graph');
     expect(cfg.limits).toEqual({
-      confirmGeneratedGraph: true,
       maxParallel: 4, // Slice-5 T7: the packaged concurrency default
       maxNodeRuns: 40,
       maxExpertRuns: 5,
@@ -84,7 +82,6 @@ describe('validateGraphConfig', () => {
     const raw = packagedGraphFixture();
     const cfg = validateGraphConfig(raw, 'approaches[0].graph');
     expect(cfg.limits).toEqual({
-      confirmGeneratedGraph: true,
       maxParallel: 1,
       maxNodeRuns: 40,
       maxExpertRuns: 5,

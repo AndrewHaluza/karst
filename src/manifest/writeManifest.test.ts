@@ -69,6 +69,20 @@ function fixture(body = RAW): { path: string; cleanup: () => void } {
 }
 
 describe('writeManifest', () => {
+  it('round-trips repository graphWorkspace', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const graphWorkspace = { link: ['.venv'], setup: 'uv sync --frozen', setupWhen: ['uv.lock'] };
+      writeManifest(path, { ...m, repositories: { ...m.repositories, backend: { ...m.repositories.backend!, graphWorkspace } } });
+      expect(loadManifest(path).repositories.backend!.graphWorkspace).toEqual(graphWorkspace);
+      writeManifest(path, loadManifest(path));
+      expect(loadManifest(path).repositories.backend!.graphWorkspace).toEqual(graphWorkspace);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('round-trips an edited manifest through validation', () => {
     const { path, cleanup } = fixture();
     try {
@@ -280,7 +294,6 @@ describe('writeManifest', () => {
                 },
               },
               limits: {
-                confirmGeneratedGraph: true,
                 maxParallel: 1,
                 maxNodeRuns: 40,
                 maxExpertRuns: 5,
@@ -943,7 +956,6 @@ approaches:
         typecheck: { command: npm, args: [run, typecheck], cwd: repository, access: write, timeoutSeconds: 900 }
         build: { command: npm, args: [run, build], cwd: repository, access: write, timeoutSeconds: 1800 }
       limits:
-        confirmGeneratedGraph: true
         maxParallel: 1
         maxNodeRuns: 40
         maxExpertRuns: 5

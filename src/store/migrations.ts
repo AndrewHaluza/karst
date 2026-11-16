@@ -3045,5 +3045,13 @@ function migrateLocked(db: Database): void {
     if (cols126.size > 0 && !cols126.has('unattended')) db.exec('ALTER TABLE ship_runs ADD COLUMN unattended INTEGER NOT NULL DEFAULT 0');
   }
 
+  if (current < 127) {
+    // v127: data-only. The 'Start graph' confirm gate is gone (T1174): a compiled bootstrap plan runs at once. A run left in `awaiting-confirmation` by an older host moves to `running`, and the next sweep continues it. The CHECK on `approach_graph_runs.status` keeps the legacy 'awaiting-confirmation' value (SQLite cannot alter a CHECK without a table rebuild); no code writes it any more.
+    const graphRunCols = tableColumns(db, 'approach_graph_runs');
+    if (graphRunCols.has('status') && graphRunCols.has('updated_at')) {
+      db.prepare("UPDATE approach_graph_runs SET status = 'running', updated_at = ? WHERE status = 'awaiting-confirmation'").run(new Date().toISOString());
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

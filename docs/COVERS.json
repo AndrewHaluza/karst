@@ -208,6 +208,12 @@
   "src/approaches/graph/coordinator/autoRecovery.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/approaches/graph/workspace/depsPlan.ts": [
+    "arch:GRAPHDEPS"
+  ],
+  "src/approaches/graph/workspace/workspaceDeps.ts": [
+    "arch:GRAPHDEPS"
+  ],
   "src/approaches/npmCommand.ts#withCommandConsent": [
     "arch:APP-06"
   ],
@@ -862,7 +868,8 @@
     "arch:CLI-07"
   ],
   "src/store/migrations.ts#migrate": [
-    "arch:SCHEMA-CHECK"
+    "arch:SCHEMA-CHECK",
+    "arch:V127"
   ],
   "src/store/planningProposals.ts": [
     "arch:PLANNING",
@@ -905,7 +912,8 @@
     "arch:HOOK-LIVE"
   ],
   "src/store/schema.sql": [
-    "arch:SCHEMA-CHECK"
+    "arch:SCHEMA-CHECK",
+    "arch:V121"
   ],
   "src/store/schemaVersion.ts#SCHEMA_VERSION": [
     "arch:SCHEMA-CHECK"

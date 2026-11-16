@@ -6,6 +6,8 @@
  * path is exercised as the extension host will call it.
  */
 
+import { recoveryCategoryFor } from './coordinator/recovery.js';
+import type { CreateNodeWorkspaceResult } from './workspace/provider.js';
 import { describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -21,7 +23,6 @@ import {
   bootstrapAndLaunchPlanner,
   acceptSubmittedPlan,
   acceptSubmittedReplan,
-  confirmGraphRun,
   driveReadyNodeRuns,
   launchReplanPlanner,
   relaunchBootstrapPlanner,
@@ -390,7 +391,7 @@ describe('acceptSubmittedPlan', () => {
     const run = h.db
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { status: string };
-    expect(run.status).toBe('awaiting-confirmation');
+    expect(run.status).toBe('running');
     const revision = h.db
       .prepare(
         'SELECT status, planner_graph_snapshot_id, planner_artifact_snapshot_id FROM approach_graph_revisions WHERE graph_run_id = ?',
@@ -800,23 +801,7 @@ describe('acceptSubmittedPlan', () => {
     const run = h.db
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { status: string };
-    expect(run.status).toBe('awaiting-confirmation');
-  });
-});
-
-describe('confirmGraphRun', () => {
-  it('moves awaiting-confirmation → running once', () => {
-    const h = harness();
-    const graphRunId = createGraphRun(h.db, {
-      ticketId: h.ticketId,
-      stageAttempt: 0,
-      approachId: 'karst-graph-engineering',
-      now: NOW,
-    });
-    expect(confirmGraphRun(h.deps, graphRunId)).toBe(false); // still planning
-    h.db.prepare('UPDATE approach_graph_runs SET status = \'awaiting-confirmation\' WHERE id = ?').run(graphRunId);
-    expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
-    expect(confirmGraphRun(h.deps, graphRunId)).toBe(false); // already running
+    expect(run.status).toBe('running');
   });
 });
 
@@ -1790,7 +1775,7 @@ describe('driveReadyNodeRuns', () => {
     expect(node.status).toBe('blocked');
   });
 
-  it('matches base heads per physical domain and carries gitCommonDir into workspace creation', async () => {
+  async function launchTwoRepoNode(outcome?: CreateNodeWorkspaceResult) {
     const h = harness();
     const deps = h.deps as typeof h.deps & { gitCommonDirOf?: (cwd: string) => string | null };
     const apiCwd = '/wt-api';
@@ -1802,10 +1787,12 @@ describe('driveReadyNodeRuns', () => {
     deps.gitCommonDirOf = (cwd) => (cwd === apiCwd ? apiCommon : cwd === webCwd ? webCommon : null);
     deps.createWorkspace = vi.fn(async (input) => {
       created.push({ domains: input.domains });
-      return {
-        kind: 'created' as const,
-        paths: [{ repoName: 'api', cwd: join(h.root, 'ws'), domainKey: 'd-api' }],
-      };
+      return (
+        outcome ?? {
+          kind: 'created' as const,
+          paths: [{ repoName: 'api', cwd: join(h.root, 'ws'), domainKey: 'd-api' }],
+        }
+      );
     });
     const graphRunId = createGraphRun(h.db, {
       ticketId: h.ticketId,
@@ -1903,6 +1890,11 @@ describe('driveReadyNodeRuns', () => {
       .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
 
     const result = await driveReadyNodeRuns(h.deps, graphRunId);
+    return { h, graphRunId, nodeRunId, result, created, apiCwd, apiCommon, webCwd, webCommon };
+  }
+
+  it('matches base heads per physical domain and carries gitCommonDir into workspace creation', async () => {
+    const { result, created, apiCwd, apiCommon, webCwd, webCommon } = await launchTwoRepoNode();
     expect(result.launched).toBe(1);
     expect(created).toHaveLength(1);
     expect(created[0]!.domains).toEqual([
@@ -1919,6 +1911,48 @@ describe('driveReadyNodeRuns', () => {
         baseCommit: 'web-base',
       },
     ]);
+  });
+
+  it('parks a workspace dependency failure as graph-workspace-deps, not failed-to-launch', async () => {
+    const { h, graphRunId, nodeRunId, result } = await launchTwoRepoNode({
+      kind: 'deps-failed',
+      reason: 'api: node_modules does not match package-lock.json: invalid: a@1.0.0',
+    });
+    expect(result.blocked).toBe(1);
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toBe(
+      `graph-workspace-deps: node run ${nodeRunId} (api: node_modules does not match package-lock.json: invalid: a@1.0.0)`,
+    );
+    expect(recoveryCategoryFor(run.blocked_reason)).toBe('config-then-resume');
+    const node = h.db
+      .prepare('SELECT failure_category FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { failure_category: string };
+    expect(node.failure_category).toBe('failed-to-launch');
+  });
+
+  it('parks a workspace budget stop as graph-budget-exhausted', async () => {
+    const { h, graphRunId, nodeRunId } = await launchTwoRepoNode({
+      kind: 'budget-exhausted',
+      currentBytes: 10,
+      estimatedBytes: 5,
+      limitBytes: 12,
+    });
+    const run = h.db
+      .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { blocked_reason: string };
+    expect(run.blocked_reason).toBe(`graph-budget-exhausted: node run ${nodeRunId} (15 bytes over the 12 workspace ceiling)`);
+    expect(recoveryCategoryFor(run.blocked_reason)).toBe('config-then-resume');
+  });
+
+  it('keeps failed-to-launch for a live-process refusal', async () => {
+    const { h, graphRunId, nodeRunId } = await launchTwoRepoNode({ kind: 'live-process', reason: 'pid 1' });
+    const run = h.db
+      .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { blocked_reason: string };
+    expect(run.blocked_reason).toBe(`failed-to-launch: node run ${nodeRunId}`);
   });
 });
 

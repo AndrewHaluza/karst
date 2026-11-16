@@ -1,7 +1,7 @@
 /**
  * Entry-point matrix for graph tickets (Slice 3 Task 7).
  *
- * While a graph run is `planning`/`awaiting-confirmation`/`running`/
+ * While a graph run is `planning`/`running`/
  * `draining`/`completed-awaiting-impl-marker`, the coordinator owns
  * continuation and the generic session
  * surfaces must not spawn, adopt, nudge, or drive:
@@ -55,7 +55,6 @@ import {
 /** Graph run statuses in which the coordinator owns the ticket's surface. */
 export const ACTIVE_GRAPH_STATUSES: ReadonlySet<string> = new Set([
   'planning',
-  'awaiting-confirmation',
   'running',
   'draining',
   'completed-awaiting-impl-marker',
@@ -165,7 +164,7 @@ export interface StopActiveGraphDeps {
   /** OS process probes (`runtime/serverIdentity.ts`) — the durable evidence
    *  behind "is anything of this run still alive". */
   facts: ProcessFactsSource;
-  /** Process-tree kill for the Cancel path (`planning`/`awaiting-confirmation`). */
+  /** Process-tree kill for the Cancel path (`planning`). */
   killTree: (pid: number) => KillOutcome;
   now?: () => string;
   debug?: (message: string) => void;
@@ -178,7 +177,7 @@ export interface StopActiveGraphDeps {
  *    run's recorded pid is alive — the run is left `running`;
  *  - `not-running`: the run was not `running` when the CAS ran (already
  *    draining, blocked, or moved by another window);
- *  - `cancelled`: a `planning`/`awaiting-confirmation` run has no drain to
+ *  - `cancelled`: a `planning` run has no drain to
  *    enter, so Stop closed it through `cancelGraphRun`;
  *  - `cancel-refused`: that cancel met a live process it could not attribute
  *    (or kill) and changed no row;
@@ -322,7 +321,7 @@ export async function stopActiveGraph(
   input: { ticketId: number; graphRunId: number },
 ): Promise<StopActiveGraphResult> {
   const status = graphRunStatusForTicket(deps.db, input.graphRunId, input.ticketId);
-  if (status === 'planning' || status === 'awaiting-confirmation') {
+  if (status === 'planning') {
     return stopByCancel(deps, input.graphRunId);
   }
   const sessions = deps.sessionsFor(input.graphRunId);

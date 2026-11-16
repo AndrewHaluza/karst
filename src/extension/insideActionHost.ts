@@ -33,7 +33,6 @@ export function makeInsideActionHost(
     ) => void;
     graphStop: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphRestart: (ticketId: number, graphRunId: number) => void | Promise<void>;
-    graphConfirm: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphMarkImpl: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
@@ -169,9 +168,9 @@ export function makeInsideActionHost(
           void vscode.window.showInformationMessage(
             `Ticket ${formatId('ticket', ticketId)}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
           );
-        } else if (recovery.kind === 'confirmation-restored') {
+        } else if (recovery.kind === 'run-restored') {
           void vscode.window.showInformationMessage(
-            `Ticket ${formatId('ticket', ticketId)}: the accepted implementation graph is ready to start again.`,
+            `Ticket ${formatId('ticket', ticketId)}: the accepted implementation graph runs again.`,
           );
         } else if (recovery.kind === 'replanned') {
           void vscode.window.showInformationMessage(
@@ -218,7 +217,6 @@ export function makeInsideActionHost(
     graphRestart: (ticketId, graphRunId) => graphHost.graphRestart(ticketId, graphRunId),
     graphResume: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'resume'),
     graphReplan: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'replan'),
-    graphConfirm: (ticketId, graphRunId) => graphHost.graphConfirm(ticketId, graphRunId),
     graphMarkImpl: (ticketId, graphRunId) => graphHost.graphMarkImpl(ticketId, graphRunId),
     graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
     graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),

@@ -60,6 +60,8 @@ export interface SidebarContextValue {
   readonly toggleAccepted: (sessionId: number) => void;
 
   readonly openIds: ReadonlySet<number>;
+  /** Epoch ms the open rows' relative times read; ticks once per `CLOCK_MS` while a row is open. */
+  readonly now: number;
   readonly toggleOpen: (ticketId: number) => void;
   readonly collapsedSubtrees: ReadonlySet<number>;
   readonly toggleSubtree: (ticketId: number) => void;
@@ -77,6 +79,9 @@ export interface SidebarContextValue {
   readonly openMenu: (trigger: HTMLElement, owner: number | string, items: readonly MenuItem[]) => void;
   readonly closeMenu: (returnFocus: boolean) => void;
 }
+
+/** The relative-time refresh period. */
+export const CLOCK_MS = 60_000;
 
 const Ctx = createContext<SidebarContextValue | null>(null);
 
@@ -103,6 +108,7 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
   const notes = useRef(new PlanNotes());
 
   const [openIds, setOpenIds] = useState<ReadonlySet<number>>(new Set());
+  const [now, setNow] = useState<number>(() => Date.now());
   const [collapsedSubtrees, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   const [hist, setHist] = useState({ open: false, user: false });
   const [planOpen, setPlanOpenMap] = useState<ReadonlyMap<number, boolean>>(new Map());
@@ -155,6 +161,15 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
       }),
     [bridge, closeMenu],
   );
+
+  // One interval, alive only while a row is open: the open rows' "6m ago" text re-renders from this.
+  const anyOpen = openIds.size > 0;
+  useEffect(() => {
+    if (!anyOpen) return undefined;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), CLOCK_MS);
+    return () => clearInterval(timer);
+  }, [anyOpen]);
 
   const post = bridge.post;
 
@@ -244,11 +259,11 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
   const value = useMemo<SidebarContextValue>(
     () => ({
       state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted,
-      openIds, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist,
+      openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist,
       planOpen, setPlanOpen, collapseAllPlans, planFocus, setPlanFocus,
       menu, openMenu, closeMenu,
     }),
-    [state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted, openIds, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
+    [state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted, openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

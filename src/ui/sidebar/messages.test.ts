@@ -112,6 +112,24 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'resolve-conflicts', ticketId: '12', repo: 'api' })).toBeNull();
   });
 
+  it.each(['ship-ticket', 'retry-ship'] as const)('accepts %s with a numeric ticketId only', (type) => {
+    expect(parseSidebarMessage({ type, ticketId: 12 })).toEqual({ type, ticketId: 12 });
+    expect(parseSidebarMessage({ type, ticketId: '12' })).toBeNull();
+    expect(parseSidebarMessage({ type })).toBeNull();
+  });
+
+  it('accepts merge-pr with a numeric ticketId and a non-empty string repo', () => {
+    expect(parseSidebarMessage({ type: 'merge-pr', ticketId: 12, repo: 'api' })).toEqual({
+      type: 'merge-pr',
+      ticketId: 12,
+      repo: 'api',
+    });
+    expect(parseSidebarMessage({ type: 'merge-pr', ticketId: 12 })).toBeNull();
+    expect(parseSidebarMessage({ type: 'merge-pr', ticketId: 12, repo: '' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'merge-pr', ticketId: 12, repo: 5 })).toBeNull();
+    expect(parseSidebarMessage({ type: 'merge-pr', ticketId: '12', repo: 'api' })).toBeNull();
+  });
+
   it('accepts cloud-session-add with exactly one target', () => {
     expect(parseSidebarMessage({ type: 'cloud-session-add', ticketId: 3 })).toEqual({ type: 'cloud-session-add', ticketId: 3 });
     expect(parseSidebarMessage({ type: 'cloud-session-add', proposalId: 4 })).toEqual({ type: 'cloud-session-add', proposalId: 4 });
@@ -152,6 +170,9 @@ describe('routeSidebarAction', () => {
       reopenTicket: vi.fn(),
       detachSubtask: vi.fn(),
       resolveConflicts: vi.fn(),
+      shipTicket: vi.fn(),
+      retryShip: vi.fn(),
+      mergePr: vi.fn(),
       sendCiFailure: vi.fn(),
       planCreate: vi.fn(),
       planOpen: vi.fn(),
@@ -184,6 +205,9 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'detach-subtask', ticketId: 25 }, a);
     routeSidebarAction({ type: 'resolve-conflicts', ticketId: 12, repo: 'api' }, a);
     routeSidebarAction({ type: 'send-ci-failure', ticketId: 13 }, a);
+    routeSidebarAction({ type: 'ship-ticket', ticketId: 31 }, a);
+    routeSidebarAction({ type: 'retry-ship', ticketId: 32 }, a);
+    routeSidebarAction({ type: 'merge-pr', ticketId: 33, repo: 'web' }, a);
     routeSidebarAction({ type: 'open-resources' }, a);
     routeSidebarAction({ type: 'open-token-usage' }, a);
 
@@ -201,6 +225,9 @@ describe('routeSidebarAction', () => {
     expect(a.detachSubtask).toHaveBeenCalledWith(25);
     expect(a.resolveConflicts).toHaveBeenCalledWith(12, 'api');
     expect(a.sendCiFailure).toHaveBeenCalledWith(13);
+    expect(a.shipTicket).toHaveBeenCalledWith(31);
+    expect(a.retryShip).toHaveBeenCalledWith(32);
+    expect(a.mergePr).toHaveBeenCalledWith(33, 'web');
     expect(a.openResources).toHaveBeenCalledOnce();
     expect(a.openTokenUsage).toHaveBeenCalledOnce();
   });

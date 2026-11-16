@@ -1,8 +1,8 @@
 /**
- * The "⋯" trigger for the shared ticket-actions context window (Edit / Pause|Resume /
+ * The "⋯" trigger for the shared ticket-actions context window (Edit / Start servers /
  * Create follow-up / Detach / Close / Reopen / Archive). A real button with menu semantics (`aria-haspopup` +
  * `aria-expanded`), used both in the collapsed hover strip and the expanded
- * toolbar. Secondary on purpose: Spin / Terminal / Dashboard stay outside it.
+ * toolbar. Secondary on purpose: Session and Pause/Resume stay outside it.
  * The host command guards the done-only follow-up rule itself, so the view never
  * second-guesses it; the other actions are shown only when the host's flags say they apply.
  */
@@ -17,9 +17,7 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
   // Each conditional entry is host-gated (`paused` / `canDetach` / `canClose` / `canReopen`): the view only maps flags to items.
   return [
     { key: 'edit', spec: { act: 'edit', id }, label: 'Edit ticket', icon: 'pencil', title: 'Edit ticket' },
-    row.paused
-      ? { key: 'resume', spec: { act: 'unpause-ticket', id }, label: 'Resume execution', icon: 'player-play', title: 'Resume execution' }
-      : { key: 'pause', spec: { act: 'pause-ticket', id }, label: 'Pause execution', icon: 'player-pause', title: 'Pause execution' },
+    { key: 'spin', spec: { act: 'spin', id }, label: 'Start servers', icon: 'server-2', title: 'Spin up the worktree and dev servers' },
     ...(row.priorityEditable ? [priorityMenuItem({ ticket: id }, row.priority)] : []),
     { key: 'follow', spec: { act: 'create-follow-up', id }, label: 'Create follow-up', icon: 'corner-down-right', title: 'Create a follow-up ticket' },
     ...(row.canDetach

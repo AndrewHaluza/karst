@@ -188,7 +188,7 @@ export interface EffectiveNodeConfig {
 
 export type RecoveryResult =
   | { kind: 'retried'; retried: number[]; resnapshotted: number[] }
-  | { kind: 'confirmation-restored' }
+  | { kind: 'run-restored' }
   | {
       kind: 'replanned';
       plannerRunId: number | null;
@@ -234,6 +234,9 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   if (reason.includes('termination-unknown')) return 'discard-required';
   if (reason.startsWith('launch-unknown')) return 'discard-required';
   if (reason.startsWith('graph-budget-exhausted')) return 'config-then-resume';
+  // A node clone that could not get its dependencies: a human installs them (or sets
+  // `graphWorkspace` in the manifest) first. A retry would repeat the same install.
+  if (reason.startsWith('graph-workspace-deps')) return 'config-then-resume';
   if (reason.startsWith('node-blocked')) return 'launch-retry';
   if (reason.startsWith('failed-to-launch')) return 'launch-retry';
   if (reason.startsWith('graph-plan-invalid')) return 'replan';
@@ -625,7 +628,7 @@ function plannerRelaunchRecovery(
           GRAPH_RUN_TRANSITIONS,
           input.graphRunId,
           'blocked',
-          'awaiting-confirmation',
+          'running',
         )
       ) {
         return false;
@@ -639,9 +642,9 @@ function plannerRelaunchRecovery(
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'recovery',
       graphRunId: input.graphRunId,
-      detail: 'restored accepted graph to awaiting confirmation',
+      detail: 'restored accepted graph to running',
     });
-    return { kind: 'confirmation-restored' };
+    return { kind: 'run-restored' };
   }
   if (!deps.readPrompt || !deps.writeSnapshot || !deps.plannerPromptPath || deps.ticketContext === undefined) {
     emitGraphDiagnostic({ db, debug: deps.debug }, {
@@ -802,10 +805,15 @@ export function recoverGraphRun(
       emitGraphDiagnostic({ db: deps.store.db, debug: deps.debug }, {
         category: 'recovery',
         graphRunId: input.graphRunId,
-        detail:
-          `refused (config-then-resume): ${run.blocked_reason ?? 'unknown reason'} — ` +
-          `Replan bypasses the revision document’s frozen budget; raise limits.maxReplans ` +
-          `if the project hard cap is reached`,
+        detail: run.blocked_reason?.startsWith('graph-workspace-deps')
+          ? `refused (config-then-resume): ${run.blocked_reason} — install the dependencies in the ` +
+            `ticket worktree or set repositories.<name>.graphWorkspace in the manifest, then Replan`
+          : run.blocked_reason?.startsWith('graph-budget-exhausted') && run.blocked_reason.includes('workspace ceiling')
+            ? `refused (config-then-resume): ${run.blocked_reason} — raise limits.maxAggregateWorkspaceBytes ` +
+              `in the manifest, or free workspace space, then Replan`
+          : `refused (config-then-resume): ${run.blocked_reason ?? 'unknown reason'} — ` +
+            `Replan bypasses the revision document’s frozen budget; raise limits.maxReplans ` +
+            `if the project hard cap is reached`,
       });
       return { kind: 'refused', reason: 'config-then-resume' };
     case 'explicit-resolution':

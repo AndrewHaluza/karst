@@ -164,6 +164,9 @@ END_DOC_BLOCK: [@arch:AC-10]
 `agent/headlessSpawn.ts` (`spawnHeadlessCli`) is now THE spawner every adapter's `defaultSpawn`/`makeDefaultSpawn` delegates to: the child is spawned `detached` (its own group), an abort or the 15-minute `timeoutMs` backstop kills the WHOLE group via `killTree` (a killed run's `close` arrives a moment later and must never read as a clean exit — the `killReason` flag makes abort/timeout rejections win over it), and stdout/stderr drain into `BoundedOutput` (8 MB default) instead of unbounded string concat. An abort rejects with `name === 'AbortError'`; a timeout rejects naming the deadline. Adding a fifth core means routing its spawn through `spawnHeadlessCli`, never a third copy of the loop.
 
 A window reload does neither abort nor time out, so the detached child outlives its host. The host records the child on its `process_runs` row (`child_pid`, `child_started_at`; `pid` stays the host pid). When a new run of the same process supersedes a stale one, and at activation, `reapOrphanedChild` (`runtime/orphanChild.ts`) kills the child's group through `killTree` — only if the owner host pid is known and dead, and the live process start time matches the recorded spawn time. A live owner, a reused pid or a null child pid cause no signal. Each kill and each refusal writes one debug line.
+
+`SupervisedCliTransport.disposeOnSuccess` closes a session tab after a proven success (T1175). It marks the session first, so the close is no launch failure. The `process_runs` row closes `passed` only if it is still `running`. The D585 orphan reap stays.
+
 END_DOC_BLOCK: [@arch:AC-11]
 
 ## [@arch:DRAIN-01] A planned reload drains the host first: no new run starts while live runs finish
