@@ -6,9 +6,12 @@ const BLOCKING = new Set(['high', 'critical']);
 const inWindow = (defect, line) => line >= defect.lineStart - REVIEW_MATCH_WINDOW && line <= defect.lineEnd + REVIEW_MATCH_WINDOW;
 const SEVERITY_RANK = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
 const rank = (severity) => SEVERITY_RANK[severity] ?? 0;
-const hits = (defect, f) =>
-  f.file === defect.file && Number.isInteger(f.line) && inWindow(defect, f.line) && rank(f.severity) >= rank(defect.minSeverity);
-const distance = (defect, line) => (line < defect.lineStart ? defect.lineStart - line : Math.max(0, line - defect.lineEnd));
+// A defect has one main location and may list `alternates`: other places where a correct finding sits.
+const spots = (defect) => [defect, ...(defect.alternates ?? [])];
+const spotsHit = (defect, f) => spots(defect).filter((x) => f.file === x.file && Number.isInteger(f.line) && inWindow(x, f.line));
+const hits = (defect, f) => spotsHit(defect, f).length > 0 && rank(f.severity) >= rank(defect.minSeverity);
+const spotDistance = (x, line) => (line < x.lineStart ? x.lineStart - line : Math.max(0, line - x.lineEnd));
+const distance = (defect, f) => Math.min(...spotsHit(defect, f).map((x) => spotDistance(x, f.line)));
 
 /**
  * One finding matches at most one defect and one defect matches at most one finding.
@@ -20,7 +23,7 @@ export function scoreReview({ defects, findings, tier, shape, droppedCheckoutCla
   const matched = new Set();
   findings.forEach((f, i) => {
     const near = defects.filter((x) => !taken.has(x.id) && hits(x, f));
-    const d = near.reduce((best, x) => (best === undefined || distance(x, f.line) < distance(best, f.line) ? x : best), undefined);
+    const d = near.reduce((best, x) => (best === undefined || distance(x, f) < distance(best, f) ? x : best), undefined);
     if (!d) return;
     taken.add(d.id);
     matched.add(i);

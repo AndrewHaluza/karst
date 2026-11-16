@@ -10,7 +10,14 @@
       "lineStart": 3,
       "lineEnd": 5,
       "kind": "bug",
-      "minSeverity": "medium"
+      "minSeverity": "medium",
+      "alternates": [
+        {
+          "file": "src/handler.ts",
+          "lineStart": 9,
+          "lineEnd": 10
+        }
+      ]
     }
   ],
   "cleanFiles": []

@@ -138,6 +138,26 @@ describe('scoreReview duplicates', () => {
   });
 });
 
+describe('scoreReview alternates', () => {
+  const ALT = { ...DEFECT, alternates: [{ file: 'src/caller.ts', lineStart: 5, lineEnd: 6 }] };
+  it('matches a finding at an alternate location of the defect', () => {
+    const r = score([ALT], [finding({ file: 'src/caller.ts', line: 6 })]);
+    expect(r.found).toEqual(['D1']);
+    expect(r.falseFindings).toBe(0);
+  });
+  it('applies the window and the minimum severity to an alternate location', () => {
+    const r = score([ALT], [finding({ file: 'src/caller.ts', line: 6 + REVIEW_MATCH_WINDOW + 1 }), finding({ file: 'src/caller.ts', line: 5, severity: 'low' })]);
+    expect(r.found).toEqual([]);
+    expect(r.falseFindings).toBe(2);
+  });
+  it('counts the second finding at either location as a duplicate', () => {
+    const r = score([ALT], [finding({ line: 11 }), finding({ file: 'src/caller.ts', line: 5 })]);
+    expect(r.found).toEqual(['D1']);
+    expect(r.duplicates).toBe(1);
+    expect(r.falseFindings).toBe(0);
+  });
+});
+
 describe('buildReviewCheckout (2a, 2b)', () => {
   it('puts HEAD on the case branch, keeps local main, and gives a local bare origin outside the work tree', () => {
     const w = buildReviewCheckout(makeCase(), CASE);
@@ -381,6 +401,11 @@ describe('review case set v2', () => {
       expect(lines.length).toBeLessThan(80);
       expect(lines[d.lineStart - 1]?.trim().length).toBeGreaterThan(0);
       expect(d.file.startsWith('./')).toBe(false);
+      for (const a of d.alternates ?? []) {
+        const alines = readFileSync(join(w.checkout, a.file), 'utf8').split('\n');
+        expect(alines[a.lineStart - 1]?.trim().length).toBeGreaterThan(0);
+        expect(a.lineEnd).toBeGreaterThanOrEqual(a.lineStart);
+      }
     }
   });
 });

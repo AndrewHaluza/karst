@@ -138,6 +138,18 @@ All three cores on case set 6:
 
 Every interval overlaps another one, so this table does not rank the cores by recall. The `c24` result is a case limit that hits Claude and opencode2: 9 of the 11 scored misses are a correct finding on the caller. Antigravity put every `c24` finding in `parseId.ts`. Decision needed: accept the caller line in `c24` (case set 7), because a finding there is correct and more useful. Claude is the fastest core by a wide margin.
 
+## Case set v7 (c24 accepts the caller line)
+
+Commit after this note lets a defect list `alternates`: other places where a correct finding sits. `c24` now accepts `src/handler.ts` lines 9 to 10 as well as `src/parseId.ts`. The matcher applies the same window and minimum severity to each place. The case-set version is 7. I rescored the saved v6 runs with the new `c24` and no other change (the reports in `review-references/` keep the v6 scores).
+
+| Core | Recall `c19` to `c24`, v6 strict | Recall with v7 `c24` | 95% interval (v7) | Blocking false (v7) |
+|---|---|---|---|---|
+| antigravity | 35/35 | 35/35 | 90.1% to 100% | 0 |
+| claude | 30/36 | 36/36 | 90.4% to 100% | 0 |
+| opencode2 | 31/36 | 34/36 | 81.9 to 98.5 | 1 |
+
+`c24` was found in all runs of all three cores. The 2 remaining opencode2 misses are the `c20` finding with no file and no line, and the `c21` miss. The 1 blocking false finding is that `c20` finding. Claude and antigravity now tie on recall. Opencode2 is below them, but its interval overlaps theirs.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
