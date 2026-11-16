@@ -1,9 +1,10 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveInsideCheckout } from './args.mjs';
+import { killGroup, prepareUserData, seedFixture, startRun, writeCliShims } from './hostPrep.mjs';
 import { UI_CDP_PORT, scriptHasUiStep, uiHostPlan, uiHostRefusal } from './uiScript.mjs';
 import { AUTH_MOUNT, evalTestsEnv, preflightEval, readNetworkStatus, runRecord } from './evalMode.mjs';
 
@@ -122,31 +123,6 @@ const hardTimeoutMs = Number(argValue('--hard-timeout-ms') ?? process.env.UAT_PR
 // Loaded after arg validation so a bad fixture exits 2 without loading the module.
 const { downloadAndUnzipVSCode } = await import('@vscode/test-electron');
 
-/**
- * Runs the tests in a detached child that owns VS Code. `@vscode/test-electron`
- * spawns VS Code as its own child and wires no exit cleanup, so an in-process
- * race would leave the wedged host (and xvfb) running after we exit — the exact
- * hang the backstop exists to bound. A detached child is its own process group,
- * so SIGKILL on the group takes the whole tree down.
- */
-function startRun(optionsPath) {
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--inner-run-tests', optionsPath], {
-    stdio: 'inherit',
-    detached: true,
-  });
-  const exit = new Promise((r) => child.once('exit', (code, signal) => r({ code, signal, timedOut: false })));
-  return { child, exit };
-}
-
-function killGroup(pid) {
-  if (!pid) return;
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch {
-    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
-  }
-}
-
 const root = mkdtempSync(join(tmpdir(), 'karst-uat-host-'));
 const launchDir = join(root, 'launch');
 mkdirSync(launchDir, { recursive: true });
@@ -158,19 +134,7 @@ const shimDir = join(root, 'shims');
 // The fake `gh` (ghStub.mjs) answers from the fixture file's PR rows, so a seeded PR reaches the ship and Autopilot paths.
 // Every mode but eval gets the shims: a fake core never runs the real CLI either, and the dependency preflight must pass. Eval mode keeps the real tools.
 const ghStub = !evalCore;
-if (launchMode || ghStub) mkdirSync(shimDir, { recursive: true });
-if (launchMode || ghStub) {
-  for (const cli of ['claude', 'codex', 'agy', 'opencode']) {
-    const shim = join(shimDir, cli);
-    writeFileSync(shim, '#!/bin/sh\nexit 0\n');
-    chmodSync(shim, 0o755);
-  }
-}
-if (ghStub) {
-  const ghShim = join(shimDir, 'gh');
-  writeFileSync(ghShim, `#!/bin/sh\nexec "${process.execPath}" "${join(here, 'ghStub.mjs')}" "$@"\n`);
-  chmodSync(ghShim, 0o755);
-}
+if (launchMode || ghStub) writeCliShims(shimDir, { gh: ghStub, nodePath: process.execPath, ghStubPath: join(here, 'ghStub.mjs') });
 let evalPreflight;
 if (evalCore) {
   try {
@@ -183,24 +147,11 @@ if (evalCore) {
 let code = 1;
 let uiDriver;
 try {
-  const userData = join(root, 'user-data');
-  const extensionsDir = join(root, 'extensions');
-  const dbPath = join(userData, 'User', 'globalStorage', 'karst.karst', 'karst.db');
-  mkdirSync(join(userData, 'User'), { recursive: true });
-  mkdirSync(extensionsDir, { recursive: true });
-  copyFileSync(join(here, 'settings.json'), join(userData, 'User', 'settings.json'));
+  const { userData, extensionsDir, dbPath } = prepareUserData(root, join(here, 'settings.json'));
 
   const vscodeExecutablePath = await downloadAndUnzipVSCode({ version, cachePath });
 
-  // Seed under the VS Code binary as plain Node so better-sqlite3 loads at the
-  // Electron ABI the extension host will use (arch:ABI-01).
-  const prep = spawnSync(
-    vscodeExecutablePath,
-    [join(repoRoot, 'dist', 'uat-host', 'prepare.js'), ...(fixtureFilePath ? ['--fixture-file', fixtureFilePath] : ['--fixture', fixture]), ...(providerArg ? ['--provider', providerArg] : []), '--root', join(root, 'fixture'), '--db', dbPath],
-    { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8' },
-  );
-  if (prep.status !== 0) throw new Error(`prepare failed (${prep.status}): ${prep.stderr}`);
-  const { workspaceDir, tickets } = JSON.parse(prep.stdout.trim().split('\n').pop());
+  const { workspaceDir, tickets } = seedFixture({ vscodeExecutablePath, extRoot: repoRoot, fixture, fixtureFilePath, provider: providerArg, fixtureRoot: join(root, 'fixture'), dbPath });
 
   const optionsPath = join(root, 'tests-options.json');
   writeFileSync(optionsPath, JSON.stringify({
@@ -246,7 +197,7 @@ try {
     uiDriver = spawn(process.execPath, [join(here, 'uiDriver.mjs'), '--socket', uiSocketPath, '--port', String(UI_CDP_PORT), '--out', probeOutPath], { stdio: 'inherit' });
     uiDriver.on('error', (err) => console.error(`uat-host: ui driver failed — ${err.message}`));
   }
-  const { child, exit } = startRun(optionsPath);
+  const { child, exit } = startRun(fileURLToPath(import.meta.url), optionsPath);
   let timer;
   const deadline = new Promise((r) => { timer = setTimeout(() => r({ timedOut: true }), hardTimeoutMs); });
   const outcome = await Promise.race([exit, deadline]);
