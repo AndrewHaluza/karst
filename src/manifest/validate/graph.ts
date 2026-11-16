@@ -15,7 +15,9 @@ import { resolveTarget, unitsOf } from '../runnable.js';
  * Every `dependsOn` edge must reach a port that actually exists: the target must
  * be a known repository, it must declare a service (a non-runnable repository
  * has no port to bind to — this is the new model's contradiction), and that
- * service must own the named slot.
+ * service must own the named slot. Both ends of an edge must have the same
+ * placement (`sandbox: host`), or the bound address would point across the
+ * sandbox boundary (arch:AC-36).
  */
 function assertDependenciesResolve(repositories: Record<string, RepositoryDef>): void {
   for (const [name, repo] of Object.entries(repositories)) {
@@ -47,7 +49,29 @@ function assertDependenciesResolve(repositories: Record<string, RepositoryDef>):
               `which has no such port slot (has: ${slots})`,
           );
         }
+        if ((unit.def.sandbox === 'host') !== (target.def.sandbox === 'host')) {
+          throw new ManifestError(
+            `${where} targets "${dep.target}", which runs in another place (sandbox: host on one side only) — ` +
+              'set the same sandbox on both services',
+          );
+        }
       }
+    }
+  }
+}
+
+/** The manifest `host` values that keep a host-placed service off the network (arch:AC-36). */
+const LOOPBACK_HOSTS: readonly string[] = ['127.0.0.1', 'localhost', '::1'];
+
+/** A `sandbox: host` service runs agent-written code on the host: it must bind loopback only. */
+export function assertHostPlacedLoopback(host: string, repositories: Record<string, RepositoryDef>): void {
+  if (LOOPBACK_HOSTS.includes(host)) return;
+  for (const [name, repo] of Object.entries(repositories)) {
+    if (repo.enabled === false) continue;
+    for (const unit of unitsOf(name, repo)) {
+      if (unit.def.sandbox !== 'host') continue;
+      const label = unit.repo === unit.key ? `repository "${name}" service` : `repository "${name}" services.${unit.name}`;
+      throw new ManifestError(`${label}.sandbox: host needs a loopback host (127.0.0.1, localhost or ::1); host is "${host}"`);
     }
   }
 }

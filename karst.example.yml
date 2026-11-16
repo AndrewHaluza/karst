@@ -246,6 +246,10 @@ repositories:
 #     service:
 #       start: node server.mjs
 #       health: http://{host}:{port}/health
+#       # Sandboxed tickets only: run this service on the HOST from the ticket's
+#       # host worktree instead of inside the sandbox (needed for a docker:
+#       # service). Keep `host: 127.0.0.1`. Absent = inside.
+#       # sandbox: host
 #       ports:
 #         - name: port        # slot identity, referenced by dependsOn.port
 #           env: PORT          # env var that sets this port on spawn

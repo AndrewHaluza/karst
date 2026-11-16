@@ -779,6 +779,44 @@ repositories:
     }
   });
 
+  it('reads an optional service sandbox: host or inside; anything else is rejected', () => {
+    const at = (v: string) => `${DOCS}    service:\n      start: npm run dev\n      sandbox: ${v}\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
+    for (const v of ['host', 'inside'] as const) {
+      const { path, cleanup } = fixture(at(v));
+      try {
+        expect(loadManifest(path).repositories.docs!.service!.sandbox).toBe(v);
+      } finally {
+        cleanup();
+      }
+    }
+    const absent = fixture(`${DOCS}    service:\n      start: npm run dev\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`);
+    try {
+      expect(loadManifest(absent.path).repositories.docs!.service!.sandbox).toBeUndefined();
+    } finally {
+      absent.cleanup();
+    }
+    for (const v of ['outside', 'true', '1']) {
+      const { path, cleanup } = fixture(at(v));
+      try {
+        expect(() => loadManifest(path)).toThrow(/service\.sandbox must be one of: host, inside/);
+      } finally {
+        cleanup();
+      }
+    }
+  });
+
+  it('loads a repository with sandbox.setup next to a service with sandbox: host', () => {
+    const yaml = `${DOCS}    sandbox:\n      setup: npm ci\n    service:\n      start: npm run dev\n      sandbox: host\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const repo = loadManifest(path).repositories.docs!;
+      expect(repo.service!.sandbox).toBe('host');
+      expect(repo.sandbox?.setup).toBe('npm ci');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('refuses healthTimeoutSeconds at repository level and names where it goes', () => {
     const yaml = `${DOCS}    healthTimeoutSeconds: 60\n`;
     const { path, cleanup } = fixture(yaml);

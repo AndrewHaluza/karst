@@ -323,6 +323,8 @@ function overlayService(rawService: Record<string, unknown>, svc: ServiceDef): R
     healthIdentity: svc.healthIdentity,
     // Written when set, dropped when cleared → the 30-second default.
     healthTimeoutSeconds: svc.healthTimeoutSeconds,
+    // Written when set, dropped when cleared → inside the sandbox.
+    sandbox: svc.sandbox,
     // Written when set, dropped when cleared → no reset between UATs.
     reset: svc.reset,
     ports: svc.ports,
