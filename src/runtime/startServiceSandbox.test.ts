@@ -27,7 +27,7 @@ const sandbox = { runner: { kind: 'sbx' as const }, sandboxName: 'karst-ab-7-cla
 
 describe('startResolvedService: sandboxed ticket (arch:AC-32)', () => {
   let store: Store;
-  beforeEach(() => { store = openStore(':memory:'); vi.mocked(startSandboxService).mockClear(); });
+  beforeEach(() => { store = openStore(':memory:'); vi.mocked(startSandboxService).mockClear(); vi.mocked(startHot).mockClear(); });
   afterEach(() => store.close());
 
   it('starts inside the sandbox, never on the host, with health on the published 127.0.0.1 port', async () => {
@@ -72,6 +72,33 @@ describe('startResolvedService: sandboxed ticket (arch:AC-32)', () => {
   it('refuses a docker-image service inside a sandbox', async () => {
     const m = manifest({ api: runnableRepo({ ports: [httpSlot(3000)], docker: { image: 'redis:7' } as never }) });
     await expect(startResolvedService({ store, manifest: m, ticketId: 7, name: 'api', resolved, cwd: '/wt/api', envOverrides: {}, sandbox }))
+      .rejects.toThrow('declare `sandbox: host`');
+    await expect(startResolvedService({ store, manifest: m, ticketId: 7, name: 'api', resolved, cwd: '/wt/api', envOverrides: {}, sandbox }))
       .rejects.toThrow('cannot run inside a sandbox');
+  });
+
+  it('starts a sandbox: host service on the host for a sandboxed ticket', async () => {
+    const m = manifest({ api: runnableRepo({ ports: [httpSlot(3000)], start: 'npm run dev', sandbox: 'host' }) });
+    const debug = vi.fn();
+    await startResolvedService({ store, manifest: m, ticketId: 7, name: 'api', resolved, cwd: '/wt/api', envOverrides: {}, sandbox, debug });
+    expect(startSandboxService).not.toHaveBeenCalled();
+    expect(startHot).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(startHot).mock.calls[0]![1]).toEqual(expect.objectContaining({ ticketId: 7, service: 'api', cwd: '/wt/api', port: 4123 }));
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('declares sandbox: host'));
+  });
+
+  it('runs a sandbox: host docker service on the host instead of refusing it', async () => {
+    const docker = { image: 'redis:7', containerPort: 6379, env: {}, volumes: [], args: [] } as never;
+    const m = manifest({ api: runnableRepo({ ports: [httpSlot(3000)], docker, sandbox: 'host' }) });
+    await expect(startResolvedService({ store, manifest: m, ticketId: 7, name: 'api', resolved, cwd: '/wt/api', envOverrides: {}, sandbox })).resolves.not.toThrow();
+    expect(startHot).toHaveBeenCalledTimes(1);
+    expect(startSandboxService).not.toHaveBeenCalled();
+  });
+
+  it('keeps an inside service in the sandbox', async () => {
+    const m = manifest({ api: runnableRepo({ ports: [httpSlot(3000)], sandbox: 'inside' }) });
+    await startResolvedService({ store, manifest: m, ticketId: 7, name: 'api', resolved, cwd: '/wt/api', envOverrides: {}, sandbox });
+    expect(startSandboxService).toHaveBeenCalledTimes(1);
+    expect(startHot).not.toHaveBeenCalled();
   });
 });
