@@ -251,6 +251,7 @@ import { graphLaunchDecision } from './approaches/graph/launchGuard.js';
 import { makeGraphOwnedBinding } from './extension/graphOwnedBinding.js';
 import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
+import { createGraphTabClosers, graphSessionNameOf } from './extension/ops/graphTerminalTabs.js';
 import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
@@ -4165,6 +4166,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return route;
   };
 
+  const graphTabClosers = createGraphTabClosers({
+    db: () => graphCoordinatorStore?.db,
+    transport: () => graphTransport,
+    ticketIdOf: (id) => graphRunTicketId(id),
+    debug: (m) => logger.debug(m),
+    logError,
+  });
+
   /** Run the completing pipeline for every completing node of a graph run,
    *  ascending node-run order (deterministic integration order), then settle
    *  the run: a blocked node blocks the run (earliest failure by durable
@@ -4179,7 +4188,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const deps = graphCompletionPipelineDeps(graphRunId);
         if (!deps) return;
-        await runCompletionPipeline(deps, { graphRunId, nodeRunId });
+        graphTabClosers.node(graphRunId, nodeRunId, await runCompletionPipeline(deps, { graphRunId, nodeRunId }));
       } catch (err) {
         // A failed pipeline never retries itself; the next tick re-drives the
         // node, which is still `completing` unless a transition already moved
@@ -4872,22 +4881,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             domains: input.domains,
           },
         ),
-      sessionNamingOf: (graphRunId, runId, kind) => {
-        // A graph session's terminal reads like any other session terminal:
-        // the manifest's terminal-name template + the brand mark. The ticket is
-        // resolved through the graph run so a session can be named for the
-        // ticket it belongs to, not for an opaque run id ("Karst planner 4").
-        let name = `Karst ${kind} ${runId}`;
-        try {
-          const ticket = getTicket(localStore, graphRunTicketId(graphRunId));
-          name = terminalTicketName(ticket, currentManifest()?.terminalNameTemplate);
-        } catch {
-          // The graph run (or its ticket) vanished after the launch was queued
-          // — fall back to the opaque name rather than letting the naming
-          // resolver throw out of a terminal creation.
-        }
-        return terminalNaming({ name, brandIcon });
-      },
+      sessionNamingOf: (graphRunId, runId, kind) =>
+        // Ticket name (manifest template) + role + node id; the brand mark.
+        terminalNaming({
+          name: graphSessionNameOf(
+            {
+              db: () => graphCoordinatorStore?.db,
+              ticketNameOf: (id) =>
+                terminalTicketName(getTicket(localStore, graphRunTicketId(id)), currentManifest()?.terminalNameTemplate),
+              debug: (m) => logger.debug(m),
+            },
+            graphRunId,
+            runId,
+            kind,
+          ),
+          brandIcon,
+        }),
       cliNodeCompletionCommand: () => `node ${envRef('KARST_GRAPH_CLI')} node complete`,
     };
   };
@@ -5043,6 +5052,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await launchPlannerRepairHost(graphRunId, accepted.plannerRunId, accepted.attempt);
           return;
         }
+        if (accepted.kind === 'accepted') graphTabClosers.bootstrapPlanner(graphRunId);
         if (accepted.kind === 'accepted' || accepted.kind === 'rejected') {
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
@@ -5068,6 +5078,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A submitted replan planner lands revision N+1 here.
         const accepted = acceptSubmittedReplan(graphDriverDeps(), graphRunId);
         if (accepted.kind === 'accepted') {
+          graphTabClosers.replanPlanner(graphRunId, accepted.revisionNumber);
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
           void runGraphCoordinatorTick(graphRunId);
@@ -5462,7 +5473,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (graphRunId === undefined) return;
         const deps = graphCompletionPipelineDeps(graphRunId);
         if (!deps) return;
-        void runCompletionPipeline(deps, { graphRunId, nodeRunId });
+        void runCompletionPipeline(deps, { graphRunId, nodeRunId })
+          .then((result) => graphTabClosers.node(graphRunId, nodeRunId, result))
+          .catch((err) => logError(`karst: resumed completion pipeline failed for node ${nodeRunId}`, err));
       },
       relaunchPlanner: (graphRunId) => void relaunchBootstrapPlannerHost(graphRunId),
       relaunchReplanPlanner: (graphRunId) => void relaunchReplanPlannerHost(graphRunId),

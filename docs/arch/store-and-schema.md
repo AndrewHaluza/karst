@@ -113,6 +113,10 @@ goes through a named read helper next to the full-row reads (`graphRunById`,
 than declaring their own drifting row interfaces. A new column or status is
 therefore added to the store module and the schema, never to a repo-wide grep.
 
+The host names a graph terminal tab from two narrow reads: `nodeRunNamingFacts` (`node_id`, `launch_attempt`) and `plannerRunLaunchAttempt`. `approaches/graph/sessionNaming.ts` builds the name and sanitizes the node id.
+
+The host closes a graph terminal tab only after a proven success (`approaches/graph/closeOnSuccess.ts`): a node that `runCompletionPipeline` integrated, or a planner whose plan `acceptSubmittedPlan` or `acceptSubmittedReplan` accepted and whose process the transport proved ended. It finds the accepted planner run through `acceptedBootstrapPlannerRunId` and `acceptedReplanPlannerRunId`. The transport method `disposeOnSuccess` marks the session first, so the close is no launch failure and the `process_runs` row closes `passed` only if it is still `running`. Every failure, block, crash or Stop keeps the tab open.
+
 The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
 
 Two deliberate, documented exceptions remain:

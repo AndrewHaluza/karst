@@ -152,6 +152,16 @@ export function nodeRunModelIdentity(
     .get(id) as Pick<NodeRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined;
 }
 
+/** The facts that name a node's terminal tab: the plan node id and the launch attempt. */
+export function nodeRunNamingFacts(
+  db: GraphDb,
+  id: number,
+): Pick<NodeRunRow, 'node_id' | 'launch_attempt'> | undefined {
+  return db
+    .prepare('SELECT node_id, launch_attempt FROM approach_node_runs WHERE id = ?')
+    .get(id) as Pick<NodeRunRow, 'node_id' | 'launch_attempt'> | undefined;
+}
+
 /** A graph run's node runs in id order, narrowed to the Inside-view columns.
  *  A row with no `started_at` (written before the claim stamped it) reads the
  *  start of its process run, so an old running node still shows its age. */

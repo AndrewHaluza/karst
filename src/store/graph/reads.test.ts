@@ -38,6 +38,7 @@ import {
   nodeRunBaseHeads,
   nodeRunIntegrationRef,
   nodeRunLaunchFailStreakForGraphRun,
+  nodeRunNamingFacts,
   nodeRunStatus,
   nodeRunsForGraphRun,
   nodeRunsInStatusesForRevision,
@@ -45,6 +46,8 @@ import {
   writeNodeRunBaseHeads,
 } from './nodeRuns.js';
 import {
+  acceptedBootstrapPlannerRunId,
+  acceptedReplanPlannerRunId,
   createPlannerRun,
   hasLiveReplanPlanner,
   latestPlannerRunForGraphRunKind,
@@ -52,6 +55,7 @@ import {
   plannerRunCompileAttempt,
   plannerRunGraphRunId,
   plannerRunIdsForGraphRun,
+  plannerRunLaunchAttempt,
   plannerRunStatus,
   submittedPlannerRunForGraphRun,
 } from './plannerRuns.js';
@@ -219,6 +223,22 @@ describe('node-run read helpers (NDL-60)', () => {
     expect(countNodeRunsInStatusesForGraphRun(h.db, h.graphRunId, ['running'])).toBe(0);
   });
 
+  it('reads the node id and launch attempt that name a node terminal', () => {
+    const h = harness();
+    const id = createNodeRun(h.db, {
+      graphRunId: h.graphRunId,
+      revisionId: h.revisionId,
+      nodeId: 'api-schema',
+      nodeKind: 'agent',
+      visitNumber: 1,
+      now: NOW,
+    });
+    expect(nodeRunNamingFacts(h.db, id)).toEqual({ node_id: 'api-schema', launch_attempt: 0 });
+    h.db.prepare('UPDATE approach_node_runs SET launch_attempt = 2 WHERE id = ?').run(id);
+    expect(nodeRunNamingFacts(h.db, id)).toEqual({ node_id: 'api-schema', launch_attempt: 2 });
+    expect(nodeRunNamingFacts(h.db, 9999)).toBeUndefined();
+  });
+
   it('reads runnable rows, the graph-run listing and base heads', () => {
     const h = harness();
     const ready = createNodeRun(h.db, {
@@ -359,6 +379,17 @@ describe('planner-run read helpers (NDL-60)', () => {
     h.db
       .prepare("UPDATE approach_planner_runs SET status = 'submitted', graph_snapshot_id = 's1' WHERE id = ?")
       .run(first);
+    // Submitted but not yet accepted: no accepted planner run.
+    expect(acceptedBootstrapPlannerRunId(h.db, h.graphRunId)).toBeUndefined();
+    h.db.prepare("UPDATE approach_planner_runs SET ended_at = 'now' WHERE id = ?").run(first);
+    expect(acceptedBootstrapPlannerRunId(h.db, h.graphRunId)).toBe(first);
+    h.db.prepare("UPDATE approach_planner_runs SET ended_at = NULL WHERE id = ?").run(first);
+    // A replan planner is found by the revision it produced, not by ended_at.
+    expect(acceptedReplanPlannerRunId(h.db, h.graphRunId, 2)).toBeUndefined();
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(second);
+    expect(acceptedReplanPlannerRunId(h.db, h.graphRunId, 2)).toBe(second);
+    expect(acceptedReplanPlannerRunId(h.db, h.graphRunId, 3)).toBeUndefined();
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'running' WHERE id = ?").run(second);
     expect(submittedPlannerRunForGraphRun(h.db, h.graphRunId, 'bootstrap')).toMatchObject({
       id: first,
       status: 'submitted',
@@ -385,6 +416,14 @@ describe('planner-run read helpers (NDL-60)', () => {
     // As is an abandoned legacy NULL-target row.
     h.db.prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?").run(second);
     expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(false);
+  });
+  it('reads the launch attempt that names a planner terminal', () => {
+    const h = harness();
+    const id = createPlannerRun(h.db, { graphRunId: h.graphRunId, plannerRunNumber: 1, kind: 'bootstrap' });
+    expect(plannerRunLaunchAttempt(h.db, id)).toBe(0);
+    h.db.prepare('UPDATE approach_planner_runs SET launch_attempt = 3 WHERE id = ?').run(id);
+    expect(plannerRunLaunchAttempt(h.db, id)).toBe(3);
+    expect(plannerRunLaunchAttempt(h.db, 9999)).toBeUndefined();
   });
 });
 
