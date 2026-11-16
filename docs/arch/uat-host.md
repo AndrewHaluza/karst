@@ -36,7 +36,7 @@ flowchart LR
   H -. CDP port 9222, inside the container .-> E
 ```
 
-Only a script that holds a UI step (`click`, `type`, `press`, `read`) opens `--remote-debugging-port=9222` on VS Code and makes `run.mjs` start `scripts/uat-host/uiDriver.mjs`. The driver is a separate Node process that uses the dev dependency `@playwright/test`; `dist` does not bundle it. The extension host sends each UI step to the driver over a unix socket. The port stays inside the container (no `-p`). `run.mjs` refuses (exit 2) a UI script when `UAT_HOST_CONTAINER=1` (set by the Dockerfile) is absent, so the port never opens on the operator machine. A script without a UI step runs as before.
+Only a script that holds a UI step (`click`, `type`, `press`, `read`) opens `--remote-debugging-port=9222` on VS Code and makes `run.mjs` start `scripts/uat-host/uiDriver.mjs`. The driver is a separate Node process that uses the dev dependency `@playwright/test`; `dist` does not bundle it. The extension host sends each UI step to the driver over a unix socket. The port stays inside the container (no `-p`). `run.mjs` refuses (exit 2) a UI script when `UAT_HOST_CONTAINER=1` (set by the Dockerfile) is absent, so the port never opens on the operator machine. A script without a UI step runs as before. The serve mode (`uat:host:serve`, UATHOST-08) keeps one live host in a container and takes probe scripts over HTTP.
 
 The `wait` step (`parseSteps`) takes one of `ticketStage`, `ticketSettled` (the ticket entered `ship`, or its current stage is blocked), `notification`, `log`, `launch` or `webviewMessage`; a wait that is not met in its `timeoutMs` is a reported `timeout`, not a throw.
 
@@ -56,9 +56,10 @@ The `wait` step (`parseSteps`) takes one of `ticketStage`, `ticketSettled` (the 
 | Step times out (10s default, 60s cap) | Run stops, exit nonzero, evidence path printed | Fix the step; rerun |
 | Host wedges | `UAT_PROBE_HARD_TIMEOUT_MS` (300s) SIGKILLs the process group | Rerun |
 | `--script`/`--out` escape the checkout | `run.mjs` exits 2 | Use paths inside the checkout |
+| Serve host does not answer a ping in time | Supervisor exits 1, `/health` stays 503 until then | Read the container log; run `uat:host:serve` again |
 
 ### Rules
-@arch:UATHOST-01 · @arch:UATHOST-02 · @arch:UATHOST-06
+@arch:UATHOST-01 · @arch:UATHOST-02 · @arch:UATHOST-06 · @arch:UATHOST-08
 END_DOC_BLOCK: [@arch:UATHOST-00]
 
 ## [@arch:UATHOST-01] UAT host harness boots the real extension host in Docker with a fake core
@@ -67,7 +68,7 @@ covers: scripts/uat-host/docker.mjs, scripts/uat-host/run.mjs, src/agent/registr
 `npm run uat:host:docker -- --fixture <empty|ticket-mid-stage|blocked|launch-draft>` (or `--fixture-file <fixture.json>`, see UATHOST-02) builds `karst-uat-host:local`, runs it `--rm --init`, and inside it: `npm ci` and build into a container-private `node_modules` volume (ABI-01/ABI-03), downloads the pinned VS Code (`UAT_VSCODE_VERSION`, default 1.126.0, cached in the `karst-uat-vscode` volume), rebuilds better-sqlite3 for that binary's Electron ABI, seeds `karst.db` and a scratch git workspace by running `dist/uat-host/prepare.js` under the VS Code binary (`ELECTRON_RUN_AS_NODE=1`, so the addon ABI matches), then launches VS Code under xvfb with a temp user-data dir, a temp extensions dir and `scripts/uat-host/settings.json`. `KARST_FAKE_CORE=1` makes `resolveAdapter` return `FakeAdapter` for every provider: no LLM call. `KARST_FAKE_CORE=launch` (`run.mjs --launch-mode`, optionally `--provider <core>` to seed that `agentProvider`) keeps the REAL adapter's `buildInteractiveCommand` and swaps only the executable for `node dist/uat-host/stubAgent.js <provider> <envKeys> -- <real argv>` (`src/agent/launchStub.ts`); `runHeadless` stays fake. Use the `launch-draft` fixture: its ticket has a repo selected, so `karst.openSession` scopes it and launches (the other fixtures have no worktree to launch in). Launch mode also puts no-op `claude`/`codex`/`agy`/`opencode` shims first on `PATH` (with `VSCODE_CLI=1` so VS Code keeps that `PATH`), because the dependency gate probes `<cli> --version` before any session opens. It needs `KARST_UAT_STUB_AGENT` (the stub path) and falls back to the real adapter without it. The stub appends `{provider, argv, envKeys, cwd, spill?}` to `$KARST_UAT_LAUNCH_DIR/launches.ndjson`: argv entries over 512 bytes are stored as `{len, sha256, head}`, env values are never recorded (DBG-03), and a kickoff spill pointer is followed to record the file's length and sha256. `activate()` returns normally when the store open fails, so the in-host runner also requires a registered `karst.*` command and the seeded ticket count. Never point the harness at a real Cursor/Code profile.
 
 - **ABI is derived, never hardcoded.** The container entrypoint runs `run.mjs --print-vscode` (downloads and prints the VS Code binary path), exports it as `KARST_TARGET_APP_BINARY`, then runs `rebuild:electron`, which reads the ABI from that binary. VS Code 1.126.0 ships Electron 42.2.0 (ABI 146), not the Electron 39 / ABI 140 of the F5 host; a hardcoded number would be wrong after any version bump.
-- **No concurrent runs against one checkout.** All runs share the `karst-uat-vscode` volume and bind-mount the checkout (so `dist/`). Run one at a time.
+- **Concurrent runs.** A one-shot run and a serve container (UATHOST-08) of one checkout can run at the same time: the serve container builds a private copy of the checkout, and a `flock` on the `karst-uat-vscode` volume serializes the VS Code download. Two one-shot runs against one checkout still share `dist/`. Run them one at a time.
 - **Architecture.** The container runs the host's arch: arm64 on Apple silicon. x64 (CI) is untested.
 - **Running the boot test.** It is opt-in (needs docker and `UAT_HOST_DOCKER=1`; the default `integration` job skips it): `UAT_HOST_DOCKER=1 npx vitest run --config vitest.integration.config.ts src/uatHost/boot.integration.test.ts`.
 - **Fake core is honored in production builds.** `KARST_FAKE_CORE=1` is read by `resolveAdapter` in every build, not only the harness; it logs one `console.warn` per process when active.
@@ -143,6 +144,7 @@ Extends @arch:UATHOST-02. The extension host sends each UI step to `uiDriver.mjs
   - **Evidence.** `step-NNN.json` gains `ui: {screenshot, visibleActs, textAdded, textRemoved}`. `screenshot` is `step-NNN.png` in `--out` (also written on failure). `textAdded` and `textRemoved` are the line diff of the panel text against the last UI step. A `read` step also records `text`, the full visible panel text (one entry per line). The text includes the value of each visible input and textarea as a `[field] <value>` line, because `innerText` skips it (a password field is skipped). The `snapshot` stays.
   - **Attach.** The driver attaches to VS Code at start, before any webview exists. A late attach can miss webview frames that open before it. It re-attaches once as a fallback.
   - **Samples.** `ui-subtask.json` (fixture `blocked`: click `create-subtask`, type a title with submit, click quick pick `Non-blocking`; the snapshot holds the new sub-task), `ui-resume.json` (click `stage-resume`; `blockedKind` leaves `boot-failed`; the UI text change is in the `click` step's own `ui.textAdded`/`textRemoved`, because each UI step diffs against the text after the previous UI step, so a later `read` of the same text shows an empty diff) and `ui-hidden.json` (the failing hidden target). A UI step may take up to its `timeoutMs` plus a 15s grace period for the channel.
+- **Driver control.** A line `{control: "setOut", outDir}` on the driver socket changes the evidence directory of the next UI steps (an absolute path) and resets the text baseline. The serve mode sends it before each probe (UATHOST-08). `parseDriverControl` refuses an unknown control or a relative path.
 
 END_DOC_BLOCK: [@arch:UATHOST-06]
 
@@ -157,3 +159,27 @@ Extends @arch:UATHOST-02. A fixture file seeds the store and may script the head
 - **Fake-core evidence.** The snapshot in `step-NNN.json` gains `fakeCoreHits`: one `{rule, answer}` index pair per scripted call, in call order. It holds no prompt text and no `raw`.
 
 END_DOC_BLOCK: [@arch:UATHOST-07]
+## [@arch:UATHOST-08] The serve mode keeps one live UAT host per worktree behind one HTTP port
+covers: scripts/uat-host/serve.mjs, scripts/uat-host/servePlan.mjs, scripts/uat-host/serveApi.mjs, scripts/uat-host/serveServer.mjs, scripts/uat-host/serveHost.mjs, scripts/uat-host/hostPrep.mjs, scripts/uat-host/hostChannel.cjs, scripts/uat-host/testRunnerServe.cjs, docker/uat-host/serve-entrypoint.sh
+
+Extends @arch:UATHOST-01. `npm run -s uat:host:serve -- --port <n>` starts one container for each worktree. The container keeps a real VS Code with the built extension and `KARST_FAKE_CORE=1` alive. Karst can run this command as a manifest service.
+
+- **One port.** The container publishes `127.0.0.1:<n>` to its port 8080. The supervisor (`serveServer.mjs`) owns that port. `GET /health` answers 200 with `{"status":"ready"}` and the header `X-Karst-Instance` (the value of `KARST_INSTANCE_TOKEN`), or 503 while the host boots or resets. `GET /` shows the noVNC view under a red FAKE CORE banner. `POST /probe?name=<n>` runs a JSON step script and returns the summary. `POST /reset` restarts the host from a fixture. The CDP port 9222 and the VNC port stay inside the container.
+- **Probe.** The body is a step array or `{"steps": [...]}`. The evidence goes to `.karst/uat-scratch/out/<name>`. A name is used once (409 on a second use). One request runs at a time (409 `busy`). A probe that passes its time limit gives 504 and the supervisor resets the host.
+- **Reset.** `POST /reset` takes `{}`, `{"fixture": <name>}` or `{"fixtureFile": <path inside the checkout>}`. `npm run -s uat:host:serve -- --reset` sends it to the running container of this worktree.
+- **Guards.** Every route but `/health` refuses a `Host` that is not `127.0.0.1:<n>` or `localhost:<n>`, and an `Origin` that is not the same. A POST needs `application/json` and a body of at most 1 MiB. The WebSocket upgrade follows the same guards.
+- **Private build.** The entrypoint copies `/work` to `/srv/karst` and builds there, so a host build in the worktree does not break the live host.
+- **In-host channel.** `testRunnerServe.cjs` activates Karst and listens on a unix socket (`hostChannel.cjs`). The supervisor sends `ping` and `run` lines. `hostPrep.mjs` holds the host preparation that `run.mjs` also uses.
+- **Teardown.** `serve.mjs` runs `docker run -i` attached. When its stdin closes or the process gets a signal, the supervisor stops the host and the container. `serve.mjs` removes its own container by ID. A host that exits while ready ends the container (exit 1).
+- **Limits.** One container for each worktree (`karst-uat-serve-<key>`). Docker must run (exit 3 without it).
+
+### Tradeoffs
+| Chosen | Rejected | Why |
+|---|---|---|
+| One HTTP port with a proxy for the view | Publish the VNC and CDP ports | The service has one port; the debug port stays private |
+| Private copy of the checkout in the container | Build in the bind mount | A host build or a one-shot run cannot break the live host |
+| Stdin EOF stops the container | Signal only | `killTree` sends SIGKILL, which no handler sees |
+
+### Rules
+@arch:UATHOST-01 · @arch:UATHOST-06 · @arch:ABI-03
+END_DOC_BLOCK: [@arch:UATHOST-08]

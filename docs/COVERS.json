@@ -5,6 +5,9 @@
   "docker/uat-host/Dockerfile": [
     "arch:UATHOST-00"
   ],
+  "docker/uat-host/serve-entrypoint.sh": [
+    "arch:UATHOST-08"
+  ],
   "scripts/arch*.mjs": [
     "arch:MAP-00"
   ],
@@ -120,8 +123,32 @@
   "scripts/uat-host/evalProxy.mjs": [
     "arch:UATHOST-03"
   ],
+  "scripts/uat-host/hostChannel.cjs": [
+    "arch:UATHOST-08"
+  ],
+  "scripts/uat-host/hostPrep.mjs": [
+    "arch:UATHOST-08"
+  ],
   "scripts/uat-host/run.mjs": [
     "arch:UATHOST-01"
+  ],
+  "scripts/uat-host/serve.mjs": [
+    "arch:UATHOST-08"
+  ],
+  "scripts/uat-host/serveApi.mjs": [
+    "arch:UATHOST-08"
+  ],
+  "scripts/uat-host/serveHost.mjs": [
+    "arch:UATHOST-08"
+  ],
+  "scripts/uat-host/servePlan.mjs": [
+    "arch:UATHOST-08"
+  ],
+  "scripts/uat-host/serveServer.mjs": [
+    "arch:UATHOST-08"
+  ],
+  "scripts/uat-host/testRunnerServe.cjs": [
+    "arch:UATHOST-08"
   ],
   "scripts/uat-host/uiDriver.mjs": [
     "arch:UATHOST-06"
