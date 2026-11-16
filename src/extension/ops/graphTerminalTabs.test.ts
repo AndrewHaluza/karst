@@ -214,6 +214,38 @@ describe('createGraphTabClosers', () => {
     if (nodeRunId === plannerRunId) expect(k.disposed).toEqual([]);
   });
 
+  it('never closes a planner session that shares the node run id', () => {
+    const w = world();
+    const plannerRunId = createPlannerRun(w.db, { graphRunId: w.graphRunId, plannerRunNumber: 1, kind: 'bootstrap' });
+    let nodeRunId = w.node('n');
+    while (nodeRunId < plannerRunId) nodeRunId = w.node('n');
+    expect(nodeRunId).toBe(plannerRunId); // the two tables count ids on their own
+    const k = closers(w);
+    k.add(nodeRunId); // the live planner session holds the shared key
+    k.c.node(w.graphRunId, nodeRunId, { kind: 'integrated', committed: true });
+    expect(k.disposed).toEqual([]);
+  });
+
+  it('keeps a node tab open when the database is missing', () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const k = closers(w);
+    k.add(nodeRunId);
+    const noDb = createGraphTabClosers({
+      db: () => undefined,
+      transport: () => ({
+        sessionFor: () => ({ ticketId: w.ticketId, nodeRunId } as SupervisedAgentSession),
+        terminate: async () => ({ kind: 'dead' }),
+        disposeOnSuccess: (s) => k.disposed.push(s.nodeRunId),
+      }),
+      ticketIdOf: () => w.ticketId,
+      debug: () => {},
+      logError: () => {},
+    });
+    noDb.node(w.graphRunId, nodeRunId, { kind: 'integrated', committed: true });
+    expect(k.disposed).toEqual([]);
+  });
+
   it('logs an error when the planner close fails', async () => {
     const w = world();
     const plannerRunId = createPlannerRun(w.db, { graphRunId: w.graphRunId, plannerRunNumber: 1, kind: 'bootstrap' });

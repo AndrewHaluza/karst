@@ -52,6 +52,14 @@ describe('closeNodeTabOnSuccess', () => {
     });
   }
 
+  it('keeps the tab open when a planner run of the ticket has the same id', () => {
+    const f = fixture();
+    const input = { ticketId: 1, nodeRunId: 9, sharesIdWithPlannerRun: true };
+    expect(closeNodeTabOnSuccess(f.deps, input, { kind: 'integrated', committed: true })).toBe(false);
+    expect(f.calls.disposed).toEqual([]);
+    expect(f.logs.join('\n')).toContain('a planner run has the same id');
+  });
+
   it('is a no-op when no session is registered', () => {
     const f = fixture({ kind: 'dead' }, null);
     expect(closeNodeTabOnSuccess(f.deps, { ticketId: 1, nodeRunId: 9 }, { kind: 'integrated', committed: false })).toBe(false);

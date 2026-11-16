@@ -27,12 +27,20 @@ export interface CloseOnSuccessDeps {
 /** Dispose the node session tab when the pipeline integrated the node. */
 export function closeNodeTabOnSuccess(
   deps: CloseOnSuccessDeps,
-  input: { ticketId: number; nodeRunId: number },
+  input: { ticketId: number; nodeRunId: number; sharesIdWithPlannerRun?: boolean },
   result: CompletionPipelineResult,
 ): boolean {
   if (result.kind !== 'integrated') return false;
   const session = deps.transport.sessionFor(input.ticketId, input.nodeRunId);
   if (!session) return false;
+  // The registry key `ticket:id` cannot tell a node session from a live
+  // planner session with the same id: disposing could kill the planner tab.
+  if (input.sharesIdWithPlannerRun) {
+    deps.debug(
+      `[graph] node ${input.nodeRunId}: a planner run has the same id — the session is ambiguous, terminal tab left open`,
+    );
+    return false;
+  }
   deps.transport.disposeOnSuccess(session);
   deps.debug(`[graph] node ${input.nodeRunId}: integrated — terminal tab closed`);
   return true;

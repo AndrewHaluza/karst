@@ -10,6 +10,7 @@ import {
   acceptedBootstrapPlannerRunId,
   acceptedReplanPlannerRunId,
   plannerRunLaunchAttempt,
+  plannerRunTicketId,
 } from '../../store/graph/plannerRuns.js';
 import { graphSessionTerminalName } from '../../approaches/graph/sessionNaming.js';
 import {
@@ -104,9 +105,17 @@ export function createGraphTabClosers(deps: GraphTabCloseDeps): GraphTabClosers 
     node: (graphRunId, nodeRunId, result) => {
       const transport = deps.transport();
       if (!transport) return;
+      const ticketId = deps.ticketIdOf(graphRunId);
+      const db = deps.db();
       closeNodeTabOnSuccess(
         { transport, debug: deps.debug },
-        { ticketId: deps.ticketIdOf(graphRunId), nodeRunId },
+        {
+          ticketId,
+          nodeRunId,
+          // The registry key is `ticket:id`; a planner run with this id is ambiguous.
+          // No db: the store cannot rule it out, so keep the tab open.
+          sharesIdWithPlannerRun: !db || plannerRunTicketId(db, nodeRunId) === ticketId,
+        },
         result,
       );
     },
