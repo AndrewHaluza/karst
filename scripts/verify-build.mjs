@@ -74,7 +74,11 @@ const REQUIRED_ARTIFACTS = [
 // provider menu (T1091: computePlacement, visibleClip for ancestor scroll clipping,
 // attachAnchoredPopover with its ResizeObserver, and the useAnchoredPopover hook;
 // ~3.7 KB minified): bundle is 407631 bytes (~2 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 400 * 1024;
+// Raised 400 → 402 KB for the Quality Tester evidence rows (TesterEvidenceFields:
+// the requireEvidence toggle, file glob input, changed-path textarea with local raw
+// text, evidenceErrors and the shared relativeGlobProblem; ~2 KB minified): bundle
+// is 409694 bytes (~2.2 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 402 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

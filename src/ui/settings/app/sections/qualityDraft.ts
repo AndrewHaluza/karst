@@ -10,11 +10,12 @@
  *
  * Concretely preserved:
  *
- * - `updateUat` deletes `testerObservations` when the patch omits it, which is
- *   how unchecking the toggle removes the block. That also fires for a patch that
- *   simply does not mention the key (`maxFixAttempts`, a gate list) — a quirk of
- *   the vanilla helper that is kept rather than "fixed", because a fix here would
- *   change what a Quality edit does to a manifest that declared the block.
+ * - `updateUat` deletes `testerObservations` ONLY for a patch that names the key
+ *   with `undefined` — the Tester toggle switched off. A patch that does not
+ *   mention the key (`maxFixAttempts`, a gate list, an override) keeps the
+ *   block, `onSkip` and `requireEvidence` included. Every edit inside the block
+ *   goes through `updateTesterObservations`, which reads the block from the
+ *   reducer's current draft, so two quick edits cannot overwrite each other.
  * - `updateFindings` deep-merges over `REVIEW_FINDINGS_DEFAULTS` FIRST, then over
  *   the current draft, so a partially specified `review.findings` — or an absent
  *   one — cannot lose a sibling key to an edit of just one findings field.
@@ -25,10 +26,14 @@ import type {
   ReviewConfig,
   ReviewStallDetection,
   UatConfig,
+  UatTesterObservationsConfig,
+  UatTesterRequireEvidence,
 } from '../../../../manifest/types.js';
 import {
   REVIEW_FINDINGS_DEFAULTS,
   REVIEW_STALL_DETECTION_DEFAULTS,
+  UAT_TESTER_BLOCKING_SEVERITY,
+  relativeGlobProblem,
 } from '../../../../manifest/qualityDefaults.js';
 
 /**
@@ -73,10 +78,62 @@ const withBlocks = (draft: Manifest, blocks: QualityBlocks): Manifest =>
 export function updateUat(draft: Manifest, patch: UatPatch): Manifest {
   const blocks = blocksOf(draft);
   const next: DraftUat = { ...(blocks.uat ?? {}), ...patch };
-  if (patch.testerObservations === undefined) {
+  // Only an explicit `testerObservations: undefined` (the toggle off) removes
+  // the block; a patch that does not name the key leaves it as it is.
+  if (Object.hasOwn(patch, 'testerObservations') && patch.testerObservations === undefined) {
     delete next.testerObservations;
   }
   return withBlocks(draft, { ...blocks, uat: next });
+}
+
+type TesterPatch = { [K in keyof UatTesterObservationsConfig]?: UatTesterObservationsConfig[K] | undefined };
+
+/**
+ * Write keys of `uat.testerObservations`, spreading the block AS IT IS IN
+ * `draft` (the reducer's current draft, not a rendered copy). A key patched to
+ * `undefined` is deleted, so `requireEvidence: undefined` turns the rule off and
+ * keeps its siblings. An absent block is created with the default severity.
+ */
+export function updateTesterObservations(draft: Manifest, patch: TesterPatch): Manifest {
+  const current = blocksOf(draft).uat?.testerObservations;
+  const next: Record<string, unknown> = {
+    blockingSeverity: UAT_TESTER_BLOCKING_SEVERITY,
+    ...(current ?? {}),
+  };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+  }
+  return updateUat(draft, { testerObservations: next as unknown as UatTesterObservationsConfig });
+}
+
+export interface EvidenceErrors {
+  file?: string;
+  whenChanged?: string;
+}
+
+/** Mirrors `validate/uat.ts` `validateRequireEvidence` through the shared `relativeGlobProblem`. */
+export function evidenceErrors(rule: UatTesterRequireEvidence): EvidenceErrors {
+  const errors: EvidenceErrors = {};
+  const fileProblem = relativeGlobProblem(rule.file);
+  if (fileProblem === 'empty') errors.file = 'Enter a glob for the evidence file.';
+  if (fileProblem === 'not-relative') {
+    errors.file = 'Use a repo-relative glob: no leading "/" and no ".." segment.';
+  }
+  if (rule.whenChanged.length === 0) {
+    errors.whenChanged = 'Enter at least one glob.';
+  } else if (rule.whenChanged.some((glob) => relativeGlobProblem(glob) !== null)) {
+    errors.whenChanged = 'Use repo-relative globs: no leading "/" and no ".." segment.';
+  }
+  return errors;
+}
+
+/** The textarea's lines as `whenChanged` globs: trimmed, blank lines dropped. */
+export function parseGlobLines(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
 }
 
 /** Write one patch into `draft.review`, spreading whatever the block already has. */

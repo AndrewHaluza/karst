@@ -266,13 +266,79 @@ describe('QualitySection — the tester toggle owns the block by presence', () =
         uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'none', requireEvidence: EVIDENCE } }),
       }),
     );
-    expect(document.querySelector('[name="uatTesterRequireEvidence"]')).toBeNull();
     fireEvent.change(field('uatTesterOnSkip'), { target: { value: 'reask' } });
     expect(uatOf(probe).testerObservations).toEqual({
       blockingSeverity: 'none',
       onSkip: 'reask',
       requireEvidence: EVIDENCE,
     });
+  });
+
+  it('keeps the whole tester block when Max fix attempts is edited', () => {
+    const tester = { blockingSeverity: 'high', onSkip: 'reask', requireEvidence: EVIDENCE };
+    const { probe } = mountQuality(stateWith({ uat: partialUat({ ...INERT, testerObservations: tester }) }));
+    fireEvent.change(field('uatMaxFixAttempts'), { target: { value: '5' } });
+    expect(uatOf(probe)).toMatchObject({ maxFixAttempts: 5, testerObservations: tester });
+  });
+
+  it('hydrates the evidence rule into its controls', () => {
+    mountQuality(
+      stateWith({
+        uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'none', requireEvidence: EVIDENCE } }),
+      }),
+    );
+    expect(field('uatTesterRequireEvidence').checked).toBe(true);
+    expect(field('uatTesterEvidenceFile').value).toBe(EVIDENCE.file);
+    expect(field('uatTesterEvidenceWhenChanged').value).toBe('src/ui/**');
+  });
+
+  it('hides the evidence controls while the rule is off', () => {
+    mountQuality(stateWith({ uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'none' } }) }));
+    expect(field('uatTesterRequireEvidence').checked).toBe(false);
+    expect(document.querySelector('[name="uatTesterEvidenceFile"]')).toBeNull();
+    expect(document.querySelector('[name="uatTesterEvidenceWhenChanged"]')).toBeNull();
+  });
+
+  it('writes the file glob and the changed-path globs, one per line', () => {
+    const { probe } = mountQuality(
+      stateWith({
+        uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'none', requireEvidence: EVIDENCE } }),
+      }),
+    );
+    fireEvent.change(field('uatTesterEvidenceFile'), { target: { value: 'out/summary.json' } });
+    fireEvent.change(field('uatTesterEvidenceWhenChanged'), { target: { value: 'src/**\n\nscripts/**\n' } });
+    expect(uatOf(probe).testerObservations).toEqual({
+      blockingSeverity: 'none',
+      requireEvidence: { file: 'out/summary.json', whenChanged: ['src/**', 'scripts/**'] },
+    });
+    // The raw text keeps the trailing newline, so Enter is never eaten.
+    expect(field('uatTesterEvidenceWhenChanged').value).toBe('src/**\n\nscripts/**\n');
+  });
+
+  it('removes only requireEvidence when the rule is switched off', () => {
+    const { probe } = mountQuality(
+      stateWith({
+        uat: partialUat({
+          ...INERT,
+          testerObservations: { blockingSeverity: 'high', onSkip: 'reask', requireEvidence: EVIDENCE },
+        }),
+      }),
+    );
+    fireEvent.click(field('uatTesterRequireEvidence'));
+    expect(uatOf(probe).testerObservations).toEqual({ blockingSeverity: 'high', onSkip: 'reask' });
+  });
+
+  it('seeds an empty rule when switched on and shows what is missing', () => {
+    const { probe } = mountQuality(
+      stateWith({ uat: partialUat({ ...INERT, testerObservations: { blockingSeverity: 'none' } }) }),
+    );
+    fireEvent.click(field('uatTesterRequireEvidence'));
+    expect(uatOf(probe).testerObservations).toEqual({
+      blockingSeverity: 'none',
+      requireEvidence: { file: '', whenChanged: [] },
+    });
+    expect(field('uatTesterEvidenceFile').getAttribute('aria-invalid')).toBe('true');
+    expect(field('uatTesterEvidenceWhenChanged').getAttribute('aria-invalid')).toBe('true');
   });
 
   it('keeps the findings controls live when findings are off', () => {
