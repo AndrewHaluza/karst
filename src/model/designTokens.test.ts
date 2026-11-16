@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { DESIGN_TOKENS, tokensCss, tokenNames } from './designTokens.js';
 
 /**
@@ -147,7 +150,22 @@ describe('design tokens', () => {
 
 describe('content max tokens', () => {
   it('defines content max tokens', () => {
-    expect(DESIGN_TOKENS['--k-content-max']).toBe('1200px');
-    expect(DESIGN_TOKENS['--k-content-max-wide']).toBe('1600px');
+    expect(DESIGN_TOKENS['--k-content-max']).toBe('1600px');
+  });
+
+  it('has no second content-width token (UI-R05)', () => {
+    const REMOVED = ['--k-content', 'max-wide'].join('-');
+    expect(Object.keys(DESIGN_TOKENS)).not.toContain(REMOVED);
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const hits: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (/\.(ts|tsx|html|css)$/.test(e.name) && readFileSync(full, 'utf8').includes(REMOVED)) hits.push(full);
+      }
+    };
+    walk(root);
+    expect(hits).toEqual([]);
   });
 });
