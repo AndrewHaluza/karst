@@ -266,7 +266,6 @@ export type InsideActionKind =
   | 'open-bounded-evidence'
   | 'open-session'
   | 'graph-open-session'
-  | 'graph-confirm'
   | 'graph-stop'
   | 'graph-resume'
   | 'graph-restart'

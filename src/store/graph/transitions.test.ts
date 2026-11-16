@@ -44,10 +44,8 @@ function expectPairsEqual(
 describe('graph-run transition map', () => {
   it('admits exactly the documented pairs', () => {
     expectPairsEqual(GRAPH_RUN_TRANSITIONS, [
-      'planning → awaiting-confirmation',
       'planning → running',
       'planning → blocked',
-      'awaiting-confirmation → running',
       'running → draining',
       'draining → running',
       // H1: the replan compile-repair's exhausted exit. `draining` had ONE
@@ -61,18 +59,15 @@ describe('graph-run transition map', () => {
       // the run at `planning`, and recovery re-opens it to `planning` to launch
       // a fresh bootstrap planner on the same graph run.
       'blocked → planning',
-      'blocked → awaiting-confirmation',
       'running → completed-awaiting-impl-marker',
       'draining → completed-awaiting-impl-marker',
       'completed-awaiting-impl-marker → closed',
       'planning → cancelled',
-      'awaiting-confirmation → cancelled',
       'running → cancelled',
       'draining → cancelled',
       'blocked → cancelled',
       'completed-awaiting-impl-marker → cancelled',
       'planning → stale',
-      'awaiting-confirmation → stale',
       'running → stale',
       'draining → stale',
       'blocked → stale',

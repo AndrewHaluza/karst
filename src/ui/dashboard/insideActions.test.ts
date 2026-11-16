@@ -167,8 +167,6 @@ function host(calls: string[]): InsideActionHost {
     graphResume: (ticketId, graphRunId) => void calls.push(`graph-resume:${ticketId}:${graphRunId}`),
     graphRestart: (ticketId, graphRunId) => void calls.push(`graph-restart:${ticketId}:${graphRunId}`),
     graphReplan: (ticketId, graphRunId) => void calls.push(`graph-replan:${ticketId}:${graphRunId}`),
-    graphConfirm: (ticketId, graphRunId) =>
-      void calls.push(`graph-confirm:${ticketId}:${graphRunId}`),
     graphMarkImpl: (ticketId, graphRunId) =>
       void calls.push(`graph-mark-impl:${ticketId}:${graphRunId}`),
     graphDiscardNode: (ticketId, nodeRunId) =>
@@ -795,26 +793,6 @@ describe('dispatchInsideAction', () => {
     expect(dispatchInsideAction(store, midDrain, 'snapshot-10:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'graph is not a stopped drain',
-    });
-  });
-
-  it('dispatches graph-confirm only while the ticket awaits graph confirmation', () => {
-    seedGraph({ ticketId: 1, runId: 1, status: 'awaiting-confirmation' });
-    const r = registry(7);
-    r.register({ kind: 'graph-confirm', ticketId: 1, graphRunId: 1 });
-    const calls: string[] = [];
-    expect(dispatchInsideAction(store, r, 'snapshot-7:action-0', deps(calls))).toEqual({
-      outcome: 'dispatched',
-    });
-    expect(calls).toEqual(['graph-confirm:1:1']);
-
-    store.db.prepare("UPDATE approach_graph_runs SET status = 'cancelled' WHERE id = 1").run();
-    seedGraph({ ticketId: 1, runId: 2, stageAttempt: 1, status: 'awaiting-confirmation' });
-    const stale = registry(8);
-    stale.register({ kind: 'graph-confirm', ticketId: 1, graphRunId: 1 });
-    expect(dispatchInsideAction(store, stale, 'snapshot-8:action-0', deps([]))).toEqual({
-      outcome: 'rejected',
-      reason: 'graph is not awaiting confirmation',
     });
   });
 

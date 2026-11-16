@@ -115,6 +115,8 @@ therefore added to the store module and the schema, never to a repo-wide grep.
 
 The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
 
+A compiled bootstrap plan runs at once: plan acceptance moves the run `planning → running` and the coordinator tick starts it, with no human confirm gate (T1174). The status `awaiting-confirmation` is legacy. It stays in the CHECK on `approach_graph_runs.status`, and the v127 migration moves any such row to `running`. The manifest key `limits.confirmGeneratedGraph` is retired: the loader drops it in memory with one deprecation warning and never rewrites the file.
+
 Two deliberate, documented exceptions remain:
 
 - **The `karst` CLI's authenticated reads and UPDATEs** (`src/cli/node.ts`,
@@ -310,6 +312,8 @@ END_DOC_BLOCK: [@arch:V126]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
+
+**v127:** a data-only step. A graph run in the legacy status `awaiting-confirmation` moves to `running` (the confirm gate is gone, `@arch:GRAPHRUN`). The CHECK on `approach_graph_runs.status` keeps the legacy value, so no table rebuild is needed.
 
 **v126:** `@arch:V126`.
 

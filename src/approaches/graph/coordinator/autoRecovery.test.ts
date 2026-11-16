@@ -56,7 +56,7 @@ function depsFor(
 const retried: RecoveryResult = { kind: 'retried' } as RecoveryResult;
 const replanned = { kind: 'replanned', launch: {} } as unknown as RecoveryResult;
 const relaunched = { kind: 'relaunched', launch: {} } as unknown as RecoveryResult;
-const restored = { kind: 'confirmation-restored' } as RecoveryResult;
+const restored = { kind: 'run-restored' } as RecoveryResult;
 
 async function sweep(f: ReturnType<typeof fixture>, deps: AutoRecoveryDeps, memory = createAutoRecoveryMemory()) {
   return autoRecoverBlockedRuns(deps, memory, [{ graphRunId: f.graphRunId, ticketId: f.ticketId }]);

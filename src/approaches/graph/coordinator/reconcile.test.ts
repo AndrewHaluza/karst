@@ -1306,20 +1306,6 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     });
   });
 
-  it('an accepted plan awaiting confirmation stays passive after its submitted planner exits', async () => {
-    ctx.db
-      .prepare("UPDATE approach_graph_runs SET status = 'awaiting-confirmation' WHERE id = ?")
-      .run(ctx.graphRunId);
-    insertPlannerRun(ctx, 302, 'submitted');
-    linkPlannerProcess(ctx, 302, 302, 6464, NOW);
-    const result = await reconcileGraphRun(
-      ctx.makeDeps({ facts: makeFacts({ alive: { 6464: false } }) }),
-      { graphRunId: ctx.graphRunId },
-    );
-    expect(runRow(ctx)).toEqual({ status: 'awaiting-confirmation', blocked_reason: null });
-    expect(result.transitions).toBe(0);
-  });
-
   describe('a draining run with ZERO replan planner rows (the election→launch gap)', () => {
     /** A parseable document so `electReplan` can run its active-revision check
      *  (the default harness revision is `'{}'`, unparseable). */

@@ -30,7 +30,6 @@ import { SUPPORTED, unsupported } from '../../agent/surfaces.js';
 import {
   bootstrapAndLaunchPlanner,
   acceptSubmittedPlan,
-  confirmGraphRun,
   driveReadyNodeRuns,
   launchReplanPlanner,
   parkNodeLaunchExit,
@@ -95,7 +94,7 @@ describe('dynamic graph lifecycle e2e — real CLI + real store', () => {
       const run = h.store.db
         .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
         .get(graphRunId) as { status: string };
-      expect(run.status).toBe('awaiting-confirmation');
+      expect(run.status).toBe('running');
       const revision = h.store.db
         .prepare("SELECT status FROM approach_graph_revisions WHERE graph_run_id = ? AND status = 'active'")
         .get(graphRunId) as { status: string } | undefined;
@@ -190,7 +189,7 @@ describe('dynamic graph lifecycle e2e — real CLI + real store', () => {
       const run = h.store.db
         .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
         .get(launched.graphRunId) as { status: string };
-      expect(run.status).toBe('awaiting-confirmation');
+      expect(run.status).toBe('running');
     } finally {
       h.close();
     }
@@ -200,7 +199,6 @@ describe('dynamic graph lifecycle e2e — real CLI + real store', () => {
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
 
       const driven = await claimAndDrive(h, graphRunId);
       expect(driven.launched).toBe(1);
@@ -259,7 +257,6 @@ describe('dynamic graph lifecycle e2e — real CLI + real store', () => {
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      confirmGraphRun(h.deps, graphRunId);
       const driven = await claimAndDrive(h, graphRunId);
       expect(driven.launched).toBe(1);
       const nodeRun = h.store.db
@@ -305,7 +302,6 @@ describe('dynamic graph lifecycle e2e — real CLI + real store', () => {
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      confirmGraphRun(h.deps, graphRunId);
       const driven = await claimAndDrive(h, graphRunId);
       expect(driven.launched).toBe(1);
       const nodeRun = h.store.db
@@ -364,7 +360,6 @@ describe('documented failures of the current dynamic graph implementation', () =
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      confirmGraphRun(h.deps, graphRunId);
       const driven = await claimAndDrive(h, graphRunId);
       expect(driven.launched).toBe(1);
       // The agent node is still `running`; its claimed token is pending — not
@@ -473,7 +468,6 @@ describe('documented failures of the current dynamic graph implementation', () =
       expect(submitted.ok).toBe(true);
       const accepted = acceptSubmittedPlan(h.deps, launched.graphRunId);
       expect(accepted.kind).toBe('accepted');
-      confirmGraphRun(h.deps, launched.graphRunId);
       const driven = await claimAndDrive(h, launched.graphRunId);
       expect(driven.launched).toBe(1);
       const nodeRun = h.store.db
@@ -547,7 +541,6 @@ describe('documented failures of the current dynamic graph implementation', () =
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      confirmGraphRun(h.deps, graphRunId);
       await claimAndDrive(h, graphRunId);
       const nodeRun = h.store.db
         .prepare('SELECT id, generation FROM approach_node_runs WHERE graph_run_id = ?')
@@ -585,7 +578,6 @@ describe('documented failures of the current dynamic graph implementation', () =
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      confirmGraphRun(h.deps, graphRunId);
       await claimAndDrive(h, graphRunId);
       const nodeRun = h.store.db
         .prepare('SELECT id, generation FROM approach_node_runs WHERE graph_run_id = ?')
@@ -624,7 +616,6 @@ describe('documented failures of the current dynamic graph implementation', () =
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      confirmGraphRun(h.deps, graphRunId);
       const driven = await claimAndDrive(h, graphRunId);
       expect(driven.launched).toBe(1);
       const nodeRun = h.store.db
@@ -679,7 +670,6 @@ describe('documented failures of the current dynamic graph implementation', () =
       const h = makeHarness();
       try {
         const { graphRunId } = await bootAndSubmit(h);
-        confirmGraphRun(h.deps, graphRunId);
         const driven = await claimAndDrive(h, graphRunId);
         expect(driven.launched).toBe(1);
         const nodeRun = h.store.db
@@ -731,7 +721,6 @@ describe('documented failures of the current dynamic graph implementation', () =
       try {
         h.transport.capabilities = () => ({ exactModel: false, attributedTermination: true });
         const { graphRunId } = await bootAndSubmit(h);
-        confirmGraphRun(h.deps, graphRunId);
         const driven = await claimAndDrive(h, graphRunId);
         expect(driven.launched).toBe(1);
         const node = h.store.db
@@ -750,7 +739,6 @@ describe('documented failures of the current dynamic graph implementation', () =
     try {
       h.deps.cwdForRepo = () => undefined;
       const { graphRunId } = await bootAndSubmit(h);
-      confirmGraphRun(h.deps, graphRunId);
       const driven = await claimAndDrive(h, graphRunId);
       expect(driven.launched).toBe(0);
       expect(driven.blocked).toBe(1);
@@ -781,7 +769,6 @@ describe('documented failures of the current dynamic graph implementation', () =
           } as never,
         }) as AgentAdapter;
       const { graphRunId } = await bootAndSubmit(h);
-      confirmGraphRun(h.deps, graphRunId);
       const driven = await claimAndDrive(h, graphRunId);
       expect(driven.launched).toBe(0);
       expect(driven.blocked).toBe(1);
@@ -821,7 +808,6 @@ describe('documented failures of the current dynamic graph implementation', () =
             } as never,
           }) as AgentAdapter;
         const { graphRunId } = await bootAndSubmit(h);
-        confirmGraphRun(h.deps, graphRunId);
         await claimAndDrive(h, graphRunId);
         h.deps.adapterFor = supportedAdapterFor;
         // The recovery sweep's retry: the parked node is re-armed to launch,
@@ -1047,7 +1033,6 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
         ['fork'],
       );
       const { graphRunId } = await bootAndSubmit(h, doc);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
 
       // One tick claims the gate, then BOTH branches launch concurrently.
       expect(await tickGraphRun(h, graphRunId)).toBe('running');
@@ -1107,7 +1092,6 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
         ['has-task'],
       );
       const { graphRunId } = await bootAndSubmit(h, doc);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
       const impl = await tickToNode(h, graphRunId, 'impl');
       expect(impl.status).toBe('running');
       expect(h.commandRuns).toEqual([]);
@@ -1140,7 +1124,6 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
         ['verify'],
       );
       const { graphRunId } = await bootAndSubmit(h, doc);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
       const impl = await tickToNode(h, graphRunId, 'impl');
       expect(impl.status).toBe('running');
     } finally {
@@ -1166,7 +1149,6 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
         ['impl'],
       );
       const { graphRunId } = await bootAndSubmit(h, doc);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
       const impl = await tickToNode(h, graphRunId, 'impl');
       writeInWorkspace(h, impl, 'src/first.ts', 'first\n');
       expect(reportNode(h, graphRunId, impl, 'complete').ok).toBe(true);
@@ -1228,7 +1210,6 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
       await tickGraphRun(h, graphRunId);
       const impl = runOf(h, graphRunId, 'impl');
       const out = reportNode(h, graphRunId, impl, 'blocked', 'missing credentials');
@@ -1275,8 +1256,7 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
       ) as { ok: boolean };
       expect(resubmitted.ok).toBe(true);
       await tickGraphRun(h, graphRunId);
-      expect(graphRunStatus(h.store.db, graphRunId)).toBe('awaiting-confirmation');
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
+      expect(graphRunStatus(h.store.db, graphRunId)).toBe('running');
       await tickGraphRun(h, graphRunId);
       const impl = runOf(h, graphRunId, 'impl');
       writeInWorkspace(h, impl, 'src/repaired.ts', 'ok\n');
@@ -1293,7 +1273,6 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
     const h = makeHarness({ recordProcesses: true });
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
       await tickGraphRun(h, graphRunId);
       const impl = runOf(h, graphRunId, 'impl');
       writeInWorkspace(h, impl, 'src/crash.ts', 'survived\n');
@@ -1317,7 +1296,6 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
     const h = makeHarness({ recordProcesses: true });
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
       await tickGraphRun(h, graphRunId);
       const impl = runOf(h, graphRunId, 'impl');
       writeInWorkspace(h, impl, 'src/live.ts', 'live\n');
@@ -1339,7 +1317,6 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
     const h = makeHarness();
     try {
       const first = await bootAndSubmit(h);
-      expect(confirmGraphRun(h.deps, first.graphRunId)).toBe(true);
       await tickGraphRun(h, first.graphRunId);
       const impl = runOf(h, first.graphRunId, 'impl');
       writeInWorkspace(h, impl, 'src/first.ts', 'one\n');
@@ -1427,7 +1404,6 @@ describe('dynamic graph e2e — automatic recovery of a blocked run (no human ac
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
       await tickGraphRun(h, graphRunId);
       const impl = runOf(h, graphRunId, 'impl');
       parkNodeLaunchExit(h.deps, graphRunId, impl.id, 'provider exited');
@@ -1458,7 +1434,6 @@ describe('dynamic graph e2e — automatic recovery of a blocked run (no human ac
     const h = makeHarness();
     try {
       const { graphRunId } = await bootAndSubmit(h);
-      expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
       await tickGraphRun(h, graphRunId);
       const impl = runOf(h, graphRunId, 'impl');
       writeInWorkspace(h, impl, 'outside.ts', 'changed\n');

@@ -39,7 +39,7 @@ describe('graphLaunchDecision', () => {
     expect(graphLaunchDecision(store.db, ticketId, 0)).toEqual({ kind: 'launch' });
   });
 
-  it.each(['planning', 'awaiting-confirmation', 'running', 'draining', 'blocked', 'completed-awaiting-impl-marker'])(
+  it.each(['planning', 'running', 'draining', 'blocked', 'completed-awaiting-impl-marker'])(
     'defers to the coordinator while a %s run exists',
     (status) => {
       const graphRunId = run(status, 0);

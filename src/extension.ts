@@ -279,7 +279,7 @@ import {
   fireGraphImplMarkerFromHost,
 } from './workflow/graphMarkerGuard.js';
 import { DEFAULT_GRAPH_LIMITS } from './manifest/graphConfig.js';
-import { acceptSubmittedPlan, acceptSubmittedReplan, bootstrapAndLaunchPlanner, confirmGraphRun, driveReadyNodeRuns, launchReplanPlanner, plannerVocabularyFor, relaunchBootstrapPlanner, readPlannerDiagnostics, compileDiagnosticsSection, PLANNER_SUBMIT_INSTRUCTION, type GraphDriverDeps } from './approaches/graph/driver.js';
+import { acceptSubmittedPlan, acceptSubmittedReplan, bootstrapAndLaunchPlanner, driveReadyNodeRuns, launchReplanPlanner, plannerVocabularyFor, relaunchBootstrapPlanner, readPlannerDiagnostics, compileDiagnosticsSection, PLANNER_SUBMIT_INSTRUCTION, type GraphDriverDeps } from './approaches/graph/driver.js';
 import { visitMailboxFacts } from './approaches/graph/visitMailboxFacts.js';
 import { runGraphCommand } from './cli/graph.js';
 import { buildGraphSessionEnv } from './approaches/graph/transport/env.js';
@@ -2980,7 +2980,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError, debug: (m) => logger.debug(m),
   });
   let restartGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
-  let confirmGraphRunForTicket: ((ticketId: number, graphRunId: number) => void) | undefined;
 
   const serverLogsManager = new ServerLogsManager(
     makeServerLogsPanelHost(context, brandIcon),
@@ -3207,7 +3206,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const handler = restartGraphRun;
         if (handler) void handler(ticketId, graphRunId);
       },
-      graphConfirm: (ticketId, graphRunId) => confirmGraphRunForTicket?.(ticketId, graphRunId),
       // Fire the impl marker for a run that finished all its node work and is
       // durably waiting (Slice 7). Runs the SAME guarded transition
       // `karst stage impl pass` runs, including the waiting-agent refusal —
@@ -5047,17 +5045,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
           const afterStatus = graphRunStatus(gs.db, graphRunId);
-          if (afterStatus === 'awaiting-confirmation') {
-            // The human gate: the plan compiled and is awaiting review.
-            void vscode.window
-              .showInformationMessage(
-                `Ticket ${ticketRefOrUnknown(graphRunTicketId(graphRunId))}: the implementation graph plan is ready — review it, then start the run.`,
-                'Start graph',
-              )
-              .then((choice) => {
-                if (choice === 'Start graph') void confirmGraphRunHost(graphRunId);
-              });
-          } else if (afterStatus === 'running') {
+          if (afterStatus === 'running') {
             void runGraphCoordinatorTick(graphRunId);
           }
           settleGraphRun(gs.db, graphRunId);
@@ -5094,7 +5082,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return;
       }
-      if (status === 'awaiting-confirmation') return;
       if (status === 'blocked') {
         settleGraphRun(gs.db, graphRunId);
         return;
@@ -5157,26 +5144,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dashboard.pushState(ticketId);
     logger.info(`karst: graph run ${result.graphRunId} launched for ticket ${formatId('ticket', ticketId)}`);
     return true;
-  };
-
-  /** The human confirm gate: awaiting-confirmation → running, then a sweep
-   *  tick claims the entry tokens and the tick's continuation executes them. */
-  const confirmGraphRunHost = async (graphRunId: number): Promise<void> => {
-    const gs = graphCoordinatorStore;
-    if (!gs) return;
-    if (confirmGraphRun(graphDriverDeps(), graphRunId)) {
-      provider.refresh();
-      dashboard.pushState(graphRunTicketId(graphRunId));
-      void runGraphCoordinatorTick(graphRunId);
-    }
-  };
-  confirmGraphRunForTicket = (ticketId, graphRunId) => {
-    const gs = graphCoordinatorStore;
-    if (!gs) return;
-    const run = activeGraphRunFor(gs.db, ticketId);
-    if (run?.graphRunId === graphRunId && run.status === 'awaiting-confirmation') {
-      void confirmGraphRunHost(graphRunId);
-    }
   };
 
   /** Terminal-close fallback for a planner that did not complete the explicit

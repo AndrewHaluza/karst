@@ -361,17 +361,17 @@
     // ─── Graph projection logic (mirrors src/model/inside/graph.ts) ──────────
     const GRAPH_NODE_GROUPS = ['active', 'ready', 'resource-waiting', 'completed', 'blocked', 'stale', 'cancelled', 'other'];
     const GRAPH_ACTIVE_STATUSES = ['launching', 'running', 'completing', 'integrating'];
-    const GRAPH_RUN_STATUSES = ['planning', 'awaiting-confirmation', 'running', 'draining', 'blocked', 'completed-awaiting-impl-marker', 'closed', 'stale', 'cancelled'];
+    const GRAPH_RUN_STATUSES = ['planning', 'running', 'draining', 'blocked', 'completed-awaiting-impl-marker', 'closed', 'stale', 'cancelled'];
     const TERMINAL_RUN_STATUSES = new Set(['closed', 'cancelled', 'stale']);
-    const STOPPABLE_RUN_STATUSES = ['planning', 'awaiting-confirmation', 'running', 'blocked'];
+    const STOPPABLE_RUN_STATUSES = ['planning', 'running', 'blocked'];
     const AMBIGUOUS_NODE_STATUSES = ['launch-unknown', 'termination-unknown'];
     const NODE_OVERRIDE_EDITABLE = ['ready', 'blocked', 'failed-to-launch'];
 
     function graphRunStatusLabel(s) {
-      return { planning:'Planning', 'awaiting-confirmation':'Awaiting confirmation', running:'Running', draining:'Draining', blocked:'Blocked', 'completed-awaiting-impl-marker':'Completed — awaiting implementation marker', closed:'Closed', stale:'Stale', cancelled:'Cancelled' }[s] || s;
+      return { planning:'Planning', running:'Running', draining:'Draining', blocked:'Blocked', 'completed-awaiting-impl-marker':'Completed — awaiting implementation marker', closed:'Closed', stale:'Stale', cancelled:'Cancelled' }[s] || s;
     }
     function graphRunStatus(s) {
-      if (['planning','awaiting-confirmation','running','draining'].includes(s)) return 'run';
+      if (['planning','running','draining'].includes(s)) return 'run';
       if (['blocked','stale','completed-awaiting-impl-marker'].includes(s)) return 'wait';
       if (s === 'closed') return 'pass';
       if (s === 'cancelled') return 'note';
@@ -467,9 +467,7 @@
         ? { actionId: 'stop', kind: 'graph-stop', label: 'Stop' }
         : rs === 'blocked'
           ? { actionId: 'resume', kind: 'graph-resume', label: 'Resume' }
-          : rs === 'awaiting-confirmation'
-            ? { actionId: 'confirm', kind: 'graph-confirm', label: 'Confirm' }
-            : rs === 'completed-awaiting-impl-marker'
+          : rs === 'completed-awaiting-impl-marker'
               ? { actionId: 'mark', kind: 'graph-mark-impl', label: 'Mark done' }
               : undefined;
 

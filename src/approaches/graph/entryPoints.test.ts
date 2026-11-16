@@ -122,8 +122,8 @@ function insertNodeRun(ctx: Ctx, id: number, status: string): void {
     .run(id, ctx.graphRunId, ctx.revisionId, visit, status);
 }
 
-describe('Stop on a planning or awaiting-confirmation run', () => {
-  it.each(['planning', 'awaiting-confirmation'])('cancels a %s run through cancelGraphRun', async (status) => {
+describe('Stop on a planning run', () => {
+  it.each(['planning'])('cancels a %s run through cancelGraphRun', async (status) => {
     const ctx = harness(status);
     const result = await stopActiveGraph(ctx.makeDeps(), { ticketId: ctx.ticketId, graphRunId: ctx.graphRunId });
     expect(result).toMatchObject({ drained: false, outcome: 'cancelled' });

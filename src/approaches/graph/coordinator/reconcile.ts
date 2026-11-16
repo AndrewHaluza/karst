@@ -85,7 +85,6 @@ import {
  *  awaiting the explicit marker (matrix row). */
 const SUPERSEDABLE_RUN_STATUSES = [
   'planning',
-  'awaiting-confirmation',
   'running',
   'draining',
   'blocked',

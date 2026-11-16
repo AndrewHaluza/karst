@@ -135,3 +135,30 @@ describe('migrateLegacyManifest — contradictions', () => {
     expect(raw.services).toBeUndefined();
   });
 });
+
+describe('migrateLegacyManifest — retired `confirmGeneratedGraph` key', () => {
+  const withKey = (value: boolean): Record<string, unknown> => ({
+    host: 'x',
+    approaches: [{ id: 'g', graph: { limits: { confirmGeneratedGraph: value, maxParallel: 2 } } }],
+  });
+  const limitsOf = (raw: Record<string, unknown>): Record<string, unknown> =>
+    ((raw.approaches as Array<{ graph: { limits: Record<string, unknown> } }>)[0]!.graph.limits);
+
+  it.each([true, false])('drops the key (%s) with one deprecation warning', (value) => {
+    const input = withKey(value);
+    const { raw, warnings } = migrate(input);
+    expect(limitsOf(raw)).toEqual({ maxParallel: 2 });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/confirmGeneratedGraph/);
+    // The input is never mutated.
+    expect(limitsOf(input)).toHaveProperty('confirmGeneratedGraph', value);
+  });
+
+  it('emits no warning when the key is absent', () => {
+    const { warnings } = migrate({
+      host: 'x',
+      approaches: [{ id: 'g', graph: { limits: { maxParallel: 2 } } }],
+    });
+    expect(warnings).toEqual([]);
+  });
+});

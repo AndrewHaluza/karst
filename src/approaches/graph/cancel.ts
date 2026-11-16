@@ -1,7 +1,7 @@
 /**
  * The ONE Cancel operation for a graph run (T1133).
  *
- * A run in any non-terminal status (`planning`, `awaiting-confirmation`,
+ * A run in any non-terminal status (`planning`,
  * `running`, `draining`, `blocked`, `completed-awaiting-impl-marker`) can be
  * closed as `cancelled`. Order matters:
  *

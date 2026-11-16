@@ -192,7 +192,6 @@ export function graphApproachConfig(over: Partial<GraphApproachConfig> = {}): Gr
       },
     },
     limits: {
-      confirmGeneratedGraph: true,
       maxParallel: 1,
       maxNodeRuns: 40,
       maxExpertRuns: 5,

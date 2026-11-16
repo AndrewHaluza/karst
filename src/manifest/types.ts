@@ -377,7 +377,6 @@ export interface GraphCommandConfig {
  * manifest validation and cannot be raised by project configuration.
  */
 export interface GraphLimits {
-  confirmGeneratedGraph: boolean;
   maxParallel: number;
   maxNodeRuns: number;
   maxExpertRuns: number;

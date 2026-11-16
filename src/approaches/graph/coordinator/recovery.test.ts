@@ -932,11 +932,11 @@ describe('recoverGraphRun', () => {
     expect(stageBlock(store, ticketId, 'impl')).toBeNull();
   });
 
-  it('restores a legacy planner-stale block with an accepted revision to confirmation', () => {
+  it('restores a legacy planner-stale block with an accepted revision to running', () => {
     const { ticketId, graphRunId } = blockedGraph('planner-stale: submitted planner exited', []);
     const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
-    expect(result).toEqual({ kind: 'confirmation-restored' });
-    expect(runRow(graphRunId)).toEqual({ status: 'awaiting-confirmation', blocked_reason: null });
+    expect(result).toEqual({ kind: 'run-restored' });
+    expect(runRow(graphRunId)).toEqual({ status: 'running', blocked_reason: null });
     expect(stageBlock(store, ticketId, 'impl')).toBeNull();
     expect(plannerRunsOf(graphRunId)).toEqual([]);
   });
