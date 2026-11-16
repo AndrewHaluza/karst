@@ -286,11 +286,7 @@ import { runGraphCommand } from './cli/graph.js';
 import { buildGraphSessionEnv } from './approaches/graph/transport/env.js';
 import { envRef, sessionCliEnv } from './agent/cliEnv.js';
 import { createNodeWorkspace } from './approaches/graph/workspace/provider.js';
-import {
-  mainCheckoutOf,
-  provisionWorkspaceDeps,
-  runWorkspaceSetup,
-} from './approaches/graph/workspace/workspaceDeps.js';
+import { createDepsProvisioner } from './approaches/graph/workspace/workspaceDeps.js';
 import type {
   CommandDefinition,
   CompileContext,
@@ -4875,22 +4871,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             now: () => new Date().toISOString(),
             facts: systemAsyncProcessFacts,
             // @arch:GRAPHRUN: a clone gets the dependencies of its ticket worktree.
-            provisionDeps: (domain, clone) =>
-              provisionWorkspaceDeps(
-                {
-                  repoName: domain.repoName,
-                  clone,
-                  worktree: domain.canonicalWorktreePath,
-                  mainCheckout: mainCheckoutOf(domain.gitCommonDir),
-                  explicit: Object.entries(currentManifest()?.repositories ?? {}).find(
-                    ([name]) => canonicalRepoId(name) === canonicalRepoId(domain.repoName),
-                  )?.[1].graphWorkspace,
-                },
-                {
-                  runSetup: runWorkspaceSetup(runProcess, { onDebug: (message) => logger.debug(message) }),
-                  debug: (message) => logger.debug(message),
-                },
-              ),
+            provisionDeps: createDepsProvisioner({ manifest: currentManifest, run: runProcess, debug: (message) => logger.debug(message) }),
             debug: (message) => logger.debug(message),
           },
           {

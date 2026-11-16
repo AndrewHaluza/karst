@@ -37,7 +37,9 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { isPathUnder } from '../../../runtime/pathScope.js';
 import { checkNodeDeps } from '../../../workflow/gates/depsCheck.js';
 import type { GateProcessRunner } from '../../../workflow/gates/run.js';
-import type { GraphWorkspaceDef } from '../../../manifest/types.js';
+import type { GraphWorkspaceDef, Manifest } from '../../../manifest/types.js';
+import { canonicalRepoId } from '../../../runtime/repoId.js';
+import type { WorkspaceDomain } from './provider.js';
 import { planCreatedPaths, planIsEmpty, planWorkspaceDeps, resolvePlanPath, type DepsPlan } from './depsPlan.js';
 
 /** The setup command may run a full install: generous, but never unbounded. */
@@ -471,4 +473,30 @@ export async function provisionWorkspaceDeps(
     removeCreated(input.clone, created);
     return { kind: 'failed', reason: `${input.repoName}: could not prepare dependencies — ${String(err)}` };
   }
+}
+
+/**
+ * The host binding of `provisionDeps` for the workspace provider: it reads the
+ * repository's `graphWorkspace` block from the live manifest and derives the main
+ * checkout from the domain's git common dir.
+ */
+export function createDepsProvisioner(opts: {
+  manifest: () => Manifest | undefined;
+  run: GateProcessRunner;
+  debug: (message: string) => void;
+}): (domain: WorkspaceDomain, clone: string) => Promise<WorkspaceDepsResult> {
+  return (domain, clone) => {
+    const wanted = canonicalRepoId(domain.repoName);
+    const repo = Object.entries(opts.manifest()?.repositories ?? {}).find(([name]) => canonicalRepoId(name) === wanted);
+    return provisionWorkspaceDeps(
+      {
+        repoName: domain.repoName,
+        clone,
+        worktree: domain.canonicalWorktreePath,
+        mainCheckout: mainCheckoutOf(domain.gitCommonDir),
+        explicit: repo?.[1].graphWorkspace,
+      },
+      { runSetup: runWorkspaceSetup(opts.run, { onDebug: opts.debug }), debug: opts.debug },
+    );
+  };
 }

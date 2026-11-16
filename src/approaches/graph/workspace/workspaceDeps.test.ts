@@ -13,9 +13,11 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Manifest } from '../../../manifest/types.js';
 import type { GateProcessRunner, ProcessOutcome } from '../../../workflow/gates/run.js';
 import {
   SETUP_OUTPUT_TAIL_CHARS,
+  createDepsProvisioner,
   WORKSPACE_SETUP_TIMEOUT_MS,
   mainCheckoutOf,
   provisionWorkspaceDeps,
@@ -315,5 +317,28 @@ describe('mainCheckoutOf', () => {
     expect(mainCheckoutOf('/r/app/.git/')).toBe('/r/app');
     expect(mainCheckoutOf('/r/app.git')).toBeUndefined();
     expect(mainCheckoutOf(null)).toBeUndefined();
+  });
+});
+
+describe('createDepsProvisioner', () => {
+  it('reads the explicit block of the matching repository and derives the main checkout', async () => {
+    const run = vi.fn(async (..._args: Parameters<GateProcessRunner>): Promise<ProcessOutcome> => ({
+      kind: 'completed',
+      exitCode: 0,
+      output: '',
+    }));
+    const provision = createDepsProvisioner({
+      manifest: () =>
+        ({ repositories: { App: { graphWorkspace: { setup: 'make deps' } } } }) as unknown as Manifest,
+      run,
+      debug: () => undefined,
+    });
+    const result = await provision(
+      { repoName: 'app', canonicalWorktreePath: worktree, gitCommonDir: join(main, '.git'), baseCommit: 'x' },
+      clone,
+    );
+    expect(result.kind).toBe('ready');
+    expect(run.mock.calls[0]![1]).toContain('make deps');
+    expect(run.mock.calls[0]![2]).toBe(clone);
   });
 });
