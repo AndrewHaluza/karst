@@ -419,6 +419,16 @@ describe('bindings.userUat (decisions 7-8)', () => {
     expect(vi.mocked(runProcess)).not.toHaveBeenCalledWith('sh', ['-c', 'npm run reset'], expect.anything(), expect.anything());
   });
 
+  it('ignores a running host row whose service is not in the manifest', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    const { store, b } = await make({ proc: fakeSbxProcess() }, placedManifest);
+    store.db.prepare(HOST_ROW.replace("'api'", "'ghost'")).run();
+    expect(b.userUat.keepStackForUserUat(7)).toBe(false);
+    vi.mocked(runProcess).mockClear();
+    await expect(b.userUat.prepareUserUat(store, 7)).resolves.toEqual([]);
+    expect(runProcess).not.toHaveBeenCalled();
+  });
+
   it('withholds the link between start and end, per ticket', async () => {
     const { b } = await make();
     b.userUat.agentUatPhase(7, 'start');
