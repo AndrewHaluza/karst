@@ -51,6 +51,17 @@ export const UAT_TESTER_ON_SKIP = 'pass' as const;
 export const UAT_TESTER_TOKEN_BUDGET = 400_000;
 
 /**
+ * Why a value is not a repo-relative glob (`uat.testerObservations.requireEvidence`),
+ * or `null` when it is one. The host validator and the Quality tab both read this
+ * one rule (R-X1), so an edit the tab accepts is never refused at Save.
+ */
+export function relativeGlobProblem(value: unknown): 'empty' | 'not-relative' | null {
+  if (typeof value !== 'string' || value.trim() === '') return 'empty';
+  if (value.startsWith('/') || value.split('/').includes('..')) return 'not-relative';
+  return null;
+}
+
+/**
  * Default `review.findings` — the human-decided ON / `'high'` default.
  *
  * Deep-merged by the Quality tab's `updateFindings`, so editing one findings
