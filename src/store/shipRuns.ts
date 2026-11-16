@@ -983,6 +983,56 @@ const INTERRUPTED_STEP_DETAIL = 'interrupted — the host that ran it died; retr
 const INTERRUPTED_STAGE_VERDICT =
   'ship was interrupted — the host that ran it died before the PRs opened; retry ship to continue';
 
+/**
+ * Park a ship stage `failed` with the interrupted verdict, so the failed-ship
+ * surface offers "Retry ship". Only a stage that reads `running` and unblocked
+ * is written; the single-writer rule holds (`setStage` does the write).
+ * Returns true when it parked the stage.
+ */
+export function parkInterruptedShipStage(store: Store, ticketId: number, now: string): boolean {
+  const stage = store.db
+    .prepare("SELECT status, blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+    .get(ticketId) as { status: string; blocked_kind: string | null } | undefined;
+  if (stage === undefined || stage.status !== 'running' || stage.blocked_kind !== null) return false;
+  setStage(store, ticketId, 'ship', {
+    status: 'failed',
+    verdict: INTERRUPTED_STAGE_VERDICT,
+    endedAt: now,
+  });
+  return true;
+}
+
+/**
+ * Park the dead ships that THIS window will not resume: a ticket of another
+ * project whose newest ship run is `interrupted` and whose stage still reads
+ * `running` (`reconcileShipRuns` is global and left it for a resume). Its own
+ * window may be closed, so without this the stage would stay `running` with no
+ * Retry surface. A ticket with no interrupted run is never touched: it may be a
+ * ship that is just starting.
+ */
+export function parkShipsOfOtherProjects(
+  store: Store,
+  projectId: number,
+  now: string,
+): number[] {
+  const rows = store.db
+    .prepare(
+      `SELECT t.id AS ticket_id FROM tickets t
+         JOIN stages s ON s.ticket_id = t.id AND s.stage_key = 'ship'
+        WHERE t.stage_current = 'ship' AND s.status = 'running' AND s.blocked_kind IS NULL
+          AND (t.project_id IS NULL OR t.project_id <> ?)
+          AND NOT EXISTS (SELECT 1 FROM ship_runs r WHERE r.ticket_id = t.id AND r.status = 'running')
+          AND (SELECT r2.status FROM ship_runs r2 WHERE r2.ticket_id = t.id ORDER BY r2.id DESC LIMIT 1) = 'interrupted'
+        ORDER BY t.id`,
+    )
+    .all(projectId) as { ticket_id: number }[];
+  const parked: number[] = [];
+  for (const row of rows) {
+    if (parkInterruptedShipStage(store, row.ticket_id, now)) parked.push(row.ticket_id);
+  }
+  return parked;
+}
+
 /** A run this sweep found dead, reported so the loss is never silent. */
 export interface StaleShipRun {
   run: ShipRun;

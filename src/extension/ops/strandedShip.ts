@@ -1,4 +1,9 @@
-import { listStrandedShipTickets, describeStrandedShip } from '../../store/shipRuns.js';
+import {
+  listStrandedShipTickets,
+  describeStrandedShip,
+  parkInterruptedShipStage,
+  parkShipsOfOtherProjects,
+} from '../../store/shipRuns.js';
 import { getTicket } from '../../store/tickets.js';
 import type { Store } from '../../store/db.js';
 import type { Capability } from '../../runtime/deps.js';
@@ -34,7 +39,18 @@ export async function resumeStrandedShips(deps: StrandedShipDeps): Promise<void>
   for (const stranded of listStrandedShipTickets(deps.store, deps.isAlive, {
     projectId: deps.projectId,
   })) {
-    if (!(await deps.guardCapability('ship'))) continue;
+    if (!(await deps.guardCapability('ship'))) {
+      // A resume that cannot start must not leave the stage `running` with no
+      // Retry surface: park it `failed`, as `reconcileShipRuns` parks a dead
+      // unattended run (@arch:SHIP-RESUME).
+      if (parkInterruptedShipStage(deps.store, stranded.ticketId, new Date().toISOString())) {
+        deps.info(
+          `karst: stranded ship for ticket ${stranded.ticketId} parked failed — the ship capability is unavailable; retry ship to continue`,
+        );
+        deps.onResumeFailed(stranded.ticketId);
+      }
+      continue;
+    }
     // A paused ticket starts nothing on its own, and a ship saga is work:
     // it describes with a model, pushes, and opens PRs. The stranded run
     // stays stranded until the user unpauses — the same recovery then runs
@@ -50,5 +66,13 @@ export async function resumeStrandedShips(deps: StrandedShipDeps): Promise<void>
       deps.logError('karst: stranded ship resume failed', e);
       deps.onResumeFailed(stranded.ticketId);
     });
+  }
+  // `reconcileShipRuns` is global but this resume is scoped to one project:
+  // park the dead ships of the other projects, whose windows may never open.
+  for (const ticketId of parkShipsOfOtherProjects(deps.store, deps.projectId, new Date().toISOString())) {
+    deps.info(
+      `karst: ticket ${ticketId}: ship is parked failed — its project is not open in this window; retry ship to continue`,
+    );
+    deps.onResumeFailed(ticketId);
   }
 }

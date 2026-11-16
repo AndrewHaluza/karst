@@ -142,5 +142,25 @@ describe('resumeStrandedShips', () => {
       expect(runShip).not.toHaveBeenCalled();
       expect(stageStatus()).toBe('failed');
     });
+
+    it('parks the stage failed and starts no ship when the ship capability guard rejects', async () => {
+      seedRun({});
+      sweep();
+      const runShip = vi.fn(async () => undefined);
+      await resumeStrandedShips(deps({ runShip, guardCapability: () => false }));
+      expect(runShip).not.toHaveBeenCalled();
+      expect(stageStatus()).toBe('failed');
+    });
+
+    it('parks a dead ship of another project, which this window will never resume', async () => {
+      store.db.prepare('INSERT INTO projects (id, slug) VALUES (?, ?)').run(2, 'other');
+      seedRun({});
+      store.db.prepare('UPDATE tickets SET project_id = 2 WHERE id = ?').run(ticketId);
+      sweep();
+      const runShip = vi.fn(async () => undefined);
+      await resumeStrandedShips(deps({ runShip }));
+      expect(runShip).not.toHaveBeenCalled();
+      expect(stageStatus()).toBe('failed');
+    });
   });
 });
