@@ -127,6 +127,8 @@ export interface OpenSessionOptions {
    * A→B→A cannot resume A's retired conversation before B reports SessionStart.
    */
   allowResume?: boolean;
+  /** Host-only: this launch already passed the host-memory gate (a relaunch after an account-block choice), so it does not queue again. */
+  memoryAdmitted?: boolean;
   /** Host-only proof that this launch already passed async provider readiness. */
   providerReady?: boolean;
   /**

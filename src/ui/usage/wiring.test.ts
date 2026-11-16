@@ -80,3 +80,10 @@ describe('token-usage host wiring', () => {
     }
   });
 });
+
+describe('account-block relaunch wiring', () => {
+  it('relaunches under default without a second host-memory admission', () => {
+    expect(EXTENSION).toMatch(/!options\.recovery && !options\.memoryAdmitted && !sessions\.isOpen\(ticketId\) && wantsSbxBackend\(/);
+    expect(EXTENSION).toMatch(/account: 'default', allowResume: false, memoryAdmitted: true/);
+  });
+});

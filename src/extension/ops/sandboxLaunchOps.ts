@@ -184,6 +184,8 @@ export interface HostFallbackInput<T extends { readonly sandboxed: boolean; read
   readonly wantsSandbox: boolean;
   readonly hasSandbox: () => Promise<boolean>;
   readonly choose: (message: string, options: readonly string[]) => Promise<string | undefined>;
+  /** The same choice as a MODAL: the account-block choice must stop the launch until answered. */
+  readonly chooseModal: (message: string, options: readonly string[]) => Promise<string | undefined>;
   /** Modal naming the risk; true only on an explicit yes. */
   readonly confirmHost: (message: string) => Promise<boolean>;
   /** Sync (ff-only) then remove the sandbox; false when kept. */
@@ -228,7 +230,7 @@ export async function launchWithoutSilentHostFallback<T extends { readonly sandb
 
 async function accountBlockChoice<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>, backend: T, reason: string): Promise<HostFallbackResult<T>> {
   if (input.failClosed || input.refuseOnBlock) return { kind: 'refused', reason: `${reason}; the launch never runs on the host unasked` };
-  const picked = await input.choose(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, ACCOUNT_BLOCK_CHOICES);
+  const picked = await input.chooseModal(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, ACCOUNT_BLOCK_CHOICES);
   if (picked === ACCOUNT_BLOCK_DEFAULT) return { kind: 'restart-default' };
   if (picked !== ACCOUNT_BLOCK_HOST) return { kind: 'cancelled' };
   // The existing host path (F14): a ticket with a sandbox syncs it to the host branch, removes it and starts a fresh host session.
@@ -254,6 +256,7 @@ export function wantsSbxBackend(backends: AgentBackends | undefined, core: strin
 export function hostFallbackPrompts(win: { showWarningMessage(message: string, ...items: any[]): PromiseLike<string | undefined> }) {
   return {
     choose: async (msg: string, opts: readonly string[]) => win.showWarningMessage(msg, ...opts),
+    chooseModal: async (msg: string, opts: readonly string[]) => win.showWarningMessage(msg, { modal: true }, ...opts),
     confirmHost: async (msg: string) => (await win.showWarningMessage(msg, { modal: true }, 'Run on host')) === 'Run on host',
   };
 }
