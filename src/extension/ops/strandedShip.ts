@@ -63,6 +63,10 @@ export async function resumeStrandedShips(deps: StrandedShipDeps): Promise<void>
     deps.info(describeStrandedShip(stranded));
     void deps.runShip(stranded.ticketId).catch((e) => {
       deps.logError('karst: stranded ship resume failed', e);
+      // A resume that rejects before the saga opens its run (a drain refusal, a
+      // start guard) leaves the stage `running`: park it so "Retry ship" shows.
+      // A stage the saga already failed is not `running`, so this is a no-op.
+      parkInterruptedShipStage(deps.store, stranded.ticketId, new Date().toISOString());
       deps.onResumeFailed(stranded.ticketId);
     });
   }

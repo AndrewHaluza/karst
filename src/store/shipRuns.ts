@@ -402,11 +402,20 @@ export function listStrandedShipTickets(
     // any live pid anywhere proves the ship is still executing somewhere.
     const siblings = rows.filter((r) => r.ticket_id === row.ticket_id);
     if (siblings.some((r) => r.pid !== null && isAlive(r.pid))) continue;
+    // No running row: name the newest interrupted run `reconcileShipRuns` closed, so the log line states it.
+    const closed =
+      row.run_id === null
+        ? (store.db
+            .prepare(
+              "SELECT id, started_at, pid FROM ship_runs WHERE ticket_id = ? AND status = 'interrupted' ORDER BY id DESC LIMIT 1",
+            )
+            .get(row.ticket_id) as { id: number; started_at: string; pid: number | null } | undefined)
+        : undefined;
     stranded.push({
       ticketId: row.ticket_id,
-      runId: row.run_id,
-      startedAt: row.started_at,
-      pid: row.pid,
+      runId: closed?.id ?? row.run_id,
+      startedAt: closed?.started_at ?? row.started_at,
+      pid: closed?.pid ?? row.pid,
     });
   }
   return stranded;

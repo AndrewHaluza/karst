@@ -151,5 +151,24 @@ describe('resumeStrandedShips', () => {
       expect(runShip).not.toHaveBeenCalled();
       expect(stageStatus()).toBe('failed');
     });
+
+    it('parks the stage failed when the resume rejects before its run opens', async () => {
+      seedRun({});
+      sweep();
+      const runShip = vi.fn(async () => {
+        throw new Error('draining');
+      });
+      await resumeStrandedShips(deps({ runShip }));
+      await flush();
+      expect(stageStatus()).toBe('failed');
+    });
+
+    it('names the interrupted run in the resume line', async () => {
+      seedRun({});
+      sweep();
+      const info = vi.fn();
+      await resumeStrandedShips(deps({ info }));
+      expect(info).toHaveBeenCalledWith(expect.stringMatching(/run \d+ .*\(pid 4242\)/));
+    });
   });
 });
