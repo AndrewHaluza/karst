@@ -16,7 +16,7 @@ import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults, finishDeliverRun } from '../../store/deliverRuns.js';
-import { autoDeliverAction, baseMovedFailure, shipBaseCheck, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput } from './ciActionsWiring.js';
+import { autoDeliverAction, baseMovedFailure, shipBaseCheck, shipBaseRemedy, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
 let store: Store;
@@ -1047,5 +1047,81 @@ describe('baseMovedFailure runs the gates on the merged worktree (D541, D592)', 
     const i = input({ git: git(), sandbox: sb });
     await baseMovedFailure(i, gate, pr, signal);
     expect(i.debug).toHaveBeenCalledWith('[ship] sandbox lookup failed: gone');
+  });
+});
+
+describe('shipBaseRemedy (T1169, D633)', () => {
+  const CMD = 'true';
+  const gate = { debug: () => {}, gateEnv: () => ({ prBody: '', baseRef: 'develop' }) } as never;
+  let pr: { repo: string; branch: string; cwd: string };
+
+  /** A failed base-moved run of the ticket with the given failed gate summaries. */
+  function seedFailedRun(summaries: string[]): void {
+    const runId = openDeliverRun(store, { ticketId: id, headSha: SHA, pid: 1, now: '2026-08-09T10:00:00.000Z', kind: 'base-moved', gates: summaries.map((_, n) => `g${n}`) });
+    summaries.forEach((summary, n) => recordDeliverGate(store, runId, { gateName: `g${n}`, repo: 'r', exitCode: 1, headSha: SHA, summary, startedAt: null, endedAt: null }));
+    finishDeliverRun(store, runId, 'failed', '2026-08-09T10:01:00.000Z');
+  }
+  /** A git whose HEAD is a new 40-hex sha on each read, so a rebase moves the head. */
+  const hexGit = (fail?: (args: readonly string[]) => boolean): CiActionsInput['git'] => {
+    let n = 0;
+    return vi.fn(async (args: readonly string[]) => ({
+      stdout: args.includes('rev-parse') ? `${String(n++).padStart(40, 'c')}\n` : '',
+      stderr: 'conflict', exitCode: fail?.(args) ? 1 : 0,
+    }));
+  };
+  const lease = (): unknown => store.db.prepare('SELECT needs_force_push AS v FROM worktrees WHERE ticket_id = ?').get(id);
+
+  beforeEach(() => {
+    pr = { repo: 'r', branch: 'b', cwd: dir }; // a real directory: the generator command runs there
+    seedPr();
+    store.db.prepare('UPDATE worktrees SET needs_force_push = NULL').run();
+    vi.mocked(shipGates.runShipGates).mockReset();
+    vi.mocked(shipGates.runShipGates).mockResolvedValue(null);
+  });
+
+  it('(a) rebases once for a stale-only failure, gates the new head and arms the lease; nothing is pushed', async () => {
+    seedFailedRun([`docs/arch/system-map.md is stale: run ${CMD}`]);
+    const i = input({ git: hexGit() });
+    const r = await shipBaseRemedy(i, gate, () => [CMD])(pr);
+    expect(r).toEqual({ kind: 'rebased', detail: expect.stringContaining(CMD) });
+    const verbs = vi.mocked(i.git).mock.calls.map((c) => c[0].filter((a) => a !== '-c')[0]);
+    expect(verbs.filter((v) => v === 'rebase')).toHaveLength(1);
+    expect(verbs).not.toContain('push');
+    expect(i.confirm).not.toHaveBeenCalled();
+    expect(shipGates.runShipGates).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(shipGates.runShipGates).mock.calls[0]![1]).toMatchObject({ evidence: { store, ticketId: id } });
+    expect(lease()).toEqual({ v: 1 });
+  });
+
+  it('(b) starts no rebase when one more gate fails', async () => {
+    seedFailedRun([`docs/arch/system-map.md is stale: run ${CMD}`, 'FAIL src/a.test.ts > x > y']);
+    const i = input({ git: hexGit() });
+    expect(await shipBaseRemedy(i, gate, () => [CMD])(pr)).toBeNull();
+    expect(i.git).not.toHaveBeenCalled();
+    expect(shipGates.runShipGates).not.toHaveBeenCalled();
+    expect(lease()).toEqual({ v: null });
+  });
+
+  it('(c) refuses, and keeps the lease armed, when the gates fail on the rebased head', async () => {
+    seedFailedRun([`docs/arch/system-map.md is stale: run ${CMD}`]);
+    vi.mocked(shipGates.runShipGates).mockResolvedValue('r: gate "docs-graph" failed (exit 1)');
+    const i = input({ git: hexGit() });
+    expect(await shipBaseRemedy(i, gate, () => [CMD])(pr)).toEqual({ kind: 'refused', reason: expect.stringContaining('docs-graph') });
+    expect(lease()).toEqual({ v: 1 });
+  });
+
+  it('refuses, runs no gate and arms no lease when the rebase stops', async () => {
+    seedFailedRun([`docs/arch/system-map.md is stale: run ${CMD}`]);
+    const i = input({ git: hexGit((args) => args.includes('rebase') && !args.includes('--abort')) });
+    expect(await shipBaseRemedy(i, gate, () => [CMD])(pr)).toEqual({ kind: 'refused', reason: expect.stringContaining('rebase on base') });
+    expect(shipGates.runShipGates).not.toHaveBeenCalled();
+    expect(lease()).toEqual({ v: null });
+  });
+
+  it('refuses when the manifest names no base branch', async () => {
+    seedFailedRun([`docs/arch/system-map.md is stale: run ${CMD}`]);
+    const i = input({ git: hexGit() });
+    const noBase = { debug: () => {}, gateEnv: () => ({ prBody: '' }) } as never;
+    expect(await shipBaseRemedy(i, noBase, () => [CMD])(pr)).toEqual({ kind: 'refused', reason: expect.stringContaining('base branch') });
   });
 });
