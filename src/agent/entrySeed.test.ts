@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   launchInvocation,
+  freshLaunchLead,
   launchSections,
   composeResumeSeed,
   composeConflictSeed,
@@ -228,5 +229,41 @@ describe('composeConflictSeed', () => {
       invocation: '/karst:resolve-conflict',
     });
     expect(seed.kickoff.startsWith('/karst:resolve-conflict PROJ-9')).toBe(true);
+  });
+});
+
+describe('freshLaunchLead', () => {
+  const base = {
+    approachPrompt: 'METHOD',
+    entryInvocation: '/karst:start-task',
+    fixEntryInvocation: '/karst:fix',
+    ticketKey: 'PROJ-9',
+  };
+
+  it('at fix with a fix brief: fix brief leads, fix entry, no start-task, no approach method', () => {
+    const lead = freshLaunchLead({ ...base, stage: 'fix', fixBrief: 'GATE FAILED', sendBackText: 'SB' });
+    expect(lead).toEqual({ approachPrompt: null, leadBrief: 'GATE FAILED', leadInvocation: '/karst:fix PROJ-9' });
+  });
+
+  it('at fix without a fix entry: brief leads with no invocation', () => {
+    const lead = freshLaunchLead({ ...base, stage: 'fix', fixBrief: 'B', fixEntryInvocation: undefined });
+    expect(lead).toEqual({ approachPrompt: null, leadBrief: 'B' });
+  });
+
+  it('at impl: start entry and approach method stay', () => {
+    const lead = freshLaunchLead({ ...base, stage: 'impl', fixBrief: null });
+    expect(lead).toEqual({ approachPrompt: 'METHOD', invocation: '/karst:start-task PROJ-9' });
+  });
+
+  it('at impl: a send-back text leads, as before', () => {
+    const lead = freshLaunchLead({ ...base, stage: 'impl', sendBackText: 'SB' });
+    expect(lead.leadBrief).toBe('SB');
+    expect(lead.approachPrompt).toBe('METHOD');
+  });
+
+  it('at fix with no fix brief: unchanged', () => {
+    const lead = freshLaunchLead({ ...base, stage: 'fix', fixBrief: null });
+    expect(lead.approachPrompt).toBe('METHOD');
+    expect(lead.invocation).toBe('/karst:start-task PROJ-9');
   });
 });

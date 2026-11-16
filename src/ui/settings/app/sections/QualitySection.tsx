@@ -14,7 +14,9 @@
  *   (`testerObservations != null`), not from a defaults fallback — the block's
  *   PRESENCE is the setting;
  * - unchecking it removes `uat.testerObservations` entirely, and the blocking
- *   severity row is hidden with it;
+ *   severity row is hidden with it; no other edit on the tab removes the block;
+ * - `onSkip` and `requireEvidence` (`TesterEvidenceFields`) are edited inside
+ *   the block, through `updateTesterObservations`;
  * - the severity listener is GUARDED by the toggle, so a hidden row can never
  *   write the block back;
  * - review findings default to ON/`'high'`/50 when the block is absent, and
@@ -57,6 +59,7 @@ import { Button } from '../primitives/Button.js';
 import { Help } from '../primitives/Help.js';
 import { IconButton } from '../primitives/IconButton.js';
 import { TablerIcon } from '../primitives/TablerIcon.js';
+import { TesterEvidenceFields } from './TesterEvidenceFields.js';
 import {
   addRepoOverride,
   parseGateBlock,
@@ -68,6 +71,7 @@ import {
   stallErrors,
   updateReview,
   updateStallDetection,
+  updateTesterObservations,
   updateUat,
   updateGates,
   setGateOnResourceKill,
@@ -177,11 +181,8 @@ export function QualitySection() {
                     options: SEVERITY_OPTIONS,
                     onChange: (value) =>
                       edit((current) =>
-                        updateUat(current, {
-                          testerObservations: {
-                            ...uat.testerObservations,
-                            blockingSeverity: value as BlockingSeverity,
-                          },
+                        updateTesterObservations(current, {
+                          blockingSeverity: value as BlockingSeverity,
                         }),
                       ),
                   }}
@@ -196,16 +197,11 @@ export function QualitySection() {
                     options: ON_SKIP_OPTIONS,
                     onChange: (value) =>
                       edit((current) =>
-                        updateUat(current, {
-                          testerObservations: {
-                            ...uat.testerObservations,
-                            blockingSeverity: testerSeverity,
-                            onSkip: value as TesterOnSkip,
-                          },
-                        }),
+                        updateTesterObservations(current, { onSkip: value as TesterOnSkip }),
                       ),
                   }}
                 />
+                <TesterEvidenceFields rule={uat.testerObservations?.requireEvidence} />
               </div>
             ) : null}
           </div>

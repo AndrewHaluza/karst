@@ -22,6 +22,7 @@ import {
   SEVERITIES,
   UAT_MAX_FIX_ATTEMPTS,
   UAT_TESTER_TOKEN_BUDGET,
+  relativeGlobProblem,
 } from '../qualityDefaults.js';
 
 const GATE_KINDS: readonly GateKind[] = ['script', 'command'];
@@ -240,13 +241,12 @@ function validateTesterObservations(raw: unknown): UatTesterObservationsConfig |
 
 /** A repo-relative glob: a non-empty string, not absolute, no `..` segment. */
 function validateRelativeGlob(value: unknown, path: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new ManifestError(`${path} must be a non-empty string`);
-  }
-  if (value.startsWith('/') || value.split('/').includes('..')) {
+  const problem = relativeGlobProblem(value);
+  if (problem === 'empty') throw new ManifestError(`${path} must be a non-empty string`);
+  if (problem === 'not-relative') {
     throw new ManifestError(`${path} must be a repo-relative glob (no leading "/" and no ".." segment)`);
   }
-  return value;
+  return value as string;
 }
 
 function validateRequireEvidence(raw: unknown): UatTesterRequireEvidence | undefined {

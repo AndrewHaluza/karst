@@ -755,7 +755,7 @@ export interface UatTesterObservationsConfig {
    */
   onSkip?: 'pass' | 'reask' | 'reask-then-park';
   /**
-   * Opt-in, manifest-only. When the ticket diff matches `whenChanged`, a Tester
+   * Opt-in (yml or Settings → Quality). When the ticket diff matches `whenChanged`, a Tester
    * run counts as observed nothing unless a file matching `file` in the worktree
    * is newer than the run start. Absent → no check (today's behavior).
    */

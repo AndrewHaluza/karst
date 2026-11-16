@@ -191,6 +191,23 @@ repositories:
     }
   });
 
+  // A Quality Save writes the whole Tester block, now including the evidence rule.
+  it('round-trips uat.testerObservations with onSkip and requireEvidence', () => {
+    const { path, cleanup } = manifestFixture();
+    const testerObservations = {
+      blockingSeverity: 'none' as const,
+      onSkip: 'reask' as const,
+      requireEvidence: { file: 'out/**/summary.json', whenChanged: ['src/**', 'scripts/**'] },
+    };
+    try {
+      const loaded = loadManifest(path);
+      writeManifest(path, { ...loaded, uat: uatConfig({ testerObservations }) });
+      expect(loadManifest(path).uat?.testerObservations).toEqual(testerObservations);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('emits per-capability preset slots shape and round-trips', () => {
     const { path, cleanup } = manifestFixture();
     try {

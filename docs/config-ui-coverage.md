@@ -67,6 +67,7 @@ stderr.
 | `uat.gates[]` | **wired** — `workflow/uat/gates.ts` — **Quality tab** |
 | `uat.repositories.<n>.gates` | **wired** — same, as a REPLACE override — **Quality tab** |
 | `uat.keepStackForUser` | **wired** — `extension/ops/hostUserUat.ts` via `sandboxTicketOps.ts` `userUat` (keep a passed host stack for user UAT) — yml-only |
+| `uat.testerObservations.{blockingSeverity,onSkip,requireEvidence}` | **wired** — `workflow/uat/tester.ts`, `workflow/stages/uat.ts` — **Quality tab** (the toggle owns the block; no other Quality edit removes it) |
 | `uat.testDir`, `uat.repositories.<n>.testDir` | none — inert, reported at load |
 | `uat.env`, `uat.repositories.<n>.env` | none — inert, reported at load |
 | `uat.secrets`, `uat.repositories.<n>.secrets` | none — inert, reported at load |
