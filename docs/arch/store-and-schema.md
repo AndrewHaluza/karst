@@ -311,7 +311,7 @@ END_DOC_BLOCK: [@arch:V126]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
-**v126.** `ship_runs.unattended`: `@arch:V126`.
+**v126:** `@arch:V126`.
 
 **Graph auto recovery (v125).** `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` record the automatic recoveries (`@arch:GRAPH-AUTORECOVERY`).
 
