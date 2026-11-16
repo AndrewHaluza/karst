@@ -1257,14 +1257,13 @@ again.
 Back, then asserts the same item is selected and the hash is unchanged.
 END_DOC_BLOCK: [@ui:UI-R47]
 
-## [@ui:UI-R48] Page content is capped at the DESIGN-SYSTEM content-width tokens
+## [@ui:UI-R48] Page content is capped at the DESIGN-SYSTEM content-width token
 
-Page content is capped at the content-width tokens in DESIGN-SYSTEM
+Page content is capped at the content-width token in DESIGN-SYSTEM
 `ui:LAYOUT-PRIMITIVES`, not a px literal, and centered with `margin-inline: auto`
 on `body`.
 
-- settings page (sidebar + content), ticketForm: `--k-content-max` (1200px).
-- usage, resources: `--k-content-max-wide` (1600px).
+- settings, ticketForm, usage, resources: `--k-content-max` (1600px).
 - gettingStarted: keeps its `58ch` measure, centered, no token.
 - Uncapped: dashboard (graph), diffs (side-by-side), serverLogs (long lines),
   sidebar (narrow by nature).
@@ -1276,7 +1275,7 @@ control sit far apart.
 
 **Check:** STATIC finds the token (not a px literal) in a plain `body` rule of each
 capped view; gettingStarted is the exception: `58ch` + `margin-inline: auto`, no
-token. VISUAL: (a) settings at 1280 has content ≤ 1200 and is centered; (b) at 2560
+token. VISUAL: (a) settings at 1920 has content ≤ 1600 and is centered; (b) at 2560
 all 5 capped views are ≤ their cap and centered. Both are asserted in
 `tests/visual/contentCap.visual.ts` (layout gate checks a–i do not assert width).
 END_DOC_BLOCK: [@ui:UI-R48]

@@ -154,8 +154,7 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Page content cap on wide windows (UI-R48).
-  '--k-content-max': '1200px',
-  '--k-content-max-wide': '1600px',
+  '--k-content-max': '1600px',
   '--k-border-w': '1px',
   '--k-control-h-sm': '22px',
   '--k-control-h-md': '26px',

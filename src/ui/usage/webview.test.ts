@@ -122,6 +122,6 @@ const bodyHas = (...res: RegExp[]) => bodyRules.some((r) => res.every((re) => re
 
 describe('content width cap (UI-R48)', () => {
   it('caps and centers body', () => {
-    expect(bodyHas(/max-width\s*:\s*var\(--k-content-max-wide\)/, /margin-inline\s*:\s*auto/)).toBe(true);
+    expect(bodyHas(/max-width\s*:\s*var\(--k-content-max\)/, /margin-inline\s*:\s*auto/)).toBe(true);
   });
 });

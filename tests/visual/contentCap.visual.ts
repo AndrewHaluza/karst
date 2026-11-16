@@ -28,8 +28,8 @@ function assertCapped(g: Geo, viewport: number, expectedCap?: number): void {
 }
 
 const CAPPED: ReadonlyArray<readonly [ViewId, number | undefined]> = [
-  ['settings', 1200],
-  ['ticketForm', 1200],
+  ['settings', 1600],
+  ['ticketForm', 1600],
   ['usage', 1600],
   ['resources', 1600],
   ['gettingStarted', undefined], // 58ch, no token
@@ -45,11 +45,11 @@ karstTest.describe('content width cap (UI-R48)', () => {
     });
   }
 
-  for (const [view, cap] of [['gettingStarted', undefined], ['settings', 1200]] as const) {
-    karstTest(`${view}: centered at 1280`, async ({ gotoView, page }) => {
-      await page.setViewportSize({ width: 1280, height: LAYOUT_HEIGHT });
+  for (const [view, cap, width] of [['gettingStarted', undefined, 1280], ['settings', 1600, 1920]] as const) {
+    karstTest(`${view}: centered at ${width}`, async ({ gotoView, page }) => {
+      await page.setViewportSize({ width, height: LAYOUT_HEIGHT });
       await gotoView(view);
-      assertCapped(await bodyGeo(page), 1280, cap);
+      assertCapped(await bodyGeo(page), width, cap);
     });
   }
 
