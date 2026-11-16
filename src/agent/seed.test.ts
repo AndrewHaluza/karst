@@ -390,3 +390,24 @@ describe('buildSessionSeed leadBrief (send-back hand-off never delivered)', () =
     expect(seed.kickoff.startsWith('/karst:start-task PROJ-9')).toBe(true);
   });
 });
+
+describe('buildSessionSeed leadInvocation', () => {
+  it('keeps the fix entry first, before the brief, on both routes', () => {
+    for (const inlineInstructions of [false, true]) {
+      const seed = buildSessionSeed({
+        authoredContext: AUTHORED,
+        invocation: '/karst:start-task PROJ-9',
+        leadInvocation: '/karst:fix PROJ-9',
+        leadBrief: 'BRIEF',
+        inlineInstructions,
+      });
+      expect(seed.kickoff.startsWith('/karst:fix PROJ-9\n\nBRIEF')).toBe(true);
+      expect(seed.kickoff).not.toContain('start-task');
+    }
+  });
+
+  it('is ignored without a leadBrief', () => {
+    const seed = buildSessionSeed({ authoredContext: AUTHORED, leadInvocation: '/karst:fix PROJ-9' });
+    expect(seed.kickoff).not.toContain('/karst:fix');
+  });
+});

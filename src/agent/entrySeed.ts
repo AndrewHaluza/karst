@@ -37,6 +37,45 @@ export function launchInvocation(input: {
 }
 
 /**
+ * The lead fields of a fresh launch. At `fix` with a fix brief (no session to
+ * resume: a graph ticket, a provider switch, a stale session) the job is the
+ * failure, not the ticket start: the fix brief leads, the `fix` entry (when
+ * materialized) replaces the start command, and the approach method is not
+ * seeded. A send-back text leads at any other stage. Else the seed is unchanged.
+ */
+export function freshLaunchLead(input: {
+  stage: string | null | undefined;
+  fixBrief?: string | null;
+  sendBackText?: string | null;
+  approachPrompt: string | null;
+  entryInvocation?: string | null;
+  fixEntryInvocation?: string | null;
+  ticketKey: string;
+}): {
+  approachPrompt: string | null;
+  leadBrief?: string;
+  leadInvocation?: string;
+  invocation?: string;
+} {
+  const entry = input.entryInvocation
+    ? { invocation: `${input.entryInvocation} ${input.ticketKey}`.trim() }
+    : {};
+  if (input.stage === 'fix' && input.fixBrief?.trim()) {
+    const fixEntry = input.fixEntryInvocation?.trim();
+    return {
+      approachPrompt: null,
+      leadBrief: input.fixBrief,
+      ...(fixEntry ? { leadInvocation: `${fixEntry} ${input.ticketKey}`.trim() } : {}),
+    };
+  }
+  return {
+    approachPrompt: input.approachPrompt,
+    ...(input.sendBackText ? { leadBrief: input.sendBackText } : {}),
+    ...entry,
+  };
+}
+
+/**
  * Determine the `sections` mode for `renderTicketContext` based on whether a
  * materialized invocation exists. A materialized invocation switches to
  * narrative mode (omitting operational stage/service details); without one,

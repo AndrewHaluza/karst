@@ -176,6 +176,7 @@ import { buildSessionSeed, type SessionSeed } from './agent/seed.js';
 import { writeSessionInstructions } from './agent/instructions.js';
 import {
   launchInvocation,
+  freshLaunchLead,
   composeResumeSeed as composeResumeSeedEntry,
   composeConflictSeed,
 } from './agent/entrySeed.js';
@@ -6756,11 +6757,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         seed = buildSessionSeed({
           authoredContext: renderCtx(entryLaunchInvocation ? 'narrative' : 'all', inlineInstructions),
           ...(factsContext ? { factsContext } : {}),
-          approachPrompt: approachPrompt ?? delegation,
-          ...(sendBack ? { leadBrief: sendBack.text } : {}),
-          ...(entryLaunchInvocation
-            ? { invocation: `${entryLaunchInvocation} ${t.key ?? ''}`.trim() }
-            : {}),
+          ...freshLaunchLead({
+            stage: t.stageCurrent,
+            fixBrief,
+            sendBackText: sendBack?.text,
+            approachPrompt: approachPrompt ?? delegation,
+            entryInvocation: entryLaunchInvocation,
+            fixEntryInvocation: materialized.entryInvocations?.['fix'],
+            ticketKey: t.key ?? '',
+          }),
           ...(markerInstruction ? { markerInstruction } : {}),
           ...(guideInstruction ? { guideInstruction } : {}),
           ...(serversInstruction ? { serversInstruction } : {}),
