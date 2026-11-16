@@ -1,0 +1,2179 @@
+{
+  "meta": {
+    "startedAt": "2026-11-16T15:50:59.974Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider claude --model claude-sonnet-5-5 --only c19-unit-mismatch,c20-lost-update,c21-pagination,c22-path-prefix,c23-regex-state,c24-contract-break --runs 6 --timeout-min 10",
+    "caseSetVersion": 6,
+    "buildSha": "8d4cf4314dabeefaaa2274ac29e9ebe6499a2a51",
+    "coreVersions": {
+      "claude": "2.1.325 (Claude Code)"
+    }
+  },
+  "candidate": {
+    "core": "claude",
+    "model": "claude-sonnet-5-5",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c19-unit-mismatch",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/cart.ts",
+            "line": 20,
+            "title": "Unit mismatch: dollar prices passed to formatPrice, which expects cents",
+            "detail": "CartItem.price is documented as dollars (src/cart.ts). lineTotal and cartTotal return dollars. renderCart passes these values to formatPrice, which divides by 100 because it expects integer cents (src/money.ts). Input: one item { name: 'pen', price: 2, quantity: 3 } gives a line total of 6. renderCart prints 'pen x3: $0.06' and 'Total: $0.06' instead of $6.00. Every rendered cart shows totals 100 times too small. Fix: store price in cents in CartItem, or convert dollars to cents before the formatPrice call. Also consider integer cents to avoid float error in sums. The tests check only lineTotal and cartTotal and do not cover renderCart, so they do not catch this.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/cart.test.ts",
+            "line": 4,
+            "title": "No test for renderCart",
+            "detail": "The tests cover lineTotal and cartTotal only. Add a renderCart test that checks the formatted output. It would have found the unit mismatch.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 869,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 74224,
+          "cacheWriteTokens": 38217,
+          "totalTokens": 113318,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.461,
+        "score": {
+          "found": [
+            "REVEVAL-D-018"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113318
+      },
+      {
+        "caseId": "c19-unit-mismatch",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/cart.ts",
+            "line": 19,
+            "title": "Cart passes dollar amounts to formatPrice, which expects integer cents",
+            "detail": "CartItem.price is documented as dollars. lineTotal and cartTotal return dollars. renderCart passes these values to formatPrice, and src/money.ts defines formatPrice as taking integer cents and dividing by 100. Example: one pen at price 2 (dollars) and quantity 3 gives a line total of 6. formatPrice(6) returns \"$0.06\" instead of \"$6.00\". Every rendered line and the Total are 100 times too small. The tests do not catch this because they cover only lineTotal and cartTotal, not renderCart. Fix: make CartItem.price integer cents, or convert dollars to cents (Math.round(x*100)) before the call to formatPrice. Add a renderCart test.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/cart.ts",
+            "line": 9,
+            "title": "Dollar floats in totals can give rounding errors",
+            "detail": "The cart sums floating-point dollar prices. For example, 0.1 + 0.2 gives 0.30000000000000004. Money values in this codebase are integer cents (see src/money.ts). Use integer cents for the price field to avoid this error and to fix the unit mismatch.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 942,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84767,
+          "cacheWriteTokens": 27682,
+          "totalTokens": 113399,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.574,
+        "score": {
+          "found": [
+            "REVEVAL-D-018"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113399
+      },
+      {
+        "caseId": "c19-unit-mismatch",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/cart.ts",
+            "line": 18,
+            "title": "Unit mismatch: dollar prices passed to formatPrice, which expects cents",
+            "detail": "CartItem.price is documented as dollars (src/cart.ts line 5). The renderCart function passes lineTotal and cartTotal, which are in dollars, to formatPrice in src/money.ts. That function expects integer cents and divides by 100. Input: { name: 'pen', price: 2, quantity: 3 }. The line total is 6, and formatPrice(6) returns '$0.06', not '$6.00'. The total line is wrong in the same way. Every rendered cart shows prices 100 times too small. Fix: convert the price to cents at the boundary, or change CartItem.price to cents, and update the tests. Float dollar arithmetic can also give rounding errors.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/cart.test.ts",
+            "line": 1,
+            "title": "Tests do not cover renderCart",
+            "detail": "The tests cover only lineTotal and cartTotal. No test checks the output of renderCart. This is why the dollars-versus-cents bug is not caught.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 860,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84770,
+          "cacheWriteTokens": 27686,
+          "totalTokens": 113324,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.918,
+        "score": {
+          "found": [
+            "REVEVAL-D-018"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113324
+      },
+      {
+        "caseId": "c19-unit-mismatch",
+        "run": 4,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/cart.ts",
+            "line": 20,
+            "title": "Unit mismatch: cart passes dollars to formatPrice, which expects cents",
+            "detail": "CartItem.price is documented as dollars (src/cart.ts line 5). renderCart passes lineTotal and cartTotal, in dollars, to formatPrice. formatPrice in src/money.ts expects integer cents and divides by 100. Input: a pen with price 2 and quantity 3 gives a line total of 6. renderCart prints '$0.06' instead of '$6.00'. The Total line is wrong in the same way: 7 prints '$0.07'. Fix: either define CartItem.price in cents, or convert dollars to cents before formatPrice. The unit tests only check lineTotal and cartTotal. They do not cover renderCart, so they miss this bug. Add a renderCart test.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/cart.ts",
+            "line": 11,
+            "title": "Float dollar arithmetic can give rounding errors",
+            "detail": "If price stays in dollars, cartTotal sums floating-point numbers. For example, 0.1 * 3 gives 0.30000000000000004. Use integer cents, as money.ts does, to avoid this. This also fixes the unit mismatch.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 899,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84778,
+          "cacheWriteTokens": 27686,
+          "totalTokens": 113371,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.116,
+        "score": {
+          "found": [
+            "REVEVAL-D-018"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113371
+      },
+      {
+        "caseId": "c19-unit-mismatch",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/cart.ts",
+            "line": 19,
+            "title": "Cart passes dollar amounts to formatPrice, which expects cents",
+            "detail": "CartItem.price is documented as dollars (src/cart.ts). lineTotal and cartTotal return dollars. renderCart passes these to formatPrice, which divides by 100 because it expects integer cents (src/money.ts). Example: pen price 2, quantity 3 gives lineTotal 6, and the output is 'pen x3: $0.06' instead of '$6.00'. The total line is wrong in the same way. Fix: make price cents, or convert dollars to cents before the call to formatPrice. The tests do not catch this because they check only lineTotal and cartTotal, not renderCart. Also, summing dollar floats can give rounding errors such as 0.1+0.2.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/cart.test.ts",
+            "line": 1,
+            "title": "No test for renderCart",
+            "detail": "The test file covers lineTotal and cartTotal only. A test of renderCart would show the unit mismatch with formatPrice.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 831,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84776,
+          "cacheWriteTokens": 27695,
+          "totalTokens": 113310,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.012,
+        "score": {
+          "found": [
+            "REVEVAL-D-018"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113310
+      },
+      {
+        "caseId": "c19-unit-mismatch",
+        "run": 6,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/cart.ts",
+            "line": 19,
+            "title": "renderCart passes dollar amounts to formatPrice, which expects integer cents",
+            "detail": "CartItem.price is documented as dollars (src/cart.ts). lineTotal and cartTotal therefore return dollars. formatPrice in src/money.ts divides its input by 100 because it expects cents. Example: an item {price: 2, quantity: 3} has a line total of 6 dollars. renderCart prints \"$0.06\", not \"$6.00\". The cart total prints \"$0.07\" for 7 dollars. Every displayed price is 100 times too small. Fix: convert to cents at the boundary, or store CartItem.price as integer cents like the rest of the money code. The tests only check lineTotal and cartTotal, so they do not catch this. Floating-point dollar sums also risk rounding errors. Add a test for renderCart.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 811,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84771,
+          "cacheWriteTokens": 27695,
+          "totalTokens": 113285,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.095,
+        "score": {
+          "found": [
+            "REVEVAL-D-018"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113285
+      },
+      {
+        "caseId": "c20-lost-update",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/counter.ts",
+            "line": 8,
+            "title": "Counter.increment loses updates under concurrent calls",
+            "detail": "The method reads the value with store.get, adds the amount, then writes with store.set. These are separate awaits, so there is no atomicity. The doc comment says many requests call increment at the same time. Example: the stored value is 0. Two calls run increment('a') together. Both read 0. Both write 1. The final value is 1, not 2. The KeyValueStore interface in src/store.ts has only get and set, so no atomic increment exists. Fix: add an atomic increment (for example incr or compare-and-set) to KeyValueStore and use it. Or serialize the calls per key. The test only calls increment one after another, so it does not detect this bug. Add a test that runs Promise.all of several increments and expects the sum.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 760,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84647,
+          "cacheWriteTokens": 27565,
+          "totalTokens": 112980,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.204,
+        "score": {
+          "found": [
+            "REVEVAL-D-019"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 112980
+      },
+      {
+        "caseId": "c20-lost-update",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/counter.ts",
+            "line": 8,
+            "title": "Counter.increment has a read-modify-write race that loses updates",
+            "detail": "increment() does get(), adds, then set() with an await between each step. The class doc says many requests call increment at the same time. Two calls on key 'a' with value 0 both read 0. One writes 1 and the other writes 1 (or 2). The final count is lower than the number of increments, so events are lost. The KeyValueStore interface in src/store.ts has only get and set, so no atomic operation exists. Fix: add an atomic increment (for example incrBy) to KeyValueStore, or a compare-and-set. Alternatively, serialize calls per key with a per-key promise queue. This only protects a single process.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/counter.test.ts",
+            "line": 11,
+            "title": "Test does not cover concurrent increments",
+            "detail": "The only test awaits each increment in sequence. It cannot detect the lost-update race. Add a test that runs Promise.all of several increments on one key against a store with an async delay, and expects the sum.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 837,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84643,
+          "cacheWriteTokens": 27556,
+          "totalTokens": 113044,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.279,
+        "score": {
+          "found": [
+            "REVEVAL-D-019"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113044
+      },
+      {
+        "caseId": "c20-lost-update",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/counter.ts",
+            "line": 7,
+            "title": "Counter.increment loses updates under concurrent calls",
+            "detail": "The method reads with store.get, adds, then writes with store.set. These steps are not atomic. The class doc says many requests call increment at the same time. Example: the stored value is 0. Two calls run increment('a') together. Both read 0. Both write 1. The final value is 1, not 2. The KeyValueStore interface in src/store.ts has no atomic increment or compare-and-set, so the caller cannot fix this. Fix: add an atomic increment (or compare-and-set) to KeyValueStore, or serialize increments per key (for example, a per-key promise queue for a single process).",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/counter.test.ts",
+            "line": 12,
+            "title": "Test does not cover concurrent increments",
+            "detail": "The only test awaits each increment in sequence. It cannot find the lost-update race. Add a test that runs Promise.all of several increments on one key and expects the sum. With the memory store, this test would fail on the current code.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 859,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84629,
+          "cacheWriteTokens": 27563,
+          "totalTokens": 113059,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.966,
+        "score": {
+          "found": [
+            "REVEVAL-D-019"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113059
+      },
+      {
+        "caseId": "c20-lost-update",
+        "run": 4,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/counter.ts",
+            "line": 8,
+            "title": "Counter.increment is a non-atomic read-modify-write and loses updates under concurrency",
+            "detail": "The class comment says many requests call increment at the same time. increment does get, then add, then set, with an await between each step. Two calls on key 'a' with the stored value 0 both read 0. One writes 1 and the other writes 1. The final value is 1, not 2, so a count is lost. The KeyValueStore interface has only get and set, so the store gives no atomic increment or compare-and-set. The fix is to add an atomic operation to the store (for example increment(key, by) or compareAndSet) and use it here. Another fix is to serialize calls per key inside Counter, but that does not work across processes.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/counter.test.ts",
+            "line": 11,
+            "title": "Test does not cover the concurrent case the class documents",
+            "detail": "The only test calls increment one after another with await. It passes with the racy implementation. Add a test that runs increments with Promise.all, for example 10 calls, and expects 10. Use a store with an async delay so the interleaving shows. This test would fail on the current code.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 868,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84645,
+          "cacheWriteTokens": 27562,
+          "totalTokens": 113083,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.182,
+        "score": {
+          "found": [
+            "REVEVAL-D-019"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113083
+      },
+      {
+        "caseId": "c20-lost-update",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/counter.ts",
+            "line": 7,
+            "title": "Counter.increment loses updates when calls run at the same time",
+            "detail": "The method does get, then add, then set. Each step awaits. The class comment says many requests call increment at the same time. Two calls on key 'a' with value 0 both read 0. Call one sets 1. Call two sets 2 when its own by is 2. The final value is wrong, because one increment is lost. The KeyValueStore interface has only get and set, so the store offers no atomic increment or compare-and-set. Fix: add an atomic increment method to KeyValueStore, or serialize the calls per key inside Counter, for example with a per-key promise chain. Serializing only protects a single process.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/counter.test.ts",
+            "line": 11,
+            "title": "Test does not cover concurrent increments",
+            "detail": "The only test awaits each increment in sequence. It passes with the race present. Add a test that runs Promise.all of several increments on one key against a store with an async delay. Assert that the sum is correct.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 853,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84640,
+          "cacheWriteTokens": 27580,
+          "totalTokens": 113081,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.909,
+        "score": {
+          "found": [
+            "REVEVAL-D-019"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113081
+      },
+      {
+        "caseId": "c20-lost-update",
+        "run": 6,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/counter.ts",
+            "line": 8,
+            "title": "Counter.increment loses updates under concurrent calls",
+            "detail": "increment does get, then adds, then set. The class doc says many requests call increment at the same time. The KeyValueStore interface (src/store.ts) has only get and set, with no atomic increment or compare-and-set. Example: the value of 'a' is 0, and two calls run increment('a') together. Both read 0, both write 1, and the final count is 1 instead of 2. Counts are silently too low under load. Fix: add an atomic increment to KeyValueStore (for example incrBy), or serialize the calls per key. The test only awaits calls one after another, so it does not catch this.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/counter.test.ts",
+            "line": 11,
+            "title": "Test does not cover concurrent increments",
+            "detail": "The only test awaits each increment in turn. Add a test with Promise.all of several increments on the same key. It should expect the sum, and with the current code it would fail.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 818,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 84629,
+          "cacheWriteTokens": 27558,
+          "totalTokens": 113013,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.375,
+        "score": {
+          "found": [
+            "REVEVAL-D-019"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113013
+      },
+      {
+        "caseId": "c21-pagination",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 21,
+            "title": "Off-by-one in paginate slice start skips the first page of items",
+            "detail": "`start = current * pageSize` should be `(current - 1) * pageSize`. Pages start at 1. For 45 items, page 1, size 20, `start` is 20, so it returns items 20-39 and never returns items 0-19. For page 3 of 45 items, `start` is 60, so `items` is empty. The returned `page` and `pageSize` fields and `pageRange` use the correct 1-based formula, so the output is inconsistent: `pageRange` says '41-45 of 45' while `items` is empty. The test misses this because it checks only `totalPages` and `pageRange`, never `p.items`.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/paginate.test.ts",
+            "line": 9,
+            "title": "Test does not assert the returned items",
+            "detail": "The 'describes the range' test checks `totalPages` and `pageRange` only. Add assertions on `p.items` for the first, a middle, and the last page. Add cases for an out-of-range page and an empty list. Such a test would have found the off-by-one bug.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 20,
+            "title": "A NaN page is not clamped",
+            "detail": "`Math.min(Math.max(1, NaN), totalPages)` is NaN. The result has `page: NaN` and empty `items`. `clampPageSize` validates integers, but `page` has no validation at this boundary. Also, a non-integer page such as 1.5 gives a fractional slice start.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 956,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46949,
+          "cacheWriteTokens": 27795,
+          "totalTokens": 75704,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.464,
+        "score": {
+          "found": [
+            "REVEVAL-D-020"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75704
+      },
+      {
+        "caseId": "c21-pagination",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 22,
+            "title": "paginate uses the wrong slice offset, so page 1 is skipped",
+            "detail": "In `paginate`, `start = current * pageSize` should be `(current - 1) * pageSize`, because pages start at 1. Input: 45 items, page 1, size 20. The code slices 20..40 and returns items 20-39 instead of 0-19. The last page returns an empty list: page 3 gives slice(60, 80) = []. `pageRange` computes the range with `(page-1)`, so the label disagrees with the items. The test never checks `p.items`, so it passes anyway.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 21,
+            "title": "A NaN or non-integer page value is not handled",
+            "detail": "`Math.min(Math.max(1, NaN), totalPages)` gives NaN. The result has `page: NaN` and an empty `items` list. A fractional page such as 1.5 gives a fractional offset. `clampPageSize` validates the size, but the page has no equivalent validation at the boundary.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/paginate.test.ts",
+            "line": 8,
+            "title": "The tests do not check the returned items or the clamping edge cases",
+            "detail": "The test checks only `totalPages` and `pageRange`. Add assertions on `items` for the first, middle, and last page. Add cases for page 0, a page over the limit, and an empty list. These cases would have caught the offset bug.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 901,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46950,
+          "cacheWriteTokens": 27796,
+          "totalTokens": 75651,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.298,
+        "score": {
+          "found": [
+            "REVEVAL-D-020"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75651
+      },
+      {
+        "caseId": "c21-pagination",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 21,
+            "title": "Off-by-one in slice start skips the first page and empties the last page",
+            "detail": "In paginate, `start = current * pageSize` should be `(current - 1) * pageSize`. Pages start at 1. For 45 items, size 20, page 1 returns items 20-39 instead of 0-19. Page 3 returns an empty array (slice(60,80)) while `page` and `pageRange` say '41-45 of 45'. Items 0-19 are never returned. pageRange uses the correct (page-1) formula, so items and range disagree.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/paginate.test.ts",
+            "line": 9,
+            "title": "Test does not check the returned items",
+            "detail": "The test only checks totalPages and pageRange, so it passes with the wrong slice offset. Add assertions on `p.items` (for example page 3 equals [40..44], page 1 starts at 0).",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 20,
+            "title": "NaN or non-integer page is not validated",
+            "detail": "`Math.min(Math.max(1, NaN), totalPages)` is NaN, so page=NaN gives `page: NaN` and an empty items list. A fractional page gives a fractional slice offset. The page size is validated, but the page is not.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 858,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46948,
+          "cacheWriteTokens": 27793,
+          "totalTokens": 75603,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.745,
+        "score": {
+          "found": [
+            "REVEVAL-D-020"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75603
+      },
+      {
+        "caseId": "c21-pagination",
+        "run": 4,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 21,
+            "title": "paginate uses a 0-based offset for 1-based pages, so it returns the wrong items",
+            "detail": "`const start = current * pageSize;` should be `(current - 1) * pageSize`. The doc comment says pages start at 1, and `pageRange` uses `(p.page - 1)`. Input: 45 items, page 1, size 20. Then start = 20 and the function returns items 20-39, so the first 20 items are never reachable. Page 3 returns an empty `items` array, while `pageRange` still says '41-45 of 45'. The last page is always empty.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/paginate.test.ts",
+            "line": 9,
+            "title": "Test never checks the returned items, so the offset bug passes",
+            "detail": "The 'describes the range' test only checks `totalPages` and `pageRange`. Both are computed apart from the `slice`. Add assertions on `p.items` (for example, page 3 equals [40..44], page 1 equals [0..19]). Add cases for a page below 1, a page above the last page, and an empty list.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 20,
+            "title": "A NaN page is not handled",
+            "detail": "`Math.max(1, NaN)` is NaN, so `current` is NaN. The result then has `page: NaN` and an empty `items` array. The function does not validate the page at the boundary. Use a default of 1 for a non-integer page.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 935,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46953,
+          "cacheWriteTokens": 27800,
+          "totalTokens": 75692,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.894,
+        "score": {
+          "found": [
+            "REVEVAL-D-020"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75692
+      },
+      {
+        "caseId": "c21-pagination",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 21,
+            "title": "Off-by-one slice start in paginate skips the first page and empties the last page",
+            "detail": "`const start = current * pageSize;` should be `(current - 1) * pageSize`. Pages start at 1, and `pageRange` uses `(p.page - 1) * p.pageSize`. Input: 45 items, page 1, size 20. `start` is 20, so `items` holds items 20-39 and items 0-19 are never returned. Input: page 3 of 45 items. `start` is 40, so the page returns 40-44 only by chance. Input: page 3 of 40 items. The result is empty. `items` then disagrees with `page` and `pageRange`. The test does not assert `p.items`, so it does not catch this.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 20,
+            "title": "A NaN page is not validated",
+            "detail": "`Math.min(Math.max(1, NaN), totalPages)` is NaN. `paginate` then returns `page: NaN` and an empty `items` array. Page values from external input, such as a query string, should be validated. Use a default of 1 for a non-finite or non-integer page.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/paginate.test.ts",
+            "line": 9,
+            "title": "Tests do not check the returned items or the page edge cases",
+            "detail": "The test checks `totalPages` and `pageRange` only. Add assertions for `items` on the first, middle, and last page. Add cases for an empty list and an out-of-range page. An `items` assertion would have caught the off-by-one defect.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 963,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46952,
+          "cacheWriteTokens": 27798,
+          "totalTokens": 75717,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.578,
+        "score": {
+          "found": [
+            "REVEVAL-D-020"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75717
+      },
+      {
+        "caseId": "c21-pagination",
+        "run": 6,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 22,
+            "title": "Off-by-one in paginate slice start skips the first page",
+            "detail": "`start = current * pageSize` should be `(current - 1) * pageSize`. Pages start at 1. For 45 items with page 1 and size 20, start is 20, so the call returns items 20-39 and the first 20 items are never returned. For the last page (page 3), start is 60, so `items` is empty while `pageRange` reports '41-45 of 45'. `pageRange` uses the correct `(page-1)` formula, so items and range disagree.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/paginate.test.ts",
+            "line": 9,
+            "title": "Test does not assert returned items",
+            "detail": "The 'describes the range' test checks only `totalPages` and `pageRange`. It never checks `p.items`, so the off-by-one in `start` passes unnoticed. Add an assertion such as `expect(p.items).toEqual([40,41,42,43,44])` and a page 1 case.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/paginate.ts",
+            "line": 21,
+            "title": "Non-finite or non-integer page is not validated",
+            "detail": "`paginate` does not validate `page`. A NaN page gives `current = NaN`, and `slice(NaN, NaN)` returns an empty array. A fractional page such as 1.5 gives a fractional start. The docstring says an out-of-range page moves to the nearest valid page, but NaN and fractions are not handled. `clampPageSize` already validates integers, so apply the same check to `page`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 965,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46952,
+          "cacheWriteTokens": 27798,
+          "totalTokens": 75719,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.058,
+        "score": {
+          "found": [
+            "REVEVAL-D-020"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75719
+      },
+      {
+        "caseId": "c22-path-prefix",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/uploads.ts",
+            "line": 9,
+            "title": "Prefix check with startsWith allows escape to sibling directories",
+            "detail": "resolveUpload checks full.startsWith(UPLOAD_ROOT) without a path separator. UPLOAD_ROOT is /srv/app/uploads. Input '../uploads-private/secret.txt' resolves to /srv/app/uploads-private/secret.txt. That path starts with '/srv/app/uploads', so the check passes. readUpload then reads a file outside the upload directory. Any sibling directory whose name starts with 'uploads' is exposed. Fix: use path.relative and reject results that start with '..' or are absolute, or compare against UPLOAD_ROOT + path.sep. The same check also accepts the root itself (name '' or '.'), which readFile rejects as a directory. The test covers only '../etc/passwd', so it misses this case. Symlinks inside the upload directory are not resolved (no realpath) and can also escape.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/uploads.test.ts",
+            "line": 8,
+            "title": "Tests miss the prefix-sibling and absolute-path cases",
+            "detail": "Add tests for '../uploads-evil/x' and for an absolute name such as '/etc/passwd'. The current tests would pass with the vulnerable check.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 937,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46947,
+          "cacheWriteTokens": 27116,
+          "totalTokens": 75004,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.78,
+        "score": {
+          "found": [
+            "REVEVAL-D-021"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75004
+      },
+      {
+        "caseId": "c22-path-prefix",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/uploads.ts",
+            "line": 8,
+            "title": "Path check uses startsWith without a separator, so sibling directories pass",
+            "detail": "resolveUpload checks full.startsWith(UPLOAD_ROOT) with UPLOAD_ROOT='/srv/app/uploads'. The input '../uploads-private/key.pem' resolves to '/srv/app/uploads-private/key.pem'. That string starts with '/srv/app/uploads', so the check passes and readUpload reads a file outside the upload directory. This is a path traversal bypass for any sibling directory whose name begins with 'uploads'. Fix: compare with path.relative and reject results that start with '..' or are absolute, or test startsWith(UPLOAD_ROOT + path.sep). Also decide whether the root itself (name '' or '.') must be rejected, since it currently passes. The tests do not cover the sibling-prefix case. Symlinks inside the root are also not resolved (no realpath).",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/uploads.test.ts",
+            "line": 9,
+            "title": "Tests miss the sibling-prefix and root cases",
+            "detail": "Add a test for '../uploads-evil/x' and for '.'. The current tests only cover a plain name and '../etc/passwd', so they pass despite the bypass.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 942,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46950,
+          "cacheWriteTokens": 27119,
+          "totalTokens": 75015,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.77,
+        "score": {
+          "found": [
+            "REVEVAL-D-021"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75015
+      },
+      {
+        "caseId": "c22-path-prefix",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/uploads.ts",
+            "line": 9,
+            "title": "Path containment check uses startsWith without a separator, so sibling directories escape it",
+            "detail": "resolveUpload checks full.startsWith(UPLOAD_ROOT), and UPLOAD_ROOT is '/srv/app/uploads' with no trailing separator. The input '../uploads-private/secret.txt' resolves to '/srv/app/uploads-private/secret.txt'. That string starts with '/srv/app/uploads', so the check passes. readUpload then reads a file outside the upload directory. Any sibling directory whose name starts with 'uploads' is exposed (for example 'uploads-old' or 'uploads_tmp'). The input '' or '.' also resolves to the root itself. Fix: use path.relative(UPLOAD_ROOT, full) and reject a result that starts with '..' or is absolute. Alternatively, check full === UPLOAD_ROOT || full.startsWith(UPLOAD_ROOT + path.sep). Symlinks inside the directory are also not resolved. Use realpath if users can create links. The test only covers '../etc/passwd', so it does not catch this case. Add a test for '../uploads-evil/x'.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 912,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46950,
+          "cacheWriteTokens": 27119,
+          "totalTokens": 74985,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.103,
+        "score": {
+          "found": [
+            "REVEVAL-D-021"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74985
+      },
+      {
+        "caseId": "c22-path-prefix",
+        "run": 4,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/uploads.ts",
+            "line": 9,
+            "title": "Path traversal: startsWith check lets sibling directories pass",
+            "detail": "The check `full.startsWith(UPLOAD_ROOT)` has no path separator boundary. With UPLOAD_ROOT=/srv/app/uploads, the input `../uploads-private/secret.txt` resolves to /srv/app/uploads-private/secret.txt. That path starts with the root string, so no error is thrown. `readUpload` then reads a file outside the upload directory. An absolute name such as `/srv/app/uploads2/x` fails the same way. Fix: compare with `full === UPLOAD_ROOT || full.startsWith(UPLOAD_ROOT + path.sep)`, or use `path.relative` and reject results that start with `..` or are absolute. Symlinks inside the root are also not resolved. Use `realpath` if users can create links.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/uploads.test.ts",
+            "line": 9,
+            "title": "Tests do not cover the sibling-prefix escape",
+            "detail": "The test only checks `../etc/passwd`. Add a case for `../uploads-evil/x` and for an absolute path. Such a test would fail on the current code.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 913,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46953,
+          "cacheWriteTokens": 27123,
+          "totalTokens": 74993,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.999,
+        "score": {
+          "found": [
+            "REVEVAL-D-021"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74993
+      },
+      {
+        "caseId": "c22-path-prefix",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/uploads.ts",
+            "line": 9,
+            "title": "Path containment check accepts sibling directories that share the prefix",
+            "detail": "resolveUpload uses full.startsWith(UPLOAD_ROOT) with no path separator. UPLOAD_ROOT is '/srv/app/uploads'. The input '../uploads-private/secret.txt' resolves to '/srv/app/uploads-private/secret.txt'. That string starts with '/srv/app/uploads', so the check passes. readUpload then reads a file outside the upload directory. Any sibling directory such as 'uploads-old' or 'uploads_backup' is exposed. The name '../uploads' resolves to the root itself, and that case should also be handled on purpose. Fix: compare with path.relative and reject a result that starts with '..' or is absolute, or test full === UPLOAD_ROOT || full.startsWith(UPLOAD_ROOT + sep). Symlinks inside the upload directory are also not resolved. Use realpath if users can create symlinks.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/uploads.test.ts",
+            "line": 9,
+            "title": "Tests do not cover the sibling-prefix escape",
+            "detail": "The test only checks '../etc/passwd'. Add a case such as '../uploads-evil/x' that must throw. This case would fail with the current code.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 975,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46952,
+          "cacheWriteTokens": 27121,
+          "totalTokens": 75052,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.353,
+        "score": {
+          "found": [
+            "REVEVAL-D-021"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75052
+      },
+      {
+        "caseId": "c22-path-prefix",
+        "run": 6,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/uploads.ts",
+            "line": 9,
+            "title": "Path containment check uses a bare prefix match and allows sibling directories",
+            "detail": "`full.startsWith(UPLOAD_ROOT)` has no trailing separator. UPLOAD_ROOT is `/srv/app/uploads`. The input `../uploads-evil/secret.txt` resolves to `/srv/app/uploads-evil/secret.txt`. That string starts with `/srv/app/uploads`, so the check passes and `readUpload` reads a file outside the upload directory. Any sibling directory whose name begins with `uploads` is exposed (for example `uploads-backup` or `uploads_private`). Fix: compare with `path.relative(UPLOAD_ROOT, full)`, and reject the path if the result starts with `..` or is absolute. Alternatively, test `full === UPLOAD_ROOT || full.startsWith(UPLOAD_ROOT + sep)`. The check also does not resolve symlinks. Use `realpath` if the upload directory can contain symlinks.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/uploads.test.ts",
+            "line": 8,
+            "title": "Tests do not cover the sibling-prefix escape",
+            "detail": "The only rejection test uses `../etc/passwd`. Add a case such as `../uploads-evil/x` that must throw. That case fails with the current code. Also add a case for an absolute name.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 992,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46951,
+          "cacheWriteTokens": 27120,
+          "totalTokens": 75067,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.611,
+        "score": {
+          "found": [
+            "REVEVAL-D-021"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 75067
+      },
+      {
+        "caseId": "c23-regex-state",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/secrets.ts",
+            "line": 1,
+            "title": "Global regex with .test() keeps lastIndex, so consecutive secret lines are missed",
+            "detail": "SECRET_PATTERN uses the /g flag and is shared at module level. RegExp.test() on a /g regex starts at lastIndex and sets lastIndex after a match. Input 'password: x\\npassword: y' gives: line 1 matches and sets lastIndex to 9. Line 2 is then searched from index 9, finds no match, and resets lastIndex to 0. findSecretLines returns [1] instead of [1,2]. A secret detector then silently misses real secrets, and results depend on call history. Fix: remove the g flag, or create the regex inside the function. The test has only one secret line, so it does not catch this.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/secrets.test.ts",
+            "line": 5,
+            "title": "Test covers only one secret line",
+            "detail": "Add a case with two adjacent secret lines, and a case that calls looksLikeSecret twice on the same matching line. These would expose the lastIndex bug.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 836,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46946,
+          "cacheWriteTokens": 26931,
+          "totalTokens": 74717,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.906,
+        "score": {
+          "found": [
+            "REVEVAL-D-022"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74717
+      },
+      {
+        "caseId": "c23-regex-state",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/secrets.ts",
+            "line": 1,
+            "title": "Global regex with .test() keeps lastIndex, so secret lines are missed",
+            "detail": "SECRET_PATTERN has the g flag and is shared at module level. RegExp.test on a g regex starts at lastIndex and sets it after a match. Input 'password: a\\npassword: b' gives line 1 true (lastIndex becomes 9). Line 2 is then searched from index 9, finds no match, returns false, and resets lastIndex. findSecretLines returns [1] and not [1,2]. A secret scanner then reports a false negative. Remove the g flag, or set lastIndex = 0 before each test. The single test has only one secret line, so it does not catch this.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/secrets.test.ts",
+            "line": 4,
+            "title": "Test covers only one secret line",
+            "detail": "Add a test with two secret lines, one after the other, and with a repeated call to looksLikeSecret. This would catch the lastIndex bug. Also add tests for api_key, api-key, token, and non-matching lines.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 792,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46949,
+          "cacheWriteTokens": 26935,
+          "totalTokens": 74680,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.652,
+        "score": {
+          "found": [
+            "REVEVAL-D-022"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74680
+      },
+      {
+        "caseId": "c23-regex-state",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/secrets.ts",
+            "line": 1,
+            "title": "Global regex with .test() keeps lastIndex state and misses secret lines",
+            "detail": "SECRET_PATTERN uses the /g flag and is shared at module level. RegExp.test on a /g regex starts at lastIndex and sets it after a match. Input 'password: a\\npassword: b' gives [1], not [1,2]. Line 1 matches and sets lastIndex to 9. Line 2 is searched from index 9, finds no match, and resets lastIndex. Matches on adjacent or later lines are skipped at random, so a secret scanner reports false negatives. The one-match test hides this. Fix: remove the g flag, or create the regex inside the function. Add a test with two consecutive secret lines.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 737,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46951,
+          "cacheWriteTokens": 26938,
+          "totalTokens": 74630,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.291,
+        "score": {
+          "found": [
+            "REVEVAL-D-022"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74630
+      },
+      {
+        "caseId": "c23-regex-state",
+        "run": 4,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/secrets.ts",
+            "line": 1,
+            "title": "Global regex with .test() keeps lastIndex state, so consecutive secret lines are missed",
+            "detail": "SECRET_PATTERN uses the /g flag and is shared at module level. RegExp.test() on a /g regex starts at lastIndex and sets it after a match. Input 'password: x\\npassword: y': line 1 matches and lastIndex becomes 9. Line 2 ('password: y') is then searched from index 9, finds no match, and returns false. findSecretLines returns [1] instead of [1, 2]. A secret scanner that silently misses lines gives false assurance. Fix: remove the g flag (it is not needed for test()), or create the regex inside the function. The one test uses a single secret line, so it does not catch this. Add a test with two or more secret lines, including consecutive ones.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 751,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46950,
+          "cacheWriteTokens": 26936,
+          "totalTokens": 74641,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.318,
+        "score": {
+          "found": [
+            "REVEVAL-D-022"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74641
+      },
+      {
+        "caseId": "c23-regex-state",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/secrets.ts",
+            "line": 1,
+            "title": "Global regex with .test() keeps lastIndex, so findSecretLines misses secret lines",
+            "detail": "SECRET_PATTERN uses the g flag and is shared at module level. RegExp.test advances lastIndex after a match. The next call starts searching at that index. Input 'password: a\\npassword: b' returns [1] and not [1, 2]. The second test starts at lastIndex 9 on a line that has the match at index 0, fails, and resets lastIndex. Any two consecutive secret lines of similar shape lose the second one. This is a false negative in a secret scanner. Fix: remove the g flag, or create the regex inside the function.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/secrets.test.ts",
+            "line": 4,
+            "title": "Test covers only one secret line, so the lastIndex bug is not caught",
+            "detail": "The single test has one matching line. Add a test with two or more consecutive secret lines. Add a test for a non-secret line that follows a secret line.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 777,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46950,
+          "cacheWriteTokens": 26936,
+          "totalTokens": 74667,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.495,
+        "score": {
+          "found": [
+            "REVEVAL-D-022"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74667
+      },
+      {
+        "caseId": "c23-regex-state",
+        "run": 6,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/secrets.ts",
+            "line": 1,
+            "title": "Global regex with .test() keeps lastIndex state, so secret lines are missed",
+            "detail": "SECRET_PATTERN uses the /g flag and is shared at module level. RegExp.test() on a /g regex starts at lastIndex and sets it after a match. Input 'password: x\\npassword: y' gives: line 1 matches and lastIndex becomes 9. Line 2 is searched from index 9 and finds nothing, so it returns false and resets lastIndex. findSecretLines returns [1] instead of [1, 2]. Any secret on the line after another secret line can be missed, so the scanner under-reports secrets. Fix: remove the /g flag, or create the regex inside the function. The single-secret test does not catch this; add a test with two consecutive secret lines.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 765,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46951,
+          "cacheWriteTokens": 26937,
+          "totalTokens": 74657,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.297,
+        "score": {
+          "found": [
+            "REVEVAL-D-022"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74657
+      },
+      {
+        "caseId": "c24-contract-break",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/handler.ts",
+            "line": 9,
+            "title": "parseId now throws, but getUser still checks for null",
+            "detail": "The diff changes parseId to throw a RangeError instead of returning null. The only other caller, getUser in src/handler.ts, was not updated. It still tests `id === null` and returns a 400 'bad id' reply. Input: getUser('abc') or getUser('0'). Before the change, the reply was {status:400, body:'bad id'}. Now parseId throws a RangeError, the null check is never reached, and the exception escapes getUser. The request then fails with an unhandled error (likely a 500 or a crash), not a 400. The `id === null` branch is now dead code. Fix: catch the RangeError in getUser and return the 400 reply, or revert the contract change. No test covers getUser.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/parseId.test.ts",
+            "line": 8,
+            "title": "Tests do not cover zero or other invalid inputs",
+            "detail": "The tests cover only '42' and 'x'. They do not cover '0', '', '-1' or '007'. The new `id <= 0` throw branch is untested. There is also no test for getUser, which would have caught the caller regression.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 1036,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 122505,
+          "cacheWriteTokens": 27842,
+          "totalTokens": 151393,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 12.925,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-023"
+          ],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 1,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 1,
+        "caseFailed": false,
+        "tokens": 151393
+      },
+      {
+        "caseId": "c24-contract-break",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/handler.ts",
+            "line": 9,
+            "title": "parseId now throws, but getUser still checks for null",
+            "detail": "The diff changes parseId from returning null to throwing RangeError. The only caller, getUser in src/handler.ts, was not updated. It still does `if (id === null) return { status: 400, body: 'bad id' }`. For a segment such as 'abc', '0' or '-1', parseId throws a RangeError. The error is not caught, so getUser throws instead of returning the 400 reply. The HTTP layer then likely returns a 500 or crashes the request. The null check is now dead code, and TypeScript may flag the comparison of number to null. Fix: wrap the call in try/catch and return the 400 reply, or revert parseId to return null.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/parseId.test.ts",
+            "line": 11,
+            "title": "Tests do not cover zero or the handler path",
+            "detail": "The new tests cover only '42' and 'x'. There is no test for '0', for a negative or empty segment, or for getUser with a bad id. A getUser test would have exposed the broken caller.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 1013,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 122505,
+          "cacheWriteTokens": 27844,
+          "totalTokens": 151372,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 11.922,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-023"
+          ],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 1,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 1,
+        "caseFailed": false,
+        "tokens": 151372
+      },
+      {
+        "caseId": "c24-contract-break",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/handler.ts",
+            "line": 10,
+            "title": "parseId now throws, but getUser still checks for null",
+            "detail": "The diff changes parseId to throw a RangeError and to return number instead of number | null. The only caller, getUser in src/handler.ts, was not updated. It still tests `id === null`. Input: getUser('abc'), getUser('0') or getUser('-1'). Before the change, parseId returned null and getUser returned { status: 400, body: 'bad id' }. Now parseId throws a RangeError, and the exception leaves getUser uncaught. The request fails with an unhandled error (likely a 500 or a crash) instead of a 400. The `id === null` branch is now dead code. Fix: catch the RangeError in getUser and return the 400 reply, or keep the null contract.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/parseId.test.ts",
+            "line": 4,
+            "title": "Tests do not cover zero or the handler path",
+            "detail": "The new tests cover only '42' and 'x'. They do not cover '0', which uses the second throw branch. They do not cover getUser with a bad id, which would have caught the regression in the handler.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 1017,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 122508,
+          "cacheWriteTokens": 27871,
+          "totalTokens": 151406,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 11.836,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-023"
+          ],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 1,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 1,
+        "caseFailed": false,
+        "tokens": 151406
+      },
+      {
+        "caseId": "c24-contract-break",
+        "run": 4,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/handler.ts",
+            "line": 10,
+            "title": "parseId now throws, but getUser still checks for null",
+            "detail": "parseId changed from returning null to throwing a RangeError. The only caller, getUser in src/handler.ts, still checks `id === null` and returns a 400 reply. That branch is now dead code. Input such as getUser('abc') or getUser('0') now throws a RangeError out of getUser. Before the change it returned { status: 400, body: 'bad id' }. A bad path segment now causes an unhandled exception instead of a 400 reply, which is a clear regression. Fix: catch RangeError in getUser and return the 400 reply. Alternatively, keep the null return.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/parseId.test.ts",
+            "line": 5,
+            "title": "Tests do not cover the zero and negative cases or the caller",
+            "detail": "The new tests cover only '42' and 'x'. They do not cover '0', which hits the second throw branch. They do not cover getUser. A getUser test for a bad id would have caught the regression in the handler.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 1012,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 122516,
+          "cacheWriteTokens": 27893,
+          "totalTokens": 151431,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 11.767,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-023"
+          ],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 1,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 1,
+        "caseFailed": false,
+        "tokens": 151431
+      },
+      {
+        "caseId": "c24-contract-break",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/handler.ts",
+            "line": 10,
+            "title": "parseId now throws, but getUser still checks for null",
+            "detail": "parseId in src/parseId.ts now throws a RangeError for bad input. It no longer returns null. The only caller, getUser in src/handler.ts line 10, still checks `id === null` and was not updated. Input: getUser('abc') or getUser('0'). Before the change the result was { status: 400, body: 'bad id' }. After the change parseId throws and getUser does not catch it. The exception goes up to the caller. A bad path segment now gives an unhandled error, probably a 500 or a crash, not a 400. The `id === null` branch is now dead code. Fix: catch RangeError in getUser and return the 400 reply. Add a handler test for this case.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/parseId.test.ts",
+            "line": 4,
+            "title": "Tests cover only two parseId cases",
+            "detail": "The new tests check '42' and 'x'. They do not check '0', '-1', '' or '007'. The `id <= 0` throw path is not tested. No test covers getUser, which is where the regression is.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 1013,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 122508,
+          "cacheWriteTokens": 27883,
+          "totalTokens": 151414,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 12.41,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-023"
+          ],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 1,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 1,
+        "caseFailed": false,
+        "tokens": 151414
+      },
+      {
+        "caseId": "c24-contract-break",
+        "run": 6,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/handler.ts",
+            "line": 10,
+            "title": "parseId now throws, but getUser still expects null, so bad ids crash instead of returning 400",
+            "detail": "The diff changes parseId from returning null to throwing RangeError. The only caller, src/handler.ts:9-10, was not updated. It still checks `id === null`, which can never be true now. Input: getUser('abc') or getUser('0'). Before: Reply {status:400, body:'bad id'}. After: the RangeError propagates out of getUser, so the client gets an unhandled exception (likely a 500) instead of a 400. Fix: catch RangeError in getUser and return the 400 reply, or keep the null contract.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/parseId.test.ts",
+            "line": 4,
+            "title": "Tests do not cover the zero case or the handler's behaviour",
+            "detail": "parseId.test.ts checks only '42' and 'x'. The `id <= 0` throw branch ('0', '00') is untested. No test covers getUser with a bad id, which would have caught the caller regression.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 1152,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 122512,
+          "cacheWriteTokens": 27887,
+          "totalTokens": 151561,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 11.895,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-023"
+          ],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 1,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 1,
+        "caseFailed": false,
+        "tokens": 151561
+      }
+    ]
+  }
+}

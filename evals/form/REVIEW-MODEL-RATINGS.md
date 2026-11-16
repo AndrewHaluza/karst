@@ -122,6 +122,22 @@ Antigravity on the same 6 cases, 6 runs each (`review-references/antigravity-gem
 
 The intervals overlap a little (90.1% to 93.9%), so this is a strong sign and not a proof. Antigravity is better on these cases and also faster. The n is 35 and 36, so both cells are above the minimum of 30. Claude has no hard-case result yet.
 
+Claude (`claude-sonnet-5-5`, default effort) on case set 6 (`review-references/claude-sonnet-5-5-hard-c19-c24-v6/` and `claude-sonnet-5-5-clean-n32-v6/`):
+
+Hard cases `c19` to `c24`, 6 runs each, 36 of 36 calls ok: recall 30/36 (68.1% to 92.1% strict), 6 blocking false findings, 9.9 seconds per run. The five other cases were found in 6 of 6 runs each. All 6 misses are `c24`. In every run Claude reported the real break on the caller (`handler.ts` line 9 or 10, severity high), and the case accepts only `parseId.ts`. The 6 blocking false findings are those same 6 findings. With the caller line accepted, Claude recall would be 36/36 and its blocking false findings 0.
+
+Clean cases `c09`, `c10`, `c17`, `c18`, 8 runs each, 32 of 32 calls ok: a false finding in 3 of 32 runs (9.4%, interval 3.2% to 24.2%), 0 blocking, 5.8 seconds per run. All 3 are low findings on `c10` that say the new `chunk` function has no tests. `c09`, `c17` and `c18` gave 0 false findings in 24 runs.
+
+All three cores on case set 6:
+
+| Core | Recall `c19` to `c24` (strict) | Calls | Clean cases with a false finding | Seconds per run |
+|---|---|---|---|---|
+| antigravity | 35/35 (90.1% to 100%) | 36 | 0/32 (0.0% to 10.7%), v4 | 78.6 |
+| claude | 30/36 (68.1% to 92.1%) | 36 | 3/32 (3.2% to 24.2%) | 9.9 |
+| opencode2 | 31/36 (71.3% to 93.9%) | 36 | 10/31 (18.6% to 49.9%), v4 | 117.1 |
+
+Every interval overlaps another one, so this table does not rank the cores by recall. The `c24` result is a case limit that hits Claude and opencode2: 9 of the 11 scored misses are a correct finding on the caller. Antigravity put every `c24` finding in `parseId.ts`. Decision needed: accept the caller line in `c24` (case set 7), because a finding there is correct and more useful. Claude is the fastest core by a wide margin.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
