@@ -113,6 +113,15 @@ Recall on the hard cases: 31/36 (86.1%, interval 71.3% to 93.9%), 4 blocking fal
 
 `c24` explains 3 of the 5 misses. In all 3 runs the finding is correct, but it points to the caller `handler.ts` (line 9 or 10) and the case accepts only `parseId.ts`. If the case accepted the caller line, recall would be 34/36 (94.4%). I report the strict number. A later case-set version may accept the caller line. Of the 2 other misses, one is a finding without a file and a line (`c20`), and one is a real miss (`c21`).
 
+Antigravity on the same 6 cases, 6 runs each (`review-references/antigravity-gemini-3.8-flash-medium-hard-c19-c24-v6/`): 35 of 36 calls ok, recall 35/35 (100%, interval 90.1% to 100%), 0 blocking false findings, 78.6 seconds per run. One `c24` call did not finish. Every case was found in every finished run, and `c24` was found in 5 of 5. Antigravity put every `c24` finding in `parseId.ts`, so the location limit of `c24` did not apply to it.
+
+| Core | Recall on `c19` to `c24` | 95% interval | Blocking false | Seconds per run |
+|---|---|---|---|---|
+| antigravity | 35/35 | 90.1% to 100% | 0 | 78.6 |
+| opencode2 | 31/36 | 71.3% to 93.9% | 4 | 117.1 |
+
+The intervals overlap a little (90.1% to 93.9%), so this is a strong sign and not a proof. Antigravity is better on these cases and also faster. The n is 35 and 36, so both cells are above the minimum of 30. Claude has no hard-case result yet.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
