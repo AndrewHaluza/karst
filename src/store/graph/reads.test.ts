@@ -46,6 +46,8 @@ import {
   writeNodeRunBaseHeads,
 } from './nodeRuns.js';
 import {
+  acceptedBootstrapPlannerRunId,
+  acceptedReplanPlannerRunId,
   createPlannerRun,
   hasLiveReplanPlanner,
   latestPlannerRunForGraphRunKind,
@@ -377,6 +379,17 @@ describe('planner-run read helpers (NDL-60)', () => {
     h.db
       .prepare("UPDATE approach_planner_runs SET status = 'submitted', graph_snapshot_id = 's1' WHERE id = ?")
       .run(first);
+    // Submitted but not yet accepted: no accepted planner run.
+    expect(acceptedBootstrapPlannerRunId(h.db, h.graphRunId)).toBeUndefined();
+    h.db.prepare("UPDATE approach_planner_runs SET ended_at = 'now' WHERE id = ?").run(first);
+    expect(acceptedBootstrapPlannerRunId(h.db, h.graphRunId)).toBe(first);
+    h.db.prepare("UPDATE approach_planner_runs SET ended_at = NULL WHERE id = ?").run(first);
+    // A replan planner is found by the revision it produced, not by ended_at.
+    expect(acceptedReplanPlannerRunId(h.db, h.graphRunId, 2)).toBeUndefined();
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(second);
+    expect(acceptedReplanPlannerRunId(h.db, h.graphRunId, 2)).toBe(second);
+    expect(acceptedReplanPlannerRunId(h.db, h.graphRunId, 3)).toBeUndefined();
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'running' WHERE id = ?").run(second);
     expect(submittedPlannerRunForGraphRun(h.db, h.graphRunId, 'bootstrap')).toMatchObject({
       id: first,
       status: 'submitted',

@@ -158,6 +158,16 @@ export interface SupervisedCliTransport extends AgentTransport {
    * re-adopting an already-registered (ticketId, nodeRunId) replaces the entry.
    */
   adopt(session: SupervisedAgentSession): void;
+  /**
+   * Close the session's terminal tab after the graph proved the session
+   * SUCCEEDED (an integrated node, an accepted planner). The caller owns that
+   * proof; this method only disposes. The close that the dispose causes is a
+   * deliberate end: it never reads as a launch failure and it never writes a
+   * second verdict over the `process_runs` row (the store close is guarded on
+   * `status = 'running'`; a still-running row closes `passed`).
+   * Idempotent; a session without a terminal is a no-op.
+   */
+  disposeOnSuccess(session: SupervisedAgentSession): void;
 }
 
 /** The supervised CLI transport's actual capability contract. */
@@ -174,6 +184,18 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
   /** Sessions this window is stopping — their close is a Stop, not a launch
    *  failure, so the early-exit report is suppressed for them. */
   const terminating = new Set<string>();
+  /** Sessions whose terminal this window disposes after a proven success. */
+  const disposing = new Set<string>();
+
+  /** The `process_runs` verdict for a terminal close. A close that follows a
+   *  success-dispose is `passed` (the store keeps an already-closed row). */
+  const closeVerdict = (
+    exitCode: number | undefined,
+    disposedOnSuccess: boolean,
+  ): 'passed' | 'failed' | 'interrupted' => {
+    if (disposedOnSuccess) return 'passed';
+    return exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted';
+  };
 
   /**
    * Log every graph terminal close (exitCode, pid, liveness) and stop an
@@ -300,6 +322,7 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       // A fresh launch of this (ticket, run) key never continues a Stop — clear
       // any marker left by a session whose close never fired.
       terminating.delete(key);
+      disposing.delete(key);
       // The provider's last non-empty output line, kept for the launch-failure
       // reason. Bounded per line so a hostile/garbage stream can never grow
       // this in memory; the consumer sanitizes the text before it is recorded.
@@ -331,10 +354,13 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         // The Stop marker is scoped to the session that just ended — a later
         // launch of the same reserved visit must report its own failures. Read
         // it BEFORE clearing: this close is the Stop when it is set.
-        const stopping = terminating.has(key);
+        const disposedOnSuccess = disposing.delete(key);
+        const stopping = terminating.has(key) || disposedOnSuccess;
         terminating.delete(key);
-        const verdict = exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted';
-        reapOrphanOnClose(session, exitCode, verdict);
+        // The reap sees the REAL exit verdict (D585: a live process behind a
+        // closed tab still dies); only the accounting row reads `passed`.
+        reapOrphanOnClose(session, exitCode, closeVerdict(exitCode, false));
+        const verdict = closeVerdict(exitCode, disposedOnSuccess);
         if (processRunId !== null && deps.closeProcessRun) {
           try {
             deps.closeProcessRun(processRunId, verdict, deps.now());
@@ -436,6 +462,23 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       }
     },
 
+    disposeOnSuccess: (session) => {
+      const terminal = session.terminal;
+      if (!terminal) return;
+      const key = `${session.ticketId}:${session.nodeRunId}`;
+      // Mark ONLY a live registered session: a session whose terminal already
+      // closed has run its close handler, so a marker would stay stale.
+      if (sessions.get(key) === session) disposing.add(key);
+      try {
+        terminal.dispose();
+      } catch (error) {
+        disposing.delete(key);
+        deps.debug?.(
+          `[graph] node ${session.nodeRunId}: disposing the terminal after success failed (${String(error)})`,
+        );
+      }
+    },
+
     sessions: () => [...sessions.values()],
     sessionFor: (ticketId, nodeRunId) => sessions.get(`${ticketId}:${nodeRunId}`),
     adopt: (session) => {
@@ -447,8 +490,8 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       if (session.terminal) {
         session.terminal.onDidClose((exitCode) => {
           if (sessions.get(key) === session) sessions.delete(key);
-          const verdict = exitCode === 0 ? 'passed' : exitCode !== undefined ? 'failed' : 'interrupted';
-          reapOrphanOnClose(session, exitCode, verdict);
+          const verdict = closeVerdict(exitCode, disposing.delete(key));
+          reapOrphanOnClose(session, exitCode, closeVerdict(exitCode, false));
           if (session.processRunId !== null && deps.closeProcessRun) {
             try {
               deps.closeProcessRun(session.processRunId, verdict, deps.now());

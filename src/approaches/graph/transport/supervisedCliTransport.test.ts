@@ -837,3 +837,172 @@ describe('SupervisedCLITransport terminal close of a live process (orphan)', () 
     });
   }
 });
+
+describe('SupervisedCLITransport disposeOnSuccess', () => {
+  /** A terminal whose dispose fires the close handler, as the host does. */
+  function disposableTerminal(exitCodeOnDispose: number | undefined) {
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    let disposeCalls = 0;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    let closed = false;
+    terminal.dispose = () => {
+      disposeCalls += 1;
+      // The host fires the close event once; a later dispose is silent.
+      if (closed) return;
+      closed = true;
+      closeHandler?.(exitCodeOnDispose);
+    };
+    return {
+      terminal,
+      disposeCalls: () => disposeCalls,
+      close: (code?: number) => {
+        closed = true;
+        closeHandler?.(code);
+      },
+    };
+  }
+
+  const ADOPTED: SupervisedAgentSession = {
+    nodeRunId: 66,
+    ticketId: 1,
+    graphRunId: 2,
+    pid: 4242,
+    cwd: '/wt/n1',
+    generation: 'gen-1',
+    ownerNonce: 'nonce',
+    startedAt: '2026-08-12T00:00:00.000Z',
+    processRunId: 77,
+    providerSessionId: null,
+  };
+
+  it('disposes the terminal tab of a live session', async () => {
+    const t = disposableTerminal(0);
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => t.terminal },
+    });
+    const session = await transport.start(LAUNCH);
+    transport.disposeOnSuccess(session);
+    expect(t.disposeCalls()).toBe(1);
+    expect(transport.sessionFor(LAUNCH.ticketId, LAUNCH.nodeRunId)).toBeUndefined();
+  });
+
+  it('is a no-op for a session without a terminal', () => {
+    const transport = createSupervisedCliTransport(harness(4242).deps);
+    expect(() => transport.disposeOnSuccess({ ...ADOPTED })).not.toThrow();
+  });
+
+  it('a close inside the launch window after the dispose reports no launch failure', async () => {
+    const t = disposableTerminal(undefined);
+    const failures: LaunchFailure[] = [];
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => t.terminal },
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    const session = await transport.start(LAUNCH);
+    transport.disposeOnSuccess(session);
+    expect(failures).toEqual([]);
+  });
+
+  it('closes a still-running row as passed, whatever the exit code of the disposed terminal', async () => {
+    const t = disposableTerminal(undefined);
+    const close: Array<{ processRunId: number; status: string }> = [];
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => t.terminal },
+      openProcessRun: () => 77,
+      closeProcessRun: (processRunId, status) => close.push({ processRunId, status }),
+    });
+    const session = await transport.start(LAUNCH);
+    transport.disposeOnSuccess(session);
+    expect(close).toEqual([{ processRunId: 77, status: 'passed' }]);
+  });
+
+  it('writes no second verdict when the terminal already closed before the dispose', async () => {
+    const t = disposableTerminal(undefined);
+    const close: Array<{ processRunId: number; status: string }> = [];
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => t.terminal },
+      openProcessRun: () => 77,
+      closeProcessRun: (processRunId, status) => close.push({ processRunId, status }),
+    });
+    const session = await transport.start(LAUNCH);
+    t.close(1);
+    transport.disposeOnSuccess(session);
+    transport.disposeOnSuccess(session);
+    expect(close).toEqual([{ processRunId: 77, status: 'failed' }]);
+  });
+
+  it('a stale dispose marker never changes a later launch of the same key', async () => {
+    const t = disposableTerminal(1);
+    const close: Array<{ status: string }> = [];
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => t.terminal },
+      openProcessRun: () => 77,
+      closeProcessRun: (_id, status) => close.push({ status }),
+    });
+    const first = await transport.start(LAUNCH);
+    t.close(1);
+    transport.disposeOnSuccess(first);
+    await transport.start(LAUNCH);
+    t.close(1);
+    expect(close).toEqual([{ status: 'failed' }, { status: 'failed' }]);
+  });
+
+  it('keeps the orphan reap on the close that the dispose causes', async () => {
+    const killed: number[] = [];
+    const logs: string[] = [];
+    const t = disposableTerminal(undefined);
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      debug: (m) => logs.push(m),
+      terminalHost: { createTerminal: () => t.terminal },
+      killTree: (pid) => {
+        killed.push(pid);
+        return 'killed';
+      },
+    });
+    const session = await transport.start(LAUNCH);
+    transport.disposeOnSuccess(session);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(killed).toEqual([4242]);
+  });
+
+  it('an adopted session closes passed after the dispose and keeps an earlier verdict', async () => {
+    const close: Array<{ processRunId: number; status: string }> = [];
+    const t = disposableTerminal(undefined);
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      closeProcessRun: (processRunId, status) => close.push({ processRunId, status }),
+    });
+    const adopted = { ...ADOPTED, terminal: t.terminal };
+    transport.adopt(adopted);
+    transport.disposeOnSuccess(adopted);
+    expect(t.disposeCalls()).toBe(1);
+    expect(close).toEqual([{ processRunId: 77, status: 'passed' }]);
+    transport.disposeOnSuccess(adopted);
+    expect(close).toHaveLength(1);
+  });
+
+  it('logs a throwing dispose and never throws', async () => {
+    const t = disposableTerminal(0);
+    t.terminal.dispose = () => {
+      throw new Error('boom');
+    };
+    const logs: string[] = [];
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => t.terminal },
+      debug: (m) => logs.push(m),
+    });
+    const session = await transport.start(LAUNCH);
+    expect(() => transport.disposeOnSuccess(session)).not.toThrow();
+    expect(logs.some((l) => l.includes('disposing the terminal after success failed'))).toBe(true);
+  });
+});
