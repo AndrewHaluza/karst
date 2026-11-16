@@ -742,3 +742,39 @@ describe('ServicesSection — dependency targets', () => {
     expect(values).not.toContain('web');
   });
 });
+
+describe('ServicesSection — health timeout', () => {
+  const withTimeout = (): Manifest => ({
+    ...BASE,
+    repositories: {
+      ...(BASE.repositories as unknown as Record<string, Record<string, unknown>>),
+      api: {
+        ...(BASE.repositories as unknown as Record<string, Record<string, unknown>>).api,
+        service: { ...((BASE.repositories as unknown as Record<string, Record<string, Record<string, unknown>>>).api!.service), healthTimeoutSeconds: 600 },
+      },
+    } as unknown as Manifest['repositories'],
+  });
+
+  it('writes a whole number of seconds to healthTimeoutSeconds', () => {
+    mount();
+    open('api');
+    setField('f-svc-health-timeout-api', '600');
+    expect((repositories().api?.service as Record<string, unknown>).healthTimeoutSeconds).toBe(600);
+  });
+
+  it('removes the key for a blank or invalid value', () => {
+    mount(withTimeout());
+    open('api');
+    for (const value of ['', '0', '1.5', '3601']) {
+      setField('f-svc-health-timeout-api', value);
+      expect('healthTimeoutSeconds' in (repositories().api?.service as Record<string, unknown>)).toBe(false);
+      setField('f-svc-health-timeout-api', '600');
+    }
+  });
+
+  it('renders the declared value', () => {
+    mount(withTimeout());
+    open('api');
+    expect((document.querySelector('[name="f-svc-health-timeout-api"]') as HTMLInputElement).value).toBe('600');
+  });
+});

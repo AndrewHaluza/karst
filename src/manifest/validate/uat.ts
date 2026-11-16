@@ -382,6 +382,10 @@ export function validateUat(raw: unknown): UatConfig | undefined {
     throw new ManifestError('uat.probeWhenAllDisabled must be a boolean');
   }
   if (raw.probeWhenAllDisabled === true) config.probeWhenAllDisabled = true;
+  if (raw.keepStackForUser !== undefined && typeof raw.keepStackForUser !== 'boolean') {
+    throw new ManifestError('uat.keepStackForUser must be a boolean');
+  }
+  if (raw.keepStackForUser === true) config.keepStackForUser = true;
   // Task 8: a single optional deterministic verifier gate for the UAT Tester.
   // Host-authored command/script definition — never AI output — parsed through
   // the SAME argv-safe `validateGate` path as `uat.gates` entries so a forged

@@ -753,6 +753,42 @@ repositories:
     }
   });
 
+  it('reads an optional service healthTimeoutSeconds: a whole number 1-3600; anything else is rejected', () => {
+    const at = (v: string) => `${DOCS}    service:\n      start: npm run dev\n      healthTimeoutSeconds: ${v}\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
+    for (const v of [1, 600, 3600]) {
+      const { path, cleanup } = fixture(at(String(v)));
+      try {
+        expect(loadManifest(path).repositories.docs!.service!.healthTimeoutSeconds).toBe(v);
+      } finally {
+        cleanup();
+      }
+    }
+    const absent = fixture(`${DOCS}    service:\n      start: npm run dev\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`);
+    try {
+      expect(loadManifest(absent.path).repositories.docs!.service!.healthTimeoutSeconds).toBeUndefined();
+    } finally {
+      absent.cleanup();
+    }
+    for (const v of ['0', '-5', '1.5', '3601', '"60"', 'true']) {
+      const { path, cleanup } = fixture(at(v));
+      try {
+        expect(() => loadManifest(path)).toThrow(/service\.healthTimeoutSeconds/);
+      } finally {
+        cleanup();
+      }
+    }
+  });
+
+  it('refuses healthTimeoutSeconds at repository level and names where it goes', () => {
+    const yaml = `${DOCS}    healthTimeoutSeconds: 60\n`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/runtime field "healthTimeoutSeconds" at repository level/);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('still rejects a non-string health', () => {
     const yaml = `${DOCS}    service:\n      start: npm run dev\n      health: 42\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
     const { path, cleanup } = fixture(yaml);

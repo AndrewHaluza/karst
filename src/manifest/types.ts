@@ -65,6 +65,9 @@ export interface DockerDef {
   args: string[];
 }
 
+/** Upper bound for `ServiceDef.healthTimeoutSeconds` (one hour): a typo must not make a start wait for a day. */
+export const MAX_HEALTH_TIMEOUT_SECONDS = 3600;
+
 export interface ServiceDef {
   /**
    * The start command, or `''` when `docker` carries the process instead.
@@ -76,8 +79,9 @@ export interface ServiceDef {
   health?: string;
   /**
    * Optional command that resets the service's state between agent UAT and
-   * user UAT in a sandboxed ticket (arch:AC-32 decision 8). Run inside the
-   * sandbox (`sh -c`, in the service's cwd) on the SAME running instance.
+   * user UAT (arch:AC-32 decision 8), on the SAME running instance (`sh -c`, in
+   * the service's directory). A sandboxed stack runs it inside the sandbox; a
+   * host stack kept by `uat.keepStackForUser` runs it on the host.
    * Absent → state is left as the Tester left it.
    */
   reset?: string;
@@ -101,6 +105,13 @@ export interface ServiceDef {
    * while wired to another branch's process.
    */
   healthIdentity?: boolean;
+  /**
+   * How long a start waits for `health` to pass before karst gives up and
+   * stops the process, in whole seconds (1 to `MAX_HEALTH_TIMEOUT_SECONDS`).
+   * Absent → the 30-second default of `waitForHealth`. Set it for a service
+   * that is slow to become ready, for example an image that builds on first start.
+   */
+  healthTimeoutSeconds?: number;
   ports: PortSlot[]; // validated non-empty — a service without a port cannot be addressed
   /**
    * Optional per-service allocation window. When present, ticket-hot ports for
@@ -659,6 +670,14 @@ export interface UatConfig {
   gates?: UatGateDef[];
   /** Every gate off: false/absent = run nothing (stage bypassed); true = probe package.json scripts. */
   probeWhenAllDisabled?: boolean;
+  /**
+   * Opt-in, manifest-only. `true`: a HOST stack that agent UAT started and that
+   * passed stays running for the user to test, after each service's `reset`; the
+   * done/archive stop rules stop it later. Absent/false: UAT stops a host stack
+   * it started (the default). A sandboxed stack is always kept after a pass
+   * (arch:AC-32 decision 7), whatever this says.
+   */
+  keepStackForUser?: boolean;
   /**
    * Task 8: an optional deterministic verification command for the UAT
    * Tester's work — a host-authored `GateDef` (script/command) run through the

@@ -161,4 +161,6 @@ New `Manifest` field checklist: add to `types.ts` + `validateManifest` (schema.t
 `graphWorkspace` (repository field, manifest-only like `sandbox`) holds `link`, `setup` and `setupWhen`. It follows the checklist (`types.ts`, `validate/repository.ts`, `write.ts` overlay). An explicit block REPLACES the defaults of that repository and never falls back to `sandbox.setup`. See `arch:GRAPHDEPS`.
 
 `sandboxLimits` (manifest-only, T964) holds `cpus` (whole number ≥ 1, the `sbx run --cpus` value on create), `workers` (boolean; `false` opts out of the vitest worker and node heap env) and `gateSlots` (whole number ≥ 0, project-wide concurrent sandbox gates; default 2, 0 = unlimited). See `arch:AC-49` and `arch:AC-36`.
+`service.healthTimeoutSeconds` (whole seconds, 1 to `MAX_HEALTH_TIMEOUT_SECONDS` = 3600; absent = the 30-second default) follows the checklist: `types.ts`, `validate/repository.ts` (also in `RUNTIME_FIELDS`, so a repository-level key is refused), the `write.ts` overlay, and the `manifestApply.ts` diff. Settings → Services edits it as a number input below "Verify instance identity". A blank or invalid value removes the key. `runtime/healthTimeout.ts` is the one conversion to ms (`@arch:PORTS`).
+
 END_DOC_BLOCK: [@arch:FIELDCHK]

@@ -2,6 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { validateUat, uatEnvWarnings } from './uat.js';
 
 describe('validateUat', () => {
+  it('keeps uat.keepStackForUser only when it is true', () => {
+    expect(validateUat({ keepStackForUser: true })?.keepStackForUser).toBe(true);
+    expect(validateUat({ keepStackForUser: false })).not.toHaveProperty('keepStackForUser');
+    expect(validateUat({})).not.toHaveProperty('keepStackForUser');
+  });
+
+  it('refuses a non-boolean uat.keepStackForUser', () => {
+    expect(() => validateUat({ keepStackForUser: 'yes' })).toThrow(/uat\.keepStackForUser must be a boolean/);
+    expect(() => validateUat({ keepStackForUser: 1 })).toThrow(/uat\.keepStackForUser must be a boolean/);
+  });
+
   it('returns undefined for an absent block', () => {
     expect(validateUat(undefined)).toBeUndefined();
   });

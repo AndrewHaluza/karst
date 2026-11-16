@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { detectInertKeys } from './inertKeys.js';
 
 describe('detectInertKeys', () => {
+  it('does not report uat.keepStackForUser: it has a consumer', () => {
+    expect(detectInertKeys({ uat: { keepStackForUser: true } })).toEqual([]);
+  });
+
   it('says nothing about a manifest that declares no inert key', () => {
     expect(detectInertKeys({ host: '127.0.0.1', uat: { maxFixAttempts: 5 } })).toEqual([]);
   });

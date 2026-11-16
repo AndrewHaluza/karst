@@ -196,6 +196,9 @@ function serviceChanged(before: ServiceDef | undefined, after: ServiceDef | unde
   if (beforePorts !== afterPorts) details.push(`ports: ${beforePorts} -> ${afterPorts}`);
   if (before.dependsOn.length !== after.dependsOn.length) details.push('dependsOn changed');
   if (before.healthIdentity !== after.healthIdentity) details.push('healthIdentity changed');
+  if (before.healthTimeoutSeconds !== after.healthTimeoutSeconds) {
+    details.push(`healthTimeoutSeconds: ${before.healthTimeoutSeconds ?? '(default)'} -> ${after.healthTimeoutSeconds ?? '(default)'}`);
+  }
   details.push(...dockerChanged(before.docker, after.docker));
   return details;
 }

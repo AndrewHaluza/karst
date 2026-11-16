@@ -584,9 +584,9 @@ agents:
 # rule, failure playbook) sits beside this file: karst.uat-review-setup.md
 #
 # ABSENT (the default) yields the probe pipeline: karst looks for
-# known package.json scripts. Only six keys under `uat:` are read today —
+# known package.json scripts. Only seven keys under `uat:` are read today —
 # `maxFixAttempts`, `gates` (plus per-repository `gates`), `testerVerifier`,
-# `testerObservations`, `tester` and `baselineReview`.
+# `testerObservations`, `tester`, `baselineReview` and `keepStackForUser`.
 #
 # NOT A NODE PROJECT? Auto-discovery is the ONLY npm-shaped part of gating, and
 # it is skipped entirely the moment you declare `gates:` below — a declared list
@@ -614,6 +614,11 @@ uat:
   # WIRED. Fix→UAT→fix retries before the ticket parks. Narrows UAT only; review
   # has its own `review.maxFixAttempts`.
   maxFixAttempts: 3
+  # WIRED. Opt-in: keep a HOST stack that UAT started running after a passed
+  # UAT, so you can test it before ship. Each service's `reset` runs first; the
+  # stack stops when the ticket is done (stopServersOnDone) or archived.
+  # A sandboxed stack is always kept. Default false.
+  # keepStackForUser: true
   # WIRED. Replaces the probe. `kind: command` is argv-based and spawned without
   # a shell — it is what keeps UAT usable from Go, Rust, Java and Python repos.
   gates:

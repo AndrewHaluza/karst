@@ -484,6 +484,12 @@
   "src/extension/ops/graphRecoveryDispatch.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/extension/ops/hostUserUat.ts#hasRunningHostServices": [
+    "arch:AC-58"
+  ],
+  "src/extension/ops/hostUserUat.ts#resetHostServices": [
+    "arch:AC-58"
+  ],
   "src/extension/ops/mergeAllOps.ts#mergeAllOp": [
     "arch:GH-09"
   ],

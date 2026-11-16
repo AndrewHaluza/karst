@@ -10,6 +10,7 @@ import { serviceLaunch } from './serviceLaunch.js';
 import type { ResolveResult } from '../resolver/resolve.js';
 import { renderHealthUrl } from './healthUrl.js';
 import { waitForHealth } from './health.js';
+import { healthTimeoutMsOf } from './healthTimeout.js';
 import { reallocateHostPort } from './sandboxHostPort.js';
 import {
   SandboxServiceError,
@@ -75,6 +76,7 @@ export async function startResolvedService(args: StartResolvedServiceArgs): Prom
   // pin the port in the command (independent of the worktree's own config).
   const httpSlot = service.ports.find((p) => p.name === 'http') ?? service.ports[0]!;
   const ownPort = resolvedSvc.ports[httpSlot.name]!;
+  const healthTimeoutMs = healthTimeoutMsOf(service);
   if (args.sandbox) {
     if (service.docker) {
       throw new SandboxServiceError(`${args.name}: a docker-image service cannot run inside a sandbox (arch:AC-32)`);
@@ -92,7 +94,11 @@ export async function startResolvedService(args: StartResolvedServiceArgs): Prom
         service.health ? renderHealthUrl(service.health, '127.0.0.1', hostPort) : `http://127.0.0.1:${hostPort}/health`,
       logPath: serverLogPath(args.cwd, args.name),
       reallocate: (taken) => Promise.resolve(reallocateHostPort(args.store, range, args.ticketId, args.name, httpSlot.name, taken)),
-      waitHealthy: (url, signal) => waitForHealth(url, signal ? { signal } : {}),
+      waitHealthy: (url, signal) =>
+        waitForHealth(url, {
+          ...(signal ? { signal } : {}),
+          ...(healthTimeoutMs !== undefined ? { timeoutMs: healthTimeoutMs } : {}),
+        }),
       ...(args.signal ? { signal: args.signal } : {}),
       ...(args.debug ? { debug: args.debug } : {}),
     });
@@ -123,6 +129,7 @@ export async function startResolvedService(args: StartResolvedServiceArgs): Prom
     port: ownPort,
     healthUrl,
     requireIdentity: service.healthIdentity === true,
+    ...(healthTimeoutMs !== undefined ? { healthTimeoutMs } : {}),
     logPath: serverLogPath(args.cwd, args.name),
     repoPath: repo.repoPath,
     container,

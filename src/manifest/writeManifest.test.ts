@@ -251,6 +251,7 @@ describe('writeManifest', () => {
               start: 'npm run dev',
               health: 'http://{host}:{port}/health',
               healthIdentity: true,
+              healthTimeoutSeconds: 600,
               reset: 'npm run db:reset',
               ports: [{ name: 'http', env: 'PORT', default: 3000 }],
               portRange: [5000, 5100],
@@ -348,6 +349,7 @@ describe('writeManifest', () => {
           testDir: 'e2e/karst',
           maxFixAttempts: 2,
           stallTimeoutMinutes: 45,
+          keepStackForUser: true,
           gates: [
             { name: 'test', kind: 'script', script: 'test' },
             { name: 'gotest', kind: 'command', command: 'go', args: ['test', './...'], repo: 'backend' },

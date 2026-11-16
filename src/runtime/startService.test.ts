@@ -129,4 +129,32 @@ describe('startResolvedService', () => {
     });
     expect(startHotMock.mock.calls[0]![1].requireIdentity).toBe(false);
   });
+
+  it('passes healthTimeoutMs from service.healthTimeoutSeconds, and none when it is absent', async () => {
+    const withTimeout = manifest({ api: runnableRepo({ ports: [httpSlot(3000)], healthTimeoutSeconds: 600 }) });
+    await startResolvedService({
+      store,
+      manifest: withTimeout,
+      ticketId: 7,
+      name: 'api',
+      resolved: resolvedFor('api', { http: 4123 }, { PORT: '4123' }),
+      cwd: '/wt/api',
+      envOverrides: {},
+    });
+    expect(startHotMock.mock.calls[0]![1].healthTimeoutMs).toBe(600_000);
+
+    startHotMock.mockClear();
+
+    const without = manifest({ api: runnableRepo({ ports: [httpSlot(3000)] }) });
+    await startResolvedService({
+      store,
+      manifest: without,
+      ticketId: 7,
+      name: 'api',
+      resolved: resolvedFor('api', { http: 4124 }, { PORT: '4124' }),
+      cwd: '/wt/api',
+      envOverrides: {},
+    });
+    expect('healthTimeoutMs' in startHotMock.mock.calls[0]![1]).toBe(false);
+  });
 });

@@ -21,6 +21,7 @@ import { acquireBaselineStartLock, releaseBaselineStartLock } from './baselineSt
 import { worktreeRegisteredAtAsync } from './worktree.js';
 import { canonicalPath, isPathUnder } from './pathScope.js';
 import { runGit } from '../integrations/git.js';
+import { healthTimeoutMsOf } from './healthTimeout.js';
 
 /** Verbose decision-point logging, injected (`AGENTS.md` § Debug Logging Rules). */
 type DebugFn = (message: string) => void;
@@ -448,6 +449,7 @@ async function startBaseline(
       cwd: runDir,
     });
 
+    const healthTimeoutMs = healthTimeoutMsOf(svc);
     debug?.(`[runtime] baseline ${service}: starting on ${manifest.host}:${port} from ${runDir}`);
     return await startHot(store, {
       ticketId: null, // baseline singleton
@@ -461,6 +463,7 @@ async function startBaseline(
       port,
       healthUrl,
       requireIdentity: svc.healthIdentity === true,
+      ...(healthTimeoutMs !== undefined ? { healthTimeoutMs } : {}),
       logPath: serverLogPath(checkout, `${service}.baseline`),
       repoPath: repo.repoPath,
     });
