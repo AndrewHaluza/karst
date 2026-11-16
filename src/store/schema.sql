@@ -575,7 +575,10 @@ CREATE TABLE IF NOT EXISTS ship_runs (
   -- running run, while `reconcileShipRuns` leaves it strictly alone.
   -- Placed LAST, matching where the migration's ALTER TABLE ADD COLUMN
   -- necessarily puts it on an upgraded DB (SQLite always appends).
-  pid INTEGER
+  pid INTEGER,
+  -- v126: 1 = the run was an unattended resume of a dead ship (@arch:SHIP-RESUME);
+  -- a dead run with 1 is parked failed, never resumed again (crash-loop guard).
+  unattended INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS ship_repo_steps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

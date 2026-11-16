@@ -305,6 +305,8 @@ END_DOC_BLOCK: [@arch:HOOK-LIVE]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
+**Ship run unattended mark (v126).** `ship_runs.unattended INTEGER NOT NULL DEFAULT 0` is 1 for a run that was an unattended resume of a dead ship. Additive, 0 = a click or a pre-v126 run (no backfill). `reconcileShipRuns` parks a dead marked run `failed` instead of resuming it again (`@arch:SHIP-RESUME`).
+
 **Graph auto recovery (v125).** `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` record the automatic recoveries (`@arch:GRAPH-AUTORECOVERY`).
 
 **PR head (v124).** `prs.head_oid TEXT NULL` holds the PR head sha from `headRefOid`, current state with COALESCE in `updatePrDetail` (@arch:GH-03). NULL = never stated (no backfill).

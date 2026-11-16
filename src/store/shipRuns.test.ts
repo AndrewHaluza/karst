@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
-import { createTicket } from './tickets.js';
+import { createTicket, pauseTicket } from './tickets.js';
 import { openProcessRun } from './processRuns.js';
 import { setStage } from './stages.js';
 import {
@@ -795,9 +795,53 @@ describe('ship_runs', () => {
       expect(listShipEvidence(store, ticketId).run!.pid).toBe(4242);
     });
 
-    it('marks a dead run interrupted, closes its running steps failed, and parks the stage for a retry', () => {
+    it('carries the unattended mark on the run row, false by default', () => {
+      expect(run({ pid: 4242 }).unattended).toBe(false);
+      expect(run({ pid: 4242, unattended: true }).unattended).toBe(true);
+    });
+
+    it('marks a dead run interrupted and leaves the stage running for the resume when the run was a click', () => {
       parkAtShip();
       const r = run({ pid: 4242 });
+      step(r.id, { step: 'describe' });
+      const stale = reconcileShipRuns(store, (pid) => pid !== 4242, '2026-08-08T11:00:00.000Z');
+      expect(stale).toHaveLength(1);
+      expect(stale[0]!.resume).toBe(true);
+      expect(stale[0]!.reason).toMatch(/stays running/);
+      expect(listShipEvidence(store, ticketId).run).toMatchObject({ status: 'interrupted' });
+      const stage = store.db
+        .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+        .get(ticketId) as { status: string };
+      expect(stage.status).toBe('running');
+    });
+
+    it('parks the stage when the dead run was itself an unattended resume (crash-loop guard)', () => {
+      parkAtShip();
+      run({ pid: 4242, unattended: true });
+      const stale = reconcileShipRuns(store, () => false, '2026-08-08T11:00:00.000Z');
+      expect(stale[0]!.resume).toBe(false);
+      expect(stale[0]!.reason).toMatch(/parked failed/);
+      const stage = store.db
+        .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+        .get(ticketId) as { status: string };
+      expect(stage.status).toBe('failed');
+    });
+
+    it('parks the stage when the ticket is paused', () => {
+      parkAtShip();
+      run({ pid: 4242 });
+      pauseTicket(store, ticketId);
+      const stale = reconcileShipRuns(store, () => false, '2026-08-08T11:00:00.000Z');
+      expect(stale[0]!.resume).toBe(false);
+      const stage = store.db
+        .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+        .get(ticketId) as { status: string };
+      expect(stage.status).toBe('failed');
+    });
+
+    it('marks a dead run interrupted, closes its running steps failed, and parks the stage for a retry', () => {
+      parkAtShip();
+      const r = run({ pid: 4242, unattended: true });
       const describe = step(r.id, { step: 'describe' });
       step(r.id, { step: 'commit', repo: 'api' });
 

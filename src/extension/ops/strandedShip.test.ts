@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, pauseTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
-import { openShipRun } from '../../store/shipRuns.js';
+import { openShipRun, reconcileShipRuns } from '../../store/shipRuns.js';
 import { resumeStrandedShips, type StrandedShipDeps } from './strandedShip.js';
 
 /** Let the deliberately un-awaited `runShip` rejection settle. */
@@ -99,5 +99,48 @@ describe('resumeStrandedShips', () => {
     expect(info).not.toHaveBeenCalled();
     expect(logError).not.toHaveBeenCalled();
     expect(onResumeFailed).not.toHaveBeenCalled();
+  });
+
+  describe('after the activation reconcile (@arch:SHIP-RESUME)', () => {
+    const sweep = (): void => {
+      reconcileShipRuns(store, () => false, '2026-09-15T11:00:00.000Z');
+    };
+    const stageStatus = (): string =>
+      (store.db
+        .prepare("SELECT status FROM stages WHERE ticket_id = ? AND stage_key = 'ship'")
+        .get(ticketId) as { status: string }).status;
+    const seedRun = (over: { unattended?: boolean; paused?: boolean }): void => {
+      seedStranded(ticketId, { paused: over.paused === true });
+      if (over.unattended === true) {
+        store.db.prepare('UPDATE ship_runs SET unattended = 1 WHERE ticket_id = ?').run(ticketId);
+      }
+    };
+
+    it('starts one unattended-path ship for a dead run whose stage reads running', async () => {
+      seedRun({});
+      sweep();
+      const runShip = vi.fn(async () => undefined);
+      await resumeStrandedShips(deps({ runShip }));
+      expect(runShip).toHaveBeenCalledTimes(1);
+      expect(runShip).toHaveBeenCalledWith(ticketId);
+    });
+
+    it('parks the stage failed and starts no ship when the dead run was an unattended resume', async () => {
+      seedRun({ unattended: true });
+      sweep();
+      const runShip = vi.fn(async () => undefined);
+      await resumeStrandedShips(deps({ runShip }));
+      expect(runShip).not.toHaveBeenCalled();
+      expect(stageStatus()).toBe('failed');
+    });
+
+    it('parks a paused ticket and starts no ship', async () => {
+      seedRun({ paused: true });
+      sweep();
+      const runShip = vi.fn(async () => undefined);
+      await resumeStrandedShips(deps({ runShip }));
+      expect(runShip).not.toHaveBeenCalled();
+      expect(stageStatus()).toBe('failed');
+    });
   });
 });

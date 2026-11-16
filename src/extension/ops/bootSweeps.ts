@@ -194,9 +194,13 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
   // reconciliation only runs at the start of the next `shipTicket` invocation,
   // and a ticket at `ship` `running` with no block offers no retry anywhere
   // (the Now line shows no button for a running ship, and the driver only
-  // auto-runs gates). Marking the dead run `interrupted` and parking the
-  // stage `failed` is what turns that stuck state into the one that already
-  // has a recovery path: the failed-ship surface's "Retry ship".
+  // auto-runs gates). Marking the dead run `interrupted` is the first half.
+  // The stage then follows one rule (@arch:SHIP-RESUME), decided in
+  // `reconcileShipRuns` alone: an unpaused ticket stays `running` and the
+  // stranded-ship resume below runs the saga again unattended (the user
+  // already confirmed the ship); a dead run that was itself an unattended
+  // resume (crash-loop guard) or a paused ticket is parked `failed`, the state
+  // that has the failed-ship surface's "Retry ship". One INFO line each.
   //
   // GLOBAL for the same reason as the gate-run pass above, and safe for the
   // same reason: attribution, not scope. A run opened by ANOTHER LIVE window
