@@ -12,10 +12,11 @@ export const RELOAD_WHEN_IDLE_TITLE = 'Karst: Reload window when idle';
 export const IDLE_POLL_MS = 2000;
 
 /**
- * Live runs of THIS host: `process_runs` and `stage_runs` (every gate and the
- * ship run live inside a stage run) whose status is 'running' and whose pid is
- * the host's, and the `deliver_runs` rows with state 'running' (an auto-deliver
- * runs its gates outside any stage run). `extra` adds the host gate re-runs, which write no run row (`Drain.track`). A run of another window has another pid and is not counted.
+ * Live runs of THIS host: `process_runs` and `stage_runs` (every gate) whose
+ * status is 'running' and whose pid is the host's, the `ship_runs` rows with
+ * status 'running' (the ship saga writes a ship run, not a stage run), and the
+ * `deliver_runs` rows with state 'running' (an auto-deliver runs its gates
+ * outside any stage run). `extra` adds the host gate re-runs, which write no run row (`Drain.track`). A run of another window has another pid and is not counted.
  * Interactive impl/fix terminals are not counted: the pty host keeps them
  * across a reload (@arch:AC-15).
  */
@@ -29,7 +30,32 @@ export function countLiveRuns(store: Store, hostPid: number, extra = 0): number 
   const deliver = store.db
     .prepare("SELECT COUNT(*) AS n FROM deliver_runs WHERE state = 'running' AND pid = ?")
     .get(hostPid) as { n: number };
-  return count('process_runs') + count('stage_runs') + deliver.n + extra;
+  const ship = store.db
+    .prepare("SELECT COUNT(*) AS n FROM ship_runs WHERE status = 'running' AND pid = ?")
+    .get(hostPid) as { n: number };
+  return count('process_runs') + count('stage_runs') + deliver.n + ship.n + extra;
+}
+
+export const SHIP_DRAINING_MESSAGE = 'a reload is waiting for live runs, so ship does not start. Cancel the reload, or ship again after it.';
+
+/** The error a refused ship start throws, so no caller reports a ship that did not run. */
+export class ShipDrainingError extends Error {
+  constructor() {
+    super(SHIP_DRAINING_MESSAGE);
+    this.name = 'ShipDrainingError';
+  }
+}
+
+/**
+ * A new ship start while the drain flag is set (@arch:DRAIN-01): writes one debug
+ * line, holds the ticket so a cancel re-drives it, and throws `ShipDrainingError`.
+ * A start inside a tracked live run is never refused.
+ */
+export function guardShipStart(drain: Drain, ticketId: number, debug: (message: string) => void): void {
+  if (!drain.isDraining() || drain.insideRun()) return;
+  drain.hold(ticketId);
+  debug(`[ship] ticket ${ticketId} ship not started: draining`);
+  throw new ShipDrainingError();
 }
 
 export interface ReloadWhenIdleDeps {

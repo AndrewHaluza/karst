@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { openStore } from '../../store/db.js';
 import { createDrain } from '../../runtime/drain.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
-import { countLiveRuns, reloadWhenIdle, type ReloadWhenIdleDeps } from './reloadWhenIdle.js';
+import { openShipRun } from '../../store/shipRuns.js';
+import { countLiveRuns, guardShipStart, reloadWhenIdle, ShipDrainingError, type ReloadWhenIdleDeps } from './reloadWhenIdle.js';
 
 function deps(counts: number[], over: Partial<ReloadWhenIdleDeps> = {}) {
   const drain = createDrain();
@@ -99,5 +100,57 @@ describe('countLiveRuns', () => {
       .run(t.id, t.id, t.id);
     expect(countLiveRuns(store, 111)).toBe(1);
     store.close();
+  });
+});
+
+describe('countLiveRuns ship runs', () => {
+  it('counts a running ship run of this host pid only (the ship saga writes no stage run)', () => {
+    const store = openStore(':memory:');
+    const t = createTicketFlow(store, { key: 'K-3', title: 't' });
+    openShipRun(store, { ticketId: t.id, attempt: 1, startedAt: 'x', pid: 111 });
+    expect(countLiveRuns(store, 111)).toBe(1);
+    expect(countLiveRuns(store, 222)).toBe(0);
+    store.close();
+  });
+});
+
+describe('guardShipStart', () => {
+  it('lets a start run when not draining', () => {
+    const log = vi.fn();
+    expect(() => guardShipStart(createDrain(), 5, log)).not.toThrow();
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('throws, logs the reason draining and holds the ticket while draining', () => {
+    const drain = createDrain();
+    const log = vi.fn();
+    drain.begin();
+    expect(() => guardShipStart(drain, 5, log)).toThrow(ShipDrainingError);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('draining'));
+    expect(drain.cancel()).toEqual([5]);
+  });
+
+  it('opens no ship run when the guard refuses the start', () => {
+    const store = openStore(':memory:');
+    const t = createTicketFlow(store, { key: 'K-4', title: 't' });
+    const drain = createDrain();
+    drain.begin();
+    const start = (): void => {
+      guardShipStart(drain, t.id, () => {});
+      openShipRun(store, { ticketId: t.id, attempt: 1, startedAt: 'x', pid: 111 });
+    };
+    expect(start).toThrow(ShipDrainingError);
+    expect(countLiveRuns(store, 111)).toBe(0);
+    expect(store.db.prepare('SELECT COUNT(*) AS n FROM ship_runs').get()).toEqual({ n: 0 });
+    expect(drain.cancel()).toEqual([t.id]);
+    store.close();
+  });
+
+  it('does not refuse a start inside a tracked live run', async () => {
+    const drain = createDrain();
+    drain.begin();
+    await drain.track(async () => {
+      expect(() => guardShipStart(drain, 5, () => {})).not.toThrow();
+    });
   });
 });

@@ -9,6 +9,7 @@ import {
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import type { ShipPreview, ShipPreviewRepo } from '../../workflow/shipPreview.js';
 import { approveOneMore, stopAutopilot } from './autopilotOps.js';
+import { createDrain } from '../../runtime/drain.js';
 import { autoReship, reshipAtShipConfirm, reshipBlocker, RESHIP_SHIP_OPTS, type AutoReshipDeps } from './autoReship.js';
 
 const CFG: AutopilotConfig = { enabled: true, ci: { policy: 'auto', maxAttempts: 3, checks: ['unit'] }, conflicts: { policy: 'auto', maxRounds: 2 } };
@@ -45,6 +46,16 @@ beforeEach(() => {
 });
 
 describe('autoReship', () => {
+  it('waits and holds the ticket while the drain is set, and keeps the ci round mark', async () => {
+    const drain = createDrain();
+    drain.begin();
+    const x = deps();
+    expect(await autoReship({ ...x.d, drain })).toEqual({ kind: 'waits', reason: 'draining' });
+    expect(x.ship).not.toHaveBeenCalled();
+    expect(getCiRoundAt(store, id)).toBe(1000);
+    expect(drain.cancel()).toEqual([id]);
+  });
+
   it('(a) runs ship with no click after a ci round when every PR is open, and notes the round', async () => {
     const x = deps();
     expect(await autoReship(x.d)).toEqual({ kind: 'shipped', used: 1, max: 3 });

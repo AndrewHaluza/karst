@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import type { Drain } from '../../runtime/drain.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import type { ShipPreview } from '../../workflow/shipPreview.js';
 import { postAutopilotNote } from './autopilotWiring.js';
@@ -33,6 +34,8 @@ export interface AutoReshipDeps {
   readonly ship: (opts: typeof RESHIP_SHIP_OPTS) => Promise<void>;
   readonly note: (title: string, body: string) => void;
   readonly debug: (message: string) => void;
+  /** The host drain (@arch:DRAIN-01): while it is set no re-ship starts, and the CI round mark stays unspent. */
+  readonly drain?: Drain;
 }
 
 export type AutoReshipResult =
@@ -86,6 +89,10 @@ function waitReason(d: AutoReshipDeps, cfg: AutopilotConfig | undefined): string
   if (stageBlock(d.store, d.ticketId, 'ship') !== null) return 'the ship stage has a block';
   if (getStage(d.store, d.ticketId, 'ship')?.status === 'running') return 'a ship is running';
   if (!d.controls()) return 'another window controls the ticket';
+  if (d.drain?.isDraining() === true) {
+    d.drain.hold(d.ticketId); // a cancel re-drives the ticket; the CI round mark stays set (@arch:DRAIN-01)
+    return 'draining';
+  }
   return null;
 }
 
