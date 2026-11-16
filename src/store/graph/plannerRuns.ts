@@ -265,6 +265,14 @@ export function plannerRunModelIdentity(
     .get(id) as Pick<PlannerRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined;
 }
 
+/** The launch attempt that names a planner's terminal tab, or undefined when the row is gone. */
+export function plannerRunLaunchAttempt(db: GraphDb, id: number): number | undefined {
+  const row = db
+    .prepare('SELECT launch_attempt FROM approach_planner_runs WHERE id = ?')
+    .get(id) as Pick<PlannerRunRow, 'launch_attempt'> | undefined;
+  return row?.launch_attempt;
+}
+
 /** The launch identity a reattach compares against a live session (planner runs). */
 export function plannerRunSessionIdentity(
   db: GraphDb,

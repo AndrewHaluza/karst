@@ -38,6 +38,7 @@ import {
   nodeRunBaseHeads,
   nodeRunIntegrationRef,
   nodeRunLaunchFailStreakForGraphRun,
+  nodeRunNamingFacts,
   nodeRunStatus,
   nodeRunsForGraphRun,
   nodeRunsInStatusesForRevision,
@@ -52,6 +53,7 @@ import {
   plannerRunCompileAttempt,
   plannerRunGraphRunId,
   plannerRunIdsForGraphRun,
+  plannerRunLaunchAttempt,
   plannerRunStatus,
   submittedPlannerRunForGraphRun,
 } from './plannerRuns.js';
@@ -217,6 +219,22 @@ describe('node-run read helpers (NDL-60)', () => {
     expect(countNodeRunsForRevisionNodeByOutcome(h.db, h.revisionId, 'n1', 'blocked')).toBe(0);
     expect(countNodeRunsInStatusesForGraphRun(h.db, h.graphRunId, ['completed'])).toBe(1);
     expect(countNodeRunsInStatusesForGraphRun(h.db, h.graphRunId, ['running'])).toBe(0);
+  });
+
+  it('reads the node id and launch attempt that name a node terminal', () => {
+    const h = harness();
+    const id = createNodeRun(h.db, {
+      graphRunId: h.graphRunId,
+      revisionId: h.revisionId,
+      nodeId: 'api-schema',
+      nodeKind: 'agent',
+      visitNumber: 1,
+      now: NOW,
+    });
+    expect(nodeRunNamingFacts(h.db, id)).toEqual({ node_id: 'api-schema', launch_attempt: 0 });
+    h.db.prepare('UPDATE approach_node_runs SET launch_attempt = 2 WHERE id = ?').run(id);
+    expect(nodeRunNamingFacts(h.db, id)).toEqual({ node_id: 'api-schema', launch_attempt: 2 });
+    expect(nodeRunNamingFacts(h.db, 9999)).toBeUndefined();
   });
 
   it('reads runnable rows, the graph-run listing and base heads', () => {
@@ -385,6 +403,14 @@ describe('planner-run read helpers (NDL-60)', () => {
     // As is an abandoned legacy NULL-target row.
     h.db.prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?").run(second);
     expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(false);
+  });
+  it('reads the launch attempt that names a planner terminal', () => {
+    const h = harness();
+    const id = createPlannerRun(h.db, { graphRunId: h.graphRunId, plannerRunNumber: 1, kind: 'bootstrap' });
+    expect(plannerRunLaunchAttempt(h.db, id)).toBe(0);
+    h.db.prepare('UPDATE approach_planner_runs SET launch_attempt = 3 WHERE id = ?').run(id);
+    expect(plannerRunLaunchAttempt(h.db, id)).toBe(3);
+    expect(plannerRunLaunchAttempt(h.db, 9999)).toBeUndefined();
   });
 });
 

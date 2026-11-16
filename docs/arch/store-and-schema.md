@@ -113,6 +113,8 @@ goes through a named read helper next to the full-row reads (`graphRunById`,
 than declaring their own drifting row interfaces. A new column or status is
 therefore added to the store module and the schema, never to a repo-wide grep.
 
+The host names a graph terminal tab from two narrow reads: `nodeRunNamingFacts` (`node_id`, `launch_attempt`) and `plannerRunLaunchAttempt`. `approaches/graph/sessionNaming.ts` builds the name and sanitizes the node id.
+
 The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
 
 Two deliberate, documented exceptions remain:

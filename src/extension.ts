@@ -228,6 +228,7 @@ import { startGraphWakeupEndpoint, type GraphWakeupEndpoint } from './hooks/grap
 import { runCoordinatorTick, activeGraphRunIds } from './approaches/graph/coordinator/sweep.js';
 import { autoFireImplMarker as autoFireImplMarkerOp } from './extension/ops/graphAutoMarker.js';
 import { awaitingImplMarkerRuns } from './store/graph/graphRuns.js';
+import { graphSessionTerminalName } from './approaches/graph/sessionNaming.js';
 import { ticketsAwaitingGraphDrive } from './approaches/graph/coordinator/handoff.js';
 import { reconcilableGraphRunIds } from './approaches/graph/coordinator/reconcileScope.js';
 import { sweepOrphanGraphRuns } from './approaches/graph/coordinator/orphanSweep.js';
@@ -268,11 +269,12 @@ import {
   nodeOverrideFor,
   nodeRunGraphRunId,
   nodeRunIdsInStatusesForGraphRun,
+  nodeRunNamingFacts,
   nodeRunTicketId,
   setNodeRunProcessRunId,
   type BaseHead,
 } from './store/graph/nodeRuns.js';
-import { plannerRunIdsForGraphRun, plannerRunStatus, plannerRunTicketId, setPlannerRunProcessRunId } from './store/graph/plannerRuns.js';
+import { plannerRunIdsForGraphRun, plannerRunLaunchAttempt, plannerRunStatus, plannerRunTicketId, setPlannerRunProcessRunId } from './store/graph/plannerRuns.js';
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import {
   blockGraphStage,
@@ -4880,7 +4882,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         let name = `Karst ${kind} ${runId}`;
         try {
           const ticket = getTicket(localStore, graphRunTicketId(graphRunId));
-          name = terminalTicketName(ticket, currentManifest()?.terminalNameTemplate);
+          const ticketName = terminalTicketName(ticket, currentManifest()?.terminalNameTemplate);
+          // The role and node id tell the graph's tabs apart. A failed read of
+          // the run facts keeps the role suffix without the node id or attempt.
+          let nodeId: string | undefined;
+          let launchAttempt: number | undefined;
+          try {
+            const db = graphCoordinatorStore?.db;
+            if (db) {
+              if (kind === 'node') {
+                const facts = nodeRunNamingFacts(db, runId);
+                nodeId = facts?.node_id;
+                launchAttempt = facts?.launch_attempt;
+              } else {
+                launchAttempt = plannerRunLaunchAttempt(db, runId);
+              }
+            }
+          } catch (err) {
+            logger.debug(`graph session naming: run facts unreadable: ${String(err)}`);
+          }
+          name = graphSessionTerminalName({ ticketName, kind, runId, nodeId, launchAttempt });
         } catch {
           // The graph run (or its ticket) vanished after the launch was queued
           // — fall back to the opaque name rather than letting the naming
