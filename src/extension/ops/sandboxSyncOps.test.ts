@@ -760,3 +760,34 @@ describe('backendSessionOptions resume account (@arch:AC-55)', () => {
     }
   });
 });
+
+describe('backendSessionOptions explicit account (@arch:AC-55)', () => {
+  const make = (extra: Record<string, unknown>) => {
+    const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'host (x)' });
+    const warn = vi.fn();
+    const opts = backendSessionOptions({
+      backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7',
+      info: vi.fn(), warn, resolve, ...extra,
+    });
+    return { resolve, warn, opts };
+  };
+  it('hands the explicit account to the resolver, over the resumed one', async () => {
+    const { resolve, opts } = make({ account: 'default' });
+    await opts.resolveRunner!();
+    expect(resolve.mock.calls[0]![0]).toMatchObject({ account: 'default' });
+  });
+  it('does not warn about a host run when the account block is typed (the launch asks instead)', async () => {
+    const { resolve, warn, opts } = make({});
+    resolve.mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'host (r)', blocked: { kind: 'account', reason: 'r' } });
+    await opts.resolveRunner!();
+    expect(warn).not.toHaveBeenCalled();
+  });
+  it('resolveLaunchBackend carries the typed block to the launch', async () => {
+    const blocked = { kind: 'account' as const, reason: 'r' };
+    const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'host (r)', blocked });
+    const out = await resolveLaunchBackend({
+      backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), warn: vi.fn(), resolve,
+    });
+    expect(out.blocked).toEqual(blocked);
+  });
+});

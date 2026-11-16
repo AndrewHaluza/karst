@@ -169,34 +169,50 @@ import type { AgentBackends } from '../../agent/backendChoices.js';
 export const HOST_FALLBACK_RETRY = 'Retry';
 export const HOST_FALLBACK_HOST = 'Sync and remove sandbox, then run on host with a fresh session';
 
-export interface HostFallbackInput<T extends { readonly sandboxed: boolean }> {
+/** The two choices of an account block on a sandbox backend; Cancel is the dismissal. Add a choice here (D650/D652: 'Add a token'). */
+export const ACCOUNT_BLOCK_DEFAULT = 'Start fresh under default for this ticket';
+export const ACCOUNT_BLOCK_HOST = 'Run on host';
+const ACCOUNT_BLOCK_CHOICES: readonly string[] = [ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST];
+
+const HOST_REMOVE_CONFIRM = (label: string): string =>
+  `The agent's sandbox commits for ${label} will be synced to the host branch and the sandbox removed; the agent then runs on the host WITHOUT the sandbox boundary, in a fresh session. Continue?`;
+
+export interface HostFallbackInput<T extends { readonly sandboxed: boolean; readonly blocked?: { readonly kind: 'account'; readonly reason: string } }> {
   readonly ticketLabel: string;
   readonly launch: () => Promise<T>;
   /** The project/ticket asked for a sandbox backend. */
   readonly wantsSandbox: boolean;
   readonly hasSandbox: () => Promise<boolean>;
   readonly choose: (message: string, options: readonly string[]) => Promise<string | undefined>;
+  /** The same choice as a MODAL: the account-block choice must stop the launch until answered. */
+  readonly chooseModal: (message: string, options: readonly string[]) => Promise<string | undefined>;
   /** Modal naming the risk; true only on an explicit yes. */
   readonly confirmHost: (message: string) => Promise<boolean>;
   /** Sync (ff-only) then remove the sandbox; false when kept. */
   readonly removeSandbox: () => Promise<boolean>;
   /** An Autopilot round (arch:AC-31): never offer the host, never list sandboxes; a host backend is refused. */
   readonly failClosed?: boolean;
+  /** A recovery relaunch: no modal, an account block is refused with its reason like an Autopilot round. */
+  readonly refuseOnBlock?: boolean;
 }
 
 export type HostFallbackResult<T> =
   | { readonly kind: 'launched'; readonly backend: T; readonly freshSession: boolean }
   | { readonly kind: 'cancelled' }
+  /** The user chose a NEW session under the explicit `default` account: the caller relaunches with it; nothing ran. */
+  | { readonly kind: 'restart-default' }
   /** `failClosed` and the backend came up on the host: no choice was offered, nothing was removed. */
   | { readonly kind: 'refused'; readonly reason: string };
 
 export const FAIL_CLOSED_REASON = 'the sandbox backend is unavailable and auto-fix never runs on the host';
 
 /** F14: a ticket with a sandbox never silently falls back to the host; the user picks Retry / host-after-removal / Cancel. */
-export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
+export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean; readonly blocked?: { readonly kind: 'account'; readonly reason: string } }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
   for (;;) {
     const backend = await input.launch();
     if (backend.sandboxed || !input.wantsSandbox) return { kind: 'launched', backend, freshSession: false };
+    // An account block is never a silent host run, whether or not a sandbox exists (@arch:AC-55).
+    if (backend.blocked) return accountBlockChoice(input, backend, backend.blocked.reason);
     // Checked BEFORE hasSandbox: a sandbox listing that fails must not let an auto round run on the host.
     if (input.failClosed) return { kind: 'refused', reason: FAIL_CLOSED_REASON };
     if (!(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
@@ -206,12 +222,25 @@ export async function launchWithoutSilentHostFallback<T extends { readonly sandb
     );
     if (picked === HOST_FALLBACK_RETRY) continue;
     if (picked !== HOST_FALLBACK_HOST) return { kind: 'cancelled' };
-    const ok = await input.confirmHost(
-      `The agent's sandbox commits for ${input.ticketLabel} will be synced to the host branch and the sandbox removed; the agent then runs on the host WITHOUT the sandbox boundary, in a fresh session. Continue?`,
-    );
+    const ok = await input.confirmHost(HOST_REMOVE_CONFIRM(input.ticketLabel));
     if (!ok || !(await input.removeSandbox())) return { kind: 'cancelled' };
     return { kind: 'launched', backend: await input.launch(), freshSession: true };
   }
+}
+
+async function accountBlockChoice<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>, backend: T, reason: string): Promise<HostFallbackResult<T>> {
+  if (input.failClosed || input.refuseOnBlock) return { kind: 'refused', reason: `${reason}; the launch never runs on the host unasked` };
+  const picked = await input.chooseModal(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, ACCOUNT_BLOCK_CHOICES);
+  if (picked === ACCOUNT_BLOCK_DEFAULT) return { kind: 'restart-default' };
+  if (picked !== ACCOUNT_BLOCK_HOST) return { kind: 'cancelled' };
+  // The existing host path (F14): a ticket with a sandbox syncs it to the host branch, removes it and starts a fresh host session.
+  if (await input.hasSandbox()) {
+    const ok = await input.confirmHost(HOST_REMOVE_CONFIRM(input.ticketLabel));
+    if (!ok || !(await input.removeSandbox())) return { kind: 'cancelled' };
+    return { kind: 'launched', backend: await input.launch(), freshSession: true };
+  }
+  const ok = await input.confirmHost(`${input.ticketLabel} will run on the host WITHOUT the sandbox boundary, under its own account. Continue?`);
+  return ok ? { kind: 'launched', backend, freshSession: false } : { kind: 'cancelled' };
 }
 
 export function wantsSandboxBackend(backends: AgentBackends | undefined, core: string, override: 'host' | null | undefined): boolean {
@@ -227,6 +256,7 @@ export function wantsSbxBackend(backends: AgentBackends | undefined, core: strin
 export function hostFallbackPrompts(win: { showWarningMessage(message: string, ...items: any[]): PromiseLike<string | undefined> }) {
   return {
     choose: async (msg: string, opts: readonly string[]) => win.showWarningMessage(msg, ...opts),
+    chooseModal: async (msg: string, opts: readonly string[]) => win.showWarningMessage(msg, { modal: true }, ...opts),
     confirmHost: async (msg: string) => (await win.showWarningMessage(msg, { modal: true }, 'Run on host')) === 'Run on host',
   };
 }

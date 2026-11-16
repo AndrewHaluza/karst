@@ -23,6 +23,15 @@ describe('resolveBackend account', () => {
     const def = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'default' });
     expect(def.runner.kind).toBe('sbx');
   });
+  it('types the account block, so callers never parse the line', async () => {
+    configureAccounts({ claude: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } });
+    const blocked = await resolveBackend({ ...base, backends: { claude: 'sbx' }, preflight: ok, worktree });
+    expect(blocked.blocked).toEqual({ kind: 'account', reason: expect.stringMatching(/claude account 'work'.*sbx sandbox does not use/) });
+    const def = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'default' });
+    expect(def.blocked).toBeUndefined();
+    const other = await resolveBackend({ ...base, core: 'opencode', backends: { opencode: 'sbx' }, preflight: ok });
+    expect(other.blocked).toBeUndefined();
+  });
 });
 
 describe('resolveBackend', () => {

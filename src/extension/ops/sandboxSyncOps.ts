@@ -44,6 +44,8 @@ export interface BackendSessionInput {
   readonly debug?: (message: string) => void;
   /** The session this launch resumes: the sandbox account check uses its RECORDED account (@arch:AC-55). */
   readonly resumeSessionId?: string;
+  /** An explicit launch account (a fresh start under `default`); wins over the resumed session's account (@arch:AC-55). */
+  readonly account?: string;
   readonly resolve?: typeof resolveBackend;
   /** Attaches the ticket's evidence bridge; `openSession` calls it only for a sandbox runner (arch:AC-34). */
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
@@ -62,9 +64,9 @@ export interface BackendSessionInput {
  * The `openSession` options for the manifest's `agentBackends` entry of the session core (arch:AC-32).
  * Absent → no options at all, so a host launch is byte-identical to before.
  */
-/** The resume account for the sandbox check; none for a new launch (the active account). */
-function accountFor(core: string, resume: string | undefined): { account?: string } {
-  const account = accountForLaunch(core, resume);
+/** The account for the sandbox check: the explicit one, else the resumed session's; none for a new launch (the active account). */
+function accountFor(core: string, resume: string | undefined, explicit?: string): { account?: string } {
+  const account = accountForLaunch(core, resume, explicit);
   return account === undefined ? {} : { account };
 }
 
@@ -85,7 +87,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
     const bridgePaths = input.bridgeFor ? await input.bridgeFor(input.ticketId).catch(() => undefined) : undefined;
     const out = await resolve({
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
-      ...accountFor(input.core, input.resumeSessionId),
+      ...accountFor(input.core, input.resumeSessionId, input.account),
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
       ...(input.debug ? { log: input.debug } : {}),
       ...(input.sandboxMemory ? { sandboxMemory: input.sandboxMemory } : {}),
@@ -96,7 +98,8 @@ export function backendSessionOptions(input: BackendSessionInput): {
       } : {}),
     });
     // The fail-closed fallback is never silent (arch:AC-31): say why it runs prompted.
-    if (backend !== 'host' && out.runner.kind === 'host') input.warn?.(`Karst: ${input.ticketLabel} running prompted on host: ${fallbackReason(out.line)}`);
+    // A typed account block is not a fallback: the launch asks (or refuses) instead of running on the host.
+    if (backend !== 'host' && out.runner.kind === 'host' && !out.blocked) input.warn?.(`Karst: ${input.ticketLabel} running prompted on host: ${fallbackReason(out.line)}`);
     return out;
   };
   return {
@@ -113,6 +116,8 @@ export interface LaunchBackend {
   readonly sandboxed: boolean;
   /** Where this launch runs: what the host records on the ticket (arch:AC-32), including a fail-closed fallback and its reason. */
   readonly placement: TicketPlacement;
+  /** The sandbox backend refused the launch account: the runner is the host, and the launch must ask before it uses it. */
+  readonly blocked?: ResolvedBackend['blocked'];
   /** The bridge dir as the agent sees it (ends in the ticket id); absent when no bridge is attached. */
   readonly runDir?: string;
   /** Host paths of the attached bridge dir (the mirror target for attachments and gate logs). */
@@ -135,7 +140,7 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   remember?.(resolved.runner.enforcesSandbox ? input.core : null);
   const handed = { ...options, resolveRunner: () => Promise.resolve(resolved) };
   const placement = placementOfResolved(resolved, input.core);
-  if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false, placement };
+  if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false, placement, ...(resolved.blocked ? { blocked: resolved.blocked } : {}) };
   const existing = resolved.runner.ensureWritable ? await resolved.runner.hasSandbox?.() : false;
   if (existing) {
     const writable = await resolved.runner.ensureWritable!(input.worktree?.branch ? { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } : undefined);
