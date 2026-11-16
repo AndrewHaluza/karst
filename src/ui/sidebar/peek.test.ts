@@ -3,6 +3,7 @@ import { buildPeek, type PeekInput } from './peek.js';
 import type { Stage } from '../../store/stages.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { SessionAction } from '../../agent/sessionAction.js';
+import type { RailNeeds } from '../../model/railNeeds.js';
 
 function stage(over: Partial<Stage> = {}): Stage {
   return {
@@ -24,7 +25,6 @@ function stage(over: Partial<Stage> = {}): Stage {
 const SESSION: SessionAction = { kind: 'start', label: 'Start', detail: 'fresh session' };
 const SESS_OPEN: SessionAction = { kind: 'open', label: 'Open', detail: 'session is live · jump to terminal' };
 const SESS_CONT: SessionAction = { kind: 'continue', label: 'Continue', detail: 'resume impl' };
-const SESS_RESUME: SessionAction = { kind: 'resume', label: 'Resume', detail: 'picks up at uat' };
 
 function input(over: Partial<PeekInput> = {}): PeekInput {
   return {
@@ -39,6 +39,10 @@ function input(over: Partial<PeekInput> = {}): PeekInput {
     provider: null,
     model: null,
     prs: [],
+    paused: false,
+    glyph: 'gray',
+    needs: null,
+    lastHookAt: null,
     ...over,
   };
 }
@@ -64,19 +68,346 @@ function gateRun(over: Partial<GateRun> = {}): GateRun {
   };
 }
 
-describe('buildPeek — the expanded mini-dashboard summary', () => {
-  it('a live agent is the strongest signal, whatever the stage', () => {
-    expect(
-      buildPeek(input({ stageCurrent: 'impl', agentState: 'running', sessionAction: SESS_OPEN })),
-    ).toEqual({
-      title: 'Agent running',
-      detail: 'session is live · jump to terminal',
-      next: { kind: 'open-session', label: 'Open session' },
-      agent: null,
-    });
+const NEEDS_SHIP: RailNeeds = { detail: 'ready to open the PRs', action: 'Confirm ship', cta: { kind: 'ship-confirm' } };
+
+describe('buildPeek — state word, tone and age', () => {
+  it('a live agent reads "Agent working" in the glyph tone', () => {
+    const peek = buildPeek(input({ stageCurrent: 'impl', agentState: 'running', sessionAction: SESS_OPEN, glyph: 'blue' }));
+    expect(peek.title).toBe('Agent working');
+    expect(peek.tone).toBe('blue');
+    expect(peek.next).toBeNull();
   });
 
-  it('names the working agent core and model on the live readings', () => {
+  it('a waiting agent reads "Waiting for you"', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'impl',
+        agentState: 'waiting',
+        sessionAction: SESS_CONT,
+        glyph: 'amber',
+        needs: { detail: 'the agent asked you something', action: 'Open session', cta: { kind: 'open-session' } },
+      }),
+    );
+    expect(peek.title).toBe('Waiting for you');
+    expect(peek.needs?.cta).toEqual({ kind: 'open-session' });
+  });
+
+  it('a quota park (needs open-session, no agent state) reads "Waiting for you"', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'review',
+        current: stage({ stageKey: 'review', status: 'failed' }),
+        needs: { detail: 'the provider is out of quota', action: 'Open session', cta: { kind: 'open-session' } },
+      }),
+    );
+    expect(peek.title).toBe('Waiting for you');
+  });
+
+  it('a graph wait reads "Waiting for you" and carries the graph-panel cta', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'impl',
+        needs: { detail: 'the graph needs a recovery decision', action: 'Open graph', cta: { kind: 'graph-panel' } },
+      }),
+    );
+    expect(peek.title).toBe('Waiting for you');
+    expect(peek.needs?.cta.kind).toBe('graph-panel');
+  });
+
+  it('a running ship never reads its leftover waiting as needs-you', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        agentState: 'waiting',
+        current: stage({ stageKey: 'ship', status: 'running' }),
+        mergeGate: { kind: 'nothing-to-merge' },
+      }),
+    );
+    expect(peek.title).not.toBe('Waiting for you');
+  });
+
+  it('a paused ticket reads "Paused" with the resume note', () => {
+    const peek = buildPeek(input({ stageCurrent: 'impl', paused: true, glyph: 'amber' }));
+    expect(peek.title).toBe('Paused');
+    expect(peek.pausedNote).toBe('No stage starts until you resume');
+  });
+
+  it('a live agent outranks a pause, but the note stays', () => {
+    const peek = buildPeek(input({ stageCurrent: 'impl', agentState: 'running', paused: true }));
+    expect(peek.title).toBe('Agent working');
+    expect(peek.pausedNote).toBe('No stage starts until you resume');
+  });
+
+  it('an unpaused ticket has no paused note', () => {
+    expect(buildPeek(input({ stageCurrent: 'impl' })).pausedNote).toBeNull();
+  });
+
+  it('a running stage ages from startedAt ("for")', () => {
+    const peek = buildPeek(
+      input({ stageCurrent: 'impl', current: stage({ status: 'running', startedAt: '2026-08-12T08:00:00Z' }) }),
+    );
+    expect(peek.since).toEqual({ at: '2026-08-12T08:00:00Z', kind: 'for' });
+  });
+
+  it('a finished stage ages from endedAt ("ago")', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'uat',
+        current: stage({ stageKey: 'uat', status: 'failed', startedAt: '2026-08-12T08:00:00Z', endedAt: '2026-08-12T09:00:00Z' }),
+      }),
+    );
+    expect(peek.since).toEqual({ at: '2026-08-12T09:00:00Z', kind: 'ago' });
+  });
+
+  it('a stage with no timestamps has no age', () => {
+    expect(buildPeek(input({ stageCurrent: 'impl', current: stage() })).since).toBeNull();
+  });
+
+  it('shows the attempt only above one', () => {
+    expect(buildPeek(input({ current: stage({ attempt: 1 }) })).attempt).toBeNull();
+    expect(buildPeek(input({ current: stage({ attempt: 3 }) })).attempt).toBe(3);
+  });
+});
+
+describe('buildPeek — gate facts', () => {
+  it('a failed gate stage lists the passed count and the failed gate names', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'uat',
+        current: stage({ stageKey: 'uat', status: 'failed', attempt: 2 }),
+        glyph: 'red',
+        gateRuns: [
+          gateRun({ id: 1, gateName: 'build (api)' }),
+          gateRun({ id: 2, gateName: 'types (api)' }),
+          gateRun({ id: 3, gateName: 'docs (api)' }),
+          gateRun({ id: 4, gateName: 'lint (api)', exitCode: 1 }),
+          gateRun({ id: 5, gateName: 'test (api)', exitCode: 2 }),
+        ],
+      }),
+    );
+    expect(peek.title).toBe('UAT failed');
+    expect(peek.gates).toEqual({ text: '3 passed · 2 failed: lint, test', tone: 'failed' });
+  });
+
+  it('a running gate stage counts running gates', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'uat',
+        current: stage({ stageKey: 'uat', status: 'running' }),
+        glyph: 'blue',
+        gateRuns: [
+          gateRun({ id: 1 }),
+          gateRun({ id: 2, gateName: 'lint (api)' }),
+          gateRun({ id: 3, gateName: 'a (api)' }),
+          gateRun({ id: 4, gateName: 'b (api)', exitCode: null }),
+          gateRun({ id: 5, gateName: 'c (api)', exitCode: null }),
+        ],
+      }),
+    );
+    expect(peek.title).toBe('Gates running');
+    expect(peek.gates).toEqual({ text: '3 passed · 2 running', tone: 'running' });
+  });
+
+  it('a gate stage that has not recorded rows has no gate line', () => {
+    const peek = buildPeek(input({ stageCurrent: 'uat', current: stage({ stageKey: 'uat', status: 'running' }) }));
+    expect(peek.title).toBe('Gates running');
+    expect(peek.gates).toBeNull();
+  });
+
+  it('reads only the latest batch of the current stage', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'uat',
+        current: stage({ stageKey: 'uat', status: 'passed' }),
+        gateRuns: [
+          gateRun({ id: 1, runAt: '2026-08-12T09:00:00Z', exitCode: 1 }),
+          gateRun({ id: 2, runAt: '2026-08-12T10:00:00Z' }),
+          gateRun({ id: 3, stageKey: 'review', runAt: '2026-08-12T11:00:00Z', exitCode: 1 }),
+        ],
+      }),
+    );
+    expect(peek.gates).toEqual({ text: '1 passed', tone: 'ok' });
+  });
+
+  it('a skipped gate never counts as a pass', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'uat',
+        current: stage({ stageKey: 'uat', status: 'passed' }),
+        gateRuns: [gateRun({ id: 1 }), gateRun({ id: 2, skipped: true, exitCode: null })],
+      }),
+    );
+    expect(peek.gates?.text).toBe('1 passed');
+  });
+
+  it('a failed stage with no gate rows shows its verdict as one red line', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'impl',
+        current: stage({ status: 'failed', verdict: 'build broke\nsecond line' }),
+        glyph: 'red',
+      }),
+    );
+    expect(peek.title).toBe('Implementation failed');
+    expect(peek.gates).toEqual({ text: 'build broke', tone: 'failed' });
+  });
+
+  it('a failed stage with neither rows nor verdict has no gate line', () => {
+    const peek = buildPeek(input({ stageCurrent: 'impl', current: stage({ status: 'failed' }) }));
+    expect(peek.gates).toBeNull();
+  });
+});
+
+describe('buildPeek — ship family', () => {
+  it('a freshly parked ship reads "Ready to ship" and carries the rail needs', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'pending' }),
+        mergeGate: { kind: 'nothing-to-merge' },
+        needs: NEEDS_SHIP,
+        glyph: 'amber',
+      }),
+    );
+    expect(peek.title).toBe('Ready to ship');
+    expect(peek.needs).toEqual(NEEDS_SHIP);
+    expect(peek.repos).toBeNull();
+  });
+
+  it('a single repo awaiting merge lists its PR', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'passed' }),
+        mergeGate: { kind: 'awaiting', repos: ['karst'] },
+        prs: [{ repo: 'karst', number: 1148, status: 'open' }],
+        needs: { detail: '1 repo to merge', action: 'Merge', cta: { kind: 'merge', repo: 'karst' } },
+      }),
+    );
+    expect(peek.title).toBe('Awaiting merge');
+    expect(peek.repos).toEqual([{ repo: 'karst', number: 1148, state: 'ready' }]);
+    expect(peek.needs?.cta).toEqual({ kind: 'merge', repo: 'karst' });
+  });
+
+  it('several repos awaiting merge list every PR and point at the merge panel', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'passed' }),
+        mergeGate: { kind: 'awaiting', repos: ['karst', 'karst-docs'] },
+        prs: [
+          { repo: 'karst', number: 1, status: 'open' },
+          { repo: 'karst-docs', number: 2, status: 'open' },
+        ],
+        needs: { detail: '2 repos to merge', action: 'Merge', cta: { kind: 'merge-panel' } },
+      }),
+    );
+    expect(peek.repos).toHaveLength(2);
+    expect(peek.needs?.cta.kind).toBe('merge-panel');
+  });
+
+  it('an awaiting ship drops merged PR rows', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        mergeGate: { kind: 'awaiting', repos: ['api'] },
+        prs: [
+          { repo: 'api', number: 4, status: 'merged' },
+          { repo: 'api', number: 9, status: 'open' },
+        ],
+      }),
+    );
+    expect(peek.repos).toEqual([{ repo: 'api', number: 9, state: 'ready' }]);
+  });
+
+  it('a conflict reads "Merge conflict" and lists conflicted repos before ready ones', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'passed' }),
+        mergeGate: { kind: 'conflicted', repos: ['api'], pending: ['web'] },
+        prs: [
+          { repo: 'web', number: 8, status: 'open' },
+          { repo: 'api', number: 7, status: 'open' },
+        ],
+        needs: { detail: '1 repo no longer merges cleanly', action: 'Resolve', cta: { kind: 'resolve-conflicts', repo: 'api' } },
+      }),
+    );
+    expect(peek.title).toBe('Merge conflict');
+    expect(peek.repos).toEqual([
+      { repo: 'api', number: 7, state: 'conflict' },
+      { repo: 'web', number: 8, state: 'ready' },
+    ]);
+    expect(peek.needs?.cta).toEqual({ kind: 'resolve-conflicts', repo: 'api' });
+  });
+
+  it('a failed ship reads "Ship failed" with the retry needs and the verdict line', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'failed', verdict: 'push rejected' }),
+        needs: { detail: 'push rejected', action: 'Retry ship', cta: { kind: 'retry-ship' } },
+      }),
+    );
+    expect(peek.title).toBe('Ship failed');
+    expect(peek.gates).toEqual({ text: 'push rejected', tone: 'failed' });
+    expect(peek.needs?.cta).toEqual({ kind: 'retry-ship' });
+  });
+
+  it('failing CI on an awaiting ship keeps the send-ci-failure strip', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        mergeGate: { kind: 'awaiting', repos: ['api'] },
+        ciFailingRepos: ['api'],
+      }),
+    );
+    expect(peek.title).toBe('Awaiting merge');
+    expect(peek.next).toEqual({ kind: 'send-ci-failure', label: 'Send CI failure to agent' });
+  });
+});
+
+describe('buildPeek — done, closed and scope', () => {
+  it('a done ticket reads "Shipped" and offers the follow-up', () => {
+    const peek = buildPeek(input({ stageCurrent: 'done', current: stage({ stageKey: 'done', status: 'passed' }), glyph: 'green' }));
+    expect(peek.title).toBe('Shipped');
+    expect(peek.next).toEqual({ kind: 'create-follow-up', label: 'Create follow-up' });
+    expect(peek.needs).toBeNull();
+  });
+
+  it('a closed ticket reads closed outside Karst and quotes the reason', () => {
+    const peek = buildPeek(
+      input({ stageCurrent: 'closed', current: stage({ stageKey: 'closed', status: 'passed', verdict: 'fixed upstream' }) }),
+    );
+    expect(peek.title).toBe('Closed outside Karst');
+    expect(peek.gates).toEqual({ text: 'fixed upstream', tone: 'ok' });
+    expect(peek.next).toBeNull();
+  });
+
+  it('an unscoped ticket reads "Not scoped yet"', () => {
+    expect(buildPeek(input()).title).toBe('Not scoped yet');
+  });
+
+  it('a scoped ticket reads ready to work, naming running servers when there are some', () => {
+    const wt = [{ repo: 'api' }];
+    expect(buildPeek(input({ worktrees: wt })).title).toBe('Scoped — ready to work');
+    expect(buildPeek(input({ worktrees: wt, servers: [{ status: 'running' }, { status: 'running' }] })).title).toBe(
+      '2 servers running',
+    );
+  });
+
+  it('impl with no live session reads "No active session"; idle reads "Session idle"', () => {
+    expect(buildPeek(input({ stageCurrent: 'impl', current: stage() })).title).toBe('No active session');
+    expect(buildPeek(input({ stageCurrent: 'impl', agentState: 'idle', current: stage() })).title).toBe('Session idle');
+  });
+});
+
+describe('buildPeek — the agent line', () => {
+  it('is absent when no session exists', () => {
+    expect(buildPeek(input({ stageCurrent: 'impl', provider: 'claude', model: 'opus' })).agent).toBeNull();
+  });
+
+  it('names the core, the model, the activity and the last hook time when a session exists', () => {
     const peek = buildPeek(
       input({
         stageCurrent: 'impl',
@@ -84,361 +415,24 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
         sessionAction: SESS_OPEN,
         provider: 'opencode',
         model: 'opencode-go/deepseek-v4-flash',
+        lastHookAt: '2026-08-12T10:00:00.000Z',
       }),
     );
-    expect(peek.agent).toEqual({ provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' });
-  });
-
-  it('a waiting agent reads as needs-you with the continue verb', () => {
-    expect(
-      buildPeek(input({ stageCurrent: 'impl', agentState: 'waiting', sessionAction: SESS_CONT })),
-    ).toEqual({
-      title: 'Agent waiting for input',
-      detail: 'resume impl',
-      next: { kind: 'open-session', label: 'Continue session' },
-      agent: null,
+    expect(peek.agent).toEqual({
+      provider: 'opencode',
+      model: 'opencode-go/deepseek-v4-flash',
+      activity: 'working',
+      activeAt: '2026-08-12T10:00:00.000Z',
     });
   });
 
-  it('a ship that is RUNNING never reads its leftover waiting as needs-you', () => {
-    // `waiting` during a running ship is the driver's own headless work — the
-    // peek must not claim "Agent waiting for input".
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'ship',
-          agentState: 'waiting',
-          current: stage({ stageKey: 'ship', status: 'running' }),
-          mergeGate: { kind: 'nothing-to-merge' },
-        }),
-      ).title,
-    ).toBe('Ready to ship');
+  it('reads waiting and idle activity words', () => {
+    const base = { stageCurrent: 'impl', sessionAction: SESS_CONT, provider: 'claude' as const };
+    expect(buildPeek(input({ ...base, agentState: 'waiting' })).agent?.activity).toBe('waiting for you');
+    expect(buildPeek(input({ ...base, agentState: 'idle' })).agent?.activity).toBe('idle');
   });
 
-  it('a done ticket stays compact and offers the follow-up as its primary action', () => {
-    expect(
-      buildPeek(input({ stageCurrent: 'done', current: stage({ stageKey: 'done', status: 'passed' }) })),
-    ).toEqual({
-      title: 'Shipped',
-      detail: null,
-      next: { kind: 'create-follow-up', label: 'Create follow-up' },
-    });
-  });
-
-  it('a closed ticket says it was closed outside Karst, quotes the reason, and offers no action', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'closed',
-          current: stage({ stageKey: 'closed', status: 'passed', verdict: 'Sam did it (CU-9)' }),
-        }),
-      ),
-    ).toEqual({ title: 'Closed outside Karst', detail: 'Sam did it (CU-9)', next: null });
-  });
-
-  it('a closed ticket without a recorded reason still reads closed', () => {
-    const peek = buildPeek(input({ stageCurrent: 'closed', current: null }));
-    expect(peek).toEqual({ title: 'Closed outside Karst', detail: null, next: null });
-  });
-
-  it('a conflicted ship names the conflict and offers Resolve conflicts for the first repo', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'ship',
-          current: stage({ stageKey: 'ship', status: 'passed' }),
-          mergeGate: { kind: 'conflicted', repos: ['api', 'web'], pending: [] },
-        }),
-      ),
-    ).toEqual({
-      title: '2 merge conflicts in api, web',
-      detail: null,
-      next: { kind: 'resolve-conflicts', label: 'Resolve conflicts', repo: 'api' },
-      repos: [
-        { repo: 'api', number: null, state: 'conflict' },
-        { repo: 'web', number: null, state: 'conflict' },
-      ],
-    });
-  });
-
-  it('a conflicted ship lists conflicted repos first, then ready-pending ones, with PR numbers', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'ship',
-          current: stage({ stageKey: 'ship', status: 'passed' }),
-          mergeGate: { kind: 'conflicted', repos: ['web'], pending: ['api'] },
-          prs: [
-            { repo: 'web', number: 413, status: 'open' },
-            { repo: 'api', number: 412, status: 'open' },
-          ],
-        }),
-      ).repos,
-    ).toEqual([
-      { repo: 'web', number: 413, state: 'conflict' },
-      { repo: 'api', number: 412, state: 'ready' },
-    ]);
-  });
-
-  it('an awaiting ship with failing CI offers Send CI failure to agent', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'ship',
-          current: stage({ stageKey: 'ship', status: 'passed' }),
-          mergeGate: { kind: 'awaiting', repos: ['web', 'api'] },
-          ciFailingRepos: ['web'],
-        }),
-      ),
-    ).toMatchObject({
-      title: 'CI failing on web',
-      detail: '2 pull requests awaiting merge',
-      next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' },
-    });
-  });
-
-  it('an awaiting ship with no failing CI keeps waiting (no next)', () => {
-    const p = buildPeek(
-      input({
-        stageCurrent: 'ship',
-        current: stage({ stageKey: 'ship', status: 'passed' }),
-        mergeGate: { kind: 'awaiting', repos: ['web'] },
-        ciFailingRepos: [],
-      }),
-    );
-    expect(p.next).toBeNull();
-    expect(p.title).toBe('1 pull request awaiting merge');
-  });
-
-  it('a ship waiting on its PRs states how many are unmerged', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'ship',
-          current: stage({ stageKey: 'ship', status: 'passed' }),
-          mergeGate: { kind: 'awaiting', repos: ['web'] },
-        }),
-      ),
-    ).toEqual({
-      title: '1 pull request awaiting merge',
-      detail: 'web',
-      next: null,
-      repos: [{ repo: 'web', number: null, state: 'ready' }],
-    });
-  });
-
-  it('an awaiting ship drops merged PR rows and keeps the current number per repo', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'ship',
-          current: stage({ stageKey: 'ship', status: 'passed' }),
-          mergeGate: { kind: 'awaiting', repos: ['api', 'web'] },
-          prs: [
-            { repo: 'api', number: 410, status: 'merged' },
-            { repo: 'api', number: 412, status: 'open' },
-            { repo: 'web', number: 413, status: 'open' },
-          ],
-        }),
-      ).repos,
-    ).toEqual([
-      { repo: 'api', number: 412, state: 'ready' },
-      { repo: 'web', number: 413, state: 'ready' },
-    ]);
-  });
-
-  it('a freshly-parked ship (no PR yet) reads as ready to confirm', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'ship',
-          current: stage({ stageKey: 'ship', status: 'pending' }),
-          mergeGate: { kind: 'nothing-to-merge' },
-        }),
-      ).title,
-    ).toBe('Ready to ship');
-  });
-
-  it('a failed ship names the verdict reason', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'ship',
-          current: stage({ stageKey: 'ship', status: 'failed', verdict: 'push refused' }),
-          mergeGate: null,
-        }),
-      ),
-    ).toEqual({ title: 'Ship failed', detail: 'push refused', next: null });
-  });
-
-  it('a running gate stage shows its gate progress, never a session line', () => {
-    const runs = [
-      gateRun({ gateName: 'lint', exitCode: 0 }),
-      gateRun({ id: 2, gateName: 'test', exitCode: 1 }),
-    ];
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'uat',
-          current: stage({ stageKey: 'uat', status: 'running' }),
-          sessionAction: SESS_RESUME,
-          gateRuns: runs,
-        }),
-      ),
-    ).toEqual({
-      title: 'UAT running',
-      detail: '1/2 gates passed',
-      next: null,
-      agent: null,
-      progress: { passed: 1, total: 2 },
-    });
-  });
-
-  it('a running gate names the executing core when one is configured', () => {
-    const runs = [gateRun({ gateName: 'test', exitCode: 0 })];
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'review',
-          current: stage({ stageKey: 'review', status: 'running' }),
-          gateRuns: runs,
-          provider: 'claude',
-          model: 'opus-4.1',
-        }),
-      ).agent,
-    ).toEqual({ provider: 'claude', model: 'opus-4.1' });
-  });
-
-  it('a running gate with no recorded rows yet has no progress bar to draw', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'review',
-          current: stage({ stageKey: 'review', status: 'running' }),
-          gateRuns: [],
-        }),
-      ).progress,
-    ).toBeNull();
-  });
-
-  it('a running gate stage with no recorded rows yet says the gates are resolving', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'review',
-          current: stage({ stageKey: 'review', status: 'running' }),
-          gateRuns: [],
-        }),
-      ).detail,
-    ).toBe('gates resolving per repository');
-  });
-
-  it('a failed gate names the failing gate and the attempt, and offers Resume', () => {
-    const runs = [gateRun({ gateName: 'test (api)', exitCode: 1 })];
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'uat',
-          current: stage({ stageKey: 'uat', status: 'failed', attempt: 2 }),
-          sessionAction: SESS_RESUME,
-          gateRuns: runs,
-        }),
-      ),
-    ).toEqual({
-      title: 'UAT failed',
-      detail: 'attempt 2 · test',
-      next: { kind: 'open-session', label: 'Resume session' },
-    });
-  });
-
-  it('a passed gate stage reads as passed with the recorded count', () => {
-    const runs = [
-      gateRun({ stageKey: 'review', gateName: 'test', exitCode: 0 }),
-      gateRun({ id: 2, stageKey: 'review', gateName: 'lint', exitCode: 0 }),
-    ];
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'review',
-          current: stage({ stageKey: 'review', status: 'passed' }),
-          gateRuns: runs,
-        }),
-      ),
-    ).toEqual({
-      title: 'Review passed',
-      detail: '2/2 gates passed',
-      next: null,
-    });
-  });
-
-  it('a skipped gate never reads as a pass — it is left out of the count', () => {
-    const runs = [gateRun({ gateName: 'test', exitCode: 0 }), gateRun({ id: 2, gateName: 'lint', exitCode: null, skipped: true })];
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'uat',
-          current: stage({ stageKey: 'uat', status: 'running' }),
-          gateRuns: runs,
-        }),
-      ).detail,
-    ).toBe('1/2 gates passed');
-  });
-
-  it('impl with no live session reads as a plain session state with the start verb', () => {
-    expect(
-      buildPeek(input({ stageCurrent: 'impl', agentState: 'none' })),
-    ).toEqual({
-      title: 'No active session',
-      detail: 'fresh session',
-      next: { kind: 'open-session', label: 'Start session' },
-      agent: null,
-    });
-  });
-
-  it('impl names its configured core even with no live session', () => {
-    expect(
-      buildPeek(input({ stageCurrent: 'impl', agentState: 'none', provider: 'codex', model: 'gpt-5.6' }))
-        .agent,
-    ).toEqual({ provider: 'codex', model: 'gpt-5.6' });
-  });
-
-  it('impl with an idle session reads Session idle', () => {
-    expect(
-      buildPeek(input({ stageCurrent: 'impl', agentState: 'idle' })).title,
-    ).toBe('Session idle');
-  });
-
-  it('an unscoped ticket reads Not scoped yet with the start action', () => {
-    expect(
-      buildPeek(input({ stageCurrent: 'scope', worktrees: [] })),
-    ).toEqual({
-      title: 'Not scoped yet',
-      detail: 'fresh session',
-      next: { kind: 'open-session', label: 'Start session' },
-    });
-  });
-
-  it('a scoped ticket with running servers names the count', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'scope',
-          worktrees: [{ repo: 'api' }, { repo: 'web' }],
-          servers: [{ status: 'running' }, { status: 'running' }],
-        }),
-      ).title,
-    ).toBe('2 servers running');
-  });
-
-  it('a scoped ticket with nothing running reads ready to work', () => {
-    expect(
-      buildPeek(
-        input({
-          stageCurrent: 'scope',
-          worktrees: [{ repo: 'api' }],
-          servers: [{ status: 'stopped' }],
-        }),
-      ).title,
-    ).toBe('Scoped — ready to work');
+  it('is absent when no core is configured', () => {
+    expect(buildPeek(input({ stageCurrent: 'impl', sessionAction: SESS_OPEN, provider: null })).agent).toBeNull();
   });
 });

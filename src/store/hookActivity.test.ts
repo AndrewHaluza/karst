@@ -89,6 +89,12 @@ describe('hook activity — fix stall watchdog', () => {
       expect(lastHookAt()).toBe(T0);
     });
 
+    it('reads back on the ticket as lastHookAt, and is null before the first hook', () => {
+      expect(getTicket(store, ticketId).lastHookAt).toBeNull();
+      stampHookActivity(store, ticketId, T0);
+      expect(getTicket(store, ticketId).lastHookAt).toBe(T0);
+    });
+
     it('never moves the stamp backwards', () => {
       stampHookActivity(store, ticketId, T_SWEEP);
       stampHookActivity(store, ticketId, T0);

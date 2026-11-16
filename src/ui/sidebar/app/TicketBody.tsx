@@ -1,79 +1,109 @@
 /**
- * The expanded row's mini-dashboard (peek.ts): head row (strongest summary +
- * quick-action tools), the state-specific context (agent / progress / landing
- * repos / artifacts / meta), and the pinned bottom-right contextual CTA.
- * Archived rows keep their labeled restore/delete pair instead. All of it is
- * host-derived (UI-R31) — the view phrases no domain state.
+ * The expanded row's mini-dashboard (peek.ts): one card. A headline (state dot,
+ * state word, age, attempt, tools), a few quiet fact lines (gates, PRs, paused
+ * note, agent, where) and at most one amber action strip. Archived rows keep
+ * their labeled restore/delete pair instead. All of it is host-derived (UI-R31)
+ * — the view phrases no domain state, it only formats the ISO times.
  */
+import type { RailCta } from '../../../model/railNeeds.js';
 import type { PeekNext, TicketPeek } from '../peek.js';
 import type { TicketRow } from '../state.js';
-import { ActButton } from './action.js';
+import { ActButton, type ActionSpec } from './action.js';
 import { AgentIdentity, Icon } from './Icon.js';
-import { IconAct } from './IconAct.js';
-import { metaLine } from './format.js';
-import { MenuTrigger } from './MenuTrigger.js';
+import { activeText, metaLine, sinceText, whereLine } from './format.js';
+import { useSidebar } from './SidebarContext.js';
+import { TicketTools } from './TicketTools.js';
 
-/**
- * The expanded toolbar — the SAME actions the collapsed hover strip shows, moved
- * into the head row's top-right so expanding never duplicates them. Spin is
- * ticket-level and shown for every row; the host command owns the real
- * capability rules.
- */
-function PeekTools({ row, sessVerb }: { readonly row: TicketRow; readonly sessVerb: string }) {
+/** The strip button for a rail cta, or null when the cta has none (`open-session`). */
+export function ctaSpec(cta: RailCta, id: number): { spec: ActionSpec; label: string } | null {
+  switch (cta.kind) {
+    case 'ship-confirm':
+      return { spec: { act: 'ship-ticket', id }, label: 'Confirm ship' };
+    case 'retry-ship':
+      return { spec: { act: 'retry-ship', id }, label: 'Retry ship' };
+    case 'merge':
+      return { spec: { act: 'merge-pr', id, repo: cta.repo }, label: 'Merge' };
+    case 'resolve-conflicts':
+      return { spec: { act: 'resolve-conflicts', id, repo: cta.repo }, label: 'Resolve' };
+    case 'merge-panel':
+    case 'resolve-panel':
+    case 'graph-panel':
+      return { spec: { act: 'open-dashboard', id }, label: 'Open dashboard' };
+    case 'open-session':
+      return null;
+  }
+}
+
+/** The one action strip: the rail's detail and its button, or the peek-only CI strip. */
+function ActionStrip({ peek, row }: { readonly peek: TicketPeek; readonly row: TicketRow }) {
   const id = row.ticketId;
-  return (
-    <div className="peek-tools">
-      <IconAct spec={{ act: 'spin', id }} label="Spin up worktree and dev servers"><Icon name="player-play" /></IconAct>
-      <IconAct spec={{ act: 'open-session', id }} label={`${sessVerb} session`}><Icon name="terminal-2" /></IconAct>
-      <IconAct spec={{ act: 'open-dashboard', id }} label="Open ticket dashboard"><Icon name="layout-dashboard" /></IconAct>
-      <MenuTrigger row={row} />
-    </div>
-  );
+  const needs = peek.needs;
+  if (needs) {
+    const btn = ctaSpec(needs.cta, id);
+    return (
+      <div className="peek-strip">
+        <span className="peek-strip-text">{needs.detail}</span>
+        {btn ? (
+          <ActButton spec={btn.spec} className="k-btn k-btn--primary" title={btn.label}>
+            {btn.label}
+          </ActButton>
+        ) : null}
+      </div>
+    );
+  }
+  const next: PeekNext | null = peek.next;
+  if (next && next.kind === 'send-ci-failure') {
+    return (
+      <div className="peek-strip">
+        <span className="peek-strip-text">CI is failing</span>
+        <ActButton spec={{ act: next.kind, id }} className="k-btn k-btn--primary" title={next.label}>
+          {next.label}
+        </ActButton>
+      </div>
+    );
+  }
+  return null;
 }
 
-/** The contextual primary next action — a LABELED primary button. */
-function NextCta({ next, row }: { readonly next: PeekNext; readonly row: TicketRow }) {
-  const spec =
-    next.kind === 'resolve-conflicts'
-      ? { act: next.kind, id: row.ticketId, repo: next.repo }
-      : { act: next.kind, id: row.ticketId };
+function Headline({ peek, row, sessVerb }: { readonly peek: TicketPeek; readonly row: TicketRow; readonly sessVerb: string }) {
+  const { now } = useSidebar();
+  const age = sinceText(peek.since, now);
   return (
-    <ActButton spec={spec} className="k-btn k-btn--primary" title={next.label}>
-      {next.label}
-    </ActButton>
-  );
-}
-
-function PeekProgress({ progress }: { readonly progress: { passed: number; total: number } }) {
-  const pct = Math.min(100, Math.round((progress.passed / progress.total) * 100));
-  return (
-    <div
-      className="peek-progress"
-      role="progressbar"
-      aria-label="Gate progress"
-      aria-valuenow={progress.passed}
-      aria-valuemin={0}
-      aria-valuemax={progress.total}
-    >
-      <span style={{ width: `${pct}%` }} />
+    <div className="peek-head">
+      <div className="peek-copy">
+        <span className={`peek-dot g-${peek.tone || row.glyph}`} aria-hidden="true" />
+        <span className="peek-title">{peek.title}</span>
+        {age ? <span className="peek-age">{age}</span> : null}
+        {peek.attempt && peek.attempt > 1 ? <span className="peek-attempt">attempt {peek.attempt}</span> : null}
+      </div>
+      <div className="peek-tools">
+        <TicketTools row={row} sessVerb={sessVerb} />
+      </div>
     </div>
   );
 }
 
 function PeekRepos({ repos }: { readonly repos: NonNullable<TicketPeek['repos']> }) {
   return (
-    <div className="peek-repos">
+    <div className="peek-line peek-repos">
       {repos.map((r) => (
-        <div className="peek-repo" key={r.repo}>
-          {r.number != null && <span className="peek-repo-pr">#{r.number}</span>}
-          <span className="peek-repo-name">{r.repo}</span>
-          {r.state === 'conflict' ? (
-            <span className="peek-repo-state conflict">! Conflicts</span>
-          ) : (
-            <span className="peek-repo-state ready">✓ Ready</span>
-          )}
-        </div>
+        <span className="peek-repo" key={r.repo}>
+          {r.number != null ? `#${r.number} ` : ''}
+          {r.repo} · <span className={`peek-repo-state ${r.state}`}>{r.state === 'conflict' ? 'conflict' : 'ready'}</span>
+        </span>
       ))}
+    </div>
+  );
+}
+
+function AgentLine({ agent }: { readonly agent: NonNullable<TicketPeek['agent']> }) {
+  const { now } = useSidebar();
+  const active = activeText(agent.activeAt, now);
+  const tail = [agent.activity, active].filter(Boolean).join(' · ');
+  return (
+    <div className="peek-line peek-agentline">
+      <AgentIdentity provider={agent.provider} model={agent.model} />
+      {tail ? <span className="peek-agent-tail"> · {tail}</span> : null}
     </div>
   );
 }
@@ -86,6 +116,24 @@ function ArtifactsChip({ row }: { readonly row: TicketRow }) {
     <ActButton spec={{ act: 'open-dashboard', id: Number(row.ticketId) }} className="peek-artifacts" title="Open the dashboard to browse captured artifacts">
       {n} artifact{n === 1 ? '' : 's'}
     </ActButton>
+  );
+}
+
+/** The where line plus the artifacts chip; a shipped ticket adds its small follow-up button. */
+function WhereLine({ peek, row }: { readonly peek: TicketPeek; readonly row: TicketRow }) {
+  const where = whereLine(row);
+  const followUp = peek.next && peek.next.kind === 'create-follow-up' ? peek.next : null;
+  if (!where && !row.artifacts && !followUp) return null;
+  return (
+    <div className="peek-line peek-where">
+      {where ? <span className="peek-where-text">{where}</span> : null}
+      <ArtifactsChip row={row} />
+      {followUp ? (
+        <ActButton spec={{ act: followUp.kind, id: row.ticketId }} className="k-btn k-btn--secondary peek-followup" title={followUp.label}>
+          {followUp.label}
+        </ActButton>
+      ) : null}
+    </div>
   );
 }
 
@@ -104,46 +152,24 @@ function ArchivedBar({ row }: { readonly row: TicketRow }) {
 }
 
 export function TicketBody({ row, sessVerb }: { readonly row: TicketRow; readonly sessVerb: string }) {
-  const b = row.blocker;
-  // Only the failure REASON is new — the status is already the row's glyph color.
-  const blocker =
-    b && (b.reason || b.attempt) ? (
-      <div className="nextact warn">
-        ⚠ {b.reason || ''}
-        {b.attempt ? <span className="att">attempt {b.attempt}</span> : null}
-      </div>
-    ) : null;
   const peek = row.peek;
   const meta = metaLine(row);
-  const metaEl = meta ? <div className="meta">{meta}</div> : null;
   return (
     <div className="body">
-      {blocker}
       {!row.archived && peek && (
-        <>
-          <div className="peek">
-            <div className="peek-head">
-              <div className="peek-copy">
-                <div className="peek-title">{peek.title}</div>
-                {peek.detail ? <div className="peek-detail">{peek.detail}</div> : null}
-              </div>
-              <PeekTools row={row} sessVerb={sessVerb} />
-            </div>
-            {peek.progress && peek.progress.total > 0 ? <PeekProgress progress={peek.progress} /> : null}
-            <div className="peek-sep" />
-            {peek.agent && peek.agent.provider ? <AgentIdentity provider={peek.agent.provider} model={peek.agent.model} /> : null}
+        <div className="peek">
+          <Headline peek={peek} row={row} sessVerb={sessVerb} />
+          <div className="peek-facts">
+            {peek.gates ? <div className={`peek-line peek-gates ${peek.gates.tone}`}>{peek.gates.text}</div> : null}
             {peek.repos && peek.repos.length ? <PeekRepos repos={peek.repos} /> : null}
-            <ArtifactsChip row={row} />
-            {metaEl}
+            {peek.pausedNote ? <div className="peek-line peek-paused">{peek.pausedNote}</div> : null}
+            {peek.agent && peek.agent.provider ? <AgentLine agent={peek.agent} /> : null}
+            <WhereLine peek={peek} row={row} />
           </div>
-          {peek.next ? (
-            <div className="peek-actions">
-              <NextCta next={peek.next} row={row} />
-            </div>
-          ) : null}
-        </>
+          <ActionStrip peek={peek} row={row} />
+        </div>
       )}
-      {row.archived ? metaEl : null}
+      {row.archived && meta ? <div className="meta">{meta}</div> : null}
       {row.archived ? <ArchivedBar row={row} /> : null}
     </div>
   );

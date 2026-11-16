@@ -10,12 +10,14 @@ export interface IconActProps extends Omit<ActButtonProps, 'spec' | 'className' 
   readonly spec: ActionSpec;
   readonly label: string;
   readonly danger?: boolean;
+  /** An extra class (a state ring); the base `k-iconbtn` classes stay. */
+  readonly className?: string;
   readonly children: ReactNode;
 }
 
-export function IconAct({ spec, label, danger = false, children, ...rest }: IconActProps) {
+export function IconAct({ spec, label, danger = false, className, children, ...rest }: IconActProps) {
   return (
-    <ActButton spec={spec} className={danger ? 'k-iconbtn k-iconbtn--danger' : 'k-iconbtn'} aria-label={label} title={label} {...rest}>
+    <ActButton spec={spec} className={`${danger ? 'k-iconbtn k-iconbtn--danger' : 'k-iconbtn'}${className ? ` ${className}` : ''}`} aria-label={label} title={label} {...rest}>
       {children}
     </ActButton>
   );

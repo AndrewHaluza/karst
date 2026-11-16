@@ -31,10 +31,11 @@ export type SidebarScenario =
   | 'queue'
   | 'queue-long'
   | 'hostile'
-  | 'cloud-sessions';
+  | 'cloud-sessions'
+  | 'peek-states';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'priority', 'queue', 'queue-long', 'hostile', 'cloud-sessions',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'priority', 'queue', 'queue-long', 'hostile', 'cloud-sessions', 'peek-states',
 ];
 
 export interface SidebarRenderFixture {
@@ -53,7 +54,7 @@ export const HOSTILE_LABEL = '<script>alert(1)</script>';
 const HOSTILE_LONG = 'W'.repeat(300);
 
 function fixturePeek(overrides?: Partial<TicketPeek>): TicketPeek {
-  return { title: 'fixture:peek', detail: null, next: null, ...overrides };
+  return { title: 'fixture:peek', next: null, ...overrides };
 }
 
 function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
@@ -505,6 +506,27 @@ function queueLongState(): SidebarState {
   return { ...allSectionsState(), queue: { rows, drafts: 40, sessions: 4, tickets: 0 } };
 }
 
+/** The ticket ids of the `peek-states` rows: the visual variants open each one by its chevron. */
+export const PEEK_STATE_IDS: readonly number[] = [900001, 900002, 900003, 900004, 900005, 900006, 900007];
+
+const PEEK_AT = '2026-01-01T00:00:00.000Z';
+const PEEK_AGENT = { provider: 'claude', model: 'opus', activity: 'working', activeAt: PEEK_AT } as const;
+
+/** One expanded row per state family: working, paused, failed gates, ship confirm, merge, conflict, shipped. */
+function peekStatesState(): SidebarState {
+  const wh = [{ repo: 'fixture:karst', repoDisplay: 'karst' }, { repo: 'fixture:karst-docs', repoDisplay: 'karst-docs' }] as unknown as TicketRow['worktrees'];
+  const rows: TicketRow[] = [
+    fixtureRow(0, { glyph: 'blue', worktrees: wh, peek: fixturePeek({ title: 'Agent working', tone: 'blue', since: { at: PEEK_AT, kind: 'for' }, agent: PEEK_AGENT }) }),
+    fixtureRow(1, { glyph: 'gray' as Glyph, paused: true, peek: fixturePeek({ title: 'Paused', since: { at: PEEK_AT, kind: 'for' }, pausedNote: 'No stage starts until you resume' }) }),
+    fixtureRow(2, { glyph: 'red', peek: fixturePeek({ title: 'Impl failed', tone: 'red', since: { at: PEEK_AT, kind: 'ago' }, attempt: 2, gates: { text: '3 passed · 2 failed: lint, test', tone: 'failed' }, agent: PEEK_AGENT, next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' } }) }),
+    fixtureRow(3, { glyph: 'amber', stageCurrent: 'ship', peek: fixturePeek({ title: 'Ready to ship', tone: 'amber', since: { at: PEEK_AT, kind: 'ago' }, needs: { detail: 'The gates passed. Confirm to open the pull requests.', action: 'Confirm ship', cta: { kind: 'ship-confirm' } } as never }) }),
+    fixtureRow(4, { glyph: 'amber', stageCurrent: 'ship', peek: fixturePeek({ title: 'Awaiting merge', tone: 'amber', since: { at: PEEK_AT, kind: 'for' }, repos: [{ repo: 'karst', number: 1148, state: 'ready' }, { repo: 'karst-docs', number: 77, state: 'ready' }], needs: { detail: 'Merge #1148 in karst.', action: 'Merge', cta: { kind: 'merge', repo: 'karst' } } as never }) }),
+    fixtureRow(5, { glyph: 'red', stageCurrent: 'ship', peek: fixturePeek({ title: 'Merge conflict', tone: 'red', since: { at: PEEK_AT, kind: 'for' }, repos: [{ repo: 'karst', number: 1148, state: 'conflict' }], needs: { detail: 'karst has a merge conflict.', action: 'Resolve', cta: { kind: 'resolve-conflicts', repo: 'karst' } } as never }) }),
+    fixtureRow(6, { glyph: 'green', stageCurrent: 'done', stageLabel: 'Done', stageClass: 'stg-done', stageChip: 'done', worktrees: wh, peek: fixturePeek({ title: 'Shipped', tone: 'green', since: { at: PEEK_AT, kind: 'ago' }, next: { kind: 'create-follow-up', label: 'Create follow-up' } }) }),
+  ];
+  return { ...allSectionsState(), sections: { current: rows, awaitingReview: [], recentlyDone: [], olderDone: [] } };
+}
+
 const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   empty: emptyState,
   'all-sections': allSectionsState,
@@ -520,6 +542,7 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   'queue-long': queueLongState,
   hostile: hostileState,
   'cloud-sessions': cloudSessionsState,
+  'peek-states': peekStatesState,
 };
 
 export function sidebarRenderFixtures(): SidebarRenderFixture[] {

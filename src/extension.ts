@@ -767,6 +767,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     openDashboard: (id) => void vscode.commands.executeCommand('karst.openDashboard', id),
     spin: (id) => void vscode.commands.executeCommand('karst.spinTicket', id),
+    // The peek action strip: the dashboard rail's own actions (same capability guard and merge confirm).
+    shipTicket: (id) => dashboard.actionsForTicket(id).shipTicket(),
+    retryShip: (id) => dashboard.actionsForTicket(id).retryShip(),
+    mergePr: (id, repo) => dashboard.actionsForTicket(id).mergePr(repo),
     openSession: (id) => void vscode.commands.executeCommand('karst.openSession', id),
     edit: (id) => void vscode.commands.executeCommand('karst.editTicket', id),
     archive: (id) => void vscode.commands.executeCommand('karst.archiveTicket', id),

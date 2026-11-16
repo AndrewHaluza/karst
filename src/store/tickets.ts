@@ -127,6 +127,8 @@ export interface Ticket {
   priorityOverride: string | null;
   /** Task execution pause timestamp; `null` = active, non-null = execution paused. */
   pausedAt: string | null;
+  /** The newest hook event accepted for the ticket (v119, ISO); `null` = none seen. Optional so older fixtures stay valid. */
+  lastHookAt?: string | null;
   /** State of servers-stop-on-done handling (v87); null = not evaluated / pre-v87 ticket. */
   serversOnDone: ServersOnDoneState | null;
 }
@@ -194,6 +196,7 @@ interface TicketRow {
   priority: string | null;
   priority_override?: string | null;
   paused_at: string | null;
+  last_hook_at?: string | null;
   servers_on_done?: string | null;
 }
 
@@ -276,6 +279,7 @@ function rowToTicket(r: TicketRow): Ticket {
     priority: r.priority,
     priorityOverride: r.priority_override ?? null,
     pausedAt: r.paused_at ?? null,
+    lastHookAt: r.last_hook_at ?? null,
     serversOnDone: isServersOnDoneState(r.servers_on_done) ? r.servers_on_done : null,
   };
 }

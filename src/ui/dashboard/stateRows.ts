@@ -59,6 +59,40 @@ export interface DashboardRows {
 }
 
 /**
+ * The repos whose CURRENT PR karst currently offers to merge: the rail's licence
+ * to ACT on a single waiting repo. It is scoped to each repo's CURRENT PR
+ * (`listCurrentPrsByTicket`, the one `CURRENT_PR_ORDER` rule `findTicketPr` also
+ * applies), never to every historical row a re-shipped repo still carries, and the
+ * verdict is the panel rows' own `canMerge`. One answer to "may this repo be
+ * merged": two would let the rail fire an irreversible merge the panel's own
+ * button refuses (GitHub reports it blocked, or an older open row lingers beside
+ * the draft the repo now means).
+ */
+function currentMergeableRepos(store: Store, ticketId: number, prRows: readonly PrPanelRow[]): string[] {
+  const currentPrKeys = new Set(
+    listCurrentPrsByTicket(store, ticketId).map((p) => `${p.repo}\u0000${p.url}`),
+  );
+  return prRows
+    .filter((p) => p.url !== null && currentPrKeys.has(`${p.repo}\u0000${p.url}`))
+    .filter((p) => p.canMerge)
+    .map((p) => p.repo);
+}
+
+/**
+ * The same verdict for a surface that has no dashboard rows (the sidebar peek).
+ * It reads the same PR rows and merge checks and runs the same panel wording, so
+ * the sidebar and the dashboard rail never disagree on a Merge button.
+ */
+export function shipMergeableRepos(store: Store, ticketId: number, now: string): string[] {
+  const prRows = buildPrPanelRows(listPrsByTicket(store, ticketId), now, undefined, {
+    mergeChecks: listMergeChecksByTicket(store, ticketId),
+    offers: NO_OFFERS,
+    autofix: NO_AUTOFIX,
+  });
+  return currentMergeableRepos(store, ticketId, prRows);
+}
+
+/**
  * Build the dashboard's scope/PR/mergeability rows in one place.
  *
  * The PR rows are worded through the SAME `model/prPanelView.ts` the ship strip
@@ -112,13 +146,7 @@ export function buildDashboardRows(store: Store, input: DashboardRowsInput): Das
   // merged". Two would let the rail fire an irreversible merge the panel's own
   // button refuses (GitHub reports it blocked, or an older open row lingers beside
   // the draft the repo now means).
-  const currentPrKeys = new Set(
-    listCurrentPrsByTicket(store, ticketId).map((p) => `${p.repo}\u0000${p.url}`),
-  );
-  const mergeableRepos = prRows
-    .filter((p) => p.url !== null && currentPrKeys.has(`${p.repo}\u0000${p.url}`))
-    .filter((p) => p.canMerge)
-    .map((p) => p.repo);
+  const mergeableRepos = currentMergeableRepos(store, ticketId, prRows);
 
   return {
     worktrees,

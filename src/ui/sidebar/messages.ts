@@ -35,6 +35,9 @@ export type SidebarWebviewMessage =
   | { type: 'reopen-ticket'; ticketId: number }
   | { type: 'detach-subtask'; ticketId: number }
   | { type: 'resolve-conflicts'; ticketId: number; repo: string }
+  | { type: 'ship-ticket'; ticketId: number }
+  | { type: 'retry-ship'; ticketId: number }
+  | { type: 'merge-pr'; ticketId: number; repo: string }
   | { type: 'send-ci-failure'; ticketId: number }
   // Planning sessions carry a `sessionId`, never a `ticketId`: a session is not a ticket.
   | { type: 'plan-create' }
@@ -104,6 +107,9 @@ export interface SidebarActions {
   reopenTicket(ticketId: number): void | Promise<void>;
   detachSubtask(ticketId: number): void | Promise<void>;
   resolveConflicts(ticketId: number, repo: string): void | Promise<void>;
+  shipTicket(ticketId: number): void | Promise<void>;
+  retryShip(ticketId: number): void | Promise<void>;
+  mergePr(ticketId: number, repo: string): void | Promise<void>;
   sendCiFailure(ticketId: number): void | Promise<void>;
   planCreate(): void | Promise<void>;
   planOpen(sessionId: number): void | Promise<void>;
@@ -206,10 +212,16 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'reopen-ticket':
     case 'detach-subtask':
     case 'send-ci-failure':
+    case 'ship-ticket':
+    case 'retry-ship':
       return id ? ({ type: m.type, ticketId: m.ticketId as number } as SidebarWebviewMessage) : null;
     case 'resolve-conflicts':
       return id && typeof m.repo === 'string'
         ? ({ type: 'resolve-conflicts', ticketId: m.ticketId as number, repo: m.repo } as SidebarWebviewMessage)
+        : null;
+    case 'merge-pr':
+      return id && typeof m.repo === 'string' && m.repo !== ''
+        ? ({ type: 'merge-pr', ticketId: m.ticketId as number, repo: m.repo } as SidebarWebviewMessage)
         : null;
     default:
       return null;
@@ -274,6 +286,12 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.sendCiFailure(msg.ticketId);
     case 'resolve-conflicts':
       return actions.resolveConflicts(msg.ticketId, msg.repo);
+    case 'ship-ticket':
+      return actions.shipTicket(msg.ticketId);
+    case 'retry-ship':
+      return actions.retryShip(msg.ticketId);
+    case 'merge-pr':
+      return actions.mergePr(msg.ticketId, msg.repo);
     case 'plan-create':
       return actions.planCreate();
     case 'plan-open':

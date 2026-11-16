@@ -279,6 +279,15 @@ export class DashboardManager extends DashboardManagerBase {
   }
 
   /**
+   * The ticket's dashboard actions, for a surface with no panel (the sidebar's
+   * Confirm ship, Retry ship and Merge). One factory, so the sidebar and the
+   * panel run the same guarded code and the same confirm modal.
+   */
+  actionsForTicket(ticketId: number): ReturnType<ActionsFactory> {
+    return this.actionsFor(ticketId);
+  }
+
+  /**
    * Open (or reveal) the dashboard for a ticket and push its initial state.
    * `preserveFocus` is for the terminal binding: the panel comes forward beside
    * the terminal the user clicked, without stealing the caret out of it.

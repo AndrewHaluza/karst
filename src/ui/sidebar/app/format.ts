@@ -108,6 +108,29 @@ export function relTime(iso: string | null | undefined, now: number = Date.now()
   return `${Math.round(h / 24)}d ago`;
 }
 
+/**
+ * The headline age: `for 2h` for a running stage, `6m ago` for a finished one.
+ * The host sends ISO times; this runs in the webview so a stale snapshot never freezes the text.
+ */
+export function sinceText(since: { at: string; kind: 'for' | 'ago' } | null | undefined, now: number = Date.now()): string {
+  if (!since) return '';
+  if (since.kind === 'ago') return relTime(since.at, now);
+  const t = Date.parse(since.at);
+  if (Number.isNaN(t)) return '';
+  const m = Math.floor(Math.max(0, now - t) / 60_000);
+  if (m < 1) return 'for <1m';
+  if (m < 60) return `for ${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `for ${h}h`;
+  return `for ${Math.floor(h / 24)}d`;
+}
+
+/** The agent line's last-activity text: `active 4m ago`. Empty before the first hook. */
+export function activeText(at: string | null | undefined, now: number = Date.now()): string {
+  const rel = relTime(at, now);
+  return rel ? `active ${rel}` : '';
+}
+
 /** The expanded row's meta line: model, repos, ports, PRs — empty tokens omitted. */
 export function metaLine(row: TicketRow): string {
   const ports = (row.servers || []).map((s) => s.port).filter(Boolean);
@@ -118,6 +141,16 @@ export function metaLine(row: TicketRow): string {
   if (repos.length) tokens.push(repos.join('+'));
   if (ports.length) tokens.push(ports.map((p) => ':' + p).join(', '));
   if (prs.length) tokens.push(prs.map((n) => 'PR #' + n).join(', '));
+  return tokens.join(' · ');
+}
+
+/** The "where" fact line: repos joined by " + ", then the running ports. Empty when neither exists. */
+export function whereLine(row: TicketRow): string {
+  const repos = (row.worktrees || []).map((w) => w.repoDisplay || w.repo).filter(Boolean);
+  const ports = (row.servers || []).map((s) => s.port).filter(Boolean);
+  const tokens: string[] = [];
+  if (repos.length) tokens.push(repos.join(' + '));
+  if (ports.length) tokens.push(ports.map((p) => ':' + p).join(', '));
   return tokens.join(' · ');
 }
 

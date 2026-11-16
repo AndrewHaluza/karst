@@ -154,15 +154,9 @@ describe('ticket row', () => {
     expect(text(chip)).toContain('D94');
   });
 
-  it('renders a blocker line ONLY on failure (reason + attempt), never the plain status', async () => {
+  it('renders no separate blocker line: the state word and the gate line carry the failure', async () => {
     const h = await mount(base);
-    const warns = h.queryAll('.nextact.warn');
-    expect(warns.map(text)).toEqual(['⚠ gate failedattempt 2']);
-    expect(text(warns[0]!.querySelector('.att'))).toBe('attempt 2');
-    const none = await mount(stateWith({ current: [row(1, { blocker: { reason: null, attempt: 0 } }), row(2, { blocker: null })] }));
-    expect(none.queryAll('.nextact')).toHaveLength(0);
-    const reasonless = await mount(stateWith({ current: [row(1, { blocker: { reason: null, attempt: 3 } })] }));
-    expect(text(reasonless.query('.nextact'))).toBe('⚠ attempt 3');
+    expect(h.queryAll('.nextact')).toHaveLength(0);
   });
 
   it('indents nested rows by depth, clamped to the writer depth, and paints one aria-hidden guide per slot', async () => {
@@ -226,60 +220,93 @@ describe('ticket row', () => {
 
 describe('expanded mini-dashboard', () => {
   const peeked = (peek: Partial<NonNullable<TicketRow['peek']>>, over: Partial<TicketRow> = {}) =>
-    row(1, { peek: { title: 'Gate running', detail: 'lint', next: null, ...peek }, ...over });
+    row(1, { peek: { title: 'Gates running', next: null, ...peek }, ...over });
 
-  it('renders the host summary: title, detail, and the Spin / Session / Dashboard tools', async () => {
-    const h = await mount(stateWith({ current: [peeked({}, { sessionAction: { kind: 'continue', label: 'Continue', detail: '' } as never })] }));
-    expect(text(h.query('.peek-title'))).toBe('Gate running');
-    expect(text(h.query('.peek-detail'))).toBe('lint');
-    expect(h.queryAll('.peek-tools [data-act]').map((b) => b.getAttribute('data-act'))).toEqual(['spin', 'open-session', 'open-dashboard']);
+  it('renders the headline and the Session / Pause / More tools', async () => {
+    const h = await mount(stateWith({ current: [peeked({ since: { at: '2026-01-01T00:00:00Z', kind: 'ago' }, attempt: 2 }, { sessionAction: { kind: 'continue', label: 'Continue', detail: '' } as never })] }));
+    expect(text(h.query('.peek-title'))).toBe('Gates running');
+    expect(text(h.query('.peek-attempt'))).toBe('attempt 2');
+    expect(h.query('.peek-age')).not.toBeNull();
+    expect(h.queryAll('.peek-tools [data-act]').map((b) => b.getAttribute('data-act'))).toEqual(['open-session', 'pause-ticket']);
     expect(h.query('.peek-tools [data-act="open-session"]')!.getAttribute('aria-label')).toBe('Continue session');
-    expect(h.queryAll('.peek-actions')).toHaveLength(0);
+    expect(h.query('.peek-tools [data-menu]')).not.toBeNull();
   });
 
-  it('keeps the labeled next action and posts it with the right payload', async () => {
-    for (const [kind, extra] of [['open-session', {}], ['create-follow-up', {}], ['send-ci-failure', {}], ['resolve-conflicts', { repo: 'web' }]] as const) {
-      const h = await mount(stateWith({ current: [peeked({ next: { kind, label: `Do ${kind}`, ...extra } as never })] }));
-      const cta = h.query<HTMLButtonElement>('.peek-actions .k-btn--primary')!;
-      expect(text(cta)).toBe(`Do ${kind}`);
-      await h.click(cta);
-      expect(h.posted.at(-1)).toMatchObject({ type: kind, ticketId: 910001, ...extra });
+  it('shows Resume as a pressed toggle on a paused row, and no Pause on a done row', async () => {
+    const paused = await mount(stateWith({ current: [peeked({}, { paused: true })] }));
+    const btn = paused.query('.peek-tools .pausebtn')!;
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(btn.getAttribute('data-act')).toBe('unpause-ticket');
+    const done = await mount(stateWith({ current: [peeked({}, { stageCurrent: 'done' })] }));
+    expect(done.queryAll('.pausebtn')).toHaveLength(0);
+  });
+
+  it('puts the amber ring on the Session tool for an open-session need, with no button in the strip', async () => {
+    const h = await mount(stateWith({ current: [peeked({ needs: { detail: 'the agent asked you something', action: 'Open session', cta: { kind: 'open-session' } } })] }));
+    expect(h.query('.peek-tools [data-act="open-session"]')!.classList.contains('needs-ring')).toBe(true);
+    expect(text(h.query('.peek-strip-text'))).toBe('the agent asked you something');
+    expect(h.queryAll('.peek-strip button')).toHaveLength(0);
+  });
+
+  it('posts each rail cta with the right payload', async () => {
+    const cases = [
+      [{ kind: 'ship-confirm' }, 'ship-ticket', {}, 'Confirm ship'],
+      [{ kind: 'retry-ship' }, 'retry-ship', {}, 'Retry ship'],
+      [{ kind: 'merge', repo: 'api' }, 'merge-pr', { repo: 'api' }, 'Merge'],
+      [{ kind: 'resolve-conflicts', repo: 'web' }, 'resolve-conflicts', { repo: 'web' }, 'Resolve'],
+      [{ kind: 'merge-panel' }, 'open-dashboard', {}, 'Open dashboard'],
+    ] as const;
+    for (const [cta, type, extra, label] of cases) {
+      const h = await mount(stateWith({ current: [peeked({ needs: { detail: 'why', action: label, cta } as never })] }));
+      const btn = h.query<HTMLButtonElement>('.peek-strip .k-btn--primary')!;
+      expect(text(btn)).toBe(label);
+      await h.click(btn);
+      expect(h.posted.at(-1)).toMatchObject({ type, ticketId: 910001, ...extra });
     }
   });
 
-  it('draws gate progress, the agent identity and the per-repo landing state when the host provides them', async () => {
+  it('keeps the peek-only strips: Send CI failure, and Create follow-up on the where line', async () => {
+    const ci = await mount(stateWith({ current: [peeked({ next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' } })] }));
+    await ci.click('.peek-strip .k-btn--primary');
+    expect(ci.posted.at(-1)).toMatchObject({ type: 'send-ci-failure', ticketId: 910001 });
+    const fu = await mount(stateWith({ current: [peeked({ next: { kind: 'create-follow-up', label: 'Create follow-up' } })] }));
+    expect(fu.queryAll('.peek-strip')).toHaveLength(0);
+    await fu.click('.peek-where .peek-followup');
+    expect(fu.posted.at(-1)).toMatchObject({ type: 'create-follow-up', ticketId: 910001 });
+  });
+
+  it('draws the gate line, the PR line and the agent line when the host provides them', async () => {
     const h = await mount(stateWith({ current: [peeked({
-      progress: { passed: 1, total: 3 },
-      agent: { provider: 'claude', model: 'opus' },
+      gates: { text: '3 passed · 2 failed: lint, test', tone: 'failed' },
+      agent: { provider: 'claude', model: 'opus', activity: 'working', activeAt: null },
       repos: [{ repo: 'api', number: 12, state: 'ready' }, { repo: 'web', number: null, state: 'conflict' }],
+      pausedNote: 'No stage starts until you resume',
     })] }));
-    const bar = h.query('.peek-progress')!;
-    expect(bar.getAttribute('role')).toBe('progressbar');
-    expect([bar.getAttribute('aria-valuenow'), bar.getAttribute('aria-valuemin'), bar.getAttribute('aria-valuemax')]).toEqual(['1', '0', '3']);
-    expect(bar.querySelector('span')!.getAttribute('style')).toContain('33%');
+    expect(text(h.query('.peek-gates.failed'))).toBe('3 passed · 2 failed: lint, test');
     expect(h.query('.peek-agent .agent-identity.compact')!.getAttribute('data-provider')).toBe('claude');
-    expect(text(h.query('.peek-agent .agent-identity-model'))).toBe('opus');
-    expect(h.queryAll('.peek-repo').map(text)).toEqual(['#12api✓ Ready', 'web! Conflicts']);
-    expect(h.query('.peek-repo-state.conflict')).not.toBeNull();
+    expect(text(h.query('.peek-agent-tail'))).toBe(' · working');
+    expect(h.queryAll('.peek-repo').map(text)).toEqual(['#12 api · ready', 'web · conflict']);
+    expect(text(h.query('.peek-paused'))).toBe('No stage starts until you resume');
   });
 
-  it('draws no progress bar for an empty gate, and no agent line without a provider', async () => {
-    const h = await mount(stateWith({ current: [peeked({ progress: { passed: 0, total: 0 }, agent: { provider: '', model: null } })] }));
-    expect(h.queryAll('.peek-progress')).toHaveLength(0);
-    expect(h.queryAll('.peek-agent')).toHaveLength(0);
+  it('draws no agent line without a provider and no fact lines for an old-shape peek', async () => {
+    const h = await mount(stateWith({ current: [peeked({ agent: { provider: '', model: null } })] }));
+    expect(h.queryAll('.peek-agentline')).toHaveLength(0);
+    expect(h.queryAll('.peek-gates, .peek-strip, .peek-paused')).toHaveLength(0);
+    // A snapshot restored from before this layout has only `title` and `next`.
+    const old = await mount(stateWith({ current: [row(1, { peek: { title: 'Old state', next: null } })] }));
+    expect(text(old.query('.peek-title'))).toBe('Old state');
   });
 
-  it('prints the meta line without empty tokens, and no meta element when there is nothing to say', async () => {
+  it('prints the where line from the repos and ports, with no line when there is nothing to say', async () => {
     const full = peeked({}, {
-      model: 'opus',
-      worktrees: [{ repo: '/x/api', repoDisplay: 'api' }] as never,
+      worktrees: [{ repo: '/x/api', repoDisplay: 'api' }, { repo: '/x/web', repoDisplay: 'web' }] as never,
       servers: [{ port: 3000 }] as never,
-      prs: [{ repo: 'api', number: 12, url: null, status: 'open' }],
     });
     const h = await mount(stateWith({ current: [full] }));
-    expect(text(h.query('.meta'))).toBe('opus · api · :3000 · PR #12');
+    expect(text(h.query('.peek-where-text'))).toBe('api + web · :3000');
     const bare = await mount(stateWith({ current: [peeked({})] }));
-    expect(bare.queryAll('.meta')).toHaveLength(0);
+    expect(bare.queryAll('.peek-where')).toHaveLength(0);
   });
 
   it('offers Restore / Delete (labeled) on an archived row instead of the live tools, and posts them', async () => {
@@ -359,8 +386,8 @@ describe('context window', () => {
 
   it('opens at the "⋯" trigger with Edit / Create follow-up / Archive and hands focus to the first item', async () => {
     const { h, trigger } = await opened();
-    expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual(['edit', 'pause-ticket', 'create-follow-up', 'archive', 'cloud-session-add']);
-    expect(items(h).map((i) => text(i).trim())).toEqual(['Edit ticket', 'Pause execution', 'Create follow-up', 'Archive', 'Link cloud session…']);
+    expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual(['edit', 'spin', 'create-follow-up', 'archive', 'cloud-session-add']);
+    expect(items(h).map((i) => text(i).trim())).toEqual(['Edit ticket', 'Start servers', 'Create follow-up', 'Archive', 'Link cloud session…']);
     expect(items(h)[3]!.classList.contains('danger')).toBe(true);
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
@@ -368,11 +395,11 @@ describe('context window', () => {
     expect(h.query<HTMLElement>('#ctxMenu')!.style.left).not.toBe('');
   });
 
-  it('offers each flagged action in order, a divider before Archive, and Resume in place of Pause', async () => {
+  it('offers each flagged action in order, a divider before Archive, and Start servers in place of Pause/Resume', async () => {
     const h = await mount(stateWith({ current: [{ ...row(1), paused: true, canDetach: true, canClose: true, canReopen: true }] }));
     await h.click(h.query<HTMLButtonElement>('[data-menu="910001"]')!);
     expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual([
-      'edit', 'unpause-ticket', 'create-follow-up', 'detach-subtask', 'close-ticket', 'reopen-ticket', 'archive', 'cloud-session-add',
+      'edit', 'spin', 'create-follow-up', 'detach-subtask', 'close-ticket', 'reopen-ticket', 'archive', 'cloud-session-add',
     ]);
     expect(items(h)[4]!.classList.contains('danger')).toBe(true);
     expect(items(h)[6]!.previousElementSibling!.getAttribute('role')).toBe('separator');
