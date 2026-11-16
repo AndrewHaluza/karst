@@ -311,8 +311,6 @@ END_DOC_BLOCK: [@arch:V126]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
-**Ship run unattended mark (v126).** See `@arch:V126`.
-
 **Graph auto recovery (v125).** `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` record the automatic recoveries (`@arch:GRAPH-AUTORECOVERY`).
 
 **PR head (v124).** `prs.head_oid TEXT NULL` holds the PR head sha from `headRefOid`, current state with COALESCE in `updatePrDetail` (@arch:GH-03). NULL = never stated (no backfill).
