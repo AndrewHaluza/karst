@@ -284,11 +284,10 @@ export function writeGraphProfile(
 
 /**
  * The numeric budget fields a limit row edits — exactly the hard-ceiling key
- * set. `confirmGeneratedGraph` is a boolean and has no number row, so it is
- * not part of this union (the ceilings' key type in `graphConfig.ts` is the
- * same `Omit`, which is why a row field can never miss its ceiling lookup).
+ * set (the ceilings' key type in `graphConfig.ts` is the same, so a row field
+ * can never miss its ceiling lookup).
  */
-export type GraphLimitField = keyof Omit<GraphLimits, 'confirmGeneratedGraph'>;
+export type GraphLimitField = keyof GraphLimits;
 
 /**
  * Write ONE graph limit field. A `value` of `undefined` DELETES the key —

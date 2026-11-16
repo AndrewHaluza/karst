@@ -179,23 +179,13 @@ export function relaunchBootstrapPlannerRun(
 }
 
 /**
- * The planning → awaiting-confirmation / running split: taken when the
- * compiled graph is accepted. `confirmGeneratedGraph` is the packaged
- * default (true) read from the graph configuration.
+ * The planning → running step: taken when the compiled graph is accepted. A
+ * compiled bootstrap plan runs at once, with no human confirm gate.
  */
-export function finishPlanning(
-  db: GraphDb,
-  graphRunId: number,
-  confirmGeneratedGraph: boolean,
-): boolean {
+export function finishPlanning(db: GraphDb, graphRunId: number): boolean {
   const run = graphRunById(db, graphRunId);
   if (!run || run.status !== 'planning') return false;
-  return transitionGraphRun(
-    db,
-    graphRunId,
-    'planning',
-    confirmGeneratedGraph ? 'awaiting-confirmation' : 'running',
-  );
+  return transitionGraphRun(db, graphRunId, 'planning', 'running');
 }
 
 /**

@@ -80,7 +80,7 @@ function translateEntry(raw: unknown): unknown {
  * both-keys case — every other fault is left for `validateManifest`, which has
  * the field-level vocabulary to describe it.
  */
-export function migrateLegacyManifest(raw: unknown): MigrationResult {
+function migrateLegacyServices(raw: unknown): MigrationResult {
   // Not a mapping: nothing to translate, and validation owns the error message.
   if (!isObject(raw)) return { raw, warnings: [] };
 
@@ -116,6 +116,50 @@ export function migrateLegacyManifest(raw: unknown): MigrationResult {
       'uses the legacy `services:` key. It was read as `repositories:` with ' +
         'each entry\'s start/health/ports/dependsOn moved under `service:`. ' +
         'Save from Karst Settings to write the new shape to disk.',
+    ],
+  };
+}
+
+/** The retired `limits.confirmGeneratedGraph` key (a compiled bootstrap plan now runs at once). */
+const LEGACY_CONFIRM_KEY = 'confirmGeneratedGraph';
+
+/**
+ * Drop the retired `limits.confirmGeneratedGraph` key from every approach's
+ * `graph:` block, so the closed-vocabulary check in `validateLimits` never sees
+ * it. Either value (true or false) is accepted and ignored. Never mutates `raw`.
+ * Returns `changed: false` with the SAME object when no approach carries the key.
+ */
+function dropLegacyConfirmKey(raw: unknown): { raw: unknown; changed: boolean } {
+  if (!isObject(raw) || !Array.isArray(raw.approaches)) return { raw, changed: false };
+  let changed = false;
+  const approaches = raw.approaches.map((approach: unknown) => {
+    if (!isObject(approach) || !isObject(approach.graph) || !isObject(approach.graph.limits)) {
+      return approach;
+    }
+    if (!(LEGACY_CONFIRM_KEY in approach.graph.limits)) return approach;
+    changed = true;
+    const { [LEGACY_CONFIRM_KEY]: _dropped, ...limits } = approach.graph.limits;
+    return { ...approach, graph: { ...approach.graph, limits } };
+  });
+  return changed ? { raw: { ...raw, approaches }, changed } : { raw, changed };
+}
+
+/**
+ * Normalize a parsed karst.yml: translate the legacy `services:` shape and drop
+ * the retired `confirmGeneratedGraph` limit. In memory only — the file is never
+ * rewritten on load; an explicit Settings save writes the new shape.
+ */
+export function migrateLegacyManifest(raw: unknown): MigrationResult {
+  const services = migrateLegacyServices(raw);
+  const confirm = dropLegacyConfirmKey(services.raw);
+  if (!confirm.changed) return services;
+  return {
+    raw: confirm.raw,
+    warnings: [
+      ...services.warnings,
+      'sets `limits.confirmGeneratedGraph`, which is retired: a compiled bootstrap ' +
+        'plan now starts the graph run at once. The value was ignored. ' +
+        'Save from Karst Settings to remove the key from the file.',
     ],
   };
 }

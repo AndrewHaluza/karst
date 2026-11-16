@@ -38,7 +38,6 @@ describe('reconcilableGraphRunIds (G1b)', () => {
     expect([...NON_TERMINAL_GRAPH_RUN_STATUSES].sort()).toEqual(
       [
         'planning',
-        'awaiting-confirmation',
         'running',
         'draining',
         'blocked',

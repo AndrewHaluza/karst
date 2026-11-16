@@ -170,7 +170,6 @@ export type GraphLiveSessionView = { kind: 'planner' | 'node'; runId: number };
  */
 export type GraphActionTarget =
   | { kind: 'graph-open-session'; session: { kind: 'planner' | 'node'; runId: number } }
-  | { kind: 'graph-confirm'; graphRunId: number }
   | { kind: 'graph-stop'; graphRunId: number }
   | { kind: 'graph-resume'; graphRunId: number }
   // H2: restart a run a Stop drained. `draining` is entered for two very
@@ -249,7 +248,6 @@ export interface GraphInsideInput {
  */
 const GRAPH_RUN_STATUSES = [
   'planning',
-  'awaiting-confirmation',
   'running',
   'draining',
   'blocked',
@@ -275,8 +273,6 @@ export function graphRunStatusLabel(status: GraphRunStatus): string {
   switch (status) {
     case 'planning':
       return 'Planning';
-    case 'awaiting-confirmation':
-      return 'Awaiting confirmation';
     case 'running':
       return 'Running';
     case 'draining':
@@ -317,11 +313,6 @@ function graphRunStatus(status: string): InsideStatus {
     case 'running':
     case 'draining':
       return 'run';
-    // A run parked on a human's confirmation is not working — it is holding a
-    // button. UI-R28b assigns "needs attention / paused" the amber pause
-    // glyph, which is `wait`; rendering it as `run` spun a graph that had
-    // already stopped and was waiting on a person.
-    case 'awaiting-confirmation':
     case 'blocked':
     case 'stale':
       // The graph's own work is done, but nothing advances until a human or
@@ -367,7 +358,6 @@ function isStopDrained(input: GraphInsideInput): boolean {
 
 const STOPPABLE_RUN_STATUSES: readonly string[] = [
   'planning',
-  'awaiting-confirmation',
   'running',
   'blocked',
 ] as const;
@@ -412,15 +402,13 @@ export function graphInsideProcess(
     status: graphRunStatus(input.graphRun.status),
     ...(input.attach && input.graphRun.status === 'blocked'
       ? { action: input.attach({ kind: 'graph-resume', graphRunId: input.graphRun.id }) }
-      : input.attach && input.graphRun.status === 'awaiting-confirmation'
-        ? { action: input.attach({ kind: 'graph-confirm', graphRunId: input.graphRun.id }) }
-        : input.attach && input.graphRun.status === 'completed-awaiting-impl-marker'
-          ? { action: input.attach({ kind: 'graph-mark-impl', graphRunId: input.graphRun.id }) }
-          : input.attach && isStopDrained(input)
-            ? { action: input.attach({ kind: 'graph-restart', graphRunId: input.graphRun.id }) }
-            : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
-              ? { action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }) }
-              : {}),
+      : input.attach && input.graphRun.status === 'completed-awaiting-impl-marker'
+        ? { action: input.attach({ kind: 'graph-mark-impl', graphRunId: input.graphRun.id }) }
+        : input.attach && isStopDrained(input)
+          ? { action: input.attach({ kind: 'graph-restart', graphRunId: input.graphRun.id }) }
+          : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
+            ? { action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }) }
+            : {}),
   });
 
   if (input.attach && input.graphRun.status === 'blocked') {

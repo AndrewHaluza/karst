@@ -60,7 +60,7 @@ flowchart TD
 | An older build meets a newer registry | Graph verbs throw "requires exactly v<N>" | Update that window's extension |
 
 ### Rules
-@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:PLANNING-DEPS · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:V89 · @arch:V126 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
+@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:PLANNING-DEPS · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:V89 · @arch:V126 · @arch:V127 · @arch:V121 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
 END_DOC_BLOCK: [@arch:ST-00]
 
 ## [@arch:SQLITE] SQLite is source of truth
@@ -118,6 +118,8 @@ The host names a graph terminal tab from two narrow reads: `nodeRunNamingFacts` 
 The host closes a graph terminal tab only after a proven success (`approaches/graph/closeOnSuccess.ts`): a node that `runCompletionPipeline` integrated, or a planner whose plan `acceptSubmittedPlan` or `acceptSubmittedReplan` accepted and whose process the transport proved ended. It finds the accepted planner run through `acceptedBootstrapPlannerRunId` and `acceptedReplanPlannerRunId`. The transport method `disposeOnSuccess` marks the session first, so the close is no launch failure and the `process_runs` row closes `passed` only if it is still `running`. Every failure, block, crash or Stop keeps the tab open.
 
 The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
+
+A compiled bootstrap plan runs at once: plan acceptance moves the run `planning → running` and the coordinator tick starts it, with no human confirm gate (T1174). The status `awaiting-confirmation` is legacy. It stays in the CHECK on `approach_graph_runs.status`, and the v127 migration moves any such row to `running`. The manifest key `limits.confirmGeneratedGraph` is retired: the loader drops it in memory with one deprecation warning and never rewrites the file.
 
 Two deliberate, documented exceptions remain:
 
@@ -312,14 +314,14 @@ covers: src/store/shipRuns.ts#reconcileShipRuns, src/store/shipRuns.ts#openShipR
 `ship_runs.unattended INTEGER NOT NULL DEFAULT 0` is 1 for a run that was an unattended resume of a dead ship. Additive, 0 = a click or a pre-v126 run (no backfill). `reconcileShipRuns` parks a dead marked run `failed` instead of resuming it again, so a ship that kills the host does not resume on each activation (`@arch:SHIP-RESUME`).
 END_DOC_BLOCK: [@arch:V126]
 
-## [@arch:SCHEMA-CHECK] New schema column checklist
-covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
+## [@arch:V127] Legacy graph confirm status moves to running (v127)
+covers: src/store/migrations.ts#migrate
 
-**v126:** `@arch:V126`.
+v127 is a data-only step. A graph run in the legacy status `awaiting-confirmation` moves to `running`, because the confirm gate is gone (`@arch:GRAPHRUN`). The CHECK on `approach_graph_runs.status` keeps the legacy value, so no table rebuild is needed.
+END_DOC_BLOCK: [@arch:V127]
 
-**Graph auto recovery (v125).** `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` record the automatic recoveries (`@arch:GRAPH-AUTORECOVERY`).
-
-**PR head (v124).** `prs.head_oid TEXT NULL` holds the PR head sha from `headRefOid`, current state with COALESCE in `updatePrDetail` (@arch:GH-03). NULL = never stated (no backfill).
+## [@arch:V121] Column notes v117 to v121
+covers: src/store/schema.sql
 
 **Host re-run marker (v121).** `gate_runs.source TEXT NULL` is `'host-rerun'` for a row that the host gate re-run of a fix round wrote (@arch:AC-45), NULL for a UAT or review row (no backfill). `listGateRuns` hides the marked rows unless `includeHostRerun` is true, so `failedGatesOf` and the UAT batch readers never read them.
 
@@ -328,6 +330,20 @@ covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaV
 **Autopilot CI round mark (v118).** `autopilot_tickets.ci_round_at INTEGER NULL` holds the epoch ms an Autopilot CI round was sent. Additive, NULL = none (no backfill). It lets the driver re-ship to open PRs without the Confirm click (`@arch:AP-00`).
 
 **Gate snapshot (v117).** `tickets.gate_snapshot TEXT NULL` holds the resolved gate names per stage the ticket's branch was cut with. Additive, NULL = no snapshot (no backfill). The rules live in `@arch:GATE-SNAPSHOT`.
+END_DOC_BLOCK: [@arch:V121]
+
+## [@arch:SCHEMA-CHECK] New schema column checklist
+covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
+
+**v127:** `@arch:V127`.
+
+**v126:** `@arch:V126`.
+
+**Graph auto recovery (v125).** `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` record the automatic recoveries (`@arch:GRAPH-AUTORECOVERY`).
+
+**PR head (v124).** `prs.head_oid TEXT NULL` holds the PR head sha from `headRefOid`, current state with COALESCE in `updatePrDetail` (@arch:GH-03). NULL = never stated (no backfill).
+
+**Older column notes (v117–v121).** `@arch:V121`.
 
 New schema column checklist: `schema.sql` (fresh DBs) + a guarded ALTER in `migrations.ts` + bump `SCHEMA_VERSION` + update db.integration.test.ts's version/table-count assertions. A data-only step (no new column) still bumps `SCHEMA_VERSION`: v92 deletes the scanned `cloud_session_links` rows (arch:CLOUD-01). A new table bumps it too: v93 adds `fix_round_heads` (per-worktree HEAD sha recorded when a fix round opens; the fix done marker is refused while no HEAD moved). v94 adds `recovery_rounds.end_reason` (why a round closed) and `host_rerun_at` (the one host gate re-run a refused no-commit fix marker may trigger). v95 adds `recovery_rounds.fix_commit_sha` (the HEAD the fix marker found moved; the gates caption names it). v96 adds `stage_runs.block_reason` (why a run ended `blocked`; a stage retry clears `stages.blocked_*`, the run keeps the reason). v97 adds the host-memory wait queue columns on `tickets` (`memory_wait` 0 none | 1 queued | 2 starting, `memory_wait_at`, `memory_claimed_at`, `memory_wait_note`; `store/memoryQueue.ts`). v98 adds `tickets.memory_wait_owner` (the host that queued the wait, so only a dead owner's row is adopted). v99 adds the `gate_slots` table (one row per running sandbox gate: `ticket_id`, `project_id`, `owner`, `claimed_at`, `touched_at`; `store/gateSlots.ts`). v100 adds the autopilot tables `autopilot_tickets` (override, stop and pause flags, the round lease, and `session_owner`, the window that holds the session) and `autopilot_budgets` (`store/autopilot.ts`, @arch:AP-00). v107 adds the `arch_citations` table (one row per ticket and arch key: `reason`, `updated_at`; `store/archCitations.ts`, @arch:CLI-22). Both come from one DDL string that the v100 step and `schema.sql` share. v101 adds `autopilot_tickets.conflict_round_at` (epoch ms a conflict round was sent, T996). v102 adds `review_stall_suggestions` (one row per ticket and per park: `park_at`, `status` generating|ready|failed, the validated `suggestion` JSON, `error`, `usage_limit`, and the `diff` the agent read; `store/stallSuggestions.ts`, @arch:REVIEW-STALL). v103 adds `session_launch_intents.effort` (the resolved `#<effort>` a launch configured, kept beside `model` so the ModelSelected guard compares the effort the TUI actually used; T1005). v104 adds `process_runs.child_pid` and `child_started_at` (the headless child's pid and spawn time; `pid` stays the host pid; T1012). v105 adds `session_launch_intents.account` (the agent account a launch ran under; NULL = the default account; a resume reuses it; @arch:AC-55). v106 adds `autopilot_reruns` (one row per transient CI re-run: ticket, repo, run id, check name, head sha, pattern, time; `store/autopilot.ts`, @arch:AP-00). v109 adds `recovery_rounds.manifest_path` and `manifest_sha` (the operator manifest file and a sha256 of its bytes when a fix round opened; a changed hash lets a manifest-only fix pass the no-new-commit guard; NULL = none recorded; `store/fixRoundHeads.ts`, @arch:AC-45). v110 adds `planning_proposals.depends_on_tickets` (the `T<n>` dependencies of a draft, see "Structured ordering"; T1042). v111 adds `planning_proposals.priority_override` (the user's priority on a draft, @arch:PLANNING-PRIORITY; T1043). v113 adds `tickets.priority_override` (the user's priority on a ticket; a provider fetch never writes it; NULL = none; no backfill; @arch:PLANNING-PRIORITY). v114 adds nine nullable `prs` columns, the PR facts from GitHub (`title`, `author`, `additions`, `deletions`, `changed_files`, `commit_count`, `review_decision`, `approvals`, `review_requests` as a JSON array; NULL = never stated; no backfill, the next sweep fills them; `store/prs.ts#updatePrDetail`, @arch:GH-03). v115 adds `autopilot_budgets.round_head_sha` (the head SHA of the failing CI run when the last ci round was sent; NULL = none; no backfill; `store/autopilot.ts`, @arch:AP-03). v112 adds `recovery_rounds.host_rerun_requested_at` (a refused host CLI fix marker asked the extension for the host gate re-run; NULL = no request; `store/hostRerunRound.ts`, @arch:AC-45). v108 adds `deliver_runs` and `deliver_gate_results` (the record of an auto-deliver gate run and its per-gate results with head SHA, T1018; `store/deliverRuns.ts`, @arch:AP-01). v116 adds `deliver_runs.kind` (`auto` | `after-take-over`: the re-run of the gates a manual Deliver skipped, D540; default `auto`; `store/deliverRuns.ts`, @arch:AP-01). v117 adds `tickets.gate_snapshot` (see `@arch:GATE-SNAPSHOT`). Migrations never backfill data they can't derive — defer that to the host (see project adoption). Guards read the CURRENT columns (`tableColumns`), so a fresh DB skips the step and a re-open is a no-op — that is what keeps v10's `service`→`repo` RENAME (the one non-additive step) idempotent.
 END_DOC_BLOCK: [@arch:SCHEMA-CHECK]

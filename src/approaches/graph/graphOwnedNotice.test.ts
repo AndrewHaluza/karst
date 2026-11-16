@@ -18,8 +18,8 @@ describe('graphOwnedMessage', () => {
   });
 
   it('says the planner is alive but detached when a planner process lives', () => {
-    const text = graphOwnedMessage('T1', { graphRunId: 3, status: 'awaiting-confirmation' }, { livePlanners: 1, liveNodes: 0 });
-    expect(text).toContain('graph run 3 is awaiting-confirmation');
+    const text = graphOwnedMessage('T1', { graphRunId: 3, status: 'planning' }, { livePlanners: 1, liveNodes: 0 });
+    expect(text).toContain('graph run 3 is planning');
     expect(text).toContain('planner is alive, but its session is not attached');
   });
 

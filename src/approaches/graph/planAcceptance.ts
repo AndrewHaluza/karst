@@ -47,7 +47,6 @@ export interface GraphDriverDepsForPlanAcceptance {
   transaction: <T>(fn: () => T) => T;
   now: () => string;
   debug?: (message: string) => void;
-  graphConfigOf: (approachId: string) => { limits: { confirmGeneratedGraph?: boolean } } | undefined;
   manifestResolvedFor?: (
     graphRunId: number,
   ) => { resolved: true } | { resolved: false; reason: string };
@@ -108,12 +107,11 @@ export function acceptSubmittedPlan(
 
   const existing = activeRevision(deps.db, graphRunId);
   if (existing) {
-    const confirm = configConfirmOf(deps, run.approach_id);
     deps.transaction(() => {
-      finishPlanning(deps.db, graphRunId, confirm);
+      finishPlanning(deps.db, graphRunId);
     });
     deps.debug?.(
-      `[graph] run ${graphRunId}: bootstrap plan already accepted — repaired run status to ${confirm ? 'awaiting-confirmation' : 'running'}, revision ${existing.id}`,
+      `[graph] run ${graphRunId}: bootstrap plan already accepted — repaired run status to running, revision ${existing.id}`,
     );
     return { kind: 'accepted', revisionId: existing.id, revisionNumber: existing.revision_number };
   }
@@ -166,11 +164,10 @@ export function acceptSubmittedPlan(
     );
   }
   const { compiled: c } = compiled;
-  const confirm = configConfirmOf(deps, run.approach_id);
   const outcome = deps.transaction(() => {
     const existing = activeRevision(deps.db, graphRunId);
     if (existing) {
-      finishPlanning(deps.db, graphRunId, confirm);
+      finishPlanning(deps.db, graphRunId);
       return { id: existing.id, revisionNumber: existing.revision_number, already: true } as const;
     }
     // A bootstrap relaunch can recover a run whose earlier revision is still
@@ -226,7 +223,7 @@ export function acceptSubmittedPlan(
       })),
       deps.now(),
     );
-    if (!finishPlanning(deps.db, graphRunId, confirm)) {
+    if (!finishPlanning(deps.db, graphRunId)) {
       throw new GraphStoreError(
         `acceptSubmittedPlan: run ${graphRunId} left planning before its transition`,
       );
@@ -238,11 +235,11 @@ export function acceptSubmittedPlan(
   });
   if (outcome.already) {
     deps.debug?.(
-      `[graph] run ${graphRunId}: bootstrap plan already accepted — repaired run status to ${confirm ? 'awaiting-confirmation' : 'running'}, revision ${outcome.id}`,
+      `[graph] run ${graphRunId}: bootstrap plan already accepted — repaired run status to running, revision ${outcome.id}`,
     );
   } else {
     deps.debug?.(
-      `[graph] run ${graphRunId}: bootstrap plan accepted — revision ${outcome.id} (#${outcome.revisionNumber}) → ${confirm ? 'awaiting-confirmation' : 'running'}`,
+      `[graph] run ${graphRunId}: bootstrap plan accepted — revision ${outcome.id} (#${outcome.revisionNumber}) → running`,
     );
   }
   return { kind: 'accepted', revisionId: outcome.id, revisionNumber: outcome.revisionNumber };
@@ -383,13 +380,6 @@ export function latestPlannerDiagnostics(
     if (diagnostics.length > 0) return diagnostics;
   }
   return [];
-}
-
-function configConfirmOf(
-  deps: Pick<GraphDriverDepsForPlanAcceptance, 'graphConfigOf'>,
-  approachId: string,
-): boolean {
-  return deps.graphConfigOf(approachId)?.limits.confirmGeneratedGraph ?? true;
 }
 
 function recordPlannerArtifacts(

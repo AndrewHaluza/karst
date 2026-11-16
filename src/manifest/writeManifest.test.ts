@@ -280,7 +280,6 @@ describe('writeManifest', () => {
                 },
               },
               limits: {
-                confirmGeneratedGraph: true,
                 maxParallel: 1,
                 maxNodeRuns: 40,
                 maxExpertRuns: 5,
@@ -943,7 +942,6 @@ approaches:
         typecheck: { command: npm, args: [run, typecheck], cwd: repository, access: write, timeoutSeconds: 900 }
         build: { command: npm, args: [run, build], cwd: repository, access: write, timeoutSeconds: 1800 }
       limits:
-        confirmGeneratedGraph: true
         maxParallel: 1
         maxNodeRuns: 40
         maxExpertRuns: 5

@@ -4,8 +4,7 @@
  * The graph run + bootstrap planner run are durable BEFORE any external
  * work; the prompt is snapshotted at run creation so an edit to the on-disk
  * prompt mid-run does not affect the active run; an unreadable override
- * blocks with `instructions-missing` and spends nothing; the planning →
- * awaiting-confirmation / running split follows `confirmGeneratedGraph`.
+ * blocks with `instructions-missing` and spends nothing; the planning → running step: a compiled plan runs at once.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -180,7 +179,7 @@ describe('relaunchBootstrapPlannerRun', () => {
     writeFileSync(join(dir, 'graph-planner.md'), '# planner');
     const first = beginBootstrapPlannerRun(makeDeps(), { ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering' });
     if (!first.ok) throw new Error('expected success');
-    finishPlanning(db, first.graphRunId, false);
+    finishPlanning(db, first.graphRunId);
     const relaunch = relaunchBootstrapPlannerRun(makeDeps(), { graphRunId: first.graphRunId });
     expect(relaunch.ok).toBe(false);
     if (relaunch.ok) return;
@@ -232,25 +231,18 @@ describe('finishPlanning', () => {
     return result.graphRunId;
   }
 
-  it('moves planning → awaiting-confirmation when confirmGeneratedGraph is true', () => {
+  it('moves planning → running at once', () => {
     const { db, dir, ticketId, makeDeps } = harness();
     const graphRunId = begin(db, dir, ticketId, makeDeps);
-    expect(finishPlanning(db, graphRunId, true)).toBe(true);
-    expect(graphRunById(db, graphRunId)!.status).toBe('awaiting-confirmation');
-  });
-
-  it('moves planning → running when confirmGeneratedGraph is false', () => {
-    const { db, dir, ticketId, makeDeps } = harness();
-    const graphRunId = begin(db, dir, ticketId, makeDeps);
-    expect(finishPlanning(db, graphRunId, false)).toBe(true);
+    expect(finishPlanning(db, graphRunId)).toBe(true);
     expect(graphRunById(db, graphRunId)!.status).toBe('running');
   });
 
   it('is a no-op for a run that already left planning', () => {
     const { db, dir, ticketId, makeDeps } = harness();
     const graphRunId = begin(db, dir, ticketId, makeDeps);
-    finishPlanning(db, graphRunId, false);
-    expect(finishPlanning(db, graphRunId, true)).toBe(false);
+    finishPlanning(db, graphRunId);
+    expect(finishPlanning(db, graphRunId)).toBe(false);
     expect(graphRunById(db, graphRunId)!.status).toBe('running');
   });
 });

@@ -188,7 +188,7 @@ export interface EffectiveNodeConfig {
 
 export type RecoveryResult =
   | { kind: 'retried'; retried: number[]; resnapshotted: number[] }
-  | { kind: 'confirmation-restored' }
+  | { kind: 'run-restored' }
   | {
       kind: 'replanned';
       plannerRunId: number | null;
@@ -625,7 +625,7 @@ function plannerRelaunchRecovery(
           GRAPH_RUN_TRANSITIONS,
           input.graphRunId,
           'blocked',
-          'awaiting-confirmation',
+          'running',
         )
       ) {
         return false;
@@ -639,9 +639,9 @@ function plannerRelaunchRecovery(
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'recovery',
       graphRunId: input.graphRunId,
-      detail: 'restored accepted graph to awaiting confirmation',
+      detail: 'restored accepted graph to running',
     });
-    return { kind: 'confirmation-restored' };
+    return { kind: 'run-restored' };
   }
   if (!deps.readPrompt || !deps.writeSnapshot || !deps.plannerPromptPath || deps.ticketContext === undefined) {
     emitGraphDiagnostic({ db, debug: deps.debug }, {

@@ -36,7 +36,7 @@ export const CWD_VALUES = ['repository', 'worktreeRoot'] as const;
 export const ACCESS_VALUES = ['read', 'write'] as const;
 
 /** Product hard ceilings (design Budgets section). Configuration cannot raise these. */
-export const GRAPH_HARD_CEILINGS: Readonly<Record<keyof Omit<GraphLimits, 'confirmGeneratedGraph'>, number>> = {
+export const GRAPH_HARD_CEILINGS: Readonly<Record<keyof GraphLimits, number>> = {
   maxParallel: 8,
   maxNodeRuns: 200,
   maxExpertRuns: 10,
@@ -56,7 +56,6 @@ export const GRAPH_COMMAND_TIMEOUT_CEILING = 7200;
 
 /** Packaged defaults (design Configuration Model + Budgets section). */
 export const DEFAULT_GRAPH_LIMITS: GraphLimits = {
-  confirmGeneratedGraph: true,
   // maxParallel 4 since Slice 5 (Task 7) — parallelism ships only after
   // workspaces, leases and lineage exist; the hard ceiling stays 8. A
   // project configuring 9 is still refused at manifest validation.
@@ -104,11 +103,6 @@ function requireRangeInt(v: unknown, where: string, min: number, max: number): n
   ) {
     throw new ManifestError(`${where} must be an integer between ${min} and ${max}`);
   }
-  return v;
-}
-
-function requireBoolean(v: unknown, where: string): boolean {
-  if (typeof v !== 'boolean') throw new ManifestError(`${where} must be a boolean`);
   return v;
 }
 
@@ -229,12 +223,6 @@ function validateLimits(raw: unknown, where: string): GraphLimits {
   );
 
   const limits = { ...DEFAULT_GRAPH_LIMITS };
-  if (raw.confirmGeneratedGraph !== undefined) {
-    limits.confirmGeneratedGraph = requireBoolean(
-      raw.confirmGeneratedGraph,
-      `${where}.confirmGeneratedGraph`,
-    );
-  }
   for (const field of Object.keys(GRAPH_HARD_CEILINGS) as (keyof typeof GRAPH_HARD_CEILINGS)[]) {
     if (raw[field] !== undefined) {
       limits[field] = requireRangeInt(

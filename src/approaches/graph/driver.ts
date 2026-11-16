@@ -13,8 +13,7 @@
  *    run, stamp generation/capability, launch the planner session.
  *  - `acceptSubmittedPlan` — compile the submitted `graph.json`, persist
  *    revision 1 + entry tokens + planner-produced artifacts, and move the run
- *    `planning → awaiting-confirmation | running` (per `confirmGeneratedGraph`).
- *  - `confirmGraphRun` — the human gate `awaiting-confirmation → running`.
+ *    `planning → running` at once (no human confirm gate).
  *  - `driveReadyNodeRuns` — execute claimed node runs: joins and gates and
  *    pinned commands complete deterministically in place; agent nodes get an
  *    isolated workspace and a supervised session.
@@ -640,22 +639,6 @@ export async function relaunchBootstrapPlanner(
     capability,
     session,
   };
-}
-
-/** The human gate: `awaiting-confirmation → running`. False when already moved. */
-export function confirmGraphRun(deps: GraphDriverDeps, graphRunId: number): boolean {
-  const ok = deps.transaction(() =>
-    casStatus(
-      deps.db,
-      'approach_graph_runs',
-      GRAPH_RUN_TRANSITIONS,
-      graphRunId,
-      'awaiting-confirmation',
-      'running',
-    ),
-  );
-  if (ok) deps.debug?.(`[graph] run ${graphRunId}: confirmed → running`);
-  return ok;
 }
 
 /* ------------------------------------------------------------------ */

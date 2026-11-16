@@ -1362,6 +1362,31 @@ describe('approaches', () => {
     }
   });
 
+  it.each(['true', 'false'])('loads a retired limits.confirmGeneratedGraph: %s with one warning and drops the key', (value) => {
+    const yaml = withApproaches(
+      '  - id: karst-graph-engineering\n' +
+      '    label: Dynamic Graph\n' +
+      '    enabled: false\n' +
+      '    graph:\n' +
+      '      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }\n' +
+      '      profiles:\n' +
+      '        expert: { provider: claude, model: claude-opus-5, effort: high }\n' +
+      '        worker: { provider: claude, model: claude-sonnet-5, effort: low }\n' +
+      '      limits:\n' +
+      `        confirmGeneratedGraph: ${value}\n` +
+      '        maxParallel: 1\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      const { manifest, warnings } = loadManifestWithDiagnostics(path);
+      expect(warnings.filter((w) => w.includes('confirmGeneratedGraph'))).toHaveLength(1);
+      expect(manifest.approaches![0]!.graph!.limits).not.toHaveProperty('confirmGeneratedGraph');
+      expect(manifest.approaches![0]!.graph!.limits.maxParallel).toBe(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('parses a nested graph: block with defaults applied', () => {
     const yaml = withApproaches(
       '  - id: karst-graph-engineering\n' +
@@ -1404,7 +1429,6 @@ describe('approaches', () => {
       // itself configures maxParallel 1 explicitly, so it round-trips as 1
       // (the packaged default is 4 since the Slice-5 T7 concurrency flip).
       expect(g.limits).toMatchObject({
-        confirmGeneratedGraph: true,
         maxParallel: 1,
         maxNodeRuns: 40,
         maxExpertRuns: 5,

@@ -230,16 +230,15 @@ describe('graphInsideProcess', () => {
     }
   });
 
-  it('reads an awaiting-confirmation run as a wait, never as work in progress', () => {
-    // A graph parked on a human's confirmation is holding a button, not
-    // running: UI-R28b assigns "needs attention / paused" the amber pause
-    // glyph (`wait`), and the row's own copy already says so.
+  it('reads a blocked run as a wait, never as work in progress', () => {
+    // A blocked graph is parked, not running: UI-R28b assigns "needs
+    // attention / paused" the amber pause glyph (`wait`).
     const view = graphInsideProcess(
       input({
         graphRun: {
           id: 7,
           runNumber: 1,
-          status: 'awaiting-confirmation',
+          status: 'blocked',
           approachId: 'g',
           stageAttempt: 0,
           createdAt: '2026-08-11T00:00:00.000Z',
@@ -563,7 +562,6 @@ describe('graphInsideProcess', () => {
   it('covers every closed graph-run status with host-worded copy (exhaustive)', () => {
     const statuses: GraphRunStatus[] = [
       'planning',
-      'awaiting-confirmation',
       'running',
       'draining',
       'blocked',
@@ -579,33 +577,6 @@ describe('graphInsideProcess', () => {
       // The label is host-worded prose, never the raw hyphenated store key.
       expect(label).not.toBe(status);
     }
-  });
-
-  it('attaches a persistent confirm action while the accepted graph awaits confirmation', () => {
-    const targets: GraphActionTarget[] = [];
-    const process = graphInsideProcess(
-      input({
-        graphRun: {
-          id: 7,
-          runNumber: 7,
-          status: 'awaiting-confirmation',
-          approachId: 'g',
-          stageAttempt: 0,
-          createdAt: '2026-08-11T00:00:00.000Z',
-        },
-        attach: (value) => {
-          targets.push(value);
-          return { actionId: 'snapshot-1:action-1', kind: value.kind };
-        },
-      }),
-    )!;
-    expect(process.evidence?.kind).toBe('rows');
-    if (process.evidence?.kind !== 'rows') return;
-    expect(targets).toContainEqual({
-      kind: 'graph-confirm',
-      graphRunId: 7,
-    });
-    expect(process.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-confirm' });
   });
 
   it('attaches explicit resume and replan controls for a blocked graph run', () => {

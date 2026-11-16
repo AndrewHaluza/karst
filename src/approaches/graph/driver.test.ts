@@ -21,7 +21,6 @@ import {
   bootstrapAndLaunchPlanner,
   acceptSubmittedPlan,
   acceptSubmittedReplan,
-  confirmGraphRun,
   driveReadyNodeRuns,
   launchReplanPlanner,
   relaunchBootstrapPlanner,
@@ -390,7 +389,7 @@ describe('acceptSubmittedPlan', () => {
     const run = h.db
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { status: string };
-    expect(run.status).toBe('awaiting-confirmation');
+    expect(run.status).toBe('running');
     const revision = h.db
       .prepare(
         'SELECT status, planner_graph_snapshot_id, planner_artifact_snapshot_id FROM approach_graph_revisions WHERE graph_run_id = ?',
@@ -800,23 +799,7 @@ describe('acceptSubmittedPlan', () => {
     const run = h.db
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { status: string };
-    expect(run.status).toBe('awaiting-confirmation');
-  });
-});
-
-describe('confirmGraphRun', () => {
-  it('moves awaiting-confirmation → running once', () => {
-    const h = harness();
-    const graphRunId = createGraphRun(h.db, {
-      ticketId: h.ticketId,
-      stageAttempt: 0,
-      approachId: 'karst-graph-engineering',
-      now: NOW,
-    });
-    expect(confirmGraphRun(h.deps, graphRunId)).toBe(false); // still planning
-    h.db.prepare('UPDATE approach_graph_runs SET status = \'awaiting-confirmation\' WHERE id = ?').run(graphRunId);
-    expect(confirmGraphRun(h.deps, graphRunId)).toBe(true);
-    expect(confirmGraphRun(h.deps, graphRunId)).toBe(false); // already running
+    expect(run.status).toBe('running');
   });
 });
 

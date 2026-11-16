@@ -45,7 +45,6 @@ export async function graphRunLiveness(
 function stateClause(status: string, liveness: GraphRunLiveness): string {
   switch (status) {
     case 'planning':
-    case 'awaiting-confirmation':
       return liveness.livePlanners > 0
         ? 'its planner is alive, but its session is not attached to this window'
         : 'its planner has no live session';
