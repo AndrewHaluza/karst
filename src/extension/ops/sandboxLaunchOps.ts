@@ -174,6 +174,9 @@ export const ACCOUNT_BLOCK_DEFAULT = 'Start fresh under default for this ticket'
 export const ACCOUNT_BLOCK_HOST = 'Run on host';
 const ACCOUNT_BLOCK_CHOICES: readonly string[] = [ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST];
 
+const HOST_REMOVE_CONFIRM = (label: string): string =>
+  `The agent's sandbox commits for ${label} will be synced to the host branch and the sandbox removed; the agent then runs on the host WITHOUT the sandbox boundary, in a fresh session. Continue?`;
+
 export interface HostFallbackInput<T extends { readonly sandboxed: boolean; readonly blocked?: { readonly kind: 'account'; readonly reason: string } }> {
   readonly ticketLabel: string;
   readonly launch: () => Promise<T>;
@@ -217,9 +220,7 @@ export async function launchWithoutSilentHostFallback<T extends { readonly sandb
     );
     if (picked === HOST_FALLBACK_RETRY) continue;
     if (picked !== HOST_FALLBACK_HOST) return { kind: 'cancelled' };
-    const ok = await input.confirmHost(
-      `The agent's sandbox commits for ${input.ticketLabel} will be synced to the host branch and the sandbox removed; the agent then runs on the host WITHOUT the sandbox boundary, in a fresh session. Continue?`,
-    );
+    const ok = await input.confirmHost(HOST_REMOVE_CONFIRM(input.ticketLabel));
     if (!ok || !(await input.removeSandbox())) return { kind: 'cancelled' };
     return { kind: 'launched', backend: await input.launch(), freshSession: true };
   }
@@ -230,6 +231,12 @@ async function accountBlockChoice<T extends { readonly sandboxed: boolean }>(inp
   const picked = await input.choose(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, ACCOUNT_BLOCK_CHOICES);
   if (picked === ACCOUNT_BLOCK_DEFAULT) return { kind: 'restart-default' };
   if (picked !== ACCOUNT_BLOCK_HOST) return { kind: 'cancelled' };
+  // The existing host path (F14): a ticket with a sandbox syncs it to the host branch, removes it and starts a fresh host session.
+  if (await input.hasSandbox()) {
+    const ok = await input.confirmHost(HOST_REMOVE_CONFIRM(input.ticketLabel));
+    if (!ok || !(await input.removeSandbox())) return { kind: 'cancelled' };
+    return { kind: 'launched', backend: await input.launch(), freshSession: true };
+  }
   const ok = await input.confirmHost(`${input.ticketLabel} will run on the host WITHOUT the sandbox boundary, under its own account. Continue?`);
   return ok ? { kind: 'launched', backend, freshSession: false } : { kind: 'cancelled' };
 }

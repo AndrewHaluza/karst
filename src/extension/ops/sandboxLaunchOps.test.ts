@@ -170,7 +170,7 @@ describe('launchWithoutSilentHostFallback: account block on a sandbox backend', 
     expect(options).toEqual([ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST]);
     expect(i.removeSandbox).not.toHaveBeenCalled();
   });
-  it('offers no Retry with an existing sandbox, and removes nothing', async () => {
+  it('offers no Retry with an existing sandbox, and removes nothing unless the host is chosen', async () => {
     const i = base({ hasSandbox: async () => true });
     await launchWithoutSilentHostFallback(i);
     expect((i.choose.mock.calls[0] as unknown as [string, string[]])[1]).not.toContain(HOST_FALLBACK_RETRY);
@@ -187,6 +187,17 @@ describe('launchWithoutSilentHostFallback: account block on a sandbox backend', 
     expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'launched', backend: blocked, freshSession: false });
     expect(i.confirmHost).toHaveBeenCalledTimes(1);
     expect(i.removeSandbox).not.toHaveBeenCalled();
+  });
+  it('Run on host with an existing sandbox syncs and removes it, then starts a fresh host session', async () => {
+    const i = base({ hasSandbox: async () => true, choose: vi.fn(async () => ACCOUNT_BLOCK_HOST) });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'launched', backend: blocked, freshSession: true });
+    expect(i.confirmHost.mock.calls[0]![0]).toMatch(/synced to the host branch and the sandbox removed/);
+    expect(i.removeSandbox).toHaveBeenCalledTimes(1);
+    expect(i.launch).toHaveBeenCalledTimes(2);
+  });
+  it('Run on host with an existing sandbox that is kept cancels', async () => {
+    const i = base({ hasSandbox: async () => true, choose: vi.fn(async () => ACCOUNT_BLOCK_HOST), removeSandbox: vi.fn(async () => false) });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'cancelled' });
   });
   it('Run on host without the confirm cancels', async () => {
     const i = base({ choose: vi.fn(async () => ACCOUNT_BLOCK_HOST), confirmHost: vi.fn(async () => false) });
