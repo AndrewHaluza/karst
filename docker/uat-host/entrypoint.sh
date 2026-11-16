@@ -6,6 +6,6 @@ if [ -n "$HOST_UID" ] && [ "$HOST_UID" != 0 ]; then
 fi
 # shellcheck disable=SC1090 # the hook path is operator-supplied at run time
 npm ci && npm run -s build \
-  && KARST_TARGET_APP_BINARY="$(npm run -s uat:host -- --print-vscode | tail -1)" npm run -s rebuild:electron \
+  && KARST_TARGET_APP_BINARY="$(flock /vscode-cache/.karst-download.lock npm run -s uat:host -- --print-vscode | tail -1)" npm run -s rebuild:electron \
   && { [ -z "$UAT_PRE_HOST_HOOK" ] || . "$UAT_PRE_HOST_HOOK"; } \
   && $HOST_LAUNCH_PREFIX xvfb-run -a --server-args='-screen 0 1280x800x24' npm run -s uat:host -- "$@"
