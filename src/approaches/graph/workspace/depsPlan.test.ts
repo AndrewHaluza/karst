@@ -30,7 +30,7 @@ describe('planWorkspaceDeps', () => {
 
   it('poetry: runs `poetry install --no-interaction`', () => {
     const plan = planWorkspaceDeps(repoWith('poetry.lock'));
-    expect(plan.setup).toBe('poetry install --no-interaction');
+    expect(plan.setup).toBe('POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --no-interaction');
     expect(plan.setupWhen).toEqual(['poetry.lock']);
   });
 

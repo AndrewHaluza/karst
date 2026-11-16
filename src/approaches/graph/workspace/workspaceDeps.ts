@@ -396,11 +396,25 @@ function applyLinks(input: WorkspaceDepsInput, plan: DepsPlan, guarded: readonly
   return { created, problems };
 }
 
+/** The number of dependencies a package.json declares (0 when it is unreadable). */
+function declaredDependencies(dir: string): number {
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as Record<string, unknown>;
+    const count = (value: unknown): number =>
+      typeof value === 'object' && value !== null ? Object.keys(value).length : 0;
+    return count(pkg.dependencies) + count(pkg.devDependencies);
+  } catch {
+    return 0;
+  }
+}
+
 /** The Node merge and its checks. Returns the problems; `created` holds `node_modules` when linked. */
 async function applyNode(input: WorkspaceDepsInput, guarded: readonly string[], debug?: (m: string) => void): Promise<Applied> {
   const chain = resolveChain(input.worktree, input.mainCheckout);
   const { entries, bins } = collectNodeEntries(chain);
   if (entries.length === 0) {
+    // A package.json with no dependencies needs no node_modules: nothing to give.
+    if (declaredDependencies(input.worktree) === 0) return { created: [], problems: [] };
     return { created: [], problems: [{ text: 'no node_modules resolves from the worktree', soft: false }] };
   }
   const hits = workspaceLinkHits(entries, guarded);

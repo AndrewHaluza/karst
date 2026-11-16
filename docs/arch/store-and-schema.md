@@ -146,7 +146,7 @@ A graph node workspace is a git clone. It has none of the untracked dependency f
 | --- | --- | --- |
 | `package.json` | a real `node_modules` folder of symlinks (see below) | none: a lockfile mismatch parks |
 | `uv.lock` | link `.venv` | `uv sync --frozen`, when `uv.lock` differs |
-| `poetry.lock` | link `.venv` | `poetry install --no-interaction`, when `poetry.lock` differs |
+| `poetry.lock` | link `.venv` | `POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --no-interaction` (the venv stays in the clone), when `poetry.lock` differs |
 | `requirements*.txt` only | link `.venv`, when the worktree has one | none |
 | Go, Rust, JVM, Ruby, unknown | nothing (their caches are user-level); a debug line | none |
 

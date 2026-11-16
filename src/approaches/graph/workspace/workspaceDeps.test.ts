@@ -106,6 +106,12 @@ describe('Node merge', () => {
     expect(existsSync(join(clone, 'node_modules'))).toBe(false);
   });
 
+  it('a package.json with no dependencies needs no node_modules', async () => {
+    put(join(worktree, 'package.json'), '{"name":"x"}');
+    expect(await run()).toEqual({ kind: 'ready', created: [] });
+    expect(existsSync(join(clone, 'node_modules'))).toBe(false);
+  });
+
   it('fails when no node_modules resolves anywhere', async () => {
     nodeRepo(worktree, { a: '1' }, { a: '1.0.0' });
     const result = await run();
@@ -181,7 +187,7 @@ describe('Python', () => {
     put(join(clone, 'poetry.lock'), 'a');
     const runSetup = vi.fn(setupOk);
     await run(undefined, runSetup);
-    expect(runSetup).toHaveBeenCalledWith('poetry install --no-interaction', clone);
+    expect(runSetup).toHaveBeenCalledWith('POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --no-interaction', clone);
   });
 
   it('editable install into the worktree: not linked; setup runs instead', async () => {

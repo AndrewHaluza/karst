@@ -63,7 +63,8 @@ export const DEPS_DEFAULTS: readonly DepsDefaultRow[] = [
     ecosystem: 'python-poetry',
     detect: (_w, f) => has(f, 'poetry.lock') && !has(f, 'uv.lock'),
     link: ['.venv'],
-    setup: 'poetry install --no-interaction',
+    // In-project venv: the default poetry venv lives in a user cache, outside the clone.
+    setup: 'POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --no-interaction',
     setupWhen: ['poetry.lock'],
   },
   {
