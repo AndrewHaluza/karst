@@ -48,7 +48,8 @@ export const WORKSPACE_SETUP_TIMEOUT_MS = 10 * 60 * 1000;
 export const SETUP_OUTPUT_TAIL_CHARS = 400;
 /** Bounds of the editable scan of one link target. */
 const EDITABLE_SCAN_MAX_DEPTH = 6;
-const EDITABLE_SCAN_MAX_ENTRIES = 20_000;
+/** A venv can hold many files; a scan that reaches the cap fails CLOSED (the target is not linked). */
+const EDITABLE_SCAN_MAX_ENTRIES = 200_000;
 const EDITABLE_FILE_MAX_BYTES = 64 * 1024;
 
 export type SetupOutcome = { ok: true } | { ok: false; detail: string };
@@ -262,11 +263,15 @@ function pathsInEditableFile(file: string): string[] {
  * Whether anything inside `target` (a venv, a vendor folder) leads into one of
  * `guarded`: a symlink, or a path in an editable file. Returns the first hit.
  */
-export function editableHit(target: string, guarded: readonly string[]): string | undefined {
+export function editableHit(
+  target: string,
+  guarded: readonly string[],
+  maxEntries: number = EDITABLE_SCAN_MAX_ENTRIES,
+): string | undefined {
   let visited = 0;
   const walk = (dir: string, depth: number): string | undefined => {
     for (const name of listDir(dir)) {
-      if (++visited > EDITABLE_SCAN_MAX_ENTRIES) return undefined;
+      if (++visited > maxEntries) return `${target}: scan limit of ${maxEntries} entries reached`;
       const full = join(dir, name);
       let stat;
       try {
@@ -437,6 +442,15 @@ export async function provisionWorkspaceDeps(
       const node = await applyNode(input, guarded, debug);
       created.push(...node.created);
       problems.push(...node.problems);
+      // No setup command repairs the Node tree: a Node problem is final.
+      const nodeHard = node.problems.filter((problem) => !problem.soft).map((problem) => problem.text);
+      if (nodeHard.length > 0) {
+        removeCreated(input.clone, created);
+        return {
+          kind: 'failed',
+          reason: `${input.repoName}: ${nodeHard.join('; ')} — install in the worktree, or set graphWorkspace`,
+        };
+      }
     }
     const links = applyLinks(input, plan, guarded);
     created.push(...links.created);
@@ -459,7 +473,8 @@ export async function provisionWorkspaceDeps(
       };
     }
     // Setup writes its own folders: remove the links first so it can never write through one.
-    removeCreated(input.clone, created);
+    // The merged node_modules stays: a Python setup does not own it.
+    removeCreated(input.clone, created.filter((path) => path !== 'node_modules'));
     debug?.(
       `[graph] workspace deps: ${input.repoName} — running setup in the clone${hard.length > 0 ? ` (${hard.join('; ')})` : ''}`,
     );
@@ -468,7 +483,7 @@ export async function provisionWorkspaceDeps(
       return { kind: 'failed', reason: `${input.repoName}: setup "${plan.setup}" failed — ${outcome.detail}` };
     }
     addToGitExclude(input.clone, planCreatedPaths(plan));
-    return { kind: 'ready', created: [] };
+    return { kind: 'ready', created: created.filter((path) => path === 'node_modules') };
   } catch (err) {
     removeCreated(input.clone, created);
     return { kind: 'failed', reason: `${input.repoName}: could not prepare dependencies — ${String(err)}` };

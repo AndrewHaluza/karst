@@ -218,6 +218,41 @@ describe('Python', () => {
   });
 });
 
+describe('review findings', () => {
+  it('an editable scan that reaches its cap fails closed', async () => {
+    put(join(worktree, 'requirements.txt'), 'x');
+    put(join(worktree, '.venv', 'bin', 'python'), '');
+    for (let i = 0; i < 3; i++) put(join(worktree, '.venv', 'lib', `f${i}`), '');
+    const { editableHit } = await import('./workspaceDeps.js');
+    expect(editableHit(join(worktree, '.venv'), [worktree], 2)).toContain('scan limit');
+    expect(editableHit(join(worktree, '.venv'), [worktree])).toBeUndefined();
+  });
+
+  it('a Python setup keeps the merged node_modules of a Node + Python repo', async () => {
+    nodeRepo(worktree, { a: '1' }, { a: '1.0.0' });
+    nodeRepo(clone, { a: '1' }, { a: '1.0.0' });
+    pkg(worktree, 'a', '1.0.0');
+    put(join(worktree, 'uv.lock'), 'a');
+    put(join(clone, 'uv.lock'), 'b');
+    const runSetup = vi.fn(setupOk);
+    expect(await run(undefined, runSetup)).toEqual({ kind: 'ready', created: ['node_modules'] });
+    expect(runSetup).toHaveBeenCalledOnce();
+    expect(existsSync(join(clone, 'node_modules', 'a', 'package.json'))).toBe(true);
+  });
+
+  it('a Node problem is final even when a Python setup exists', async () => {
+    nodeRepo(worktree, { a: '1' }, { a: '2.0.0' });
+    nodeRepo(clone, { a: '1' }, { a: '2.0.0' });
+    pkg(worktree, 'a', '1.0.0');
+    put(join(worktree, 'uv.lock'), 'a');
+    put(join(clone, 'uv.lock'), 'b');
+    const runSetup = vi.fn(setupOk);
+    const result = await run(undefined, runSetup);
+    expect(result.kind).toBe('failed');
+    expect(runSetup).not.toHaveBeenCalled();
+  });
+});
+
 describe('other ecosystems and the explicit block', () => {
   it.each([['go.mod'], ['Cargo.toml'], ['pom.xml'], ['Gemfile']])('%s: nothing is created and nothing runs', async (file) => {
     put(join(worktree, file), '');
