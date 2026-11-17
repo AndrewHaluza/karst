@@ -62,6 +62,7 @@ import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
 import { checkProbeEvidence, evidenceReaskPrefix, type EvidenceFs } from './testerEvidence.js';
+import { checkHarnessEvidence, harnessPromptLines, harnessReaskPrefix, type StartedHarness } from './harness.js';
 import type { UatTesterRequireEvidence } from '../../manifest/types.js';
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
 import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
@@ -313,10 +314,22 @@ export interface RunUatTesterOpts {
    * than the run start observed nothing, whatever it reported (arch:UAT-OBS-RUNS).
    */
   requireEvidence?: UatTesterRequireEvidence;
+  /**
+   * The harnesses the host started (@arch:UAT-HARNESS). A target owes fresh
+   * evidence for each harness of its own repo; missing evidence makes the run
+   * observed-nothing whatever `onSkip` says, and the one re-ask is always sent.
+   */
+  harnesses?: readonly StartedHarness[];
   /** Internal: repo → the coverage title to quote in the one re-ask prefix. */
   reaskTitles?: Readonly<Record<string, string>>;
   /** Internal: repo → the missing-evidence detail to name in the one re-ask prefix. */
   reaskEvidence?: Readonly<Record<string, string>>;
+  /** Internal: repo → the missing-harness-evidence detail to name in the one re-ask prefix. */
+  reaskHarness?: Readonly<Record<string, string>>;
+}
+
+function harnessesOf(opts: RunUatTesterOpts, repo: string): StartedHarness[] {
+  return (opts.harnesses ?? []).filter((h) => h.repo === repo);
 }
 
 /**
@@ -369,7 +382,7 @@ export type TesterRunResult =
    * still recorded), but shown as skipped so it never reads as a clean pass.
    * `detail` is the first skipped target's reason, one line.
    */
-  | { kind: 'skipped'; findingIds: number[]; detail: string }
+  | { kind: 'skipped'; findingIds: number[]; detail: string; harness?: true }
   /**
    * K11: a target's call died because the provider account is out of
    * quota/allowance. NOT an advisory absence and NOT a T663 partial — the
@@ -737,6 +750,8 @@ export interface TesterPromptExtra {
   provider?: AgentProvider | string | null;
   /** How the core returns structured output; absent → the prose rules. */
   outputForm?: StructuredOutputForm;
+  /** The started harnesses of THIS target (@arch:UAT-HARNESS). */
+  harnesses?: readonly StartedHarness[];
 }
 
 /** Karst-owned scratch dir for UAT probe files; under `/.karst/`, which KARST_EXCLUDE_RULES covers. */
@@ -823,6 +838,7 @@ export function buildTesterPrompt(
     COVERAGE_RULE_UAT,
     `Put any probe scripts or scratch files under \`${target.worktreePath}/${TESTER_SCRATCH_DIR}/\` (karst-owned, git-excluded); files anywhere else in the checkout dirty it and block host gates.`,
     ...(coreHint ? [coreHint] : []),
+    ...harnessPromptLines(extra?.harnesses),
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.
@@ -868,14 +884,20 @@ export async function runUatTester(
   deps: TesterDeps = {},
 ): Promise<TesterRunResult> {
   const first = await runTesterOnce(store, opts, deps);
-  if (first.result.kind !== 'skipped' || (opts.onSkip ?? 'pass') === 'pass') return first.result;
+  const harnessMissed = Object.keys(first.harnessMissing).length > 0;
+  if (first.result.kind !== 'skipped' || ((opts.onSkip ?? 'pass') === 'pass' && !harnessMissed)) return first.result;
   // A skipped run means EVERY target observed nothing, so every target is re-asked
   // — exactly once; the second run's result replaces the first's.
   opts.debug?.(`[gate] uat tester ticket ${opts.ticketId}: observed nothing — re-asking once`);
   return (
     await runTesterOnce(
       store,
-      { ...opts, reaskTitles: first.skippedTitles, reaskEvidence: first.evidenceMissing },
+      {
+        ...opts,
+        reaskTitles: first.skippedTitles,
+        reaskEvidence: first.evidenceMissing,
+        reaskHarness: first.harnessMissing,
+      },
       deps,
     )
   ).result;
@@ -889,11 +911,13 @@ async function runTesterOnce(
   result: TesterRunResult;
   skippedTitles: Record<string, string>;
   evidenceMissing: Record<string, string>;
+  harnessMissing: Record<string, string>;
 }> {
   const skippedTitles: Record<string, string> = {};
   const evidenceMissing: Record<string, string> = {};
-  const result = await runTesterBody(store, opts, deps, skippedTitles, evidenceMissing);
-  return { result, skippedTitles, evidenceMissing };
+  const harnessMissing: Record<string, string> = {};
+  const result = await runTesterBody(store, opts, deps, skippedTitles, evidenceMissing, harnessMissing);
+  return { result, skippedTitles, evidenceMissing, harnessMissing };
 }
 
 async function runTesterBody(
@@ -902,6 +926,7 @@ async function runTesterBody(
   deps: TesterDeps,
   skippedTitles: Record<string, string>,
   evidenceMissing: Record<string, string>,
+  harnessMissing: Record<string, string>,
 ): Promise<TesterRunResult> {
   const now = deps.now ?? nowIso;
   const coreHint = testerCoreHint(opts.assignment.provider);
@@ -1073,13 +1098,16 @@ async function runTesterBody(
           core: opts.assignment.provider,
           provider: opts.assignment.provider,
           outputForm: structuredOutputFormOf(opts.adapter),
+          harnesses: harnessesOf(opts, target.repo),
         },
       );
       const reaskTitle = opts.reaskTitles?.[target.repo];
       const reaskMissing = opts.reaskEvidence?.[target.repo];
+      const reaskHarness = opts.reaskHarness?.[target.repo];
       const prefixes = [
         ...(reaskTitle === undefined ? [] : [reaskPrefix(reaskTitle)]),
         ...(reaskMissing === undefined ? [] : [evidenceReaskPrefix(reaskMissing)]),
+        ...(reaskHarness === undefined ? [] : [harnessReaskPrefix(reaskHarness)]),
       ];
       const prompt = prefixes.length === 0 ? basePrompt : `${prefixes.join('\n\n')}\n\n${basePrompt}`;
       // Prompt 09: when the core declares native structured output support, ask
@@ -1292,6 +1320,13 @@ async function runTesterBody(
           debug?.(`[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} — ${evidence.detail}`);
         }
       }
+      // A started harness owes its own evidence; the UAT-host `summary.json` never counts for it.
+      if (!stopped && !partial) {
+        for (const harness of harnessesOf(opts, target.repo)) {
+          const missing = await checkHarnessEvidence(harness, Date.parse(startedAt), deps.evidenceFs);
+          if (missing !== null && harnessMissing[target.repo] === undefined) harnessMissing[target.repo] = missing;
+        }
+      }
       const parsed = keptRest.map((f) => ({
         severity: f.severity,
         repo: f.repo,
@@ -1372,7 +1407,7 @@ async function runTesterBody(
     const threshold = opts.observationsBlockingSeverity ?? 'none';
     const { blocking, blockingSummary } = countBlockingObservations(observations, threshold);
     const askedRepos = targetOutcomes.length;
-    const missingRepos = Object.keys(evidenceMissing);
+    const missingRepos = [...new Set([...Object.keys(harnessMissing), ...Object.keys(evidenceMissing)])];
     // The re-ask never records an observation the first run already recorded, so a
     // repeat shows once; the first set stays if the re-ask itself fails.
     const known =
@@ -1414,17 +1449,21 @@ async function runTesterBody(
     // Missing evidence never hides a blocking observation: `skipped` carries no blocking count.
     // A coverage skip keeps no observation, so every observation here belongs to a target
     // with no evidence: with none blocking, the run observed nothing.
-    if (allNothing && blocking === 0) {
+    // Missing harness evidence parks the run even when another target observed something.
+    if ((allNothing || Object.keys(harnessMissing).length > 0) && blocking === 0) {
       const firstMissing = missingRepos[0];
+      const missingDetail = (repo: string): string => harnessMissing[repo] ?? evidenceMissing[repo]!;
       const detail =
         firstMissing !== undefined
           ? askedRepos > 1
-            ? `${firstMissing}: ${evidenceMissing[firstMissing]!}`
-            : evidenceMissing[firstMissing]!
+            ? `${firstMissing}: ${missingDetail(firstMissing)}`
+            : missingDetail(firstMissing)
           : skippedDetail({ repo: skippedRepos[0]!, title: skippedTitles[skippedRepos[0]!]! }, askedRepos);
       close('passed', 'skipped');
       debug?.(`[gate] uat tester ticket ${opts.ticketId}: recorded ${findingIds.length} finding(s) — skipped (${detail})`);
-      return { kind: 'skipped', findingIds, detail };
+      return Object.keys(harnessMissing).length > 0
+        ? { kind: 'skipped', findingIds, detail, harness: true }
+        : { kind: 'skipped', findingIds, detail };
     }
     close('passed', 'observed');
     debug?.(

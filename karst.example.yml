@@ -651,6 +651,14 @@ uat:
   # when the ticket diff matches `whenChanged` and no file matching `file` in the worktree is
   # newer than the Tester run start, the run counts as observed nothing and `onSkip` applies.
   # It reads files and the diff only, never the agent's report. Absent = no check.
+  # `harnesses: [{ name, whenChanged: [<globs>], start, stop, evidence, startTimeoutSeconds?, description? }]`:
+  # a live runtime UAT starts after the service spin when the diff matches `whenChanged`, and stops
+  # on every exit path. `start` prints one JSON line {"env":{...}} for the Tester. `evidence` is a
+  # glob under .karst/uat-scratch/out/<name>/; the Tester writes it through
+  # `node <karst>/workflow/uat/harnessRunner.mjs --harness <name> --check <id> -- <command...>`.
+  # Missing evidence parks `tester-skipped` whatever `onSkip` is. WIRED, manifest-only.
+  # harnesses:
+  #   - { name: sbx, whenChanged: ['src/sandbox/**'], start: 'scripts/sbx-up.sh', stop: 'scripts/sbx-down.sh', evidence: '.karst/uat-scratch/out/sbx/**/summary.json' }
   # WIRED, manifest-only. The FRESH-token budget ONE Tester target may spend
   # before the lane stops the call and re-asks once for whatever the agent had
   # already observed. A run the budget stops records its findings as PARTIAL

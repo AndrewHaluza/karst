@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -2617,5 +2617,224 @@ describe('testerTargets gates', () => {
     } as Manifest;
     const [t] = testerTargets(m, [{ repo: '/web', path: '/wt', names: ['web'] }], []);
     expect(t?.gates).toEqual([{ name: 'unit', script: 'test:unit' }]);
+  });
+});
+
+/**
+ * @arch:UAT-HARNESS: the host starts a live runtime for a matching diff, hands it
+ * to the Tester, requires evidence from it, and stops it on every exit path.
+ */
+describe('runUat — harnesses (@arch:UAT-HARNESS)', () => {
+  let store: Store;
+  let id: number;
+  let artifactDir: string;
+  let wt: string;
+
+  const harnessDef = {
+    name: 'sbx',
+    whenChanged: ['src/sbx/**'],
+    start: 'start-sbx',
+    stop: 'stop-sbx',
+    evidence: '.karst/uat-scratch/out/sbx/**/summary.json',
+    description: 'a real sandbox',
+  };
+  const project: Manifest = {
+    ...manifest({ web: repo({ repoPath: '/repo/web' }) }),
+    uat: uatConfig({ harnesses: [harnessDef] }),
+  };
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-harness', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
+    artifactDir = mkdtempSync(join(tmpdir(), 'karst-uat-harness-'));
+    wt = mkdtempSync(join(tmpdir(), 'karst-uat-harness-wt-'));
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, '/web', ?, 'feat/x', 'develop', 'inherited')`,
+      )
+      .run(id, wt);
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+    rmSync(wt, { recursive: true, force: true });
+  });
+
+  const gitWith = (changed: string[]): UatDeps['git'] => async (args) =>
+    args[0] === 'diff'
+      ? { exitCode: 0, stdout: `${changed.join('\n')}\n`, stderr: '' }
+      : { exitCode: 1, stdout: '', stderr: '' };
+
+  interface Rig {
+    calls: string[];
+    prompts: string[];
+    exec: NonNullable<UatDeps['harnessExec']>;
+  }
+  function rig(opts: { startExit?: number; startTimedOut?: boolean; evidence?: 'harness' | 'probe' | 'none'; answer?: string } = {}): Rig {
+    const calls: string[] = [];
+    const prompts: string[] = [];
+    const exec: Rig['exec'] = async (command, o) => {
+      calls.push(`${command}:${o.env.KARST_HARNESS_NAME}:${o.env.KARST_TICKET_ID}`);
+      if (command === 'start-sbx') {
+        return {
+          exitCode: opts.startExit ?? 0,
+          stdout: 'noise\n{"env":{"SBX_NAME":"sb-1"}}\n',
+          stderr: 'start-stderr',
+          timedOut: opts.startTimedOut ?? false,
+        };
+      }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+    };
+    return { calls, prompts, exec };
+  }
+  function adapterFor(r: Rig, evidence: 'harness' | 'probe' | 'none', answer = PASS_COVERAGE_ANSWER): AgentAdapter {
+    return {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => {
+        throw new Error('not used');
+      },
+      runHeadless: async (req: { prompt: string }) => {
+        r.calls.push('tester');
+        r.prompts.push(req.prompt);
+        const rel = evidence === 'harness' ? 'sbx/c1' : evidence === 'probe' ? 'probe-1' : null;
+        if (rel !== null) {
+          const dir = join(wt, '.karst/uat-scratch/out', rel);
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(join(dir, 'summary.json'), '{}');
+        }
+        return { sessionId: '', verdict: null, raw: answer };
+      },
+    } as AgentAdapter;
+  }
+  function run(r: Rig, adapter: AgentAdapter, over: Partial<UatDeps> = {}, m: Manifest = project) {
+    updateTicketFields(store, id, { selectedRepos: ['web'] });
+    return runUat(
+      store,
+      { ticketId: id, cwd: wt, artifactDir, manifest: m },
+      deps({
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: wt, names: ['web'] }], unmapped: [] }),
+        git: gitWith(['src/sbx/a.ts']),
+        harnessExec: r.exec,
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
+        ...over,
+      }),
+    );
+  }
+
+  it('starts the harness before the Tester, lists it with its env in the prompt, and stops it after a pass', async () => {
+    const r = rig();
+    const res = await run(r, adapterFor(r, 'harness'));
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(r.calls).toEqual([`start-sbx:sbx:${id}`, 'tester', `stop-sbx:sbx:${id}`]);
+    expect(r.prompts[0]).toContain('## Harnesses');
+    expect(r.prompts[0]).toContain('- sbx: a real sandbox');
+    expect(r.prompts[0]).toContain('SBX_NAME=sb-1');
+    expect(r.prompts[0]).toContain("harnessRunner.mjs' --harness sbx --check <id> -- <command...>");
+  });
+
+  it('stops the harness after a failed verdict', async () => {
+    const r = rig();
+    const blocking = JSON.stringify([
+      { severity: 'info', title: 'COVERAGE (reported): PASS — checked', detail: '' },
+      { severity: 'high', title: 'broken', detail: 'cite' },
+    ]);
+    const m: Manifest = { ...project, uat: uatConfig({ harnesses: [harnessDef], testerObservations: { blockingSeverity: 'high' } }) };
+    const res = await run(r, adapterFor(r, 'harness', blocking), {}, m);
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(r.calls.at(-1)).toBe(`stop-sbx:sbx:${id}`);
+  });
+
+  it('stops the harness when the stage throws', async () => {
+    const r = rig();
+    const crash = { ...adapterFor(r, 'none'), runHeadless: async () => { throw new Error('crash'); } } as AgentAdapter;
+    await expect(
+      run(r, crash, { warn: () => { throw new Error('boom'); } }),
+    ).rejects.toThrow('boom');
+    expect(r.calls).toEqual([`start-sbx:sbx:${id}`, `stop-sbx:sbx:${id}`]);
+  });
+
+  it('a Stop during the harness start is stopped, never boot-failed, and the harness is still stopped', async () => {
+    const r = rig();
+    const ac = new AbortController();
+    const exec: Rig['exec'] = async (command, o) => {
+      r.calls.push(`${command}`);
+      if (command === 'start-sbx') {
+        ac.abort();
+        return { exitCode: null, stdout: '', stderr: '', timedOut: false };
+      }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+    };
+    updateTicketFields(store, id, { selectedRepos: ['web'] });
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: wt, artifactDir, manifest: project, signal: ac.signal },
+      deps({
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: wt, names: ['web'] }], unmapped: [] }),
+        git: gitWith(['src/sbx/a.ts']),
+        harnessExec: exec,
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter: adapterFor(r, 'none') },
+      }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(r.calls).toEqual(['start-sbx', 'stop-sbx']);
+  });
+
+  it('starts no harness when the diff matches no glob', async () => {
+    const r = rig();
+    await run(r, adapterFor(r, 'none'), { git: gitWith(['src/other/a.ts']) });
+    expect(r.calls).toEqual(['tester']);
+    expect(r.prompts[0]).not.toContain('## Harnesses');
+  });
+
+  it('starts no harness for a test-file-only match', async () => {
+    const r = rig();
+    await run(r, adapterFor(r, 'none'), { git: gitWith(['src/sbx/a.test.ts']) });
+    expect(r.calls).toEqual(['tester']);
+  });
+
+  it.each([
+    ['a failed start', { startExit: 3 }, 'exited 3'],
+    ['a timed-out start', { startTimedOut: true }, 'did not start within'],
+  ])('parks boot-failed on %s with the start output, never runs the Tester, and still stops the harness', async (_n, opts, text) => {
+    const r = rig(opts);
+    const res = await run(r, adapterFor(r, 'none'));
+    expect(res).toEqual({ kind: 'blocked', blocker: 'boot-failed', reason: expect.stringContaining(text) });
+    expect(res).toMatchObject({ reason: expect.stringContaining('start-stderr') });
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('boot-failed');
+    expect(r.calls).toEqual([`start-sbx:sbx:${id}`, `stop-sbx:sbx:${id}`]);
+  });
+
+  it('with only a UAT-host summary.json: re-asks once with a prefix naming the harness, then parks tester-skipped', async () => {
+    const r = rig();
+    const res = await run(r, adapterFor(r, 'probe'));
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'tester-skipped', reason: expect.stringContaining('harness "sbx"') });
+    expect(r.prompts).toHaveLength(2);
+    expect(r.prompts[0]).not.toContain('no harness evidence');
+    expect(r.prompts[1]).toContain('left no harness evidence');
+    expect(r.prompts[1]).toContain('harness "sbx"');
+    expect(r.calls.at(-1)).toBe(`stop-sbx:sbx:${id}`);
+  });
+
+  it('parks whatever the global onSkip is, and also when the run kept an info note', async () => {
+    const r = rig();
+    const note = JSON.stringify([
+      { severity: 'info', title: 'COVERAGE (reported): PASS — checked', detail: '' },
+      { severity: 'info', title: 'a note', detail: '' },
+    ]);
+    const m: Manifest = { ...project, uat: uatConfig({ harnesses: [harnessDef], testerObservations: { blockingSeverity: 'none', onSkip: 'pass' } }) };
+    const res = await run(r, adapterFor(r, 'probe', note), {}, m);
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'tester-skipped' });
+    expect(r.prompts).toHaveLength(2);
+  });
+
+  it('does not park when the Tester leaves harness evidence', async () => {
+    const r = rig();
+    const res = await run(r, adapterFor(r, 'harness'));
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(r.prompts).toHaveLength(1);
   });
 });

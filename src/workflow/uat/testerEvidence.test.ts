@@ -5,7 +5,7 @@ import { transition } from '../machine.js';
 import { runUatTester, type RunUatTesterOpts, type TesterTarget } from './tester.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
-import { checkProbeEvidence, defaultEvidenceFs, globStaticDir, MAX_EVIDENCE_FILES, type EvidenceFs } from './testerEvidence.js';
+import { checkProbeEvidence, firstTriggerPath, defaultEvidenceFs, globStaticDir, MAX_EVIDENCE_FILES, type EvidenceFs } from './testerEvidence.js';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -283,6 +283,82 @@ describe('runUatTester — requireEvidence', () => {
   });
 });
 
+describe('runUatTester — harness evidence', () => {
+  let store: Store;
+  let ticketId: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-h', title: 't' }).id;
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+  });
+  afterEach(() => store.close());
+  const HARNESS = {
+    name: 'sbx',
+    repo: target.repo,
+    worktreePath: target.worktreePath,
+    evidence: '.karst/uat-scratch/out/sbx/**/summary.json',
+    env: { SBX_NAME: 'sb-1' },
+    stop: 'x',
+  };
+  const opts = (adapter: AgentAdapter, over: Partial<RunUatTesterOpts> = {}): RunUatTesterOpts => ({
+    ticketId,
+    targets: [target],
+    assignment: { agentName: 'UAT Agent', provider: 'claude', model: 'm' },
+    adapter,
+    harnesses: [HARNESS],
+    ...over,
+  });
+  const probeOnly = { evidenceFs: fakeFs({ [SUMMARY]: { mtimeMs: Date.now() } }) };
+  const harnessFs = { evidenceFs: fakeFs({ '.karst/uat-scratch/out/sbx/c1/summary.json': { mtimeMs: Date.now() } }) };
+  const pass = [...cov('PASS — checked'), { severity: 'low', title: 'nit', detail: '' }];
+
+  it('a UAT-host summary does not satisfy a harness: re-ask naming it, then skipped with harness set', async () => {
+    const { adapter, calls } = scripted([pass]);
+    const res = await runUatTester(store, opts(adapter), { now, ...probeOnly });
+    expect(res).toMatchObject({ kind: 'skipped', harness: true });
+    expect((res as { detail: string }).detail).toContain('harness "sbx"');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.prompt).toContain('harness "sbx"');
+    expect(calls[0]!.prompt).toContain('SBX_NAME=sb-1');
+  });
+
+  it('re-asks under onSkip pass too', async () => {
+    const { adapter, calls } = scripted([pass]);
+    const res = await runUatTester(store, opts(adapter, { onSkip: 'pass' }), { now, ...probeOnly });
+    expect(res).toMatchObject({ kind: 'skipped', harness: true });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('harness evidence present: observed, one call', async () => {
+    const { adapter, calls } = scripted([pass]);
+    const res = await runUatTester(store, opts(adapter), { now, ...harnessFs });
+    expect(res.kind).toBe('observed');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('an info note without harness evidence still skips', async () => {
+    const { adapter } = scripted([[...cov('PASS — x'), { severity: 'info', title: 'note', detail: '' }]]);
+    expect((await runUatTester(store, opts(adapter), { now, ...probeOnly })).kind).toBe('skipped');
+  });
+
+  it('a blocking observation survives missing harness evidence', async () => {
+    const { adapter } = scripted([[...cov('PASS — x'), { severity: 'high', title: 'bad', detail: '' }]]);
+    const res = await runUatTester(store, opts(adapter, { observationsBlockingSeverity: 'medium' }), { now, ...probeOnly });
+    expect(res).toMatchObject({ kind: 'observed', blocking: 1 });
+  });
+
+  it('a re-ask that produces harness evidence ends observed', async () => {
+    let n = 0;
+    const { adapter } = scripted([pass]);
+    const fsSwitch: EvidenceFs = {
+      list: async () => (++n > 1 ? [{ rel: '.karst/uat-scratch/out/sbx/c1/summary.json', mtimeMs: Date.now() }] : []),
+      read: async () => PASSING_SUMMARY,
+    };
+    expect((await runUatTester(store, opts(adapter), { now, evidenceFs: fsSwitch })).kind).toBe('observed');
+  });
+});
+
 describe('defaultEvidenceFs (real files)', () => {
   it('fails the walk past the entry limit instead of truncating', async () => {
     const root = await mkdtemp(join(tmpdir(), 'evidence-'));
@@ -321,5 +397,14 @@ describe('defaultEvidenceFs (real files)', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('firstTriggerPath', () => {
+  it('returns the first non-test path a glob matches', () => {
+    expect(firstTriggerPath(['a.test.ts', 'src/x/a.ts', 'src/x/b.ts'], ['src/x/**'])).toBe('src/x/a.ts');
+  });
+  it('is undefined for test files and non-matching paths', () => {
+    expect(firstTriggerPath(['src/x/a.test.ts', 'src/y/b.ts'], ['src/x/**'])).toBeUndefined();
   });
 });

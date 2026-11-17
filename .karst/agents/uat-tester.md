@@ -37,7 +37,9 @@ The extension runs for this ticket as the service `extention`. Its URL is in the
 
 ## Evidence rule (binding)
 
-The run needs at least one probe run: a run with no new `summary.json` under `.karst/uat-scratch/out/` counts as observed nothing.
+When the prompt has a Harnesses block, show evidence from EACH listed harness: run the check through the runner command in that block, so that it writes a fresh `summary.json` under that harness's evidence path. A run with no such file for a started harness counts as observed nothing, also when you report other observations. A UAT-host probe `summary.json` never counts for a harness.
+
+Use the UAT-host probe only for a change the UAT host can reach. Send no probe to make a `summary.json` for a change the probe cannot reach: report that surface as SKIPPED in the coverage record.
 
 Every observation MUST cite evidence. A probe observation cites probe
 JSON: the run's `--out` path, the step index, and the field, e.g.

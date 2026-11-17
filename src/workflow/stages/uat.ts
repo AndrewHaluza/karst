@@ -76,6 +76,17 @@ import { gateEntriesFrom } from '../review/aggregate.js';
 import { targetTree, unresolvedTargets, manifestNamesFor } from '../rerunTargets.js';
 import { mergeUatKeptOutcome, type UatKeptTarget } from '../uat/keptOutcome.js';
 import { listUatFindings } from '../../store/uatFindings.js';
+import {
+  HarnessStartError,
+  matchHarnessTarget,
+  startHarness,
+  stopHarnesses,
+  type HarnessExec,
+  type HarnessTarget,
+  type StartedHarness,
+} from '../uat/harness.js';
+import { defaultHarnessExec } from '../uat/harnessExec.js';
+import { changedPaths } from '../uat/testerEvidence.js';
 import { combinedBlocking, persistSiblingObservations } from '../uat/rerunObservations.js';
 import type { UatFindingInput } from '../../store/uatFindings.js';
 
@@ -229,6 +240,8 @@ export interface UatDeps {
    * passed verdict instead of stopped. Absent / false → stopped, as before.
    */
   keepStackForUserUat?: (ticketId: number) => boolean;
+  /** Runs a `uat.harnesses[]` start/stop command (@arch:UAT-HARNESS). Absent → a real `sh -c`. */
+  harnessExec?: HarnessExec;
   /**
    * Between agent and user UAT (decision 8): run each kept service's declared
    * `reset`. Resolves to warnings (a failed reset); absent → no reset.
@@ -924,6 +937,51 @@ export async function runUat(
     }
   }
 
+  // Harnesses (@arch:UAT-HARNESS) this run started, or tried to start: the `finally`
+  // below stops every one, also a start that failed partway. Never kept for user UAT.
+  const startedHarnesses: StartedHarness[] = [];
+  const harnessExec = deps.harnessExec ?? defaultHarnessExec;
+
+  /** Start each harness whose `whenChanged` matches a non-test path of a target's diff. */
+  const startMatchingHarnesses = async (): Promise<string | 'stopped' | null> => {
+    const defs = opts.manifest?.uat?.harnesses ?? [];
+    if (!tester || defs.length === 0) return null;
+    const harnessTargets: HarnessTarget[] = [];
+    for (const t of targets) {
+      const wt = worktrees.find((w) => w.repo === t.repo);
+      const changed = await changedPaths({
+        worktreePath: t.path,
+        baseRef: wt?.baseRef ?? null,
+        branch: wt?.branch ?? null,
+        git,
+      });
+      harnessTargets.push({ repo: t.repo, worktreePath: t.path, changed });
+    }
+    for (const def of defs) {
+      const target = matchHarnessTarget(def, harnessTargets);
+      if (target === undefined) continue;
+      opts.debug?.(`[gate] uat ticket ${opts.ticketId}: starting harness ${def.name} before the Tester`);
+      try {
+        const started = await startHarness(
+          def,
+          target,
+          opts.ticketId,
+          harnessExec,
+          (h) => startedHarnesses.push(h),
+          opts.signal,
+        );
+        startedHarnesses[startedHarnesses.findIndex((h) => h.name === def.name)] = started;
+        if (opts.signal?.aborted === true) return 'stopped';
+      } catch (error) {
+        // A Stop that killed the start command is a cancel, never an environment fault.
+        if (opts.signal?.aborted === true) return 'stopped';
+        const detail = error instanceof Error ? error.message : String(error);
+        return error instanceof HarnessStartError ? detail : `harness "${def.name}" could not start: ${detail}`;
+      }
+    }
+    return null;
+  };
+
   /**
    * The post-gates half of the stage: the Tester, its optional deterministic
    * verifier, and the final verdict. Extracted so the WHOLE half runs under one
@@ -984,6 +1042,8 @@ export async function runUat(
           onSkip: testerOnSkip,
           // Opt-in probe-evidence check; absent → no check.
           requireEvidence: opts.manifest?.uat?.testerObservations?.requireEvidence,
+          // Started harnesses (@arch:UAT-HARNESS): the Tester owes evidence for each.
+          harnesses: startedHarnesses,
         },
         { now },
       );
@@ -1052,7 +1112,8 @@ export async function runUat(
       // NOT judged, so this is never a failed verdict or a fix round: under
       // `reask-then-park` the USER decides (Re-run tester / Accept skip).
       deps.warn?.(`uat tester: skipped — ${testerResult.detail}`);
-      if (testerOnSkip === 'reask-then-park') {
+      // Missing harness evidence parks whatever the global `onSkip` is (@arch:UAT-HARNESS).
+      if (testerOnSkip === 'reask-then-park' || testerResult.harness === true) {
         const reason = `tester observed nothing — ${testerResult.detail}`;
         sections.push(`# uat tester (skipped)\n${testerResult.detail}`);
         return finish({ kind: 'blocked', blocker: 'tester-skipped', reason }, [reason]);
@@ -1200,8 +1261,24 @@ export async function runUat(
         return finish({ kind: 'blocked', blocker: 'boot-failed', reason }, [reason]);
       }
     }
+    const harnessFailure = await startMatchingHarnesses();
+    if (harnessFailure === 'stopped') {
+      opts.debug?.(`[gate] uat ticket ${opts.ticketId}: harness start cancelled — stopped`);
+      return finish({ kind: 'stopped' }, ['harness start cancelled']);
+    }
+    if (harnessFailure !== null) {
+      // An environment fault, exactly like a failed service spin: the code was not judged.
+      const reason = `could not start a UAT harness: ${harnessFailure}`;
+      opts.debug?.(`[gate] uat ticket ${opts.ticketId}: harness start failed — parked boot-failed`);
+      sections.push(`# harness (start failed)\n${reason}`);
+      return finish({ kind: 'blocked', blocker: 'boot-failed', reason }, [reason]);
+    }
     return await finishAfterServices();
   } finally {
+    // Harnesses stop on EVERY exit path, before the services, and are never kept for user UAT.
+    if (startedHarnesses.length > 0) {
+      await stopHarnesses(startedHarnesses, opts.ticketId, harnessExec, opts.debug);
+    }
     // Decision 7: a stack that passed agent UAT stays up for user UAT — same
     // instance — after its optional reset (decision 8): always for a sandboxed
     // stack, and for a host stack when `uat.keepStackForUser` is on.
