@@ -207,6 +207,13 @@ describe('reattachTicketSandbox', () => {
     expect(warn).toHaveBeenCalledWith('Karst: ticket 7 sandbox cannot reach its baseline services on the host: sbx policy allow failed: nope');
   });
 
+  it('a failed baseline allow with no warn seam still re-verifies', async () => {
+    const store = openStore(':memory:');
+    store.db.prepare("INSERT INTO baseline_refs (ticket_id, repo) VALUES (7, 'db')").run();
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${SBX}\n` }, 'sbx policy': { code: 1, stderr: 'nope' } });
+    await expect(reattachTicketSandbox(deps({ proc }), store, manifest, 7, () => Promise.resolve(true))).resolves.toEqual({ republished: [], dropped: [] });
+  });
+
   it('warns once (deduped) when a sandboxed repo has a lockfile and no sandbox.setup; never without a sandbox', async () => {
     const store = openStore(':memory:');
     createTicket(store, { key: 'T-1', title: 't' });
