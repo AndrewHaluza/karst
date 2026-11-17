@@ -1,4 +1,5 @@
 import { ManifestError } from '../error.js';
+import { type CodedWarning, warningMessages } from '../warningCode.js';
 import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES } from '../types.js';
 import type {
   GateKind,
@@ -482,10 +483,15 @@ export function validateUat(raw: unknown): UatConfig | undefined {
  * reliable, and the mistake it catches is the likely one — pasting a value into
  * the wrong block. The host surfaces these; loading never fails on them.
  */
-export function uatEnvWarnings(config: UatConfig): string[] {
+export function uatEnvWarningsCoded(config: UatConfig): CodedWarning[] {
   return Object.entries(config.env).flatMap(([key, value]) =>
     CREDENTIAL_PREFIXES.some((p) => value.startsWith(p)) || HIGH_ENTROPY.test(value)
-      ? [`uat.env "${key}" looks like a credential — declare it under uat.secrets instead`]
+      ? [{ code: `uat.env.${key}`, message: `uat.env "${key}" looks like a credential — declare it under uat.secrets instead` }]
       : [],
   );
+}
+
+/** The display strings of `uatEnvWarningsCoded`. */
+export function uatEnvWarnings(config: UatConfig): string[] {
+  return warningMessages(uatEnvWarningsCoded(config));
 }

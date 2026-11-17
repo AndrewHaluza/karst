@@ -3,6 +3,7 @@ import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import { agentDependency } from '../../runtime/deps.js';
 import { checkGates } from './gateChecks.js';
 import { checkRepo } from './repoChecks.js';
+import type { CodedWarning } from '../../manifest/warningCode.js';
 import type { ReadinessItem, ReadinessProbes, ReadinessReport } from './types.js';
 
 export interface ServicesVerdict {
@@ -14,8 +15,8 @@ export interface ServicesVerdict {
 export interface ReadinessInput {
   manifest: Manifest | undefined;
   loadError?: string;
-  /** D269 warnings from the loader; every one is a fail here. */
-  warnings: readonly string[];
+  /** D269 warnings from the loader, each with a stable code; every one is a fail here. */
+  warnings: readonly CodedWarning[];
   /** `--repos` filter; empty = all. */
   repos: readonly string[];
   probes: ReadinessProbes;
@@ -86,6 +87,21 @@ function selectRepos(m: Manifest, filter: readonly string[]): { names: string[];
   };
 }
 
+/** One fail item per loader warning. The id is the warning code; a repeated code gets `#2`, `#3`, ... */
+function warningItems(warnings: readonly CodedWarning[]): ReadinessItem[] {
+  const seen = new Map<string, number>();
+  return warnings.map((w): ReadinessItem => {
+    const count = (seen.get(w.code) ?? 0) + 1;
+    seen.set(w.code, count);
+    return {
+      id: count === 1 ? w.code : `${w.code}#${count}`,
+      status: 'fail',
+      detail: w.message,
+      fix: 'apply the fix named in the message',
+    };
+  });
+}
+
 export async function runReadiness(i: ReadinessInput): Promise<ReadinessReport> {
   const items: ReadinessItem[] = [];
   const m = i.manifest;
@@ -99,9 +115,7 @@ export async function runReadiness(i: ReadinessInput): Promise<ReadinessReport> 
     return { ok: false, items };
   }
   items.push({ id: 'manifest.load', status: 'ok', detail: 'manifest loads' });
-  i.warnings.forEach((w, n) =>
-    items.push({ id: `manifest.warning.${n}`, status: 'fail', detail: w, fix: 'apply the fix named in the message' }),
-  );
+  items.push(...warningItems(i.warnings));
   const { names, unknown } = selectRepos(m, i.repos);
   items.push(...unknown);
   for (const name of names) {

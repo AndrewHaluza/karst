@@ -849,7 +849,7 @@ export async function runCliAsync(
     return runSetupCheckCommand({
       manifest,
       loadError,
-      warnings: loaded?.warnings ?? [],
+      warnings: loaded?.codedWarnings ?? [],
       repos: parsed.repos,
       probes: nodeReadinessProbes(dirname(resolve(manifestPath))),
       verifyServices:

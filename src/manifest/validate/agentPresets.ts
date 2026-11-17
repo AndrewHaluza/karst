@@ -16,6 +16,7 @@
  */
 
 import { ManifestError } from '../error.js';
+import { type CodedWarning, warningMessages } from '../warningCode.js';
 import {
   PRESET_CAPABILITIES,
   type AgentPreset,
@@ -232,18 +233,25 @@ export function assertAgentPresetReferences(
  * every use says so — the fix names the capability row the user must set
  * instead, which is the same key (`PROCESS_KEYS` ⊂ `PRESET_CAPABILITIES`).
  */
-export function deprecatedPresetKeyWarnings(
+export function deprecatedPresetKeyWarningsCoded(
   processes: ProcessAssignmentsConfig | undefined,
-): string[] {
-  const warnings: string[] = [];
+): CodedWarning[] {
+  const warnings: CodedWarning[] = [];
   for (const [key, cfg] of Object.entries(processes ?? {})) {
     if (cfg.preset === undefined) continue;
-    warnings.push(
+    warnings.push({
+      code: `manifest.deprecated-preset.${key}`,
+      message:
       `\`processes.${key}.preset\` is deprecated and is removed in the next release. ` +
         `It is still honoured (it applies preset "${cfg.preset}" to this role), but a preset ` +
         `now overrides capabilities directly: set the \`${key}\` slot under \`agentPresets\` ` +
         'and select the preset under `activeAgentPreset`, then delete this key.',
-    );
+    });
   }
   return warnings;
+}
+
+/** The display strings of `deprecatedPresetKeyWarningsCoded`. */
+export function deprecatedPresetKeyWarnings(processes: ProcessAssignmentsConfig | undefined): string[] {
+  return warningMessages(deprecatedPresetKeyWarningsCoded(processes));
 }

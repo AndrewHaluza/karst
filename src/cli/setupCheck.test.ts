@@ -34,4 +34,9 @@ describe('runSetupCheckCommand', () => {
     );
     expect(out.ok).toBe(false);
   });
+  it('names a loader warning by its code', async () => {
+    const warnings = [{ code: 'manifest.legacy-services', message: 'uses the legacy key' }];
+    const out = JSON.parse(await runSetupCheckCommand({ manifest, warnings, repos: [], probes: fakeProbes() }));
+    expect(out.items).toContainEqual(expect.objectContaining({ id: 'manifest.legacy-services', status: 'fail' }));
+  });
 });
