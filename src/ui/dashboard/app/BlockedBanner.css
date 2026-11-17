@@ -17,6 +17,13 @@
   white-space:pre-wrap;word-break:break-word;min-width:0;overflow-wrap:anywhere}
 .fault .facts{display:flex;gap:var(--k-space-3);margin-top:0;flex-wrap:nowrap}
 
+/* The reload-drain line (DrainBanner.tsx): a wait the user can cancel, so amber like the baseline line. It wraps, never scrolls. */
+#blocked:has(> .drain-banner:only-child){border-top-color:color-mix(in srgb,var(--k-attention) 35%,transparent);
+  background:color-mix(in srgb,var(--k-attention) 7%,transparent)}
+.drain-banner{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4)}
+.drain-banner .fdot{background:var(--k-attention)}
+.drain-banner .freason{font-family:inherit;font-size:var(--k-text-md);color:var(--k-text)}
+
 /* The baseline-review line (BaselineBanner.tsx): a needs-you block, so amber, not the failed tint. #blocked keeps its
    .fault class (it is static markup), so the amber rides :has() on the line it holds. */
 #blocked:has(> .blbanner){border-top-color:color-mix(in srgb,var(--k-attention) 35%,transparent);

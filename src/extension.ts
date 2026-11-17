@@ -11,6 +11,7 @@ import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { createDrain } from './runtime/drain.js';
 import { registerReloadWhenIdle } from './extension/reloadWhenIdleBinding.js';
+import { onDrainChange } from './extension/ops/reloadDrainView.js';
 import { guardShipStart, ShipDrainingError } from './extension/ops/reloadWhenIdle.js';
 import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
@@ -7131,6 +7132,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
     // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
+    { dispose: onDrainChange(() => dashboard.pushAllStates()) }, // the dashboards show the waiting reload
     registerReloadWhenIdle(localStore, drain, (m) => logger.info(m), (id) => void maybeDrive(id, 'drain-cancelled')),
     ...registerCloseCommands({
       store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,

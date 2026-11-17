@@ -10,6 +10,8 @@ export interface Drain {
   begin(): void;
   /** Clears the flag. Returns the tickets a start was refused for, so the host can re-drive them. */
   cancel(): number[];
+  /** The tickets a start was refused for, without clearing them. */
+  heldIds(): number[];
   /** Records that a start for this ticket was refused while draining. */
   hold(ticketId: number): void;
   /** Runs `fn` and counts it as a live run until it settles. */
@@ -36,6 +38,7 @@ export function createDrain(): Drain {
       held.clear();
       return ids;
     },
+    heldIds: () => [...held],
     hold: (ticketId) => {
       held.add(ticketId);
     },

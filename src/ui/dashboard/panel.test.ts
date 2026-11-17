@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { bindReloadDrain } from '../../extension/ops/reloadDrainView.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -267,6 +268,25 @@ describe('DashboardManager', () => {
     mgr.pushState(a.id);
     expect(panels[0]!.posted.filter((m: any) => m.type === 'state')).toHaveLength(2);
     expect(panels[1]!.posted.length).toBe(before); // b untouched
+  });
+
+  it('pushAllStates posts a fresh state to every open panel, carrying the waiting reload', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    const b = createTicket(store, { key: 'B', title: 'b' });
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
+    mgr.openDashboard(a.id);
+    mgr.openDashboard(b.id);
+    const unbind = bindReloadDrain(() => ({ draining: true, live: [{ ticketId: a.id, kind: 'deliver' }], held: [b.id] }), () => {});
+    try {
+      mgr.pushAllStates();
+    } finally {
+      unbind();
+    }
+    for (const p of panels) {
+      const last = p.posted.filter((m: any) => m.type === 'state').at(-1) as any;
+      expect(last.state.drain).toEqual({ draining: true, live: [{ ticketKey: `T${a.id}`, kind: 'deliver' }], held: [b.id] });
+    }
   });
 
   it('pushState on an unopened ticket is a no-op', () => {

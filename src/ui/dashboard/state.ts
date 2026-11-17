@@ -38,6 +38,7 @@ import { buildRail } from './stateRail.js';
 import { formatId } from '../../model/entityId.js';
 import { REVIEW_FINDINGS_DEFAULTS } from '../../manifest/qualityDefaults.js';
 import { buildStallView } from './stateStall.js';
+import { IDLE_DRAIN_INPUT, drainView, type DrainInput } from './stateDrain.js';
 import type { ResolvedGate } from '../../model/inside/gates.js';
 
 export type {
@@ -218,6 +219,8 @@ export function buildDashboardState(
   sharedServersFor: (ticketId: number) => SharedServerView[] = () => [],
   /** The manifest `autopilot:` block (T1004); absent → auto-fix reads as off. Appended LAST. */
   autopilotConfig?: AutopilotConfig,
+  /** The host's waiting reload (@arch:DRAIN-01); absent → no reload waits. Appended LAST. */
+  drain: DrainInput = IDLE_DRAIN_INPUT,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
@@ -420,6 +423,7 @@ export function buildDashboardState(
     }),
     insideViews,
     autopilot: autofixReading.slice,
+    drain: drainView(drain),
     presentedStage,
     approach: ticket.approach ? { id: ticket.approach, phases, reported } : null,
     artifacts: buildArtifacts({

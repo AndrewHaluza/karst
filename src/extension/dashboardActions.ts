@@ -1,4 +1,5 @@
 import type { DashboardLayout } from '../model/dashboardLayout.js';
+import { cancelReloadDrain } from './ops/reloadDrainView.js';
 import { makeTesterSkipActions } from './ops/testerSkipOps.js';
 import { makePushDivergedActions } from './ops/pushDivergedOps.js';
 import { guardedHandOff } from './ops/guardedHandOff.js';
@@ -575,6 +576,8 @@ export function makeDashboardActions(
       afterServerChange();
       driveAfterResume(ticketId);
     },
+    // The same abort the progress notification Cancel calls; the drain's own change push repaints the dashboards.
+    cancelReload: () => void cancelReloadDrain(),
     // Opens the ticket form in edit mode on the new ticket so the user can type
     // the actual follow-up ask straight away — the command itself copies
     // repos/approach/agent/model from this ticket.

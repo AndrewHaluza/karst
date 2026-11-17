@@ -13,6 +13,8 @@
  * class lives on that node.
  */
 import { memo, useCallback, type MouseEvent } from 'react';
+import { DRAIN_HOLD_REASON, selectDraining } from './drainSlices.js';
+import { useSlice } from './useSlice.js';
 import { useDashboardSend, usePendingOps } from './DashboardAppContext.js';
 import type { RailSeg } from './railText.js';
 import { beginPending, usePendingAction } from './usePendingAction.js';
@@ -37,18 +39,27 @@ export function gotoAction(kind: string): void {
 const ShipGo = memo(function ShipGo({ label, busy }: { readonly label: string; readonly busy: boolean }) {
   const send = useDashboardSend();
   const ops = usePendingOps();
+  const draining = useSlice(selectDraining);
   const onClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
-      if (busy) return;
+      if (busy || draining) return;
       const requestId = beginPending(e);
       if (requestId === null) return;
       ops.beginShip(requestId);
       send.shipTicket();
     },
-    [busy, ops, send],
+    [busy, draining, ops, send],
   );
   return (
-    <button type="button" className="go" data-act="ship-ticket" aria-busy={busy ? 'true' : undefined} disabled={busy} onClick={onClick}>
+    <button
+      type="button"
+      className="go"
+      data-act="ship-ticket"
+      aria-busy={busy ? 'true' : undefined}
+      disabled={busy || draining}
+      title={draining ? `${label} — ${DRAIN_HOLD_REASON}` : undefined}
+      onClick={onClick}
+    >
       {label}
     </button>
   );

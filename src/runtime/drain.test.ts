@@ -33,3 +33,17 @@ describe('createDrain', () => {
     expect(d.inFlight()).toBe(0);
   });
 });
+
+describe('heldIds', () => {
+  it('lists the held tickets without clearing them, and cancel still returns them', () => {
+    const drain = createDrain();
+    drain.begin();
+    drain.hold(7);
+    drain.hold(7);
+    drain.hold(9);
+    expect(drain.heldIds()).toEqual([7, 9]);
+    expect(drain.heldIds()).toEqual([7, 9]);
+    expect(drain.cancel()).toEqual([7, 9]);
+    expect(drain.heldIds()).toEqual([]);
+  });
+});

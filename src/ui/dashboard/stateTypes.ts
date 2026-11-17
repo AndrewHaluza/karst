@@ -158,6 +158,22 @@ export interface DashboardSubtaskRow {
   queuePos: number | null;
 }
 
+/** What a live run is, as the reload drain names it (@arch:DRAIN-01). */
+export type DrainRunKind = 'stage' | 'gate' | 'ship' | 'deliver' | 'agent';
+
+/**
+ * The host's reload drain as the dashboard shows it. `live` is the runs the drain waits for (one entry per
+ * run, the same list the progress notification counts); `held` is the ticket ids a start was refused for.
+ */
+export interface DashboardDrain {
+  draining: boolean;
+  live: { ticketKey: string; kind: DrainRunKind }[];
+  held: number[];
+}
+
+/** The state of a host with no waiting reload. */
+export const IDLE_DASHBOARD_DRAIN: DashboardDrain = { draining: false, live: [], held: [] };
+
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
   ticketId: number;
@@ -362,6 +378,8 @@ export interface DashboardState {
   insideViews: Record<InsideStageKey, InsideStageView>;
   /** Auto-fix override, default, banner and log for the ship panel (T1004). */
   autopilot: AutopilotSlice;
+  /** The host's waiting reload: the live runs it waits for and the held tickets (@arch:DRAIN-01). */
+  drain: DashboardDrain;
   /**
    * The inside stage presented as CURRENT. When the runtime ticket sits at
    * `fix`, this is the stage the fix is causally attached to (the source stage

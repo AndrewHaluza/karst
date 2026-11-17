@@ -21,20 +21,43 @@ export const IDLE_POLL_MS = 2000;
  * across a reload (@arch:AC-15).
  */
 export function countLiveRuns(store: Store, hostPid: number, extra = 0, ...trackedDeliverTickets: readonly number[]): number {
-  const count = (table: 'process_runs' | 'stage_runs'): number => {
-    const row = store.db
-      .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE status = 'running' AND pid = ?`)
-      .get(hostPid) as { n: number };
-    return row.n;
-  };
+  return listLiveRuns(store, hostPid, extra, ...trackedDeliverTickets).length;
+}
+
+/** What a live run is: a stage process, a gate, a ship, an auto-deliver or a headless agent. */
+export type LiveRunKind = 'stage' | 'gate' | 'ship' | 'deliver' | 'agent';
+
+/** One live run. `ticketId` is null for a tracked run that names no ticket. */
+export interface LiveRun {
+  readonly ticketId: number | null;
+  readonly kind: LiveRunKind;
+}
+
+/**
+ * The live runs `countLiveRuns` counts, one entry per run (the length is the count: one source of truth, so the
+ * dashboard banner and the progress notification agree). A `process_runs` row with a provider is an agent, one
+ * without is a stage process; a `stage_runs` row is a gate. `extra` tracked runs: the first ones take the tracked
+ * tickets (kind deliver), the rest name no ticket (kind gate: a host gate re-run).
+ */
+export function listLiveRuns(store: Store, hostPid: number, extra = 0, ...trackedDeliverTickets: readonly number[]): LiveRun[] {
+  const rows = (sql: string, ...args: unknown[]): { ticket_id: number; provider?: string | null }[] =>
+    store.db.prepare(sql).all(...args) as { ticket_id: number; provider?: string | null }[];
   const marks = trackedDeliverTickets.map(() => '?').join(', ');
-  const deliver = store.db
-    .prepare(`SELECT COUNT(*) AS n FROM deliver_runs WHERE state = 'running' AND pid = ? AND ticket_id NOT IN (${marks})`)
-    .get(hostPid, ...trackedDeliverTickets) as { n: number };
-  const ship = store.db
-    .prepare("SELECT COUNT(*) AS n FROM ship_runs WHERE status = 'running' AND pid = ?")
-    .get(hostPid) as { n: number };
-  return count('process_runs') + count('stage_runs') + deliver.n + ship.n + extra;
+  const runs: LiveRun[] = [
+    ...rows("SELECT ticket_id, provider FROM process_runs WHERE status = 'running' AND pid = ?", hostPid).map(
+      (r): LiveRun => ({ ticketId: r.ticket_id, kind: r.provider ? 'agent' : 'stage' }),
+    ),
+    ...rows("SELECT ticket_id FROM stage_runs WHERE status = 'running' AND pid = ?", hostPid).map((r): LiveRun => ({ ticketId: r.ticket_id, kind: 'gate' })),
+    ...rows(`SELECT ticket_id FROM deliver_runs WHERE state = 'running' AND pid = ? AND ticket_id NOT IN (${marks})`, hostPid, ...trackedDeliverTickets).map(
+      (r): LiveRun => ({ ticketId: r.ticket_id, kind: 'deliver' }),
+    ),
+    ...rows("SELECT ticket_id FROM ship_runs WHERE status = 'running' AND pid = ?", hostPid).map((r): LiveRun => ({ ticketId: r.ticket_id, kind: 'ship' })),
+  ];
+  for (let i = 0; i < extra; i++) {
+    const ticketId = trackedDeliverTickets[i];
+    runs.push(ticketId === undefined ? { ticketId: null, kind: 'gate' } : { ticketId, kind: 'deliver' });
+  }
+  return runs;
 }
 
 export const SHIP_DRAINING_MESSAGE = 'a reload is waiting for live runs, so ship does not start. Cancel the reload, or ship again after it.';

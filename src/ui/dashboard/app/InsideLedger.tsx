@@ -10,6 +10,8 @@
  */
 import { memo, useCallback, type MouseEvent, type SyntheticEvent } from 'react';
 import type { InsideProcessView } from '../../../model/inside/types.js';
+import { DRAIN_HOLD_REASON, selectDraining } from './drainSlices.js';
+import { useSlice } from './useSlice.js';
 import { useDashboardSend, useOps, useOverlays, usePendingOps } from './DashboardAppContext.js';
 import { beginPending, usePendingAction } from './usePendingAction.js';
 import { EvidenceBody } from './EvidenceBody.js';
@@ -95,20 +97,22 @@ function DeliverPushButton({ title }: { readonly title: string }) {
   const send = useDashboardSend();
   const ops = usePendingOps();
   const busy = useOps().running.has('deliver');
+  const draining = useSlice(selectDraining);
   const onClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       // Inside a <summary>: without this the click would also toggle the disclosure.
       e.preventDefault();
-      if (ops.isRunning('deliver')) return;
+      if (draining || ops.isRunning('deliver')) return;
       const requestId = beginPending(e);
       if (requestId === null) return;
       ops.beginAction('deliver', requestId);
       send.deliverToPr();
     },
-    [ops, send],
+    [draining, ops, send],
   );
+  const shownTitle = draining ? `${title} — ${DRAIN_HOLD_REASON}` : title;
   return (
-    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="deliver-to-pr" aria-busy={busy ? 'true' : undefined} disabled={busy} title={title} aria-label={title} onClick={onClick}>
+    <button type="button" className="k-btn k-btn--secondary k-btn--sm" data-act="deliver-to-pr" aria-busy={busy ? 'true' : undefined} disabled={busy || draining} title={shownTitle} aria-label={shownTitle} onClick={onClick}>
       <Icon name="git-branch" />
       Push
     </button>

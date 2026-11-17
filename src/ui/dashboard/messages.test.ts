@@ -15,6 +15,7 @@ function actions(): DashboardActions {
     saveEnvOverrides: vi.fn(),
     pauseExecution: vi.fn(),
     unpauseExecution: vi.fn(),
+    cancelReload: vi.fn(),
     restartServer: vi.fn(),
     startServer: vi.fn(),
     openServer: vi.fn(),
@@ -321,6 +322,14 @@ describe('routeAction', () => {
     expect(parseWebviewMessage({ type: 'send-back-to-implement' })).toEqual({
       type: 'send-back-to-implement',
     });
+  });
+
+  it('parses cancel-reload and dispatches it to the cancel action (no payload)', () => {
+    expect(parseWebviewMessage({ type: 'cancel-reload' })).toEqual({ type: 'cancel-reload' });
+    const a = actions();
+    routeAction({ type: 'cancel-reload' }, a);
+    expect(a.cancelReload).toHaveBeenCalledTimes(1);
+    expect(a.shipTicket).not.toHaveBeenCalled();
   });
 
   it('dispatches stop-driver/ship-ticket/resume-ticket (no payload)', () => {

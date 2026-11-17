@@ -152,6 +152,8 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'pause-execution' });
     sender.unpauseExecution();
     expect(posted.at(-1)).toEqual({ type: 'unpause-execution' });
+    sender.cancelReload('r_cancel');
+    expect(posted.at(-1)).toEqual({ type: 'cancel-reload', requestId: 'r_cancel' });
     sender.setDisabledGates('review', 'lint', true, 'r4');
     expect(posted.at(-1)).toEqual({
       type: 'set-disabled-gates',
@@ -207,7 +209,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(71);
+    expect(posted).toHaveLength(72);
   });
 
   it('rejects a wrong argument type at compile time', () => {
