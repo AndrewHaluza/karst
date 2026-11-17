@@ -21,7 +21,11 @@ export const HARNESS_STOP_TIMEOUT_SECONDS = 60;
  * The evidence runner, as an absolute path inside karst's own install. A target
  * worktree is any repo, so it cannot hold the runner (`copy-assets.mjs` ships it).
  */
-export const HARNESS_RUNNER_PATH = fileURLToPath(new URL('./harnessRunner.mjs', import.meta.url));
+export function harnessRunnerPath(): string {
+  // Lazy: a module that imports this file also loads in a jsdom webview test, where
+  // `import.meta.url` is not a file URL. Only the Tester prompt reads the path.
+  return fileURLToPath(new URL('./harnessRunner.mjs', import.meta.url));
+}
 const MAX_OUTPUT_CHARS = 2000;
 const MAX_ENV_VALUE_CHARS = 200;
 
@@ -187,7 +191,7 @@ export async function stopHarnesses(
 }
 
 export function harnessRunnerCommand(name: string): string {
-  return `node '${HARNESS_RUNNER_PATH.replace(/'/g, "'\\''")}' --harness ${name} --check <id> -- <command...>`;
+  return `node '${harnessRunnerPath().replace(/'/g, "'\\''")}' --harness ${name} --check <id> -- <command...>`;
 }
 
 function oneLine(value: string): string {
