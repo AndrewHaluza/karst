@@ -80,8 +80,11 @@ function generic(path: string): string {
 }
 
 function isLenient(path: string): boolean {
-  const g = generic(path);
-  return LENIENT_FIELDS.some((pattern) => new RegExp(`^${pattern.replace(/\./g, '\\.').replace('*', '[^.]+')}$`).test(g));
+  const have = generic(path).split('.');
+  return LENIENT_FIELDS.some((pattern) => {
+    const want = pattern.split('.');
+    return want.length === have.length && want.every((part, i) => part === '*' || part === have[i]);
+  });
 }
 
 describe('schema and validator agree on the cookbook and the fixtures', () => {
