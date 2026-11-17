@@ -1947,12 +1947,12 @@ describe('driveReadyNodeRuns', () => {
     expect(recoveryCategoryFor(run.blocked_reason)).toBe('config-then-resume');
   });
 
-  it('keeps failed-to-launch for a live-process refusal', async () => {
+  it('parks a live-process refusal with its own graph-live-process reason', async () => {
     const { h, graphRunId, nodeRunId } = await launchTwoRepoNode({ kind: 'live-process', reason: 'pid 1' });
     const run = h.db
       .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { blocked_reason: string };
-    expect(run.blocked_reason).toBe(`failed-to-launch: node run ${nodeRunId}`);
+    expect(run.blocked_reason).toBe(`graph-live-process: node run ${nodeRunId}`);
   });
 });
 

@@ -15,6 +15,7 @@ import {
 import { graphSessionTerminalName } from '../../approaches/graph/sessionNaming.js';
 import {
   closeNodeTabOnSuccess,
+  stopNodeProcessOnBlocked,
   closePlannerTabOnAccepted,
   type CloseOnSuccessTransport,
 } from '../../approaches/graph/closeOnSuccess.js';
@@ -77,6 +78,8 @@ export interface GraphTabCloseDeps {
 export interface GraphTabClosers {
   /** After the completion pipeline of a node: only `integrated` closes the tab. */
   node(graphRunId: number, nodeRunId: number, result: CompletionPipelineResult): void;
+  /** After a node reported `block` or `replan`: stop its process, keep its tab. */
+  blockedNode(graphRunId: number, nodeRunId: number): void;
   /** After an accepted bootstrap plan: terminate the planner, then close its tab. */
   bootstrapPlanner(graphRunId: number): void;
   /** After an accepted replan (the revision it produced): same as above. */
@@ -101,7 +104,25 @@ export function createGraphTabClosers(deps: GraphTabCloseDeps): GraphTabClosers 
       { kind: 'accepted' },
     ).catch((error) => deps.logError(`karst: closing the planner terminal of graph run ${graphRunId} failed`, error));
   };
+  // A node whose process end is proven needs no second stop.
+  const stopped = new Set<string>();
   return {
+    blockedNode: (graphRunId, nodeRunId) => {
+      const transport = deps.transport();
+      const db = deps.db();
+      if (!transport || !db) return;
+      const ticketId = deps.ticketIdOf(graphRunId);
+      const key = `${ticketId}:${nodeRunId}`;
+      if (stopped.has(key)) return;
+      void stopNodeProcessOnBlocked(
+        { transport, debug: deps.debug },
+        { ticketId, nodeRunId, sharesIdWithPlannerRun: plannerRunTicketId(db, nodeRunId) === ticketId },
+      )
+        .then((proven) => {
+          if (proven) stopped.add(key);
+        })
+        .catch((error) => deps.logError(`karst: stopping the blocked node ${nodeRunId} process failed`, error));
+    },
     node: (graphRunId, nodeRunId, result) => {
       const transport = deps.transport();
       if (!transport) return;

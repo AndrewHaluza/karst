@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   closeNodeTabOnSuccess,
   closePlannerTabOnAccepted,
+  stopNodeProcessOnBlocked,
   type CloseOnSuccessTransport,
 } from './closeOnSuccess.js';
 import type { SupervisedAgentSession, TerminationProof } from './transport/agentTransport.js';
@@ -133,5 +134,33 @@ describe('closePlannerTabOnAccepted', () => {
     expect(await closePlannerTabOnAccepted(f.deps, { ...input, sharesIdWithNodeRun: true }, { kind: 'accepted' })).toBe(false);
     expect(f.calls.terminated).toBe(0);
     expect(f.calls.disposed).toEqual([]);
+  });
+});
+
+describe('stopNodeProcessOnBlocked', () => {
+  it('terminates the process and keeps the tab', async () => {
+    const f = fixture({ kind: 'attributable', kill: 'killed' } as TerminationProof);
+    expect(await stopNodeProcessOnBlocked(f.deps, { ticketId: 1, nodeRunId: 9 })).toBe(true);
+    expect(f.calls.terminated).toBe(1);
+    expect(f.calls.disposed).toEqual([]);
+  });
+
+  it('does nothing without a session', async () => {
+    const f = fixture({ kind: 'dead' }, null);
+    expect(await stopNodeProcessOnBlocked(f.deps, { ticketId: 1, nodeRunId: 9 })).toBe(false);
+    expect(f.calls.terminated).toBe(0);
+  });
+
+  it('stops nothing when a planner run has the same id', async () => {
+    const f = fixture();
+    const input = { ticketId: 1, nodeRunId: 9, sharesIdWithPlannerRun: true };
+    expect(await stopNodeProcessOnBlocked(f.deps, input)).toBe(false);
+    expect(f.calls.terminated).toBe(0);
+  });
+
+  it('reports false when the terminate call throws', async () => {
+    const f = fixture(new Error('boom'));
+    expect(await stopNodeProcessOnBlocked(f.deps, { ticketId: 1, nodeRunId: 9 })).toBe(false);
+    expect(f.logs.join('\n')).toContain('stopping the blocked process failed');
   });
 });

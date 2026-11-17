@@ -4227,6 +4227,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const settleGraphRun = (db: ReturnType<typeof openStore>['db'], graphRunId: number): void => {
     const run = graphRunIdTicketStatus(db, graphRunId);
     if (!run) return;
+    // A node that reported `block` or `replan` keeps its tab but not its process.
+    for (const blockedId of nodeRunIdsInStatusesForGraphRun(db, graphRunId, ['blocked'])) {
+      graphTabClosers.blockedNode(graphRunId, blockedId);
+    }
     if (run.status === 'running') {
       // A node reported `blocked` while the run kept running: the graph must
       // not dangle at impl. The earliest blocked node (durable order = id)
@@ -4400,6 +4404,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       projectMaxReplans: projectMaxReplans(
         graphApproachConfigFor(graphRunApproachId(graphRunId))?.limits.maxReplans,
       ),
+      stopNodeProcess: (nodeRunId) => graphTabClosers.blockedNode(graphRunId, nodeRunId),
       resolveEffective: ({ revisionId, nodeId }) => {
         if (!gs) return { promptOverride: false };
         const override = nodeOverrideFor(gs.db, revisionId, nodeId, 'prompt');

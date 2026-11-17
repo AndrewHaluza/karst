@@ -156,6 +156,10 @@ export interface RecoveryDeps {
    * override. The explicit prompt Resume re-snapshots these bytes; absent,
    * the prompt category refuses rather than silently skipping the re-snapshot.
    */
+  /** Stop the live agent process of a blocked node before its row re-arms. The
+   *  host binds the transport terminate (fire and forget: the relaunch waits
+   *  for a later driver tick). Absent → the workspace guard parks a live one. */
+  stopNodeProcess?: (nodeRunId: number) => void;
   resolveEffective?: (input: {
     graphRunId: number;
     revisionId: number;
@@ -239,6 +243,8 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   if (reason.startsWith('graph-workspace-deps')) return 'config-then-resume';
   if (reason.startsWith('node-blocked')) return 'launch-retry';
   if (reason.startsWith('failed-to-launch')) return 'launch-retry';
+  // A live process still serves the node workspace: it ends, then a retry works.
+  if (reason.startsWith('graph-live-process')) return 'launch-retry';
   if (reason.startsWith('graph-plan-invalid')) return 'replan';
   // H4: a deferral that outlived the ceiling — the node's resource claim (or
   // the parallel slot it needs) was never going to free up under this plan, so
@@ -376,6 +382,8 @@ function retryReservedVisits(
   }
 
   const nodes = blockedNodeRows(db, input.graphRunId);
+  // A live agent keeps its workspace `live` and would park each relaunch.
+  for (const node of nodes) deps.stopNodeProcess?.(node.id);
 
   const snapshots = new Map<number, string>();
   for (const node of nodes) {

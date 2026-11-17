@@ -801,6 +801,43 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.transitions).toBe(0);
   });
 
+  describe('a blocked node row with a live attributable process', () => {
+    const liveFacts = (pid: number): ProcessFactsSource =>
+      makeFacts({ alive: { [pid]: true }, startMs: { [pid]: Date.parse(NOW) } });
+
+    it('stops the process tree, even when the process_run is still running', async () => {
+      linkProcess(ctx, 140, 7101, NOW);
+      insertNodeRun(ctx, 140, 'blocked', { processRunId: 140 });
+      const killed: number[] = [];
+      const deps = ctx.makeDeps({ facts: liveFacts(7101), killTree: (pid) => (killed.push(pid), 'killed') });
+      await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(killed).toEqual([7101]);
+      expect(nodeRow(ctx, 140).status).toBe('blocked');
+    });
+
+    it('leaves the process alone when this window owns a session', async () => {
+      linkProcess(ctx, 141, 7102, NOW);
+      insertNodeRun(ctx, 141, 'blocked', { processRunId: 141 });
+      const killed: number[] = [];
+      const deps = ctx.makeDeps({
+        facts: liveFacts(7102),
+        killTree: (pid) => (killed.push(pid), 'killed'),
+        sessionFor: () => ({ pid: 7102 }),
+      });
+      await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(killed).toEqual([]);
+    });
+
+    it('leaves a dead process alone', async () => {
+      linkProcess(ctx, 142, 7103, NOW);
+      insertNodeRun(ctx, 142, 'blocked', { processRunId: 142 });
+      const killed: number[] = [];
+      const deps = ctx.makeDeps({ facts: makeFacts({ alive: {}, startMs: {} }), killTree: (pid) => (killed.push(pid), 'killed') });
+      await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(killed).toEqual([]);
+    });
+  });
+
   describe('an orphan: a closed process_run whose attributable pid still lives', () => {
     const closeRun = (processRunId: number): void => {
       ctx.db.prepare("UPDATE process_runs SET status = 'interrupted' WHERE id = ?").run(processRunId);
