@@ -227,18 +227,34 @@ export function nodeRunsForGraphRun(
 ): Array<
   Pick<
     NodeRunRow,
-    'id' | 'status' | 'owner_nonce' | 'process_run_id' | 'outcome' | 'node_kind' | 'revision_id' | 'node_id'
+    | 'id'
+    | 'status'
+    | 'owner_nonce'
+    | 'process_run_id'
+    | 'outcome'
+    | 'node_kind'
+    | 'revision_id'
+    | 'node_id'
+    | 'generation'
   >
 > {
   return db
     .prepare(
-      `SELECT id, status, owner_nonce, process_run_id, outcome, node_kind, revision_id, node_id
+      `SELECT id, status, owner_nonce, process_run_id, outcome, node_kind, revision_id, node_id, generation
        FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
     )
     .all(graphRunId) as Array<
     Pick<
       NodeRunRow,
-      'id' | 'status' | 'owner_nonce' | 'process_run_id' | 'outcome' | 'node_kind' | 'revision_id' | 'node_id'
+      | 'id'
+      | 'status'
+      | 'owner_nonce'
+      | 'process_run_id'
+      | 'outcome'
+      | 'node_kind'
+      | 'revision_id'
+      | 'node_id'
+      | 'generation'
     >
   >;
 }
@@ -810,6 +826,24 @@ export function setNodeRunLaunchIdentity(
   const res = db
     .prepare(
       'UPDATE approach_node_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
+    )
+    .run(identity.generation, identity.capabilityHash, identity.ownerNonce, id);
+  return res.changes === 1;
+}
+
+/** Claim a recovery-rearmed `launching` row (no owner nonce, no process): write
+ *  the launch identity only while the row STILL has the armed shape. A second
+ *  drive of the same row finds the nonce already set and gets `false`, so the
+ *  claim is a compare-and-swap, never an unconditional overwrite. */
+export function claimRearmedNodeRunLaunch(
+  db: GraphDb,
+  id: number,
+  identity: { generation: string; capabilityHash: string; ownerNonce: string },
+): boolean {
+  const res = db
+    .prepare(
+      `UPDATE approach_node_runs SET generation = ?, capability_hash = ?, owner_nonce = ?
+       WHERE id = ? AND status = 'launching' AND owner_nonce IS NULL AND process_run_id IS NULL`,
     )
     .run(identity.generation, identity.capabilityHash, identity.ownerNonce, id);
   return res.changes === 1;

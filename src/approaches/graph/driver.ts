@@ -65,11 +65,12 @@ import {
   runnableNodeRunsForGraphRun,
   setNodeRunFailure,
   markNodeRunStarted,
+  claimRearmedNodeRunLaunch,
   setNodeRunLaunchIdentity,
   setNodeRunOutcome,
   type NodeRunRow,
 } from '../../store/graph/nodeRuns.js';
-import { parseGraphDocument, type GraphDocument } from './parse.js';
+import { parseGraphDocument, type AgentNode, type GraphDocument } from './parse.js';
 import type { CompileContext } from './compile.js';
 import { completeActivation } from './coordinator/completion.js';
 import { releaseLeaseForNodeRun } from './coordinator/leases.js';
@@ -96,6 +97,7 @@ import { resolvePresetSlot } from '../../agent/agentPresets.js';
 import type { GraphPromptIdentity } from '../../agent/graphPrompts.js';
 import type { TerminalNamingBag } from '../../ui/terminalNaming.js';
 import { uuidv7 } from './coordinator/lineage.js';
+import { markLaunchInFlight } from './coordinator/launchInFlight.js';
 import {
   PLANNER_SUBMIT_INSTRUCTION,
   plannerVocabulary,
@@ -660,10 +662,11 @@ type RunnableNodeRow = Pick<
  *  runnable row is either `ready`, or a recovery-rearmed `launching` row with
  *  no owner nonce and no process row — provably never spawned and safe to
  *  launch again from the periodic continuation. That reading is only sound
- *  because the launch identity is committed WITH the `ready → launching`
- *  transition (see `executeReadyNode`): a row another window is mid-launching
- *  already carries its nonce, so this query can never select it and start a
- *  second agent on the same reserved visit. A join/gate/command completes
+ *  because the launch identity is committed WITH the claim, and the claim
+ *  comes BEFORE the workspace is prepared (see `executeReadyNode`): a row
+ *  another drive or window is launching already carries its nonce, so this
+ *  query can never select it and no second drive launches the same reserved
+ *  visit or removes its workspace. A join/gate/command completes
  *  deterministically in one transaction; an agent node gets its workspace and
  *  a supervised session and stays `running` until its agent reports an outcome
  *  via `karst node …`. */
@@ -762,6 +765,68 @@ async function executeReadyNode(
   deps.debug?.(
     `[driver] graph run ${graphRunId}: agent node ${row.node_id} profile "${node.profile}" → ${resolved.provider}${resolved.model ? `/${resolved.model}` : ''}`,
   );
+  const nodeCapability = randomBytes(32).toString('hex');
+  // The generation is a UUIDv7 of the injected clock: its prefix is the claim
+  // time, which `reconcileLaunching` reads to age a claim that has no process.
+  const nodeGeneration = uuidv7(new Date(deps.now()));
+  // CLAIM FIRST: the launch identity is committed with the claim, BEFORE the
+  // workspace is prepared (a clone, then the D644 setup: seconds to minutes).
+  // Two drives of one run start a few hundred ms apart. With the claim after
+  // the clone, the second drive saw a `ready` row, called the first drive's
+  // node dir superseded and removed it mid-clone. The claim is a database
+  // compare-and-swap, so a second window loses it too: `ready → launching` for
+  // a ready row, a guarded identity UPDATE for a recovery-rearmed `launching`
+  // row. The loser returns with no side effect and never parks the winner's
+  // row. The retry path (`clearLaunchIdentity`) is the only producer of the
+  // no-identity `launching` shape, which keeps that reading true.
+  const nodeOwnerNonce = randomBytes(16).toString('hex');
+  const identity = {
+    generation: nodeGeneration,
+    capabilityHash: sha256Hex(new TextEncoder().encode(nodeCapability)),
+    ownerNonce: nodeOwnerNonce,
+  };
+  const claimed = deps.transaction(() => {
+    const won =
+      row.status === 'launching'
+        ? claimRearmedNodeRunLaunch(deps.db, row.id, identity)
+        : casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'ready', 'launching') &&
+          setNodeRunLaunchIdentity(deps.db, row.id, identity);
+    if (won) markNodeRunStarted(deps.db, row.id, deps.now());
+    return won;
+  });
+  if (!claimed) {
+    deps.debug?.(`[graph] run ${graphRunId}: node run ${row.id} was claimed by another drive — skipped`);
+    return 'blocked';
+  }
+  // Until the session exists or the node parks, this window's reconcile must
+  // not read the claimed row, which has no process yet, as a crash.
+  const launchDone = markLaunchInFlight(deps.db, row.id);
+  try {
+    return await launchClaimedAgentNode(deps, graphRunId, row, node, parsed.document, resolved, config!, {
+      capability: nodeCapability,
+      generation: nodeGeneration,
+      ownerNonce: nodeOwnerNonce,
+    });
+  } finally {
+    launchDone();
+  }
+}
+
+/** The part of an agent launch that runs AFTER the claim: workspace, session,
+ *  `launching → running`. Every park here starts from `launching`. */
+async function launchClaimedAgentNode(
+  deps: GraphDriverDeps,
+  graphRunId: number,
+  row: RunnableNodeRow,
+  node: AgentNode,
+  document: GraphDocument,
+  resolved: NonNullable<ReturnType<typeof resolveGraphNodeProfile>>,
+  config: NonNullable<ReturnType<GraphDriverDeps['graphConfigOf']>>,
+  claim: { capability: string; generation: string; ownerNonce: string },
+): Promise<ReadyNodeOutcome> {
+  const nodeCapability = claim.capability;
+  const nodeGeneration = claim.generation;
+  const nodeOwnerNonce = claim.ownerNonce;
   const workspace = await prepareAgentWorkspace(deps, graphRunId, row, node);
   if (workspace.kind === 'unresolved') {
     const claimed = workspace.repos.length === 0 ? 'none' : workspace.repos.join(', ');
@@ -802,33 +867,6 @@ async function executeReadyNode(
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
   }
-  const nodeCapability = randomBytes(32).toString('hex');
-  const nodeGeneration = uuidv7();
-  // The launch identity is written INSIDE the claim transaction, with the
-  // generation and the capability hash. The owner nonce used to be minted by
-  // the transport and written after this transaction committed, which left the
-  // row observable — to another WINDOW's coordinator, sharing this database —
-  // as `launching` with no owner nonce and no process: the exact shape the
-  // launchable query below and `reconcileLaunching` read as "provably never
-  // spawned". A second window would have launched a second agent on the same
-  // reserved visit. Committing the identity with the claim closes that window;
-  // the retry path (`clearLaunchIdentity`) is the only producer of the
-  // no-identity shape, which is what keeps that reading true.
-  const nodeOwnerNonce = randomBytes(16).toString('hex');
-  const claimed = deps.transaction(() => {
-    setNodeRunLaunchIdentity(deps.db, row.id, {
-      generation: nodeGeneration,
-      capabilityHash: sha256Hex(new TextEncoder().encode(nodeCapability)),
-      ownerNonce: nodeOwnerNonce,
-    });
-    markNodeRunStarted(deps.db, row.id, deps.now());
-    if (row.status === 'launching') return true;
-    return casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'ready', 'launching');
-  });
-  if (!claimed) {
-    parkLaunchFailure(deps, graphRunId, row.id);
-    return 'blocked';
-  }
   const inputSnapshots = inputSnapshotsOf(deps, graphRunId, row.revision_id, node.inputs);
   const inputMediaTypes = new Map(inputSnapshots.map((i) => [i.path, i.mediaType]));
   const artifactRoot = deps.artifactRootOf(graphRunId);
@@ -837,7 +875,7 @@ async function executeReadyNode(
     {
       transport: deps.transport,
       resolveProfile: (profile) =>
-        resolveGraphNodeProfile(deps.manifest, config!, profile) ?? { provider: 'opencode' },
+        resolveGraphNodeProfile(deps.manifest, config, profile) ?? { provider: 'opencode' },
       readInstructions: (path) => {
         const bytes = path ? deps.readBytes(graphRunId, path) : undefined;
         return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
@@ -857,7 +895,7 @@ async function executeReadyNode(
         }),
       ticketContext: [
         nodeContext,
-        visitMailboxSection(deps, graphRunId, row, parsed.document),
+        visitMailboxSection(deps, graphRunId, row, document),
       ]
         .filter((part) => part !== '')
         .join('\n\n'),

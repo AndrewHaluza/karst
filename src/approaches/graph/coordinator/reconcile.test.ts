@@ -15,6 +15,8 @@ import { acquireLease } from '../../../store/graph/leases.js';
 import { recoverGraphRun, type RecoveryDeps } from './recovery.js';
 import { reconcileGraphRun, type ReconcileGraphRunDeps } from './reconcile.js';
 import { electReplan } from './replan.js';
+import { LAUNCH_PREPARATION_TIMEOUT_MS, markLaunchInFlight } from './launchInFlight.js';
+import { uuidv7 } from './lineage.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
 import { countNodeRunsInStatusesForGraphRun, formatIntegrationNonce } from '../../../store/graph/nodeRuns.js';
 
@@ -329,6 +331,51 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     const run = runRow(ctx);
     expect(run.status).toBe('running');
     expect(run.blocked_reason).toBeNull();
+  });
+
+  describe('a claimed launch that has no process yet (claim before workspace)', () => {
+    const claimedAgo = (ms: number): string => uuidv7(new Date(Date.parse(NOW) - ms));
+    const claim = (id: number, ageMs: number): void => {
+      insertNodeRun(ctx, id, 'launching', { ownerNonce: 'nonce-1' });
+      ctx.db.prepare('UPDATE approach_node_runs SET generation = ? WHERE id = ?').run(claimedAgo(ageMs), id);
+    };
+
+    it('does not park a row this window has in flight, however old its claim is', async () => {
+      claim(130, LAUNCH_PREPARATION_TIMEOUT_MS * 2);
+      const done = markLaunchInFlight(ctx.db, 130);
+      try {
+        const result = await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+        expect(result.transitions).toBe(0);
+        expect(nodeRow(ctx, 130).status).toBe('launching');
+        expect(runRow(ctx).status).toBe('running');
+      } finally {
+        done();
+      }
+    });
+
+    it('leaves a claim younger than the preparation timeout alone', async () => {
+      claim(131, LAUNCH_PREPARATION_TIMEOUT_MS - 1000);
+      const result = await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+      expect(result.transitions).toBe(0);
+      expect(nodeRow(ctx, 131).status).toBe('launching');
+    });
+
+    it('parks a claim older than the preparation timeout that is not in flight as crashed before spawn', async () => {
+      claim(132, LAUNCH_PREPARATION_TIMEOUT_MS + 1000);
+      await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+      const node = ctx.db
+        .prepare('SELECT status, reason FROM approach_node_runs WHERE id = 132')
+        .get() as { status: string; reason: string };
+      expect(node.status).toBe('blocked');
+      expect(node.reason).toMatch(/crashed before spawn/);
+    });
+
+    it('stops marking a launch in flight once its release function runs', async () => {
+      claim(133, LAUNCH_PREPARATION_TIMEOUT_MS + 1000);
+      markLaunchInFlight(ctx.db, 133)();
+      await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+      expect(nodeRow(ctx, 133).status).toBe('blocked');
+    });
   });
 
   it('states the CURRENT cause on the node it blocks — never a reason left by an earlier park', async () => {

@@ -250,6 +250,7 @@ import {
   restartStoppedGraph,
 } from './approaches/graph/entryPoints.js';
 import { graphLaunchDecision } from './approaches/graph/launchGuard.js';
+import { perKeySingleFlight } from './approaches/graph/singleFlight.js';
 import { makeGraphOwnedBinding } from './extension/graphOwnedBinding.js';
 import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
@@ -5027,7 +5028,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // string, so a NEW reason (a different unresolved cause) is its own entry.
   const undecidableGraphRuns = new Map<number, string>();
 
-  const driveGraphRunContinuation = async (graphRunId: number): Promise<void> => {
+  const driveGraphRunContinuationOnce = async (graphRunId: number): Promise<void> => {
     const gs = graphCoordinatorStore;
     if (!gs) return;
     try {
@@ -5123,6 +5124,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logError(`karst: graph run continuation failed for run ${graphRunId}`, err);
     }
   };
+  // One drive per graph run at a time. The coordinator tick, the planner tab
+  // close, the recovery and the sweep all start a drive a few hundred ms apart;
+  // in parallel they race on one node workspace. A call made during a drive
+  // asks for one re-run after it.
+  const driveGraphRunContinuation = perKeySingleFlight(driveGraphRunContinuationOnce);
 
   /** The ticket's current impl stage attempt — the attempt a new graph run is
    *  created with, and the one `karst node` measures a completion against

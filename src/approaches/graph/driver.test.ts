@@ -1775,7 +1775,10 @@ describe('driveReadyNodeRuns', () => {
     expect(node.status).toBe('blocked');
   });
 
-  async function launchTwoRepoNode(outcome?: CreateNodeWorkspaceResult) {
+  async function launchTwoRepoNode(
+    outcome?: CreateNodeWorkspaceResult,
+    opts: { skipDrive?: boolean; workspaceGate?: Promise<void>; rearmed?: boolean } = {},
+  ) {
     const h = harness();
     const deps = h.deps as typeof h.deps & { gitCommonDirOf?: (cwd: string) => string | null };
     const apiCwd = '/wt-api';
@@ -1787,6 +1790,7 @@ describe('driveReadyNodeRuns', () => {
     deps.gitCommonDirOf = (cwd) => (cwd === apiCwd ? apiCommon : cwd === webCwd ? webCommon : null);
     deps.createWorkspace = vi.fn(async (input) => {
       created.push({ domains: input.domains });
+      if (opts.workspaceGate) await opts.workspaceGate;
       return (
         outcome ?? {
           kind: 'created' as const,
@@ -1889,7 +1893,12 @@ describe('driveReadyNodeRuns', () => {
       )
       .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
 
-    const result = await driveReadyNodeRuns(h.deps, graphRunId);
+    if (opts.rearmed) {
+      h.db.prepare("UPDATE approach_node_runs SET status = 'launching' WHERE id = ?").run(nodeRunId);
+    }
+    const result = opts.skipDrive
+      ? { launched: 0, completed: 0, blocked: 0 }
+      : await driveReadyNodeRuns(h.deps, graphRunId);
     return { h, graphRunId, nodeRunId, result, created, apiCwd, apiCommon, webCwd, webCommon };
   }
 
@@ -1953,6 +1962,72 @@ describe('driveReadyNodeRuns', () => {
       .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { blocked_reason: string };
     expect(run.blocked_reason).toBe(`graph-live-process: node run ${nodeRunId}`);
+  });
+  describe('claim before workspace', () => {
+    function gate(): { promise: Promise<void>; open: () => void } {
+      let open!: () => void;
+      const promise = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return { promise, open };
+    }
+    const nodeRow = (h: Harness, id: number) =>
+      h.db
+        .prepare('SELECT status, owner_nonce, started_at, reason FROM approach_node_runs WHERE id = ?')
+        .get(id) as { status: string; owner_nonce: string | null; started_at: string | null; reason: string | null };
+
+    it.each([false, true])(
+      'two concurrent drives of one node run (rearmed=%s) create one workspace and launch once',
+      async (rearmed) => {
+        const g = gate();
+        const { h, graphRunId, nodeRunId, created } = await launchTwoRepoNode(undefined, {
+          skipDrive: true,
+          workspaceGate: g.promise,
+          rearmed,
+        });
+        const first = driveReadyNodeRuns(h.deps, graphRunId);
+        // The second drive starts while the first awaits the slow clone.
+        const second = driveReadyNodeRuns(h.deps, graphRunId);
+        await Promise.resolve();
+        expect(created).toHaveLength(1);
+        g.open();
+        const results = await Promise.all([first, second]);
+        expect(created).toHaveLength(1);
+        expect(h.starts).toHaveLength(1);
+        expect(results.reduce((n, r) => n + r.launched, 0)).toBe(1);
+        expect(nodeRow(h, nodeRunId).status).toBe('running');
+        const run = h.db
+          .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+          .get(graphRunId) as { status: string };
+        expect(run.status).toBe('running');
+      },
+    );
+
+    it('the claim is committed before the workspace is created', async () => {
+      const g = gate();
+      const { h, graphRunId, nodeRunId } = await launchTwoRepoNode(undefined, {
+        skipDrive: true,
+        workspaceGate: g.promise,
+      });
+      const drive = driveReadyNodeRuns(h.deps, graphRunId);
+      await Promise.resolve();
+      const mid = nodeRow(h, nodeRunId);
+      expect(mid.status).toBe('launching');
+      expect(mid.owner_nonce).not.toBeNull();
+      expect(mid.started_at).not.toBeNull();
+      g.open();
+      await drive;
+    });
+
+    it('a workspace budget stop after the claim parks the node from launching', async () => {
+      const { h, nodeRunId } = await launchTwoRepoNode({
+        kind: 'budget-exhausted',
+        currentBytes: 10,
+        estimatedBytes: 5,
+        limitBytes: 12,
+      });
+      expect(nodeRow(h, nodeRunId).status).toBe('blocked');
+    });
   });
 });
 
