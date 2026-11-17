@@ -7,7 +7,7 @@ import { UI_CDP_PORT, diffLines, parseDriverControl, scriptHasUiStep, uiHostPlan
 const here = dirname(fileURLToPath(import.meta.url));
 
 describe('scriptHasUiStep', () => {
-  it.each(['click', 'type', 'press', 'read'])('is true for a %s step', (type) => {
+  it.each(['click', 'hover', 'type', 'press', 'read'])('is true for a %s step', (type) => {
     expect(scriptHasUiStep({ steps: [{ type: 'snapshot' }, { type }] })).toBe(true);
     expect(scriptHasUiStep([{ type }])).toBe(true);
   });

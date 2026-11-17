@@ -23,12 +23,14 @@ export type Step =
   | { type: 'restart'; timeoutMs?: number }
   /** UI steps: driven by the Playwright process over CDP (arch:UATHOST-02). Only a script with one opens the CDP port. */
   | { type: 'click'; target: UiClickTarget; timeoutMs?: number }
+  /** Moves the pointer onto the target and leaves it there, so the step screenshot shows the hover look. A disabled target is valid. */
+  | { type: 'hover'; target: UiClickTarget; timeoutMs?: number }
   | { type: 'type'; text: string; target: UiTypeTarget; submit?: boolean; timeoutMs?: number }
   | { type: 'press'; key: string; timeoutMs?: number }
   | { type: 'read'; timeoutMs?: number };
 
-export type UiStep = Extract<Step, { type: 'click' | 'type' | 'press' | 'read' }>;
-export const UI_STEP_TYPES: ReadonlyArray<Step['type']> = ['click', 'type', 'press', 'read'];
+export type UiStep = Extract<Step, { type: 'click' | 'hover' | 'type' | 'press' | 'read' }>;
+export const UI_STEP_TYPES: ReadonlyArray<Step['type']> = ['click', 'hover', 'type', 'press', 'read'];
 
 export const isUiStep = (s: Step): s is UiStep => UI_STEP_TYPES.includes(s.type);
 
@@ -131,6 +133,7 @@ function parseTypeTarget(v: unknown, at: string): UiTypeTarget {
 function parseUiStep(type: UiStep['type'], raw: Record<string, unknown>, at: string, withTimeout: { timeoutMs?: number }): UiStep {
   switch (type) {
     case 'click':
+    case 'hover':
       refuseUnknownKeys(raw, ['type', 'target', 'timeoutMs'], at);
       return { type, target: parseClickTarget(raw['target'], at), ...withTimeout };
     case 'type': {
@@ -177,6 +180,7 @@ export function parseSteps(json: unknown, maxStepMs: number = MAX_STEP_TIMEOUT_M
       case 'restart':
         return { type: 'restart', ...withTimeout };
       case 'click':
+      case 'hover':
       case 'type':
       case 'press':
       case 'read':

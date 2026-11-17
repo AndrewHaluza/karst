@@ -176,19 +176,30 @@ async function clearToasts(page, deadline) {
   return { texts, ...(clearError ? { clearError } : {}) };
 }
 
+/** Clears the toasts (recorded in `evidence`), then finds the visible click or hover target. */
+async function pointerTarget(page, t, deadline, evidence) {
+  const toasts = await clearToasts(page, deadline);
+  evidence.toasts = toasts.texts;
+  if (toasts.clearError) evidence.toastClearError = toasts.clearError;
+  return 'act' in t ? await findVisible(page, actSelector(t.act), 'webview', deadline, `[data-act="${t.act}"]`)
+    : 'quickPick' in t ? await quickPickRow(page, t.quickPick, deadline)
+      : await findVisible(page, t.selector, t.surface, deadline, `selector ${t.selector}`);
+}
+
 /** Fills `evidence` in place, so what was gathered before a throw (the cleared toasts) still reaches the step file. */
 async function act(page, step, deadline, evidence) {
   const remaining = () => Math.max(1, deadline - Date.now());
   switch (step.type) {
     case 'click': {
-      const toasts = await clearToasts(page, deadline);
-      evidence.toasts = toasts.texts;
-      if (toasts.clearError) evidence.toastClearError = toasts.clearError;
-      const t = step.target;
-      const el = 'act' in t ? await findVisible(page, actSelector(t.act), 'webview', deadline, `[data-act="${t.act}"]`)
-        : 'quickPick' in t ? await quickPickRow(page, t.quickPick, deadline)
-          : await findVisible(page, t.selector, t.surface, deadline, `selector ${t.selector}`);
+      const el = await pointerTarget(page, step.target, deadline, evidence);
       await el.click({ timeout: remaining() });
+      break;
+    }
+    case 'hover': {
+      // No `force`: a covered target fails with the reason. Playwright hover does not need an enabled element,
+      // so a disabled button can be hovered. The pointer stays on it for the step screenshot.
+      const el = await pointerTarget(page, step.target, deadline, evidence);
+      await el.hover({ timeout: remaining() });
       break;
     }
     case 'type': {

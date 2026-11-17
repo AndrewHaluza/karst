@@ -1,7 +1,7 @@
 // Gate for the UI driver (arch:UATHOST-02). Plain JS: run.mjs runs before `dist` is guaranteed and must not import the TS steps module.
 import { isAbsolute } from 'node:path';
 
-export const UI_STEP_TYPES = ['click', 'type', 'press', 'read'];
+export const UI_STEP_TYPES = ['click', 'hover', 'type', 'press', 'read'];
 /** Chromium debugging port. It is published by nothing: `docker.mjs` passes no `-p`, so it stays inside the container. */
 export const UI_CDP_PORT = 9222;
 
