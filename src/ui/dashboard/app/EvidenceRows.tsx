@@ -8,6 +8,7 @@ import type { EvidenceRow, InsideProcessView, ProcessEvidenceView } from '../../
 import type { GateStage } from '../../../store/ticketGates.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { StopNowConfirm } from './AutofixParts.js';
+import { STEP_GATES_AGAIN } from '../../../model/inside/autofix.js';
 import { EvAction, EvGlyph, EvOutput, EvTiming, PrState } from './EvidenceParts.js';
 import { GraphDag, GraphNodeList, GraphViewToggle } from './EvidenceGraph.js';
 import { useDagShown } from './InsideMemory.js';
@@ -54,7 +55,7 @@ export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceVi
         </>
       ) : null}
       {keyed.slice(lead).map((k, i) => renderRow(k, i + lead))}
-      {id === 'autofix' ? <StopNowConfirm /> : null}
+      {id === 'autofix' ? <StopNowConfirm gatesRun={ev.rows.some((r) => r.label === STEP_GATES_AGAIN)} /> : null}
     </>
   );
 }

@@ -891,7 +891,7 @@ export function autofixProcess(autofix: AutofixRowView | null | undefined): Insi
   const steps = autofix.steps.map((st): EvidenceRow => ({
     label: st.label,
     detail: st.detail,
-    status: st.status === 'run' ? 'run' : 'pass',
+    status: st.status,
     ...(st.stopAfter ? { autofixStop: { requested: autofix.stopAfterRequested } } : {}),
   }));
   return {

@@ -25,6 +25,7 @@ import {
   effectiveAutopilot,
   getAutopilotBudget,
   getAutopilotTicket,
+  getCiRoundAt,
   getConflictRoundAt,
   listAutopilotBudgets,
 } from '../../store/autopilot.js';
@@ -181,7 +182,8 @@ function resolveRound(store: Store, ticketId: number, config: AutopilotConfig | 
  * signature of the checks that still fail in the stored rollup. The repo is named only when one budget matches.
  */
 function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig | undefined, nameOf: RepoNameOf): AutofixFacts['round'] {
-  if (getTicket(store, ticketId).stageCurrent === 'ship') return null;
+  const stage = getTicket(store, ticketId).stageCurrent;
+  if (stage === 'ship') return null;
   // A manual send-back takes no attempt and posts no note. The engine posts `Autopilot: ci round n/m` when it arms a round; the stop-after note is skipped, as the round still runs.
   const last = store.db.prepare("SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE 'Autopilot:%' AND title <> ? ORDER BY id DESC LIMIT 1").get(ticketId, STOP_AFTER_NOTE) as { title: string } | undefined;
   if (!/^Autopilot: ci round \d+\/\d+$/.test(last?.title ?? '')) return null;
@@ -199,6 +201,8 @@ function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig 
   return {
     kind: 'ci', repo: only?.repo ?? '', ...(only ? { repoLabel: nameOf(only.repo) } : {}), pr: only?.number ?? null, check: only?.check ?? null,
     used: Math.max(...hits.map((h) => h.attempts)), max: maxFor('ci', config) + Math.max(...hits.map((h) => h.extra)),
+    // UAT and Review run again after the agent fired the marker (@arch:AP-06); the cleared mark means no re-ship without a click.
+    ...(stage === 'uat' || stage === 'review' ? { gate: stage, reshipWaits: getCiRoundAt(store, ticketId) === null } : {}),
   };
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
-import { setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, setAutopilotStopAfter, takeAutopilotAttempt, markConflictRound } from '../../store/autopilot.js';
+import { setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, setAutopilotStopAfter, takeAutopilotAttempt, markConflictRound, markCiRound } from '../../store/autopilot.js';
 import { postAgentNote } from '../../store/bulletinNotes.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { autofixInputOf, readAutofix } from './stateAutofix.js';
@@ -243,6 +243,37 @@ describe('readAutofix', () => {
     setAutopilotStopAfter(store, id);
     postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: stopped after this round', body: 'b' });
     expect(readAutofix(store, id, CONFIG).row).toMatchObject({ state: 'running', stopAfterRequested: true });
+  });
+
+  describe('CI round after the agent fired the impl marker', () => {
+    function ciRound(stage: string, mark: boolean) {
+      const { store, id } = setup();
+      store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
+      takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
+      postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 1/3', body: 'a' });
+      if (mark) markCiRound(store, id, 1);
+      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, id);
+      return readAutofix(store, id, CONFIG);
+    }
+
+    it.each([['uat', 'UAT'], ['review', 'Review']])('keeps the round live at %s and runs the gates again', (stage, word) => {
+      const r = ciRound(stage, true);
+      expect(r.slice).toMatchObject({ roundActive: true, roundRunning: true });
+      expect(r.row?.steps).toEqual([
+        { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
+        { label: 'agent fix', detail: 'attempt 1', status: 'pass' },
+        { label: 'gates run again', detail: word, status: 'run', stopAfter: true },
+        { label: 're-ship', detail: 'to api #88', status: 'pending' },
+      ]);
+    });
+
+    it('keeps the agent step running at impl', () => {
+      expect(ciRound('impl', true).row?.steps.map((s) => [s.label, s.status])).toEqual([['fetch CI log', 'pass'], ['agent fix', 'run']]);
+    });
+
+    it('says ship waits for Confirm when the mark is gone', () => {
+      expect(ciRound('review', false).row?.steps.at(-1)).toMatchObject({ label: 'ship', detail: 'waits for Confirm', status: 'pending' });
+    });
   });
 
   it('shows no CI round after a manual send-back that left no round note', () => {

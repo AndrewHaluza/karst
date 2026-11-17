@@ -50,6 +50,21 @@ describe('autofixRow', () => {
     ]);
   });
 
+  it.each([['uat', 'UAT'], ['review', 'Review']] as const)('shows the gate re-run and the re-ship after the agent step at %s', (gate, word) => {
+    const row = autofixRow({ ...BASE, round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 1, max: 3, gate } });
+    expect(row?.steps).toEqual([
+      { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
+      { label: 'agent fix', detail: 'attempt 1', status: 'pass' },
+      { label: 'gates run again', detail: word, status: 'run', stopAfter: true },
+      { label: 're-ship', detail: 'to api #88', status: 'pending' },
+    ]);
+  });
+
+  it('says ship waits for Confirm when the re-ship would keep the click', () => {
+    const row = autofixRow({ ...BASE, round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 1, max: 3, gate: 'review', reshipWaits: true } });
+    expect(row?.steps.at(-1)).toEqual({ label: 'ship', detail: 'waits for Confirm', status: 'pending' });
+  });
+
   it('lists the finished attempts and leaves out the newest note of the running kind', () => {
     const at = (n: number) => ({ kind: 'ci' as const, n, max: 3, at: `0${n}:00` });
     const row = autofixRow({ ...BASE, attempts: [at(1), at(2)], round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 2, max: 3 } });

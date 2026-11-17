@@ -148,7 +148,7 @@ export function LastRoundButton({ requested }: { readonly requested: boolean }) 
 }
 
 /** The inline alertdialog under the Auto-fix row: it ends the agent session, so it asks first. */
-export function StopNowConfirm() {
+export function StopNowConfirm({ gatesRun = false }: { readonly gatesRun?: boolean }) {
   const send = useDashboardSend();
   const open = useStopConfirm();
   const confirmRef = useRef<HTMLButtonElement>(null);
@@ -172,7 +172,7 @@ export function StopNowConfirm() {
   if (!open) return null;
   return (
     <div className="autofix-actions" ref={dialogRef} role="alertdialog" aria-label="Stop auto-fix now" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); dismiss(); } }}>
-      <span className="autofix-confirm">This ends the agent session. Karst syncs first.</span>
+      <span className="autofix-confirm">{gatesRun ? 'The round stops and no re-ship follows. The gates that run now finish.' : 'This ends the agent session. Karst syncs first.'}</span>
       <button type="button" className="k-btn k-btn--danger k-btn--sm" ref={confirmRef} data-act="autopilot-stop-now" onClick={(e) => { e.preventDefault(); now(e); }}>Stop now</button>
       <button type="button" className="k-btn k-btn--ghost k-btn--sm" data-act="autopilot-stop-cancel" onClick={(e) => { e.preventDefault(); dismiss(); }}>Cancel</button>
     </div>
