@@ -99,10 +99,7 @@ export function makeReloadWhenIdleHandler(
             runs = listLiveRuns(store, hostPid, drain.inFlight(), ...liveDeliverTickets());
             return runs.length;
           },
-          onCount: (n) => {
-            report(idleProgressMessage(n, runs));
-            pushIfChanged();
-          },
+          onCount: (n) => report(idleProgressMessage(n, runs)),
           reload: () => host.reloadWindow(),
           // A held ticket changes the snapshot between two counts, so each poll checks it.
           sleep: (ms) => {
