@@ -272,7 +272,8 @@ export type InsideActionKind =
   | 'graph-replan'
   | 'graph-mark-impl'
   | 'graph-discard-node'
-  | 'graph-edit-override';
+  | 'graph-edit-override'
+  | 'graph-edit-workspace-deps';
 
 /**
  * A navigation/continuation control on a process row.
@@ -340,7 +341,9 @@ export type InsideEvidenceTarget =
   // node runs whose status is in the editable set; the projection's attach
   // rule and the store's claim gate share that closed set, so a control a
   // claimed node never carries can never be minted in the first place.
-  | { kind: 'graph-edit-override'; nodeRunId: number };
+  | { kind: 'graph-edit-override'; nodeRunId: number }
+  // D647: open karst.yml at the repository a workspace-dependency block names.
+  | { kind: 'graph-edit-workspace-deps'; graphRunId: number };
 
 /**
  * The inside process's token claim, as ONE of three states (decision 8).

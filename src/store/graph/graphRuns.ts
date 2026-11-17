@@ -332,14 +332,14 @@ export function graphRunIdStatusForTicketStageAttempt(
 export function latestGraphRunForTicket(
   db: GraphDb,
   ticketId: number,
-): Pick<GraphRunRow, 'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at'> | undefined {
+): Pick<GraphRunRow, 'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at' | 'blocked_reason'> | undefined {
   return db
     .prepare(
-      `SELECT id, stage_attempt, approach_id, status, created_at
+      `SELECT id, stage_attempt, approach_id, status, created_at, blocked_reason
          FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1`,
     )
     .get(ticketId) as
-    | Pick<GraphRunRow, 'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at'>
+    | Pick<GraphRunRow, 'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at' | 'blocked_reason'>
     | undefined;
 }
 

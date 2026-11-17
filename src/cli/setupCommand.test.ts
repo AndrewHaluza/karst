@@ -22,6 +22,16 @@ function fakeProbe(): DiscoveryProbe {
 }
 
 describe('runSetupCommand discover', () => {
+  it('adds the graph-deps verdict of each repository', () => {
+    const out = JSON.parse(
+      runSetupCommand(['setup', 'discover', '--root', '/w'], {
+        probe: fakeProbe(),
+        graphDeps: (path) => ({ status: 'gap', reason: `gap at ${path}` }),
+      }),
+    );
+    expect(out.repos[0].graphDeps).toEqual({ status: 'gap', reason: `gap at ${out.repos[0].path}` });
+  });
+
   it('prints the deterministic discovery result', () => {
     const out = JSON.parse(
       runSetupCommand(['setup', 'discover', '--root', '/w', '--default-branch', 'main'], { probe: fakeProbe() }),

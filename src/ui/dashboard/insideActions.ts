@@ -10,7 +10,8 @@ import { getStage } from '../../store/stages.js';
 import { currentImplementationRun, liveImplementationRun } from '../../store/implementationRuns.js';
 import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
 import { nodeRunTicketId } from '../../store/graph/nodeRuns.js';
-import { graphRunStatusForTicket } from '../../store/graph/graphRuns.js';
+import { graphRunById, graphRunStatusForTicket } from '../../store/graph/graphRuns.js';
+import { GRAPH_WORKSPACE_DEPS_REASON_PREFIX } from '../../model/inside/graph.js';
 import { activeRevision } from '../../store/graph/revisions.js';
 import { hasLiveReplanPlanner, plannerRunTicketId } from '../../store/graph/plannerRuns.js';
 import type { StageKey } from '../../model/types.js';
@@ -97,7 +98,10 @@ export type InsideActionTarget =
   // node-run status CAS in `store/graph/nodeRuns.ts`) is the real authority —
   // this dispatch only opens the editor surface, so a stale control can never
   // mutate a launch that claiming already froze.
-  | { kind: 'graph-edit-override'; ticketId: number; nodeRunId: number };
+  | { kind: 'graph-edit-override'; ticketId: number; nodeRunId: number }
+  // D647: open karst.yml at the repository a `graph-workspace-deps:` block names.
+  // Offered only on a blocked run with that reason; the dispatch re-checks both.
+  | { kind: 'graph-edit-workspace-deps'; ticketId: number; graphRunId: number };
 
 /** Longest accepted action id. Ids are `snapshot-<n>:action-<n>`; this is slack. */
 export const MAX_ACTION_ID_CHARS = 96;
@@ -236,6 +240,13 @@ export interface InsideActionHost {
    * authority, so this host callback never mutates anything itself.
    */
   graphEditOverride(ticketId: number, nodeRunId: number): void | Promise<void>;
+  /**
+   * Open karst.yml in the editor at the repository entry the run's
+   * `graph-workspace-deps:` block reason names, inserting an empty
+   * `graphWorkspace:` key as an editor text edit when it is absent (never a
+   * silent file write). The user saves, then the existing Resume relaunches.
+   */
+  graphEditWorkspaceDeps(ticketId: number, graphRunId: number): void | Promise<void>;
   /**
    * Re-run ship for a single repository whose recorded step failed. The host
    * re-loads the step row, proves ownership via the ticket-scoped join, and
@@ -557,6 +568,20 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'node run not found for this ticket' };
       }
       void deps.host.graphEditOverride(target.ticketId, target.nodeRunId);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-edit-workspace-deps': {
+      const run = graphRunById(store.db, target.graphRunId);
+      const owned = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId) !== undefined;
+      if (
+        !run ||
+        !owned ||
+        run.status !== 'blocked' ||
+        !run.blocked_reason?.startsWith(GRAPH_WORKSPACE_DEPS_REASON_PREFIX)
+      ) {
+        return { outcome: 'rejected', reason: 'graph is not blocked on workspace dependencies' };
+      }
+      void deps.host.graphEditWorkspaceDeps(target.ticketId, target.graphRunId);
       return { outcome: 'dispatched' };
     }
   }

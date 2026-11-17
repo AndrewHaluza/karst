@@ -50,6 +50,7 @@ import {
 } from '../../store/graph/graphRuns.js';
 import { graphRunById } from '../../store/graph/graphRuns.js';
 import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun } from './coordinator/plannerRun.js';
+import { emitGraphDiagnostic } from './diagnostics.js';
 import {
   markPlannerRunStarted,
   plannerRunById,
@@ -208,6 +209,13 @@ export interface GraphDriverDeps {
   /** Async spawn (gates/run.ts `runProcess`); `spawnSync` is banned here. */
   runProcess: (command: string, args: readonly string[], cwd: string) => Promise<ProcessOutcome>;
 
+  /**
+   * The dependency preflight of a graph start: the one warning line (e.g.
+   * `deps: web not provided`) when a repository in scope has gate commands but
+   * gets no dependencies, else undefined. Advisory: a launch never waits on it
+   * and never fails on it. Absent → no preflight.
+   */
+  depsPreflightOf?: (graphRunId: number) => Promise<string | undefined>;
   /** The canonical worktree for the planner session (first repo). */
   plannerCwdOf: (graphRunId: number) => { repo: string; cwd: string } | undefined;
   /** The canonical worktree path for a repo of a graph run's ticket. */
@@ -370,6 +378,26 @@ function unlinkStaleGraphJson(deps: GraphDriverDeps, graphRunId: number): void {
   }
 }
 
+/**
+ * Write the dependency preflight warning (a Karst output line and a graph
+ * diagnostic). It never blocks and never throws: a failed preflight is one more
+ * debug line, so a launch stays exactly as it was.
+ */
+async function warnAboutWorkspaceDeps(deps: GraphDriverDeps, graphRunId: number): Promise<void> {
+  if (!deps.depsPreflightOf) return;
+  try {
+    const warning = await deps.depsPreflightOf(graphRunId);
+    if (warning === undefined) return;
+    deps.debug?.(`[graph] run ${graphRunId}: ${warning}`);
+    emitGraphDiagnostic(
+      { db: deps.db, ...(deps.debug ? { debug: deps.debug } : {}) },
+      { category: 'launch', graphRunId, detail: warning },
+    );
+  } catch (err) {
+    deps.debug?.(`[graph] run ${graphRunId}: dependency preflight failed (${String(err)}) — launch continues`);
+  }
+}
+
 export async function bootstrapAndLaunchPlanner(
   deps: GraphDriverDeps,
   input: BootstrapPlannerInput,
@@ -417,6 +445,7 @@ export async function bootstrapAndLaunchPlanner(
   if (!workspace) {
     return { kind: 'failed', reason: `no worktree registered for graph run ${graphRunId}` };
   }
+  await warnAboutWorkspaceDeps(deps, graphRunId);
   const capability = randomBytes(32).toString('hex');
   const generation = uuidv7();
   // Like the node claim: the ownership proof is committed WITH the transition

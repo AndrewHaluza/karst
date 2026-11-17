@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { describeGraphDeps, type GraphDepsFit } from '../setup/graphDeps.js';
 import { discoverWorkspace, type DiscoveryProbe } from '../setup/discover.js';
 import { MAX_SETUP_PROPOSAL_BYTES, validateSetupProposal, type ChangeProposal } from '../setup/proposal.js';
 import { basename } from 'node:path';
@@ -30,6 +31,8 @@ export interface SetupCommandDeps {
   /** Workspace root when `--root` is absent. */
   cwd?: string;
   defaultBranch?: string;
+  /** Injectable graph-deps verdict for tests; the real fs check is the default. */
+  graphDeps?: (repoPath: string) => GraphDepsFit;
 }
 
 const DISCOVER_USAGE = 'usage: karst setup discover [--root <path>] [--default-branch <branch>]';
@@ -95,7 +98,10 @@ function runDiscover(rest: readonly string[], deps: SetupCommandDeps): string {
     throw new Error(`karst setup discover: --root ${root} does not exist`);
   }
   const result = discoverWorkspace(root, probe, defaultBranch);
-  return JSON.stringify(result, null, 2);
+  // D647: the verdict of the D644 graph-workspace defaults, per repository.
+  const graphDeps = deps.graphDeps ?? describeGraphDeps;
+  const repos = result.repos.map((repo) => ({ ...repo, graphDeps: graphDeps(repo.path) }));
+  return JSON.stringify({ ...result, repos }, null, 2);
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
