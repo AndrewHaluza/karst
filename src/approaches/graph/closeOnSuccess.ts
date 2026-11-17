@@ -7,6 +7,8 @@
  * - A planner tab closes when its plan or replan is `accepted` AND the
  *   planner process is proven ended.
  * Every other outcome keeps the tab open, so the person can read why.
+ * A node that reported `block` or `replan` keeps its tab too, but its process
+ * tree is stopped (`stopNodeProcessOnBlocked`).
  */
 
 import type { SupervisedAgentSession, TerminationProof } from './transport/agentTransport.js';
@@ -44,6 +46,37 @@ export function closeNodeTabOnSuccess(
   deps.transport.disposeOnSuccess(session);
   deps.debug(`[graph] node ${input.nodeRunId}: integrated — terminal tab closed`);
   return true;
+}
+
+/** Stop the process tree of a node that reported `block` or `replan`. The tab
+ *  stays open so the person reads the last output. Returns true when the end of
+ *  the process is proven. A planner run with the same id keeps its process. */
+export async function stopNodeProcessOnBlocked(
+  deps: CloseOnSuccessDeps,
+  input: { ticketId: number; nodeRunId: number; sharesIdWithPlannerRun?: boolean },
+): Promise<boolean> {
+  const session = deps.transport.sessionFor(input.ticketId, input.nodeRunId);
+  if (!session) return false;
+  if (input.sharesIdWithPlannerRun) {
+    deps.debug(
+      `[graph] node ${input.nodeRunId}: a planner run has the same id — the session is ambiguous, process left running`,
+    );
+    return false;
+  }
+  let proof: TerminationProof;
+  try {
+    proof = await deps.transport.terminate(session);
+  } catch (error) {
+    deps.debug(`[graph] node ${input.nodeRunId}: stopping the blocked process failed (${String(error)})`);
+    return false;
+  }
+  const proven = proof.kind === 'dead' || (proof.kind === 'attributable' && proof.kill === 'killed');
+  deps.debug(
+    proven
+      ? `[graph] node ${input.nodeRunId}: reported block or replan — process stopped, terminal tab kept`
+      : `[graph] node ${input.nodeRunId}: reported block or replan — process end not proven (${proof.kind})`,
+  );
+  return proven;
 }
 
 /** The part of an accept result that this module reads. */

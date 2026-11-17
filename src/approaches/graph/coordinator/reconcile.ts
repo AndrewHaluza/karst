@@ -501,6 +501,18 @@ async function reconcileLaunching(
   });
 }
 
+/** The `blocked` rows: a node that reported `block` or `replan` keeps no live
+ *  agent. A live attributable process of another window gets its tree stopped
+ *  (durable process facts, no `runClosed` needed). The row itself stays. */
+async function reconcileBlockedProcess(deps: ReconcileGraphRunDeps, node: NodeRunRow): Promise<void> {
+  if (deps.sessionFor(node.id)) return; // this window stops it through its transport
+  const proc = processOf(deps.db, node);
+  if (proc === null || !deps.killTree) return;
+  if ((await attributeOf(deps.facts, proc)) !== 'attributable') return;
+  const outcome = deps.killTree(proc.pid);
+  deps.debug?.(`[graph] reconcile: blocked node ${node.id} has a live process (pid ${proc.pid}) — killTree: ${outcome}`);
+}
+
 /** The `running` rows: dead/foreign → `stale` + recoverable block; unprovable
  *  → `termination-unknown` (held leases flip `ambiguous-process` — the flip
  *  happens exactly here, never a release); live attributable → left alone
@@ -885,6 +897,11 @@ export async function reconcileGraphRun(
   //      by `acceptSubmittedPlan`.
   if (run.status === 'planning') {
     return await reconcilePlannerRun(deps, run, 'bootstrap');
+  }
+
+  // 2.52. A blocked node row never keeps a live agent, whatever the run status.
+  for (const node of nodeRunsForGraphRun(db, run.id)) {
+    if (node.status === 'blocked') await reconcileBlockedProcess(deps, node);
   }
 
   // 2.55. Self-heal a STRANDED running run: its newest revision is `draining`

@@ -783,6 +783,15 @@ async function executeReadyNode(
     parkLaunchFailure(deps, graphRunId, row.id, `workspace budget exhausted: ${why}`, false, `graph-budget-exhausted: node run ${row.id} (${why})`);
     return 'blocked';
   }
+  if (workspace.kind === 'live-process') {
+    parkLaunchFailure(
+      deps, graphRunId, row.id,
+      'a live process serves the existing workspace',
+      false,
+      `graph-live-process: node run ${row.id}`,
+    );
+    return 'blocked';
+  }
   if (workspace.kind !== 'created') {
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';

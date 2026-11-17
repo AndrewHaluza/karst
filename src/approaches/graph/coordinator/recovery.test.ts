@@ -565,6 +565,19 @@ describe('recoverGraphRun', () => {
     expect(result).toEqual({ kind: 'retried', retried: [5, 7], resnapshotted: [] });
   });
 
+  it('a launch-retry Resume stops the live process of each blocked node before it re-arms the row', () => {
+    const { ticketId, graphRunId } = blockedGraph('node-blocked: node 5 (agent said blocked)', [
+      { id: 5, status: 'blocked' },
+    ]);
+    const stopped: Array<[number, string]> = [];
+    const deps = {
+      ...makeDeps(),
+      stopNodeProcess: (id: number) => stopped.push([id, nodeRow(id).status]),
+    };
+    expect(recoverGraphRun(deps, { ticketId, graphRunId }).kind).toBe('retried');
+    expect(stopped).toEqual([[5, 'blocked']]);
+  });
+
   it('graph-topology-deadlock refuses — a discarded revision is never auto-retried', () => {
     const { ticketId, graphRunId } = blockedGraph('graph-topology-deadlock', [{ id: 7, status: 'blocked' }]);
     const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
@@ -1011,6 +1024,7 @@ describe('recoveryCategoryFor — the total function over the closed category se
       ['node-blocked: node 5 process (pid 42) is gone (dead at reconcile)', 'launch-retry'],
       ['launch-unknown: node 8 crash after possible spawn with no identity', 'discard-required'],
       ['node-blocked: node 8 (termination-unknown)', 'discard-required'],
+      ['graph-live-process: node run 5', 'launch-retry'],
       ['graph-budget-exhausted', 'config-then-resume'],
       ['output-artifact-missing: artifact "r" produced nothing', 'artifact-recheck'],
       ['artifact-unsafe: artifact "r" failed validation', 'artifact-recheck'],

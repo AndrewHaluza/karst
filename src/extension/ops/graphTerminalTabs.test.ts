@@ -126,6 +126,8 @@ describe('graphSessionNameOf', () => {
 describe('createGraphTabClosers', () => {
   function closers(w: ReturnType<typeof world>, proof: TerminationProof = { kind: 'dead' }) {
     const disposed: number[] = [];
+    const terminated: number[] = [];
+    const debugs: string[] = [];
     const looked: Array<[number, number]> = [];
     const errors: string[] = [];
     const sessions = new Map<string, SupervisedAgentSession>();
@@ -136,16 +138,19 @@ describe('createGraphTabClosers', () => {
           looked.push([t, r]);
           return sessions.get(`${t}:${r}`);
         },
-        terminate: async () => proof,
+        terminate: async (session) => {
+          terminated.push(session.nodeRunId);
+          return proof;
+        },
         disposeOnSuccess: (s) => disposed.push(s.nodeRunId),
       }),
       ticketIdOf: () => w.ticketId,
-      debug: () => {},
+      debug: (m) => debugs.push(m),
       logError: (m) => errors.push(m),
     });
     const add = (runId: number) =>
       sessions.set(`${w.ticketId}:${runId}`, { ticketId: w.ticketId, nodeRunId: runId } as SupervisedAgentSession);
-    return { c, disposed, errors, add, looked };
+    return { c, disposed, terminated, debugs, errors, add, looked };
   }
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -158,6 +163,140 @@ describe('createGraphTabClosers', () => {
     expect(k.disposed).toEqual([]);
     k.c.node(w.graphRunId, nodeRunId, { kind: 'integrated', committed: true });
     expect(k.disposed).toEqual([nodeRunId]);
+  });
+
+  it('stops the process of a blocked node, keeps its tab, and stops it once', async () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const k = closers(w);
+    k.add(nodeRunId);
+    k.c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    k.c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    expect(k.terminated).toEqual([nodeRunId]);
+    expect(k.disposed).toEqual([]);
+    expect(k.errors).toEqual([]);
+  });
+
+  it('keeps a separate stop record for each blocked node', async () => {
+    const w = world();
+    const first = w.node('a');
+    const second = w.node('b');
+    const k = closers(w);
+    k.add(first);
+    k.add(second);
+    k.c.blockedNode(w.graphRunId, first);
+    await tick();
+    k.c.blockedNode(w.graphRunId, second);
+    await tick();
+    expect(k.terminated).toEqual([first, second]);
+  });
+
+  it('logs an error when the stop rejects after the session lookup succeeded', async () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const errors: string[] = [];
+    let lookups = 0;
+    const session = { ticketId: w.ticketId, nodeRunId } as SupervisedAgentSession;
+    const c = createGraphTabClosers({
+      db: () => w.db,
+      transport: () => ({
+        sessionFor: () => {
+          lookups += 1;
+          if (lookups > 1) throw new Error('boom');
+          return session;
+        },
+        terminate: async () => ({ kind: 'dead' }),
+        disposeOnSuccess: () => {},
+      }),
+      ticketIdOf: () => w.ticketId,
+      debug: () => {},
+      logError: (m) => errors.push(m),
+    });
+    c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    expect(errors).toEqual([`karst: stopping the blocked node ${nodeRunId} process failed`]);
+  });
+
+  it('logs an error when the stop of a blocked node rejects', async () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const errors: string[] = [];
+    const c = createGraphTabClosers({
+      db: () => w.db,
+      transport: () => ({
+        sessionFor: () => {
+          throw new Error('boom');
+        },
+        terminate: async () => ({ kind: 'dead' }),
+        disposeOnSuccess: () => {},
+      }),
+      ticketIdOf: () => w.ticketId,
+      debug: () => {},
+      logError: (m) => errors.push(m),
+    });
+    c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    expect(errors).toEqual([`karst: stopping the blocked node ${nodeRunId} process failed`]);
+  });
+
+  it('stops a blocked node again when Resume opened a new session for the same node run id', async () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const k = closers(w);
+    k.add(nodeRunId);
+    k.c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    k.add(nodeRunId); // a new session object under the same key
+    k.c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    expect(k.terminated).toEqual([nodeRunId, nodeRunId]);
+  });
+
+  it('stops a blocked node again while the process end is not proven', async () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const k = closers(w, { kind: 'unknown' } as unknown as TerminationProof);
+    k.add(nodeRunId);
+    k.c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    k.c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    expect(k.terminated).toEqual([nodeRunId, nodeRunId]);
+  });
+
+  it('stops nothing for a blocked node that shares its id with a planner run', async () => {
+    const w = world();
+    const plannerRunId = createPlannerRun(w.db, { graphRunId: w.graphRunId, plannerRunNumber: 1, kind: 'bootstrap' });
+    const k = closers(w);
+    k.add(plannerRunId);
+    k.c.blockedNode(w.graphRunId, plannerRunId);
+    await tick();
+    expect(k.terminated).toEqual([]);
+  });
+
+  it('does nothing for a blocked node when the transport or the store is missing', async () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const errors: string[] = [];
+    const base = { ticketIdOf: () => w.ticketId, debug: () => {}, logError: (m: string) => errors.push(m) };
+    const noTransport = createGraphTabClosers({ ...base, db: () => w.db, transport: () => undefined });
+    const noDb = createGraphTabClosers({
+      ...base,
+      db: () => undefined,
+      transport: () => ({
+        sessionFor: () => {
+          throw new Error('must not look up a session');
+        },
+        terminate: async () => ({ kind: 'dead' }),
+        disposeOnSuccess: () => {},
+      }),
+    });
+    expect(() => noTransport.blockedNode(w.graphRunId, nodeRunId)).not.toThrow();
+    expect(() => noDb.blockedNode(w.graphRunId, nodeRunId)).not.toThrow();
+    await tick();
+    expect(errors).toEqual([]);
   });
 
   it('closes the accepted bootstrap planner tab after the process is proven ended', async () => {
