@@ -14,11 +14,14 @@ describe.skipIf(!hasSbx)('sbx policy rm argv against the real CLI', () => {
     expect(out.stderr).toMatch(/unexpected argument/);
   });
 
+  // A host in the global policy answers a different error ("covered by rule ... in the global policy"), so the canary uses a host that no policy lists.
   it.each([
-    ['setup hosts', sbxHostPolicyArgs('rm', SCRATCH, ['github.com'])],
+    ['setup hosts', sbxHostPolicyArgs('rm', SCRATCH, ['karst-canary.example.com'])],
     ['baseline ports', sbxPolicyArgs('rm', SCRATCH, [5432])],
-  ])('parses the %s rm argv (no usage error)', (_label, args) => {
+  ])('parses the %s rm argv and reaches the sandbox lookup', (_label, args) => {
     const out = run(args);
     expect(out.stderr).not.toMatch(/unexpected argument|unknown flag|accepts/);
+    // A changed usage-error text must not pass: only the sandbox-lookup error shows that sbx parsed the argv.
+    expect(out.stderr).toMatch(/not found|no scoped policy/);
   });
 });

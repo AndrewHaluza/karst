@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
+import { isPortTakenError, isResourceAllowed, parseSbxAllowed, parseSbxPorts, sbxPolicyArgs, sbxPolicyListArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
 
 describe('sbxPorts', () => {
   it('publishes one declared port to the allocated host port on 127.0.0.1 only', () => {
@@ -43,5 +43,36 @@ describe('sbxPorts', () => {
       'policy', 'rm', 'network', '--sandbox', 'n', '--resource', 'localhost:5432,host.docker.internal:5432', '--force',
     ]);
     expect(() => sbxPolicyArgs('allow', 'n', [])).toThrow(/no ports/);
+  });
+});
+
+describe('sbx policy listing', () => {
+  const json = JSON.stringify({ rules: [
+    { decision: 'allow', resource_type: 'network', resources: ['**.githubusercontent.com:443', 'Github.com:443'] },
+    { decision: 'deny', resource_type: 'network', resources: ['evil.example:443'] },
+    { decision: 'allow', resource_type: 'filesystem', resources: ['/tmp:1'] },
+  ] });
+
+  it('lists with the v0.48.0 form: the sandbox is positional, not --sandbox', () => {
+    expect(sbxPolicyListArgs('n1')).toEqual(['policy', 'ls', 'n1', '--json']);
+  });
+
+  it('reads only allowed network resources from the JSON listing', () => {
+    expect([...parseSbxAllowed(json)].sort()).toEqual(['**.githubusercontent.com:443', 'github.com:443']);
+  });
+
+  it('falls back to the resource shape for a table listing', () => {
+    expect(parseSbxAllowed('allow network Registry.npmjs.org:443')).toEqual(new Set(['registry.npmjs.org:443']));
+  });
+
+  it('a wildcard covers a subdomain on the same port only', () => {
+    const allowed = parseSbxAllowed(json);
+    expect(isResourceAllowed(allowed, 'objects.githubusercontent.com:443')).toBe(true);
+    expect(isResourceAllowed(allowed, 'a.b.githubusercontent.com:443')).toBe(true);
+    expect(isResourceAllowed(allowed, 'objects.githubusercontent.com:80')).toBe(false);
+    expect(isResourceAllowed(allowed, 'githubusercontent.com:443')).toBe(false);
+    expect(isResourceAllowed(allowed, 'notgithubusercontent.com:443')).toBe(false);
+    expect(isResourceAllowed(allowed, 'evil.example:443')).toBe(false);
+    expect(isResourceAllowed(allowed, 'GitHub.com:443')).toBe(true);
   });
 });

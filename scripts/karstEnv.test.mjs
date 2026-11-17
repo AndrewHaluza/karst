@@ -33,4 +33,8 @@ describe('vitest setup', () => {
   it('leaves no KARST_ key in process.env when a test starts', () => {
     expect(Object.keys(process.env).filter((k) => k.startsWith('KARST_'))).toEqual([]);
   });
+
+  it('keeps the opt-in KARST_SBX_SCRATCH input of the live sbx test', () => {
+    expect(scrubKarstEnv({ KARST_SBX_SCRATCH: 'karst-uat-t1', KARST_DB: '/db' })).toEqual({ KARST_SBX_SCRATCH: 'karst-uat-t1' });
+  });
 });

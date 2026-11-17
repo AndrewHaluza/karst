@@ -62,7 +62,38 @@ export function sbxHostPolicyArgs(verb: 'allow' | 'rm', name: string, hosts: rea
   return policyArgs(verb, name, hosts.map(setupHostResource));
 }
 
-/** Every `<host>:<port>` resource a `sbx policy ls` listing shows (lower-cased); the shape of the rest is not relied on. */
+/** The `sbx policy ls <sandbox>` listing (global and sandbox rules that apply); the v0.48.0 form `policy ls network --sandbox` is an unknown flag. */
+export function sbxPolicyListArgs(name: string): string[] {
+  return ['policy', 'ls', name, '--json'];
+}
+
+/** `--json` rules → the resources of the ALLOW network rules; undefined when the text is not that shape. */
+function allowedFromJson(stdout: string): string[] | undefined {
+  let parsed: unknown;
+  try { parsed = JSON.parse(stdout); } catch { return undefined; }
+  const rules = (parsed as { rules?: unknown } | null)?.rules;
+  if (!Array.isArray(rules)) return undefined;
+  return rules.flatMap((r: { decision?: unknown; resource_type?: unknown; resources?: unknown }) =>
+    r.decision === 'allow' && r.resource_type === 'network' && Array.isArray(r.resources) ? r.resources.filter((x): x is string => typeof x === 'string') : []);
+}
+
+/** Every allowed `<host>:<port>` resource a `sbx policy ls` listing shows (lower-cased); a non-JSON listing is scanned for the shape only. */
 export function parseSbxAllowed(stdout: string): Set<string> {
+  const fromJson = allowedFromJson(stdout);
+  if (fromJson) return new Set(fromJson.map((r) => r.toLowerCase()));
   return new Set((stdout.toLowerCase().match(/[a-z0-9*][a-z0-9.*-]*:\d+/g) ?? []));
+}
+
+/** True when `resource` is an allowed entry or lies under an allowed `*.suffix:<port>` / `**.suffix:<port>` wildcard. */
+export function isResourceAllowed(allowed: ReadonlySet<string>, resource: string): boolean {
+  const target = resource.toLowerCase();
+  if (allowed.has(target)) return true;
+  const at = target.lastIndexOf(':');
+  const host = target.slice(0, at);
+  const port = target.slice(at);
+  for (const entry of allowed) {
+    const m = /^\*{1,2}\.(.+)(:\d+)$/.exec(entry);
+    if (m && m[2] === port && host.endsWith(`.${m[1]}`)) return true;
+  }
+  return false;
 }
