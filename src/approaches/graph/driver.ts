@@ -952,12 +952,48 @@ async function launchClaimedAgentNode(
     deps.debug?.(
       `[graph] run ${graphRunId}: agent node ${row.node_id} (run ${row.id}) launched but lost launching→running CAS`,
     );
+    await stopLostClaimSession(deps, graphRunId, row.id, runResult.session);
     return 'blocked';
   }
   deps.debug?.(
     `[graph] run ${graphRunId}: agent node ${row.node_id} (run ${row.id}) launched in ${cwd}`,
   );
   return 'launched';
+}
+
+/** A drive that lost the launching→running CAS does not own the node run, yet
+ *  its agent already spawned. Stop the process tree and close the tab, so no
+ *  untracked agent holds the node workspace. The row stays as it is. The close
+ *  of the terminal closes the `process_runs` row, so reconcile reads no live
+ *  owner. A stop failure is logged as a WARN, never swallowed. */
+async function stopLostClaimSession(
+  deps: GraphDriverDeps,
+  graphRunId: number,
+  nodeRunId: number,
+  session: SupervisedAgentSession,
+): Promise<void> {
+  try {
+    const proof = await deps.transport.terminate(session);
+    deps.debug?.(
+      `[graph] run ${graphRunId}: node run ${nodeRunId} lost its launch claim — stopped the orphan agent (pid ${session.pid ?? 'none'}): ${proof.kind}`,
+    );
+    if (proof.kind === 'attributable' && proof.kill !== 'killed') {
+      deps.debug?.(
+        `[graph] WARN run ${graphRunId}: node run ${nodeRunId} orphan agent (pid ${session.pid}) not stopped (kill ${proof.kill})`,
+      );
+    }
+  } catch (error) {
+    deps.debug?.(
+      `[graph] WARN run ${graphRunId}: node run ${nodeRunId} stopping the orphan agent (pid ${session.pid ?? 'none'}) failed (${String(error)})`,
+    );
+  }
+  try {
+    session.terminal?.dispose();
+  } catch (error) {
+    deps.debug?.(
+      `[graph] WARN run ${graphRunId}: node run ${nodeRunId} closing the orphan terminal tab failed (${String(error)})`,
+    );
+  }
 }
 
 function runApproachId(deps: GraphDriverDeps, graphRunId: number): string {
