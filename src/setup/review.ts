@@ -25,7 +25,7 @@ export function describeManifestProposal(
   current: Manifest | undefined,
   proposal: ManifestProposal,
   proposed: Manifest,
-  fields: { dropped?: readonly string[]; adopted?: readonly string[]; writtenSections?: readonly string[] } = {},
+  fields: { dropped?: readonly string[]; adopted?: readonly string[]; writtenSections?: readonly string[]; removedKeys?: readonly string[] } = {},
 ): ProposalDescription {
   const diff = diffManifest(current, proposed);
   const lines: string[] = [];
@@ -57,6 +57,9 @@ export function describeManifestProposal(
   }
   if (fields.writtenSections !== undefined && fields.writtenSections.length > 0) {
     lines.push('', `Sections of karst.yml that this write changes: ${fields.writtenSections.join(', ')}.`);
+  }
+  if (fields.removedKeys !== undefined && fields.removedKeys.length > 0) {
+    lines.push('', `Retired or legacy keys that this write removes from karst.yml: ${fields.removedKeys.join(', ')}.`);
   }
   const repos = Object.keys(proposed.repositories).length;
   const services = Object.values(proposed.repositories).filter((r) => r.service !== undefined).length;

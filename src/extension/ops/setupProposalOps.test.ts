@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseManifestText } from '../../manifest/load.js';
@@ -583,5 +583,171 @@ describe('default fs ledger seam', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('createSetupProposalOps raw delta', () => {
+  it('asks for consent when the proposal equals the current manifest but the write removes a key', async () => {
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) });
+    await createSetupProposalOps({
+      ...f.deps,
+      readCurrentManifest: () => parseManifestText(VALID_YAML).manifest,
+      removedKeys: () => ['approaches[0].graph.limits.confirmGeneratedGraph'],
+    }).scan();
+    expect(f.confirm).toHaveBeenCalledOnce();
+    expect(f.confirm.mock.calls[0]![0].detail).toContain('approaches[0].graph.limits.confirmGeneratedGraph');
+    expect(f.applyManifest).toHaveBeenCalledOnce();
+    expect(f.fs.results[0]).toMatchObject({ status: 'applied' });
+  });
+});
+
+describe('createSetupProposalOps removed-key preview', () => {
+  it('passes the effective manifest and scratch to the preview and still asks when it throws', async () => {
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) });
+    const removedKeys = vi.fn((_m: unknown, _s: string): string[] => {
+      throw new Error('boom');
+    });
+    await createSetupProposalOps({ ...f.deps, removedKeys }).scan();
+    expect(removedKeys).toHaveBeenCalledWith(expect.objectContaining({ repositories: expect.anything() }), '/s/1');
+    expect(f.confirm).toHaveBeenCalledOnce();
+    expect(f.confirm.mock.calls[0]![0].detail).not.toContain('Retired or legacy keys');
+  });
+
+  it('logs a failed preview, and logs nothing when the preview seams are absent', async () => {
+    const debug = vi.fn();
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) });
+    await createSetupProposalOps({ ...f.deps, debug }).scan();
+    expect(debug.mock.calls.some((c) => /could not preview/.test(String(c[0])))).toBe(false);
+    const g = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) });
+    await createSetupProposalOps({
+      ...g.deps,
+      debug,
+      removedKeys: () => {
+        throw new Error('boom');
+      },
+    }).scan();
+    expect(debug).toHaveBeenCalledWith('[setup] could not preview written sections: boom');
+  });
+
+  it('names the removed keys in the consent detail', async () => {
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) });
+    await createSetupProposalOps({ ...f.deps, removedKeys: () => ['a.b', 'c'] }).scan();
+    expect(f.confirm.mock.calls[0]![0].detail).toContain('Retired or legacy keys that this write removes from karst.yml: a.b, c.');
+  });
+});
+
+describe('createSetupProposalOps .karst guard', () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'karst-ops-guard-'));
+    mkdirSync(join(root, '.karst'));
+    mkdirSync(join(root, 'web'));
+    writeFileSync(join(root, '.karst', 'karst.yml'), 'host: a\n');
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  const patchOn = (path: string): string =>
+    `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-host: a\n+host: b\n`;
+  const run = async (change: Record<string, unknown>) => {
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', ...change }) });
+    await createSetupProposalOps({
+      ...f.deps,
+      resolveDir: (c: ChangeProposal) => ({ ok: true as const, dir: c.path === undefined ? root : join(root, c.path) }),
+      karstRoots: () => [root],
+    }).scan();
+    return f;
+  };
+
+  it.each([
+    ['.karst/karst.yml', '.karst/karst.yml'],
+    ['.KARST/karst.yml', '.KARST/karst.yml'],
+  ])('refuses a patch on %s', async (_n, path) => {
+    const f = await run({ patch: patchOn(path) });
+    expect(f.applyPatch).not.toHaveBeenCalled();
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.fs.results[0]).toMatchObject({ kind: 'change', status: 'invalid' });
+    expect(f.fs.results[0]!.reason).toMatch(/manifest propose/);
+  });
+
+  it('refuses a patch through a symlink', async () => {
+    symlinkSync(join(root, '.karst'), join(root, 'web', 'link'));
+    const f = await run({ path: 'web', patch: patchOn('link/karst.yml') });
+    expect(f.applyPatch).not.toHaveBeenCalled();
+    expect(f.fs.results[0]).toMatchObject({ status: 'invalid' });
+  });
+
+  it('refuses a patch whose rename to targets .karst', async () => {
+    const f = await run({ patch: 'diff --git a/x b/.karst/karst.yml\nrename from x\nrename to .karst/karst.yml\n' });
+    expect(f.applyPatch).not.toHaveBeenCalled();
+    expect(f.fs.results[0]).toMatchObject({ status: 'invalid' });
+  });
+
+  it('restores karst.yml that a command wrote and records it invalid', async () => {
+    const file = join(root, '.karst', 'karst.yml');
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'sh x' }) });
+    f.runCommand.mockImplementation(async () => {
+      writeFileSync(file, 'host: evil\n');
+    });
+    await createSetupProposalOps({
+      ...f.deps,
+      resolveDir: () => ({ ok: true as const, dir: root }),
+      karstRoots: () => [root],
+    }).scan();
+    expect(readFileSync(file, 'utf8')).toBe('host: a\n');
+    expect(f.fs.results[0]).toMatchObject({ status: 'invalid', reason: 'invalid: command wrote .karst/karst.yml' });
+  });
+
+  it('warns, removes the file and records the reason for a refused patch', async () => {
+    const warns: string[] = [];
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', patch: patchOn('.karst/karst.yml') }) });
+    await createSetupProposalOps({
+      ...f.deps,
+      notify: { info: () => {}, warn: (m: string) => void warns.push(m) } as never,
+      resolveDir: () => ({ ok: true as const, dir: root }),
+    }).scan();
+    expect(warns).toEqual([expect.stringMatching(/^Karst: refused the change for "web" \(.*\.karst\/karst\.yml.*manifest propose.*\)\.$/)]);
+    expect(f.fs.removed).toEqual(['/s/1/outbox/b.json']);
+    expect(f.fs.results[0]!.reason).toMatch(/under \.karst\/; use `manifest propose`/);
+  });
+
+  it('warns about a restored command and removes the file', async () => {
+    const warns: string[] = [];
+    const file = join(root, '.karst', 'karst.yml');
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'sh x' }) });
+    f.runCommand.mockImplementation(async () => {
+      writeFileSync(file, 'x');
+      throw new Error('late failure');
+    });
+    await createSetupProposalOps({
+      ...f.deps,
+      notify: { info: () => {}, warn: (m: string) => void warns.push(m) } as never,
+      resolveDir: () => ({ ok: true as const, dir: root }),
+    }).scan();
+    expect(readFileSync(file, 'utf8')).toBe('host: a\n');
+    expect(warns[0]).toMatch(/command wrote \.karst\/karst\.yml; the host restored it\. Use `manifest propose`/);
+    expect(f.fs.removed).toEqual(['/s/1/outbox/b.json']);
+  });
+
+  it('takes no snapshot for a patch: it runs applyPatch only', async () => {
+    const f = await run({ patch: patchOn('a.txt') });
+    expect(f.applyPatch).toHaveBeenCalledWith(root, patchOn('a.txt'));
+    expect(f.runCommand).not.toHaveBeenCalled();
+    expect(f.fs.results[0]).toMatchObject({ status: 'applied' });
+  });
+
+  it('does not restore a file for a patch, since the patch guard runs before it', async () => {
+    const file = join(root, '.karst', 'karst.yml');
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', patch: patchOn('a.txt') }) });
+    f.applyPatch.mockImplementation(async () => {
+      writeFileSync(file, 'changed by patch\n');
+    });
+    await createSetupProposalOps({ ...f.deps, resolveDir: () => ({ ok: true as const, dir: root }), karstRoots: () => [root] }).scan();
+    expect(readFileSync(file, 'utf8')).toBe('changed by patch\n');
+    expect(f.fs.results[0]).toMatchObject({ status: 'applied' });
+  });
+
+  it('applies a command that leaves karst.yml alone', async () => {
+    const f = await run({ command: 'npm ci' });
+    expect(f.fs.results[0]).toMatchObject({ status: 'applied' });
   });
 });

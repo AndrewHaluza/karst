@@ -100,6 +100,28 @@ export function manifestWriteSections(path: string, manifest: Manifest): string[
   return [...keys].filter((k) => !isDeepStrictEqual(a[k], b[k])).sort();
 }
 
+/**
+ * Key paths (`a.b[0].c`) that the file at `path` has and that `writeManifest`
+ * would drop: the retired and legacy keys that the migration removes. Reads only; writes nothing.
+ */
+export function manifestRemovedKeys(path: string, manifest: Manifest): string[] {
+  const raw = yamlLoad(readFileSync(path, 'utf8'));
+  const before = keyPaths(raw, '');
+  // Only keys that the legacy migration drops count: the writer also normalizes other keys away.
+  const migrated = new Set(keyPaths(migrateLegacyManifest(isRecord(raw) ? raw : {}).raw, ''));
+  const after = new Set(keyPaths(yamlLoad(renderManifest(path, manifest)), ''));
+  return before.filter((k) => !migrated.has(k) && !after.has(k)).sort();
+}
+
+function keyPaths(value: unknown, prefix: string): string[] {
+  if (Array.isArray(value)) return value.flatMap((item, i) => keyPaths(item, `${prefix}[${i}]`));
+  if (!isRecord(value)) return [];
+  return Object.entries(value).flatMap(([k, v]) => {
+    const here = prefix === '' ? k : `${prefix}.${k}`;
+    return [here, ...keyPaths(v, here)];
+  });
+}
+
 /** The YAML text `writeManifest` writes for `manifest` over the file at `path`. */
 function renderManifest(path: string, manifest: Manifest): string {
   const text = readFileSync(path, 'utf8');

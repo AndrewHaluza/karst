@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load as yamlLoad } from 'js-yaml';
-import { manifestWriteSections, writeManifest, writeManifestWithBackup } from './write.js';
+import { manifestRemovedKeys, manifestWriteSections, writeManifest, writeManifestWithBackup } from './write.js';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
 import { validateManifest } from './schema.js';
 import { fullPreset, review as reviewFixture } from './fixtures.js';
@@ -1161,6 +1161,45 @@ describe('writeManifestWithBackup and manifestWriteSections', () => {
       expect(sections).toContain('approaches');
       expect(sections).not.toContain('host');
       expect(readFileSync(path, 'utf8')).toBe(RAW);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('a retired key is a raw delta', () => {
+  const RETIRED = `host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+approaches:
+  - id: karst-graph-engineering
+    label: Dynamic Graph
+    enabled: false
+    graph:
+      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }
+      profiles:
+        expert: { provider: claude, model: claude-opus-5, effort: high }
+        worker: { provider: claude, model: claude-sonnet-5, effort: low }
+      limits:
+        confirmGeneratedGraph: true
+        maxParallel: 1
+`;
+
+  it('reports the section and the key that the write removes, and the written file loads with no warning', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-retired-'));
+    try {
+      const path = join(dir, 'karst.yml');
+      writeFileSync(path, RETIRED);
+      const manifest = loadManifest(path);
+      expect(manifestWriteSections(path, manifest)).toContain('approaches');
+      expect(manifestRemovedKeys(path, manifest)).toEqual(['approaches[0].graph.limits.confirmGeneratedGraph']);
+      writeManifestWithBackup(path, manifest);
+      expect(readFileSync(path, 'utf8')).not.toContain('confirmGeneratedGraph');
+      expect(loadManifestWithDiagnostics(path).warnings.filter((w) => w.includes('confirmGeneratedGraph'))).toEqual([]);
+      expect(manifestRemovedKeys(path, loadManifest(path))).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
