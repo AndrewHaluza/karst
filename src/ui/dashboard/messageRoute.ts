@@ -139,6 +139,8 @@ export function routeAction(
       return actions.refreshShipPreview();
     case 'toggle-bind':
       return actions.toggleBind();
+    case 'set-layout':
+      return actions.setLayout(msg.layout);
     case 'switch-agent':
       return actions.switchAgent(msg.provider, msg.model, msg.effort);
     case 'copy-ticket-key':

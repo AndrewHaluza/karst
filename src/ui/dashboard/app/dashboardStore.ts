@@ -10,6 +10,7 @@ import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
 import type { WorktreeStats } from '../worktreeStats.js';
 import type { GateOptions } from '../gateOptions.js';
+import { DEFAULT_DASHBOARD_LAYOUT, parseDashboardLayout, type DashboardLayout } from '../../../model/dashboardLayout.js';
 import { applyClocks, receiveProgress, retireOverlays, type LiveOps } from './insideLive.js';
 
 export interface DashboardSnapshot {
@@ -18,6 +19,8 @@ export interface DashboardSnapshot {
   readonly worktreeStats: Readonly<Record<string, WorktreeStats>>;
   /** The window's terminal binding (`bind` message): host-owned, the header's "Link dashboard and terminal" switch renders it. */
   readonly bind: boolean;
+  /** The window-wide page width (`layout` message): host-owned, the "..." menu's Layout setting renders it and `<body data-layout>` follows it. */
+  readonly layout: DashboardLayout;
   /** The togglable gates (`gate-options` message), replaced wholesale on each answer; never cleared by a state push. Null until the first answer. */
   readonly gateOptions: GateOptions | null;
   /** The Inside block's transient overlays (`inside-progress`), keyed by stage; retired by the snapshot that holds their process. */
@@ -32,7 +35,7 @@ export class DashboardStore {
   private readonly messageListeners = new Set<(message: HostMessage) => void>();
 
   constructor(state: DashboardState | null) {
-    this.snapshot = { state, worktreeStats: NO_STATS, bind: false, gateOptions: null, liveOps: {} };
+    this.snapshot = { state, worktreeStats: NO_STATS, bind: false, layout: DEFAULT_DASHBOARD_LAYOUT, gateOptions: null, liveOps: {} };
   }
 
   readonly getSnapshot = (): DashboardSnapshot => this.snapshot;
@@ -79,6 +82,10 @@ export class DashboardStore {
       this.notify();
     } else if (message.type === 'bind') {
       this.snapshot = { ...this.snapshot, bind: message.enabled === true };
+      this.notify();
+    } else if (message.type === 'layout') {
+      // The host validated the mode; an unknown value from a stale host keeps the old one rather than blanking the page.
+      this.snapshot = { ...this.snapshot, layout: parseDashboardLayout(message.layout) ?? this.snapshot.layout };
       this.notify();
     } else if (message.type === 'gate-options') {
       this.snapshot = { ...this.snapshot, gateOptions: message.options || { uat: [], review: [] } };

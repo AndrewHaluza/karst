@@ -1,3 +1,4 @@
+import type { DashboardLayout } from '../../model/dashboardLayout.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { LiveClocks } from './liveTick.js';
 import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
@@ -35,6 +36,8 @@ export type HostMessage =
   | { type: 'worktree-stats'; stats: WorktreeStats[] }
   | { type: 'inside-progress'; event: InsideProgressEvent }
   | { type: 'bind'; enabled: boolean }
+  /** The window-wide page width (host-owned like `bind`, so absent from `DashboardState`). */
+  | { type: 'layout'; layout: DashboardLayout }
   | { type: 'attention' }
   /**
    * The togglable gate names for this ticket. Its own message, not part of

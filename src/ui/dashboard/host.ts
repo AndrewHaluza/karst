@@ -10,6 +10,7 @@ import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 import { baselineReviewRoot } from './baselineRows.js';
+import { DEFAULT_DASHBOARD_LAYOUT, withDashboardLayout, type DashboardLayout } from '../../model/dashboardLayout.js';
 import type { RestoredPanel } from '../shared/restoredPanel.js';
 
 /**
@@ -53,6 +54,8 @@ export function makeDashboardPanelHost(
   brandIcon?: BrandIconPaths,
   warn: (message: string) => void = () => {},
   debug?: Pick<Logger, 'debug' | 'isDebugEnabled'>,
+  /** The stored window-wide page width, read for each new panel so its first paint is already right. */
+  layout: () => DashboardLayout = () => DEFAULT_DASHBOARD_LAYOUT,
 ): PanelHost & { restore(raw: vscode.WebviewPanel): RestoredPanel<DashboardPanel> } {
   const { html, xterm } = dashboardWebviewAssets(warn);
   // Payload sizes, measured only in debug mode: over Remote-SSH every byte of
@@ -78,7 +81,7 @@ export function makeDashboardPanelHost(
     // status glyph — a dashboard tab is never unmarked, not even for a frame.
     panel.iconPath = brandIconUri(brandIcon);
     // Nonce per panel, not per host (the html above is built once and reused).
-    panel.webview.html = injectCsp(html, newNonce(), panel.webview.cspSource);
+    panel.webview.html = injectCsp(withDashboardLayout(html, layout()), newNonce(), panel.webview.cspSource);
     traceSize('html', () => panel.webview.html);
     panel.webview.onDidReceiveMessage(
       (message: { type?: unknown } | null) => {

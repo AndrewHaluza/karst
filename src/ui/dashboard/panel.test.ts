@@ -1211,6 +1211,38 @@ describe('DashboardManager', () => {
       }
     });
 
+    it('tells a new panel the stored page width, and the default when the host has none', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const withLayout = fakeHost();
+      new DashboardManager(
+        store, withLayout.host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        { enabled: () => false, layout: () => 'full', onDidActivate: () => {} },
+      ).openDashboard(t.id);
+      expect(withLayout.panels[0]!.posted).toContainEqual({ type: 'layout', layout: 'full' });
+
+      const bare = fakeHost();
+      new DashboardManager(store, bare.host, () => ({}) as never).openDashboard(t.id);
+      expect(bare.panels[0]!.posted).toContainEqual({ type: 'layout', layout: 'centered' });
+    });
+
+    it('pushLayout reaches every open panel with the current mode', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      const b = createTicket(store, { key: 'B', title: 'b' });
+      const { host, panels } = fakeHost();
+      let layout: 'centered' | 'full' = 'centered';
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        { enabled: () => false, layout: () => layout, onDidActivate: () => {} },
+      );
+      mgr.openDashboard(a.id);
+      mgr.openDashboard(b.id);
+      layout = 'full';
+      mgr.pushLayout();
+      for (const panel of panels) expect(panel.posted.at(-1)).toEqual({ type: 'layout', layout: 'full' });
+    });
+
     it('forwards panel activation, both gaining and losing it', () => {
       // Losing activation is forwarded rather than filtered here: the panel
       // reports what happened, the binder decides what it means.

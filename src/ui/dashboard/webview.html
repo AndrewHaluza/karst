@@ -37,6 +37,10 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-ui);font-size:var(--k-text-base);padding:var(--k-space-8) var(--k-space-9)}
+  /* The in-flow page is capped at the one project page width and centered (UI-R48). The header "..." menu's Layout
+     setting switches it to `full`, which is this rule absent. Fixed overlays (terminal, artifact, logs, baseline,
+     drawers) are positioned against the viewport, so the cap never touches them. */
+  body[data-layout="centered"]{max-width:var(--k-content-max);margin-inline:auto}
   a{color:var(--k-link);text-decoration:none}
   /* Toggled by the render fns (blocked banner, impl phases, artifact panels) —
      without this rule the `hidden` class was a no-op and an empty box still
@@ -138,6 +142,9 @@
   }
 </style>
 
+<!-- The page-width mode is written here by the host (workspace preference) before the first paint; the app follows later
+     pushes (app/BodyLayout.tsx). The default is `centered`. -->
+<body data-layout="centered">
 <!-- The static shell: each region root below is drawn into by the React app (app/App.tsx, through RegionPortal), and
      the region parity snapshots pin these roots as markup, so they stay here. -->
 <!-- Header: app/Header.tsx renders the ticket identity, title, Detach / Close / Reopen, the agent popover, the ship and

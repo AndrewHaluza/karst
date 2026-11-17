@@ -86,3 +86,42 @@ describe('TicketMenu — gates', () => {
     expect(h.send.setDisabledGates).toHaveBeenLastCalledWith('uat', 'e2e', false, 'req-2');
   });
 });
+
+describe('TicketMenu — layout setting', () => {
+  const radios = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="radiogroup"] [role="radio"]'));
+
+  it('is a labelled radiogroup of two icon + label options that follows the host `layout` push', () => {
+    const h = mountHeader(headerState());
+    const group = $('[role="radiogroup"]');
+    expect(document.getElementById(group.getAttribute('aria-labelledby')!)?.textContent).toBe('Layout');
+    expect(group.classList.contains('k-segmented')).toBe(true);
+    expect(radios().map((r) => r.textContent)).toEqual(['Centered', 'Full width']);
+    expect(radios().map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+    expect(radios().map((r) => r.tabIndex)).toEqual([0, -1]);
+    h.emit({ type: 'layout', layout: 'full' });
+    expect(radios().map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+    expect(radios().map((r) => r.tabIndex)).toEqual([-1, 0]);
+  });
+
+  it('posts the wanted mode once, runtime-pending, and keeps the old selection until the host answers', () => {
+    const h = mountHeader(headerState());
+    const full = radios()[1]!;
+    fireEvent.click(full);
+    fireEvent.click(full);
+    expect(h.send.setLayout).toHaveBeenCalledTimes(1);
+    expect(h.send.setLayout).toHaveBeenCalledWith('full', expect.any(String));
+    expect(radios()[0]!.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('moves and selects with the arrow keys, wrapping at the ends', () => {
+    const h = mountHeader(headerState());
+    radios()[0]!.focus();
+    fireEvent.keyDown(radios()[0]!, { key: 'ArrowRight' });
+    expect(h.send.setLayout).toHaveBeenLastCalledWith('full', expect.any(String));
+    expect(document.activeElement).toBe(radios()[1]);
+    fireEvent.keyDown(radios()[1]!, { key: 'ArrowRight' });
+    expect(h.send.setLayout).toHaveBeenLastCalledWith('centered', expect.any(String));
+    fireEvent.keyDown(radios()[0]!, { key: 'Home' });
+    expect(h.send.setLayout).toHaveBeenCalledTimes(2);
+  });
+});

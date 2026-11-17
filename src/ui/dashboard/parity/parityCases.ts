@@ -616,6 +616,14 @@ export const COVERED: readonly ParityCase[] = [
     posts: [{ type: 'set-disabled-gates', stage: 'uat', name: 'e2e', disabled: true }], rid: true,
   },
 
+  {
+    act: 'set-layout',
+    state: () => st('uat'),
+    prep: headerMenu(act('set-layout')),
+    sel: act('set-layout', '[data-layout-option="full"]'),
+    posts: [{ type: 'set-layout', layout: 'full' }], rid: true,
+  },
+
   // --- blocked banner ------------------------------------------------------
   {
     act: 'stage-resume', state: () => blockedState('boot-failed', true), sel: act('stage-resume', '[data-stagekey="uat"]'),

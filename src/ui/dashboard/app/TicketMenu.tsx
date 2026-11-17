@@ -10,6 +10,7 @@ import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import { HideableButton } from './HideableButton.js';
+import { LayoutSetting } from './LayoutSetting.js';
 import { selectBind, selectControls, selectGates } from './headerSlices.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
@@ -200,6 +201,7 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
           </div>
           <LinkViewsSwitch />
         </div>
+        <LayoutSetting />
         <div className="menuDivider" />
         <div className="menuHeading">Gates for this ticket</div>
         <div id="menuGates" className="menuGates">

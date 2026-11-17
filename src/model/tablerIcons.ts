@@ -293,6 +293,18 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M10 18l-3 3l-3 -3"/>' +
     '<path d="M7 21l0 -18"/>' +
     '<path d="M20 6l-3 -3l-3 3"/>',
+  // Added for the dashboard Layout quick setting (T1183): 'Centered' and 'Full width'.
+  'align-box-center-middle':
+    '<path d="M3 19v-14a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2"/>' +
+    '<path d="M11 15h2"/>' +
+    '<path d="M9 12h6"/>' +
+    '<path d="M10 9h4"/>',
+  'arrow-autofit-width':
+    '<path d="M4 12v-6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v6"/>' +
+    '<path d="M10 18h-7"/>' +
+    '<path d="M21 18h-7"/>' +
+    '<path d="M6 15l-3 3l3 3"/>' +
+    '<path d="M18 15l3 3l-3 3"/>',
 };
 
 /** Default render size in CSS px for `karstIcon()` (16px toolbar baseline). */

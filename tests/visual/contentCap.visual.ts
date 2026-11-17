@@ -31,10 +31,11 @@ const CAPPED: ReadonlyArray<readonly [ViewId, number | undefined]> = [
   ['settings', 1600],
   ['ticketForm', 1600],
   ['usage', 1600],
+  ['dashboard', 1600], // centered is the default mode (T1183)
   ['resources', 1600],
   ['gettingStarted', undefined], // 58ch, no token
 ];
-const UNCAPPED: readonly ViewId[] = ['dashboard', 'diffs', 'serverLogs', 'sidebar'];
+const UNCAPPED: readonly ViewId[] = ['diffs', 'serverLogs', 'sidebar'];
 
 karstTest.describe('content width cap (UI-R48)', () => {
   for (const [view, cap] of CAPPED) {
@@ -52,6 +53,16 @@ karstTest.describe('content width cap (UI-R48)', () => {
       assertCapped(await bodyGeo(page), width, cap);
     });
   }
+
+  karstTest('dashboard: Full width mode fills the viewport at 2560', async ({ gotoView, page }) => {
+    await page.setViewportSize({ width: 2560, height: LAYOUT_HEIGHT });
+    await gotoView('dashboard');
+    // The host's `layout` push is what the menu's Layout setting ends in.
+    await page.evaluate(() => window.postMessage({ type: 'layout', layout: 'full' }, '*'));
+    await page.waitForFunction(() => document.body.dataset.layout === 'full');
+    const w = await page.evaluate(() => document.body.getBoundingClientRect().width);
+    expect(w).toBeGreaterThanOrEqual(2560 - 2);
+  });
 
   for (const view of UNCAPPED) {
     karstTest(`${view}: full width at 2560`, async ({ gotoView, page }) => {

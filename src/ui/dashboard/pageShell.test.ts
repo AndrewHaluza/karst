@@ -75,8 +75,12 @@ describe('dashboard page — the shell and the injection markers', () => {
     expect(HTML).not.toContain('id="ticketDataDrawer"');
   });
 
-  it('stays uncapped in width (UI-R48)', () => {
-    expect(HTML).not.toContain('--k-content-max');
+  it('caps the page at the one page width token, in centered mode only (UI-R48)', () => {
+    expect(HTML).toContain('<body data-layout="centered">');
+    expect(STYLE).toContain('body[data-layout="centered"]{max-width:var(--k-content-max);margin-inline:auto}');
+    // Full width is the same page without the rule, and no px width is ever written here.
+    expect(STYLE).not.toMatch(/max-width:\s*1600/);
+    expect(STYLE).not.toContain('body[data-layout="full"]');
   });
 });
 

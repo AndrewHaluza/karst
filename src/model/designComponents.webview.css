@@ -35,6 +35,11 @@
   padding:var(--k-space-0);min-height:var(--k-space-0)}
 .k-btn--link:hover{color:var(--k-link-active);text-decoration:underline}
 
+/* A framed group of mutually exclusive `.k-btn--sm` options (a radiogroup). The selected option is `--secondary`, the
+   others `--ghost`; the frame makes the set read as one control. */
+.k-segmented{display:inline-flex;flex:none;gap:var(--k-space-1);padding:var(--k-space-1);
+  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:var(--k-surface-sunken)}
+
 .k-btn:active:not(:disabled){transform:scale(.96)}
 .k-btn:disabled{opacity:.45;cursor:default}
 .k-btn[aria-busy="true"]{cursor:progress}

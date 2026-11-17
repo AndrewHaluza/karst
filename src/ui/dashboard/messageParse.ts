@@ -1,6 +1,7 @@
 import { isHttpUrl } from '../shared/url.js';
 import { validateInsideProgressEvent, type InsideProgressEvent } from '../../model/inside/progress.js';
 import { isKnownProvider } from '../../agent/provider.js';
+import { parseDashboardLayout } from '../../model/dashboardLayout.js';
 import type { WebviewMessage } from './messages.js';
 
 type Msg<K extends WebviewMessage['type']> = Extract<WebviewMessage, { type: K }>;
@@ -184,6 +185,11 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // is dropped rather than honored, so the host's value stays authoritative.
     case 'toggle-bind':
       return { type: 'toggle-bind' };
+    // The mode crosses the trust boundary as a closed set: anything else drops the message.
+    case 'set-layout': {
+      const layout = parseDashboardLayout(m.layout);
+      return layout === null ? null : { type: 'set-layout', layout };
+    }
     // The selection is re-validated host-side (isKnownProvider + model-choice
     // membership) before anything is confirmed or persisted, so the webview's
     // draft is a suggestion, never authority — but the two fields still pass

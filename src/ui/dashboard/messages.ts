@@ -1,6 +1,7 @@
 import type { StageKey } from '../../model/types.js';
 import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 import type { AgentProvider } from '../../manifest/types.js';
+import type { DashboardLayout } from '../../model/dashboardLayout.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -172,6 +173,12 @@ export type WebviewMessage =
    * two can never disagree about which way the toggle currently sits.
    */
   | { type: 'toggle-bind' }
+  /**
+   * Set the window-wide dashboard page width. Unlike `toggle-bind` it carries the
+   * wanted mode (there are two named modes, not a flip); the host re-validates it,
+   * persists it and answers with a `layout` push to every open dashboard.
+   */
+  | { type: 'set-layout'; layout: DashboardLayout }
   /**
    * Apply a staged agent-core/model selection to this ticket's live session.
    * Carries the selection VERBATIM — the host re-validates both against the
