@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readVerifyRecords, writeVerifyRecord } from './record.js';
+import { readVerifyRecords, setupVerifyDir, writeVerifyRecord } from './record.js';
 import type { VerifyRecord } from './types.js';
 
 let dir: string;
@@ -42,5 +42,16 @@ describe('verify record', () => {
   it('defaults the kind, sha and time of a sparse record', () => {
     writeFileSync(join(dir, 's.json'), JSON.stringify({ status: 'refused', steps: [], changes: [] }));
     expect(readVerifyRecords(dir)[0]).toMatchObject({ kind: 'manifest', pinnedSha256: null, at: '' });
+  });
+});
+
+describe('setupVerifyDir', () => {
+  it('sits beside the store file, per session', () => {
+    expect(setupVerifyDir('/store/karst.db', 'abc-123')).toBe('/store/setup-verify/abc-123');
+  });
+  it('gives nothing without a store, a session, or for an unsafe session id', () => {
+    expect(setupVerifyDir(undefined, 'abc')).toBeUndefined();
+    expect(setupVerifyDir('/store/karst.db', undefined)).toBeUndefined();
+    expect(setupVerifyDir('/store/karst.db', '../x')).toBeUndefined();
   });
 });

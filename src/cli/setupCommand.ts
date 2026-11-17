@@ -5,7 +5,7 @@ import { MAX_SETUP_PROPOSAL_BYTES, validateSetupProposal, type ChangeProposal } 
 import { basename } from 'node:path';
 import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
 import { readLedger, withdrawProposal } from '../setup/ledger.js';
-import { readVerifyRecords, SETUP_VERIFY_ENV } from '../setup/verify/record.js';
+import { readVerifyRecords } from '../setup/verify/record.js';
 
 /**
  * `karst setup discover [--root <path>] [--default-branch <branch>]` and
@@ -23,7 +23,7 @@ import { readVerifyRecords, SETUP_VERIFY_ENV } from '../setup/verify/record.js';
 
 export interface SetupCommandDeps {
   outboxEnv?: string;
-  /** The host-side verify record directory; defaults to `$KARST_SETUP_VERIFY_DIR`. */
+  /** The host-side verify record directory (`setupVerifyDir`); absent means no host record. */
   verifyDirEnv?: string;
   uuid?: () => string;
   /** Read stdin, at most `max` bytes. Injected by main.ts. */
@@ -160,7 +160,7 @@ function runStatus(rest: readonly string[], deps: SetupCommandDeps): string {
   if (rest.length > 0) throw new Error('karst setup status takes no arguments');
   const proposals = readLedger(resolveSetupOutboxDir(deps.outboxEnv));
   // The host record is authoritative: the outbox ledger is agent-writable, so a proposal is `verified` only here.
-  const records = new Map(readVerifyRecords(deps.verifyDirEnv ?? process.env[SETUP_VERIFY_ENV]).map((r) => [r.id, r]));
+  const records = new Map(readVerifyRecords(deps.verifyDirEnv).map((r) => [r.id, r]));
   const shown = proposals.map((p) => {
     const rec = records.get(p.id);
     return {

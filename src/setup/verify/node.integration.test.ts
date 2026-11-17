@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { gitApplyCheck, nodeRecheck, nodeVerifyDeps, readManifestText } from './node.js';
+import { gitApplyCheck, nodeVerifyDeps, readManifestText } from './node.js';
 
 const YAML =
   'id: demo\nhost: 127.0.0.1\nportRange: [3000, 3999]\nbaselineBranch: main\n' +
@@ -63,20 +63,5 @@ describe('node verify binding', () => {
     expect(deps.readCurrentText()).toBeUndefined();
     writeFileSync(join(dir, 'karst.yml'), YAML);
     expect(deps.readCurrentText()).toBe(YAML);
-  });
-
-  it('recheck returns only the named items, slow ones included', async () => {
-    initRepo(join(dir, 'web'));
-    writeFileSync(join(dir, 'karst.yml'), YAML);
-    const items = await nodeRecheck(join(dir, 'karst.yml'))(['manifest.load']);
-    expect(items.map((i) => i.id)).toEqual(['manifest.load']);
-    expect(items[0]!.status).toBe('ok');
-  });
-
-  it('recheck gives a failing manifest.load for a missing or broken file', async () => {
-    const path = join(dir, 'karst.yml');
-    expect((await nodeRecheck(path)(['manifest.load']))[0]!.status).toBe('fail');
-    writeFileSync(path, 'id: [');
-    expect((await nodeRecheck(path)(['manifest.load']))[0]!.status).toBe('fail');
   });
 });

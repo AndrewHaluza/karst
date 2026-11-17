@@ -1,17 +1,21 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { VerifyRecord } from './types.js';
 
-/**
- * The host-side verify record. It lives in extension storage, outside the
- * agent's outbox, so only the host writes it: unlike the outbox `results/`
- * ledger, an agent cannot forge a `verified` here. `setup status` reads it
- * through `KARST_SETUP_VERIFY_DIR`.
- */
-export const SETUP_VERIFY_ENV = 'KARST_SETUP_VERIFY_DIR';
-
 const ID = /^[A-Za-z0-9-]{1,64}$/;
+
+/**
+ * The host-side verify record directory of one setup session. It lives in
+ * extension storage next to the store file, outside the agent's outbox, and only
+ * the host writes it: unlike the outbox `results/` ledger, an agent cannot be
+ * trusted to leave it alone, so the host never exports its path to the agent.
+ * `setup status` derives it from `--db` and the session id instead.
+ */
+export function setupVerifyDir(db: string | undefined, session: string | undefined): string | undefined {
+  if (db === undefined || session === undefined || !ID.test(session)) return undefined;
+  return join(dirname(db), 'setup-verify', session);
+}
 const MAX_RECORD_BYTES = 256 * 1024;
 const STATUSES: readonly string[] = ['verified', 'unverified', 'refused'];
 

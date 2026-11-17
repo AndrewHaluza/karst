@@ -4,8 +4,6 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { parseManifestText } from '../../manifest/load.js';
 import { nodeEnvProbe } from '../../manifest/nodeEnvProbe.js';
 import type { EnvProbe } from '../../manifest/validate/envWarnings.js';
-import { runReadiness } from '../readiness/runReadiness.js';
-import { nodeReadinessProbes } from '../readiness/nodeProbes.js';
 import type { ReadinessItem } from '../readiness/types.js';
 import type { GitApplyOutcome, LoadOptions, LoadOutcome, RecheckDeps, VerifyDeps } from './types.js';
 
@@ -76,29 +74,47 @@ export function nodeVerifyDeps(manifestPath: string): VerifyDeps {
   };
 }
 
-/** A2: run the readiness items again on the real files, slow probes included, for the named ids. */
-export function nodeRecheck(manifestPath: string): RecheckDeps['recheck'] {
-  const dir = dirname(manifestPath);
-  return async (ids: readonly string[]): Promise<readonly ReadinessItem[]> => {
-    const text = readManifestText(manifestPath);
-    const outcome =
-      text === undefined
-        ? ({ ok: false, error: 'karst.yml is missing' } as const)
-        : (() => {
-            try {
-              return { ok: true, ...parseManifestText(text, manifestPath, nodeEnvProbe(dir)) } as const;
-            } catch (e) {
-              return { ok: false, error: e instanceof Error ? e.message : String(e) } as const;
-            }
-          })();
-    const report = await runReadiness({
-      manifest: outcome.ok ? outcome.manifest : undefined,
-      ...(outcome.ok ? {} : { loadError: outcome.error }),
-      warnings: outcome.ok ? outcome.codedWarnings : [],
-      repos: [],
-      probes: nodeReadinessProbes(dir),
-    });
-    return report.items.filter((item) => ids.includes(item.id));
+/** Runs the karst CLI in a child process and settles when it exits. The host binds it to an async spawn. */
+export type CliRunner = (args: readonly string[], cwd: string) => Promise<{ stdout: string; exitCode: number }>;
+
+const STATUSES: ReadonlySet<string> = new Set(['ok', 'warn', 'fail']);
+
+function toItem(value: unknown): ReadinessItem | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  if (typeof v['id'] !== 'string' || typeof v['status'] !== 'string' || !STATUSES.has(v['status'])) return undefined;
+  const item: ReadinessItem = {
+    id: v['id'],
+    status: v['status'] as ReadinessItem['status'],
+    detail: typeof v['detail'] === 'string' ? v['detail'] : '',
   };
+  return typeof v['fix'] === 'string' ? { ...item, fix: v['fix'] } : item;
 }
 
+/** The items of a `setup check` JSON report. A report of another shape throws: the check did not run. */
+export function parseCheckReport(stdout: string): ReadinessItem[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error('setup check printed no JSON report');
+  }
+  const raw = (parsed as { items?: unknown } | null)?.items;
+  if (!Array.isArray(raw)) throw new Error('setup check report has no items');
+  const items = raw.map(toItem);
+  if (items.some((i) => i === undefined)) throw new Error('setup check report has a malformed item');
+  return items as ReadinessItem[];
+}
+
+/**
+ * A2: run the readiness items again on the real files for the named ids. The
+ * run is the CLI `setup check` in a child process (`--db` makes it run the
+ * services item too). The probes there use sync spawns, which is fine in a
+ * short-lived process but must never run on the host event loop.
+ */
+export function nodeRecheck(manifestPath: string, db: string, runCli: CliRunner): RecheckDeps['recheck'] {
+  return async (ids: readonly string[]): Promise<readonly ReadinessItem[]> => {
+    const { stdout } = await runCli(['setup', 'check', '--db', db, '--manifest', manifestPath], dirname(manifestPath));
+    return parseCheckReport(stdout).filter((item) => ids.includes(item.id));
+  };
+}

@@ -16,8 +16,13 @@ import { manifestPathOrThrow, readScaffoldManifest } from './manifestResolve.js'
 import { manifestRemovedKeys, manifestWriteSections, writeManifestWithBackup } from '../manifest/write.js';
 import { ownedScratches, readSetupOwner } from '../setup/owner.js';
 import { ask } from './toastSeam.js';
-import { nodeRecheck, nodeVerifyDeps } from '../setup/verify/node.js';
+import { opencode2ConfigEnv } from '../agent/opencode2Binary.js';
+import { spawnHeadlessCli } from '../agent/headlessSpawn.js';
+import { nodeRecheck, nodeVerifyDeps, type CliRunner } from '../setup/verify/node.js';
 import { writeVerifyRecord } from '../setup/verify/record.js';
+
+/** The A2 re-check runs the services item, which starts and health-gates a service. */
+const SETUP_RECHECK_TIMEOUT_MS = 5 * 60 * 1_000;
 
 /**
  * The vscode binding for the onboarding setup feature (§ ONBOARDING-SETUP-AGENT).
@@ -100,6 +105,16 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
   const scratchDir = (id: string): string => join(setupRoot, id);
   /** Host records live in extension storage, never in the agent-writable scratch. */
   const verifyDir = (id: string): string => join(deps.storageDir, 'setup-verify', id);
+  /** A2 runs `setup check` (core and gate probes use sync spawns) in a child, never on the host loop. */
+  const runCli: CliRunner = async (args, cwd) => {
+    const entry = deps.cliEntry();
+    if (entry === undefined) throw new Error('the karst CLI entry is not available');
+    const out = await spawnHeadlessCli(process.execPath, [entry, ...args], cwd, {
+      timeoutMs: SETUP_RECHECK_TIMEOUT_MS,
+      env: opencode2ConfigEnv(),
+    });
+    return { stdout: out.stdout, exitCode: out.exitCode };
+  };
   const workspaceRoot = (): string | undefined => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const manifestOrEmpty = (): SetupManifest | undefined => deps.currentManifest();
 
@@ -112,7 +127,6 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     workspaceRoot,
     defaultAgent: deps.defaultAgent,
     scratchDir,
-    verifyDir,
     host: { createTerminal: (opts) => deps.terminalHost().createTerminal(opts) },
     cliEntry: deps.cliEntry,
     dbPath: deps.dbPath,
@@ -166,7 +180,7 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
       const dir = verifyDir(basename(scratch));
       return {
         deps: nodeVerifyDeps(manifestPath),
-        recheck: nodeRecheck(manifestPath),
+        recheck: nodeRecheck(manifestPath, deps.dbPath, runCli),
         writeRecord: (record) => writeVerifyRecord(dir, record),
       };
     },

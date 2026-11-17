@@ -24,6 +24,7 @@ import { runArtifactShowCommand } from './artifactShow.js';
 import { runGraphCommand } from './graph.js';
 import { runNodeCommand } from './node.js';
 import { runGuideCommand } from './guide.js';
+import { setupVerifyDir } from '../setup/verify/record.js';
 import { readGuideAttribution, recordGuidePull } from './guideTelemetry.js';
 import { runCompactCommand } from './compact.js';
 import { runEnvCommand } from './envCommand.js';
@@ -753,6 +754,7 @@ export function runCli(
   if (subcommand === 'setup') {
     return runSetupCommand(effectiveRest, {
       outboxEnv: env.KARST_SETUP_OUTBOX,
+      verifyDirEnv: setupVerifyDir(db, env.KARST_SETUP_SESSION),
       // Structured input for `propose-change` is the flat tool object
       // `{subcommand, repo, reason, command?}`; the handler wants the change
       // proposal itself, so `kind` is added and `subcommand` dropped. The
