@@ -56,6 +56,8 @@ export interface CiActionsInput {
   readonly handOff: (prompt: string) => string | null;
   /** The impl stage of this ticket runs a graph (T1158): a CI or gate round enters fix at ship, not Implement. */
   readonly implRunsGraph?: () => boolean;
+  /** The send-back comes from a person's click, not from the Autopilot engine (T1212, @arch:AP-06). */
+  readonly manualSend?: boolean;
   readonly deliver: DeliverHost;
   readonly afterServerChange: () => void;
   /** Retake the ticket's gate snapshot after a successful rebase on base (@arch:GATE-SNAPSHOT). */
@@ -87,6 +89,7 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
     confirm: (detail) => i.confirm('Send CI failure to the agent?', detail, 'Send to agent'),
     info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, handOff: i.handOff, afterServerChange: i.afterServerChange,
     ...(i.implRunsGraph ? { implRunsGraph: i.implRunsGraph } : {}),
+    ...(i.manualSend === true ? { markManualReship: true } : {}),
   });
 }
 
@@ -102,6 +105,7 @@ export function sendGateFailureAction(i: CiActionsInput): Promise<void> {
     confirm: (detail) => i.confirm('Send gate failure to the agent?', detail, 'Send to agent'),
     info: i.info, error: i.error, logError: i.logError, debug: i.debug, drive: i.drive, handOff: i.handOff, afterServerChange: i.afterServerChange,
     ...(i.implRunsGraph ? { implRunsGraph: i.implRunsGraph } : {}),
+    ...(i.manualSend === true ? { markManualReship: true } : {}),
   });
 }
 

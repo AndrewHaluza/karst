@@ -1543,6 +1543,7 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   claim_owner TEXT,                           -- window that holds the arming lease (two windows share one db)
   claim_until INTEGER,                        -- lease end, epoch ms
   session_owner TEXT,                         -- window that holds the ticket's session; set at session open, cleared at close
+  ci_round_manual INTEGER NOT NULL DEFAULT 0, -- v129 (T1212): 1 when the mark in ci_round_at came from a person's Send CI failure / Send gate failure click, not from the Autopilot engine; such a re-ship needs no Autopilot mode
   ci_round_at INTEGER,                        -- v118 (T1095): epoch ms an Autopilot CI round was sent; NULL once ship starts, a park, a pause, off mode or Stop now. It lets the driver re-ship to open PRs without the Confirm click
   conflict_round_at INTEGER                   -- v101 (T996): epoch ms a conflict round was sent; NULL once it delivered, stopped or was dropped. It holds a slot
 );

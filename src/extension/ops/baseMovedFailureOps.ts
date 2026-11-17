@@ -4,6 +4,7 @@ import { sendBackToImplement, SEND_BACK_EVENT_PREFIX } from '../../workflow/send
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 import { enterShipFixRound } from '../../workflow/shipFixRound.js';
 import { getTicket } from '../../store/tickets.js';
+import { markCiRound } from '../../store/autopilot.js';
 import { FIX_ROUTE_CONFIRM_TAIL, handOffPrompt, takesFixRoute } from './ciFailureOps.js';
 
 /**
@@ -15,6 +16,8 @@ import { FIX_ROUTE_CONFIRM_TAIL, handOffPrompt, takesFixRoute } from './ciFailur
  */
 
 export interface BaseMovedFailureOpsDeps {
+  /** A person clicked: mark the round for a re-ship after UAT and Review (T1212, @arch:AP-06). */
+  readonly markManualReship?: boolean;
   readonly store: Store;
   readonly ticketId: number;
   /** Writes `<artifacts>/<ticket>/<name>` and returns the absolute host path. */
@@ -98,11 +101,13 @@ export async function sendGateFailureToAgent(deps: BaseMovedFailureOpsDeps): Pro
     const reason = failureReason(state, path, !fixRoute);
     if (fixRoute) {
       enterShipFixRound(deps.store, deps.ticketId, { reason, artifactPath: path, debug: deps.debug });
+      if (deps.markManualReship === true) markCiRound(deps.store, deps.ticketId, Date.now(), 'manual');
       deps.drive();
       deps.info('Gate failure sent to a fix session; ticket moved to Fix from ship.');
       return;
     }
     const result = sendBackToImplement(deps.store, deps.ticketId, { debug: deps.debug, reason });
+    if (deps.markManualReship === true) markCiRound(deps.store, deps.ticketId, Date.now(), 'manual');
     deps.drive();
     const refusal = deps.handOff(handOffPrompt(reason));
     deps.info(

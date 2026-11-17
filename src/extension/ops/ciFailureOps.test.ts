@@ -6,6 +6,7 @@ import { transition } from '../../workflow/machine.js';
 import { listInbox } from '../../store/ticketMessages.js';
 import { sendCiFailureToAgent, handOffPrompt, takesFixRoute, MAX_CI_LOG_BYTES, type CiFailureOpsDeps } from './ciFailureOps.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
+import { getCiRoundSource } from '../../store/autopilot.js';
 import { SEND_BACK_DONE_MARKER } from './sendBackMarker.js';
 
 let store: Store;
@@ -317,6 +318,34 @@ describe('takesFixRoute (T1158)', () => {
     expect(takesFixRoute(() => true, 'review')).toBe(false);
     expect(takesFixRoute(() => false, 'ship')).toBe(false);
     expect(takesFixRoute(undefined, 'ship')).toBe(false);
+  });
+});
+
+describe('sendCiFailureToAgent manual re-ship mark (T1212)', () => {
+  it('marks the round manual on a send-back to Implement, before the driver runs', async () => {
+    seed([{ name: 'build', url: null }]);
+    let seen: string | null = 'unset';
+    const { d } = deps({ markManualReship: true, drive: vi.fn(() => { seen = getCiRoundSource(store, id); }) });
+    await sendCiFailureToAgent(d);
+    expect(seen).toBe('manual');
+  });
+  it('marks the round manual on the fix route, before the driver runs', async () => {
+    seed([{ name: 'build', url: null }]);
+    let seen: string | null = 'unset';
+    await sendCiFailureToAgent(deps({ markManualReship: true, implRunsGraph: () => true, drive: vi.fn(() => { seen = getCiRoundSource(store, id); }) }).d);
+    expect(seen).toBe('manual');
+  });
+  it('sets no mark on the fix route without the flag', async () => {
+    seed([{ name: 'build', url: null }]);
+    await sendCiFailureToAgent(deps({ implRunsGraph: () => true }).d);
+    expect(getCiRoundSource(store, id)).toBeNull();
+  });
+  it('sets no mark without the flag (the Autopilot path), after a declined confirm, or after a refusal', async () => {
+    seed([{ name: 'build', url: null }]);
+    await sendCiFailureToAgent(deps({ markManualReship: true, confirm: vi.fn(async () => false) }).d);
+    expect(getCiRoundSource(store, id)).toBeNull();
+    await sendCiFailureToAgent(deps().d);
+    expect(getCiRoundSource(store, id)).toBeNull();
   });
 });
 

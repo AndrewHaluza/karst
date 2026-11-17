@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, getTicket } from '../../store/tickets.js';
+import { createTicket, getTicket, setStageCurrent } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { openDeliverRun, recordDeliverGate, finishDeliverRun } from '../../store/deliverRuns.js';
 import { transition } from '../../workflow/machine.js';
+import { getCiRoundSource } from '../../store/autopilot.js';
 import { baseRefOf, failureReason, sendGateFailureToAgent, type BaseMovedFailureOpsDeps } from './baseMovedFailureOps.js';
 
 let store: Store;
@@ -126,5 +127,33 @@ describe('failureReason route (T1158)', () => {
   });
   it('drops the impl marker step for a fix round', () => {
     expect(failureReason(f, '/p', false).split('\n').at(-1)).toBe('3. Re-record every baseline that the merge changed.');
+  });
+});
+
+describe('sendGateFailureToAgent manual re-ship mark (T1212)', () => {
+  it('marks the round manual on both routes, and not without the flag', async () => {
+    seed({ block: true, run: 'failed' });
+    await sendGateFailureToAgent(deps());
+    expect(getCiRoundSource(store, id)).toBeNull();
+    setStageCurrent(store, id, 'ship');
+    setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null, blockedKind: 'base-moved-failed' as const, blockedReason: REASON, blockedAt: 'T0' });
+    await sendGateFailureToAgent(deps({ markManualReship: true, implRunsGraph: () => true }));
+    expect(getCiRoundSource(store, id)).toBe('manual');
+  });
+  it('sets the mark before the driver runs, on both routes', async () => {
+    const seen: Array<string | null> = [];
+    seed({ block: true, run: 'failed' });
+    await sendGateFailureToAgent(deps({ markManualReship: true, drive: vi.fn(() => { seen.push(getCiRoundSource(store, id)); }) }));
+    setStageCurrent(store, id, 'ship');
+    setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null, blockedKind: 'base-moved-failed' as const, blockedReason: REASON, blockedAt: 'T0' });
+    await sendGateFailureToAgent(deps({ markManualReship: true, implRunsGraph: () => true, drive: vi.fn(() => { seen.push(getCiRoundSource(store, id)); }) }));
+    expect(seen).toEqual(['manual', 'manual']);
+  });
+  it('marks a send-back to Implement and no mark after a declined confirm', async () => {
+    seed({ block: true, run: 'failed' });
+    await sendGateFailureToAgent(deps({ markManualReship: true, confirm: vi.fn(async () => false) }));
+    expect(getCiRoundSource(store, id)).toBeNull();
+    await sendGateFailureToAgent(deps({ markManualReship: true }));
+    expect(getCiRoundSource(store, id)).toBe('manual');
   });
 });

@@ -373,6 +373,8 @@ END_DOC_BLOCK: [@arch:V121]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
+**v129:** `autopilot_tickets.ci_round_manual INTEGER NOT NULL DEFAULT 0` — 1 when the re-ship mark came from a manual send (`@arch:AP-06`). Additive, no backfill.
+
 **v128:** `karst_events` and the move of Autopilot status out of the bulletin (`@arch:EVENTS`).
 
 **v127:** `@arch:V127`.

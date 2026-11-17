@@ -813,7 +813,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     },
     // Peek CTA "Send CI failure to agent": the dashboard's own action (availability and confirm re-derived from the store), bound per ticket.
-    sendCiFailure: (id) => void sendCiFailureAction({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); showStatusFor(id); } }),
+    sendCiFailure: (id) => void sendCiFailureAction({ ...ciHost(id), manualSend: true, store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); showStatusFor(id); } }),
     // Acks at once (UI-R13/R14): the input box is not the action — the new
     // Planning row arriving is the result, and a cancelled box adds none.
     planCreate: () => void vscode.window.showInputBox({ prompt: 'What do you want to plan?', ignoreFocusOut: true })

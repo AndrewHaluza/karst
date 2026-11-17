@@ -4,7 +4,7 @@ import { createTicket, pauseTicket, setStageCurrent, unpauseTicket } from '../..
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { setStage } from '../../store/stages.js';
 import {
-  getAutopilotTicket, getCiRoundAt, markCiRound, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, takeAutopilotAttempt,
+  getAutopilotTicket, getCiRoundAt, getCiRoundSource, markCiRound, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, takeAutopilotAttempt,
 } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import type { ShipPreview, ShipPreviewRepo } from '../../workflow/shipPreview.js';
@@ -45,6 +45,52 @@ beforeEach(() => {
   markCiRound(store, id, 1000);
 });
 
+describe('autoReship after a manual send (T1212)', () => {
+  beforeEach(() => markCiRound(store, id, 1000, 'manual'));
+
+  it('re-ships with autopilot off, with no config, and notes the manual send without spending a budget', async () => {
+    setAutopilotOverride(store, id, 'off');
+    markCiRound(store, id, 1000, 'manual');
+    const x = deps({ cfg: undefined });
+    expect(await autoReship(x.d)).toEqual({ kind: 'shipped', used: 0, max: 0 });
+    expect(x.ship).toHaveBeenCalledTimes(1);
+    expect(x.notes).toEqual([['Re-shipped after CI fix (manual send)', 'AP-1: ship ran without the Confirm click; every PR it pushes to is already open.']]);
+    expect(x.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: re-ship after a manual send');
+    expect(getCiRoundAt(store, id)).toBeNull();
+    expect(getAutopilotBudgetAttempts()).toBe(1);
+  });
+
+  it('ignores a stale autopilot stop state', async () => {
+    setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+    markCiRound(store, id, 1000, 'manual');
+    expect((await autoReship(deps().d)).kind).toBe('shipped');
+  });
+
+  it('keeps every other condition: first ship, pause, block, window, drain', async () => {
+    expect((await autoReship(deps({ prev: preview(repo({ prNumber: null })) }).d)).kind).toBe('waits');
+    expect((await autoReship(deps({ controls: false }).d)).kind).toBe('waits');
+    expect(getCiRoundSource(store, id)).toBe('manual');
+    pauseTicket(store, id);
+    expect(getCiRoundAt(store, id)).toBeNull();
+    expect((await autoReship(deps().d)).kind).toBe('waits');
+  });
+
+  it('waits with a debug line naming the reason when a manual mark cannot ship', async () => {
+    const x = deps({ prev: preview(repo({ prNumber: null })) });
+    await autoReship(x.d);
+    expect(x.debug).toHaveBeenCalledWith(expect.stringContaining('no automatic re-ship'));
+  });
+
+  it('a later autopilot round takes the source back', () => {
+    markCiRound(store, id, 2000);
+    expect(getCiRoundSource(store, id)).toBe('autopilot');
+  });
+});
+
+function getAutopilotBudgetAttempts(): number {
+  return (store.db.prepare("SELECT attempts FROM autopilot_budgets WHERE ticket_id = ? AND kind = 'ci'").get(id) as { attempts: number }).attempts;
+}
+
 describe('autoReship', () => {
   it('waits and holds the ticket while the drain is set, and keeps the ci round mark', async () => {
     const drain = createDrain();
@@ -60,7 +106,8 @@ describe('autoReship', () => {
     const x = deps();
     expect(await autoReship(x.d)).toEqual({ kind: 'shipped', used: 1, max: 3 });
     expect(x.ship).toHaveBeenCalledTimes(1);
-    expect(x.notes).toEqual([['Autopilot: re-shipped after ci round 1/3', expect.any(String)]]);
+    expect(x.notes).toEqual([['Autopilot: re-shipped after ci round 1/3', 'AP-1: ship ran without the Confirm click; every PR it pushes to is already open.']]);
+    expect(x.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: re-ship after ci round 1/3');
     expect(x.debug.mock.calls.every(([m]) => (m as string).startsWith('[ship] autopilot'))).toBe(true);
   });
 
