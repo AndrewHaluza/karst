@@ -109,9 +109,14 @@ describe('countLiveRuns', () => {
       .prepare("INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at, kind) VALUES (?, 'h', '[]', 'running', 111, 'x', 'base-moved')")
       .run(t.id);
     // Drain.track counts the auto-deliver (extra = 1); the host passes its ticket, so the row is skipped.
-    expect(countLiveRuns(store, 111, 1, [t.id])).toBe(1);
+    expect(countLiveRuns(store, 111, 1, t.id)).toBe(1);
     // A row of another ticket still counts.
-    expect(countLiveRuns(store, 111, 1, [t.id + 99])).toBe(2);
+    expect(countLiveRuns(store, 111, 1, t.id + 99)).toBe(2);
+    // Two tracked tickets: both rows are skipped.
+    store.db
+      .prepare("INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at, kind) VALUES (?, 'h', '[]', 'running', 111, 'x', 'auto')")
+      .run(t.id);
+    expect(countLiveRuns(store, 111, 1, t.id, t.id + 99)).toBe(1);
     store.close();
   });
 });

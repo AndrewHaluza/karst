@@ -75,7 +75,7 @@ export function makeReloadWhenIdleHandler(
         signal: ac.signal,
         log,
         onCancelled: (held) => held.forEach((id) => redrive(id)),
-        countLive: () => countLiveRuns(store, hostPid, drain.inFlight(), liveDeliverTickets()),
+        countLive: () => countLiveRuns(store, hostPid, drain.inFlight(), ...liveDeliverTickets()),
         onCount: (n) => report(idleProgressMessage(n)),
         reload: () => host.reloadWindow(),
         sleep: abortableSleep(ac.signal),

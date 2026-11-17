@@ -16,11 +16,11 @@ export const IDLE_POLL_MS = 2000;
  * status is 'running' and whose pid is the host's, the `ship_runs` rows with
  * status 'running' (the ship saga writes a ship run, not a stage run), and the
  * `deliver_runs` rows with state 'running' (an auto-deliver runs its gates
- * outside any stage run). `extra` adds the tracked runs (`Drain.track`): host gate re-runs, which write no run row, and the auto-delivers. A tracked auto-delivery counts once: `trackedDeliverTickets` lists its tickets, and their `deliver_runs` rows are skipped. A run of another window has another pid and is not counted.
+ * outside any stage run). `extra` adds the tracked runs (`Drain.track`): host gate re-runs, which write no run row, and the auto-delivers. A tracked auto-delivery counts once: the rest arguments list its tickets, and their `deliver_runs` rows are skipped. A run of another window has another pid and is not counted.
  * Interactive impl/fix terminals are not counted: the pty host keeps them
  * across a reload (@arch:AC-15).
  */
-export function countLiveRuns(store: Store, hostPid: number, extra = 0, trackedDeliverTickets: readonly number[] = []): number {
+export function countLiveRuns(store: Store, hostPid: number, extra = 0, ...trackedDeliverTickets: readonly number[]): number {
   const count = (table: 'process_runs' | 'stage_runs'): number => {
     const row = store.db
       .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE status = 'running' AND pid = ?`)
