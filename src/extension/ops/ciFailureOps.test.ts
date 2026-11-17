@@ -328,10 +328,11 @@ describe('sendCiFailureToAgent manual re-ship mark (T1212)', () => {
     await sendCiFailureToAgent(d);
     expect(seen).toBe('manual');
   });
-  it('marks the round manual on the fix route', async () => {
+  it('marks the round manual on the fix route, before the driver runs', async () => {
     seed([{ name: 'build', url: null }]);
-    await sendCiFailureToAgent(deps({ markManualReship: true, implRunsGraph: () => true }).d);
-    expect(getCiRoundSource(store, id)).toBe('manual');
+    let seen: string | null = 'unset';
+    await sendCiFailureToAgent(deps({ markManualReship: true, implRunsGraph: () => true, drive: vi.fn(() => { seen = getCiRoundSource(store, id); }) }).d);
+    expect(seen).toBe('manual');
   });
   it('sets no mark without the flag (the Autopilot path), after a declined confirm, or after a refusal', async () => {
     seed([{ name: 'build', url: null }]);

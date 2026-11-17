@@ -140,6 +140,15 @@ describe('sendGateFailureToAgent manual re-ship mark (T1212)', () => {
     await sendGateFailureToAgent(deps({ markManualReship: true, implRunsGraph: () => true }));
     expect(getCiRoundSource(store, id)).toBe('manual');
   });
+  it('sets the mark before the driver runs, on both routes', async () => {
+    const seen: Array<string | null> = [];
+    seed({ block: true, run: 'failed' });
+    await sendGateFailureToAgent(deps({ markManualReship: true, drive: vi.fn(() => { seen.push(getCiRoundSource(store, id)); }) }));
+    setStageCurrent(store, id, 'ship');
+    setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null, blockedKind: 'base-moved-failed' as const, blockedReason: REASON, blockedAt: 'T0' });
+    await sendGateFailureToAgent(deps({ markManualReship: true, implRunsGraph: () => true, drive: vi.fn(() => { seen.push(getCiRoundSource(store, id)); }) }));
+    expect(seen).toEqual(['manual', 'manual']);
+  });
   it('marks a send-back to Implement and no mark after a declined confirm', async () => {
     seed({ block: true, run: 'failed' });
     await sendGateFailureToAgent(deps({ markManualReship: true, confirm: vi.fn(async () => false) }));
