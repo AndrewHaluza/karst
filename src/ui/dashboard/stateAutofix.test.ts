@@ -263,7 +263,7 @@ describe('readAutofix', () => {
         { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
         { label: 'agent fix', detail: 'attempt 1', status: 'pass' },
         { label: 'gates run again', detail: word, status: 'run', stopAfter: true },
-        { label: 're-ship to api #88', detail: '', status: 'pending' },
+        { label: 're-ship', detail: 'to api #88', status: 'pending' },
       ]);
     });
 
@@ -272,7 +272,7 @@ describe('readAutofix', () => {
     });
 
     it('says ship waits for Confirm when the mark is gone', () => {
-      expect(ciRound('review', false).row?.steps.at(-1)).toMatchObject({ label: 'ship waits for Confirm', status: 'pending' });
+      expect(ciRound('review', false).row?.steps.at(-1)).toMatchObject({ label: 'ship', detail: 'waits for Confirm', status: 'pending' });
     });
   });
 

@@ -107,7 +107,10 @@ export const STEP_FETCH_LOG = 'fetch CI log';
 export const STEP_CI_AGENT = 'agent fix';
 export const STEP_CONFLICT_AGENT = 'agent resolving';
 export const STEP_GATES_AGAIN = 'gates run again';
-export const STEP_RESHIP_CONFIRM = 'ship waits for Confirm';
+/** The key column is narrow: the label holds the verb, the detail holds the rest, so the PR stays readable. */
+export const STEP_RESHIP = 're-ship';
+export const STEP_SHIP_WAITS = 'ship';
+export const DETAIL_SHIP_WAITS = 'waits for Confirm';
 const GATE_WORD: Record<AutofixGate, string> = { uat: 'UAT', review: 'Review' };
 
 const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
@@ -147,7 +150,9 @@ export function provableSteps(round: AutofixRound): readonly AutofixStepRow[] {
       fetched,
       { label: STEP_CI_AGENT, detail: agentDetail, status: 'pass' },
       { label: STEP_GATES_AGAIN, detail: GATE_WORD[round.gate], status: 'run', stopAfter: true },
-      { label: round.reshipWaits === true ? STEP_RESHIP_CONFIRM : `re-ship to ${target === '' ? 'the open PR' : target}`, detail: '', status: 'pending' },
+      round.reshipWaits === true
+        ? { label: STEP_SHIP_WAITS, detail: DETAIL_SHIP_WAITS, status: 'pending' }
+        : { label: STEP_RESHIP, detail: `to ${target === '' ? 'the open PR' : target}`, status: 'pending' },
     ];
   }
   return [{ label: STEP_CONFLICT_AGENT, detail: `${unitWord('conflicts')} ${round.used}`, status: 'run', stopAfter: true }];

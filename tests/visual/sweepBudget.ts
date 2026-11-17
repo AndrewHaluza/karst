@@ -27,7 +27,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1183 layout-centered / layout-full menu-open variants, @ui:UI-R57: 2 variants x 1 theme (dark) (+2 screenshots); skipLayout, so no layout runs.
   // T1190 pr-disabled-merge-hover, @ui:UI-R57: 3 width tiers x 1 theme (dark) (+3 screenshots); skipLayout, so no layout runs.
-  dashboard: { screenshots: 591, layout: 690 },
+  // T1193 auto-ci-uat / auto-ci-review / auto-ci-review-confirm, @ui:UI-R57: 3 new Auto-fix step states x 4 width tiers x 1 theme (dark) (+12 screenshots) and their layout runs (+24).
+  dashboard: { screenshots: 603, layout: 714 },
   diffs: { screenshots: 7, layout: 25 },
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },

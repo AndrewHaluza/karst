@@ -56,13 +56,13 @@ describe('autofixRow', () => {
       { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
       { label: 'agent fix', detail: 'attempt 1', status: 'pass' },
       { label: 'gates run again', detail: word, status: 'run', stopAfter: true },
-      { label: 're-ship to api #88', detail: '', status: 'pending' },
+      { label: 're-ship', detail: 'to api #88', status: 'pending' },
     ]);
   });
 
   it('says ship waits for Confirm when the re-ship would keep the click', () => {
     const row = autofixRow({ ...BASE, round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 1, max: 3, gate: 'review', reshipWaits: true } });
-    expect(row?.steps.at(-1)).toEqual({ label: 'ship waits for Confirm', detail: '', status: 'pending' });
+    expect(row?.steps.at(-1)).toEqual({ label: 'ship', detail: 'waits for Confirm', status: 'pending' });
   });
 
   it('lists the finished attempts and leaves out the newest note of the running kind', () => {

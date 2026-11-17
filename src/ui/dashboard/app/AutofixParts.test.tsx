@@ -175,7 +175,7 @@ describe('Stop auto-fix now (stage menu)', () => {
         { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
         { label: 'agent fix', detail: 'attempt 2', status: 'pass' },
         { label: 'gates run again', detail: 'UAT', status: 'run', stopAfter: true },
-        { label: 're-ship to api #88', detail: '', status: 'pending' },
+        { label: 're-ship', detail: 'to api #88', status: 'pending' },
       ],
     };
     mountInside(ship(SLICE, gates));
