@@ -33,6 +33,9 @@
 .pr .pck-passing{background:var(--k-success);color:var(--k-success-fg)}
 .pr .pck-failing{background:var(--k-danger);color:var(--k-danger-fg)}
 .pr .pck-pending{background:var(--k-text-faint);color:var(--k-success-fg)}
+/* Stale (T1217): the last known counts of the previous commit. Dimmed, same size; the cue is text, so it does not rely on colour (UI-R28). */
+.pr .pck-stale{opacity:.6}
+.pr .pck-cue{margin-left:var(--k-space-1);font-style:italic}
 .pr .pwait{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);letter-spacing:.4px;background:transparent;color:var(--k-running);box-shadow:inset 0 0 0 var(--k-border-w) var(--k-running)}
 .pr .pblock{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);letter-spacing:.4px;background:var(--k-danger);color:var(--k-danger-fg)}
 /* The PR number IS the open control (UI-R09c): an underlined link-coloured

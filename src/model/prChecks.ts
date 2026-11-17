@@ -48,6 +48,13 @@ export interface PrChecks {
   required?: RequiredChecks | null;
 }
 
+/** The last rollup that had checks: the head it belongs to (null when unknown) and when it was stored (epoch ms). Display only. */
+export interface PrChecksSnapshot {
+  checks: PrChecks;
+  head: string | null;
+  at: number;
+}
+
 /**
  * GitHub's answer to "will this merge", normalized. 'unknown' is its lazily
  * computed non-answer and must never read as a block.

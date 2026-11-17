@@ -1,7 +1,7 @@
 import type { Store } from './db.js';
 import { parseComments, type PrComment } from '../model/prComments.js';
 import { normalizeReviewDecision, type PrReviewDecision } from '../model/prReview.js';
-import { parseChecks, readMergeBlock, type PrChecks, type MergeBlock } from '../model/prChecks.js';
+import { parseChecks, readMergeBlock, type PrChecks, type PrChecksSnapshot, type MergeBlock } from '../model/prChecks.js';
 
 /** Read models for the dashboard (§14 dashboard tier) — plain, serializable. */
 export interface ServerView {
@@ -86,6 +86,8 @@ export interface PrView {
   reviewRequests: string[];
   /** The PR head sha GitHub holds; null when never stated (T1143). */
   headOid?: string | null;
+  /** The last rollup that had checks, for the PR row chip only; null when none. Never a gate input. */
+  lastChecks?: PrChecksSnapshot | null;
 }
 
 interface ServerRow {
@@ -215,6 +217,9 @@ interface PrRow {
   approvals: number | null;
   review_requests: string | null;
   head_oid: string | null;
+  last_checks: string | null;
+  last_checks_head: string | null;
+  last_checks_at: number | null;
 }
 
 /** The `prs.review_requests` JSON column → reviewer names; malformed reads as none. */
@@ -228,11 +233,18 @@ function parseReviewRequests(raw: string | null): string[] {
   }
 }
 
+function snapshotOf(r: PrRow): PrChecksSnapshot | null {
+  const checks = parseChecks(r.last_checks);
+  if (checks === null || r.last_checks_at === null) return null;
+  return { checks, head: r.last_checks_head, at: r.last_checks_at };
+}
+
 export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
   const rows = store.db
     .prepare(
       `SELECT rowid AS id, ticket_id, repo, number, url, status, head_ref, base_ref, created_at, merged_at, dismissed_at, comments, checks, merge_block,
-              title, author, additions, deletions, changed_files, commit_count, review_decision, approvals, review_requests, head_oid
+              title, author, additions, deletions, changed_files, commit_count, review_decision, approvals, review_requests, head_oid,
+              last_checks, last_checks_head, last_checks_at
          FROM prs WHERE ticket_id = ? ORDER BY number`,
     )
     .all(ticketId) as PrRow[];
@@ -264,5 +276,6 @@ export function listPrsByTicket(store: Store, ticketId: number): PrView[] {
     approvals: r.approvals,
     reviewRequests: parseReviewRequests(r.review_requests),
     headOid: r.head_oid,
+    lastChecks: snapshotOf(r),
   }));
 }

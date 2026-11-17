@@ -132,9 +132,14 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
         <PrInfo p={p} open={infoOpen} onToggle={onInfoToggle} />
         <span className={`k-chip pst pst-${p.status || 'unknown'}`}>{p.status || ''}</span>
         {live && p.checks && p.checks.label ? (
-          <span className={`k-chip pck pck-${p.checks.state}`} title={p.checks.title}>
+          <span
+            className={`k-chip pck pck-${p.checks.state}${p.checks.stale ? ' pck-stale' : ''}`}
+            title={p.checks.title}
+            aria-busy={p.checks.stale ? 'true' : undefined}
+          >
             <Icon name={CHECK_ICON[p.checks.state] ?? 'check'} size={11} />
             {p.checks.label}
+            {p.checks.stale && p.checks.cue ? <span className="pck-cue">{p.checks.cue}</span> : null}
           </span>
         ) : null}
         {waitCount > 0 ? (

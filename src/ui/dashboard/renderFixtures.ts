@@ -1270,7 +1270,16 @@ function populatedPrs(): PrPanelRow[] {
         { author: 'octoreviewer', when: '1 day ago', body: 'Looks right — one nit on the combobox label.' },
         { author: 'fixture-author', when: '20 hours ago', body: 'Fixed, PTAL.' },
       ],
-      checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [] },
+      // The previous commit's counts while the new head has no rollup: the stale chip (T1217).
+      checks: {
+        state: 'failing',
+        label: '1 failing · 2 passed',
+        title: '3 checks: 2 passed, 1 failed, 0 pending — from the previous commit 9ed9bc6; karst is checking the new commit',
+        detailsLabel: '',
+        failing: [],
+        stale: true,
+        cue: 'checking new commit…',
+      },
       mergeBlockLabel: '',
       canMerge: false,
       mergeBlockedReason: 'awaiting review',
