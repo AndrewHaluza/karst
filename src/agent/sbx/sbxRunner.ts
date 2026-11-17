@@ -29,7 +29,7 @@ import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { limitEnvArgs, wrapWithHeap } from './sbxLimits.js';
-import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
+import { isPortTakenError, parseSbxPorts, isResourceAllowed, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPolicyListArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
 export { SBX_CORES, type SbxCore } from '../sandboxCores.js';
 import type { SbxCore } from '../sandboxCores.js';
@@ -317,9 +317,9 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     // `policy allow/rm` is per sandbox: no recreate, so a window may open mid-turn. Only the hosts NOT
     // already allowed are recorded and removed on close, so an overlapping baseline allow survives.
     setupWindow: async (hosts) => {
-      const listing = await sbx(['policy', 'ls', 'network', '--sandbox', opts.name]);
+      const listing = await sbx(sbxPolicyListArgs(opts.name));
       const already = listing.code === 0 ? parseSbxAllowed(listing.stdout) : new Set<string>();
-      const added = hosts.filter((h) => !already.has(setupHostResource(h)));
+      const added = hosts.filter((h) => !isResourceAllowed(already, setupHostResource(h)));
       if (added.length === 0) return { ok: true, close: async () => undefined };
       const out = await sbx(sbxHostPolicyArgs('allow', opts.name, added));
       if (out.code !== 0) {

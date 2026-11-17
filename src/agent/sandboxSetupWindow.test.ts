@@ -163,6 +163,23 @@ describe('sbx setupWindow', () => {
     ]);
   });
 
+  it('lists with the sandbox as a positional (v0.48.0 has no `policy ls --sandbox`)', async () => {
+    const proc = fakeSbxProcess();
+    await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] }).setupWindow!(['github.com']);
+    expect(calls(proc)[0]).toBe(`policy ls ${NAME} --json`);
+  });
+
+  it('a host the global policy covers by a wildcard is not added and not removed', async () => {
+    const listing = JSON.stringify({ rules: [{ decision: 'allow', resource_type: 'network', resources: ['**.githubusercontent.com:443'] }] });
+    const proc = fakeSbxProcess({ 'sbx policy ls': { stdout: listing } });
+    const w = await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] }).setupWindow!(['objects.githubusercontent.com', 'github.com']);
+    if (w.ok) await w.close();
+    expect(calls(proc).slice(1)).toEqual([
+      `policy allow network --sandbox ${NAME} github.com:443`,
+      `policy rm network --sandbox ${NAME} --resource github.com:443 --force`,
+    ]);
+  });
+
   it('everything already allowed: nothing opened, nothing removed', async () => {
     const proc = fakeSbxProcess({ 'sbx policy ls': { stdout: 'registry.npmjs.org:443' } });
     const w = await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] }).setupWindow!(['registry.npmjs.org']);
