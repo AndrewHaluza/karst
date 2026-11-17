@@ -323,10 +323,17 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       if (added.length === 0) return { ok: true, close: async () => undefined };
       const out = await sbx(sbxHostPolicyArgs('allow', opts.name, added));
       if (out.code !== 0) {
-        await sbx(sbxHostPolicyArgs('rm', opts.name, added)); // a partial allow must not stay open
-        return { ok: false, reason: `sbx policy allow failed: ${out.stderr.trim()}` };
+        const rollback = await sbx(sbxHostPolicyArgs('rm', opts.name, added)); // a partial allow must not stay open
+        const open = rollback.code === 0 ? '' : `; rollback failed, host may stay open: ${rollback.stderr.trim()}`;
+        return { ok: false, reason: `sbx policy allow failed: ${out.stderr.trim()}${open}` };
       }
-      return { ok: true, close: async () => { await sbx(sbxHostPolicyArgs('rm', opts.name, added)); } };
+      return {
+        ok: true,
+        close: async () => {
+          const rm = await sbx(sbxHostPolicyArgs('rm', opts.name, added));
+          if (rm.code !== 0) throw new Error(`sbx policy rm failed, ${added.map(setupHostResource).join(',')} may stay open: ${rm.stderr.trim()}`);
+        },
+      };
     },
     sync: async (ticket: SandboxTicketRef): Promise<SyncResult> => {
       const wt = ticket.hostWorktreePath;
@@ -380,7 +387,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       if (diff.code !== 0) return { ok: false, reason: `git diff failed: ${diff.stderr.trim()}` };
       return { ok: true, diff: diff.stdout, ref: head.sha };
     },
-    // Stopped, not removed: `sbx run --name` restarts it on the next open.
+    // Stopped, not removed: `sbx run --name` restarts it on the next open. The baseline host rules stay: gates and
+    // services exec into a stopped sandbox, and only a reattach allows them again.
     stop: async (): Promise<void> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
     },

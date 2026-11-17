@@ -190,19 +190,28 @@ describe('reattachTicketSandbox', () => {
     await expect(reattachTicketSandbox(deps({ proc, debug }), store, manifest, 7, () => Promise.resolve(true)))
       .resolves.toEqual({ republished: ['api'], dropped: [] });
     const lines = proc.calls.map((c) => [c.command, ...c.args].join(' '));
-    expect(lines).toContain(`sbx policy allow network --sandbox ${SBX} host.docker.internal:5432`);
+    expect(lines).toContain(`sbx policy allow network --sandbox ${SBX} localhost:5432,host.docker.internal:5432`);
     expect(lines).toContain(`sbx ports ${SBX} --publish 127.0.0.1:4100:4100`);
     expect(debug).toHaveBeenCalledWith('[runtime] ticket 7: sandbox re-verify republished [api], dropped []');
   });
 
-  it('logs a failed baseline allow and still re-verifies', async () => {
+  it('logs and warns on a failed baseline allow and still re-verifies', async () => {
     const store = openStore(':memory:');
     store.db.prepare("INSERT INTO baseline_refs (ticket_id, repo) VALUES (7, 'db')").run();
     const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${SBX}\n` }, 'sbx policy': { code: 1, stderr: 'nope' } });
     const debug = vi.fn();
-    await expect(reattachTicketSandbox(deps({ proc, debug }), store, manifest, 7, () => Promise.resolve(true)))
+    const warn = vi.fn();
+    await expect(reattachTicketSandbox(deps({ proc, debug, warn }), store, manifest, 7, () => Promise.resolve(true)))
       .resolves.toEqual({ republished: [], dropped: [] });
     expect(debug).toHaveBeenCalledWith('[runtime] ticket 7: baseline allow failed: sbx policy allow failed: nope');
+    expect(warn).toHaveBeenCalledWith('Karst: ticket 7 sandbox cannot reach its baseline services on the host: sbx policy allow failed: nope');
+  });
+
+  it('a failed baseline allow with no warn seam still re-verifies', async () => {
+    const store = openStore(':memory:');
+    store.db.prepare("INSERT INTO baseline_refs (ticket_id, repo) VALUES (7, 'db')").run();
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${SBX}\n` }, 'sbx policy': { code: 1, stderr: 'nope' } });
+    await expect(reattachTicketSandbox(deps({ proc }), store, manifest, 7, () => Promise.resolve(true))).resolves.toEqual({ republished: [], dropped: [] });
   });
 
   it('warns once (deduped) when a sandboxed repo has a lockfile and no sandbox.setup; never without a sandbox', async () => {

@@ -210,7 +210,10 @@ export async function reattachTicketSandbox(
   const ctx = await ticketSandboxContext(deps, ticketId);
   if (!ctx) return null;
   const allow = await allowBaselineHostPorts(ctx.runner, baselineHostPorts(manifest, ticketBaselineKeys(store, ticketId)));
-  if (!allow.ok) deps.debug?.(`[runtime] ticket ${ticketId}: baseline allow failed: ${allow.reason}`);
+  if (!allow.ok) {
+    deps.debug?.(`[runtime] ticket ${ticketId}: baseline allow failed: ${allow.reason}`);
+    deps.warn?.(`Karst: ticket ${ticketId} sandbox cannot reach its baseline services on the host: ${allow.reason}`);
+  }
   const runGate = ctx.runner.runGate;
   await warnMissingSetup(deps, { manifest: () => manifest, worktrees: (id) => listWorktreesByTicket(store, id), gateProcess: () => runGate }, ticketId);
   const result = await reverifySandboxServices(store, ticketId, ctx.runner, isHealthy);

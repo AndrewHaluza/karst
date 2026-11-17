@@ -56,7 +56,7 @@ describe('sbx runner: gates, ports, baseline allow (arch:AC-32)', () => {
     await expect(runner.allowHostPorts!([])).resolves.toEqual({ ok: true });
     expect(proc.calls).toHaveLength(0);
     await expect(runner.allowHostPorts!([5432])).resolves.toEqual({ ok: true });
-    expect(proc.calls[0]!.args).toEqual(['policy', 'allow', 'network', '--sandbox', NAME, 'host.docker.internal:5432']);
+    expect(proc.calls[0]!.args).toEqual(['policy', 'allow', 'network', '--sandbox', NAME, 'localhost:5432,host.docker.internal:5432']);
     const bad = createSbxSessionRunner({ proc: fakeSbxProcess({ 'sbx policy': { code: 2, stderr: ' denied ' } }), core: 'claude', name: NAME, existing: [] });
     await expect(bad.allowHostPorts!([5432])).resolves.toEqual({ ok: false, reason: 'sbx policy allow failed: denied' });
   });

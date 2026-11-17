@@ -44,6 +44,8 @@ export interface SetupDeps {
   /** docker only, best-effort: "Docker VM 4.8 GB, 2 other containers running" for a kill's reason; never throws. */
   readonly killContext?: () => Promise<string | undefined>;
   readonly debug?: (message: string) => void;
+  /** The window could not be closed: a setup host may stay open to the agent (arch:AC-36). The user must be told, not only the log. */
+  readonly onCloseFailed?: (message: string) => void;
 }
 
 export interface SetupRequest {
@@ -178,7 +180,11 @@ async function runSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string)
   try {
     return await runSetupCommand(deps, req, fingerprint, opened);
   } finally {
-    await opened?.close().catch((err: unknown) => deps.debug?.(`[sandbox] closing the setup network window failed: ${err instanceof Error ? err.message : String(err)}`));
+    await opened?.close().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      deps.debug?.(`[sandbox] closing the setup network window failed: ${message}`);
+      deps.onCloseFailed?.(message);
+    });
   }
 }
 

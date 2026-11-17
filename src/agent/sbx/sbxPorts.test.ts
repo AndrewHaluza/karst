@@ -35,12 +35,12 @@ describe('sbxPorts', () => {
     expect(isPortTakenError('sandbox not running')).toBe(false);
   });
 
-  it('allows exactly the declared baseline host ports, scoped to one sandbox', () => {
+  it('allows exactly the declared baseline host ports, on both host forms, scoped to one sandbox', () => {
     expect(sbxPolicyArgs('allow', 'n', [5432, 6379])).toEqual([
-      'policy', 'allow', 'network', '--sandbox', 'n', 'host.docker.internal:5432,host.docker.internal:6379',
+      'policy', 'allow', 'network', '--sandbox', 'n', 'localhost:5432,host.docker.internal:5432,localhost:6379,host.docker.internal:6379',
     ]);
     expect(sbxPolicyArgs('rm', 'n', [5432])).toEqual([
-      'policy', 'rm', 'network', '--sandbox', 'n', 'host.docker.internal:5432',
+      'policy', 'rm', 'network', '--sandbox', 'n', '--resource', 'localhost:5432,host.docker.internal:5432', '--force',
     ]);
     expect(() => sbxPolicyArgs('allow', 'n', [])).toThrow(/no ports/);
   });
