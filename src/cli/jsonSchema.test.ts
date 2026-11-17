@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateJson, type JsonSchema } from './jsonSchema.js';
+import { validateJson, unsupportedKeywords, type JsonSchema } from './jsonSchema.js';
 
 const objectSchema: JsonSchema = {
   type: 'object',
@@ -127,5 +127,125 @@ describe('validateJson', () => {
 
   it('rejects a schema with neither type nor anyOf', () => {
     expect(validateJson({}, 1)).toMatch(/neither type nor anyOf/);
+  });
+});
+
+describe('validateJson: manifest keywords', () => {
+  it('enforces maximum', () => {
+    const s: JsonSchema = { type: 'integer', minimum: 1, maximum: 5 };
+    expect(validateJson(s, 5)).toBeNull();
+    expect(validateJson(s, 6)).toMatch(/\$: must be <= 5/);
+  });
+
+  it('enforces maxItems', () => {
+    const s: JsonSchema = { type: 'array', items: { type: 'string' }, maxItems: 2 };
+    expect(validateJson(s, ['a', 'b'])).toBeNull();
+    expect(validateJson(s, ['a', 'b', 'c'])).toMatch(/\$: must have at most 2 item\(s\)/);
+  });
+
+  it('enforces maxLength', () => {
+    const s: JsonSchema = { type: 'string', maxLength: 3 };
+    expect(validateJson(s, 'abc')).toBeNull();
+    expect(validateJson(s, 'abcd')).toMatch(/\$: must be at most 3 character\(s\)/);
+  });
+
+  it('enforces const', () => {
+    const s: JsonSchema = { const: 'host' };
+    expect(validateJson(s, 'host')).toBeNull();
+    expect(validateJson(s, 'inside')).toMatch(/\$: must equal "host"/);
+    expect(validateJson({ const: null }, null)).toBeNull();
+    expect(validateJson({ const: null }, 0)).toMatch(/must equal null/);
+  });
+
+  it('supports the null type', () => {
+    expect(validateJson({ type: 'null' }, null)).toBeNull();
+    expect(validateJson({ type: 'null' }, 0)).toMatch(/expected null, got integer/);
+    expect(validateJson({ anyOf: [{ type: 'null' }, { type: 'string' }] }, null)).toBeNull();
+  });
+
+  it('oneOf accepts exactly one matching alternative', () => {
+    const s: JsonSchema = {
+      oneOf: [
+        { type: 'object', required: ['start'] },
+        { type: 'object', required: ['docker'] },
+      ],
+    };
+    expect(validateJson(s, { start: 'x' })).toBeNull();
+    expect(validateJson(s, { docker: {} })).toBeNull();
+    expect(validateJson(s, {})).toMatch(/matches none of the alternatives/);
+    expect(validateJson(s, { start: 'x', docker: {} })).toMatch(/matches more than one alternative/);
+  });
+
+  it('resolves a local $ref into the root $defs', () => {
+    const s: JsonSchema = {
+      type: 'object',
+      properties: { a: { $ref: '#/$defs/port' }, b: { $ref: '#/$defs/port' } },
+      $defs: { port: { type: 'integer', minimum: 1, maximum: 65535 } },
+    };
+    expect(validateJson(s, { a: 1, b: 65535 })).toBeNull();
+    expect(validateJson(s, { a: 1, b: 70000 })).toMatch(/\$\.b: must be <= 65535/);
+  });
+
+  it('supports a recursive $ref without looping on finite data', () => {
+    const s: JsonSchema = {
+      $ref: '#/$defs/node',
+      $defs: {
+        node: {
+          type: 'object',
+          properties: { next: { $ref: '#/$defs/node' } },
+          additionalProperties: false,
+        },
+      },
+    };
+    expect(validateJson(s, { next: { next: {} } })).toBeNull();
+    expect(validateJson(s, { next: { x: 1 } })).toMatch(/unknown property 'x'/);
+  });
+
+  it('reports a dangling or non-local $ref as an error', () => {
+    expect(validateJson({ $ref: '#/$defs/missing', $defs: {} }, 1)).toMatch(/unresolved \$ref/);
+    expect(validateJson({ $ref: 'http://x/y' }, 1)).toMatch(/unresolved \$ref/);
+  });
+
+  it('enforces propertyNames, minProperties and maxProperties', () => {
+    const s: JsonSchema = {
+      type: 'object',
+      propertyNames: { type: 'string', pattern: '^[a-z]+$' },
+      minProperties: 1,
+      maxProperties: 2,
+      additionalProperties: { type: 'integer' },
+    };
+    expect(validateJson(s, { a: 1 })).toBeNull();
+    expect(validateJson(s, {})).toMatch(/must have at least 1 propert/);
+    expect(validateJson(s, { a: 1, b: 2, c: 3 })).toMatch(/must have at most 2 propert/);
+    expect(validateJson(s, { A: 1 })).toMatch(/property name 'A': must match/);
+  });
+});
+
+describe('unsupportedKeywords', () => {
+  it('is empty for a schema that uses only supported keywords', () => {
+    expect(
+      unsupportedKeywords({
+        type: 'object',
+        properties: { a: { anyOf: [{ type: 'string', maxLength: 2 }, { const: 1 }] } },
+        $defs: { x: { type: 'array', items: { type: 'integer' }, maxItems: 1 } },
+      }),
+    ).toEqual([]);
+  });
+
+  it('names an unsupported keyword with its path, at any depth', () => {
+    const bad = {
+      type: 'object',
+      properties: { a: { type: 'array', items: { type: 'string', format: 'uri' } } },
+      allOf: [],
+    } as unknown as JsonSchema;
+    expect(unsupportedKeywords(bad)).toEqual(['$.allOf', '$.properties.a.items.format']);
+  });
+
+  it('does not flag a property that is named like a keyword', () => {
+    const s = {
+      type: 'object',
+      properties: { format: { type: 'string' }, $ref: { type: 'string' } },
+    } as JsonSchema;
+    expect(unsupportedKeywords(s)).toEqual([]);
   });
 });
