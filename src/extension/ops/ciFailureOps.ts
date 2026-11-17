@@ -5,6 +5,7 @@ import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState, type CiFailurePr } from '../../workflow/ciFailure.js';
 import { sendBackToImplement, SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
 import { enterShipFixRound } from '../../workflow/shipFixRound.js';
+import { SEND_BACK_DONE_MARKER } from './sendBackMarker.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 import { getTicket } from '../../store/tickets.js';
 import { markCiRound } from '../../store/autopilot.js';
@@ -170,7 +171,8 @@ function reasonText(reports: readonly PrReport[], paths: readonly string[]): str
 
 /** The text the Implement session receives: the stored reason plus the done marker. */
 export function handOffPrompt(reason: string): string {
-  return `${reason}\nFix the failure in the worktree, then call the karst MCP tool \`stage\` with { stage: "impl" } to mark the work done.`;
+  return `${reason}
+${SEND_BACK_DONE_MARKER}`;
 }
 
 export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void> {

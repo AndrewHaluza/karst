@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { scrubKarstEnv } from './karstEnv.mjs';
 
 describe('scrubKarstEnv', () => {
-  it('removes every KARST_ key and keeps the rest', () => {
+  it('removes every KARST_ key except the opt-in one, and keeps the rest', () => {
     const out = scrubKarstEnv({
       PATH: '/bin',
       KARST_CLI: '/cli.js',
@@ -24,13 +24,17 @@ describe('scrubKarstEnv', () => {
     expect(scrubKarstEnv({ karst_db: '/db' })).toEqual({ karst_db: '/db' });
   });
 
-  it('returns a fresh empty object for an all-KARST env', () => {
+  it('returns a fresh empty object for an all-KARST env without the opt-in key', () => {
     expect(scrubKarstEnv({ KARST_TICKET: 'X-1' })).toEqual({});
   });
 });
 
 describe('vitest setup', () => {
-  it('leaves no KARST_ key in process.env when a test starts', () => {
-    expect(Object.keys(process.env).filter((k) => k.startsWith('KARST_'))).toEqual([]);
+  it('leaves no KARST_ key but the opt-in one in process.env when a test starts', () => {
+    expect(Object.keys(process.env).filter((k) => k.startsWith('KARST_') && k !== 'KARST_SBX_SCRATCH')).toEqual([]);
+  });
+
+  it('keeps the opt-in KARST_SBX_SCRATCH input of the live sbx test', () => {
+    expect(scrubKarstEnv({ KARST_SBX_SCRATCH: 'karst-uat-t1', KARST_DB: '/db' })).toEqual({ KARST_SBX_SCRATCH: 'karst-uat-t1' });
   });
 });

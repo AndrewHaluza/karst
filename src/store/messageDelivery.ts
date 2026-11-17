@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { SEND_BACK_EVENT_PREFIX } from './ticketMessages.js';
 
 /**
  * Reads behind the mailbox delivery sweep (pointer nudges and parent wake).
@@ -23,6 +24,13 @@ export interface WakeEventRow {
 /** Default bound on one sweep's reads. */
 export const DELIVERY_READ_LIMIT = 200;
 
+/**
+ * SQL predicate that leaves out an unread host send-back event. The live
+ * session got that reason in the typed hand-off, so a pointer or a Stop block
+ * for it only wastes turns. The row stays unread for the next launch's brief.
+ */
+const NOT_SEND_BACK_EVENT = `NOT (kind = 'event' AND from_ticket_id IS NULL AND substr(body, 1, ${SEND_BACK_EVENT_PREFIX.length}) = '${SEND_BACK_EVENT_PREFIX}')`;
+
 /** The highest mailbox row id, `0` when empty. */
 export function maxMessageId(store: Store): number {
   const row = store.db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM ticket_messages').get() as {
@@ -42,7 +50,7 @@ export function unreadForTicket(store: Store, toTicketId: number): RecipientUnre
     .prepare(
       `SELECT COUNT(*) AS unread, COALESCE(MAX(id), 0) AS maxId
          FROM ticket_messages
-        WHERE to_ticket_id = ? AND read_at IS NULL`,
+        WHERE to_ticket_id = ? AND read_at IS NULL AND ${NOT_SEND_BACK_EVENT}`,
     )
     .get(toTicketId) as { unread: number | bigint; maxId: number | bigint };
   const unread = Number(row.unread);
@@ -60,7 +68,7 @@ export function unreadByRecipient(
     .prepare(
       `SELECT to_ticket_id AS toTicketId, COUNT(*) AS unread, MAX(id) AS maxId
          FROM ticket_messages
-        WHERE project_id = ? AND read_at IS NULL
+        WHERE project_id = ? AND read_at IS NULL AND ${NOT_SEND_BACK_EVENT}
         GROUP BY to_ticket_id
         ORDER BY to_ticket_id
         LIMIT ?`,
