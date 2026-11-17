@@ -150,6 +150,23 @@ Commit after this note lets a defect list `alternates`: other places where a cor
 
 `c24` was found in all runs of all three cores. The 2 remaining opencode2 misses are the `c20` finding with no file and no line, and the `c21` miss. The 1 blocking false finding is that `c20` finding. Claude and antigravity now tie on recall. Opencode2 is below them, but its interval overlaps theirs.
 
+## DeepSeek v4.1 flash (opencode2 core, `opencode-go/deepseek-v4.1-flash`, case set 7)
+
+Reports: `review-references/opencode2-deepseek-v4.1-flash-hard-c19-c24-v7/` and `...-clean-n32-v7/`.
+
+Hard cases `c19` to `c24`, 6 runs each, 36 of 36 calls ok: recall 36/36 (90.4% to 100%), 0 blocking false findings, 48.4 seconds per run. Every case was found in 6 of 6 runs, `c24` included.
+
+Clean cases `c09`, `c10`, `c17`, `c18`, 8 runs each, 31 of 32 calls ok (one `c18` error): a false finding in 13 of 31 runs (26.4% to 59.2%), 0 blocking. `c09` gave 0 in 8 runs, `c10` 2 of 8, `c17` 6 of 8, `c18` 5 of 7. Every false finding is low severity. Most say that a test is missing or that an error message is thin.
+
+| Core and model | Hard recall (v7) | Clean cases with a false finding | Blocking false | Seconds per run |
+|---|---|---|---|---|
+| claude sonnet-5-5 | 36/36 | 3/32 | 0 | 9.9 |
+| antigravity gemini-3.8-flash | 35/35 | 0/32 (v4) | 0 | 78.6 |
+| opencode2 deepseek-v4.1-flash | 36/36 | 13/31 | 0 | 48.4 |
+| opencode2 mimo-v2.6-flash | 34/36 (rescored) | 10/31 (v4) | 1 | 117.1 |
+
+DeepSeek finds every seeded defect, like Claude. It raises many low-severity remarks on clean code, so it is noisier than Claude and antigravity. It is faster than mimo and antigravity, and slower than Claude. The clean-case rows come from different case-set versions for antigravity and mimo, so compare them with care.
+
 ## Findings
 
 - Recall is 100% for every core on v1, so v1 cannot rank the cores.
