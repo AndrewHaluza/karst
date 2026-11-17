@@ -1868,7 +1868,8 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/api" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
-          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="merge conflicts" type="button"> "Merge"
+          <span#_r_1_.pmreason> "merge conflicts"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_1_" disabled title="merge conflicts" type="button"> "Merge"
       <div.krow-sub>
         <div.prblock data-state="blocked">
           <div.prblock-head>
@@ -1902,7 +1903,8 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="undismiss-pr" data-repo="fixture:/repos/docs" title="Wait on this pull request again" type="button"> "Undo dismiss"
-          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
+          <span#_r_2_.pmreason> "awaiting review"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_2_" disabled title="awaiting review" type="button"> "Merge"
       <div.krow-sub>"
 `;
 
@@ -1936,7 +1938,8 @@ exports[`dashboard region parity (DOM contract) > prs #prs · one open PR awaiti
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>
         <span.pacts>
-          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn disabled title="awaiting review" type="button"> "Merge"
+          <span#_r_0_.pmreason> "awaiting review"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_0_" disabled title="awaiting review" type="button"> "Merge"
       <div.krow-sub>
         <div.prblock data-state="blocked">
           <div.prblock-head>

@@ -89,6 +89,7 @@ karstTest.describe('full-page screenshots', () => {
         }
         if (v.click !== undefined) await page.locator(v.click).first().click();
         for (const sel of v.clicks ?? []) await page.locator(sel).first().click();
+        if (v.hover !== undefined) await page.locator(v.hover).first().hover();
         await waitForPopoversSettled(page);
         if (v.id.startsWith('drill-')) {
           // UI-R43: no sideways page scroll at any tier.

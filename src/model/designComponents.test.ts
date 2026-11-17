@@ -123,6 +123,15 @@ describe('design system components', () => {
     }
   });
 
+  it('applies every variant hover only to an enabled button (a disabled one looks the same on hover)', () => {
+    const hovers = (CSS.match(/\.k-btn--[a-z]+:hover[^{]*\{/g) ?? []).map((h) => h.slice(0, -1));
+    expect(hovers.length).toBeGreaterThanOrEqual(5);
+    for (const sel of hovers) {
+      // `:where()` keeps the guard at zero specificity, so a surface override such as `.rowopen:hover` still wins.
+      expect(sel, sel).toContain(':where(:not(:disabled):not([aria-disabled="true"]))');
+    }
+  });
+
   it('keeps a row from shifting on click (UI-R12)', () => {
     const row = (CSS.match(/^\.k-btn--row[^{}]*\{[^}]*\}/gm) ?? []).join('\n');
     // A row is a full-width list item; the compact-button scale effect shifts
