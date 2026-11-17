@@ -593,6 +593,12 @@
   "src/extension/ops/worktreeSpecs.ts": [
     "arch:WT-00"
   ],
+  "src/extension/toastSeam.ts#ask": [
+    "arch:EVENTS"
+  ],
+  "src/extension/toastSeam.ts#toast": [
+    "arch:EVENTS"
+  ],
   "src/integrations/ciRerun.ts": [
     "arch:AP-03"
   ],
@@ -635,6 +641,12 @@
   ],
   "src/manifest/validate/*.ts": [
     "arch:MS-00"
+  ],
+  "src/model/actionResult.ts#postActionResult": [
+    "arch:EVENTS"
+  ],
+  "src/model/actionResult.ts#reportAction": [
+    "arch:EVENTS"
   ],
   "src/model/artifacts.ts": [
     "arch:SHELF"
