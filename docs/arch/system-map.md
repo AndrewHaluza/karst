@@ -498,6 +498,7 @@ erDiagram
   implementation_runs
   implementation_segments
   interactive_usage_samples
+  karst_events
   merge_checks
   phase_marks
   planning_proposals
@@ -573,6 +574,8 @@ erDiagram
   session_launch_intents ||--o{ implementation_segments : launch_intent_id
   implementation_segments ||--o{ interactive_usage_samples : implementation_segment_id
   process_runs ||--o{ interactive_usage_samples : process_run_id
+  projects ||--o{ karst_events : project_id
+  tickets ||--o{ karst_events : ticket_id
   implementation_runs ||--o{ phase_marks : implementation_run_id
   implementation_segments ||--o{ phase_marks : implementation_segment_id
   planning_sessions ||--o{ planning_proposals : session_id

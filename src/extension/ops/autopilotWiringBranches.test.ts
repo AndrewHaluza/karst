@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createTicket } from '../../store/tickets.js';
-import { BULLETIN_TITLE_MAX } from '../../store/bulletinNotes.js';
+import { EVENT_TITLE_MAX } from '../../store/karstEvents.js';
 import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { autopilotTick } from './autopilotOps.js';
 import { sendGateFailureAction } from './ciActionsWiring.js';
@@ -184,7 +184,7 @@ describe('autopilotSweep seams and counts', () => {
 });
 
 describe('postAutopilotNote edges', () => {
-  const rows = (store: Store) => store.db.prepare('SELECT title, body FROM bulletin_notes').all() as Array<{ title: string; body: string }>;
+  const rows = (store: Store) => store.db.prepare('SELECT title, body FROM karst_events').all() as Array<{ title: string; body: string }>;
   function setup() {
     const store = openStore(':memory:');
     const project = upsertProject(store, { slug: 'p' });
@@ -194,7 +194,7 @@ describe('postAutopilotNote edges', () => {
 
   it('keeps a title of exactly the limit whole', () => {
     const { store, id, projectId } = setup();
-    const title = 'T'.repeat(BULLETIN_TITLE_MAX);
+    const title = 'T'.repeat(EVENT_TITLE_MAX);
     postAutopilotNote(store, projectId, id, title, 'body', vi.fn());
     expect(rows(store)[0]!.title).toBe(title);
   });

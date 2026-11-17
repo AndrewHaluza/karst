@@ -224,7 +224,11 @@ export function refreshUndeliveredFor(i: Pick<CiActionsInput, 'store' | 'ticketI
   });
 }
 
-/** The bulletin note of a takeover; a failed post is logged and never stops the push. */
+/**
+ * The bulletin note of a takeover; a failed post is logged and never stops the push.
+ * It stays a bulletin note on purpose (T1197, @arch:BULLETIN): another ticket can learn
+ * from a takeover, unlike an Autopilot status line, which lives in `karst_events`.
+ */
 function postTakeOverNote(i: CiActionsInput, title: string, body: string): void {
   const clip = (t: string, max: number): string => (t.length <= max ? t : `${t.slice(0, max - 1)}\u2026`);
   try {

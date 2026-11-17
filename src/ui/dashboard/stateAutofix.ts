@@ -94,7 +94,7 @@ function maxFor(kind: AutofixKind, config: AutopilotConfig | undefined): number 
 /** One line per round the engine armed for the kind, oldest first: the banner's collapsed "Attempt history". */
 function readHistory(store: Store, ticketId: number, kind: AutofixKind): string[] {
   const rows = store.db
-    .prepare('SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE ? ORDER BY id ASC')
+    .prepare("SELECT title FROM karst_events WHERE source = 'autopilot' AND ticket_id = ? AND title LIKE ? ORDER BY id ASC")
     .all(ticketId, `${NOTE_PREFIX} ${kind} round %/%`) as Array<{ title: string }>;
   return rows.map((r) => r.title.slice(NOTE_PREFIX.length).trim()).filter((t) => /^(conflicts|ci) round \d+\/\d+$/.test(t));
 }
@@ -102,7 +102,7 @@ function readHistory(store: Store, ticketId: number, kind: AutofixKind): string[
 /** Every `Autopilot: <kind> round n/m` note of the ticket, oldest first, with its time: the Auto-fix row's attempt rows. */
 function readAttempts(store: Store, ticketId: number): AutofixAttempt[] {
   const rows = store.db
-    .prepare('SELECT title, created_at AS at FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE ? ORDER BY id ASC')
+    .prepare("SELECT title, created_at AS at FROM karst_events WHERE source = 'autopilot' AND ticket_id = ? AND title LIKE ? ORDER BY id ASC")
     .all(ticketId, `${NOTE_PREFIX} % round %/%`) as Array<{ title: string; at: string }>;
   return rows.flatMap((r) => {
     const m = /^Autopilot: (conflicts|ci) round (\d+)\/(\d+)$/.exec(r.title);
@@ -185,7 +185,7 @@ function resolveCiRound(store: Store, ticketId: number, config: AutopilotConfig 
   const stage = getTicket(store, ticketId).stageCurrent;
   if (stage === 'ship') return null;
   // A manual send-back takes no attempt and posts no note. The engine posts `Autopilot: ci round n/m` when it arms a round; the stop-after note is skipped, as the round still runs.
-  const last = store.db.prepare("SELECT title FROM bulletin_notes WHERE from_ticket_id = ? AND title LIKE 'Autopilot:%' AND title <> ? ORDER BY id DESC LIMIT 1").get(ticketId, STOP_AFTER_NOTE) as { title: string } | undefined;
+  const last = store.db.prepare("SELECT title FROM karst_events WHERE source = 'autopilot' AND ticket_id = ? AND title <> ? ORDER BY id DESC LIMIT 1").get(ticketId, STOP_AFTER_NOTE) as { title: string } | undefined;
   if (!/^Autopilot: ci round \d+\/\d+$/.test(last?.title ?? '')) return null;
   const hits: Array<{ repo: string; attempts: number; extra: number; number: number | null; check: string | null }> = [];
   for (const e of listAutopilotBudgets(store, ticketId)) {

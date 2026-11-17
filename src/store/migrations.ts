@@ -10,6 +10,7 @@ import { ARCH_CITATIONS_DDL } from './archCitations.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 import { BULLETIN_DDL } from './bulletinNotes.js';
+import { KARST_EVENTS_DDL } from './karstEvents.js';
 import { BASELINE_DECISIONS_DDL } from './baselineDecisions.js';
 import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
 import { FIX_DELIVERIES_DDL } from './fixDeliveries.js';
@@ -3050,6 +3051,25 @@ function migrateLocked(db: Database): void {
     const graphRunCols = tableColumns(db, 'approach_graph_runs');
     if (graphRunCols.has('status') && graphRunCols.has('updated_at')) {
       db.prepare("UPDATE approach_graph_runs SET status = 'running', updated_at = ? WHERE status = 'awaiting-confirmation'").run(new Date().toISOString());
+    }
+  }
+
+  if (current < 128) {
+    // v128: `karst_events` (T1197, @arch:EVENTS) and the move of Autopilot status out of the bulletin. Each `Autopilot:%` agent note becomes an event (ticket and time kept, read_at = created_at so an old row is not unread), then the bulletin row goes (its reads and context rows go by cascade). A pre-v72 DB has no bulletin table: nothing to move.
+    db.exec(KARST_EVENTS_DDL);
+    if (tableColumns(db, 'bulletin_notes').size > 0) {
+      db.exec(`INSERT INTO karst_events (project_id, ticket_id, level, source, title, body, created_at, read_at)
+        SELECT project_id, from_ticket_id,
+          CASE WHEN title LIKE 'Autopilot: auto-fix stopped%' OR title LIKE 'Autopilot: paused%' THEN 'error'
+               WHEN title LIKE '%not run%' OR title LIKE '%failed%' THEN 'warn'
+               ELSE 'info' END,
+          'autopilot', title, body, created_at, created_at
+        FROM bulletin_notes WHERE source = 'agent' AND title LIKE 'Autopilot:%' ORDER BY id`);
+      // The migrator may run with foreign keys off, so the dependent rows go by hand, not by cascade.
+      for (const t of ['bulletin_reads', 'bulletin_context_shown']) {
+        db.exec(`DELETE FROM ${t} WHERE note_id IN (SELECT id FROM bulletin_notes WHERE source = 'agent' AND title LIKE 'Autopilot:%')`);
+      }
+      db.exec("DELETE FROM bulletin_notes WHERE source = 'agent' AND title LIKE 'Autopilot:%'");
     }
   }
 

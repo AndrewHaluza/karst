@@ -60,7 +60,7 @@ flowchart TD
 | An older build meets a newer registry | Graph verbs throw "requires exactly v<N>" | Update that window's extension |
 
 ### Rules
-@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:PLANNING-DEPS · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:V89 · @arch:V126 · @arch:V127 · @arch:V121 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
+@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:PLANNING-DEPS · @arch:RELATIONS · @arch:BULLETIN · @arch:EVENTS · @arch:V77 · @arch:V82 · @arch:V89 · @arch:V126 · @arch:V127 · @arch:V121 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
 END_DOC_BLOCK: [@arch:ST-00]
 
 ## [@arch:SQLITE] SQLite is source of truth
@@ -277,7 +277,19 @@ covers: src/store/bulletinNotes.ts#recordTicketMerged, src/model/bulletinRelevan
 `bulletin_notes` (`src/store/bulletinNotes.ts`, DDL `BULLETIN_DDL`) is a pull-only, project-scoped board of notes a ticket may learn from. Two sources, distinguished by the trust of their prose: `source='host'` is a TRUSTED fact written by `recordTicketMerged` at the first merged-with-sha probe (ticket key, repo, merged diff paths); `source='agent'` is an UNTRUSTED learning the implementer posted with `karst notes post`. `merge_sha` is mandatory for a host row (`CHECK (source <> 'host' OR merge_sha IS NOT NULL)`) and NULL for every agent row; the unique index `(source, from_ticket_id, merge_sha)` makes the host write idempotent, and SQLite keeps NULLs distinct so two agent notes never collide. `repos`/`paths` are JSON string arrays, both nullable — NULL means "never stamped". An agent note's repos are stamped from the ticket's worktrees at post; its paths (and its repo union) are stamped by `recordTicketMerged` from the normalized merged diff (repo-relative, no `..`). `bulletin_reads (note_id, reader_ticket_id, read_at)` records what a ticket has seen; `karst notes` marks only the rows it printed. Relevance is the pure `model/bulletinRelevance.ts`: repos must intersect AND paths must overlap by prefix (a note with no stamped paths matches on repo alone). Ticket-context reader paths come from its own merged notes, falling back to parsed stored code pointers. The context index applies an additional source-aware rule: host merge titles require path overlap and other host merges collapse into one count; agent notes use ordinary relevance. Schema v79's `bulletin_context_shown` separately records a context index exposure, never a read: this lets a ticket context suppress repeats while preserving `karst notes` unread/read behavior. The `karst notes` delivery sweep (the host-written pointer) pushes only under the same context-index relevance plus a session-start cutoff: an agent note by `noteMatchesScope`, a host merge only when its paths overlap the reader's known paths (a reader with NULL paths gets no host push), nothing already in `bulletin_context_shown` or `bulletin_reads`, and nothing older than the recipient's CURRENT session — the latest SessionStart-confirmed `session_launch_intents` row, else its latest `implementation_runs.started_at`, else `tickets.created_at`, compared as sqlite UTC text. Planning sessions are pull-only (`@arch:CLI-12`): a planning terminal carries no `KARST_TICKET_ID` and `identifyTerminal` refuses it as a ticket, so the sweep never reaches one. The matching-rule rationale and the CLI surface are in `docs/arch/cli.md`; the merge probe that supplies the sha and the paths is in `docs/arch/github-and-merge.md`.
 
 `prs.merge_sha` (v72) is the merge commit sha gh reported (`mergeCommit.oid`), written with COALESCE so a degraded probe never un-sets it — the same rule `merged_at` follows. `updatePrDetail` is the merge hook: inside one transaction it reads the OLD status/merge_sha, writes the row, and calls `recordTicketMerged` only on the first probe that lands the row on `merged` with a non-null sha. The store layer never runs git or gh — the sha and the changed paths come from the gh probe (`integrations/github.ts`).
+
+The bulletin holds only notes a ticket can learn from. Autopilot status lines are not such notes: since v128 they live in `karst_events` (`@arch:EVENTS`). The takeover note and the graph auto-recovery note still post here.
 END_DOC_BLOCK: [@arch:BULLETIN]
+
+## [@arch:EVENTS] Karst events (v128)
+covers: src/store/karstEvents.ts#recordEvent, src/store/karstEvents.ts#KARST_EVENTS_DDL
+
+`karst_events` (`src/store/karstEvents.ts`, DDL `KARST_EVENTS_DDL`, shared by `schema.sql` and the v128 step) records what Karst did and told the person: toast text, panel action results, Autopilot status, merges and send-backs. It is project-scoped (`project_id`, `ON DELETE CASCADE`) and may name a ticket (`ticket_id`, nullable, cascade). Columns: `level` (`info`|`success`|`warn`|`error`), `source` (`host`|`panel`|`autopilot`|`merge`|`ship`), a one-line `title` (120 characters at most), a `body` (4096 at most), `created_at` and `read_at` (NULL = unread). The rule: person-facing outcomes only, never debug lines. Debug lines stay in the debug log, as the `ticket_logs` precedent (v50/v51) did.
+
+`recordEvent(store, input, debug)` is the one writer. It makes the title one line, replaces control characters, clips both fields, and inserts one row. It never throws: a failure goes to the injected `debug` and the result is null. In the same transaction it deletes the rows of that project older than `EVENT_MAX_AGE_DAYS` (30) and the oldest rows beyond `EVENT_MAX_ROWS_PER_PROJECT` (5000). The readers are `listEvents` (newest first, `beforeId` cursor), `unreadEventCount`, `markEventRead` and `markAllEventsRead`. The store runs on better-sqlite3 and on the CLI node:sqlite shim (`@arch:CLI-05`) and does one synchronous insert per call, with no spawn and no async I/O (`@arch:EVENTLOOP`).
+
+Autopilot status is the first writer: `postAutopilotNote` and the command ops write `source='autopilot'` rows (`autopilotEventLevel`: `error` for `auto-fix stopped` and `paused`, `warn` for `not run` and `failed`, `info` for the rest), and the Auto-fix row and its Attempt history read them by ticket (`ui/dashboard/stateAutofix.ts`). The v128 step copies each `bulletin_notes` row with `source='agent'` and a title that starts `Autopilot:` into `karst_events` (ticket and time kept, `read_at` = `created_at`) and deletes the bulletin row. No UI reads the table yet.
+END_DOC_BLOCK: [@arch:EVENTS]
 
 ## [@arch:V77] Fix-brief delivery snapshots (v77)
 covers: src/store/fixDeliveries.ts#upsertFixDelivery
@@ -358,6 +370,8 @@ END_DOC_BLOCK: [@arch:V121]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
+
+**v128:** `karst_events` and the move of Autopilot status out of the bulletin (`@arch:EVENTS`).
 
 **v127:** `@arch:V127`.
 

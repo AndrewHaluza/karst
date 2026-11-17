@@ -367,12 +367,12 @@ describe('reshipAtShipConfirm note', () => {
     const x = deps();
     const { note: _n, ...rest } = x.d;
     await reshipAtShipConfirm({ stage: 'ship', status: 'blocked', reason: 'ship-confirm' }, { ...rest, projectId: () => 999999, warn: vi.fn(), error: vi.fn() });
-    expect(x.debug.mock.calls.some(([m]) => String(m).startsWith('[ship] autopilot note failed'))).toBe(true);
+    expect(x.debug.mock.calls.some(([m]) => String(m).includes('karst event failed'))).toBe(true);
     markCiRound(store, id, 1000);
     const y = deps();
     const { note: _m, ...rest2 } = y.d;
     await reshipAtShipConfirm({ stage: 'ship', status: 'blocked', reason: 'ship-confirm' }, { ...rest2, projectId: () => undefined, warn: vi.fn(), error: vi.fn() });
-    expect(y.debug.mock.calls.some(([m]) => String(m).startsWith('[ship] autopilot note failed'))).toBe(false);
+    expect(y.debug.mock.calls.some(([m]) => String(m).includes('karst event failed'))).toBe(false);
   });
 
   it('reports an error from the saga seam through error()', async () => {

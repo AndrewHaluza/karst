@@ -14,7 +14,7 @@ import { parkGateStage } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { autopilotSweep, concurrencyFullFor, listSlotHolders, postAutopilotNote, type TicketSeams } from './autopilotWiring.js';
-import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX } from '../../store/bulletinNotes.js';
+import { EVENT_BODY_MAX, EVENT_TITLE_MAX } from '../../store/karstEvents.js';
 
 describe('concurrencyFullFor', () => {
   const caps = { perParent: 1, total: 3 };
@@ -76,7 +76,7 @@ describe('autopilotSweep', () => {
     const s = seams();
     await sweepOnce(store, projectId, s);
     expect(s.sendCi).not.toHaveBeenCalled();
-    expect((store.db.prepare('SELECT title FROM bulletin_notes').get() as { title: string }).title).toBe('Autopilot: auto-fix not run: graph ticket');
+    expect((store.db.prepare('SELECT title FROM karst_events').get() as { title: string }).title).toBe('Autopilot: auto-fix not run: graph ticket');
   });
 
   it('a graph ticket whose graph runs are all closed gets the CI round', async () => {
@@ -85,10 +85,10 @@ describe('autopilotSweep', () => {
     const s = seams();
     await sweepOnce(store, projectId, s);
     expect(s.sendCi).toHaveBeenCalledOnce();
-    expect((store.db.prepare('SELECT title FROM bulletin_notes').get() as { title: string }).title).not.toContain('graph ticket');
+    expect((store.db.prepare('SELECT title FROM karst_events').get() as { title: string }).title).not.toContain('graph ticket');
   });
 
-  it('arms a CI round for a ship ticket and writes a bulletin note', async () => {
+  it('arms a CI round for a ship ticket and records an event', async () => {
     const { store, projectId } = shipTicket();
     const changed = vi.fn();
     const s = seams();
@@ -99,7 +99,7 @@ describe('autopilotSweep', () => {
     expect(acted).toBe(1);
     expect(s.sendCi).toHaveBeenCalledTimes(1);
     expect(changed).toHaveBeenCalledTimes(1);
-    expect((store.db.prepare('SELECT COUNT(*) AS n FROM bulletin_notes').get() as { n: number }).n).toBe(1);
+    expect((store.db.prepare('SELECT COUNT(*) AS n FROM karst_events').get() as { n: number }).n).toBe(1);
   });
 
   it('passes the stale rebase seam to the tick, and a rebase counts as an action (T1081)', async () => {
@@ -234,26 +234,26 @@ describe('postAutopilotNote', () => {
     return { store, id, projectId: project.id };
   }
   const rows = (store: ReturnType<typeof openStore>) =>
-    store.db.prepare('SELECT title, body FROM bulletin_notes').all() as Array<{ title: string; body: string }>;
+    store.db.prepare('SELECT title, body FROM karst_events').all() as Array<{ title: string; body: string }>;
 
   it('keeps the note when the park reason is long and has several lines', () => {
     const { store, id, projectId } = setup();
     const debug = vi.fn();
     const reason = `auto-fix stopped: ci could not run (gh failed\n${'x'.repeat(400)})`;
-    postAutopilotNote(store, projectId, id, `Autopilot: ${reason}`, 'b'.repeat(BULLETIN_BODY_MAX + 50), debug);
+    postAutopilotNote(store, projectId, id, `Autopilot: ${reason}`, 'b'.repeat(EVENT_BODY_MAX + 50), debug);
     const [row] = rows(store);
     expect(row!.title).not.toContain('\n');
-    expect(row!.title.length).toBeLessThanOrEqual(BULLETIN_TITLE_MAX);
+    expect(row!.title.length).toBeLessThanOrEqual(EVENT_TITLE_MAX);
     expect(row!.title.startsWith('Autopilot: auto-fix stopped: ci could not run (gh failed x')).toBe(true);
-    expect(row!.body.length).toBe(BULLETIN_BODY_MAX);
+    expect(row!.body.length).toBe(EVENT_BODY_MAX);
     expect(debug).not.toHaveBeenCalled();
   });
 
   it('clips a long title to the title limit and ends it with an ellipsis', () => {
     const { store, id, projectId } = setup();
-    postAutopilotNote(store, projectId, id, 'T'.repeat(BULLETIN_TITLE_MAX + 80), 'body', vi.fn());
+    postAutopilotNote(store, projectId, id, 'T'.repeat(EVENT_TITLE_MAX + 80), 'body', vi.fn());
     const [row] = rows(store);
-    expect(row!.title).toHaveLength(BULLETIN_TITLE_MAX);
+    expect(row!.title).toHaveLength(EVENT_TITLE_MAX);
     expect(row!.title.endsWith('\u2026')).toBe(true);
   });
 
@@ -284,7 +284,7 @@ describe('postAutopilotNote', () => {
     const debug = vi.fn();
     postAutopilotNote(store, 9999, id, 't', 'b', debug);
     expect(rows(store)).toHaveLength(0);
-    expect(debug).toHaveBeenCalledWith(expect.stringContaining('[ship] autopilot note failed'));
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('karst event failed'));
   });
 });
 

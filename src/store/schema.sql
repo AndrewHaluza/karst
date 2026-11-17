@@ -1619,3 +1619,20 @@ CREATE TABLE IF NOT EXISTS deliver_gate_results (
   dismissed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_deliver_results_ticket ON deliver_gate_results(ticket_id, id);
+
+-- v128 Karst events (kept in sync with KARST_EVENTS_DDL in store/karstEvents.ts, @arch:EVENTS).
+-- What Karst did and told the person: person-facing outcomes only, never debug lines.
+-- Project-scoped; recordEvent trims a project to 30 days and 5000 rows in its own transaction.
+CREATE TABLE IF NOT EXISTS karst_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  ticket_id  INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+  level      TEXT NOT NULL CHECK (level IN ('info', 'success', 'warn', 'error')),
+  source     TEXT NOT NULL CHECK (source IN ('host', 'panel', 'autopilot', 'merge', 'ship')),
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  read_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_karst_events_project ON karst_events(project_id, id);
+CREATE INDEX IF NOT EXISTS idx_karst_events_unread ON karst_events(project_id, read_at);
