@@ -499,6 +499,9 @@ import { makeGettingStartedPanelHost } from './ui/gettingStarted/host.js';
 import { buildSetupStatus } from './init/status.js';
 import { buildGettingStartedState } from './ui/gettingStarted/state.js';
 import { formatId, formatTicketRef, ticketRefOrUnknown } from './model/entityId.js';
+import { toast, ask, bindToastRecorder } from './extension/toastSeam.js';
+import { makeToastRecorder, panelActionRecorder } from './extension/ops/toastRecorder.js';
+import { bindActionRecorder } from './model/actionResult.js';
 
 /**
  * Extension activation adapter — the host seam (§2.6). Everything below the UI
@@ -648,7 +651,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // only surface left — the output channel is created below the store open).
     const fault = describeStoreOpenFailure(err);
     console.error('karst: activation aborted — store open failed', err);
-    void vscode.window.showErrorMessage(
+    void toast.error(
       fault.fixHint ? `${fault.message}\n\n${fault.fixHint}` : fault.message,
     );
     return restoreGate.fail();
@@ -724,7 +727,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
     cliEntry: () => cliSessionInput(cliLiteral(context, dbPath)).cliEntry, dbPath,
     notify,
-    confirmUnsafeCore: async () => (await vscode.window.showWarningMessage(
+    confirmUnsafeCore: async () => (await ask.warn(
       'agy cannot block edits; approve each action.', { modal: true }, 'Start')) === 'Start',
     debug: (m) => logger.debug(m), planningHistory: (m) => gatherPlanningHistory(m, { runGit: execGit, debug: (msg) => logger.debug(msg) }),
     onChange: () => provider.refresh(), offerRestart: offerPlannerRestart,
@@ -733,7 +736,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId)));
   const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
     choose: async (text) => ({ Review: 'review', Discard: 'discard' } as Record<string, ProposalChoice>)[
-      (await vscode.window.showInformationMessage(text, 'Review', 'Discard')) ?? ''],
+      (await ask.info(text, 'Review', 'Discard')) ?? ''],
     archDocs: (repos, constraints) => archDocFiles(constraints, repoPathsOf(currentManifest(), repos)),
     openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
     refreshIndex: refreshPlanningIndex,
@@ -801,7 +804,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
         arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
         prepareSandbox: () => sandboxLife.ensureInSync(id),
-        notify: (message) => void vscode.window.showInformationMessage(message),
+        notify: (message) => void toast.info(message),
         deliver: (brief) => {
           if (sessions.nudge(id, brief)) { sessions.focusSession(id); return; }
           void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief, seedRepo: repo });
@@ -1066,7 +1069,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       provider.refresh();
       dashboard.pushState(ticketId);
       const t = getTicket(localStore, ticketId);
-      void vscode.window.showWarningMessage(
+      void toast.warn(
         `Karst: couldn't resume the previous session for "${formatTicketRef(ticketId, t.key)}" ` +
           `(it may have expired or the worktree was recreated). Retrying with a fresh session.`,
       );
@@ -1223,7 +1226,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push({ dispose: artifactCapture.dispose });
   sandboxLife = makeSandboxWiring({ // arch:AC-32
     sbxMemory: () => hostSbxMemory(currentManifest()?.sandboxMemory?.sbxMemory), store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), gateRunning: (id) => driver.isRunning(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), debug: (m) => logger.debug(m), logError,
-    choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
+    choose: (m, choices) => Promise.resolve(ask.warn(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id, redrive: (id) => maybeDrive(id, 'sandbox-stash-update'),
     onShellChange: (id) => dashboard.pushState(id), openTerminal: (spec) => { const term = vscode.window.createTerminal({ name: spec.name, cwd: spec.cwd, shellPath: spec.cmd, shellArgs: [...spec.args] }); term.show(); }, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
@@ -1262,7 +1265,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       `Karst: ${where}${ticket} could not run on ${from} — ${why}. ` +
       `Retrying with ${to}.`;
     logger.warn(message);
-    void vscode.window.showWarningMessage(message);
+    void toast.warn(message);
   };
 
   /**
@@ -1519,6 +1522,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   artifactCapture.start(); // after `currentProject` exists: wiring-time sync hit its TDZ
+  const eventDeps = { store: localStore, projectId: () => currentProject()?.id, debug: (m: string) => logger.debug(m) };
+  bindToastRecorder(makeToastRecorder(eventDeps)); // D641: every toast and every panel action result is one karst_events row
+  bindActionRecorder(panelActionRecorder(makeToastRecorder(eventDeps, 'panel')));
 
   // Backfill: spill any pre-existing oversized descriptions/briefs to the
   // attachment shelf.  Idempotent (a pointer is under threshold and won't
@@ -1635,7 +1641,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       applyOpencode2();
       const login = opencode2LoginCommand();
       if (!login) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           "Set 'karst.opencode2.binaryPath' to the OpenCode v2 launcher before logging in.",
         );
         return;
@@ -1668,7 +1674,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onBlocked: () => void refreshDepsStatus().catch((e) => logError('karst: dependency status refresh failed', e)),
     warn: (message: string) => logger.warn(message),
     showError: async (text: string) =>
-      (await vscode.window.showErrorMessage(text, 'Open setup checklist')) === 'Open setup checklist',
+      (await ask.error(text, 'Open setup checklist')) === 'Open setup checklist',
     openChecklist: () => gettingStarted.open(),
   };
   const guardProviderCapability = createProviderGuard(guardDeps);
@@ -1693,7 +1699,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
       probe: commandOutputAsync,
       choose: (message, ...buttons) =>
-        Promise.resolve(vscode.window.showWarningMessage(message, ...buttons)),
+        Promise.resolve(ask.warn(message, ...buttons)),
       logIn: async () => {
         await vscode.commands.executeCommand('karst.opencode2.login');
       },
@@ -1729,7 +1735,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         isSessionOpen: () => sessions.isOpen(ticketId),
         isProviderReady: (provider) => guardProviderCapability('sessions', provider),
         confirm: async ({ from, to, willReplaceSession }) => {
-          const choice = await vscode.window.showWarningMessage(
+          const choice = await ask.warn(
             `Switch from ${from.providerLabel} · ${from.modelLabel} to ${to.providerLabel} · ${to.modelLabel}?`,
             {
               modal: true,
@@ -1756,18 +1762,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, modelCatalog, { provider: targetProvider, model, effort });
       // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
-        void vscode.window.showInformationMessage('The ticket state changed before the agent could be switched.');
+        void toast.info('The ticket state changed before the agent could be switched.');
       } else if (outcome.kind === 'unavailable') {
-        void vscode.window.showWarningMessage(`${AGENT_PROVIDER_LABELS[outcome.provider] || outcome.provider} is not available — ensure the CLI is installed and on PATH.`);
+        void toast.warn(`${AGENT_PROVIDER_LABELS[outcome.provider] || outcome.provider} is not available — ensure the CLI is installed and on PATH.`);
       } else if (outcome.kind === 'launch-failed') {
-        void vscode.window.showErrorMessage(
+        void toast.error(
           `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
         );
       }
       return outcome;
     } catch (error) {
       logError('agent session switch failed', error);
-      void vscode.window.showErrorMessage(
+      void toast.error(
         `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
       );
       return undefined;
@@ -1809,7 +1815,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const approvedNpmRunner = withCommandConsent(
     (command, cwd) => runNpmCommand(command, cwd),
     async (command) =>
-      (await vscode.window.showWarningMessage(
+      (await ask.warn(
         'Run this approach install command? It comes from the approach source and runs in a shell.',
         { modal: true, detail: command },
         'Run',
@@ -1960,7 +1966,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // surfaces as a failed start instead of a silent stall with the ticket
       // already advanced to impl.
       const settled = startGuards.settle(ticketId, await vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', ticketId));
-      if (!settled.ok) { if (!quiet) void vscode.window.showErrorMessage(settled.message); return settled; }
+      if (!settled.ok) { if (!quiet) void toast.error(settled.message); return settled; }
       // The session is open and the ticket has already advanced to impl —
       // the irreversible part succeeded, so a failed status push warns; it
       // never turns a started ticket into a failed start (mirrors
@@ -1981,7 +1987,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { ok: true };
     } catch (err) {
       const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`; startGuards.afterThrow(ticketId, err);
-      if (!quiet) void vscode.window.showErrorMessage(message);
+      if (!quiet) void toast.error(message);
       return { ok: false, message };
     }
   };
@@ -2171,7 +2177,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       startTicket,
       requestSubtaskAutostart: () => void subtaskAutostart.sweep(),
       // A started ticket belongs to its dashboard — the ticket form hands off there.
-      openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId), openDependency: (ticketId: number) => dashboard.openDashboard(ticketId), confirmBlockedStart: async (message: string) => (await vscode.window.showWarningMessage(message, { modal: true }, 'Start anyway')) === 'Start anyway',
+      openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId), openDependency: (ticketId: number) => dashboard.openDashboard(ticketId), confirmBlockedStart: async (message: string) => (await ask.warn(message, { modal: true }, 'Start anyway')) === 'Start anyway',
       writeSignals: writeRepoSignals,
       // Re-read the manifest from disk after a signal writeback so the panel's
       // manifest getter (currentManifest) reflects the saved signals — the gate
@@ -2298,7 +2304,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // question goes in the title and the command in the detail. Putting a
         // long `npx …` string in the title clips it, which would hide the very
         // thing the user is being asked to approve.
-        const choice = await vscode.window.showWarningMessage(
+        const choice = await ask.warn(
           'Run this command to install the approach?',
           {
             modal: true,
@@ -2329,7 +2335,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const cleared = clearApproachFromTickets(localStore, id, { projectId });
         if (cleared > 0) {
           provider.refresh();
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Uninstalled "${id}" — cleared it from ${cleared} ticket${cleared === 1 ? '' : 's'}. ` +
               `Pick an approach again for those tickets after reinstalling.`,
           );
@@ -2374,7 +2380,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // confirmation settles the control as success-with-nothing-done rather
       // than leaving it pending until the watchdog fires.
       deleteAgent: async (name: string): Promise<void> => {
-        const choice = await vscode.window.showWarningMessage(
+        const choice = await ask.warn(
           `Permanently delete the agent "${name}"? This cannot be undone.`,
           { modal: true },
           'Delete',
@@ -2542,7 +2548,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       virtualAttempt.rollback();
       if (error instanceof StaleDiffTargetError) throw error;
       if (error instanceof TextDiffUnavailableError) {
-        void vscode.window.showWarningMessage(error.message);
+        void toast.warn(error.message);
         return;
       }
       // Rethrown, not swallowed: the manager's generic branch is what tells the
@@ -2597,7 +2603,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             if (wtPath) {
               const result = await gitDiscard(defaultGitRunner, wtPath, file.path, file.status);
               if (!result.ok) {
-                void vscode.window.showWarningMessage(`Could not discard changes: ${result.error ?? 'unknown error'}`);
+                void toast.warn(`Could not discard changes: ${result.error ?? 'unknown error'}`);
               }
               return;
             }
@@ -2615,7 +2621,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (wtPath) {
             const result = await gitUnstage(defaultGitRunner, wtPath, file.path);
             if (!result.ok) {
-              void vscode.window.showWarningMessage(`Could not unstage file: ${result.error ?? 'unknown error'}`);
+              void toast.warn(`Could not unstage file: ${result.error ?? 'unknown error'}`);
             }
             return;
           }
@@ -2632,7 +2638,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     wrapLoadForChanges,
     openTicketDiff,
-    (message) => void vscode.window.showWarningMessage(message),
+    (message) => void toast.warn(message),
     logError,
     (text) => void vscode.env.clipboard.writeText(text),
     (ticketId, active) => activeTicket.set(ticketId, active),
@@ -2689,7 +2695,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch (e) {
       logError('ticket status update failed', e);
       if (warn) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           `Ticket merged, but the status update failed: ${
             e instanceof Error ? e.message : String(e)
           }`,
@@ -2750,7 +2756,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       hide: () => quotaStatus.hide(),
     },
-    notify: (message) => void vscode.window.showWarningMessage(message),
+    notify: (message) => void toast.warn(message),
   }, { manifest: currentManifest, storageRoot: context.globalStorageUri.fsPath, warn: (m) => logger.warn(m), info: (m) => logger.info(m), error: logError });
   onQuotaChange = (snapshots) => {
     tokenUsagePanel.refresh();
@@ -2820,7 +2826,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The kill confirmation is HOST-side (UI-R33): the webview posts only a
     // `servers.id`, and a crafted message can never skip this modal.
     confirm: async (message) => {
-      const choice = await vscode.window.showWarningMessage(message, { modal: true }, 'Stop process');
+      const choice = await ask.warn(message, { modal: true }, 'Stop process');
       return choice === 'Stop process';
     },
     baselineDependents: (serverId) => baselineDependentsFor(localStore, serverId),
@@ -2885,13 +2891,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const launchWorktreeDevWindow = async (worktreePath: string): Promise<void> => {
     if (!launchWorktreeConfig().enabled) {
-      void vscode.window.showWarningMessage(
+      void toast.warn(
         'Karst: launch-worktree-extension is disabled — set karst.launchWorktreeDev.enabled to true.',
       );
       return;
     }
     if (launchingWorktrees.has(worktreePath)) {
-      void vscode.window.showInformationMessage(`Already building ${worktreePath} — one launch at a time.`);
+      void toast.info(`Already building ${worktreePath} — one launch at a time.`);
       return;
     }
     launchingWorktrees.add(worktreePath);
@@ -2946,18 +2952,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
       );
       if (outcome.kind === 'launched') {
-        void vscode.window.showInformationMessage(
+        void toast.info(
           `Launched the worktree extension in a new window (${worktreePath}).`,
         );
       } else if (outcome.kind === 'failed') {
-        void vscode.window.showErrorMessage(
+        void toast.error(
           `Could not launch the worktree extension: ${outcome.message}`,
         );
       }
       // aborted: the user cancelled — the progress notification is its own report.
     } catch (err) {
       logError('launch worktree extension failed', err);
-      void vscode.window.showErrorMessage(
+      void toast.error(
         `Could not launch the worktree extension: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
@@ -2978,9 +2984,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     transaction: (fn) => runImmediateTransaction(graphCoordinatorStore!.db, fn),
     facts: systemAsyncProcessFacts, killTree, activeRun: activeGraphRunFor,
     label: (id) => formatId('ticket', id),
-    warn: (m, ...a) => vscode.window.showWarningMessage(m, ...a),
-    confirm: async (m, accept) => (await vscode.window.showWarningMessage(m, { modal: true }, accept)) === accept,
-    inform: (m) => void vscode.window.showInformationMessage(m),
+    warn: (m, ...a) => ask.warn(m, ...a),
+    confirm: async (m, accept) => (await ask.warn(m, { modal: true }, accept)) === accept,
+    inform: (m) => void toast.info(m),
     refresh: (id) => { provider.refresh(); dashboard.pushState(id); },
     logError, debug: (m) => logger.debug(m),
   });
@@ -3023,11 +3029,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     handOff: ticketHandOff({ paused: () => getTicket(localStore, ticketId).pausedAt != null, sessionsAvailable: () => guardCapability.known('sessions', ticketId), ...sessionSeams(ticketId) }),
     // T1158: a graph approach's impl runs a graph, so a CI or gate round at ship enters a fix round instead.
     implRunsGraph: () => Boolean(withBuiltInApproaches(currentManifest() ?? emptyManifest()).approaches?.find((a) => a.id === getTicket(localStore, ticketId).approach)?.graph),
-    deliver: { tracker: undelivered, shipGates: () => { gateConsole.reset(ticketId, 'ship'); return { deps: shipGateDeps(ticketId), settled: () => gateConsole.flush(ticketId, 'ship') }; }, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
+    deliver: { tracker: undelivered, shipGates: () => { gateConsole.reset(ticketId, 'ship'); return { deps: shipGateDeps(ticketId), settled: () => gateConsole.flush(ticketId, 'ship') }; }, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => ask.warn(m, ...b), () => sandboxLife.diff(ticketId)) },
     gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
     reprobe: async () => { await runPrSync(true); },
-    confirm: async (title, detail, action) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, action)) === action,
-    info: (m) => void vscode.window.showInformationMessage(m), error: (m) => void vscode.window.showErrorMessage(m),
+    confirm: async (title, detail, action) => (await ask.warn(title, { modal: true, detail }, action)) === action,
+    info: (m) => void toast.info(m), error: (m) => void toast.error(m),
   });
   /** The CI-actions input of a ticket: the auto-deliver and the ship-stage base check share it. */
   const ciInput = (ticketId: number): CiActionsInput => ({
@@ -3227,7 +3233,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       graphMarkImpl: (ticketId, graphRunId) => {
         const result = fireGraphImplMarkerFromHost(localStore, ticketId);
         if (result.ok) {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', ticketId)}: the implementation marker fired (graph run ${graphRunId}) — advancing to uat.`,
           );
           // The ticket is the stage driver's again the moment the marker
@@ -3237,7 +3243,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // `runPrSync`).
           maybeDrive(ticketId, 'graph-impl-marker');
         } else {
-          void vscode.window.showWarningMessage(
+          void toast.warn(
             `Ticket ${formatId('ticket', ticketId)}: could not fire the implementation marker (${result.reason}).`,
           );
         }
@@ -3272,7 +3278,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             { nodeRunId },
           );
           if (result.discarded) {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               `Ticket ${formatId('ticket', ticketId)}: unknown process for node run #${nodeRunId} discarded` +
                 (result.graphBlockedWith
                   ? ' — the graph deadlocked on topology; resume or replan to continue.'
@@ -3295,7 +3301,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // deep-link stub that will open it, and it reports the intended target
       // until then. The write itself stays behind the store's claim gate.
       graphEditOverride: (ticketId, nodeRunId) => {
-        void vscode.window.showInformationMessage(
+        void toast.info(
           `Ticket ${formatId('ticket', ticketId)}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
         );
       },
@@ -3312,7 +3318,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!(await guardCapability('ship'))) return;
       void runShipSaga(ticketId, true, { repos: [repo] }).catch((e) => {
         if (e instanceof ShipDrainingError) {
-          void vscode.window.showInformationMessage(`Karst: ${e.message}`);
+          void toast.info(`Karst: ${e.message}`);
           return;
         }
         logError('karst: per-repo ship retry failed', e);
@@ -3577,7 +3583,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     notify,
     log: { debug: (m) => logger.debug(m), warn: (m) => logger.warn(m) },
     confirm: async (message, confirmLabel) => {
-      const choice = await vscode.window.showWarningMessage(message, { modal: true }, confirmLabel);
+      const choice = await ask.warn(message, { modal: true }, confirmLabel);
       return choice === confirmLabel;
     },
     deleteDeps: {
@@ -4074,7 +4080,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     rerunFailedGates: hostRerunFor({ ...gateRerunDeps, drain }), // D403: one host gate re-run for a refused no-commit fix marker
     debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-45 marker: sync first, failures at WARN
-    notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
+    notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? ask.error(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? ask.error(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : ask.warn(m)); },
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
   try { stopStaleDeliverRuns(localStore, pidAlive, nowIso()); } catch (e) { logError('stale deliver runs sweep failed', e); }
@@ -5159,7 +5165,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (result.kind !== 'launched') {
       const reason = result.reason;
       logger.warn(`karst: graph launch for ticket ${formatId('ticket', ticketId)} failed: ${reason}`);
-      void vscode.window.showErrorMessage(
+      void toast.error(
         `Ticket ${formatId('ticket', ticketId)}: the graph engineering run could not start — ${reason}`,
       );
       return false;
@@ -5381,7 +5387,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushState(graphRunTicketId(launch.graphRunId));
     } else if (result.kind === 'failed') {
       logError(`karst: replan planner launch failed for run ${launch.graphRunId}`, new Error(result.reason));
-      void vscode.window.showErrorMessage(
+      void toast.error(
         `Ticket ${ticketRefOrUnknown(graphRunTicketId(launch.graphRunId))}: the replan planner could not start — ${result.reason}`,
       );
     }
@@ -5431,7 +5437,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushState(graphRunTicketId(launch.graphRunId));
     } else if (result.kind === 'failed') {
       logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, new Error(result.reason));
-      void vscode.window.showErrorMessage(
+      void toast.error(
         `Ticket ${ticketRefOrUnknown(graphRunTicketId(launch.graphRunId))}: the bootstrap planner could not start — ${result.reason}`,
       );
     }
@@ -5757,7 +5763,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The message states what happened. A run whose live process this window
       // cannot reach was NOT stopped, and saying so is the whole point of the
       // outcome: draining it would strand it behind a false success.
-      void vscode.window.showInformationMessage(
+      void toast.info(
         result.outcome === 'cancelled'
           ? `Ticket ${formatId('ticket', ticketId)}: the graph run was cancelled — ${result.terminated} process${result.terminated === 1 ? '' : 'es'} stopped.`
           : result.outcome === 'cancel-refused'
@@ -5795,7 +5801,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       logger.info(`[graph] restart: run ${result.graphRunId} outcome=${result.outcome}`);
       if (!result.restarted) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           result.outcome === 'replan-in-flight' || result.outcome === 'replan-pending'
             ? `Ticket ${formatId('ticket', ticketId)}: the graph is mid-replan — it will resume on its own when the new plan lands.`
             : `Ticket ${formatId('ticket', ticketId)}: the graph run could not be restarted (${result.outcome}).`,
@@ -6347,8 +6353,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     .then((depFaults) => {
       if (depFaults.length === 0 || autoOpenedGettingStarted) return;
       for (const f of depFaults) logger.warn(`dependency '${f.dep.binary}' is ${f.timedOut ? 'not answering' : f.state}`);
-      void vscode.window
-        .showWarningMessage(describeFaults(depFaults), 'Open setup checklist')
+      void toast
+        .warn(describeFaults(depFaults), 'Open setup checklist')
         .then((choice) => {
           if (choice === 'Open setup checklist') gettingStarted.open();
         });
@@ -6403,7 +6409,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (activeGraph && activeGraph.status === 'completed-awaiting-impl-marker') {
         const result = fireGraphImplMarkerFromHost(localStore, ticketId);
         if (result.ok) {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', ticketId)}: the implementation marker fired (graph run ${activeGraph.graphRunId}) — advancing to uat.`,
           );
           maybeDrive(ticketId, 'graph-impl-marker');
@@ -6411,7 +6417,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           dashboard.pushState(ticketId);
           return { kind: 'launched' };
         }
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           `Ticket ${formatId('ticket', ticketId)}: could not fire the implementation marker (${result.reason}).`,
         );
         return startGuards.failedLaunch(ticketId, result.reason ?? 'could not fire implementation marker');
@@ -6464,7 +6470,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (options.recovery) return { kind: 'not-applicable', reason: 'recovery' };
         const draft = getTicket(localStore, ticketId);
         if (draft.selectedRepos.length === 0) {
-          void vscode.window.showWarningMessage(
+          void toast.warn(
             `Ticket ${formatId('ticket', ticketId)} has no repositories selected — edit it to choose one, then start.`,
           );
           return startGuards.failedLaunch(ticketId, 'no repositories selected');
@@ -6485,14 +6491,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           provider.refresh();
         } catch (e) {
           logError('start ticket (scope on session open) failed', e);
-          void vscode.window.showErrorMessage(
+          void toast.error(
             `Could not start ticket ${formatId('ticket', ticketId)}: ${e instanceof Error ? e.message : String(e)}`,
           );
           return startGuards.failedLaunch(ticketId, `scope failed: ${e instanceof Error ? e.message : String(e)}`);
         }
         wt = listWorktreesByTicket(localStore, ticketId)[0];
         if (!wt) {
-          void vscode.window.showWarningMessage(`Ticket ${formatId('ticket', ticketId)} could not be scoped — check its repositories.`);
+          void toast.warn(`Ticket ${formatId('ticket', ticketId)} could not be scoped — check its repositories.`);
           return startGuards.failedLaunch(ticketId, 'no worktree after scope');
         }
       }
@@ -6529,7 +6535,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         if (decision.kind === 'attempt-consumed') {
           if (!advanceConsumedGraphAttempt(localStore, ticketId, decision, implAttemptOf(ticketId), (m) => logger.info(m))) {
-            void vscode.window.showWarningMessage(
+            void toast.warn(
               `Ticket ${formatId('ticket', ticketId)}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
             );
             return { kind: 'not-applicable', reason: 'graph-owned' };
@@ -6602,7 +6608,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider; if (!options.recovery && !options.memoryAdmitted && !sessions.isOpen(ticketId) && wantsSbxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend) && listWorktreesByTicket(localStore, ticketId).length <= 1 && memoryGuard && !(await memoryGuard.admitLaunch(ticketId, options))) return { kind: 'not-applicable', reason: 'cancelled' }; // queued: 'Waiting for memory'; a recovery relaunch is never queued (recoverSession would count it as failed)
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, failClosed: options.failClosed === true, refuseOnBlock: options.recovery === true, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ...(shouldResumeSession({ sessionId: t.sessionId, sessionProvider: t.sessionProvider, stageCurrent: t.stageCurrent as StageKey, provider: launchProvider, allowResume: options.allowResume }) && t.sessionId ? { resumeSessionId: t.sessionId } : {}), ticketOverride: t.agentBackend, ...(options.account !== undefined ? { account: options.account } : {}), warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; if (fallback.kind === 'restart-default') return vscode.commands.executeCommand<SessionOutcome>('karst.openSession', ticketId, { ...options, account: 'default', allowResume: false, memoryAdmitted: true }); /* a NEW session under explicit 'default'; the active account is untouched (@arch:AC-55) */ if (fallback.kind === 'refused') return startGuards.failedLaunch(ticketId, fallback.reason); const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, failClosed: options.failClosed === true, refuseOnBlock: options.recovery === true, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ...(shouldResumeSession({ sessionId: t.sessionId, sessionProvider: t.sessionProvider, stageCurrent: t.stageCurrent as StageKey, provider: launchProvider, allowResume: options.allowResume }) && t.sessionId ? { resumeSessionId: t.sessionId } : {}), ticketOverride: t.agentBackend, ...(options.account !== undefined ? { account: options.account } : {}), warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true) }, (core) => sandboxB?.remember(ticketId, core))), ...hostFallbackPrompts({ showWarningMessage: ask.warn }), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; if (fallback.kind === 'restart-default') return vscode.commands.executeCommand<SessionOutcome>('karst.openSession', ticketId, { ...options, account: 'default', allowResume: false, memoryAdmitted: true }); /* a NEW session under explicit 'default'; the active account is untouched (@arch:AC-55) */ if (fallback.kind === 'refused') return startGuards.failedLaunch(ticketId, fallback.reason); const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session
@@ -6820,7 +6826,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const approachDef = (currentManifest()?.approaches ?? []).find((a) => a.id === t.approach);
       const approachIsSourced = approachDef?.source !== undefined;
       if (t.approach && approachIsSourced && approachPrompt === null && extraArgs === undefined) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           `Approach "${t.approach}" produced no method prompt or loadable artifacts — ` +
             `opening with ticket context only. Check the approach's entrypoint in the manifest and reinstall it.`,
         );
@@ -6922,7 +6928,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const t = getTicket(localStore, ticketId);
         label = compactTicketLabel(t, ticketLabel(t, manifest.ticketLabelTemplate));
       } catch {
-        void vscode.window.showErrorMessage(`Ticket ${formatId('ticket', ticketId)} not found.`);
+        void toast.error(`Ticket ${formatId('ticket', ticketId)} not found.`);
         return;
       }
 
@@ -6935,7 +6941,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const remembered = context.workspaceState.get<string[]>(memKey);
       const items = spinRepoPicks(manifest, remembered, { servicesOnly });
       if (items.length === 0) {
-        void vscode.window.showInformationMessage('No repository declares a service to run.');
+        void toast.info('No repository declares a service to run.');
         return;
       }
 
@@ -6970,14 +6976,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         provider.refresh();
         dashboard.pushState(ticketId);
-        void vscode.window.showInformationMessage(
+        void toast.info(
           `Spun ${label} — ${result.servers.length} server(s) running.`,
         );
         // A conflicting dev server that had to be killed is the user's own
         // process — an unreported reap is how a "why did my dev server die?"
         // mystery starts (the archive paths raise the same warning).
         if (result.reclaimedPids.length > 0) {
-          void vscode.window.showWarningMessage(
+          void toast.warn(
             `Spin for ${label} stopped ${result.reclaimedPids.length} conflicting dev server(s) ` +
               `(pid ${result.reclaimedPids.join(', ')}) to free the allocated port(s).`,
           );
@@ -6987,9 +6993,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         dashboard.pushState(ticketId); // surface failed servers on the dashboard
         if (err instanceof SpinCancelledError) {
           // User-initiated: quiet info, not a red error toast.
-          void vscode.window.showInformationMessage(`Spin cancelled for ${label}.`);
+          void toast.info(`Spin cancelled for ${label}.`);
         } else {
-          void vscode.window.showErrorMessage(
+          void toast.error(
             `Spin failed for ${label}: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
@@ -7004,21 +7010,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.launchWorktreeExtension', async () => {
       if (!(await guardCapability('worktrees'))) return;
       if (!launchWorktreeConfig().enabled) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           'Karst: launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
         );
         return;
       }
       const project = currentProject();
       if (!project) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           'Karst: open a workspace folder first, then launch a worktree extension.',
         );
         return;
       }
       const rows = selectLaunchableWorktrees(listWorktreesByProject(localStore, project.id));
       if (rows.length === 0) {
-        void vscode.window.showInformationMessage(
+        void toast.info(
           'No karst-extension worktrees in this project — scope a ticket against the karst repository first.',
         );
         return;
@@ -7182,11 +7188,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.compactArchivedWorktrees', async () => {
       const manifest = currentManifest();
       if (!manifest) {
-        void vscode.window.showWarningMessage('Karst: no manifest loaded.');
+        void toast.warn('Karst: no manifest loaded.');
         return;
       }
       const result = await compactArchivedWorktrees(defaultGitRunner, localStore, 7 * 24 * 60 * 60 * 1000);
-      void vscode.window.showInformationMessage(
+      void toast.info(
         `Karst: compacted ${result.compacted} archive(s), skipped ${result.skipped}, failed ${result.failed}` +
           ` — swept ${result.sweep.prunedBranches} orphan branch(es), ${result.sweep.prunedArchiveRefs} orphan ref(s).`,
       );
@@ -7199,7 +7205,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (items.length === 0) {
         // The command is palette-reachable even at zero; an empty picker would
         // read as a broken list rather than an answer.
-        void vscode.window.showInformationMessage('No tickets need your input.');
+        void toast.info('No tickets need your input.');
         return;
       }
       const picked = await vscode.window.showQuickPick(
@@ -7247,11 +7253,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         path = manifestPathOrThrow();
       } catch {
-        void vscode.window.showErrorMessage('Open a folder before using Karst.');
+        void toast.error('Open a folder before using Karst.');
         return;
       }
       if (!existsSync(path)) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           'No karst.yml in this workspace yet — create a ticket to scaffold one.',
         );
         return;
@@ -7268,11 +7274,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         path = manifestPathOrThrow();
       } catch {
-        void vscode.window.showWarningMessage('Karst: no workspace folder is open.');
+        void toast.warn('Karst: no workspace folder is open.');
         return;
       }
       if (!existsSync(path)) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           `Karst: no manifest at ${path}. Run onboarding to scaffold one.`,
         );
         return;
@@ -7287,7 +7293,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.recheckDeps', async () => {
       const missing = await refreshDepsStatus({ recheck: true });
       if (missing.length === 0) {
-        void vscode.window.showInformationMessage('Karst has every tool it needs.');
+        void toast.info('Karst has every tool it needs.');
         return;
       }
       gettingStarted.open();

@@ -9,6 +9,7 @@ import type { HookPayload } from '../hooks/dispatch.js';
 import { claudeTrailingQuota, quotaTextFromHook } from '../agent/interactiveQuota.js';
 import { makeOncePerError, recordInteractiveUsageLimit } from './ops/interactiveUsageLimitOps.js';
 import { makeInteractiveParkActions, runInteractiveOffer } from './ops/interactiveUsageLimitActions.js';
+import { ask, toast } from './toastSeam.js';
 
 export interface InteractiveUsageLimitBindingDeps {
   store: Store;
@@ -64,14 +65,14 @@ export function createInteractiveUsageLimitBinding(deps: InteractiveUsageLimitBi
               actions,
               ask: (labels) =>
                 Promise.resolve(
-                  vscode.window.showWarningMessage(
+                  ask.warn(
                     `${ticket.key}: ${AGENT_PROVIDER_LABELS[provider] || provider} hit its usage limit.`,
                     ...labels,
                   ),
                 ),
             })
               .catch((e: unknown) => {
-                void vscode.window.showErrorMessage(
+                void toast.error(
                   `${ticket.key}: usage-limit action failed: ${e instanceof Error ? e.message : String(e)}`,
                 );
               })

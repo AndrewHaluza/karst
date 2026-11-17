@@ -4,14 +4,14 @@
  * `vscode` import here — that is the whole point (§ CLAUDE.md, Workflow).
  */
 export interface Notify {
-  /** Fire-and-forget informational message. */
-  info(message: string): void;
+  /** Fire-and-forget informational message. `ticketId` links the recorded event to its ticket. */
+  info(message: string, ticketId?: number): void;
   /** Fire-and-forget warning. */
-  warn(message: string): void;
+  warn(message: string, ticketId?: number): void;
   /** Awaited error message — callers block on the user dismissing it. */
-  error(message: string): Promise<void>;
+  error(message: string, ticketId?: number): Promise<void>;
   /** Error with buttons: resolves to the chosen label, or undefined when dismissed. */
-  errorActions?(message: string, actions: readonly string[]): Promise<string | undefined>;
+  errorActions?(message: string, actions: readonly string[], ticketId?: number): Promise<string | undefined>;
   /** Info with buttons: resolves to the chosen label, or undefined when dismissed. */
-  infoActions?(message: string, actions: readonly string[]): Promise<string | undefined>;
+  infoActions?(message: string, actions: readonly string[], ticketId?: number): Promise<string | undefined>;
 }

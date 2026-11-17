@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { DiffTreeHost } from './treeController.js';
 import { diffItemShape, findParentNode, type DiffItemShape, type DiffNode } from './treeModel.js';
+import { toast } from '../../extension/toastSeam.js';
 
 export { diffItemShape, type DiffItemShape } from './treeModel.js';
 
@@ -70,7 +71,7 @@ export function makeDiffTreeHost(
       }
       await vscode.commands.executeCommand('workbench.view.scm');
     },
-    warn: (message) => void vscode.window.showWarningMessage(message),
+    warn: (message) => void toast.warn(message),
     viewColumn: () => 1,
   };
 }

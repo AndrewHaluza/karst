@@ -15,6 +15,7 @@ import { getPrById } from '../store/prs.js';
 import { getShipCommitById } from '../store/shipRuns.js';
 import { type AsyncCapabilityGuard } from './ops/capabilityGuard.js';
 import { formatId } from '../model/entityId.js';
+import { toast, ask } from './toastSeam.js';
 
 /** True when the capability's tools are present; otherwise tells the user why not. */
 export type CapabilityGuard = AsyncCapabilityGuard;
@@ -80,25 +81,25 @@ export function makeInsideActionHost(
         // refused to do on its own. Every other refusal is informational.
         const handling = graphRefusalHandling(ticketId, mode, recovery.reason);
         if (handling.offerForce) {
-          void vscode.window
-            .showWarningMessage(handling.message, { modal: true }, 'Force retry')
+          void ask
+            .warn(handling.message, { modal: true }, 'Force retry')
             .then((choice) => {
               if (choice === 'Force retry') recoverBlockedGraph(ticketId, graphRunId, 'force-resume');
             });
           return;
         }
-        void vscode.window.showInformationMessage(handling.message);
+        void toast.info(handling.message);
         return;
       }
       if (recovery.kind !== 'no-op') {
-        void vscode.window.showInformationMessage(
+        void toast.info(
           mode === 'replan'
             ? `Ticket ${formatId('ticket', ticketId)}: the implementation graph is replanning (graph run ${graphRunId}).`
             : `Ticket ${formatId('ticket', ticketId)}: the implementation graph recovery started (graph run ${graphRunId}).`,
         );
       }
     } catch (err) {
-      void vscode.window.showErrorMessage(
+      void toast.error(
         `Could not ${mode} the implementation graph: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
@@ -120,7 +121,7 @@ export function makeInsideActionHost(
           // The dispatch already proved the deepest ancestor exists, but the
           // file itself can be gone (worktree removed). Mirrors openStageLog's
           // failure copy: a missing file is "cannot open", never a verdict.
-          void vscode.window.showWarningMessage(`Cannot open the file at ${path}.`);
+          void toast.warn(`Cannot open the file at ${path}.`);
         }
       })();
     },
@@ -131,7 +132,7 @@ export function makeInsideActionHost(
     openCommit: (_ticketId, shipCommitId) => {
       const commit = getShipCommitById(store, shipCommitId);
       if (commit) {
-        void vscode.window.showInformationMessage(
+        void toast.info(
           `Commit ${commit.sha.slice(0, 8)} — recorded by ship in ${commit.repo}`,
         );
       }
@@ -145,12 +146,12 @@ export function makeInsideActionHost(
       if (outcome.kind === 'graph-mark-impl') {
         const result = fireGraphImplMarkerFromHost(store, outcome.ticketId);
         if (result.ok) {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', outcome.ticketId)}: the implementation marker fired (graph run ${outcome.graphRunId}) — advancing to uat.`,
           );
           void vscode.commands.executeCommand('karst.openDashboard', outcome.ticketId);
         } else {
-          void vscode.window.showWarningMessage(
+          void toast.warn(
             `Ticket ${formatId('ticket', outcome.ticketId)}: could not fire the implementation marker (${result.reason}).`,
           );
         }
@@ -165,30 +166,30 @@ export function makeInsideActionHost(
           graphRunId: outcome.graphRunId,
         });
         if (recovery.kind === 'retried') {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', ticketId)}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'run-restored') {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', ticketId)}: the accepted implementation graph runs again.`,
           );
         } else if (recovery.kind === 'replanned') {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', ticketId)}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'relaunched') {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', ticketId)}: the implementation graph's bootstrap planner was relaunched (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'refused') {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
           );
         }
       }
     },
     openFullEvidence: (ticketId, processRunId) => {
-      void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket ${formatId('ticket', ticketId)}`);
+      void toast.info(`Inside evidence: process run #${processRunId} on ticket ${formatId('ticket', ticketId)}`);
     },
     openBoundedEvidence: (_ticketId, title, rows) => {
       const statusLabel: Record<string, string> = {

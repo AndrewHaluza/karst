@@ -8,6 +8,7 @@ import type { ServerOpsDeps } from './ops/serverOps.js';
 import type { Notify } from './ops/notify.js';
 import type { ServersHost } from '../ui/resources/panel.js';
 import { buildServersIndicator } from '../ui/serversStatus.js';
+import { ask } from './toastSeam.js';
 
 /**
  * The `vscode` half of the Servers panel: it binds the host-agnostic ops
@@ -44,7 +45,7 @@ export function createServersBinding(deps: ServersBindingDeps): { host: ServersH
       stopServer: (store, id) => stopServer(store, id, { debug: deps.debug }),
       // The confirmation is HOST-side (UI-R33): the webview posts only a unit key.
       confirm: async (message, actionLabel) =>
-        (await vscode.window.showWarningMessage(message, { modal: true }, actionLabel)) === actionLabel,
+        (await ask.warn(message, { modal: true }, actionLabel)) === actionLabel,
       afterServerChange: deps.afterServerChange,
     },
     rows: {

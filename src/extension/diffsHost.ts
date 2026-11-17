@@ -10,6 +10,7 @@ import { diffsTicketChoices, diffsTicketScope } from '../ui/diffs/ticketChoices.
 import { diffNodeChangeId } from '../ui/diffs/treeModel.js';
 import { DiffTreeController } from '../ui/diffs/treeController.js';
 import { DIFFS_VIEW_ID, DiffTreeProvider, makeDiffTreeHost } from '../ui/diffs/treeHost.js';
+import { toast, ask } from './toastSeam.js';
 
 export interface DiffsHostDeps {
   context: vscode.ExtensionContext;
@@ -38,7 +39,7 @@ export async function pickDiffsTicket(
 ): Promise<number | undefined> {
   const scope = diffsTicketScope(projectId);
   if (scope === null) {
-    void vscode.window.showInformationMessage(
+    void toast.info(
       'Karst: open a project to choose which ticket’s changes to show.',
     );
     return undefined;
@@ -47,7 +48,7 @@ export async function pickDiffsTicket(
   const rows = listTickets(store, scope);
   const choices = diffsTicketChoices(rows, currentTicketId);
   if (choices.length === 0) {
-    void vscode.window.showInformationMessage('No active tickets to show changes for.');
+    void toast.info('No active tickets to show changes for.');
     return undefined;
   }
 
@@ -87,7 +88,7 @@ export function wireDiffsTree(deps: DiffsHostDeps): DiffTreeController {
     discard: deps.discard,
     unstage: deps.unstage,
     confirmDiscard: async (path) => {
-      const choice = await vscode.window.showWarningMessage(
+      const choice = await ask.warn(
         `Discard changes in ${path}? This cannot be undone.`,
         { modal: true },
         'Discard Changes',

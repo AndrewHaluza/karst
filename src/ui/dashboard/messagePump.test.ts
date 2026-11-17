@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { bindActionRecorder } from '../../model/actionResult.js';
 import { attachMessagePump, type MessagePumpDeps } from './messagePump.js';
 import type { DashboardPanel } from './panelTypes.js';
 
@@ -41,5 +42,20 @@ describe('attachMessagePump — a dropped decision message (UI-R13 exception)', 
     send({ type: 'baseline-approve', blockId: 'baseline-review', indices: tooLong });
     send({ type: 'baseline-approve', blockId: 'baseline-review', indices: tooLong, requestId: 'bad id!' });
     expect(postMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('attachMessagePump — the dashboard links recorded outcomes to its ticket', () => {
+  it('records a dropped decision as an error row for the pump ticket, then posts it', () => {
+    const bound = vi.fn();
+    bindActionRecorder(bound);
+    try {
+      const { send, postMessage } = setup();
+      send({ type: 'baseline-reject', blockId: 'wrong', requestId: 'req-9' });
+      expect(bound).toHaveBeenCalledWith(expect.objectContaining({ level: 'error', ticketId: 1 }));
+      expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'req-9', ok: false }));
+    } finally {
+      bindActionRecorder(undefined);
+    }
   });
 });

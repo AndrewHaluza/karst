@@ -85,6 +85,68 @@ export function readRequestId(raw: unknown): string | undefined {
   return /^[\w.:-]+$/.test(id) ? id : undefined;
 }
 
+/** One person-facing outcome the host writes to `karst_events` before it posts the result (D641). */
+export interface ActionRecordEvent {
+  level: 'success' | 'warn' | 'error';
+  message: string;
+  ticketId?: number;
+}
+
+/** The host callback that writes the row. It must not throw; the seam also guards it. */
+export type ActionRecorder = (event: ActionRecordEvent) => void;
+
+let boundRecorder: ActionRecorder | undefined;
+
+/** Bind the host recorder every panel's `reportAction` uses when it is given none; undefined unbinds. */
+export function bindActionRecorder(recorder: ActionRecorder | undefined): void {
+  boundRecorder = recorder;
+}
+
+/** A recorder that links each row to one ticket (the dashboard pump), over the bound host recorder. */
+export function actionRecorderFor(ticketId: number): ActionRecorder {
+  return (event) => boundRecorder?.({ ...event, ticketId });
+}
+
+/**
+ * The noise rule: `ok:false` is an error, `ok:null` a warning, `ok:true` WITH a message a
+ * success. `ok:true` without a message is not recorded: the webview shows nothing for it.
+ */
+export function actionEvent(ok: boolean | null, message?: string): ActionRecordEvent | undefined {
+  if (ok === true) return message ? { level: 'success', message } : undefined;
+  const text = message ?? (ok === false ? 'The action failed.' : 'The action result is unknown.');
+  return { level: ok === false ? 'error' : 'warn', message: text };
+}
+
+/**
+ * The ONE place the host posts an `action-result` (a repo test bans a literal post elsewhere).
+ * It writes the row first, then posts; a failed write or a disposed panel never breaks the other.
+ */
+export function postActionResult(
+  post: (message: ActionResultMessage) => void,
+  result: { requestId: string; ok: boolean | null; message?: string },
+  record: ActionRecorder | undefined = boundRecorder,
+): void {
+  const event = actionEvent(result.ok, result.message);
+  if (event && record) {
+    try {
+      record(event);
+    } catch {
+      // The recorder logs its own failures; the result must still reach the webview.
+    }
+  }
+  try {
+    post({
+      type: 'action-result',
+      requestId: result.requestId,
+      ok: result.ok as boolean,
+      ...(result.message ? { message: result.message } : {}),
+    });
+  } catch {
+    // A disposed panel. The action already ran; losing the receipt is not a
+    // reason to surface an error the user cannot act on.
+  }
+}
+
 /**
  * Run one dispatched action and report its single terminal result.
  *
@@ -95,15 +157,11 @@ export async function reportAction(
   requestId: string | undefined,
   post: (message: ActionResultMessage) => void,
   run: () => void | Promise<void>,
+  record?: ActionRecorder,
 ): Promise<void> {
   const send = (ok: boolean, message?: string): void => {
     if (requestId === undefined) return;
-    try {
-      post({ type: 'action-result', requestId, ok, ...(message ? { message } : {}) });
-    } catch {
-      // A disposed panel. The action already ran; losing the receipt is not a
-      // reason to surface an error the user cannot act on.
-    }
+    postActionResult(post, { requestId, ok, ...(message ? { message } : {}) }, record);
   };
 
   try {

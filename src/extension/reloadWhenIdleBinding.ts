@@ -7,9 +7,10 @@ import {
   makeReloadWhenIdleHandler,
   type ReloadWhenIdleHost,
 } from './ops/reloadWhenIdleHost.js';
+import { toast } from './toastSeam.js';
 
 const vscodeHost: ReloadWhenIdleHost = {
-  inform: (message) => void vscode.window.showInformationMessage(message),
+  inform: (message) => void toast.info(message),
   withProgress: (title, run) =>
     Promise.resolve(
       vscode.window.withProgress(
