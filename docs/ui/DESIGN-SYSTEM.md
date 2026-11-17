@@ -667,6 +667,17 @@ status/icon slot, preserve minimum width, or put the status adjacent where neede
 
 Changing the label during pending is not globally forbidden, but unnecessary
 accessible-name churn and layout shifts should be avoided.
+
+### Segmented group — `.k-segmented`
+
+A framed row for a small set of exclusive options, such as Centered / Full width
+or the Backend choice. The container is `role="radiogroup"` with an
+`aria-labelledby` title. Each option is a `.k-btn--sm` with `role="radio"` and
+`aria-checked`: `secondary` when selected, `ghost` when not. One tab stop sits on
+the selected option; Left and Right move and select. `.k-segmented` only draws the
+frame (`--k-space-1` gap and padding, `--k-border`, `--k-radius-md`,
+`--k-surface-sunken`).
+
 END_DOC_BLOCK: [@ui:11.1]
 
 ---
@@ -1131,10 +1142,12 @@ grep `src/ui/**/*.css` before use. A token is added only when missing, under
 - **Master/detail** — side-by-side at ≥700; at ≤699 the detail stacks over the
   list with a Back control, and selection lives in the hash route (UI-R43, UI-R47).
 - **Content-width cap** — page content is capped by one token (UI-R48):
-  `--k-content-max` (1600px) for settings, ticketForm, usage and resources. The
+  `--k-content-max` (1600px) for settings, ticketForm, usage, resources and the dashboard. The
   rule `max-width: var(--k-content-max); margin-inline: auto` goes on `body` (no
   view has a wrapper around header + main; fixed overlays size to the viewport).
-  It is never a px literal on a page.
+  It is never a px literal on a page. The dashboard applies the rule only while
+  `body[data-layout="centered"]` (the default); Full width removes the cap. A fixed
+  overlay keeps its viewport size, and a closed drawer must not widen the page (UI-R56).
 - **Breakpoints** — ≥1000 / 700–999 / ≤699 in `src/ui/layout/layoutBreakpoints.ts`.
   They bind new and changed pages only; existing settings CSS (1024/768/800/700px)
   migrates over time via `BREAKPOINT_PINNED_FILES`.

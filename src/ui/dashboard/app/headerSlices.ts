@@ -3,6 +3,7 @@
  * structurally compared, so the 1 Hz full-snapshot push re-renders a header part only when its slice changed.
  */
 import type { DashboardSnapshot } from './dashboardStore.js';
+import type { DashboardLayout } from '../../../model/dashboardLayout.js';
 import type { DashboardState } from '../state.js';
 import { ticketStatus, type StatusTone } from './ticketHead.js';
 
@@ -98,5 +99,6 @@ export const selectAgent = (snapshot: DashboardSnapshot): AgentSlice | null => {
   return s?.agentSession && s.agentSwitch ? { session: s.agentSession, agentState: s.agentState || 'none', switch: s.agentSwitch, autofixRound: s.autopilot?.roundActive === true } : null;
 };
 
+export const selectLayout = (snapshot: DashboardSnapshot): DashboardLayout => snapshot.layout;
 export const selectBind = (snapshot: DashboardSnapshot): boolean => snapshot.bind;
 export const selectGates = (snapshot: DashboardSnapshot): DashboardSnapshot['gateOptions'] => snapshot.gateOptions;

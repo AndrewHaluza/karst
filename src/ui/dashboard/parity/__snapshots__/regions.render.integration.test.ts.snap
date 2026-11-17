@@ -333,6 +333,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"
@@ -398,6 +409,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"
@@ -463,6 +485,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"
@@ -530,6 +563,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"
@@ -595,6 +639,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"
@@ -660,6 +715,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"
@@ -725,6 +791,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"
@@ -790,6 +867,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"
@@ -855,6 +943,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
           <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
             <input#linkViews tabindex="-1" type="checkbox">
             <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
         <div.menuDivider>
         <div.menuHeading> "Gates for this ticket"
         <div#menuGates.menuGates>"

@@ -74,6 +74,7 @@ function actions(): DashboardActions {
     refreshPrs: vi.fn(),
     refreshShipPreview: vi.fn(),
     toggleBind: vi.fn(),
+    setLayout: vi.fn(),
     switchAgent: vi.fn(),
     copyTicketKey: vi.fn(),
     copyTicketMarkdown: vi.fn(),
@@ -595,6 +596,19 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'toggle-bind' }, a);
     expect(a.toggleBind).toHaveBeenCalledTimes(1);
+  });
+
+  it('set-layout carries a closed set of modes and routes to setLayout', () => {
+    expect(parseWebviewMessage({ type: 'set-layout', layout: 'full' })).toEqual({ type: 'set-layout', layout: 'full' });
+    expect(parseWebviewMessage({ type: 'set-layout', layout: 'centered' })).toEqual({ type: 'set-layout', layout: 'centered' });
+    for (const layout of ['wide', '', 3, null, undefined]) {
+      expect(parseWebviewMessage({ type: 'set-layout', layout })).toBeNull();
+    }
+    const a = actions();
+    routeAction({ type: 'set-layout', layout: 'full' }, a);
+    expect(a.setLayout).toHaveBeenCalledWith('full');
+    routeAction({ type: 'set-layout', layout: 'bogus' }, a);
+    expect(a.setLayout).toHaveBeenCalledTimes(1);
   });
 
   it('parses a switch-agent selection and dispatches it with all three fields', () => {

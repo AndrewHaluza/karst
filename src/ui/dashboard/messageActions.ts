@@ -1,6 +1,7 @@
 import type { StageKey } from '../../model/types.js';
 import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 import type { AgentProvider } from '../../manifest/types.js';
+import type { DashboardLayout } from '../../model/dashboardLayout.js';
 import type { InsideActionResult, AgentProcessId, WebviewMessage } from './messages.js';
 
 /** One review-stall Apply, as the banner sends it. */
@@ -147,6 +148,8 @@ export interface DashboardActions {
   refreshShipPreview: () => void | Promise<void>;
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void | Promise<void>;
+  /** Persist the window-wide dashboard page width and push it to every open dashboard. */
+  setLayout: (layout: DashboardLayout) => void | Promise<void>;
   /** Apply a staged agent-core/model selection to this ticket's live session. */
   switchAgent: (provider: AgentProvider, model: string | null, effort: string | null) => void | Promise<void>;
   /** Copy the ticket key to the clipboard. */

@@ -1,3 +1,4 @@
+import type { DashboardLayout } from '../../model/dashboardLayout.js';
 import type { AgentProcessId, DashboardActions, StageLogResult } from './messages.js';
 import type { ConsoleStage, GateStage } from '../../store/ticketGates.js';
 
@@ -76,6 +77,8 @@ export interface FakePanel extends DashboardPanel {
  */
 export interface DashboardBinding {
   enabled(): boolean;
+  /** The window-wide page width, read live like `enabled`. Absent → the default (centered). */
+  layout?(): DashboardLayout;
   onDidActivate(ticketId: number, active: boolean): void;
 }
 

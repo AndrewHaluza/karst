@@ -446,7 +446,22 @@ const panelStateVariants = (): Variant[] => [
   variant('dashboard', 'subtask-narrow', dashboardScenario('running', 2), { skipLayout: true, width: 400 }),
   ...bottomEdgeVariants(),
   ...dashboardBottomEdgeVariants(),
+  ...layoutVariants(),
 ];
+
+/** T1183: the "..." menu open with each page-width mode selected, at a wide window where the two modes differ. */
+const LAYOUT_VARIANT_WIDTH = 1800;
+const layoutVariants = (): Variant[] =>
+  (['centered', 'full'] as const).map((layout) =>
+    variant('dashboard', `layout-${layout}-menu-open`, () => {
+      const base = dashboardScenario('running', 2)();
+      return { ...base, messages: [...base.messages, { type: 'layout', layout }] };
+    }, {
+      skipLayout: true,
+      width: LAYOUT_VARIANT_WIDTH,
+      click: '[aria-label="Ticket controls"]',
+    }),
+  );
 
 /** T1091: an open popover whose trigger sits at the bottom edge of a short window flips above it and stays inside the gutter. */
 const BOTTOM_EDGE_HEIGHT = 480;

@@ -132,7 +132,7 @@ describe('media source', () => {
     // webview's own source, and the ONLY local resource root is the storage
     // directory the baseline images are copied into (@arch:BASELINE-REVIEW).
     const host = readFileSync(join(HERE, 'dashboard', 'host.ts'), 'utf8');
-    expect(host).toContain('injectCsp(html, newNonce(), panel.webview.cspSource)');
+    expect(host).toContain('injectCsp(withDashboardLayout(html, layout()), newNonce(), panel.webview.cspSource)');
     expect(host).toContain(
       'localResourceRoots: [vscode.Uri.file(baselineReviewRoot(context.globalStorageUri.fsPath))]',
     );

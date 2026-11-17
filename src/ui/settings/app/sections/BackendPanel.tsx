@@ -78,7 +78,7 @@ export function BackendPanel() {
         return (
           <div key={core} className="field-row" data-testid={`backend-row-${core}`}>
             <span className="field-label" id={`backend-label-${core}`}>{core}</span>
-            <div role="radiogroup" aria-labelledby={`backend-label-${core}`} className="segmented">
+            <div role="radiogroup" aria-labelledby={`backend-label-${core}`} className="k-segmented">
               {allowed.map((value) => (
                 <Button
                   key={value}

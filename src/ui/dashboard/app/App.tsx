@@ -18,6 +18,7 @@ import { Inside } from './Inside.js';
 import { Overlays } from './Overlays.js';
 import { ViewPills } from './ViewPills.js';
 import { PrsPanel } from './PrsPanel.js';
+import { BodyLayout } from './BodyLayout.js';
 import { Rail } from './Rail.js';
 import { RegionPortal } from './RegionPortal.js';
 import { RuntimeStrip } from './RuntimeStrip.js';
@@ -41,6 +42,7 @@ export function App({ bridge }: { bridge: DashboardHostBridge }) {
   return (
     <DashboardAppProvider bridge={bridge} onSynced={markReady}>
       <DashboardSlices />
+      <BodyLayout />
       {/* Each region draws into its static root in webview.html. */}
       <Header />
       <RegionPortal id="runtimeRoot">

@@ -84,6 +84,7 @@ import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
 import { DashboardManager } from './ui/dashboard/panel.js';
 import { makeDashboardPanelHost } from './ui/dashboard/host.js';
+import { DASHBOARD_LAYOUT_KEY, resolveDashboardLayout, type DashboardLayout } from './model/dashboardLayout.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import { takeGateSnapshot } from './extension/ops/gateSnapshotOps.js';
@@ -3043,9 +3044,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
   });
   const stall = createStallBinding({ store: localStore, git: defaultGitRunner, manifest: currentManifest, processFor: (id) => processFor(id, 'stall-suggestion'), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, startPlanning: (t, k) => planning.create(t, k), debug: (m) => logger.debug(m) }); // T1001
+  // One workspace preference for every dashboard tab, kept like the terminal binding (workspaceState).
+  const readDashboardLayout = (): DashboardLayout => resolveDashboardLayout(context.workspaceState.get(DASHBOARD_LAYOUT_KEY));
+  const setDashboardLayout = async (layout: DashboardLayout): Promise<void> => {
+    await context.workspaceState.update(DASHBOARD_LAYOUT_KEY, layout);
+    dashboard.pushLayout();
+  };
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
-    restoreHosts.track('dashboardHost', makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger)),
+    restoreHosts.track('dashboardHost', makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger, readDashboardLayout)),
     (ticketId) => {
       // A ticket already parked at upgrade, or opened before its suggestion ended, generates it now.
       void stall.service.ensure(ticketId);
@@ -3099,6 +3106,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         (provider, model, effort) => void switchAgentSession(ticketId, provider, model, effort),
         () => binder.toggle(),
+        setDashboardLayout,
         // Declared below with the sweep it forces (like `binder`, the two are
         // mutually referential); read only when a panel is actually open, which
         // is long after activation has run.
@@ -3164,6 +3172,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => currentManifest()?.agentProvider,
     {
       enabled: () => binder.enabled(),
+      layout: readDashboardLayout,
       onDidActivate: (ticketId, active) => binder.onDashboardActivated(ticketId, active),
     },
     () => ({

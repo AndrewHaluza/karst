@@ -9,6 +9,7 @@ import { DashboardAppProvider, useOverlays, usePendingOps } from '../DashboardAp
 import type { OverlayStack } from '../overlayStack.js';
 import type { PendingOps } from '../pendingOps.js';
 import { Header } from '../Header.js';
+import { BodyLayout } from '../BodyLayout.js';
 import { RuntimeStrip } from '../RuntimeStrip.js';
 
 export const headerState = (over: Record<string, unknown> = {}): DashboardState =>
@@ -67,7 +68,7 @@ function OpsProbe({ onOps, onOverlays }: { readonly onOps: (ops: PendingOps) => 
 
 const SENDERS = [
   'copyTicketKey', 'copyTicketMarkdown', 'openTicketMarkdown', 'openTicketLink', 'openDependency', 'detachSubtask', 'closeTicket', 'reopenTicket', 'editTicket',
-  'pauseExecution', 'unpauseExecution', 'createFollowUpTicket', 'setDisabledGates', 'toggleBind', 'switchAgent', 'shipTicket',
+  'pauseExecution', 'unpauseExecution', 'createFollowUpTicket', 'setDisabledGates', 'toggleBind', 'setLayout', 'switchAgent', 'shipTicket',
   'sandboxSync', 'sandboxDiff', 'sandboxStashUpdate', 'sandboxShell', 'sandboxStop', 'sandboxRemove', 'sandboxCarry', 'openSettings',
 ] as const;
 
@@ -80,6 +81,12 @@ export function mountHeader(initial: DashboardState | null): HeaderHarness {
 export function mountRuntime(initial: DashboardState | null): HeaderHarness {
   document.body.innerHTML = '';
   return mountInto(initial, <RuntimeStrip />);
+}
+
+/** Mounts the body-layout mirror alone (it renders nothing; the harness reads `document.body`). */
+export function mountBodyLayout(initial: DashboardState | null): HeaderHarness {
+  document.body.innerHTML = '';
+  return mountInto(initial, <BodyLayout />);
 }
 
 function mountInto(initial: DashboardState | null, ui: ReactNode): HeaderHarness {

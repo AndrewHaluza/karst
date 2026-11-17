@@ -11,6 +11,7 @@ import { flushSync } from 'react-dom';
 import type { DashboardHostBridge, DashboardSender } from './hostBridge.js';
 import type { HostMessage } from '../messages.js';
 import type { DashboardState } from '../state.js';
+import { parseDashboardLayout } from '../../../model/dashboardLayout.js';
 import { DashboardStore } from './dashboardStore.js';
 import { useBaselineDrafts, type BaselineDrafts } from './baselineDrafts.js';
 import { OverlayStack, type OverlaySnapshot } from './overlayStack.js';
@@ -39,7 +40,7 @@ export function DashboardAppProvider({
 }) {
   const [restored] = useState(() => readFromBridge(bridge));
   const [persistence] = useState(() => new ViewPersistence((envelope) => bridge.setState(envelope), restored));
-  const [store] = useState(() => new DashboardStore(restored.state));
+  const [store] = useState(() => new DashboardStore(restored.state, parseDashboardLayout(document.body.dataset.layout) ?? undefined));
   const [ops] = useState(() => new PendingOps());
   const [selection] = useState(
     () => new StageSelection({ sel: restored.sel, shipWait: restored.shipWait }, store.getSnapshot().state, persistence.selection),

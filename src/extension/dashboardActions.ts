@@ -1,3 +1,4 @@
+import type { DashboardLayout } from '../model/dashboardLayout.js';
 import { makeTesterSkipActions } from './ops/testerSkipOps.js';
 import { makePushDivergedActions } from './ops/pushDivergedOps.js';
 import { guardedHandOff } from './ops/guardedHandOff.js';
@@ -141,6 +142,10 @@ export function makeDashboardActions(
   // Flip the window's terminal binding. Window-scoped, not ticket-scoped, so it
   // takes no id — every open dashboard reports the same toggle.
   toggleBind: () => void,
+  // Persist the window-wide dashboard page width and push it to every open
+  // dashboard. Returns the write, so the menu's pending state settles on the
+  // real outcome (UI-R13). Window-scoped like `toggleBind`.
+  setLayout: (layout: DashboardLayout) => Promise<void>,
   // Force an immediate PR/mergeability sweep, ignoring the freshness floor the
   // background tick respects. Project-scoped like the tick itself, so it takes no
   // ticket: the panel is asking for a fresher answer, not a narrower one.
@@ -872,6 +877,7 @@ export function makeDashboardActions(
     },
     refreshShipPreview: () => refreshShipPreview(),
     toggleBind,
+    setLayout,
     // Returns a promise, so the button reports a REAL terminal outcome rather
     // than a bare ack (UI-R13): the write is fast and local, so there is no
     // reason to settle on anything weaker.

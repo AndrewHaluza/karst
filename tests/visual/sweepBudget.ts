@@ -25,7 +25,8 @@ export interface SweepCount {
  */
 export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
-  dashboard: { screenshots: 586, layout: 690 },
+  // T1183 layout-centered / layout-full menu-open variants, @ui:UI-R57: 2 variants x 1 theme (dark) (+2 screenshots); skipLayout, so no layout runs.
+  dashboard: { screenshots: 588, layout: 690 },
   diffs: { screenshots: 7, layout: 25 },
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },

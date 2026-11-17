@@ -1264,9 +1264,12 @@ Page content is capped at the content-width token in DESIGN-SYSTEM
 on `body`.
 
 - settings, ticketForm, usage, resources: `--k-content-max` (1600px).
+- dashboard: capped at `--k-content-max` in the Centered mode (the default). The
+  "Layout" quick setting in the header "..." menu switches it to Full width, which
+  is uncapped. The mode is one workspace preference for every dashboard tab and
+  shows as `body[data-layout]`. The page shell writes the initial attribute.
 - gettingStarted: keeps its `58ch` measure, centered, no token.
-- Uncapped: dashboard (graph), diffs (side-by-side), serverLogs (long lines),
-  sidebar (narrow by nature).
+- Uncapped: diffs (side-by-side), serverLogs (long lines), sidebar (narrow by nature).
 
 On a wide window, unbounded lines and forms stretch so far that a label and its
 control sit far apart.
@@ -1276,7 +1279,8 @@ control sit far apart.
 **Check:** STATIC finds the token (not a px literal) in a plain `body` rule of each
 capped view; gettingStarted is the exception: `58ch` + `margin-inline: auto`, no
 token. VISUAL: (a) settings at 1920 has content ≤ 1600 and is centered; (b) at 2560
-all 5 capped views are ≤ their cap and centered. Both are asserted in
+all 6 capped views (the dashboard in Centered mode) are ≤ their cap and centered;
+(c) the dashboard in Full width mode fills the viewport. Both are asserted in
 `tests/visual/contentCap.visual.ts` (layout gate checks a–i do not assert width).
 END_DOC_BLOCK: [@ui:UI-R48]
 

@@ -138,6 +138,8 @@ export function createSender(api: WebviewApi) {
     refreshShipPreview: (requestId?: string) =>
       send({ type: 'refresh-ship-preview' }, requestId),
     toggleBind: (requestId?: string) => send({ type: 'toggle-bind' }, requestId),
+    setLayout: (layout: Msg<'set-layout'>['layout'], requestId?: string) =>
+      send({ type: 'set-layout', layout }, requestId),
     switchAgent: (
       provider: Msg<'switch-agent'>['provider'],
       model: Msg<'switch-agent'>['model'],

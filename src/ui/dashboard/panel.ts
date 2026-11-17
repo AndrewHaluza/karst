@@ -5,6 +5,7 @@ import type { GateStageKey } from '../../workflow/fixAttempts.js';
 import { listSharedServersByTicket, type SharedServerView } from '../../store/sharedServers.js';
 import type { DashboardAgentContext, PathContext } from './state.js';
 import type { InsideActionResult } from './messages.js';
+import { DEFAULT_DASHBOARD_LAYOUT } from '../../model/dashboardLayout.js';
 import type { ServerLogsReader } from './serverLogsReader.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptionsLoader } from './gateOptions.js';
@@ -313,6 +314,7 @@ export class DashboardManager extends DashboardManagerBase {
     this.refreshIcon(ticketId, panel);
     this.pushState(ticketId);
     this.postBind(panel);
+    this.postLayout(panel);
     // Same explicit report as the reveal path: creation focuses the panel, and
     // `onDidChangeViewState` fires on changes, not on the initial activation.
     if (opts?.preserveFocus !== true) this.onViewActivated?.(ticketId, true);
@@ -357,6 +359,7 @@ export class DashboardManager extends DashboardManagerBase {
     this.refreshIcon(ticketId, panel);
     this.pushState(ticketId);
     this.postBind(panel);
+    this.postLayout(panel);
     return true;
   }
 
@@ -385,6 +388,15 @@ export class DashboardManager extends DashboardManagerBase {
 
   private postBind(panel: DashboardPanel): void {
     panel.postMessage({ type: 'bind', enabled: this.binding?.enabled() ?? false });
+  }
+
+  /** Push the page width to EVERY open panel: it is one window-wide preference, like the binding. */
+  pushLayout(): void {
+    for (const panel of this.panels.values()) this.postLayout(panel);
+  }
+
+  private postLayout(panel: DashboardPanel): void {
+    panel.postMessage({ type: 'layout', layout: this.binding?.layout?.() ?? DEFAULT_DASHBOARD_LAYOUT });
   }
 
   /**
