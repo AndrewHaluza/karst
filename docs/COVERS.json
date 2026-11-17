@@ -333,6 +333,12 @@
   "src/cli/guideTelemetry.ts": [
     "arch:PM-00"
   ],
+  "src/cli/jsonSchema.ts#unsupportedKeywords": [
+    "arch:CLI-03"
+  ],
+  "src/cli/jsonSchema.ts#validateJson": [
+    "arch:CLI-03"
+  ],
   "src/cli/manifestCommand.ts#runManifestCommand": [
     "arch:CLI-14",
     "arch:CLI-20"
@@ -611,6 +617,12 @@
   ],
   "src/manifest/autopilot.ts": [
     "arch:AP-00"
+  ],
+  "src/manifest/jsonSchema/index.ts#MANIFEST_SECTION_SCHEMAS": [
+    "arch:CLI-03"
+  ],
+  "src/manifest/jsonSchema/index.ts#VALIDATOR_ONLY_RULES": [
+    "arch:CLI-03"
   ],
   "src/manifest/qualityDefaults.ts#REVIEW_STALL_DETECTION_DEFAULTS": [
     "arch:REVIEW-STALL"
