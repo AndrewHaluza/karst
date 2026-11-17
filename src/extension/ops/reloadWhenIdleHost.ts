@@ -80,7 +80,7 @@ export function makeReloadWhenIdleHandler(
       onCancel(() => ac.abort());
       let runs: LiveRun[] = [];
       const snapshot = (): DrainSnapshot => ({ draining: drain.isDraining(), live: runs, held: drain.heldIds() });
-      let lastSignature = '';
+      let lastSignature: string | null = null;
       const pushIfChanged = (): void => {
         const signature = drainSignature(snapshot());
         if (signature === lastSignature) return;

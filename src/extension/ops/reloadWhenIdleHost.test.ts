@@ -185,7 +185,7 @@ describe('makeReloadWhenIdleHandler', () => {
     await run;
     expect(redrive).toHaveBeenCalledWith(t.id);
     expect(drain.isDraining()).toBe(false);
-    expect(drainSnapshot().draining).toBe(false);
+    expect(drainSnapshot()).toEqual({ draining: false, live: [], held: [] });
     expect(cancelReloadDrain()).toBe(false);
     off();
   });
@@ -206,6 +206,25 @@ describe('makeReloadWhenIdleHandler', () => {
     await vi.advanceTimersByTimeAsync(2100);
     expect(sigs.length).toBeGreaterThan(before);
     expect(sigs[sigs.length - 1]).toContain('[3]');
+    cancelReloadDrain();
+    await vi.advanceTimersByTimeAsync(10);
+    off();
+  });
+
+  it('notifies once for an unchanged state across polls, and the first notification carries no stale run', async () => {
+    vi.useFakeTimers();
+    const store = openStore(':memory:');
+    const drain = createDrain();
+    const f = fakeHost();
+    const seen: ReturnType<typeof drainSnapshot>[] = [];
+    const off = onDrainChange(() => seen.push(drainSnapshot()));
+    void drain.track(() => new Promise<void>(() => {}));
+    void makeReloadWhenIdleHandler(store, drain, () => {}, () => {}, f.host, 4242)();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(seen[0]).toEqual({ draining: false, live: [], held: [] });
+    const settled = seen.length;
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(seen.length).toBe(settled);
     cancelReloadDrain();
     await vi.advanceTimersByTimeAsync(10);
     off();
