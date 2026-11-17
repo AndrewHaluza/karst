@@ -1,4 +1,4 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
+import type { JsonSchema } from '../jsonSchema.js';
 import { DOCKER_MEMORY_PATTERN } from '../../agent/docker/dockerMemory.js';
 import {
   BOOLEAN,

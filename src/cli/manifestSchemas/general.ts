@@ -1,4 +1,4 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
+import type { JsonSchema } from '../jsonSchema.js';
 import { BOOLEAN, NON_EMPTY_STRING, TRIMMED_STRING, STRING, arrayOf, enumOf, integer, lenientObject, orNull } from './shared.js';
 
 /** General tab: host, ports, branch, display, templates, archiving, toggles, subtasks. */

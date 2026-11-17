@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { JsonSchema } from '../../cli/jsonSchema.js';
-import type { AutopilotConfig } from '../autopilot.js';
-import { PRESET_CAPABILITIES } from '../types.js';
+import type { JsonSchema } from '../jsonSchema.js';
+import type { AutopilotConfig } from '../../manifest/autopilot.js';
+import { PRESET_CAPABILITIES } from '../../manifest/types.js';
 import type {
   AgentDef,
   AgentPreset,
@@ -45,7 +45,7 @@ import type {
   UatTesterObservationsConfig,
   UatTesterRequireEvidence,
   WorkflowPhase,
-} from '../types.js';
+} from '../../manifest/types.js';
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_SCHEMAS, sectionFields } from './index.js';
 import type { ManifestSection } from './index.js';
 

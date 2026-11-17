@@ -1,7 +1,7 @@
 /** Test support: run a raw manifest through the validator and through the section schemas. */
 
-import { ManifestError } from '../../error.js';
-import { validateManifest } from '../../schema.js';
+import { ManifestError } from '../../../manifest/error.js';
+import { validateManifest } from '../../../manifest/schema.js';
 import { validateManifestSections } from '../index.js';
 
 /** The validator's refusal message, or `null` when it accepts. */

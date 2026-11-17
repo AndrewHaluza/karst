@@ -5,7 +5,7 @@
  * (`unsupportedKeywords` is asserted empty in the conformance test).
  */
 
-import type { JsonSchema } from '../../cli/jsonSchema.js';
+import type { JsonSchema } from '../jsonSchema.js';
 
 /** A schema no value satisfies. The subset has no `not` and no `false` schema, so a forbidden key uses this. */
 export const NEVER: JsonSchema = { type: 'string', enum: [] };

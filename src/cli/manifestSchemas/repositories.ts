@@ -1,5 +1,5 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
-import { MAX_HEALTH_TIMEOUT_SECONDS } from '../types.js';
+import type { JsonSchema } from '../jsonSchema.js';
+import { MAX_HEALTH_TIMEOUT_SECONDS } from '../../manifest/types.js';
 import {
   BOOLEAN,
   NEVER,

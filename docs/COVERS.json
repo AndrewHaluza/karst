@@ -343,6 +343,12 @@
     "arch:CLI-14",
     "arch:CLI-20"
   ],
+  "src/cli/manifestSchemas/index.ts#MANIFEST_SECTION_SCHEMAS": [
+    "arch:CLI-03"
+  ],
+  "src/cli/manifestSchemas/index.ts#VALIDATOR_ONLY_RULES": [
+    "arch:CLI-03"
+  ],
   "src/cli/mcp/installCommand.ts#runMcpInstall": [
     "arch:CLI-04"
   ],
@@ -617,12 +623,6 @@
   ],
   "src/manifest/autopilot.ts": [
     "arch:AP-00"
-  ],
-  "src/manifest/jsonSchema/index.ts#MANIFEST_SECTION_SCHEMAS": [
-    "arch:CLI-03"
-  ],
-  "src/manifest/jsonSchema/index.ts#VALIDATOR_ONLY_RULES": [
-    "arch:CLI-03"
   ],
   "src/manifest/qualityDefaults.ts#REVIEW_STALL_DETECTION_DEFAULTS": [
     "arch:REVIEW-STALL"

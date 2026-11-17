@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GRAPH_HARD_CEILINGS } from '../graphConfig.js';
-import { MAX_HEALTH_TIMEOUT_SECONDS } from '../types.js';
+import { GRAPH_HARD_CEILINGS } from '../../manifest/graphConfig.js';
+import { MAX_HEALTH_TIMEOUT_SECONDS } from '../../manifest/types.js';
 import { schemaError, validatorError } from './fixtures/harness.js';
 import { richManifest, type Raw } from './fixtures/richManifest.js';
 

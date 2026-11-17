@@ -1,4 +1,4 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
+import type { JsonSchema } from '../jsonSchema.js';
 import { TRIMMED_STRING, enumOf, lenientObject } from './shared.js';
 import { TICKET_TYPES } from '../../store/ticketTypes.js';
 

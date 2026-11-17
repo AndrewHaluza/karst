@@ -1,7 +1,7 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
+import type { JsonSchema } from '../jsonSchema.js';
 import { BACKEND_CORES, allowedBackends } from '../../agent/backendChoices.js';
-import { PRESET_CAPABILITIES } from '../types.js';
-import { PROCESS_KEYS } from '../validate/processAssignments.js';
+import { PRESET_CAPABILITIES } from '../../manifest/types.js';
+import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
 import {
   BOOLEAN,
   NON_EMPTY_STRING,

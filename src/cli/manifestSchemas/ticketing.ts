@@ -1,4 +1,4 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
+import type { JsonSchema } from '../jsonSchema.js';
 import { BOOLEAN, NON_EMPTY_STRING, STRING, enumOf, lenientObject } from './shared.js';
 
 const PROVIDERS = ['clickup', 'manual'] as const;

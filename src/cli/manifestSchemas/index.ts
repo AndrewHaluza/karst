@@ -9,8 +9,8 @@
  * proves each schema accepts and refuses the same documents.
  */
 
-import type { JsonSchema } from '../../cli/jsonSchema.js';
-import { validateJson } from '../../cli/jsonSchema.js';
+import type { JsonSchema } from '../jsonSchema.js';
+import { validateJson } from '../jsonSchema.js';
 import { SECTION_FIELDS, SETTINGS_SECTIONS } from '../../ui/settings/sections.js';
 import type { SettingsSection } from '../../ui/settings/sections.js';
 import { AGENTS_SCHEMA } from './agents.js';

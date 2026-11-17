@@ -1,5 +1,5 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
-import { BLOCKING_SEVERITIES } from '../qualityDefaults.js';
+import type { JsonSchema } from '../jsonSchema.js';
+import { BLOCKING_SEVERITIES } from '../../manifest/qualityDefaults.js';
 import {
   BOOLEAN,
   NON_EMPTY_STRING,

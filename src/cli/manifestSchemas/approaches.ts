@@ -1,6 +1,6 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
-import { ACCESS_VALUES, CWD_VALUES, GRAPH_COMMAND_TIMEOUT_CEILING, GRAPH_HARD_CEILINGS } from '../graphConfig.js';
-import { CHAIN_EDGES, OUTPUT_KINDS } from '../types.js';
+import type { JsonSchema } from '../jsonSchema.js';
+import { ACCESS_VALUES, CWD_VALUES, GRAPH_COMMAND_TIMEOUT_CEILING, GRAPH_HARD_CEILINGS } from '../../manifest/graphConfig.js';
+import { CHAIN_EDGES, OUTPUT_KINDS } from '../../manifest/types.js';
 import { AGENT_PROVIDER_VALUES, MODEL_ID_PATTERN } from './agents.js';
 import {
   BOOLEAN,

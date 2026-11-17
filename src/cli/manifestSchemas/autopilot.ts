@@ -1,4 +1,4 @@
-import type { JsonSchema } from '../../cli/jsonSchema.js';
+import type { JsonSchema } from '../jsonSchema.js';
 import { BOOLEAN, TRIMMED_STRING, arrayOf, enumOf, integer, strictObject } from './shared.js';
 
 const POLICY = enumOf(['auto', 'ask']);

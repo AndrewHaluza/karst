@@ -2,12 +2,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { load as yamlLoad } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
-import { unsupportedKeywords } from '../../cli/jsonSchema.js';
-import { foldProcessRows } from '../foldProcessRows.js';
-import { migrateLegacyManifest } from '../migrate.js';
+import { unsupportedKeywords } from '../jsonSchema.js';
+import { foldProcessRows } from '../../manifest/foldProcessRows.js';
+import { migrateLegacyManifest } from '../../manifest/migrate.js';
 import { schemaError, validatorError } from './fixtures/harness.js';
 import { MANIFEST_SECTION_SCHEMAS } from './index.js';
-import { agentPresets, graphApproach, manifest, processes, review, runnableRepo, stack, uat } from '../fixtures.js';
+import { agentPresets, graphApproach, manifest, processes, review, runnableRepo, stack, uat } from '../../manifest/fixtures.js';
 import { richDraftManifest, richManifest, type Raw } from './fixtures/richManifest.js';
 
 function prepared(text: string): unknown {
