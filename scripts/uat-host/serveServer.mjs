@@ -8,7 +8,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveInsideCheckout } from './args.mjs';
 import {
-  EVIDENCE_REL, MAX_BODY_BYTES, SERVE_CONTAINER_PORT, SERVE_FIXTURES, allowedHost, allowedOrigin, routeRequest,
+  EVIDENCE_REL, MAX_BODY_BYTES, SERVE_CONTAINER_PORT, SERVE_FIXTURES, allowedHost, allowedOrigin, novncResponseHeaders, routeRequest,
 } from './serveApi.mjs';
 import { hostRequest, launchHost, stopHost } from './serveHost.mjs';
 
@@ -173,6 +173,7 @@ const apiDeps = {
   runProbe,
   reset,
   resolveFixtureFile: (v) => resolveInsideCheckout(v, WORK_ROOT),
+  onBackgroundResetFail: (error) => console.error(`uat-serve: background reset failed — ${error}`),
 };
 
 const sendJson = (res, status, obj) => {
@@ -188,7 +189,7 @@ function proxyNovnc(req, res) {
   const upstream = http.request(
     { host: '127.0.0.1', port: WEBSOCKIFY_PORT, method: req.method, path: req.url.slice('/novnc'.length), headers: req.headers },
     (up) => {
-      res.writeHead(up.statusCode ?? 502, up.headers);
+      res.writeHead(up.statusCode ?? 502, novncResponseHeaders(up.headers));
       up.pipe(res);
     },
   );

@@ -10,6 +10,15 @@ const STEPS_ERROR = 'body must be a step list: an array or {"steps": [...]}';
 const RESET_BODY_ERROR = 'reset body takes at most one of fixture, fixtureFile';
 const VIEW_SRC = '/novnc/vnc.html?autoconnect=true&resize=scale&reconnect=true&path=websockify';
 
+/** `/` frames `/novnc/vnc.html`, so `/` allows no frame and `/novnc/*` allows only a same-origin frame (clickjacking). */
+export const VIEW_FRAME_HEADERS = Object.freeze({ 'content-security-policy': "frame-ancestors 'none'", 'x-frame-options': 'DENY' });
+export const NOVNC_FRAME_HEADERS = Object.freeze({ 'content-security-policy': "frame-ancestors 'self'", 'x-frame-options': 'SAMEORIGIN' });
+
+/** A new header object: the websockify headers with the `/novnc/*` frame headers in place of any upstream value. */
+export function novncResponseHeaders(upstreamHeaders) {
+  return { ...upstreamHeaders, ...NOVNC_FRAME_HEADERS };
+}
+
 /** DNS rebinding guard: only the published loopback names pass. */
 export function allowedHost(hostHeader, hostPort) {
   return hostHeader === `127.0.0.1:${hostPort}` || hostHeader === `localhost:${hostPort}`;
@@ -104,7 +113,7 @@ async function probe(req, query, deps) {
   return json(200, { name, evidence: `${EVIDENCE_REL}/${name}`, pass, summary: out.summary });
 }
 
-async function reset(req, deps) {
+async function reset(req, query, deps) {
   const gate = bodyGate(req);
   if (gate) return gate;
   let spec;
@@ -114,6 +123,11 @@ async function reset(req, deps) {
     return fail(400, err instanceof Error ? err.message : String(err));
   }
   if (deps.busy()) return fail(409, 'busy');
+  if (query.get('wait') === '0') {
+    // The supervisor reset sets `resetting` before its first await and never rejects; /health reports the result.
+    void deps.reset(spec).then((out) => { if (!out.ok) deps.onBackgroundResetFail(out.error); });
+    return json(202, { status: 'resetting' });
+  }
   const out = await deps.reset(spec);
   if (!out.ok) return fail(500, out.error);
   return json(200, { status: 'ready', fixture: out.fixture });
@@ -129,7 +143,7 @@ export async function routeRequest(req, deps) {
   if (!(url.pathname in methods)) return fail(404, 'not found');
   if (req.method !== methods[url.pathname]) return fail(405, 'method not allowed');
   if (url.pathname === '/') {
-    return { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' }, body: renderViewPage({ state: deps.state(), fixture: deps.fixture() }) };
+    return { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', ...VIEW_FRAME_HEADERS }, body: renderViewPage({ state: deps.state(), fixture: deps.fixture() }) };
   }
-  return url.pathname === '/probe' ? probe(req, url.searchParams, deps) : reset(req, deps);
+  return url.pathname === '/probe' ? probe(req, url.searchParams, deps) : reset(req, url.searchParams, deps);
 }

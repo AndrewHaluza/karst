@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_BODY_BYTES, allowedHost, allowedOrigin, routeRequest } from './serveApi.mjs';
+import { MAX_BODY_BYTES, NOVNC_FRAME_HEADERS, VIEW_FRAME_HEADERS, allowedHost, allowedOrigin, novncResponseHeaders, routeRequest } from './serveApi.mjs';
 
 const OK_SUMMARY = { total: 1, ran: 1, results: [{ index: 0, type: 'snapshot', status: 'pass' }] };
 const NAME_ERR = 'name must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$';
@@ -14,6 +14,7 @@ function makeDeps(over = {}) {
     runProbe: vi.fn().mockResolvedValue({ ok: true, summary: OK_SUMMARY }),
     reset: vi.fn().mockResolvedValue({ ok: true, fixture: 'ticket-mid-stage' }),
     resolveFixtureFile: vi.fn((v) => `/work/${v}`),
+    onBackgroundResetFail: vi.fn(),
     ...over,
   };
 }
@@ -183,6 +184,38 @@ describe('POST /probe', () => {
 
 describe('POST /reset', () => {
   const post = (body, deps = makeDeps(), headers = JSON_HEADERS) => routeRequest(req('POST', '/reset', headers, body), deps);
+  const postAsync = (body, deps) => routeRequest(req('POST', '/reset?wait=0', JSON_HEADERS, body), deps);
+  it('wait=0 answers 202 at once and starts the reset', async () => {
+    let finish;
+    const deps = makeDeps({ reset: vi.fn(() => new Promise((r) => { finish = r; })) });
+    const res = await postAsync('{"fixture":"blocked"}', deps);
+    expect(res.status).toBe(202);
+    expect(parse(res)).toEqual({ status: 'resetting' });
+    expect(deps.reset).toHaveBeenCalledWith({ fixture: 'blocked' });
+    finish({ ok: true, fixture: 'blocked' });
+  });
+  it('wait=0 reports a background failure', async () => {
+    const deps = makeDeps({ reset: vi.fn().mockResolvedValue({ ok: false, error: 'boot failed' }) });
+    await postAsync('{}', deps);
+    await vi.waitFor(() => expect(deps.onBackgroundResetFail).toHaveBeenCalledWith('boot failed'));
+  });
+  it('wait=0 does not report a background success', async () => {
+    const deps = makeDeps();
+    await postAsync('{}', deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(deps.onBackgroundResetFail).not.toHaveBeenCalled();
+  });
+  it('wait=0 keeps the 409 and 400 checks', async () => {
+    const busy = makeDeps({ busy: () => true });
+    expect((await postAsync('{}', busy)).status).toBe(409);
+    expect(busy.reset).not.toHaveBeenCalled();
+    expect((await postAsync('{"fixture":"nope"}', makeDeps())).status).toBe(400);
+  });
+  it('a wait value other than 0 keeps the synchronous answer', async () => {
+    const res = await routeRequest(req('POST', '/reset?wait=1', JSON_HEADERS, '{}'), makeDeps());
+    expect(res.status).toBe(200);
+  });
   it('resets to the current fixture for {}', async () => {
     const deps = makeDeps();
     const res = await post('{}', deps);
@@ -257,5 +290,33 @@ describe('other routes', () => {
     const res = await routeRequest(req('GET', '/nope'), makeDeps());
     expect(res.status).toBe(404);
     expect(parse(res)).toEqual({ error: 'not found' });
+  });
+});
+
+describe('frame headers', () => {
+  it('GET / refuses every frame', async () => {
+    const res = await routeRequest(req('GET', '/'), makeDeps());
+    expect(res.status).toBe(200);
+    expect(res.headers['content-security-policy']).toBe("frame-ancestors 'none'");
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
+  });
+  it('the constants hold the two route classes', () => {
+    expect(VIEW_FRAME_HEADERS).toEqual({ 'content-security-policy': "frame-ancestors 'none'", 'x-frame-options': 'DENY' });
+    expect(NOVNC_FRAME_HEADERS).toEqual({ 'content-security-policy': "frame-ancestors 'self'", 'x-frame-options': 'SAMEORIGIN' });
+  });
+  it('a /novnc response allows only a same-origin frame and keeps the other headers', () => {
+    const upstream = { 'content-type': 'text/html', 'content-length': '10' };
+    expect(novncResponseHeaders(upstream)).toEqual({
+      'content-type': 'text/html', 'content-length': '10',
+      'content-security-policy': "frame-ancestors 'self'", 'x-frame-options': 'SAMEORIGIN',
+    });
+  });
+  it('replaces an upstream frame header and does not change the input', () => {
+    const upstream = { 'content-security-policy': 'frame-ancestors *', 'x-frame-options': 'ALLOWALL' };
+    const out = novncResponseHeaders(upstream);
+    expect(out['content-security-policy']).toBe("frame-ancestors 'self'");
+    expect(out['x-frame-options']).toBe('SAMEORIGIN');
+    expect(upstream).toEqual({ 'content-security-policy': 'frame-ancestors *', 'x-frame-options': 'ALLOWALL' });
   });
 });

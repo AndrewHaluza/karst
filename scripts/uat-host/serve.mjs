@@ -11,7 +11,7 @@ import {
 
 const EXIT_USAGE = 2;
 const EXIT_NO_DOCKER = 3;
-const RESET_TIMEOUT_MS = 330000;
+const RESET_REQUEST_TIMEOUT_MS = 10000; // the reset runs in the container; karst stops a reset command after 30 s (HOST_RESET_TIMEOUT_MS)
 
 const root = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..', '..'));
 const name = serveContainerName(root);
@@ -38,14 +38,14 @@ async function resetMode(body) {
     process.exit(1);
   }
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/reset`, {
+    const res = await fetch(`http://127.0.0.1:${port}/reset?wait=0`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(RESET_TIMEOUT_MS),
+      signal: AbortSignal.timeout(RESET_REQUEST_TIMEOUT_MS),
     });
     console.log(await res.text());
-    process.exit(res.ok ? 0 : 1);
+    process.exit(res.status === 202 ? 0 : 1);
   } catch (err) {
     console.error(`uat-serve: reset request failed — ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
@@ -56,12 +56,12 @@ if (plan.mode === 'reset') {
   await resetMode(plan.body);
 }
 
+docker(['rm', '-f', name], { stdio: 'ignore' }); // a leftover container of this checkout: it holds the port and answers /health with a foreign instance token during the build
 const build = docker(['build', '-t', SERVE_IMAGE, '-f', SERVE_DOCKERFILE, '.'], { cwd: root, stdio: 'inherit' });
 if (build.status !== 0) {
   console.error('uat-serve: docker build failed');
   process.exit(1);
 }
-docker(['rm', '-f', name], { stdio: 'ignore' }); // a leftover container of this checkout
 
 const tmp = mkdtempSync(join(tmpdir(), 'karst-uat-serve-'));
 const cidfile = join(tmp, 'container.cid');
