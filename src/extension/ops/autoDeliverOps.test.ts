@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createDrain } from '../../runtime/drain.js';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
@@ -22,7 +23,7 @@ import {
   type RerunDeps,
   type RerunResult,
   setDeliverDrain,
-  liveDeliverCount,
+  liveDeliverTickets,
 } from './autoDeliverOps.js';
 import type { DeliverTargets } from '../../workflow/deliverState.js';
 
@@ -587,12 +588,40 @@ describe('the drain (@arch:DRAIN-01)', () => {
     expect(log.some((l) => l.includes('draining'))).toBe(true);
   });
 
-  it('counts a running auto-deliver as live, also before it opens its run row', async () => {
-    expect(liveDeliverCount()).toBe(0);
-    let during = -1;
-    const { deps } = rig({ runGates: async () => { during = liveDeliverCount(); return null; } });
+  it('lists the ticket of a running auto-deliver, also before it opens its run row', async () => {
+    expect(liveDeliverTickets()).toEqual([]);
+    let during: number[] = [];
+    const { deps } = rig({ runGates: async () => { during = liveDeliverTickets(); return null; } });
     await autoDeliverAfterConflict(deps);
-    expect(during).toBe(1);
-    expect(liveDeliverCount()).toBe(0);
+    expect(during).toEqual([1]);
+    expect(liveDeliverTickets()).toEqual([]);
   });
+
+  it('runs an auto-deliver inside the drain track, so its push is not refused after the drain begins', async () => {
+    const drain = createDrain();
+    setDeliverDrain(() => drain.isDraining(), (fn) => drain.track(fn));
+    let insideAtPush: boolean | null = null;
+    let inFlightDuring = -1;
+    const { deps } = rig({
+      runGates: async () => { drain.begin(); inFlightDuring = drain.inFlight(); return null; },
+      runShip: async () => { insideAtPush = drain.insideRun(); return { kind: 'delivered' } as never; },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(inFlightDuring).toBe(1);
+    expect(insideAtPush).toBe(true);
+    expect(drain.inFlight()).toBe(0);
+  });
+
+  it('runs a skipped-gate re-run inside the drain track', async () => {
+    const drain = createDrain();
+    setDeliverDrain(() => drain.isDraining(), (fn) => drain.track(fn));
+    let inside: boolean | null = null;
+    await rerunSkippedGates({
+      ticketId: 1, key: 'T1', skipped: ['unit'], agentActive: () => false,
+      runGates: async () => { inside = drain.insideRun(); return { kind: 'passed', headSha: null }; },
+      note: () => undefined, log: () => undefined,
+    });
+    expect(inside).toBe(true);
+  });
+
 });

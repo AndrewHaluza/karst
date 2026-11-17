@@ -1,7 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { Drain } from '../../runtime/drain.js';
 import { setHeadlessDrain } from '../../agent/headlessSpawn.js';
-import { liveDeliverCount, setDeliverDrain } from './autoDeliverOps.js';
+import { liveDeliverTickets, setDeliverDrain } from './autoDeliverOps.js';
 import { RELOAD_WHEN_IDLE_TITLE, countLiveRuns, reloadWhenIdle } from './reloadWhenIdle.js';
 
 /**
@@ -49,7 +49,7 @@ export function abortableSleep(signal: AbortSignal): (ms: number) => Promise<voi
 
 /** Wires the drain into the auto-deliver and headless start guards. */
 export function installReloadDrain(drain: Drain): void {
-  setDeliverDrain(() => drain.isDraining()); // no auto-deliver or skipped-gate re-run starts while draining
+  setDeliverDrain(() => drain.isDraining(), (fn) => drain.track(fn)); // no auto-deliver or skipped-gate re-run starts while draining
   setHeadlessDrain(drain); // every headless start is counted live and refused while draining
 }
 
@@ -75,7 +75,7 @@ export function makeReloadWhenIdleHandler(
         signal: ac.signal,
         log,
         onCancelled: (held) => held.forEach((id) => redrive(id)),
-        countLive: () => countLiveRuns(store, hostPid, drain.inFlight() + liveDeliverCount()),
+        countLive: () => countLiveRuns(store, hostPid, drain.inFlight(), ...liveDeliverTickets()),
         onCount: (n) => report(idleProgressMessage(n)),
         reload: () => host.reloadWindow(),
         sleep: abortableSleep(ac.signal),

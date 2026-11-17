@@ -101,6 +101,24 @@ describe('countLiveRuns', () => {
     expect(countLiveRuns(store, 111)).toBe(1);
     store.close();
   });
+
+  it('counts one auto-deliver once: its tracked entry and its open deliver_runs row are one run', () => {
+    const store = openStore(':memory:');
+    const t = createTicketFlow(store, { key: 'K-3', title: 't' });
+    store.db
+      .prepare("INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at, kind) VALUES (?, 'h', '[]', 'running', 111, 'x', 'base-moved')")
+      .run(t.id);
+    // Drain.track counts the auto-deliver (extra = 1); the host passes its ticket, so the row is skipped.
+    expect(countLiveRuns(store, 111, 1, t.id)).toBe(1);
+    // A row of another ticket still counts.
+    expect(countLiveRuns(store, 111, 1, t.id + 99)).toBe(2);
+    // Two tracked tickets: both rows are skipped.
+    store.db
+      .prepare("INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at, kind) VALUES (?, 'h', '[]', 'running', 111, 'x', 'auto')")
+      .run(t.id);
+    expect(countLiveRuns(store, 111, 1, t.id, t.id + 99)).toBe(1);
+    store.close();
+  });
 });
 
 describe('countLiveRuns ship runs', () => {

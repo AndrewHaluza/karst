@@ -149,13 +149,24 @@ export function takeOverAutoDeliver(ticketId: number, d: TakeOverDeps): TakeOver
  * The armed round stays in memory and in the store, so the resume path of @arch:AP-01 delivers it after the reload.
  */
 let drainProbe: (() => boolean) | undefined;
-export function setDeliverDrain(probe: (() => boolean) | undefined): void {
+let drainTrack: (<T>(fn: () => Promise<T>) => Promise<T>) | undefined;
+/**
+ * `track` runs a live auto-deliver or re-run as a tracked drain run: it counts once, and its push is never refused (it
+ * starts before the drain, so DRAIN-01 lets it finish).
+ */
+export function setDeliverDrain(probe: (() => boolean) | undefined, track?: <T>(fn: () => Promise<T>) => Promise<T>): void {
   drainProbe = probe;
+  drainTrack = track;
 }
 
-/** The auto-delivers and skipped-gate re-runs that run now, including one that has not opened its run row yet. */
-export function liveDeliverCount(): number {
-  return inFlight.size + reruns.size;
+const tracked = <T>(fn: () => Promise<T>): Promise<T> => (drainTrack === undefined ? fn() : drainTrack(fn));
+
+/**
+ * The tickets with an auto-delivery or a skipped-gate re-run that runs now. The drain counts each one through
+ * `Drain.track`, so the host skips the `deliver_runs` rows of these tickets: one live run counts once.
+ */
+export function liveDeliverTickets(): number[] {
+  return [...new Set([...inFlight.keys(), ...reruns.keys()])];
 }
 
 /** The auto-deliver of a resolved merge runs now for this ticket (T996: no second conflict round beside it). */
@@ -184,6 +195,7 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
   const entry: InFlight = { controller: new AbortController(), phase: 'gates', takenOver: false };
   inFlight.set(d.ticketId, entry);
   try {
+    await tracked(async () => {
     await supersedeRerun(d.ticketId); // the auto-deliver makes a newer head: a re-run on the older head stops and closes first
     const pr = targets.prs.find((p) => p.repo === round.repo) ?? targets.prs[0]!;
     d.status(`Delivering resolved merge to PR #${pr.number ?? '?'}…`);
@@ -218,6 +230,7 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
     });
     if (outcome.kind === 'delivered') d.rounds.disarm(d.ticketId);
     d.log(`[ship] ticket ${d.key} auto-deliver after conflict resolve: ${outcome.kind}${'reason' in outcome ? ` (${outcome.reason})` : ''}`);
+    });
   } finally {
     inFlight.delete(d.ticketId);
   }
@@ -337,7 +350,7 @@ export async function rerunSkippedGates(d: RerunDeps): Promise<RerunOutcome> {
   const flight: RerunFlight = { controller: new AbortController(), superseded: false, ended, end };
   reruns.set(d.ticketId, flight);
   try {
-    const result = await d.runGates(d.skipped, flight.controller.signal);
+    const result = await tracked(() => d.runGates(d.skipped, flight.controller.signal));
     const outcome: RerunOutcome = flight.superseded ? 'superseded' : result.kind;
     const title = deliverRerunNote(flight.superseded ? { kind: 'superseded', headSha: result.headSha } : result);
     d.note(title, `${d.key}: ${title.replace('Autopilot: ', '')}. A failure stays on record on the ship panel.`);
