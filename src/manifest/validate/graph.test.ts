@@ -280,3 +280,59 @@ describe('validateGraph — disabled repositories', () => {
     expect(() => validateGraph(repos)).toThrow(/"worker".*disabled/);
   });
 });
+
+describe('dependsOn placement (arch:AC-36)', () => {
+  const edge = { dependsOn: [{ target: 'api', port: 'http', bind: [{ env: 'A', template: '{port}' }] }] };
+  const load = (api: Record<string, unknown>, web: Record<string, unknown>) =>
+    validateManifest(
+      raw({
+        api: { repoPath: '/api', service: service(api) },
+        web: { repoPath: '/web', service: service({ ...edge, ...web }) },
+      }),
+    );
+
+  it('refuses an edge from a host service to a sandboxed one', () => {
+    expect(() => load({}, { sandbox: 'host' })).toThrow(/runs in another place/);
+  });
+  it('refuses an edge from a sandboxed service to a host one', () => {
+    expect(() => load({ sandbox: 'host' }, {})).toThrow(/runs in another place/);
+  });
+  it('accepts an edge when both are host', () => {
+    expect(() => load({ sandbox: 'host' }, { sandbox: 'host' })).not.toThrow();
+  });
+  it('accepts an edge when both are absent', () => {
+    expect(() => load({}, {})).not.toThrow();
+  });
+  it('accepts an edge when one is inside and one absent', () => {
+    expect(() => load({ sandbox: 'inside' }, {})).not.toThrow();
+  });
+});
+
+describe('sandbox: host needs a loopback host (arch:AC-36)', () => {
+  const build = (host: string, over: Record<string, unknown> = {}, repoOver: Record<string, unknown> = {}) => ({
+    ...raw({ api: { repoPath: '/api', service: service(over), ...repoOver } }),
+    host,
+  });
+
+  it.each(['127.0.0.1', 'localhost', '::1'])('loads with host %s', (h) => {
+    expect(() => validateManifest(build(h, { sandbox: 'host' }))).not.toThrow();
+  });
+  it.each(['0.0.0.0', '192.168.1.5'])('refuses host %s', (h) => {
+    expect(() => validateManifest(build(h, { sandbox: 'host' }))).toThrow(
+      `repository "api" service.sandbox: host needs a loopback host (127.0.0.1, localhost or ::1); host is "${h}"`,
+    );
+  });
+  it('loads 0.0.0.0 with no sandbox: host service', () => {
+    expect(() => validateManifest(build('0.0.0.0'))).not.toThrow();
+  });
+  it('loads 0.0.0.0 when the sandbox: host repository is disabled', () => {
+    expect(() => validateManifest(build('0.0.0.0', { sandbox: 'host' }, { enabled: false }))).not.toThrow();
+  });
+  it('names a services map entry', () => {
+    const m = {
+      ...raw({ api: { repoPath: '/api', services: { web: service({ sandbox: 'host' }) } } }),
+      host: '0.0.0.0',
+    };
+    expect(() => validateManifest(m)).toThrow(/repository "api" services\.web\.sandbox: host needs a loopback host/);
+  });
+});

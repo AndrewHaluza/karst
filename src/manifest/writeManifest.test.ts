@@ -196,6 +196,29 @@ describe('writeManifest', () => {
     }
   });
 
+  it('round-trips a service sandbox: host and drops the key when cleared', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const withHost: Manifest = {
+        ...m,
+        repositories: {
+          ...m.repositories,
+          backend: { ...m.repositories.backend!, service: { ...m.repositories.backend!.service!, sandbox: 'host' } },
+        },
+      };
+      writeManifest(path, withHost);
+      expect(readFileSync(path, 'utf8')).toMatch(/\n {6}sandbox: host\n/);
+      expect(loadManifest(path).repositories.backend!.service!.sandbox).toBe('host');
+
+      const { sandbox: _drop, ...rest } = withHost.repositories.backend!.service!;
+      writeManifest(path, { ...withHost, repositories: { ...withHost.repositories, backend: { ...withHost.repositories.backend!, service: rest } } });
+      expect(readFileSync(path, 'utf8')).not.toMatch(/sandbox:/);
+    } finally {
+      cleanup();
+    }
+  });
+
   // A repository's `ship` block follows the same overlay rule: written when set,
   // dropped (undefined → omitted by the dumper) when cleared, so a repo that
   // never had one does not gain an empty block on Save.

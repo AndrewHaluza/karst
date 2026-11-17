@@ -271,6 +271,14 @@ function validateDependsOn(raw: unknown, label: string, selfKey: string, i: numb
   return { target, port: strictString(raw.port, `${where}.port`, strict), bind };
 }
 
+function validateServiceSandbox(v: unknown, where: string): 'host' | 'inside' | undefined {
+  if (v === undefined) return undefined;
+  if (v !== 'host' && v !== 'inside') {
+    throw new ManifestError(`${where} must be one of: host, inside`);
+  }
+  return v;
+}
+
 /** A whole number of seconds, 1..MAX_HEALTH_TIMEOUT_SECONDS; absent → undefined (the 30 s default). */
 function validateHealthTimeoutSeconds(v: unknown, where: string): number | undefined {
   if (v === undefined) return undefined;
@@ -331,6 +339,7 @@ function validateService(
   // contract the service does not keep, and nothing would ever become healthy.
   const healthIdentity = optionalBoolean(raw.healthIdentity, `${where}.healthIdentity`);
   const healthTimeoutSeconds = validateHealthTimeoutSeconds(raw.healthTimeoutSeconds, `${where}.healthTimeoutSeconds`);
+  const sandbox = validateServiceSandbox(raw.sandbox, `${where}.sandbox`);
   // Optional like `health`: blank means "no reset" (arch:AC-32 decision 8).
   const reset = optionalString(raw.reset, `${where}.reset`);
 
@@ -362,6 +371,7 @@ function validateService(
     health,
     healthIdentity,
     ...(healthTimeoutSeconds !== undefined ? { healthTimeoutSeconds } : {}),
+    ...(sandbox !== undefined ? { sandbox } : {}),
     ...(reset ? { reset } : {}),
     ports,
     portRange,

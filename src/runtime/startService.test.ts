@@ -157,4 +157,21 @@ describe('startResolvedService', () => {
     });
     expect('healthTimeoutMs' in startHotMock.mock.calls[0]![1]).toBe(false);
   });
+
+  it('ignores sandbox: host for a host ticket', async () => {
+    const m = manifest({ api: runnableRepo({ ports: [httpSlot(3000)], sandbox: 'host' }) });
+    const debug = vi.fn();
+    await startResolvedService({
+      store,
+      manifest: m,
+      ticketId: 7,
+      name: 'api',
+      resolved: resolvedFor('api', { http: 4123 }, { PORT: '4123' }),
+      cwd: '/wt/api',
+      envOverrides: {},
+      debug,
+    });
+    expect(startHotMock).toHaveBeenCalledTimes(1);
+    expect(debug).not.toHaveBeenCalledWith(expect.stringContaining('declares sandbox: host'));
+  });
 });

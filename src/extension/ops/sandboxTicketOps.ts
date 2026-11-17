@@ -37,7 +37,7 @@ import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, onceByMessage, provisionTicke
 import type { Notify } from './notify.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
-import { hasRunningHostServices, resetHostServices } from './hostUserUat.js';
+import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -346,19 +346,33 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     userUatWithheld: (ticketId: number) => uatGate.isWithheld(ticketId),
     /** Decisions 7-8 for the UAT stage: keep a sandboxed stack, reset it, gate the link. */
     userUat: {
-      // Sandboxed: only a stack that really runs in the sandbox. Host: only when the
-      // manifest opts in (`uat.keepStackForUser`) and a host service is running.
-      keepStackForUserUat: (ticketId: number) =>
-        (ticketSandboxRunner(deps, ticketId) !== undefined &&
-          input.store.db.prepare("SELECT 1 FROM servers WHERE ticket_id = ? AND status = 'running' AND sandbox IS NOT NULL").get(ticketId) !== undefined) ||
-        (input.manifest()?.uat?.keepStackForUser === true && hasRunningHostServices(input.store, ticketId)),
+      // Sandboxed: a stack with a row in the sandbox or a running `sandbox: host` service (arch:AC-36).
+      // Host: only when the manifest opts in (`uat.keepStackForUser`) and a host service is running.
+      keepStackForUserUat: (ticketId: number) => {
+        const manifest = input.manifest();
+        const isHostPlaced = (key: string): boolean => (manifest ? unitByKey(manifest, key)?.def.sandbox === 'host' : false);
+        const sandboxed = ticketSandboxRunner(deps, ticketId) !== undefined;
+        return (
+          (sandboxed &&
+            (input.store.db.prepare("SELECT 1 FROM servers WHERE ticket_id = ? AND status = 'running' AND sandbox IS NOT NULL").get(ticketId) !== undefined ||
+              hasRunningHostPlacedServices(input.store, ticketId, isHostPlaced))) ||
+          (manifest?.uat?.keepStackForUser === true && hasRunningHostServices(input.store, ticketId))
+        );
+      },
       prepareUserUat: async (store: Store, ticketId: number): Promise<string[]> => {
         const manifest = input.manifest();
         if (!manifest) return [];
         const defOf = (key: string) => unitByKey(manifest, key)?.def;
         const found = ticketSandboxRunner(deps, ticketId);
         const sandboxWarnings = found ? await resetSandboxServices(store, ticketId, found.runner, defOf) : [];
-        const hostWarnings = manifest.uat?.keepStackForUser === true ? await resetHostServices(store, ticketId, defOf, runProcess) : [];
+        // A sandboxed ticket resets its `sandbox: host` services on the host; the opt-in resets every host service.
+        const hostResetOf =
+          manifest.uat?.keepStackForUser === true
+            ? defOf
+            : found
+              ? (key: string) => (defOf(key)?.sandbox === 'host' ? defOf(key) : undefined)
+              : undefined;
+        const hostWarnings = hostResetOf ? await resetHostServices(store, ticketId, hostResetOf, runProcess) : [];
         return [...sandboxWarnings, ...hostWarnings];
       },
       agentUatPhase: (ticketId: number, phase: 'start' | 'end') => {

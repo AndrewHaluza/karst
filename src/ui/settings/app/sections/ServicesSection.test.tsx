@@ -778,3 +778,59 @@ describe('ServicesSection — health timeout', () => {
     expect((document.querySelector('[name="f-svc-health-timeout-api"]') as HTMLInputElement).value).toBe('600');
   });
 });
+
+describe('ServicesSection — sandbox placement', () => {
+  const withSandbox = (value: 'host' | 'inside'): Manifest => ({
+    ...BASE,
+    repositories: {
+      ...(BASE.repositories as unknown as Record<string, Record<string, unknown>>),
+      api: {
+        ...(BASE.repositories as unknown as Record<string, Record<string, unknown>>).api,
+        service: { ...((BASE.repositories as unknown as Record<string, Record<string, Record<string, unknown>>>).api!.service), sandbox: value },
+      },
+    } as unknown as Manifest['repositories'],
+  });
+  const box = (): HTMLInputElement => document.querySelector('[name="f-svc-sandbox-host-api"]') as HTMLInputElement;
+  const service = (): Record<string, unknown> => repositories().api?.service as Record<string, unknown>;
+
+  it('writes sandbox: host when the box is turned on and keeps the sibling fields', () => {
+    mount();
+    open('api');
+    fireEvent.click(box());
+    const base = (BASE.repositories as unknown as Record<string, { service: Record<string, unknown> }>).api!.service;
+    expect(service().sandbox).toBe('host');
+    expect(service().start).toEqual(base.start);
+    expect(service().health).toEqual(base.health);
+    expect(service().ports).toEqual(base.ports);
+  });
+
+  it('removes the sandbox key when the box is turned off', () => {
+    mount(withSandbox('host'));
+    open('api');
+    expect(box().checked).toBe(true);
+    fireEvent.click(box());
+    expect('sandbox' in service()).toBe(false);
+  });
+
+  it('shows an inside value as off and keeps it on another edit', () => {
+    mount(withSandbox('inside'));
+    open('api');
+    expect(box().checked).toBe(false);
+    setField('f-svc-health-timeout-api', '600');
+    expect(service().sandbox).toBe('inside');
+  });
+
+  it('offers the box for a docker service', () => {
+    mount();
+    open('api');
+    fireEvent.click(document.querySelector('[name="f-svc-docker-mode-api"]') as HTMLInputElement);
+    expect(box()).toBeTruthy();
+  });
+
+  it('warns that agent code runs on the host', () => {
+    mount();
+    open('api');
+    expect(card('api').textContent).toContain('runs on the host');
+    expect(card('api').textContent).toContain('must have the same setting');
+  });
+});
