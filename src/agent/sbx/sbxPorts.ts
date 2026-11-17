@@ -84,7 +84,7 @@ export function parseSbxAllowed(stdout: string): Set<string> {
   return new Set((stdout.toLowerCase().match(/[a-z0-9*][a-z0-9.*-]*:\d+/g) ?? []));
 }
 
-/** True when `resource` is an allowed entry or lies under an allowed `*.suffix:<port>` / `**.suffix:<port>` wildcard. */
+/** True when `resource` is an allowed entry, or lies under an allowed `**.suffix:<port>` (any depth) or `*.suffix:<port>` (one label) wildcard. */
 export function isResourceAllowed(allowed: ReadonlySet<string>, resource: string): boolean {
   const target = resource.toLowerCase();
   if (allowed.has(target)) return true;
@@ -92,8 +92,10 @@ export function isResourceAllowed(allowed: ReadonlySet<string>, resource: string
   const host = target.slice(0, at);
   const port = target.slice(at);
   for (const entry of allowed) {
-    const m = /^\*{1,2}\.(.+)(:\d+)$/.exec(entry);
-    if (m && m[2] === port && host.endsWith(`.${m[1]}`)) return true;
+    const m = /^(\*{1,2})\.(.+)(:\d+)$/.exec(entry);
+    if (!m || m[3] !== port || !host.endsWith(`.${m[2]}`)) continue;
+    const prefix = host.slice(0, host.length - m[2]!.length - 1);
+    if (m[1] === '**' || !prefix.includes('.')) return true;
   }
   return false;
 }

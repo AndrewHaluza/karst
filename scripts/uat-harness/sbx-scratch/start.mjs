@@ -1,9 +1,7 @@
 // sbx-scratch harness start: one empty-folder sandbox for the UAT Tester (@arch:UAT-HARNESS).
 // Prints one JSON line {"env":{"KARST_SBX_SCRATCH":"<name>"}} on success.
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { listed, removeIfPresent, sbx, scratchName } from './common.mjs';
+import { mkdirSync } from 'node:fs';
+import { listed, removeIfPresent, sbx, scratchFolder, scratchName } from './common.mjs';
 
 const CORE = 'claude';
 const WAIT_MS = 60_000;
@@ -18,7 +16,8 @@ try {
   const name = scratchName(process.env);
   const left = removeIfPresent(name);
   if (!left.ok) fail(`cannot remove the leftover sandbox ${name}: ${left.reason}`);
-  const folder = mkdtempSync(join(tmpdir(), 'karst-uat-scratch-'));
+  const folder = scratchFolder(name);
+  mkdirSync(folder, { recursive: true });
   const created = sbx(['create', '--name', name, CORE, folder], WAIT_MS * 2);
   if (created.code !== 0) fail(`sbx create failed: ${created.stderr.trim()}`);
   const deadline = Date.now() + WAIT_MS;

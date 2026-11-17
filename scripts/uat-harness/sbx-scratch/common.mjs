@@ -1,5 +1,7 @@
 // Shared by start.mjs and stop.mjs: the sandbox name guard and the sbx runner.
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export const NAME_PREFIX = 'karst-uat-';
 const MAX_NAME_LENGTH = 63;
@@ -39,3 +41,6 @@ export function removeIfPresent(name) {
   if (rm.code !== 0 && listed(name)) return { ok: false, reason: rm.stderr.trim() };
   return { ok: true };
 }
+
+/** The empty workspace folder of one scratch sandbox: fixed per name, so a rerun reuses it and stop removes it. */
+export const scratchFolder = (name) => join(tmpdir(), name);

@@ -65,6 +65,13 @@ describe('sbx policy listing', () => {
     expect(parseSbxAllowed('allow network Registry.npmjs.org:443')).toEqual(new Set(['registry.npmjs.org:443']));
   });
 
+  it('a single-star wildcard covers one label, a double-star any depth', () => {
+    const allowed = new Set(['*.example.com:443', '**.deep.org:443']);
+    expect(isResourceAllowed(allowed, 'a.example.com:443')).toBe(true);
+    expect(isResourceAllowed(allowed, 'a.b.example.com:443')).toBe(false);
+    expect(isResourceAllowed(allowed, 'a.b.deep.org:443')).toBe(true);
+  });
+
   it('a wildcard covers a subdomain on the same port only', () => {
     const allowed = parseSbxAllowed(json);
     expect(isResourceAllowed(allowed, 'objects.githubusercontent.com:443')).toBe(true);
