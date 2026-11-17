@@ -149,6 +149,10 @@ export interface RecoveryDeps {
    * refused WITHOUT mutating anything. Automatic replans never consult it.
    */
   projectMaxReplans?: number;
+  /** Stop the live agent process of a blocked node before its row re-arms. The
+   *  host binds the transport terminate (fire and forget: the relaunch waits
+   *  for a later driver tick). Absent → the workspace guard parks a live one. */
+  stopNodeProcess?: (nodeRunId: number) => void;
   /**
    * The effective node prompt TEXT for a node's next launch (the packaged
    * base prompt overlaid with the project override and any per-node `prompt`
@@ -156,10 +160,6 @@ export interface RecoveryDeps {
    * override. The explicit prompt Resume re-snapshots these bytes; absent,
    * the prompt category refuses rather than silently skipping the re-snapshot.
    */
-  /** Stop the live agent process of a blocked node before its row re-arms. The
-   *  host binds the transport terminate (fire and forget: the relaunch waits
-   *  for a later driver tick). Absent → the workspace guard parks a live one. */
-  stopNodeProcess?: (nodeRunId: number) => void;
   resolveEffective?: (input: {
     graphRunId: number;
     revisionId: number;

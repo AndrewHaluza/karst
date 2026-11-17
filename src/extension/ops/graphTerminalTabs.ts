@@ -104,22 +104,29 @@ export function createGraphTabClosers(deps: GraphTabCloseDeps): GraphTabClosers 
       { kind: 'accepted' },
     ).catch((error) => deps.logError(`karst: closing the planner terminal of graph run ${graphRunId} failed`, error));
   };
-  // A node whose process end is proven needs no second stop.
-  const stopped = new Set<string>();
+  // A session whose process end is proven needs no second stop. Resume reuses the
+  // node run id but opens a new session, so the memo keys on the session object.
+  const stopped = new WeakSet<object>();
   return {
     blockedNode: (graphRunId, nodeRunId) => {
       const transport = deps.transport();
       const db = deps.db();
       if (!transport || !db) return;
       const ticketId = deps.ticketIdOf(graphRunId);
-      const key = `${ticketId}:${nodeRunId}`;
-      if (stopped.has(key)) return;
+      let session: object | undefined;
+      try {
+        session = transport.sessionFor(ticketId, nodeRunId);
+      } catch (error) {
+        deps.logError(`karst: stopping the blocked node ${nodeRunId} process failed`, error);
+        return;
+      }
+      if (!session || stopped.has(session)) return;
       void stopNodeProcessOnBlocked(
         { transport, debug: deps.debug },
         { ticketId, nodeRunId, sharesIdWithPlannerRun: plannerRunTicketId(db, nodeRunId) === ticketId },
       )
         .then((proven) => {
-          if (proven) stopped.add(key);
+          if (proven) stopped.add(session);
         })
         .catch((error) => deps.logError(`karst: stopping the blocked node ${nodeRunId} process failed`, error));
     },

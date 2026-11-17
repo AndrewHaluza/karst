@@ -193,6 +193,32 @@ describe('createGraphTabClosers', () => {
     expect(k.terminated).toEqual([first, second]);
   });
 
+  it('logs an error when the stop rejects after the session lookup succeeded', async () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const errors: string[] = [];
+    let lookups = 0;
+    const session = { ticketId: w.ticketId, nodeRunId } as SupervisedAgentSession;
+    const c = createGraphTabClosers({
+      db: () => w.db,
+      transport: () => ({
+        sessionFor: () => {
+          lookups += 1;
+          if (lookups > 1) throw new Error('boom');
+          return session;
+        },
+        terminate: async () => ({ kind: 'dead' }),
+        disposeOnSuccess: () => {},
+      }),
+      ticketIdOf: () => w.ticketId,
+      debug: () => {},
+      logError: (m) => errors.push(m),
+    });
+    c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    expect(errors).toEqual([`karst: stopping the blocked node ${nodeRunId} process failed`]);
+  });
+
   it('logs an error when the stop of a blocked node rejects', async () => {
     const w = world();
     const nodeRunId = w.node('a');
@@ -213,6 +239,19 @@ describe('createGraphTabClosers', () => {
     c.blockedNode(w.graphRunId, nodeRunId);
     await tick();
     expect(errors).toEqual([`karst: stopping the blocked node ${nodeRunId} process failed`]);
+  });
+
+  it('stops a blocked node again when Resume opened a new session for the same node run id', async () => {
+    const w = world();
+    const nodeRunId = w.node('a');
+    const k = closers(w);
+    k.add(nodeRunId);
+    k.c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    k.add(nodeRunId); // a new session object under the same key
+    k.c.blockedNode(w.graphRunId, nodeRunId);
+    await tick();
+    expect(k.terminated).toEqual([nodeRunId, nodeRunId]);
   });
 
   it('stops a blocked node again while the process end is not proven', async () => {
@@ -240,7 +279,8 @@ describe('createGraphTabClosers', () => {
   it('does nothing for a blocked node when the transport or the store is missing', async () => {
     const w = world();
     const nodeRunId = w.node('a');
-    const base = { ticketIdOf: () => w.ticketId, debug: () => {}, logError: () => {} };
+    const errors: string[] = [];
+    const base = { ticketIdOf: () => w.ticketId, debug: () => {}, logError: (m: string) => errors.push(m) };
     const noTransport = createGraphTabClosers({ ...base, db: () => w.db, transport: () => undefined });
     const noDb = createGraphTabClosers({
       ...base,
@@ -256,6 +296,7 @@ describe('createGraphTabClosers', () => {
     expect(() => noTransport.blockedNode(w.graphRunId, nodeRunId)).not.toThrow();
     expect(() => noDb.blockedNode(w.graphRunId, nodeRunId)).not.toThrow();
     await tick();
+    expect(errors).toEqual([]);
   });
 
   it('closes the accepted bootstrap planner tab after the process is proven ended', async () => {
