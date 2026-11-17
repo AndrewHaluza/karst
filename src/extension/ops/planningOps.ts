@@ -1,4 +1,6 @@
 import { mkdirSync } from 'node:fs';
+import { hasArtifactFiles } from '../../planning/artifactFiles.js';
+import { createArtifactCountCache } from '../../artifacts/countCache.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
@@ -144,6 +146,8 @@ export interface PlanningOpsDeps {
    * instructions. A rejection is logged and the launch continues without it.
    */
   planningHistory?: (manifest: PlanningManifest) => Promise<PlanningRepoHistory[]>;
+  /** Opens a directory in the OS file manager (the host binds `vscode.env.openExternal`). */
+  openPath?: (dir: string) => PromiseLike<unknown>;
   debug?: (message: string) => void;
 }
 
@@ -163,11 +167,20 @@ export interface PlanningOps {
   adopt(terminals: readonly PlanningTerminalCandidate[]): void;
   list(): PlanningListItem[];
   isLive(id: number): boolean;
+  /** 1 when the session's artifacts dir holds a file, else 0 (the scan stops at the first file). */
+  artifactCount(id: number): number;
+  /** Opens the session's artifacts dir in the OS file manager. The path comes from the session id, never from the caller. */
+  openArtifacts(id: number): Promise<void>;
 }
 
 const agentLabel = (core: string, model: string | null): string => `${core} · ${model ?? 'default'}`;
 
 export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
+  // The sidebar state build is sync: it reads this cache, which refreshes off the host's event loop.
+  const artifactFlags = createArtifactCountCache({
+    count: async (id) => ((await hasArtifactFiles(planningArtifactsDir(deps.scratchDir(id)))) ? 1 : 0),
+    onChange: () => deps.onChange?.(),
+  });
   const live = new Map<number, SessionTerminal>();
   /** Per window: the planner config a session's user already chose to Keep against. */
   const declined = new Map<number, string>();
@@ -374,6 +387,40 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       setPlanningSessionStatus(deps.store, id, 'archived');
       debug(`archived ${id}`);
       deps.onChange?.();
+    },
+
+    artifactCount(id) {
+      return artifactFlags.get(id);
+    },
+
+    async openArtifacts(id) {
+      if (!getPlanningSession(deps.store, id)) {
+        debug(`artifacts ${id} blocked: unknown`);
+        deps.notify.warn(`Karst: planning session ${formatId('plan', id)} no longer exists.`);
+        return;
+      }
+      const dir = planningArtifactsDir(deps.scratchDir(id));
+      if (!(await hasArtifactFiles(dir))) {
+        artifactFlags.set(id, 0);
+        debug(`artifacts ${id} blocked: empty`);
+        deps.notify.info(`Karst: ${formatId('plan', id)} has no artifacts yet.`);
+        return;
+      }
+      artifactFlags.set(id, 1);
+      if (!deps.openPath) {
+        debug(`artifacts ${id} blocked: no opener`);
+        deps.notify.warn('Karst: this host cannot open a folder.');
+        return;
+      }
+      try {
+        const opened = await deps.openPath(dir);
+        // vscode.env.openExternal resolves false when the OS refuses.
+        if (opened === false) throw new Error('openPath returned false');
+        debug(`artifacts ${id} opened`);
+      } catch (e) {
+        debug(`artifacts ${id} failed: ${e instanceof Error ? e.message : String(e)}`);
+        deps.notify.warn(`Karst: could not open the artifacts folder of ${formatId('plan', id)}.`);
+      }
     },
 
     unarchive(id) {

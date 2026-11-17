@@ -726,9 +726,17 @@ describe('buildSidebarState — planning sessions', () => {
 
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId, planningLive: (id) => id === s.id });
     expect(state.planning).toEqual([
-      { sessionId: s.id, idLabel: `P${s.id}`, title: 'Auth rework', status: 'filed', ticketCount: 1, live: true, agent: { provider: 'codex', model: 'gpt-5' }, proposals: [] },
+      { sessionId: s.id, idLabel: `P${s.id}`, title: 'Auth rework', status: 'filed', ticketCount: 1, artifacts: 0, live: true, agent: { provider: 'codex', model: 'gpt-5' }, proposals: [] },
     ]);
     expect(state.sections.current.map((r) => r.ticketId)).toEqual([t.id]);
+  });
+
+  it('carries the per-session artifact count, 0 without a counter', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
+    const withCount = buildSidebarState(store, { facets: ['all'], filter: '', projectId, planningArtifactCount: (id) => (id === s.id ? 2 : 0) });
+    expect(withCount.planning[0]!.artifacts).toBe(2);
+    expect(buildSidebarState(store, { facets: ['all'], filter: '', projectId }).planning[0]!.artifacts).toBe(0);
   });
 
   it('lists a session\'s pending proposals (id + title) and drops resolved ones', () => {

@@ -724,6 +724,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     manifest: () => currentManifest(),
     // A tree apart from karst.db, so codex's only writable root never covers it.
     scratchDir: (id) => join(storageDir, 'planning-scratch', String(id)),
+    openPath: (dir) => vscode.env.openExternal(vscode.Uri.file(dir)),
     defaultAgent: planningAgent,
     host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
     cliEntry: () => cliSessionInput(cliLiteral(context, dbPath)).cliEntry, dbPath,
@@ -821,6 +822,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .then(undefined, (e) => logError('planning: create failed', e)),
     planOpen: (id) => void planning.open(id).catch((e) => logError('planning: open failed', e)),
     planArchive: (id) => planning.archive(id),
+    planArtifacts: (id) => planning.openArtifacts(id),
     planUnarchive: (id) => planning.unarchive(id),
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
@@ -834,7 +836,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => currentManifest(),
     (id) => planning.isLive(id),
     (id) => artifactCounts.get(id),
-    { debug: (m) => logger.debug(m) });
+    { debug: (m) => logger.debug(m), planningArtifactCount: (id) => planning.artifactCount(id) });
   context.subscriptions.push({ dispose: () => provider.dispose() });
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
     makeSidebarViewHost(context);

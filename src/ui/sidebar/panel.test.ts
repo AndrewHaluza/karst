@@ -39,6 +39,7 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
   return {
     planCreate: vi.fn(),
     planOpen: vi.fn(),
+    planArtifacts: vi.fn(),
     planArchive: vi.fn(),
     planUnarchive: vi.fn(),
     planProposalReview: vi.fn(),

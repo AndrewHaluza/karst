@@ -107,6 +107,16 @@ describe('sidebar planning tree', () => {
     expect(h.query('[data-act="plan-open"][data-plan="90"]')!.getAttribute('aria-busy')).toBe('true');
   });
 
+  it('shows Open artifacts only on rows with files and posts plan-artifacts with the session id', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'state', state: stateOf('planning-artifacts') });
+    expect(h.query('[data-act="plan-artifacts"][data-plan="95"]')).not.toBeNull();
+    expect(h.query('[data-act="plan-artifacts"][data-plan="93"]')).toBeNull();
+    // An archived session keeps the action (planModel.test.ts); its row sits behind the archived toggle here.
+    await h.click('[data-act="plan-artifacts"][data-plan="95"]');
+    expect(h.posted).toContainEqual(expect.objectContaining({ type: 'plan-artifacts', sessionId: 95 }));
+  });
+
   it('pane header carries the count, a start-session + and Collapse all', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });

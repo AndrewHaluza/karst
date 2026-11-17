@@ -45,6 +45,8 @@ export interface SidebarViewOptions {
   debug?: (message: string) => void;
   /** Millisecond clock; defaults to `performance.now`. */
   now?: () => number;
+  /** 1 when a planning session's artifacts dir holds a file (the Open artifacts action shows when > 0). */
+  planningArtifactCount?: (sessionId: number) => number;
 }
 
 /** Factory the manager binds to (real: `registerWebviewViewProvider`). */
@@ -193,6 +195,7 @@ export class SidebarViewManager {
         projectId: this.projectId?.(),
         ...(this.planningLive ? { planningLive: this.planningLive } : {}),
         ...(this.artifactCount ? { artifactCount: this.artifactCount } : {}),
+        ...(this.options.planningArtifactCount ? { planningArtifactCount: this.options.planningArtifactCount } : {}),
       },
       this.pathContext?.(),
     );

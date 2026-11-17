@@ -43,6 +43,7 @@ export type SidebarWebviewMessage =
   | { type: 'plan-create' }
   | { type: 'plan-open'; sessionId: number }
   | { type: 'plan-archive'; sessionId: number }
+  | { type: 'plan-artifacts'; sessionId: number }
   | { type: 'plan-unarchive'; sessionId: number }
   // A pending planning proposal carries its own `proposalId`.
   | { type: 'plan-proposal-review'; proposalId: number }
@@ -114,6 +115,8 @@ export interface SidebarActions {
   planCreate(): void | Promise<void>;
   planOpen(sessionId: number): void | Promise<void>;
   planArchive(sessionId: number): void | Promise<void>;
+  /** Opens the session's artifacts dir in the OS file manager; the host resolves the path. */
+  planArtifacts(sessionId: number): void | Promise<void>;
   planProposalReview(proposalId: number): void | Promise<void>;
   planProposalDiscard(proposalId: number): void | Promise<void>;
   planProposalPriority(proposalId: number, level: PriorityLevel | null): void | Promise<void>;
@@ -153,6 +156,7 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
       return { type: m.type };
     case 'plan-open':
     case 'plan-archive':
+    case 'plan-artifacts':
     case 'plan-unarchive':
       return typeof m.sessionId === 'number' && Number.isFinite(m.sessionId)
         ? { type: m.type, sessionId: m.sessionId }
@@ -298,6 +302,8 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.planOpen(msg.sessionId);
     case 'plan-archive':
       return actions.planArchive(msg.sessionId);
+    case 'plan-artifacts':
+      return actions.planArtifacts(msg.sessionId);
     case 'plan-unarchive':
       return actions.planUnarchive(msg.sessionId);
     case 'plan-proposal-review':
