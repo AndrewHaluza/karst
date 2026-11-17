@@ -6,6 +6,7 @@ import { openShipRun } from '../../store/shipRuns.js';
 import { setDeliverDrain } from './autoDeliverOps.js';
 import { setHeadlessDrain } from '../../agent/headlessSpawn.js';
 import { RELOAD_WHEN_IDLE_TITLE } from './reloadWhenIdle.js';
+import { cancelReloadDrain, drainSignature, drainSnapshot, onDrainChange } from './reloadDrainView.js';
 import {
   RELOAD_ALREADY_WAITING_MESSAGE,
   abortableSleep,
@@ -36,6 +37,17 @@ describe('idleProgressMessage', () => {
     expect(idleProgressMessage(1)).toBe('Waiting for 1 live run — no new runs start'));
   it('uses the plural for many runs', () =>
     expect(idleProgressMessage(2)).toBe('Waiting for 2 live runs — no new runs start'));
+});
+
+describe('idleProgressMessage with named runs', () => {
+  it('names each live run by ticket and kind', () =>
+    expect(idleProgressMessage(2, [{ ticketId: 1183, kind: 'deliver' }, { ticketId: 1188, kind: 'ship' }])).toBe(
+      'Waiting for T1183 deliver, T1188 ship — no new runs start',
+    ));
+  it('keeps the count form when a run names no ticket', () =>
+    expect(idleProgressMessage(2, [{ ticketId: 1183, kind: 'deliver' }, { ticketId: null, kind: 'gate' }])).toBe(
+      'Waiting for 2 live runs — no new runs start',
+    ));
 });
 
 describe('abortableSleep', () => {
@@ -146,11 +158,56 @@ describe('makeReloadWhenIdleHandler', () => {
     const f = fakeHost();
     const run = makeReloadWhenIdleHandler(store, drain, () => {}, () => {}, f.host, 4242)();
     await new Promise((r) => setTimeout(r, 10));
-    expect(f.reports).toEqual(['Waiting for 1 live run — no new runs start']);
+    expect(f.reports).toEqual([`Waiting for T${t.id} ship — no new runs start`]);
     f.cancel();
     await run;
     const other = fakeHost();
     await makeReloadWhenIdleHandler(store, createDrain(), () => {}, () => {}, other.host, 1)();
     expect(other.reports).toEqual(['Reloading…']);
+  });
+
+  it('binds a snapshot of the live runs and held tickets, cancels through the dashboard seam, and unbinds after', async () => {
+    const store = openStore(':memory:');
+    const drain = createDrain();
+    const t = createTicketFlow(store, { key: 'K-5', title: 't' });
+    openShipRun(store, { ticketId: t.id, attempt: 1, startedAt: 'x', pid: 4242 });
+    const f = fakeHost();
+    const changes = vi.fn();
+    const off = onDrainChange(changes);
+    const redrive = vi.fn();
+    const run = makeReloadWhenIdleHandler(store, drain, () => {}, redrive, f.host, 4242)();
+    await new Promise((r) => setTimeout(r, 10));
+    drain.hold(t.id);
+    expect(drainSnapshot()).toEqual({ draining: true, live: [{ ticketId: t.id, kind: 'ship' }], held: [t.id] });
+    expect(f.reports).toEqual([`Waiting for T${t.id} ship — no new runs start`]);
+    expect(changes).toHaveBeenCalled();
+    expect(cancelReloadDrain()).toBe(true);
+    await run;
+    expect(redrive).toHaveBeenCalledWith(t.id);
+    expect(drain.isDraining()).toBe(false);
+    expect(drainSnapshot().draining).toBe(false);
+    expect(cancelReloadDrain()).toBe(false);
+    off();
+  });
+
+  it('notifies a listener when the held tickets change between two polls', async () => {
+    vi.useFakeTimers();
+    const store = openStore(':memory:');
+    const drain = createDrain();
+    const f = fakeHost();
+    const sigs: string[] = [];
+    const off = onDrainChange(() => sigs.push(drainSignature(drainSnapshot())));
+    const tracked = drain.track(() => new Promise<void>(() => {}));
+    void tracked;
+    void makeReloadWhenIdleHandler(store, drain, () => {}, () => {}, f.host, 4242)();
+    await vi.advanceTimersByTimeAsync(10);
+    const before = sigs.length;
+    drain.hold(3);
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(sigs.length).toBeGreaterThan(before);
+    expect(sigs[sigs.length - 1]).toContain('[3]');
+    cancelReloadDrain();
+    await vi.advanceTimersByTimeAsync(10);
+    off();
   });
 });

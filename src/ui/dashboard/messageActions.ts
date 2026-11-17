@@ -174,6 +174,8 @@ export interface DashboardActions {
   pauseExecution: () => void | Promise<void>;
   /** Unpause (resume) task execution for this panel's ticket. */
   unpauseExecution: () => void | Promise<void>;
+  /** Cancels the waiting reload (@arch:DRAIN-01), the same as the progress notification Cancel. */
+  cancelReload: () => void | Promise<void>;
   /**
    * Switch one gate off (or on) for this ticket. Takes the stage and the gate
    * NAME — never a command or a script — so the webview can express only which

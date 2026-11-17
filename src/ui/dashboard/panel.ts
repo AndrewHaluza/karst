@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import { drainSnapshot } from '../../extension/ops/reloadDrainView.js';
 import type { AgentProvider, Manifest, TicketProvider } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
@@ -260,6 +261,7 @@ export class DashboardManager extends DashboardManagerBase {
       launchCheckout,
       graphInsideFor,
       sharedServersFor: (id) => this.sharedServersFor(id),
+      drainFor: drainSnapshot, // @arch:DRAIN-01: the waiting reload, read per snapshot
       panelFor: (ticketId) => this.panels.get(ticketId),
       supplementalHost: this.supplementalHost,
       refreshIcon: (ticketId, panel) => this.refreshIcon(ticketId, panel),
@@ -382,6 +384,11 @@ export class DashboardManager extends DashboardManagerBase {
    * value — and it is host-owned, so it cannot ride on `DashboardState`, which
    * `buildDashboardState` rebuilds from the store.
    */
+  /** Push a fresh snapshot to EVERY open panel: the waiting reload changes what each ticket's banner and ship controls say. */
+  pushAllStates(): void {
+    for (const ticketId of [...this.panels.keys()]) this.pushState(ticketId);
+  }
+
   pushBind(): void {
     for (const panel of this.panels.values()) this.postBind(panel);
   }

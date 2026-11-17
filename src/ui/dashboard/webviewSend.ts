@@ -176,6 +176,7 @@ export function createSender(api: WebviewApi) {
     ) => send({ type: 'usage-limit-dismiss', ticketId, stageKey }, requestId),
     pauseExecution: (requestId?: string) => send({ type: 'pause-execution' }, requestId),
     unpauseExecution: (requestId?: string) => send({ type: 'unpause-execution' }, requestId),
+    cancelReload: (requestId?: string) => send({ type: 'cancel-reload' }, requestId),
     setDisabledGates: (
       stage: Msg<'set-disabled-gates'>['stage'],
       name: Msg<'set-disabled-gates'>['name'],

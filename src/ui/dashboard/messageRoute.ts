@@ -163,6 +163,8 @@ export function routeAction(
       return actions.pauseExecution();
     case 'unpause-execution':
       return actions.unpauseExecution();
+    case 'cancel-reload':
+      return actions.cancelReload();
     case 'set-disabled-gates':
       return actions.setDisabledGate(msg.stage, msg.name, msg.disabled);
     case 'inside-action':

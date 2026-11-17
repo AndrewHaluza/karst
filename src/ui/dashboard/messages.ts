@@ -213,6 +213,7 @@ export type WebviewMessage =
   | { type: 'pause-execution' }
   /** Unpause task execution for this ticket (payload-free: the panel owns the ticket). */
   | { type: 'unpause-execution' }
+  | { type: 'cancel-reload' }
   /**
    * Switch ONE named gate off (or back on) for this ticket alone.
    *

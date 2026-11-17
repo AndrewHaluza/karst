@@ -3,7 +3,7 @@ import { openStore } from '../../store/db.js';
 import { createDrain } from '../../runtime/drain.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { openShipRun } from '../../store/shipRuns.js';
-import { countLiveRuns, guardShipStart, reloadWhenIdle, ShipDrainingError, type ReloadWhenIdleDeps } from './reloadWhenIdle.js';
+import { countLiveRuns, listLiveRuns, guardShipStart, reloadWhenIdle, ShipDrainingError, type ReloadWhenIdleDeps } from './reloadWhenIdle.js';
 
 function deps(counts: number[], over: Partial<ReloadWhenIdleDeps> = {}) {
   const drain = createDrain();
@@ -170,5 +170,51 @@ describe('guardShipStart', () => {
     await drain.track(async () => {
       expect(() => guardShipStart(drain, 5, () => {})).not.toThrow();
     });
+  });
+});
+
+describe('listLiveRuns', () => {
+  it('names each live run by ticket and kind, and its length equals countLiveRuns', () => {
+    const store = openStore(':memory:');
+    const a = createTicketFlow(store, { key: 'K-10', title: 'a' });
+    const b = createTicketFlow(store, { key: 'K-11', title: 'b' });
+    store.db
+      .prepare("INSERT INTO stage_runs (ticket_id, stage_key, attempt, run_at, status, pid, started_at) VALUES (?, 'uat', 1, 'x', 'running', 111, 'x')")
+      .run(a.id);
+    store.db
+      .prepare("INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, provider, status, pid, started_at) VALUES (?, 'impl', 'session', 1, 'claude', 'running', 111, 'x'), (?, 'impl', 'commit', 1, NULL, 'running', 111, 'x')")
+      .run(a.id, b.id);
+    store.db
+      .prepare("INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at, kind) VALUES (?, 'h', '[]', 'running', 111, 'x', 'auto')")
+      .run(b.id);
+    openShipRun(store, { ticketId: a.id, attempt: 1, startedAt: 'x', pid: 111 });
+    const runs = listLiveRuns(store, 111);
+    expect(runs).toEqual(
+      expect.arrayContaining([
+        { ticketId: a.id, kind: 'gate' },
+        { ticketId: a.id, kind: 'agent' },
+        { ticketId: b.id, kind: 'stage' },
+        { ticketId: b.id, kind: 'deliver' },
+        { ticketId: a.id, kind: 'ship' },
+      ]),
+    );
+    expect(runs).toHaveLength(5);
+    expect(runs).toHaveLength(countLiveRuns(store, 111));
+    store.close();
+  });
+
+  it('lists a tracked run once under its ticket and leaves a tracked run without a ticket unnamed', () => {
+    const store = openStore(':memory:');
+    const t = createTicketFlow(store, { key: 'K-12', title: 't' });
+    store.db
+      .prepare("INSERT INTO deliver_runs (ticket_id, head_sha, gates, state, pid, started_at, kind) VALUES (?, 'h', '[]', 'running', 111, 'x', 'auto')")
+      .run(t.id);
+    expect(listLiveRuns(store, 111, 1, t.id)).toEqual([{ ticketId: t.id, kind: 'deliver' }]);
+    expect(listLiveRuns(store, 111, 2, t.id)).toEqual([
+      { ticketId: t.id, kind: 'deliver' },
+      { ticketId: null, kind: 'gate' },
+    ]);
+    expect(listLiveRuns(store, 111, 2, t.id)).toHaveLength(countLiveRuns(store, 111, 2, t.id));
+    store.close();
   });
 });

@@ -89,6 +89,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'pause-execution' };
     case 'unpause-execution':
       return { type: 'unpause-execution' };
+    case 'cancel-reload':
+      return { type: 'cancel-reload' };
     // Payload-free like the panel-level server controls: a companion field is
     // dropped, so the recovery can only ever move the ticket the panel owns.
     case 'send-back-to-implement':

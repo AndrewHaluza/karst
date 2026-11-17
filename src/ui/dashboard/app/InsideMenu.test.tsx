@@ -218,6 +218,17 @@ describe('Inside — Deliver process row (T1072)', () => {
     expect(push.className).toContain('k-btn--secondary');
   });
 
+  it('disables Push with the reason in its title while a reload waits, and posts nothing', () => {
+    const h = mountInside({ ...state({}), drain: { draining: true, live: [], held: [] } } as ReturnType<typeof state>);
+    const push = must<HTMLButtonElement>('[data-act="deliver-to-pr"]');
+    expect(push.disabled).toBe(true);
+    expect(push.title.startsWith('Push — ')).toBe(true);
+    expect(push.title).toContain('a reload is waiting for live runs');
+    expect(push.getAttribute('aria-label')).toBe(push.title);
+    fireEvent.click(push);
+    expect(h.send.deliverToPr).not.toHaveBeenCalled();
+  });
+
   it('shows no row when the host builds none', () => {
     mountInside(state(null));
     expect(q('[data-proc-id="ship:deliver"]')).toBeNull();

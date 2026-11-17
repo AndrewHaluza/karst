@@ -5,6 +5,7 @@ import type { GateStageKey } from '../../workflow/fixAttempts.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
+import type { DrainInput } from './stateDrain.js';
 import { withBaselines } from './baselineRows.js';
 import {
   buildDashboardState,
@@ -34,6 +35,8 @@ export interface SnapshotInputs {
   launchCheckout?: (path: string) => boolean;
   graphInsideFor?: (ticketId: number) => GraphInsideInput | null;
   sharedServersFor: (ticketId: number) => SharedServerView[];
+  /** The host's waiting reload (@arch:DRAIN-01); absent → none waits. */
+  drainFor?: () => DrainInput;
 }
 
 /** Mint this snapshot's action registry and build the state it describes. */
@@ -140,6 +143,7 @@ export function buildSnapshotState(
     // arrives as an injected provider and never from the state builder.
     (id) => i.sharedServersFor(id),
     i.manifest?.()?.autopilot,
+    i.drainFor?.(),
   );
   const stored = i.loaders.storedArtifactsFor(ticketId);
   // The ship preview rides ONLY while the ship slot is confirm/retry (D142):
