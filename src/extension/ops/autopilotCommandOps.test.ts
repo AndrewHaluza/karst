@@ -66,6 +66,9 @@ describe('setOverrideCommand', () => {
     await setOverrideCommand(d);
     expect(getAutopilotTicket(store, id)).toMatchObject({ mode: 'on', stoppedReason: null });
     expect(notes()).toEqual(['Autopilot: override set']);
+    expect(store.db.prepare('SELECT ticket_id, level, source, body FROM karst_events').get())
+      .toEqual({ ticket_id: id, level: 'info', source: 'autopilot', body: 'AP-1: auto-fix mode is now on.' });
+    expect(d.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 override on');
     expect(d.said).toEqual(['Auto-fix mode for AP-1: on.']);
   });
   it('takes an explicit ticket and mode without asking, and ignores a cancelled or invalid pick', async () => {
