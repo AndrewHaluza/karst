@@ -75,6 +75,11 @@ import { ACTIVE_NODE_STATUSES } from './completion.js';
 import { graphRunHasLiveNodeProcess } from './liveness.js';
 import { MAX_COMPILE_ATTEMPTS } from './repair.js';
 import {
+  isLaunchInFlight,
+  launchClaimedAtMs,
+  LAUNCH_PREPARATION_TIMEOUT_MS,
+} from './launchInFlight.js';
+import {
   attributeServer,
   type Attribution,
   type ProcessFactsSource,
@@ -154,7 +159,9 @@ export interface ReconcileGraphRunResult {
 
 type GraphRunRow = Pick<FullGraphRunRow, 'id' | 'ticket_id' | 'status'>;
 
-type NodeRunRow = Pick<FullNodeRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'>;
+type NodeRunRow = Pick<FullNodeRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'> & {
+  generation?: string | null;
+};
 
 interface ProcessRunRow {
   pid: number | null;
@@ -464,9 +471,19 @@ async function reconcileLaunching(
   node: NodeRunRow,
 ): Promise<number> {
   if (deps.sessionFor(node.id)) return 0; // this window is mid-launch
+  if (isLaunchInFlight(deps.db, node.id)) return 0; // this window is preparing the workspace
   const proc = processOf(deps.db, node);
   if (proc === null) {
     if (node.owner_nonce !== null) {
+      // The driver claims BEFORE it prepares the workspace, so a claimed row
+      // with no process is normal for as long as a clone and a setup take. Only
+      // a claim older than the preparation timeout (another window's owner is
+      // gone, or this window reloaded) is a crash. A row with no readable
+      // claim time keeps the old reading: crashed.
+      const claimedAt = launchClaimedAtMs(node.generation ?? null);
+      if (claimedAt !== undefined && Date.parse(deps.now()) - claimedAt < LAUNCH_PREPARATION_TIMEOUT_MS) {
+        return 0;
+      }
       return deps.transaction(() => {
         const reason = `node-blocked: node ${node.id} crashed before spawn (owner nonce, no process) — Resume to relaunch the reserved visit`;
         if (!parkNode(deps, node.id, 'launching', 'blocked', reason)) return 0;
