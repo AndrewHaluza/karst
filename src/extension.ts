@@ -46,7 +46,7 @@ import { resolveConflictClick, makeSessionHandOff } from './extension/ops/confli
 import { ticketHandOff } from './extension/ops/guardedHandOff.js';
 import { compileExpertSpend, compileSpentNodeRuns, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
-import { editWorkspaceDepsOp } from './extension/ops/editWorkspaceDeps.js';
+import { createGraphDepsPreflight, openWorkspaceDepsEditor } from './extension/graphDepsBinding.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
@@ -292,7 +292,6 @@ import { buildGraphSessionEnv } from './approaches/graph/transport/env.js';
 import { envRef, sessionCliEnv } from './agent/cliEnv.js';
 import { createNodeWorkspace } from './approaches/graph/workspace/provider.js';
 import { createDepsProvisioner } from './approaches/graph/workspace/workspaceDeps.js';
-import { preflightWarning, preflightWorkspaceDeps } from './approaches/graph/workspace/depsPreflight.js';
 import type {
   CommandDefinition,
   CompileContext,
@@ -3309,37 +3308,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           `Ticket ${formatId('ticket', ticketId)}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
         );
       },
-      // D647: open karst.yml at the repository a workspace-dependency block names.
-      graphEditWorkspaceDeps: (_ticketId, graphRunId) => {
-        const reason = graphRunById(localStore.db, graphRunId)?.blocked_reason ?? '';
-        void editWorkspaceDepsOp(
-          {
-            readManifest: () => {
-              try {
-                const path = manifestPathOrThrow();
-                return { path, text: readFileSync(path, 'utf8') };
-              } catch {
-                return undefined;
-              }
-            },
-            open: async (path, plan) => {
-              const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
-              if (plan.insert) {
-                const edit = new vscode.WorkspaceEdit();
-                const at = new vscode.Position(plan.insert.beforeLine, 0);
-                edit.insert(doc.uri, at, `${plan.insert.text}\n`);
-                await vscode.workspace.applyEdit(edit);
-              }
-              const editor = await vscode.window.showTextDocument(doc);
-              const pos = new vscode.Position(plan.revealLine, 0);
-              editor.selection = new vscode.Selection(pos, pos);
-              editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-            },
-            notify: { info: (m) => void toast.info(m), warn: (m) => void toast.warn(m), error: async (m) => void (await toast.error(m)) },
-          },
-          reason,
-        );
-      },
+      graphEditWorkspaceDeps: (_ticketId, graphRunId) =>
+        openWorkspaceDepsEditor(manifestPathOrThrow, graphRunById(localStore.db, graphRunId)?.blocked_reason ?? ''),
     },
     // Reveal (never launch) the ticket's own interactive session — the same
     // reveal-or-adopt path `nudge` uses, so a reload that emptied this
@@ -3381,7 +3351,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           store: localStore,
           manifest: () => currentManifest(),
           liveSessions: () => graphTransport?.sessions() ?? [],
-          depsWarningOf: (graphRunId) => graphDepsWarnings.get(graphRunId),
+          depsWarningOf: (graphRunId) => graphDeps.warningOf(graphRunId),
           now: () => new Date().toISOString(),
           debug: (m) => logger.debug(m),
         },
@@ -4530,24 +4500,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return resolveRepoWorktrees(manifest.repositories ?? {}, worktrees);
   };
 
-  // The dependency preflight warning of each graph run, set when the bootstrap
-  // planner launches and read by the Inside header. A reload clears it; the
-  // Karst output line and the graph diagnostic keep the record.
-  const graphDepsWarnings = new Map<number, string>();
-  const graphDepsPreflight = async (graphRunId: number): Promise<string | undefined> => {
-    const assessments = await preflightWorkspaceDeps({
-      manifest: currentManifest(),
-      repos: graphDomainsFor(graphRunId).map((entry) => ({
-        repoName: entry.repoName,
-        worktree: entry.worktreePath,
-        gitCommonDir: gitCommonDirFromFs(entry.worktreePath),
-      })),
-    });
-    const warning = preflightWarning(assessments);
-    if (warning === undefined) graphDepsWarnings.delete(graphRunId);
-    else graphDepsWarnings.set(graphRunId, warning);
-    return warning;
-  };
+  const graphDeps = createGraphDepsPreflight({ manifest: currentManifest, domainsOf: graphDomainsFor, gitCommonDirOf: gitCommonDirFromFs });
 
   /**
    * Claim-time base heads (Slice 5 T1): per physical-domain HEAD of the
@@ -4917,7 +4870,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       commandDefOf: (graphRunId, commandId) =>
         graphApproachConfigFor(graphRunApproachId(graphRunId))?.commands[commandId],
       runProcess,
-      depsPreflightOf: graphDepsPreflight,
+      depsPreflightOf: graphDeps.preflight,
       plannerCwdOf: (graphRunId) => {
         const wt = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId))[0];
         return wt ? { repo: wt.repo, cwd: wt.path } : undefined;
