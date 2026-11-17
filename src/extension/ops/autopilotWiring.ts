@@ -8,7 +8,7 @@ import { ciFailureState } from '../../workflow/ciFailure.js';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import { listTickets } from '../../store/tickets.js';
-import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
+import { autopilotEventLevel, recordEvent } from '../../store/karstEvents.js';
 import type { AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { autopilotTick } from './autopilotOps.js';
 import type { TransientCiSeams } from './autopilotRerun.js';
@@ -149,28 +149,13 @@ export function concurrencyFullFor(
   return caps.perParent > 0 && others.filter((h) => h.subtaskParentId === self.subtaskParentId).length >= caps.perParent;
 }
 
-/** Cut `text` to `max` characters, ending with an ellipsis when it was longer. */
-function clip(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}\u2026`;
-}
-
 /**
- * Post a bulletin note that always fits the note rules: a one-line title of at most 120 characters,
- * a body of at most 4096 characters, no control characters. A long or multi-line park reason
- * (a gh error text) must not make the post throw and lose the note.
+ * Record an Autopilot status line as a Karst event (@arch:EVENTS), not a bulletin note: it tells the person
+ * what Autopilot did, it is nothing a ticket can learn from. `recordEvent` fits the title and body rules and
+ * never throws, so a long or multi-line park reason (a gh error text) cannot lose the line.
  */
 export function postAutopilotNote(store: Store, projectId: number, ticketId: number, title: string, body: string, debug: (m: string) => void): void {
-  const clean = (t: string): string => t.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ');
-  const oneLine = clean(title).replace(/\s+/g, ' ').trim();
-  try {
-    postAgentNote(store, {
-      projectId, fromTicketId: ticketId,
-      title: clip(oneLine === '' ? 'Autopilot' : oneLine, BULLETIN_TITLE_MAX),
-      body: clip(clean(body).trim() === '' ? 'Autopilot' : clean(body).trim(), BULLETIN_BODY_MAX),
-    });
-  } catch (err) {
-    debug(`[ship] autopilot note failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  recordEvent(store, { projectId, ticketId, level: autopilotEventLevel(title), source: 'autopilot', title: title.trim() === '' ? 'Autopilot' : title, body: body.trim() === '' ? 'Autopilot' : body }, debug);
 }
 
 /** One pass over the ship tickets of the bound project. Never throws; a failure only delays the next pass. */

@@ -20,7 +20,7 @@ function deps(over: Partial<AutopilotCommandDeps> = {}): AutopilotCommandDeps & 
     stopSession: vi.fn(async () => true), dropConflictRound: vi.fn(), ...over,
   };
 }
-const notes = () => store.db.prepare('SELECT title FROM bulletin_notes ORDER BY rowid').all().map((r) => (r as { title: string }).title);
+const notes = () => store.db.prepare('SELECT title FROM karst_events ORDER BY rowid').all().map((r) => (r as { title: string }).title);
 
 beforeEach(() => {
   store = openStore(':memory:');

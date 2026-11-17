@@ -8,6 +8,7 @@ import Database from 'better-sqlite3';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
+import { BULLETIN_DDL } from './bulletinNotes.js';
 import { insertProposal } from './planningProposals.js';
 import {
   GRAPH_MIGRATION_DDL,
@@ -84,6 +85,7 @@ const EXPECTED_TABLES = [
   'uat_gate_passes',
   'fix_deliveries',
   'usage_limit_parks',
+  'karst_events',
 ] as const;
 
 function tableNames(store: Store): string[] {
@@ -497,6 +499,46 @@ describe('openStore', () => {
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
     expect(colsOf(reopened).filter((c) => c === 'host_rerun_requested_at')).toHaveLength(1);
+  });
+
+  it('migrates a pre-v128 database by moving the Autopilot bulletin notes into karst_events and keeping the other notes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(
+      `CREATE TABLE projects (id INTEGER PRIMARY KEY, slug TEXT);
+       CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT, project_id INTEGER);
+       INSERT INTO projects (id, slug) VALUES (1, 'p');
+       INSERT INTO tickets (id, key, title, project_id) VALUES (7, 'A', 'A', 1);`,
+    );
+    legacy.exec(BULLETIN_DDL);
+    const ins = legacy.prepare("INSERT INTO bulletin_notes (project_id, source, from_ticket_id, merge_sha, title, body, created_at) VALUES (1, ?, 7, ?, ?, ?, ?)");
+    ins.run('agent', null, 'Autopilot: ci round 1/3', 'body one', '2020-01-01 00:00:00');
+    ins.run('agent', null, 'Autopilot: auto-fix stopped: ci spent', 'body two', '2020-01-02 00:00:00');
+    ins.run('agent', null, 'Autopilot: auto-fix not run: graph ticket', 'body three', '2020-01-03 00:00:00');
+    ins.run('agent', null, 'A real learning', 'keep me', '2020-01-04 00:00:00');
+    ins.run('host', 'abc123', 'Autopilot: host row stays', 'host', '2020-01-05 00:00:00');
+    legacy.prepare('INSERT INTO bulletin_reads (note_id, reader_ticket_id) VALUES (1, 7)').run();
+    legacy.pragma('user_version = 127');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    const events = migrated.db.prepare('SELECT ticket_id, level, source, title, body, created_at, read_at FROM karst_events ORDER BY id').all();
+    expect(events).toEqual([
+      { ticket_id: 7, level: 'info', source: 'autopilot', title: 'Autopilot: ci round 1/3', body: 'body one', created_at: '2020-01-01 00:00:00', read_at: '2020-01-01 00:00:00' },
+      { ticket_id: 7, level: 'error', source: 'autopilot', title: 'Autopilot: auto-fix stopped: ci spent', body: 'body two', created_at: '2020-01-02 00:00:00', read_at: '2020-01-02 00:00:00' },
+      { ticket_id: 7, level: 'warn', source: 'autopilot', title: 'Autopilot: auto-fix not run: graph ticket', body: 'body three', created_at: '2020-01-03 00:00:00', read_at: '2020-01-03 00:00:00' },
+    ]);
+    expect(migrated.db.prepare('SELECT title FROM bulletin_notes ORDER BY id').all()).toEqual([{ title: 'A real learning' }, { title: 'Autopilot: host row stays' }]);
+    expect(migrated.db.prepare('SELECT COUNT(*) AS n FROM bulletin_reads').get()).toEqual({ n: 0 });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.prepare('SELECT COUNT(*) AS n FROM karst_events').get()).toEqual({ n: 3 });
   });
 
   it('migrates a pre-v127 database by moving awaiting-confirmation graph runs to running and setting updated_at', () => {

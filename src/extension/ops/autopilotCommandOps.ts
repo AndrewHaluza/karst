@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { formatId } from '../../model/entityId.js';
 import { isFinishedStage } from '../../model/types.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
-import { postAgentNote } from '../../store/bulletinNotes.js';
+import { autopilotEventLevel, recordEvent } from '../../store/karstEvents.js';
 import {
   AUTOPILOT_OVERRIDES, getAutopilotTicket, listAutopilotBudgets, clearConflictRound, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
 } from '../../store/autopilot.js';
@@ -39,7 +39,7 @@ async function resolveTicket(d: AutopilotCommandDeps, given: number | undefined,
 function noteFor(d: AutopilotCommandDeps, ticketId: number) {
   const projectId = d.projectId();
   return (title: string, body: string): void => {
-    if (projectId !== undefined) postAgentNote(d.store, { projectId, fromTicketId: ticketId, title, body });
+    if (projectId !== undefined) recordEvent(d.store, { projectId, ticketId, level: autopilotEventLevel(title), source: 'autopilot', title, body }, d.debug);
   };
 }
 

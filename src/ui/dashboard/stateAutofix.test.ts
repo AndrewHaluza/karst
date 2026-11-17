@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { openStore } from '../../store/db.js';
+import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, setAutopilotStopAfter, takeAutopilotAttempt, markConflictRound, markCiRound } from '../../store/autopilot.js';
-import { postAgentNote } from '../../store/bulletinNotes.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { autofixInputOf, readAutofix } from './stateAutofix.js';
 import type { AutofixFacts } from '../../model/inside/autofix.js';
@@ -22,6 +21,11 @@ function setup() {
 
 const park = (store: ReturnType<typeof openStore>, id: number, reason: string): void =>
   parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason, runAt: 'x', gates: [] });
+
+/** An Autopilot status row as the engine writes it (@arch:EVENTS). */
+function postAutopilotRow(store: Store, ticketId: number, title: string): void {
+  store.db.prepare("INSERT INTO karst_events (ticket_id, level, source, title) VALUES (?, 'info', 'autopilot', ?)").run(ticketId, title);
+}
 
 describe('readAutofix stop head', () => {
   const REASON = 'auto-fix stopped: ci round made no change';
@@ -105,9 +109,9 @@ describe('readAutofix', () => {
 
   it('reads the autopilot round notes as attempts, oldest first, and ignores other notes', () => {
     const { store, id } = setup();
-    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 1/3', body: 'a' });
-    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Unrelated', body: 'b' });
-    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 2/3', body: 'c' });
+    postAutopilotRow(store, id, 'Autopilot: ci round 1/3');
+    postAutopilotRow(store, id, 'Unrelated');
+    postAutopilotRow(store, id, 'Autopilot: ci round 2/3');
     park(store, id, 'auto-fix stopped: ci 3/3');
     const attempts = readAutofix(store, id, CONFIG).row?.attempts ?? [];
     expect(attempts.map((a) => a.label)).toEqual(['attempt 1', 'attempt 2']);
@@ -223,14 +227,14 @@ describe('readAutofix', () => {
     const { store, id } = setup();
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
     takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
-    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 1/3', body: 'a' });
+    postAutopilotRow(store, id, 'Autopilot: ci round 1/3');
     const r = readAutofix(store, id, CONFIG);
     expect(r.row).toMatchObject({ state: 'running', message: 'CI lint on api #88 · attempt 1 of 3' });
   });
 
   it('fills the banner history from the round notes of the parked kind, oldest first', () => {
     const { store, id } = setup();
-    for (const t of ['Autopilot: ci round 1/3', 'Autopilot: conflicts round 1/2', 'Autopilot: ci round 2/3', 'Autopilot: ci round 3/3']) postAgentNote(store, { projectId: null, fromTicketId: id, title: t, body: 'x' });
+    for (const t of ['Autopilot: ci round 1/3', 'Autopilot: conflicts round 1/2', 'Autopilot: ci round 2/3', 'Autopilot: ci round 3/3']) postAutopilotRow(store, id, t);
     park(store, id, 'auto-fix stopped: ci 3/3');
     expect(readAutofix(store, id, CONFIG).slice.banner?.history).toEqual(['ci round 1/3', 'ci round 2/3', 'ci round 3/3']);
   });
@@ -239,9 +243,9 @@ describe('readAutofix', () => {
     const { store, id } = setup();
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
     takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
-    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 1/3', body: 'a' });
+    postAutopilotRow(store, id, 'Autopilot: ci round 1/3');
     setAutopilotStopAfter(store, id);
-    postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: stopped after this round', body: 'b' });
+    postAutopilotRow(store, id, 'Autopilot: stopped after this round');
     expect(readAutofix(store, id, CONFIG).row).toMatchObject({ state: 'running', stopAfterRequested: true });
   });
 
@@ -250,7 +254,7 @@ describe('readAutofix', () => {
       const { store, id } = setup();
       store.db.prepare("INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?, 'api', 88, 'https://x/88', 'open', ?)").run(id, JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failing: [{ name: 'lint', url: 'https://x/run' }], failedShown: 1 }));
       takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
-      postAgentNote(store, { projectId: null, fromTicketId: id, title: 'Autopilot: ci round 1/3', body: 'a' });
+      postAutopilotRow(store, id, 'Autopilot: ci round 1/3');
       if (mark) markCiRound(store, id, 1);
       store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, id);
       return readAutofix(store, id, CONFIG);
