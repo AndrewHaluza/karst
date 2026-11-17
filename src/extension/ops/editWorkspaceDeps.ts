@@ -28,11 +28,25 @@ export function repoNameOfDepsReason(reason: string): string | undefined {
 
 const indentOf = (line: string): number => line.length - line.trimStart().length;
 const isBlank = (line: string): boolean => line.trim() === '' || line.trimStart().startsWith('#');
-const unquote = (key: string): string => key.replace(/^(['"])(.*)\1$/, '$2');
 
+/** The mapping key a YAML line opens, unquoted, or undefined. */
 function keyOf(line: string): string | undefined {
-  const match = /^\s*([^\s#:][^:]*?|"[^"]*"|'[^']*')\s*:(\s|$)/.exec(line);
-  return match?.[1] === undefined ? undefined : unquote(match[1].trim());
+  const match = /^\s*(?:"([^"]*)"|'([^']*)'|([^\s#:][^:]*?))\s*:(?:\s|$)/.exec(line);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
+/** The line of the repository entry under `repositories:`, with its indent. */
+function findRepoEntry(lines: readonly string[], section: number, wanted: string): { line: number; indent: number } | undefined {
+  let indent = -1;
+  for (let i = section + 1; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (isBlank(line)) continue;
+    if (indentOf(line) === 0) return undefined;
+    if (indent === -1) indent = indentOf(line);
+    const key = indentOf(line) === indent ? keyOf(line) : undefined;
+    if (key !== undefined && canonicalRepoId(key) === wanted) return { line: i, indent };
+  }
+  return undefined;
 }
 
 /** Plan the edit over the karst.yml text. Pure. */
@@ -40,46 +54,22 @@ export function planWorkspaceDepsEdit(yaml: string, repoName: string | undefined
   const lines = yaml.split('\n');
   const section = lines.findIndex((line) => /^repositories\s*:/.test(line));
   if (section === -1) return { revealLine: 0, found: false };
-  const wanted = repoName === undefined ? undefined : canonicalRepoId(repoName);
-  let repoLine = -1;
-  let repoIndent = -1;
-  for (let i = section + 1; i < lines.length; i += 1) {
+  const entry = repoName === undefined ? undefined : findRepoEntry(lines, section, canonicalRepoId(repoName));
+  if (entry === undefined) return { revealLine: section, found: false };
+  let childIndent = -1;
+  for (let i = entry.line + 1; i < lines.length; i += 1) {
     const line = lines[i]!;
     if (isBlank(line)) continue;
-    if (indentOf(line) === 0) break;
-    if (repoIndent === -1) repoIndent = indentOf(line);
-    if (indentOf(line) !== repoIndent) continue;
-    const key = keyOf(line);
-    if (key !== undefined && wanted !== undefined && canonicalRepoId(key) === wanted) {
-      repoLine = i;
-      break;
-    }
-  }
-  if (repoLine === -1) return { revealLine: section, found: false };
-  let childIndent = repoIndent + 2;
-  let end = lines.length;
-  for (let i = repoLine + 1; i < lines.length; i += 1) {
-    const line = lines[i]!;
-    if (isBlank(line)) continue;
-    if (indentOf(line) <= repoIndent) {
-      end = i;
-      break;
-    }
-    if (childIndent === repoIndent + 2 && i === firstChild(lines, repoLine + 1)) childIndent = indentOf(line);
+    if (indentOf(line) <= entry.indent) break;
+    if (childIndent === -1) childIndent = indentOf(line);
     if (indentOf(line) === childIndent && keyOf(line) === KEY) return { revealLine: i, found: true };
   }
-  void end;
-  const insertAt = repoLine + 1;
+  const at = entry.line + 1;
   return {
-    revealLine: insertAt,
-    insert: { beforeLine: insertAt, text: `${' '.repeat(childIndent)}${KEY}:` },
+    revealLine: at,
+    insert: { beforeLine: at, text: `${' '.repeat(childIndent === -1 ? entry.indent + 2 : childIndent)}${KEY}:` },
     found: true,
   };
-}
-
-function firstChild(lines: readonly string[], from: number): number {
-  for (let i = from; i < lines.length; i += 1) if (!isBlank(lines[i]!)) return i;
-  return -1;
 }
 
 export interface EditWorkspaceDepsDeps {
