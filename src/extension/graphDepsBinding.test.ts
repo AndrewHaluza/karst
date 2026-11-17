@@ -7,7 +7,7 @@ import { openWorkspaceDepsEditor } from './graphDepsBinding.js';
 
 const YAML = 'repositories:\n  web:\n    repoPath: ../web\n';
 
-function fakeVscode(log: string[]): typeof VscodeApi {
+function fakeVscode(log: string[], dirty = false): typeof VscodeApi {
   class Position {
     constructor(readonly line: number, readonly character: number) {}
   }
@@ -34,7 +34,7 @@ function fakeVscode(log: string[]): typeof VscodeApi {
     TextEditorRevealType: { InCenter: 2 },
     Uri: { file: (p: string) => ({ path: p }) },
     workspace: {
-      openTextDocument: async (uri: { path: string }) => (log.push(`open:${uri.path}`), { uri }),
+      openTextDocument: async (uri: { path: string }) => (log.push(`open:${uri.path}`), { uri, isDirty: dirty }),
       applyEdit: async () => (log.push('apply'), true),
     },
     window: {
@@ -58,6 +58,16 @@ describe('openWorkspaceDepsEditor', () => {
     );
     expect(log.slice(0, 4)).toEqual(['open:/p/karst.yml', 'insert@2:"    graphWorkspace: {}\\n"', 'apply', 'show']);
     expect(log.some((l) => l.startsWith('reveal@'))).toBe(true);
+  });
+
+  it('does not edit a buffer with unsaved changes', async () => {
+    const log: string[] = [];
+    await openWorkspaceDepsEditor(
+      { vscode: fakeVscode(log, true), manifestPath: () => '/p/karst.yml', notify: notify(log), readFile: () => YAML },
+      'graph-workspace-deps: node run 5 (web: x)',
+    );
+    expect(log.some((l) => l === 'apply' || l.startsWith('insert'))).toBe(false);
+    expect(log).toContain('show');
   });
 
   it('opens without an edit when the key exists', async () => {
@@ -87,7 +97,7 @@ describe('openWorkspaceDepsEditor', () => {
       },
       'graph-workspace-deps: node run 5 (web: x)',
     );
-    expect(log).toContain('warn:Karst: the karst.yml path is not known.');
+    expect(log.filter((l) => l.startsWith('warn:'))).toEqual([]);
     expect(log).not.toContain('show');
   });
 

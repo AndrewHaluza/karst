@@ -31,6 +31,8 @@ describe('runSetupCommand discover', () => {
       JSON.parse(runSetupCommand(['setup', 'discover', '--root', '/w'], { probe: fakeProbe(), graphDeps: gap, manifestPath })).repos[0];
     writeFileSync(manifestPath, yaml('    graphWorkspace:\n      link: [.venv]\n'));
     expect(run().graphDeps).toEqual({ status: 'fits', reason: 'graphWorkspace is already set in karst.yml' });
+    writeFileSync(manifestPath, yaml('    graphWorkspace: {}\n'));
+    expect(run().graphDeps).toEqual({ status: 'gap', reason: 'no default' });
     writeFileSync(manifestPath, yaml(''));
     expect(run().graphDeps).toEqual({ status: 'gap', reason: 'no default' });
     writeFileSync(manifestPath, 'not: [valid');

@@ -66,4 +66,15 @@ describe('preflightWorkspaceDeps', () => {
     expect(out[0]!.status).toBe('gap');
     expect(out[0]!.reason).toContain('.venv');
   });
+  it('is a gap for an empty graphWorkspace block and fine for an explicit empty link list', async () => {
+    const dir = wt({ 'requirements.txt': 'x' });
+    const of = (block: object): Manifest =>
+      ({ ...gated, repositories: { web: { graphWorkspace: block } } }) as unknown as Manifest;
+    const run = (manifest: Manifest) =>
+      preflightWorkspaceDeps({ manifest, repos: [{ repoName: 'web', worktree: dir, gitCommonDir: null }] });
+    const empty = await run(of({}));
+    expect(empty[0]!.status).toBe('gap');
+    expect(empty[0]!.reason).toContain('empty');
+    expect((await run(of({ link: [] })))[0]!.status).toBe('provided');
+  });
 });

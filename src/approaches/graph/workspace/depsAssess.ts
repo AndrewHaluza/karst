@@ -97,11 +97,19 @@ async function assessLinks(
   return undefined;
 }
 
+/** An explicit block that names nothing (`graphWorkspace: {}`): it replaces the defaults with no dependencies. */
+export function isEmptyWorkspaceBlock(block: GraphWorkspaceDef | undefined): boolean {
+  return block !== undefined && block.link === undefined && block.setup === undefined && block.setupWhen === undefined;
+}
+
 /** Assess one repository. Never throws: a failed read is a gap with its reason. */
 export async function assessWorkspaceDeps(input: DepsAssessmentInput): Promise<DepsAssessment> {
   const { repoName } = input;
   if (!input.hasGates) return { repoName, status: 'not-needed', reason: 'no gate commands' };
   const roots = [input.worktree, ...(input.mainCheckout === undefined ? [] : [input.mainCheckout])];
+  if (isEmptyWorkspaceBlock(input.explicit)) {
+    return gap(repoName, 'graphWorkspace is empty — set link or setup');
+  }
   try {
     const plan = planWorkspaceDeps(input.worktree, input.explicit);
     if (plan.source === 'none') {

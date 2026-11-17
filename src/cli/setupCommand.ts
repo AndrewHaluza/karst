@@ -100,7 +100,7 @@ function configuredGraphWorkspaces(manifestPath: string | undefined): ReadonlySe
     const { manifest } = loadManifestWithDiagnostics(manifestPath);
     return new Set(
       Object.entries(manifest.repositories ?? {})
-        .filter(([, repo]) => repo.graphWorkspace !== undefined)
+        .filter(([, repo]) => repo.graphWorkspace !== undefined && Object.keys(repo.graphWorkspace).length > 0)
         .map(([name]) => canonicalRepoId(name)),
     );
   } catch (err) {

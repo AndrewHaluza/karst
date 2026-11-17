@@ -24,13 +24,13 @@ export function openWorkspaceDepsEditor(host: WorkspaceDepsEditorHost, reason: s
           const path = host.manifestPath();
           return { path, text: readFile(path) };
         } catch {
-          void host.notify.warn('Karst: the karst.yml path is not known.');
           return undefined;
         }
       },
       open: async (path, plan) => {
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(path));
-        if (plan.insert) {
+        // The plan comes from the saved file: an unsaved buffer may differ, so only a clean buffer gets the edit.
+        if (plan.insert && !doc.isDirty) {
           const edit = new vscode.WorkspaceEdit();
           edit.insert(doc.uri, new vscode.Position(plan.insert.beforeLine, 0), `${plan.insert.text}\n`);
           await vscode.workspace.applyEdit(edit);
