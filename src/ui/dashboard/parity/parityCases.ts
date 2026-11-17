@@ -578,6 +578,15 @@ export const COVERED: readonly ParityCase[] = [
     posts: [{ type: 'deliver-to-pr' }], rid: false,
   },
   {
+    // A reload waits and holds this ticket: the banner (data-region drain-banner) offers Cancel reload (T1211).
+    act: 'cancel-reload',
+    state: () => {
+      const base = st('impl');
+      return { ...base, drain: { draining: true, live: [{ ticketKey: base.idLabel, kind: 'agent' }], held: [base.ticketId] } };
+    },
+    sel: act('cancel-reload'), posts: [{ type: 'cancel-reload' }], rid: true,
+  },
+  {
     act: 'dismiss-deliver-failures', variant: 'gate row', state: deliverFailureState, sel: act('dismiss-deliver-failures'),
     posts: [{ type: 'dismiss-deliver-failures', gate: 'unit' }], rid: false, pendingSel: false,
   },
