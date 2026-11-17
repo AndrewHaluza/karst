@@ -652,7 +652,8 @@
     "arch:IDS-01"
   ],
   "src/model/inside/autofix.ts": [
-    "arch:AP-02"
+    "arch:AP-02",
+    "arch:AP-09"
   ],
   "src/model/inside/deliver.ts": [
     "arch:AP-02"
@@ -1068,6 +1069,9 @@
   ],
   "src/ui/dashboard/state.ts#buildDashboardState": [
     "arch:SHARED-VIEW"
+  ],
+  "src/ui/dashboard/stateAutofix.ts": [
+    "arch:AP-09"
   ],
   "src/ui/dashboard/storedArtifacts.ts": [
     "arch:APP-00"
