@@ -59,6 +59,19 @@ describe('sendBackToImplement reason', () => {
     const msgs = listInbox(store, id, { unreadOnly: false });
     expect(msgs.map((m) => [m.kind, m.fromTicketId, m.body])).toEqual([['event', null, 'Sent back to Implement: CI failed: build']]);
   });
+  it('a later send-back marks the earlier unread send-back event read, with or without a reason', () => {
+    sendBackToImplement(store, id, { reason: 'CI failed: build' });
+    for (const from of ['impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
+    sendBackToImplement(store, id);
+    expect(listInbox(store, id, { unreadOnly: true })).toHaveLength(0);
+    expect(listInbox(store, id, { unreadOnly: false })).toHaveLength(1);
+  });
+  it('a later send-back with a reason leaves only the new event unread', () => {
+    sendBackToImplement(store, id, { reason: 'old' });
+    for (const from of ['impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
+    sendBackToImplement(store, id, { reason: 'new' });
+    expect(listInbox(store, id, { unreadOnly: true }).map((m) => m.body)).toEqual(['Sent back to Implement: new']);
+  });
   it('a refused send-back posts nothing', () => {
     sendBackToImplement(store, id);
     expect(() => sendBackToImplement(store, id, { reason: 'x' })).toThrow(/refused/);

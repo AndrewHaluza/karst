@@ -4,8 +4,9 @@ import { createTicket, getTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { listInbox } from '../../store/ticketMessages.js';
-import { sendCiFailureToAgent, takesFixRoute, MAX_CI_LOG_BYTES, type CiFailureOpsDeps } from './ciFailureOps.js';
+import { sendCiFailureToAgent, handOffPrompt, takesFixRoute, MAX_CI_LOG_BYTES, type CiFailureOpsDeps } from './ciFailureOps.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
+import { SEND_BACK_DONE_MARKER } from './sendBackMarker.js';
 
 let store: Store;
 let id: number;
@@ -316,5 +317,14 @@ describe('takesFixRoute (T1158)', () => {
     expect(takesFixRoute(() => true, 'review')).toBe(false);
     expect(takesFixRoute(() => false, 'ship')).toBe(false);
     expect(takesFixRoute(undefined, 'ship')).toBe(false);
+  });
+});
+
+describe('handOffPrompt', () => {
+  it('ends with the shared done marker that names the re-run, the re-ship and no push', () => {
+    const prompt = handOffPrompt('CI failed');
+    expect(prompt).toBe(`CI failed\n${SEND_BACK_DONE_MARKER}`);
+    expect(prompt).toContain('karst runs UAT and Review again. Karst pushes later, at the ship step');
+    expect(prompt).toContain('Do not push.');
   });
 });

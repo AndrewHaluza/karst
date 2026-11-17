@@ -2,11 +2,10 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { getStage } from '../../store/stages.js';
 import { SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
+import { SEND_BACK_DONE_MARKER } from './sendBackMarker.js';
 import { listInbox } from '../../store/ticketMessages.js';
 
-/** The done-marker sentence that ends every send-back brief. */
-export const SEND_BACK_DONE_MARKER =
-  'Fix the failure in the worktree, then call the karst MCP tool `stage` with { stage: "impl" } to mark the work done.';
+export { SEND_BACK_DONE_MARKER };
 
 export interface SendBackBrief {
   /** The latest send-back reason plus the done marker. */
