@@ -655,7 +655,7 @@ uat:
   # a live runtime UAT starts after the service spin when the diff matches `whenChanged`, and stops
   # on every exit path. `start` prints one JSON line {"env":{...}} for the Tester. `evidence` is a
   # glob under .karst/uat-scratch/out/<name>/; the Tester writes it through
-  # `node scripts/uat-harness/run.mjs --harness <name> --check <id> -- <command...>`.
+  # `node <karst>/workflow/uat/harnessRunner.mjs --harness <name> --check <id> -- <command...>`.
   # Missing evidence parks `tester-skipped` whatever `onSkip` is. WIRED, manifest-only.
   # harnesses:
   #   - { name: sbx, whenChanged: ['src/sandbox/**'], start: 'scripts/sbx-up.sh', stop: 'scripts/sbx-down.sh', evidence: '.karst/uat-scratch/out/sbx/**/summary.json' }

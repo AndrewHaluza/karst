@@ -4,6 +4,7 @@
  * `vscode`, no real process here: `HarnessExec` is the injected seam, and
  * `harnessExec.ts` holds the one real spawn.
  */
+import { fileURLToPath } from 'node:url';
 import { globToRegExp } from '../../artifacts/globMatch.js';
 import type { UatHarnessDef } from '../../manifest/types.js';
 import {
@@ -16,8 +17,11 @@ import {
 export const DEFAULT_HARNESS_START_TIMEOUT_SECONDS = 120;
 /** A stop command gets this long; it never decides the stage outcome. */
 export const HARNESS_STOP_TIMEOUT_SECONDS = 60;
-/** The evidence runner, relative to the target worktree. */
-export const HARNESS_RUNNER_PATH = 'scripts/uat-harness/run.mjs';
+/**
+ * The evidence runner, as an absolute path inside karst's own install. A target
+ * worktree is any repo, so it cannot hold the runner (`copy-assets.mjs` ships it).
+ */
+export const HARNESS_RUNNER_PATH = fileURLToPath(new URL('./harnessRunner.mjs', import.meta.url));
 const MAX_OUTPUT_CHARS = 2000;
 const MAX_ENV_VALUE_CHARS = 200;
 
@@ -183,7 +187,7 @@ export async function stopHarnesses(
 }
 
 export function harnessRunnerCommand(name: string): string {
-  return `node ${HARNESS_RUNNER_PATH} --harness ${name} --check <id> -- <command...>`;
+  return `node '${HARNESS_RUNNER_PATH.replace(/'/g, "'\\''")}' --harness ${name} --check <id> -- <command...>`;
 }
 
 function oneLine(value: string): string {

@@ -7,6 +7,7 @@ import type { HarnessExec, HarnessExecResult } from './harness.js';
 
 const MAX_CAPTURE_CHARS = 64_000;
 const KILL_GRACE_MS = 2_000;
+const EXIT_DRAIN_MS = 200;
 
 export const defaultHarnessExec: HarnessExec = (command, opts) =>
   new Promise<HarnessExecResult>((resolve) => {
@@ -14,6 +15,9 @@ export const defaultHarnessExec: HarnessExec = (command, opts) =>
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env },
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Own process group: a timeout or a Stop kills the whole tree, and a start
+      // command that backgrounds a runtime cannot keep this call open.
+      detached: true,
     });
     let stdout = '';
     let stderr = '';
@@ -30,9 +34,16 @@ export const defaultHarnessExec: HarnessExec = (command, opts) =>
       opts.signal?.removeEventListener('abort', onAbort);
       resolve({ exitCode, stdout, stderr: extra === '' ? stderr : `${stderr}\n${extra}`, timedOut });
     };
+    const signalGroup = (sig: NodeJS.Signals): void => {
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, sig);
+      } catch {
+        child.kill(sig); // the group is gone or not signalable: fall back to the child
+      }
+    };
     const kill = (): void => {
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS).unref();
+      signalGroup('SIGTERM');
+      setTimeout(() => signalGroup('SIGKILL'), KILL_GRACE_MS).unref();
     };
     const timer = setTimeout(() => {
       timedOut = true;
@@ -41,5 +52,11 @@ export const defaultHarnessExec: HarnessExec = (command, opts) =>
     const onAbort = (): void => kill();
     opts.signal?.addEventListener('abort', onAbort, { once: true });
     child.on('error', (error) => finish(null, error.message));
+    // `close` waits for every holder of the output pipes, so a start command that
+    // backgrounds a runtime (`cmd &`) would never settle. `exit` is the command's
+    // own end; a short drain lets the final output arrive.
     child.on('close', (code) => finish(code));
+    child.on('exit', (code) => {
+      setTimeout(() => finish(code), EXIT_DRAIN_MS).unref();
+    });
   });

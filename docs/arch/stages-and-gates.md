@@ -266,11 +266,11 @@ END_DOC_BLOCK: [@arch:UAT-OBS-RUNS]
 
 **Stop.** `stop` runs for each started harness, in reverse order, in the `finally` that stops the services, on every exit path. A failing `stop` is logged and does not stop the others. A harness is never kept for user UAT.
 
-**Tester prompt and runner.** The prompt gets a `## Harnesses` block: name, description, env values and the runner command `node scripts/uat-harness/run.mjs --harness <name> --check <id> -- <command...>`. The runner runs the command and writes `.karst/uat-scratch/out/<harness>/<check>/summary.json` with the command, exit code, and stdout and stderr tails; it exits with the command's code.
+**Tester prompt and runner.** The prompt gets a `## Harnesses` block: name, description, env values and the runner command `node '<abs path of harnessRunner.mjs>' --harness <name> --check <id> -- <command...>`. The runner runs the command and writes `.karst/uat-scratch/out/<harness>/<check>/summary.json` with the command, exit code, and stdout and stderr tails; it exits with the command's code.
 
 **Evidence and skip.** For each started harness the run needs a file that matches its `evidence` glob with an mtime at or after the run start. Missing evidence makes the target observed-nothing, also when it kept other observations (a blocking observation still stays `observed`). The run re-asks once with a prefix that names the harness, then returns `skipped` with `harness: true`, and UAT parks `blocked: tester-skipped` (Re-run tester / Accept skip) whatever `uat.testerObservations.onSkip` is. `onSkip` is unchanged for UAT-host evidence. Known limit: targets that share one worktree (monorepo `repoPath`) give the check to the first matching target.
 
-Guards: `stages/uat.test.ts` "runUat — harnesses"; `uat/testerEvidence.test.ts` "runUatTester — harness evidence"; `uat/harness.test.ts`; `uat/harnessExec.integration.test.ts`; `scripts/uat-harness/run.integration.test.mjs`; `manifest/load.test.ts` "uat.harnesses".
+Guards: `stages/uat.test.ts` "runUat — harnesses"; `uat/testerEvidence.test.ts` "runUatTester — harness evidence"; `uat/harness.test.ts`; `uat/harnessExec.integration.test.ts`; `scripts/uat-harness/run.integration.test.mjs` (runner: `uat/harnessRunner.mjs`, shipped by `copy-assets.mjs` because a target worktree does not hold it); `manifest/load.test.ts` "uat.harnesses".
 END_DOC_BLOCK: [@arch:UAT-HARNESS]
 
 ## [@arch:UAT-SERVICES] UAT starts the ticket's services before the Tester and stops them after, and a failed spin is a `boot-failed` block

@@ -943,7 +943,7 @@ export async function runUat(
   const harnessExec = deps.harnessExec ?? defaultHarnessExec;
 
   /** Start each harness whose `whenChanged` matches a non-test path of a target's diff. */
-  const startMatchingHarnesses = async (): Promise<string | null> => {
+  const startMatchingHarnesses = async (): Promise<string | 'stopped' | null> => {
     const defs = opts.manifest?.uat?.harnesses ?? [];
     if (!tester || defs.length === 0) return null;
     const harnessTargets: HarnessTarget[] = [];
@@ -971,7 +971,10 @@ export async function runUat(
           opts.signal,
         );
         startedHarnesses[startedHarnesses.findIndex((h) => h.name === def.name)] = started;
+        if (opts.signal?.aborted === true) return 'stopped';
       } catch (error) {
+        // A Stop that killed the start command is a cancel, never an environment fault.
+        if (opts.signal?.aborted === true) return 'stopped';
         const detail = error instanceof Error ? error.message : String(error);
         return error instanceof HarnessStartError ? detail : `harness "${def.name}" could not start: ${detail}`;
       }
@@ -1259,6 +1262,10 @@ export async function runUat(
       }
     }
     const harnessFailure = await startMatchingHarnesses();
+    if (harnessFailure === 'stopped') {
+      opts.debug?.(`[gate] uat ticket ${opts.ticketId}: harness start cancelled — stopped`);
+      return finish({ kind: 'stopped' }, ['harness start cancelled']);
+    }
     if (harnessFailure !== null) {
       // An environment fault, exactly like a failed service spin: the code was not judged.
       const reason = `could not start a UAT harness: ${harnessFailure}`;

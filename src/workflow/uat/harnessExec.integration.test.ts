@@ -29,4 +29,15 @@ describe('defaultHarnessExec', () => {
     setTimeout(() => ac.abort(), 100);
     expect((await p).exitCode).not.toBe(0);
   });
+  it('settles when the command backgrounds a process that keeps the output open', async () => {
+    const started = Date.now();
+    const r = await defaultHarnessExec('echo up; sleep 30 & echo "{}"', { cwd, env: {}, timeoutMs: 20_000 });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('up');
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+  it('kills the whole process group on timeout', async () => {
+    const r = await defaultHarnessExec('sleep 30 & sleep 30', { cwd, env: {}, timeoutMs: 150 });
+    expect(r.timedOut).toBe(true);
+  });
 });

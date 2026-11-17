@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { main, parseArgs } from './run.mjs';
+import { main, parseArgs } from '../../src/workflow/uat/harnessRunner.mjs';
 
 const dirs = [];
 const tmp = () => {

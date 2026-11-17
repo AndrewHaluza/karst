@@ -100,7 +100,7 @@ describe('harnessPromptLines', () => {
     expect(text).toContain('## Harnesses');
     expect(text).toContain('- sbx: real sandbox');
     expect(text).toContain('env: A=x y');
-    expect(text).toContain('node scripts/uat-harness/run.mjs --harness sbx --check <id> -- <command...>');
+    expect(text).toContain("harnessRunner.mjs' --harness sbx --check <id> -- <command...>");
     expect(text).toContain('`ev/**`');
   });
 });

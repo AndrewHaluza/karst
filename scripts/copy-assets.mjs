@@ -57,6 +57,9 @@ const assets = [
   'ui/settings/app.webview.js',
   'ui/settings/app.webview.css',
   'ui/settings/agents.webview.css',
+  // The UAT harness evidence runner (@arch:UAT-HARNESS): a standalone node script the
+  // Tester runs by absolute path, so it must ship with the extension.
+  'workflow/uat/harnessRunner.mjs',
 ]; // sourced from src/
 // Sourced from the repo root. The setup runbook travels the same way the
 // manifest template does: it is written into the TARGET project at scaffold

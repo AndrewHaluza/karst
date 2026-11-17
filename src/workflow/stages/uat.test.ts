@@ -2733,7 +2733,7 @@ describe('runUat — harnesses (@arch:UAT-HARNESS)', () => {
     expect(r.prompts[0]).toContain('## Harnesses');
     expect(r.prompts[0]).toContain('- sbx: a real sandbox');
     expect(r.prompts[0]).toContain('SBX_NAME=sb-1');
-    expect(r.prompts[0]).toContain('node scripts/uat-harness/run.mjs --harness sbx --check <id> -- <command...>');
+    expect(r.prompts[0]).toContain("harnessRunner.mjs' --harness sbx --check <id> -- <command...>");
   });
 
   it('stops the harness after a failed verdict', async () => {
@@ -2755,6 +2755,32 @@ describe('runUat — harnesses (@arch:UAT-HARNESS)', () => {
       run(r, crash, { warn: () => { throw new Error('boom'); } }),
     ).rejects.toThrow('boom');
     expect(r.calls).toEqual([`start-sbx:sbx:${id}`, `stop-sbx:sbx:${id}`]);
+  });
+
+  it('a Stop during the harness start is stopped, never boot-failed, and the harness is still stopped', async () => {
+    const r = rig();
+    const ac = new AbortController();
+    const exec: Rig['exec'] = async (command, o) => {
+      r.calls.push(`${command}`);
+      if (command === 'start-sbx') {
+        ac.abort();
+        return { exitCode: null, stdout: '', stderr: '', timedOut: false };
+      }
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+    };
+    updateTicketFields(store, id, { selectedRepos: ['web'] });
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: wt, artifactDir, manifest: project, signal: ac.signal },
+      deps({
+        planTargets: async () => ({ kind: 'targets', targets: [{ repo: '/web', path: wt, names: ['web'] }], unmapped: [] }),
+        git: gitWith(['src/sbx/a.ts']),
+        harnessExec: exec,
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter: adapterFor(r, 'none') },
+      }),
+    );
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(r.calls).toEqual(['start-sbx', 'stop-sbx']);
   });
 
   it('starts no harness when the diff matches no glob', async () => {

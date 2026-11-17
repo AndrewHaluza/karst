@@ -2,7 +2,7 @@
 /**
  * The UAT harness evidence runner (@arch:UAT-HARNESS).
  *
- *   node scripts/uat-harness/run.mjs --harness <name> --check <id> -- <command...>
+ *   node harnessRunner.mjs --harness <name> --check <id> -- <command...>
  *
  * Runs the command (no shell) from the current directory, and writes
  * `.karst/uat-scratch/out/<harness>/<check>/summary.json` with the command, the
@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const TAIL_CHARS = 4000;
@@ -69,7 +70,7 @@ export async function main(argv, cwd = process.cwd()) {
   return result.exitCode;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (error) => {
