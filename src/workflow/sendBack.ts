@@ -6,14 +6,9 @@ import { maxGraphRunStageAttemptForTicket } from '../store/graph/graphRuns.js';
 import { latestStageRun } from '../store/stageRuns.js';
 import { listCurrentPrsByTicket } from '../store/prs.js';
 import { nowIso } from '../model/time.js';
-import { postMessage } from '../store/ticketMessages.js';
+import { postMessage, SEND_BACK_EVENT_PREFIX } from '../store/ticketMessages.js';
 
-/**
- * Leads the body of the host event `sendBackToImplement` posts. Other host
- * events share `kind 'event'`; this prefix is how a later launch finds the
- * send-back reason (`sendBackBriefForTicket`).
- */
-export const SEND_BACK_EVENT_PREFIX = 'Sent back to Implement: ';
+export { SEND_BACK_EVENT_PREFIX };
 
 /**
  * The unified "Send back to Implement" recovery action (869ehkkzp).

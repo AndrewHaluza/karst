@@ -13,6 +13,14 @@ import { forbiddenBodyChar } from '../model/messageText.js';
 /** Hard cap on a message body, measured after trimming. */
 export const MAX_MESSAGE_BODY = 4096;
 
+/**
+ * Leads the body of the host event `sendBackToImplement` posts. Other host
+ * events share `kind 'event'`; this prefix is how a later launch finds the
+ * send-back reason (`sendBackBriefForTicket`). Delivery skips it: the live
+ * session already got the reason in the typed hand-off.
+ */
+export const SEND_BACK_EVENT_PREFIX = 'Sent back to Implement: ';
+
 export type TicketMessageKind = 'message' | 'event';
 
 const KINDS: readonly TicketMessageKind[] = ['message', 'event'];
