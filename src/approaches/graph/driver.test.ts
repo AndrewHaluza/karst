@@ -229,6 +229,55 @@ function runningGraphRun(h: Harness, graphRunId: number): void {
   h.db.prepare('UPDATE approach_graph_runs SET status = \'running\' WHERE id = ?').run(graphRunId);
 }
 
+describe('bootstrapAndLaunchPlanner dependency preflight', () => {
+  const input = (h: Harness) => ({
+    ticketId: h.ticketId,
+    stageAttempt: 0,
+    approachId: 'karst-graph-engineering',
+    projectSlug: 'acme',
+  });
+
+  it('writes the Karst output line and a graph diagnostic, and still launches', async () => {
+    const h = harness();
+    const lines: string[] = [];
+    const result = await bootstrapAndLaunchPlanner(
+      { ...h.deps, debug: (m) => void lines.push(m), depsPreflightOf: async () => 'deps: api not provided' },
+      input(h),
+    );
+    expect(result.kind).toBe('launched');
+    expect(lines.filter((l) => l.includes('deps: api not provided')).length).toBeGreaterThanOrEqual(2);
+    expect(lines.some((l) => l.includes('[graph] run') && l.includes('deps: api not provided'))).toBe(true);
+    expect(h.starts).toHaveLength(1);
+  });
+
+  it('writes nothing when every repository gets its dependencies', async () => {
+    const h = harness();
+    const lines: string[] = [];
+    await bootstrapAndLaunchPlanner(
+      { ...h.deps, debug: (m) => void lines.push(m), depsPreflightOf: async () => undefined },
+      input(h),
+    );
+    expect(lines.some((l) => l.includes('not provided'))).toBe(false);
+  });
+
+  it('launches even when the preflight throws', async () => {
+    const h = harness();
+    const lines: string[] = [];
+    const result = await bootstrapAndLaunchPlanner(
+      {
+        ...h.deps,
+        debug: (m) => void lines.push(m),
+        depsPreflightOf: async () => {
+          throw new Error('boom');
+        },
+      },
+      input(h),
+    );
+    expect(result.kind).toBe('launched');
+    expect(lines.some((l) => l.includes('dependency preflight failed'))).toBe(true);
+  });
+});
+
 describe('bootstrapAndLaunchPlanner', () => {
   it('creates the graph run + planner run, stamps capability, and launches the planner session', async () => {
     const h = harness();

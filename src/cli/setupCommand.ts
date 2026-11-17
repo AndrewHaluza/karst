@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { loadManifestWithDiagnostics } from '../manifest/load.js';
+import { canonicalRepoId } from '../runtime/repoId.js';
+import { describeGraphDeps, type GraphDepsFit } from '../setup/graphDeps.js';
 import { discoverWorkspace, type DiscoveryProbe } from '../setup/discover.js';
 import { MAX_SETUP_PROPOSAL_BYTES, validateSetupProposal, type ChangeProposal } from '../setup/proposal.js';
 import { basename } from 'node:path';
@@ -33,6 +36,10 @@ export interface SetupCommandDeps {
   /** Workspace root when `--root` is absent. */
   cwd?: string;
   defaultBranch?: string;
+  /** The karst.yml of the project, when known: a repository with a `graphWorkspace` block already fits. */
+  manifestPath?: string;
+  /** Injectable graph-deps verdict for tests; the real fs check is the default. */
+  graphDeps?: (repoPath: string) => GraphDepsFit;
 }
 
 const DISCOVER_USAGE = 'usage: karst setup discover [--root <path>] [--default-branch <branch>]';
@@ -89,6 +96,22 @@ function parseDiscover(rest: readonly string[], deps: SetupCommandDeps): { root:
   return { root, defaultBranch };
 }
 
+/** Canonical names of the repositories whose karst.yml entry already has a `graphWorkspace` block. */
+function configuredGraphWorkspaces(manifestPath: string | undefined): ReadonlySet<string> {
+  if (!manifestPath || !existsSync(manifestPath)) return new Set();
+  try {
+    const { manifest } = loadManifestWithDiagnostics(manifestPath);
+    return new Set(
+      Object.entries(manifest.repositories ?? {})
+        .filter(([, repo]) => repo.graphWorkspace !== undefined && Object.keys(repo.graphWorkspace).length > 0)
+        .map(([name]) => canonicalRepoId(name)),
+    );
+  } catch (err) {
+    process.stderr.write(`karst: setup discover could not read the manifest (${err instanceof Error ? err.message : String(err)}); graph deps are checked per repository\n`);
+    return new Set();
+  }
+}
+
 function runDiscover(rest: readonly string[], deps: SetupCommandDeps): string {
   const { root, defaultBranch } = parseDiscover(rest, deps);
   const probe = deps.probe ?? realDiscoveryProbe();
@@ -98,7 +121,16 @@ function runDiscover(rest: readonly string[], deps: SetupCommandDeps): string {
     throw new Error(`karst setup discover: --root ${root} does not exist`);
   }
   const result = discoverWorkspace(root, probe, defaultBranch);
-  return JSON.stringify(result, null, 2);
+  // D647: the verdict of the D644 graph-workspace defaults, per repository.
+  const graphDeps = deps.graphDeps ?? describeGraphDeps;
+  const configured = configuredGraphWorkspaces(deps.manifestPath);
+  const repos = result.repos.map((repo) => ({
+    ...repo,
+    graphDeps: configured.has(canonicalRepoId(repo.name))
+      ? ({ status: 'fits', reason: 'graphWorkspace is already set in karst.yml' } satisfies GraphDepsFit)
+      : graphDeps(repo.path),
+  }));
+  return JSON.stringify({ ...result, repos }, null, 2);
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

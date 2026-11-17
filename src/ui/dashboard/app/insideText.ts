@@ -23,6 +23,7 @@ export const INSIDE_ACTION_LABEL: Readonly<Partial<Record<InsideActionKind, stri
   'graph-mark-impl': 'Mark done',
   'graph-discard-node': 'Discard process',
   'graph-edit-override': 'Edit override',
+  'graph-edit-workspace-deps': 'Edit workspace deps',
 };
 
 export const INSIDE_ACTION_TITLE: Readonly<Partial<Record<InsideActionKind, string>>> = {
@@ -46,6 +47,7 @@ export const INSIDE_ACTION_TITLE: Readonly<Partial<Record<InsideActionKind, stri
   'graph-discard-node': 'Discard unknown process — it may still be running',
   // The per-node override edit is an ORDINARY secondary control (reversible editing, nothing lost on click).
   'graph-edit-override': "Edit this node's profile/provider/model/effort/prompt overrides before it claims",
+  'graph-edit-workspace-deps': 'Open karst.yml at this repository to set graphWorkspace, then Resume',
 };
 
 /** kind to Tabler glyph (@ui:ICONS-02). Every Inside action button carries one; a kind not listed shows its label alone. */
@@ -67,6 +69,7 @@ export const INSIDE_ACTION_ICON: Readonly<Partial<Record<InsideActionKind, strin
   'graph-mark-impl': 'check',
   'graph-discard-node': 'trash',
   'graph-edit-override': 'pencil',
+  'graph-edit-workspace-deps': 'pencil',
 };
 
 /** The kinds that continue a bounded list: drawn as the text button with a chevron-down, never as a row action. */

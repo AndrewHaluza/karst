@@ -173,6 +173,8 @@ function host(calls: string[]): InsideActionHost {
       void calls.push(`graph-discard:${ticketId}:${nodeRunId}`),
     graphEditOverride: (ticketId, nodeRunId) =>
       void calls.push(`graph-edit-override:${ticketId}:${nodeRunId}`),
+    graphEditWorkspaceDeps: (ticketId, graphRunId) =>
+      void calls.push(`graph-edit-workspace-deps:${ticketId}:${graphRunId}`),
     retryShipRepo: (ticketId, repo) =>
       void calls.push(`retry-ship-repo:${ticketId}:${repo}`),
   };
@@ -730,6 +732,28 @@ describe('dispatchInsideAction', () => {
       outcome: 'rejected',
       reason: 'graph is not blocked',
     });
+  });
+
+  it('dispatches graph-edit-workspace-deps only for a run blocked on workspace dependencies', () => {
+    seedGraph({ ticketId: 1, runId: 1, status: 'blocked' });
+    const calls: string[] = [];
+    const reasonOf = (reason: string): void => {
+      store.db.prepare('UPDATE approach_graph_runs SET blocked_reason = ? WHERE id = 1').run(reason);
+    };
+    const attempt = (snapshot: number): ReturnType<typeof dispatchInsideAction> => {
+      const actions = registry(snapshot);
+      actions.register({ kind: 'graph-edit-workspace-deps', ticketId: 1, graphRunId: 1 });
+      return dispatchInsideAction(store, actions, `snapshot-${snapshot}:action-0`, deps(calls));
+    };
+    reasonOf('graph-workspace-deps: node run 3 (web: no node_modules)');
+    expect(attempt(7)).toEqual({ outcome: 'dispatched' });
+    expect(calls).toEqual(['graph-edit-workspace-deps:1:1']);
+    reasonOf('node run 3 failed');
+    expect(attempt(8)).toEqual({ outcome: 'rejected', reason: 'graph is not blocked on workspace dependencies' });
+    reasonOf('graph-workspace-deps: node run 3 (web: x)');
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = 1").run();
+    expect(attempt(9)).toEqual({ outcome: 'rejected', reason: 'graph is not blocked on workspace dependencies' });
+    expect(calls).toHaveLength(1);
   });
 
   it('H2: dispatches graph-restart only for a run drained with no live replan planner', () => {

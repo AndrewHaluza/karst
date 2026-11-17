@@ -22,6 +22,13 @@ const manifest = {
 describe('setupInstructions', () => {
   const text = setupInstructions({ title: 'Onboard', manifest });
 
+  it('has the graphWorkspace step: propose a block only for a gap, nothing for a fit', () => {
+    expect(text).toContain('graphDeps');
+    expect(text).toContain('graphWorkspace: { link?, setup?, setupWhen? }');
+    expect(text).toMatch(/"gap"[\s\S]*one-line reason/);
+    expect(text).toMatch(/"fits", propose nothing/);
+  });
+
   it('names the session and the no-edit rule', () => {
     expect(text).toContain('karst SETUP session: "Onboard"');
     expect(text).toMatch(/CANNOT edit repository files/);
