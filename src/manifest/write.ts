@@ -124,7 +124,15 @@ function keyPaths(value: unknown, prefix: string): string[] {
 
 /** The YAML text `writeManifest` writes for `manifest` over the file at `path`. */
 function renderManifest(path: string, manifest: Manifest): string {
-  const text = readFileSync(path, 'utf8');
+  return renderManifestText(readFileSync(path, 'utf8'), manifest);
+}
+
+/**
+ * The YAML `writeManifest` would write for `manifest` over the file text `text`
+ * (an empty string for a file that does not exist yet). Pure: the setup verifier
+ * renders a proposal with it before anything is written.
+ */
+export function renderManifestText(text: string, manifest: Manifest): string {
   let parsed: unknown;
   try {
     parsed = yamlLoad(text);

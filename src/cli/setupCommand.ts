@@ -5,6 +5,7 @@ import { MAX_SETUP_PROPOSAL_BYTES, validateSetupProposal, type ChangeProposal } 
 import { basename } from 'node:path';
 import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
 import { readLedger, withdrawProposal } from '../setup/ledger.js';
+import { readVerifyRecords, SETUP_VERIFY_ENV } from '../setup/verify/record.js';
 
 /**
  * `karst setup discover [--root <path>] [--default-branch <branch>]` and
@@ -22,6 +23,8 @@ import { readLedger, withdrawProposal } from '../setup/ledger.js';
 
 export interface SetupCommandDeps {
   outboxEnv?: string;
+  /** The host-side verify record directory; defaults to `$KARST_SETUP_VERIFY_DIR`. */
+  verifyDirEnv?: string;
   uuid?: () => string;
   /** Read stdin, at most `max` bytes. Injected by main.ts. */
   readStdin?: (max: number) => string;
@@ -147,7 +150,7 @@ function runProposeChange(deps: SetupCommandDeps): string {
  */
 export function toChangeProposalInput(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const out: Record<string, unknown> = { kind: 'change' };
-  for (const key of ['repo', 'reason', 'command', 'patch', 'path']) {
+  for (const key of ['repo', 'reason', 'command', 'patch', 'path', 'clears']) {
     if (value[key] !== undefined) out[key] = value[key];
   }
   return out;
@@ -156,7 +159,17 @@ export function toChangeProposalInput(value: Readonly<Record<string, unknown>>):
 function runStatus(rest: readonly string[], deps: SetupCommandDeps): string {
   if (rest.length > 0) throw new Error('karst setup status takes no arguments');
   const proposals = readLedger(resolveSetupOutboxDir(deps.outboxEnv));
-  return JSON.stringify({ ok: true, proposals }, null, 2);
+  // The host record is authoritative: the outbox ledger is agent-writable, so a proposal is `verified` only here.
+  const records = new Map(readVerifyRecords(deps.verifyDirEnv ?? process.env[SETUP_VERIFY_ENV]).map((r) => [r.id, r]));
+  const shown = proposals.map((p) => {
+    const rec = records.get(p.id);
+    return {
+      ...p,
+      status: p.status === 'verified' && rec?.status !== 'verified' ? 'applied' : p.status,
+      ...(rec !== undefined ? { verification: { status: rec.status, steps: rec.steps, changes: rec.changes } } : {}),
+    };
+  });
+  return JSON.stringify({ ok: true, proposals: shown }, null, 2);
 }
 
 function runWithdraw(rest: readonly string[], deps: SetupCommandDeps): string {

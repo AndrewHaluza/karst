@@ -37,12 +37,13 @@ export interface ManifestCommandDeps {
 }
 
 const USAGE =
-  'usage: karst manifest <validate|propose> --file <path> [--summary <text>] | karst manifest show --active';
+  'usage: karst manifest <validate|propose> --file <path> [--summary <text>] [--clears <id,id>] | karst manifest show --active';
 
 interface Parsed {
   sub: 'validate' | 'propose';
   file: string;
   summary?: string;
+  clears?: string[];
 }
 
 export function parseManifestArgs(argv: readonly string[]): Parsed {
@@ -53,6 +54,7 @@ export function parseManifestArgs(argv: readonly string[]): Parsed {
   }
   let file: string | undefined;
   let summary: string | undefined;
+  let clears: string[] | undefined;
   for (let i = 0; i < rest.length; i++) {
     const token = rest[i];
     if (token === '--file') {
@@ -61,12 +63,16 @@ export function parseManifestArgs(argv: readonly string[]): Parsed {
     } else if (token === '--summary') {
       summary = rest[++i];
       if (summary === undefined) throw new Error(`karst manifest ${sub}: --summary needs a value (${USAGE})`);
+    } else if (token === '--clears') {
+      const value = rest[++i];
+      if (value === undefined) throw new Error(`karst manifest ${sub}: --clears needs a value (${USAGE})`);
+      clears = value.split(',').filter((id) => id !== '');
     } else {
       throw new Error(`karst manifest ${sub}: unknown argument '${token}' (${USAGE})`);
     }
   }
   if (file === undefined) throw new Error(`karst manifest ${sub}: missing --file <path> (${USAGE})`);
-  return { sub, file, summary };
+  return { sub, file, summary, ...(clears !== undefined ? { clears } : {}) };
 }
 
 function validateFile(file: string) {
@@ -133,7 +139,7 @@ function runValidate(file: string, deps: ManifestCommandDeps): string {
   });
 }
 
-function runPropose(file: string, summary: string | undefined, deps: ManifestCommandDeps): string {
+function runPropose(file: string, summary: string | undefined, clears: string[] | undefined, deps: ManifestCommandDeps): string {
   const { manifest } = validateFile(file);
   const { wouldDrop, noEffect } = compareWithCurrent(manifest, deps);
   if (noEffect) {
@@ -153,6 +159,7 @@ function runPropose(file: string, summary: string | undefined, deps: ManifestCom
     summary:
       summary ??
       `Proposed manifest: ${Object.keys(manifest.repositories).length} repositories, ${serviceCount} with a service.`,
+    ...(clears !== undefined ? { clears } : {}),
   };
   const checked = validateSetupProposal(proposal);
   if (!checked.ok) throw new Error(`karst manifest propose: ${checked.reason}`);
@@ -182,6 +189,6 @@ function runShow(rest: readonly string[], deps: ManifestCommandDeps): string {
 
 export function runManifestCommand(argv: readonly string[], deps: ManifestCommandDeps = {}): string {
   if (argv[1] === 'show') return runShow(argv.slice(2), deps);
-  const { sub, file, summary } = parseManifestArgs(argv);
-  return sub === 'validate' ? runValidate(file, deps) : runPropose(file, summary, deps);
+  const { sub, file, summary, clears } = parseManifestArgs(argv);
+  return sub === 'validate' ? runValidate(file, deps) : runPropose(file, summary, clears, deps);
 }

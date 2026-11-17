@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, readFileSync, mkdirSync, realpathSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runSetupCommand } from './setupCommand.js';
+import { writeProposalResult } from '../setup/ledger.js';
+import { writeVerifyRecord } from '../setup/verify/record.js';
 import type { DiscoveryProbe } from '../setup/discover.js';
 import type { ChangeProposal } from '../setup/proposal.js';
 
@@ -102,6 +104,45 @@ describe('runSetupCommand propose-change', () => {
 
   it('rejects an unknown subcommand', () => {
     expect(() => runSetupCommand(['setup', 'nope'])).toThrow(/unknown subcommand/);
+  });
+});
+
+describe('runSetupCommand status shows the host verify record', () => {
+  const result = (id: string, status: 'verified' | 'applied') => ({
+    id, kind: 'change' as const, status, dropped: [], at: '2026-01-01T00:00:00.000Z',
+  });
+  it('shows the host record, and does not trust a forged verified in the outbox', () => {
+    const outbox = mkdtempSync(join(tmpdir(), 'setup-out-'));
+    const host = mkdtempSync(join(tmpdir(), 'setup-host-'));
+    try {
+      writeProposalResult(outbox, result('real', 'verified'));
+      writeProposalResult(outbox, result('forged', 'verified'));
+      writeVerifyRecord(host, {
+        id: 'real', kind: 'change', status: 'verified', steps: [], changes: [{ id: 'x', kind: 'cleared' }],
+        pinnedSha256: null, at: '',
+      });
+      const out = JSON.parse(runSetupCommand(['setup', 'status'], { outboxEnv: outbox, verifyDirEnv: host }));
+      const byId = Object.fromEntries(out.proposals.map((p: { id: string }) => [p.id, p]));
+      expect(byId.real).toMatchObject({ status: 'verified', verification: { status: 'verified', changes: [{ id: 'x' }] } });
+      expect(byId.forged).toMatchObject({ status: 'applied' });
+      expect(byId.forged.verification).toBeUndefined();
+    } finally {
+      rmSync(outbox, { recursive: true, force: true });
+      rmSync(host, { recursive: true, force: true });
+    }
+  });
+  it('shows an unverified host record on an applied proposal', () => {
+    const outbox = mkdtempSync(join(tmpdir(), 'setup-out-'));
+    const host = mkdtempSync(join(tmpdir(), 'setup-host-'));
+    try {
+      writeProposalResult(outbox, result('u', 'applied'));
+      writeVerifyRecord(host, { id: 'u', kind: 'change', status: 'unverified', steps: [], changes: [], pinnedSha256: null, at: '' });
+      const out = JSON.parse(runSetupCommand(['setup', 'status'], { outboxEnv: outbox, verifyDirEnv: host }));
+      expect(out.proposals[0]).toMatchObject({ status: 'applied', verification: { status: 'unverified' } });
+    } finally {
+      rmSync(outbox, { recursive: true, force: true });
+      rmSync(host, { recursive: true, force: true });
+    }
   });
 });
 

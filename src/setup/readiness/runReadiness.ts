@@ -88,7 +88,7 @@ function selectRepos(m: Manifest, filter: readonly string[]): { names: string[];
 }
 
 /** One fail item per loader warning. The id is the warning code; a repeated code gets `#2`, `#3`, ... */
-function warningItems(warnings: readonly CodedWarning[]): ReadinessItem[] {
+export function warningItems(warnings: readonly CodedWarning[]): ReadinessItem[] {
   const seen = new Map<string, number>();
   return warnings.map((w): ReadinessItem => {
     const count = (seen.get(w.code) ?? 0) + 1;
