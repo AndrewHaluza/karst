@@ -13,80 +13,27 @@ ground as settled and never re-run them — no `npm run test:unit`, no
 `npm run test:e2e`, to confirm what already went green. A gate re-run
 is a wasted observation.
 
-## How you observe: the uat:host probe
+## How you observe: the served UAT host
 
-The extension is observable. Boot the real extension host in Docker with
-a fake agent core and drive it with a JSON steps script
-(`docs/arch/uat-host.md`, `arch:UATHOST-01`, `arch:UATHOST-02`):
+The extension runs for this ticket as the service `extention`. Its URL is in the service list above (`extention → http://127.0.0.1:<port>`). It is a real VS Code with this ticket's build, a seeded store and a FAKE agent core (`docs/arch/uat-host.md`, `arch:UATHOST-08`, `arch:UATHOST-02`). Do not start, restart or stop it.
 
-    npm run uat:host:docker -- --fixture <name> --script <steps.json> --out <dir>
-    npm run uat:host:docker -- --fixture-file <fixture.json> --script <steps.json> --out <dir>
+- Pick the fixture for a criterion. Reset the host to it before you run that criterion's scripts:
 
-Use `uat:host:docker` — the Docker harness. Plain `uat:host` runs on the
-host, not in Docker, and needs a built `dist/` (a missing one fails with
-`Cannot find module '.../dist/uat-host/prepare.js'`); a plain-`uat:host`
-failure is yours to avoid, not a harness outage.
+      curl -sS --max-time 360 -H 'Content-Type: application/json' -d '{"fixture":"blocked"}' <url>/reset
 
-- Run `uat:host:docker` in the foreground and wait for it; a run takes
-  minutes. Never end your answer while it is still running.
-- Set the Bash tool's own `timeout` parameter to 600000 (the maximum, in
-  milliseconds) on the probe call. Put no prefix before `npm run`. Do not
-  run the probe in the background and do not poll it with `sleep`.
-- When the ticket changes an Inside webview, write steps that act on the
-  seeded rows (click, type, then read the result), not only read steps.
-  Report SKIPPED only after a step on a seeded row fails to reach the block.
-- Pick the closest predefined fixture: `empty` (no tickets),
-  `ticket-mid-stage` (FIX-MID, impl running), `blocked` (FIX-BLOCKED,
-  uat blocked `boot-failed`).
-- When no built-in fixture has the state a criterion needs (a stranded
-  stage, a stage run with no process or gate rows, a recovery round),
-  write a fixture file under `.karst/uat-scratch/` and pass it with
-  `--fixture-file`. It is data, never code: `tickets[]` (`key`, `title`,
-  `stageCurrent`, optional `stages[]`, `archived`, `worktree`, `rows`) and
-  an optional `provider`; unknown keys are refused. Model it on
-  `scripts/uat-host/samples/stranded-uat.fixture.json`
-  (`arch:UATHOST-02`). To run a boot sweep against that state, add a
-  `{"type":"restart"}` step. "Harness unavailable" is still not a verdict:
-  report what you could not reach, never a pass.
-- To see a headless lane result (a review finding, a tester reformat, an
-  unparsable answer), add `fakeCore.headless` to the fixture file: rules
-  `{promptIncludes, raw, verdict?, usage?}`, or `answers: [...]` to give each
-  call its own answer (the last repeats). The first rule whose
-  `promptIncludes` is in the prompt answers; `raw` is verbatim. It runs only
-  in a harness run. Seed the ticket at `review` or `uat` with
-  `worktree: true`: implement and fix keep the stub. Read the evidence
-  `fakeCoreHits` in `step-NNN.json` to see which rule answered each call.
-  A scripted answer proves the parser and UI path, not that a real core
-  emits that form. Models: `scripts/uat-host/samples/fake-core-*.json`
-  (`arch:UATHOST-02`).
-- `--out` MUST be a relative path inside the checkout, under the
-  karst-owned scratch dir (e.g. `.karst/uat-scratch/out/<criterion>`;
-  files elsewhere dirty the checkout and block host gates). The container bind-mounts only the repo root,
-  so evidence written to a temp dir outside it is silently lost and
-  leaves nothing to cite. After each run, confirm `<out>/summary.json`
-  exists on the host before relying on it.
-- Write the steps script yourself, under `.karst/uat-scratch/` too. Steps are
-  data, never code: `command` (VS Code command + args), `wait` (exactly
-  one of `ticketStage`, `notification`, `log`, `webviewMessage`) and
-  `snapshot`. UI steps drive the real UI with real clicks: `click`
-  (target `{act}`, `{quickPick}` or `{selector, surface}`), `type`
-  (`text`, target `{quickInput:true}` or `{selector, surface}`, optional
-  `submit:true`), `press` (`key`) and `read` (visible text and `data-act`
-  list). A hidden or covered target fails with the reason in
-  `result.detail`; never work around it. Each UI step records `ui.textAdded` and
-  `ui.textRemoved` against the text after the previous UI step: read the change in
-  the step that caused it (the `click`), not in a later `read`. Samples:
-  `scripts/uat-host/samples/ui-subtask.json`, `ui-resume.json`,
-  `ui-hidden.json`. Model a script on `scripts/uat-host/samples/smoke.json`. Start
-  with a `wait` for log `Karst activated`.
+  Fixtures: `empty` (no tickets), `ticket-mid-stage` (FIX-MID, impl running), `blocked` (FIX-BLOCKED, uat blocked `boot-failed`), `launch-draft`. For a state that no fixture has, write a fixture file under `.karst/uat-scratch/` and send `{"fixtureFile":".karst/uat-scratch/<file>.fixture.json"}`. A fixture file is data, never code: `tickets[]` (`key`, `title`, `stageCurrent`, optional `stages[]`, `archived`, `worktree`, `rows`) and an optional `provider`. Unknown keys are refused. Model it on `scripts/uat-host/samples/stranded-uat.fixture.json`. A fixture file can hold `fakeCore.headless` rules for a headless lane result; read the evidence `fakeCoreHits` to see which rule answered.
+- The host keeps its log, notifications and webview state between scripts. Reset before each criterion. Do not use a `wait` for log `Karst activated` as a first step: it passes at once on a host that already ran a script.
+- Write each steps script under `.karst/uat-scratch/` and POST it with a unique name:
+
+      curl -sS --max-time 300 -H 'Content-Type: application/json' --data-binary @.karst/uat-scratch/<criterion>.steps.json '<url>/probe?name=<criterion>'
+
+  `name` matches `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` and must be new; a used name gives 409. Run one request at a time; a 409 `busy` means another request runs, so wait and send it again. Set the Bash tool `timeout` to 600000 on each call. Do not run it in the background.
+- The response is `{name, evidence, pass, summary}`. `evidence` is `.karst/uat-scratch/out/<name>`. It holds `script.json`, `step-NNN.json` (`{step, result, snapshot}`, plus `ui` for a UI step) and `summary.json`. A UI step also writes `step-NNN.png`. Confirm that `<evidence>/summary.json` exists before you rely on it. Read the files with `cat`/`jq`; never dump them whole into your report.
+- Steps are data, never code: `command`, `wait` (exactly one of `ticketStage`, `ticketSettled`, `notification`, `log`, `webviewMessage`, `launch`), `snapshot`, `restart`, and the UI steps `click` (target `{act}`, `{quickPick}` or `{selector, surface}`), `type` (`text`, target `{quickInput:true}` or `{selector, surface}`, optional `submit:true`), `press` (`key`) and `read`. A hidden or covered target fails with the reason in `result.detail`; never work around it. Each UI step records `ui.textAdded` and `ui.textRemoved` against the previous UI step of the same script. Samples: `scripts/uat-host/samples/ui-subtask.json`, `ui-resume.json`, `ui-hidden.json`, `smoke.json`.
+- A 422 response is a script error: read `error`, fix the script, and send it with a new name. A 504 response means the host wedged: it resets itself to the current fixture; wait for `<url>/health` to give 200, then go on.
+- When the ticket changes an Inside webview, write steps that act on the seeded rows (click, type, then read the result), not only read steps. Report SKIPPED only after a step on a seeded row fails to reach the block.
 - One script per done-when criterion, plus scripts that try to BREAK it.
-- Evidence is `<out>/step-NNN.json` (`{step, result, snapshot}`) and
-  `<out>/summary.json` (per-step `pass|fail|timeout`). A UI step adds
-  `ui: {screenshot, visibleActs, textAdded, textRemoved}` (a `read` adds `text`, the
-  full visible panel text) and a
-  `step-NNN.png` screenshot in `<out>`. The run stops at
-  the first non-pass step and exits nonzero. Read these files with
-  `cat`/`jq`; never dump them whole into your report.
+- If the service list above names no `extention` URL, fall back to the one-shot run: `npm run uat:host:docker -- --fixture <name> --script <steps.json> --out .karst/uat-scratch/out/<criterion>` (foreground, Bash `timeout` 600000).
 
 ## Evidence rule (binding)
 
@@ -122,9 +69,9 @@ the worktree:
 
 ## Harness unavailable is not a code verdict
 
-If Docker is down, the image will not build, or the host fails to boot
-(no `Karst activated`, boot timeout, hard-timeout backstop), the
-harness failed, not the change (mirrors `arch:UAT-OBS` boot-failed).
+If <url>/health does not give 200, /reset gives 500, Docker is down, or the
+one-shot host fails to boot, the harness failed, not the change (mirrors
+`arch:UAT-OBS` boot-failed).
 Report ONE `info` observation naming the command, the error text, and
 the evidence path if any. Do not guess about behavior you could not
 observe, do not fall back to code reading, and raise nothing above
@@ -142,7 +89,7 @@ not replace the screenshots.
 ## What to do, in order
 
 1. Exercise each done-when criterion listed above: write a steps script,
-   run it against the closest fixture, read the evidence.
+   reset the host to the closest fixture, POST the script, read the evidence.
 2. Try to BREAK it: empty fixture, absent state, a second run, a
    restart mid-flow, a path the happy case never takes.
 3. Check what the change disturbed nearby — the state it writes, the
