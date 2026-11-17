@@ -22,7 +22,7 @@
 /* The in-webview index/detail surface: takes over the whole dashboard body
    while active, restoring it on Back/Esc. */
 body.art-nav .stepper,body.art-nav .grid{display:none}
-.artview{padding:var(--k-space-7) 0 var(--k-space-9);max-width:720px;color:var(--k-text)}
+.artview{padding:var(--k-space-7) 0 var(--k-space-9);color:var(--k-text)}
 .arthead{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-6);flex-wrap:wrap}
 .arthead h2{margin:0;font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
 .arthead .artsub{font-size:var(--k-text-sm);color:var(--k-text-dim)}
