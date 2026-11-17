@@ -15,6 +15,7 @@ import {
   markShipOperationApplied,
   reconcileShipOperation,
   listShipEvidence,
+  failRunningShipRepoSteps,
   getShipRepoStepById,
   countShipRuns,
   reconcileShipRuns,
@@ -424,6 +425,26 @@ describe('ship_runs', () => {
   });
 
   describe('listShipEvidence', () => {
+    it('reads a running step of a closed run as failed with detail interrupted', () => {
+      const r = run();
+      step(r.id, { step: 'pr', repo: 'web', detail: 'title' });
+      expect(listShipEvidence(store, ticketId).repos.web!.pr!.status).toBe('running');
+      closeShipRun(store, r.id, 'failed', '2026-08-08T10:05:00.000Z');
+      const pr = listShipEvidence(store, ticketId).repos.web!.pr!;
+      expect(pr.status).toBe('failed');
+      expect(pr.detail).toBe('interrupted');
+    });
+
+    it('failRunningShipRepoSteps closes only running steps of the named run and repo', () => {
+      const r = run();
+      step(r.id, { step: 'pr', repo: 'web' });
+      step(r.id, { step: 'pr', repo: 'api' });
+      failRunningShipRepoSteps(store, r.id, 'web', 'boom', '2026-08-08T10:03:00.000Z');
+      const ev = listShipEvidence(store, ticketId);
+      expect(ev.repos.web!.pr).toMatchObject({ status: 'failed', detail: 'boom', endedAt: '2026-08-08T10:03:00.000Z' });
+      expect(ev.repos.api!.pr!.status).toBe('running');
+    });
+
     it('shapes per-repo evidence keyed by step, with the run and ordered commits', () => {
       const r = run();
       step(r.id, { step: 'push', repo: 'web' });
