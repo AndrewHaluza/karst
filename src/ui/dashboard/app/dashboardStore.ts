@@ -34,8 +34,9 @@ export class DashboardStore {
   private readonly subscribers = new Set<() => void>();
   private readonly messageListeners = new Set<(message: HostMessage) => void>();
 
-  constructor(state: DashboardState | null) {
-    this.snapshot = { state, worktreeStats: NO_STATS, bind: false, layout: DEFAULT_DASHBOARD_LAYOUT, gateOptions: null, liveOps: {} };
+  /** `layout` is the mode the host already wrote into the page shell, so the first mirror write keeps it. */
+  constructor(state: DashboardState | null, layout: DashboardLayout = DEFAULT_DASHBOARD_LAYOUT) {
+    this.snapshot = { state, worktreeStats: NO_STATS, bind: false, layout, gateOptions: null, liveOps: {} };
   }
 
   readonly getSnapshot = (): DashboardSnapshot => this.snapshot;
