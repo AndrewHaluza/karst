@@ -901,6 +901,12 @@
   "src/store/hookActivity.ts": [
     "arch:HOOK-LIVE"
   ],
+  "src/store/karstEvents.ts#KARST_EVENTS_DDL": [
+    "arch:EVENTS"
+  ],
+  "src/store/karstEvents.ts#recordEvent": [
+    "arch:EVENTS"
+  ],
   "src/store/mergeChecks.ts": [
     "arch:GH-00"
   ],
