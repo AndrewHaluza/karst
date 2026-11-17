@@ -177,6 +177,14 @@ export function sendBackToImplement(
     setStageCurrent(store, ticketId, 'impl');
     // A person decided: an autopilot stop or pause of the old ship no longer holds. Budgets, round_head_sha and stop_after stay (T1122).
     store.db.prepare('UPDATE autopilot_tickets SET stopped_reason = NULL, stopped_head_sha = NULL, paused_reason = NULL WHERE ticket_id = ?').run(ticketId);
+    // A new send-back supersedes any earlier host send-back event that the typed hand-off delivered but nobody read.
+    store.db
+      .prepare(
+        `UPDATE ticket_messages SET read_at = datetime('now')
+          WHERE to_ticket_id = ? AND read_at IS NULL AND kind = 'event' AND from_ticket_id IS NULL
+            AND substr(body, 1, ?) = ?`,
+      )
+      .run(ticketId, SEND_BACK_EVENT_PREFIX.length, SEND_BACK_EVENT_PREFIX);
     if (opts?.reason !== undefined) {
       postMessage(store, {
         projectId: getTicket(store, ticketId).projectId,
