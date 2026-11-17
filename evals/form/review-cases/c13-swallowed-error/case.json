@@ -1,0 +1,17 @@
+{
+  "id": "c13-swallowed-error",
+  "title": "Sync the profile upload",
+  "baseRef": "main",
+  "branch": "feat/sync-profile",
+  "defects": [
+    {
+      "id": "REVEVAL-D-013",
+      "file": "src/syncProfile.ts",
+      "lineStart": 12,
+      "lineEnd": 15,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

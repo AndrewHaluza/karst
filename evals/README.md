@@ -95,6 +95,8 @@ npm run eval:form -- --pass draft --db <karst.db> --judge-model <id> --repo <man
 
 Reports notDone / unrequested per draft, static defect rate by kind, truncation count, split by planning core/model, and per-draft downstream outcome (n < 10 = LOW, no correlation claim).
 
+Review findings bench (real findings prompt and parser, seeded defects, no model judge; see `@arch:FORMEVAL-REVIEW`): `npm run eval:form -- --pass review --model <id> [--provider <core>] [--effort <level>] [--runs 1] [--only caseId] [--max-calls N] [--timeout-min 10] [--cases-dir <dir>]`; cases in `evals/form/review-cases/`; output `eval-results/review-<ts>/`. Run one core for each invocation. Compare runs only inside one case-set version. A cell with n below 30 shows INSUFFICIENT.
+
 Planner bench (real planner, headless, public issues; see `@arch:FORMEVAL-PLAN`): `npm run eval:form -- --pass plan --models <a,b> --judge-model <id> [--effort <level>] [--judge-provider <id>] [--judge-effort <level>] [--only id] [--timeout-min 10] [--max-drafts 3] [--plan-extra <file.md>] [--publish]`; output `eval-results/plan-<ts>/`. Results and comparisons: `evals/form/PLANNER-MODEL-RATINGS.md`. CAUTION: `--publish` replaces that whole file, including the tables that are kept by hand. `results.json` does not record `--effort` or `--plan-extra`, so write down the full command for each run. Saved planner runs are in `evals/form/plan-references/`. Do not put them in `evals/form/references/`, because `--rejudge` cannot read plan results.
 
 Re-score saved runs with one blind judge (no producer call): `npm run eval:form -- --rejudge evals/form/references --judge-model claude-opus-5-5 [--dry-run] [--max-calls N]`; output `eval-results/rejudge-<ts>/report.md`.
@@ -136,7 +138,7 @@ Legend for the other columns:
 | Planning | Planning session | Yes, high | `plan`, `draft` | ✅ | ✅ | ✅ | ✅ Gemini |
 | | Artifact alignment (warn only) | Optional | None | ❌ | ❌ | ❌ | ❌ |
 | Implementation | Implementation session | Yes, high | `npm run eval` | ❌ | ❌ | ❌ | ❌ |
-| Review | Review findings | Yes, high | None | ❌ | ❌ | ❌ | ❌ |
+| Review | Review findings | Yes, high | `review` | ❌ | ❌ | ❌ | ❌ |
 | | Review fix | Yes | `npm run eval` | ❌ | ❌ | ❌ | ❌ |
 | UAT | UAT tester | Yes | None | ❌ | ❌ | ❌ | ❌ |
 | | UAT fix | Yes | `npm run eval` | ❌ | ❌ | ❌ | ❌ |

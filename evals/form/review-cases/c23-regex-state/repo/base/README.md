@@ -1,0 +1,3 @@
+# secrets
+
+Small TypeScript library.

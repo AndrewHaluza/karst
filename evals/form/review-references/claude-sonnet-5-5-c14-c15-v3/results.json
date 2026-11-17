@@ -1,0 +1,646 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T11:07:28.241Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider claude --model claude-sonnet-5-5 --only c14-mutated-arg,c15-auth-inverted --runs 5 --timeout-min 10",
+    "caseSetVersion": 3,
+    "buildSha": "f56bbf7591c5f994cda5b00182b49beacecf3676",
+    "coreVersions": {
+      "claude": "2.1.325 (Claude Code)"
+    }
+  },
+  "candidate": {
+    "core": "claude",
+    "model": "claude-sonnet-5-5",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks sorts the caller's array in place",
+            "detail": "Array.prototype.sort mutates its receiver. topTasks(tasks, n) reorders the input array, so a caller that passes its own task list sees it change. The project rules say to create new objects and not mutate received ones. Fix: use [...tasks].sort(...).",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "renderBoard depends on the hidden mutation in topTasks",
+            "detail": "renderBoard calls topTasks(tasks, 3) and then tasks.slice(3). The slice returns the right rest items only because topTasks sorted tasks in place. If the mutation is removed, the rest list is unsorted and shows the wrong order or wrong items. This also reorders the caller's array. Fix: sort a copy once in renderBoard, then slice the top and rest from that copy.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "No tests and no validation of count",
+            "detail": "The diff adds no tests. topTasks does not validate count. A negative count makes slice(0, -1) return all but the last task, which is not an obvious result.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 903,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 47006,
+          "cacheWriteTokens": 26582,
+          "totalTokens": 74495,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.458,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74495
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 6,
+            "title": "topTasks sorts the caller's array in place",
+            "detail": "Array.prototype.sort mutates its receiver. topTasks(tasks, n) therefore reorders the caller's array as a side effect. renderBoard calls topTasks, so renderBoard(tasks) also reorders the caller's list. A caller that keeps the original insertion order (for example, to show creation order elsewhere) sees it change after one render call. The renderBoard output is consistent, because rest is sliced from the already sorted array. Copy first: [...tasks].sort(...). This also matches the rule to not mutate received objects.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 6,
+            "title": "Negative or non-integer count gives wrong results; no tests added",
+            "detail": "slice(0, count) with a negative count (for example -1) returns all but the last items, not an empty list. The count argument is not validated. The diff adds no tests for ordering, ties, or the 3-item boundary in renderBoard. The magic number 3 is hardcoded in renderBoard and again as the 4 offset in the rest numbering. Use a named constant.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 880,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46928,
+          "cacheWriteTokens": 26577,
+          "totalTokens": 74389,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.338,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74389
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks sorts the input array in place and mutates the caller's data.",
+            "detail": "Array.prototype.sort changes the array that the caller passes. Input [{p:1},{p:5},{p:3}] is reordered after the call to topTasks or renderBoard. Any other holder of that array sees a changed order. Use [...tasks].sort(...) instead.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "renderBoard depends on the hidden mutation from topTasks.",
+            "detail": "renderBoard calls topTasks(tasks, 3) and then tasks.slice(3). The rest list is sorted only because topTasks sorted the original array in place. If the mutation is fixed, the rest list is unsorted and the numbering 4., 5. no longer follows priority. Sort once into a new array in renderBoard and take both slices from it.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "No input validation on count and no tests in the diff.",
+            "detail": "A negative count makes slice(0, count) drop items from the end. NaN returns an empty list. No test file is in the diff for the new module.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 889,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46926,
+          "cacheWriteTokens": 26582,
+          "totalTokens": 74401,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.535,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74401
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 4,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks sorts the caller's array in place",
+            "detail": "Array.prototype.sort mutates its receiver. A call to topTasks(tasks, n) or renderBoard(tasks) reorders the caller's array. For example, a UI that holds tasks in creation order will see them reordered after a render. The coding style rules say not to mutate received objects. Fix: use [...tasks].sort(...). Note that renderBoard depends on this mutation. Its tasks.slice(3) is only the lower-priority tasks because topTasks already sorted the array. If topTasks is made non-mutating, renderBoard must sort a copy once and slice both parts from that copy.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "Unvalidated count and magic number 3",
+            "detail": "A negative count makes slice(0, count) drop items from the end instead of returning none. A NaN count returns an empty list. The value 3 and the index offset 4 in renderBoard are hardcoded and must stay in sync. Use a named constant such as TOP_COUNT and derive the offset from it. There are no tests in the diff.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 893,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46927,
+          "cacheWriteTokens": 26583,
+          "totalTokens": 74407,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 11.916,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74407
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 8,
+            "title": "topTasks sorts the caller's array in place",
+            "detail": "Array.prototype.sort mutates its receiver. topTasks([a(p1), b(p5)], 1) returns [b], but the caller's array is now [b, a]. Any caller that keeps the original order sees it change. Use [...tasks].sort(...) instead. This also breaks the project rule not to mutate received objects.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 13,
+            "title": "renderBoard depends on the hidden mutation in topTasks",
+            "detail": "renderBoard calls topTasks(tasks, 3), then slices tasks.slice(3) for the rest. The rest list is correct only because topTasks sorted tasks in place. If topTasks is fixed to copy the array, tasks.slice(3) is the unsorted tail and the numbered rest lines show the wrong tasks (some top tasks repeat, some lower tasks are skipped). Sort a copy once in renderBoard and slice that copy for both parts. Also, renderBoard reorders the caller's array as a side effect.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 8,
+            "title": "No input validation for count and no tests",
+            "detail": "A negative count makes slice(0, -n) drop the last items instead of returning an empty list. NaN returns an empty list. The new file has no tests for sorting, mutation or board rendering.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 1089,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46927,
+          "cacheWriteTokens": 26583,
+          "totalTokens": 74603,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 12.022,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74603
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 26,
+            "title": "canEdit fails open: unknown visibility grants edit to every active user",
+            "detail": "The switch default returns true. The Doc.visibility field is free text from the legacy importer. A doc with visibility 'Private', 'PRIVATE', 'private ', '' or any other unexpected value falls to default. Then any active non-owner, non-admin user from any team can edit it. Example: user B (member, other team) edits a doc stored as 'Private' that belongs to user A. Authorization checks must fail closed. Change default to return false, or normalize and validate visibility to a closed union at the boundary.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 11,
+            "title": "visibility typed as string instead of a closed union",
+            "detail": "The string type prevents the compiler from checking the switch for exhaustiveness. Use 'private' | 'shared' | 'team' and validate the importer data at the boundary. No test file is in the diff for the access rules.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 787,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46929,
+          "cacheWriteTokens": 26753,
+          "totalTokens": 74473,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.273,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74473
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "canEdit fails open on unrecognized visibility values",
+            "detail": "The switch default returns true. The Doc.visibility field is free text from the legacy importer. A doc with visibility 'Private', 'private ' (trailing space), 'restricted', or '' matches no case. Any active member of any team then gets edit access, including users from other teams. Fix: make the default return false (deny by default), and normalize or validate the visibility at the import boundary. Consider a union type for visibility.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 13,
+            "title": "No tests for the new authorization function",
+            "detail": "canEdit has no tests for the inactive user, owner, admin, each visibility case, or an unknown visibility value. A test for the unknown value would have exposed the fail-open default.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 724,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46934,
+          "cacheWriteTokens": 26760,
+          "totalTokens": 74422,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.919,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74422
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 26,
+            "title": "canEdit fails open for unknown visibility values",
+            "detail": "The default branch of the switch returns true. The Doc.visibility field is free text from the legacy importer. A doc with visibility 'Private', 'restricted', 'PRIVATE ', or '' matches no case. Then any active member of any team can edit it. Example: a doc owned by user A with visibility 'Private' lets an active member B of another team edit it. An access check must deny by default. Return false in the default branch, or normalize and validate the visibility value at the import boundary.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 10,
+            "title": "visibility typed as string instead of a union",
+            "detail": "Doc.visibility is a plain string, so the compiler cannot check the switch for completeness. A union type 'private' | 'shared' | 'team' plus normalization at import would make a missing case a compile error. Also, doc.editors.includes throws if the importer leaves editors undefined.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 786,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46931,
+          "cacheWriteTokens": 26756,
+          "totalTokens": 74477,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.485,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74477
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 4,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 26,
+            "title": "canEdit fails open for unknown visibility values",
+            "detail": "The switch default returns true. The Doc.visibility field is free text from the legacy importer. A value such as 'Private', 'private ' (trailing space), 'restricted' or '' matches no case. Then any active member of any team can edit that document. Example: a doc with visibility 'Private' and a different owner returns true for an unrelated user. An access check must deny by default. Change the default to return false, or normalize and validate visibility at the import boundary and use a union type.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 13,
+            "title": "No tests for canEdit",
+            "detail": "The diff adds no tests. Cases to cover: inactive user, owner, admin, each visibility value, and an unknown visibility value. The last case would catch the fail-open default.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 735,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46930,
+          "cacheWriteTokens": 26754,
+          "totalTokens": 74423,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.537,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74423
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 5,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 26,
+            "title": "canEdit fails open for unknown visibility values",
+            "detail": "The switch default returns true. Doc.visibility is free text from the legacy importer. A value such as 'Private', 'private ' or '' does not match any case. Any active user, even from another team and not an editor, then gets edit access. Example: user in team B, doc owned by team A with visibility 'Private'. canEdit returns true. Change the default to return false (deny by default). Normalize or validate visibility at the import boundary.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 14,
+            "title": "No tests for canEdit",
+            "detail": "The diff adds an access-control function without tests. Cover inactive user, owner, admin, each visibility value, and an unknown value.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 677,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 46930,
+          "cacheWriteTokens": 26755,
+          "totalTokens": 74366,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.704,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 74366
+      }
+    ]
+  }
+}

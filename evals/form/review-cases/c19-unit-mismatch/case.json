@@ -1,0 +1,17 @@
+{
+  "id": "c19-unit-mismatch",
+  "title": "Add the cart renderer",
+  "baseRef": "main",
+  "branch": "feat/cart",
+  "defects": [
+    {
+      "id": "REVEVAL-D-018",
+      "file": "src/cart.ts",
+      "lineStart": 19,
+      "lineEnd": 20,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

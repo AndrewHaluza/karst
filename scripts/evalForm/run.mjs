@@ -1,6 +1,7 @@
 // npm run eval:form -- --pass improve --prompt builtin --prompt <file.md> --model X --judge-model Y [--runs 3]
 // Runs the REAL improveDescription (via tsx) per prompt source, scores it, writes eval-results/form-<ts>/.
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,12 +33,15 @@ export const DEFAULT_DRAFTS = join(ROOT, 'evals/form/local/drafts.jsonl');
 export const OWN_CASES = join(ROOT, 'evals/form/local/own-tickets.jsonl');
 export const PLAN_REPOS = join(ROOT, 'evals/form/local/repos');
 export const PLAN_RATINGS = join(ROOT, 'evals/form/PLANNER-MODEL-RATINGS.md');
-const PASSES = ['improve', 'intent', 'draft', 'plan'];
+export const REVIEW_CASES = join(ROOT, 'evals/form/review-cases');
+const REVIEW_CASE_SET_VERSION = 7;
+const REVIEW_MAX_FINDINGS = 50;
+const PASSES = ['improve', 'intent', 'draft', 'plan', 'review'];
 const SOURCES = ['raw', 'improved'];
 const PROVIDERS = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 export function parseArgs(argv) {
-  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES, drafts: DEFAULT_DRAFTS, repos: {}, rejudge: [], judgeModels: [], judgeProviders: [], judgeEffort: DEFAULT_JUDGE_EFFORT, seed: DEFAULT_SEED, maxCalls: Infinity, dryRun: false, models: [], timeoutMin: 10, maxDrafts: 3, publish: false, planExtra: null };
+  const o = { pass: 'improve', prompts: [], cases: [], only: null, runs: DEFAULT_RUNS, provider: 'claude', model: null, judgeModel: null, effort: null, sources: [], improvePrompt: 'builtin', instances: DEFAULT_INSTANCES, drafts: DEFAULT_DRAFTS, repos: {}, rejudge: [], judgeModels: [], judgeProviders: [], judgeEffort: DEFAULT_JUDGE_EFFORT, seed: DEFAULT_SEED, maxCalls: Infinity, dryRun: false, models: [], timeoutMin: 10, maxDrafts: 3, publish: false, planExtra: null, casesDir: REVIEW_CASES };
   const need = (i) => { if (argv[i + 1] === undefined) throw new Error(`${argv[i]} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -68,6 +72,7 @@ export function parseArgs(argv) {
     else if (a === '--effort') o.effort = need(i);
     else if (a === '--models') o.models = need(i).split(',').filter(Boolean);
     else if (a === '--timeout-min') o.timeoutMin = Number(need(i));
+    else if (a === '--cases-dir') o.casesDir = need(i);
     else if (a === '--max-drafts') o.maxDrafts = Number(need(i));
     else throw new Error(`unknown flag ${a}`);
     i++;
@@ -80,6 +85,7 @@ export function parseArgs(argv) {
   if (o.sources.some((x) => !SOURCES.includes(x))) throw new Error(`--source must be ${SOURCES.join('|')}`);
   if (!PROVIDERS.includes(o.provider)) throw new Error(`--provider must be one of ${PROVIDERS.join('|')}`);
   if (o.pass === 'plan') return validatePlan(o);
+  if (o.pass === 'review') return validateReview(o);
   if (o.pass === 'draft') {
     if (!o.judgeModel) throw new Error('--judge-model is required');
     if (!o.db) throw new Error('--db <karst.db> is required for --pass draft');
@@ -95,6 +101,14 @@ export function parseArgs(argv) {
   }
   if (o.prompts.length === 0) o.prompts = ['builtin'];
   if (o.cases.length === 0) o.cases = [DEFAULT_CASES];
+  return o;
+}
+
+function validateReview(o) {
+  if (!o.model) throw new Error('--model is required for --pass review');
+  if (!Number.isInteger(o.runs) || o.runs < 1) throw new Error('--runs must be a positive integer');
+  if (o.maxCalls !== Infinity && (!Number.isInteger(o.maxCalls) || o.maxCalls < 1)) throw new Error('--max-calls must be a positive integer');
+  if (!(o.timeoutMin > 0)) throw new Error('--timeout-min must be a positive number');
   return o;
 }
 
@@ -317,10 +331,58 @@ async function mainRejudge(opts) {
   console.log(`report: ${join(dir, 'report.md')}`);
 }
 
+async function mainReview(opts) {
+  const [{ resolveAdapter }, { runReviewBench, probeCoreVersion }, { scoreReview }, { renderReviewReport }] = await Promise.all([
+    import('../../src/agent/registry.ts'), import('./reviewRun.mjs'), import('./reviewChecks.mjs'), import('./reviewReport.mjs'),
+  ]);
+  const casesDir = resolve(opts.casesDir);
+  if (!existsSync(casesDir)) throw new Error(`cases dir not found: ${casesDir}`);
+  const names = readdirSync(casesDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+  let cases = names.map((name) => {
+    const dir = join(casesDir, name);
+    const file = join(dir, 'case.json');
+    try {
+      return { dir, def: JSON.parse(readFileSync(file, 'utf8')) };
+    } catch (e) {
+      throw new Error(`cannot read review case ${file}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+  if (opts.only) cases = cases.filter((c) => opts.only.includes(c.def.id));
+  if (cases.length === 0) throw new Error('no cases selected');
+  const core = opts.provider === 'opencode' ? 'opencode2' : opts.provider;
+  const adapter = resolveAdapter(core);
+  const startedAt = new Date().toISOString();
+  const raw = await runReviewBench({
+    adapter, cases, model: opts.model, effort: opts.effort ?? undefined, timeoutMs: opts.timeoutMin * 60_000, max: REVIEW_MAX_FINDINGS,
+    runs: opts.runs, maxCalls: opts.maxCalls, onProgress: (r) => console.error(`${r.caseId} run ${r.run}: ${r.status}`),
+  });
+  const byId = new Map(cases.map((c) => [c.def.id, c.def]));
+  const scored = raw.map((r) => {
+    const def = byId.get(r.caseId);
+    const sc = scoreReview({ defects: def.defects, findings: r.findings, tier: r.tier, shape: r.shape, droppedCheckoutClaims: r.droppedCheckoutClaims });
+    const t = r.usage && (r.usage.totalTokens ?? (r.usage.inputTokens ?? 0) + (r.usage.outputTokens ?? 0));
+    return { ...r, score: sc, seeded: def.defects.length, clean: def.defects.length === 0, found: sc.found.length, falseFindings: sc.falseFindings, duplicates: sc.duplicates, blockingFalse: sc.blockingFalse, caseFailed: sc.caseFailed, tokens: t };
+  });
+  let buildSha = 'unknown';
+  try { buildSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch { /* keep unknown */ }
+  const meta = { startedAt, pass: 'review', command: `npm run -s eval:form -- ${process.argv.slice(2).join(' ')}`, caseSetVersion: REVIEW_CASE_SET_VERSION, buildSha, coreVersions: { [core]: probeCoreVersion(core) } };
+  const candidate = { core, model: opts.model, effort: opts.effort, runs: scored };
+  const dir = join(ROOT, 'eval-results', `review-${startedAt.replace(/[:.]/g, '-')}-${core}-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'report.md'), renderReviewReport({ ...meta, candidates: [candidate] }));
+  writeFileSync(join(dir, 'results.json'), JSON.stringify({ meta, candidate }, null, 2));
+  console.log(`report: ${join(dir, 'report.md')}`);
+  if (!scored.some((r) => r.status === 'ok')) {
+    console.error(`review pass: no run finished ok. First error: ${scored.find((r) => r.error)?.error ?? 'none'}`);
+    process.exitCode = 1;
+  }
+}
+
 export async function main(argv) {
   const opts = parseArgs(argv);
   if (opts.pass === 'draft') return mainDraft(opts);
   if (opts.pass === 'plan') return mainPlan(opts);
+  if (opts.pass === 'review') return mainReview(opts);
   if (opts.rejudge.length) return mainRejudge(opts);
   if (opts.pass === 'intent') return mainIntent(opts);
   const [{ improveDescription }, { resolveAdapter }] = await Promise.all([

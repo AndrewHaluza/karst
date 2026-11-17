@@ -1,0 +1,17 @@
+{
+  "id": "c14-mutated-arg",
+  "title": "Show the top tasks on the board",
+  "baseRef": "main",
+  "branch": "feat/task-board",
+  "defects": [
+    {
+      "id": "REVEVAL-D-014",
+      "file": "src/taskBoard.ts",
+      "lineStart": 7,
+      "lineEnd": 12,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

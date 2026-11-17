@@ -1,0 +1,860 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T12:50:06.217Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider opencode2 --model opencode-go/mimo-v2.6-flash --only c11-stale-closure,c12-tz-boundary,c13-swallowed-error,c14-mutated-arg,c15-auth-inverted,c16-two-subtle,c17-clean-tempting,c18-clean-refactor --runs 2 --timeout-min 10",
+    "caseSetVersion": 4,
+    "buildSha": "9abc0fb7b79adff93cea03a869145a7c6f17e960",
+    "coreVersions": {
+      "opencode2": "opencode v2.2.7"
+    }
+  },
+  "candidate": {
+    "core": "opencode2",
+    "model": "opencode-go/mimo-v2.6-flash",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c11-stale-closure",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 9,
+            "title": "createLabel returns a stale snapshot, contradicting its own doc comment",
+            "detail": "createLabel destructures `const { user, retries } = session` once at creation time, so the returned closure captures the retries value as a snapshot. The doc comment claims it \"reports the current state of the session\", and the module ships recordRetry() which mutates session.retries. Repro: const s = {user:'a', retries:0}; const label = createLabel(s); recordRetry(s); label() => \"a: 0 retries\" while the session's current state is 1 retry — the label never reflects any retry recorded after creation. Fix by reading from the session inside the closure (e.g. `return () => `${session.user}: ${session.retries} retries``). No callers exist yet in the repo, so nothing is broken in production today; the bug is latent in the module's own contract.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "jsonl",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 18489,
+          "outputTokens": 814,
+          "reasoningTokens": 1083,
+          "cacheReadTokens": 111360,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 133231,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 81.483,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "jsonl",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 133231
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel returns a label that reports a stale retry count",
+            "detail": "The JSDoc on createLabel promises \"a function that reports the current state of the session\", but line 8 destructures `retries` at creation time, so the returned closure captures a snapshot instead of reading `session.retries`. Concrete failure: with `const s = {user: 'u', retries: 0}` and `const label = createLabel(s)`, calling `recordRetry(s); recordRetry(s);` leaves `s.retries === 2` while `label()` still returns `\"u: 0 retries\"` — the label never reflects any retry recorded after it was created, so any UI or log rendering the label shows a permanently wrong count. Fix: read from the session inside the closure, e.g. `return () => `${session.user}: ${session.retries} retries`;`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7575,
+          "outputTokens": 802,
+          "reasoningTokens": 1844,
+          "cacheReadTokens": 102080,
+          "cacheWriteTokens": 1484,
+          "totalTokens": 113785,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 111.951,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113785
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 10,
+            "title": "Last day of range is excluded for any time of day",
+            "detail": "The JSDoc on `end` states \"The last day is included\", but `new Date(\"2026-01-31\")` parses to the instant 2026-01-31T00:00:00Z. Any `when` falling later on that day fails `when <= end`: e.g. `isInRange({start:\"2026-01-01\", end:\"2026-01-31\"}, new Date(\"2026-01-31T12:00:00Z\"))` returns `false`, so every timestamp on the end date except exactly UTC midnight is treated as out of range. As written, the inclusive upper bound effectively points at the start of the last day, so the final day of every range is dropped for any real-world `when` (e.g. `new Date()`).",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 9,
+            "title": "Date-only strings are parsed as UTC, misclassifying boundary days in local timezones",
+            "detail": "`new Date(range.start)` / `new Date(range.end)` interpret `YYYY-MM-DD` as UTC midnight per the spec, while callers typically pass `when` built from local time. In a UTC+13 zone, `isInRange({start:\"2026-03-01\", end:\"2026-03-31\"}, new Date(\"2026-03-01T10:00:00+13:00\"))` — local midnight of the documented first day — compares against 2026-03-01T00:00:00Z and returns `false`, so early hours of the first day are excluded; symmetrically, in UTC− zones the tail of the last day falls outside `end`. The boundary semantics of \"first day\"/\"last day\" (UTC vs local calendar day) are undefined and the current instant comparison gets them wrong for most of the world's timezones.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 9,
+            "title": "Malformed range strings silently produce NaN comparisons",
+            "detail": "`range.start`/`range.end` are plain strings with no validation; `new Date(\"garbage\")` yields an Invalid Date, every comparison against NaN is `false`, and `isInRange` silently returns `false` (\"out of range\") instead of signalling the bad input. A cheap `Number.isNaN(d.getTime())` guard or an asserted `^\\d{4}-\\d{2}-\\d{2}$` format would surface caller mistakes instead of masking them.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 5832,
+          "outputTokens": 1019,
+          "reasoningTokens": 3546,
+          "cacheReadTokens": 101120,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 113002,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 98.706,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 113002
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 2,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 600.165,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-012"
+          ],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true even when the upload fails",
+            "detail": "The doc comment on syncProfile states 'Resolves to true when the server stored the profile', but the catch block swallows any rejection from upload(profile) (network error, auth failure, 5xx), logs console.warn, and unconditionally falls through to `return true` (src/syncProfile.ts:15). Input: upload rejects. Output: the promise resolves to `true`, so a caller honoring the documented contract marks the profile as synced and skips any retry — the profile update is silently dropped and never persisted. The `Promise<boolean>` return can never be false, so the success/failure signal the API advertises does not exist.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6487,
+          "outputTokens": 542,
+          "reasoningTokens": 2685,
+          "cacheReadTokens": 123392,
+          "cacheWriteTokens": 1491,
+          "totalTokens": 134597,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 94.273,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 134597
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 14,
+            "title": "syncProfile returns true even when the upload fails",
+            "detail": "The doc comment states 'Resolves to true when the server stored the profile', but the catch block swallows any upload rejection (logging only a console.warn) and execution falls through to `return true` unconditionally. Input: `upload` rejects (e.g. network error /5xx). Wrong output: the promise resolves `true` instead of `false`. A caller written to the documented contract (`if (await syncProfile(p, upload)) markSynced(p)`) will mark the profile as synced locally, so the profile is never retried and never reaches the server — silent data loss on the sync path. The error is also not re-thrown or otherwise surfaced, giving callers no way to distinguish success from failure.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 9,
+            "title": "New syncProfile function ships with no tests",
+            "detail": "The diff adds `src/syncProfile.ts` with no accompanying test covering the success path, the upload-failure path, or the returned boolean. The missing test is what let the always-true return value slip through; at minimum the failure case (upload rejects → resolves false) should be pinned down.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6432,
+          "outputTokens": 736,
+          "reasoningTokens": 1486,
+          "cacheReadTokens": 80384,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 90528,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 78.774,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 90528
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks mutates its input array, so renderBoard silently reorders the caller's list",
+            "detail": "src/taskBoard.ts:7 — `tasks.sort((a, b) => b.priority - a.priority)` sorts in place and returns the same array. renderBoard (line 11) passes the caller's array straight into it, so `renderBoard(sharedTasks)` leaves `sharedTasks` reordered by priority as a side effect. Input: `const order = [a(1), b(5), c(3), d(4)]; renderBoard(order);` → after the call `order` is `[b, d, c, a]` instead of `[a, b, c, d]`, so any later consumer of that array (a recent-first list, a persisted order, a re-render) shows corrupted ordering. The tests in src/taskBoard.test.ts hide this by always passing `[...tasks]` copies, so the suite never observes the mutation. Fix: copy before sorting (e.g. `[...tasks].sort(...)`).",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "renderBoard's 'rest' branch silently depends on topTasks mutating the array",
+            "detail": "src/taskBoard.ts:11-12 — `top` comes from `topTasks(tasks, 3)` (which sorts `tasks` in place) and `rest` comes from `tasks.slice(3)`, i.e. the tail of the *now-sorted* array. This only works because of the mutation flagged above. The natural fix for that bug — making topTasks pure — silently breaks renderBoard: with the original order `[a(1), b(5), c(3), d(4)]`, an unsorted `tasks.slice(3)` yields `[d]`, producing `['* b', '* d', '* c', '4. d']` where `d` is listed twice and `a` is dropped, with no test failure signalling the cause if tests were also copied. Derive `rest` from the sorted copy explicitly (e.g. sort once in renderBoard and slice the result) so correctness does not hinge on a hidden side effect.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8335,
+          "outputTokens": 865,
+          "reasoningTokens": 2695,
+          "cacheReadTokens": 125632,
+          "cacheWriteTokens": 1487,
+          "totalTokens": 139014,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 137.214,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 139014
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks sorts its input array in place, corrupting the caller's data",
+            "detail": "src/taskBoard.ts line 7 does `tasks.sort(...)` directly on the parameter, so `topTasks` (and `renderBoard`, which calls it on line 11) silently reorders the caller's array. Input: `const tasks = [{title:'a',priority:1},{title:'b',priority:5}]` in the user's manual order. After `renderBoard(tasks)` (or any `topTasks(tasks, n)` call), `tasks` is now `[{title:'b'},{title:'a'}]`. Any downstream code that renders, compares, or persists the original array — e.g. saving the board's manual ordering — writes the priority-sorted order instead, silently losing the caller's data. The tests in src/taskBoard.test.ts mask this by passing `[...tasks]` copies; a read-only query/render helper must copy first (`[...tasks].sort(...)`). Additionally, because renderBoard's `tasks.slice(3)` on line 12 only yields the lowest-priority items thanks to this hidden mutation, the two functions are silently coupled and any fix to the mutation breaks renderBoard's output.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "Negative count makes topTasks drop items instead of returning none",
+            "detail": "`tasks.slice(0, count)` with a negative count (e.g. `topTasks(tasks, -1)`) returns all tasks except the last one, rather than an empty list as the count-means-N-top-tasks contract implies (the test only covers 0). Callers passing an invalid/negative count get a plausible-looking but wrong subset with no error.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.test.ts",
+            "line": 1,
+            "title": "Test file imports vitest but nothing in the repo declares it",
+            "detail": "src/taskBoard.test.ts line 1 imports from 'vitest', yet the repository contains no package.json, lockfile, or test configuration (the branch's tree is only README.md plus the two new src files), so the test's ability to run depends entirely on tooling outside the repo with no declared dependency or script to invoke it.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7790,
+          "outputTokens": 1252,
+          "reasoningTokens": 5015,
+          "cacheReadTokens": 147520,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 163062,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 241.359,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 163062
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "canEdit fails open for any unrecognized visibility value",
+            "detail": "Doc.visibility is explicitly documented as free text from the legacy importer (src/access.ts:11), but canEdit's switch only handles the literals 'private'/'shared'/'team' and the default branch returns true. Input: a document whose visibility is any other string — a case/whitespace variant such as 'Private' or 'team ', or a legacy value like 'restricted'/'link'/'confidential'. Wrong output: canEdit() returns true for every active, non-owner, non-admin user, so edit permission is granted on a document whose visibility policy does not authorize them; a private document whose visibility string does not match exactly becomes editable by anyone on the system. An access-control function must deny by default (default: return false), and the type should be narrowed to 'private'|'shared'|'team' (or the value normalized before the switch) so unknown values cannot silently reach the allow path. The new test file never exercises the default branch, so nothing catches this.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8919,
+          "outputTokens": 836,
+          "reasoningTokens": 4690,
+          "cacheReadTokens": 124160,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 140095,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 220.746,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 140095
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 26,
+            "title": "canEdit fails open on unknown visibility strings",
+            "detail": "src/access.ts line 26-27: the switch's default branch returns true, so any document whose visibility is not exactly 'private', 'shared', or 'team' is editable by every active, non-admin user. The field is explicitly commented as \"free text from the legacy importer\", so non-canonical values are expected in production: input Doc { ownerId: 'u2', teamId: 't1', visibility: 'Team' (or '' or 'internal' from importer casing/whitespace), editors: [] } and User { id: 'u9', teamId: 't9', role: 'member', active: true } — a user from a different team, not the owner and not in editors — yields canEdit(...) === true, letting them modify a document they have no access to. Access control must deny by default: the default branch should return false.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.test.ts",
+            "line": 7,
+            "title": "Tests never exercise the unknown-visibility default branch",
+            "detail": "src/access.test.ts covers private/shared/team and the owner/admin/inactive paths, but no case uses a visibility value outside those three literals, so the fail-open default at src/access.ts:26-27 is untested and the existing suite passes regardless. Add a case asserting that an unrecognized visibility value denies a non-owner, non-admin user.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8147,
+          "outputTokens": 1011,
+          "reasoningTokens": 3606,
+          "cacheReadTokens": 148288,
+          "cacheWriteTokens": 1489,
+          "totalTokens": 162541,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 182.889,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 162541
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue, so every result is wrong",
+            "detail": "src/metrics.ts line 3 computes ((newValue - oldValue) / newValue) * 100, but percent change from old to new must divide by oldValue. Concrete failures: input oldValue=100, newValue=150 returns 33.3 instead of 50.0; input oldValue=100, newValue=0 returns -Infinity, so describeChange prints '-Infinity%' instead of '-100.0%'. Every consumer of this helper gets skewed metrics, and the doc comment on line 1 states the standard (old-denominator) definition the code does not implement.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the entire list when count is 0",
+            "detail": "src/metrics.ts line 8 uses items.slice(-count). For count=0, -count is -0 and slice(-0) is equivalent to slice(0), which returns the whole array. Input lastEntries([1,2,3], 0) yields [1,2,3] where the documented contract ('the last count entries') requires []. A caller passing 0 to mean 'show none' (e.g. a limit of 0) receives every entry.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 13,
+            "title": "describeChange emits 'NaN%' when both old and new values are 0",
+            "detail": "src/metrics.ts line 12-13 formats whatever percentChange returns with no finite-value guard: percentChange(0, 0) is (0-0)/0 = NaN, so describeChange(0, 0) returns the string 'NaN%', which renders as garbage in any metrics display. This edge case remains even after the denominator bug on line 3 is fixed.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8686,
+          "outputTokens": 1118,
+          "reasoningTokens": 4866,
+          "cacheReadTokens": 125184,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 141340,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 216.104,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 141340
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue, producing wrong percentages",
+            "detail": "Standard percent change is ((newValue - oldValue) / oldValue) * 100, but src/metrics.ts line 3 divides by newValue. For input oldValue=100, newValue=150 the function returns 33.3 instead of 50.0; describeChange then renders '33.3%' instead of '50.0%' for every caller. It also creates a division-by-zero where none should exist: oldValue=100, newValue=0 yields -Infinity ('-Infinity%') instead of -100.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the entire array when count is 0",
+            "detail": "src/metrics.ts line 8 uses items.slice(-count); when count is 0, -count is 0 and slice(0) returns a copy of the whole array instead of an empty array. Input: lastEntries([1,2,3], 0) → [1,2,3]; expected per the doc comment ('the last count entries') an empty result []. Callers requesting zero entries get all of them.",
+            "source": "agent"
+          },
+          {
+            "severity": "info",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 11,
+            "title": "describeChange has no doc comment unlike its siblings",
+            "detail": "percentChange and lastEntries carry JSDoc comments but describeChange (src/metrics.ts line 11) does not, an inconsistency in an otherwise documented new file. Minor style point only.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7131,
+          "outputTokens": 956,
+          "reasoningTokens": 1888,
+          "cacheReadTokens": 123648,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 135108,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 107.519,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 135108
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 600.539,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 2,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 18705,
+          "outputTokens": 406,
+          "reasoningTokens": 3382,
+          "cacheReadTokens": 68544,
+          "cacheWriteTokens": 1486,
+          "totalTokens": 92523,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 146.103,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 92523
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 29341,
+          "outputTokens": 819,
+          "reasoningTokens": 8986,
+          "cacheReadTokens": 156992,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 197628,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 277.766,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 197628
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/money.ts",
+            "line": 5,
+            "title": "formatMoney produces malformed output for fractional-cent input, carried over verbatim by the refactor",
+            "detail": "The extracted function (added in this diff at src/money.ts) assumes `cents` is an integer, but `cents: number` (src/report.ts Row) does not enforce that. Input `renderRows([{ label: 'Total', cents: 99.5 }])` yields frac = String(99.5 % 100) = '99.5' (padStart is a no-op since it is already length 3) and whole = 0, so the rendered string is `Total: $0.99.5` — a corrupted money string. Note: this is pre-existing behavior moved byte-for-byte from src/report.ts, not a regression introduced by this change; suggested fix is to round/validate to integer cents (e.g. Math.round or an assertion) at the boundary.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 7215,
+          "outputTokens": 840,
+          "reasoningTokens": 4617,
+          "cacheReadTokens": 125632,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 139794,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 203.891,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 139794
+      }
+    ]
+  }
+}

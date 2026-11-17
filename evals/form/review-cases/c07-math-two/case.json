@@ -1,0 +1,25 @@
+{
+  "id": "c07-math-two",
+  "title": "Add clamp and average helpers",
+  "baseRef": "main",
+  "branch": "feat/math-helpers",
+  "defects": [
+    {
+      "id": "REVEVAL-D-007",
+      "file": "src/mathUtil.ts",
+      "lineStart": 2,
+      "lineEnd": 2,
+      "kind": "bug",
+      "minSeverity": "medium"
+    },
+    {
+      "id": "REVEVAL-D-008",
+      "file": "src/mathUtil.ts",
+      "lineStart": 8,
+      "lineEnd": 8,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

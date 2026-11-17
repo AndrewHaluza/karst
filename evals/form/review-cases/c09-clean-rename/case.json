@@ -1,0 +1,10 @@
+{
+  "id": "c09-clean-rename",
+  "title": "Rename a local and document the helper",
+  "baseRef": "main",
+  "branch": "feat/format-doc",
+  "defects": [],
+  "cleanFiles": [
+    "src/formatName.ts"
+  ]
+}

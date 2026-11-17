@@ -1,0 +1,10 @@
+{
+  "id": "c10-clean-chunk",
+  "title": "Add a chunk helper",
+  "baseRef": "main",
+  "branch": "feat/chunk",
+  "defects": [],
+  "cleanFiles": [
+    "src/chunk.ts"
+  ]
+}

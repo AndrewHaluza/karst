@@ -1,0 +1,262 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T04:19:31.036Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider opencode2 --model opencode-go/mimo-v2.6-flash --only c11-stale-closure,c12-tz-boundary,c13-swallowed-error,c14-mutated-arg,c15-auth-inverted,c16-two-subtle,c17-clean-tempting,c18-clean-refactor --runs 1 --timeout-min 10",
+    "caseSetVersion": 2,
+    "buildSha": "db2cd3d397fb1ed4cf31eca2671f947f78b21bf6",
+    "coreVersions": {}
+  },
+  "candidate": {
+    "core": "opencode2",
+    "model": "opencode-go/mimo-v2.6-flash",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c11-stale-closure",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel returns a stale snapshot instead of the current session state",
+            "detail": "src/sessionLabel.ts:8 destructures `const { user, retries } = session;` and line 9 closes over that primitive copy, so the returned function never reflects later mutations. The doc comment on line 6 explicitly promises \"Returns a function that reports the current state of the session.\" Concrete failure: session = {user: 'alice', retries: 0}; const label = createLabel(session); recordRetry(session); recordRetry(session); → session.retries is 2 but label() returns \"alice: 0 retries\" instead of \"alice: 2 retries\". Fix: close over `session` itself (e.g. return () => `${session.user}: ${session.retries} retries`) so reads are live.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6219,
+          "outputTokens": 697,
+          "reasoningTokens": 914,
+          "cacheReadTokens": 102144,
+          "cacheWriteTokens": 1485,
+          "totalTokens": 111459,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 59.221,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 111459
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 971.723,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-012"
+          ],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 911.811,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-013"
+          ],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 984.267,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-014"
+          ],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 932.064,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-015"
+          ],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 909.903,
+        "score": {
+          "found": [],
+          "missed": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 1,
+        "status": "timeout",
+        "error": "headless agent run timed out after 600000ms",
+        "findings": [],
+        "droppedCheckoutClaims": 0,
+        "seconds": 911.447,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/money.ts",
+            "line": 5,
+            "title": "formatMoney emits a malformed string for fractional-cent input",
+            "detail": "src/money.ts line 5 computes frac as String(abs % 100), which for non-integer cents yields more than two digits (e.g. cents=99.5 → whole=0, frac=\"99.5\" → \"$0.99.5\"). Row.cents is a plain number, so a float slips in at runtime and the report renders corrupted money text. Note: this logic is byte-identical to the copy moved out of src/report.ts, so it is carried-over behavior, not a regression introduced by this diff — worth a guard (Math.round) while the code is being factored out.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6066,
+          "outputTokens": 690,
+          "reasoningTokens": 2824,
+          "cacheReadTokens": 102784,
+          "cacheWriteTokens": 1490,
+          "totalTokens": 113854,
+          "model": null,
+          "estimated": false
+        },
+        "seconds": 121.137,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 113854
+      }
+    ]
+  }
+}

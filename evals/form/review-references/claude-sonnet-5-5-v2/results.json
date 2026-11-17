@@ -1,0 +1,2954 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T01:44:55.209Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider claude --model claude-sonnet-5-5 --runs 3 --timeout-min 8",
+    "caseSetVersion": 2,
+    "buildSha": "d7082194873df64c9f26c757de499dad0aa2fee7",
+    "coreVersions": {}
+  },
+  "candidate": {
+    "core": "claude",
+    "model": "claude-sonnet-5-5",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c01-loop-bound",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/orderTotal.ts",
+            "line": 8,
+            "title": "Off-by-one loop bound makes orderTotal crash on every call",
+            "detail": "The loop condition changed from `i < lines.length` to `i <= lines.length`. On the last pass, `lines[i]` is undefined. The non-null assertion `!` only hides this from the type checker. Reading `.price` then throws a TypeError. Example: `orderTotal([{price:1,qty:1}])` throws instead of returning 1. For an empty array, `orderTotal([])` throws instead of returning 0. Restore `i < lines.length`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 535,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45523,
+          "cacheWriteTokens": 24937,
+          "totalTokens": 70999,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.467,
+        "score": {
+          "found": [
+            "REVEVAL-D-001"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70999
+      },
+      {
+        "caseId": "c01-loop-bound",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/orderTotal.ts",
+            "line": 8,
+            "title": "Off-by-one loop bound makes orderTotal crash on every call",
+            "detail": "The loop condition changed from `i < lines.length` to `i <= lines.length`. On the last iteration `lines[i]` is undefined. The non-null assertion `!` hides this from the type checker but not at runtime. Any input throws a TypeError when it reads `.price` of undefined. For example, `orderTotal([{price:1,qty:1}])` throws, and `orderTotal([])` throws too. Restore `i < lines.length`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 528,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45525,
+          "cacheWriteTokens": 24939,
+          "totalTokens": 70996,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.48,
+        "score": {
+          "found": [
+            "REVEVAL-D-001"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70996
+      },
+      {
+        "caseId": "c01-loop-bound",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/orderTotal.ts",
+            "line": 8,
+            "title": "Off-by-one loop bound makes orderTotal throw on every call",
+            "detail": "The loop condition changed from `i < lines.length` to `i <= lines.length`. On the last iteration `lines[i]` is undefined. The non-null assertion `!` only silences the compiler. At runtime `lines[i]!.price` throws a TypeError. Example: `orderTotal([{price:5, qty:2}])` throws instead of returning 10. For an empty array, `lines[0]` is also undefined, so it throws too. Every call fails. Restore `i < lines.length`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 547,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45522,
+          "cacheWriteTokens": 24936,
+          "totalTokens": 71009,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.492,
+        "score": {
+          "found": [
+            "REVEVAL-D-001"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71009
+      },
+      {
+        "caseId": "c02-sql-concat",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/userQuery.ts",
+            "line": 6,
+            "title": "SQL injection: user id is concatenated into the query string",
+            "detail": "The diff replaces the parameterized query with string concatenation. If id is \"' OR '1'='1\", the query returns the first user row. If id is \"'; DROP TABLE users;--\", it can run destructive SQL on drivers that allow multiple statements. This also violates the security rule that requires parameterized queries. Restore the placeholder: db.query('SELECT * FROM users WHERE id = ?', [id]).",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 516,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45534,
+          "cacheWriteTokens": 24985,
+          "totalTokens": 71039,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.357,
+        "score": {
+          "found": [
+            "REVEVAL-D-002"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71039
+      },
+      {
+        "caseId": "c02-sql-concat",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/userQuery.ts",
+            "line": 6,
+            "title": "SQL injection: findUser concatenates id into the query string",
+            "detail": "The change replaces the parameterized query with string concatenation. An id such as \"' OR '1'='1\" returns the first user row. An id such as \"'; DROP TABLE users;--\" can run extra statements, if the driver allows multiple statements. Restore the placeholder form: db.query('SELECT * FROM users WHERE id = ?', [id]). This also breaks the security rule to use parameterized queries.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 509,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45536,
+          "cacheWriteTokens": 24987,
+          "totalTokens": 71036,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.433,
+        "score": {
+          "found": [
+            "REVEVAL-D-002"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71036
+      },
+      {
+        "caseId": "c02-sql-concat",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/userQuery.ts",
+            "line": 6,
+            "title": "SQL injection: user id is concatenated into the query string",
+            "detail": "findUser replaced the parameterized query with string concatenation. If id is \"' OR '1'='1\", the query becomes SELECT * FROM users WHERE id = '' OR '1'='1' and returns the first user row. An attacker can also inject other statements, depending on the driver. This violates the security rule to use parameterized queries. Restore: db.query('SELECT * FROM users WHERE id = ?', [id]).",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 518,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45535,
+          "cacheWriteTokens": 24985,
+          "totalTokens": 71042,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.869,
+        "score": {
+          "found": [
+            "REVEVAL-D-002"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71042
+      },
+      {
+        "caseId": "c03-null-guard",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/displayName.ts",
+            "line": 6,
+            "title": "Non-null assertions remove the safe fallback and crash on missing data",
+            "detail": "The old code returned 'anonymous' when user, profile, or name was missing. The new code is `user!.profile!.name!`. The signature still allows `User | undefined`, and `profile` and `name` are optional in `User`. Calling `displayName(undefined)` or `displayName({})` now throws a TypeError. For `{profile:{}}` it returns undefined at runtime, but the type says string. The `!` operators only silence the compiler. Restore `user?.profile?.name ?? 'anonymous'`, or return a different explicit fallback if the ticket requires one.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6,
+          "outputTokens": 753,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 80940,
+          "cacheWriteTokens": 25143,
+          "totalTokens": 106842,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.289,
+        "score": {
+          "found": [
+            "REVEVAL-D-003"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 106842
+      },
+      {
+        "caseId": "c03-null-guard",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/displayName.ts",
+            "line": 6,
+            "title": "Non-null assertions remove the 'anonymous' fallback and make displayName throw",
+            "detail": "The old code returned 'anonymous' when user, profile or name was missing. The new code uses user!.profile!.name!. The `!` operators are erased at compile time and do nothing at runtime. The signature still accepts `User | undefined`, and `profile` and `name` are optional in `User`. So displayName(undefined) and displayName({}) throw a TypeError. displayName({profile:{}}) returns undefined, which breaks the declared `string` return type. Restore the optional chaining and the `?? 'anonymous'` fallback.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6,
+          "outputTokens": 742,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 80933,
+          "cacheWriteTokens": 25103,
+          "totalTokens": 106784,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.267,
+        "score": {
+          "found": [
+            "REVEVAL-D-003"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 106784
+      },
+      {
+        "caseId": "c03-null-guard",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/displayName.ts",
+            "line": 6,
+            "title": "Non-null assertions replace safe optional chaining and the 'anonymous' fallback",
+            "detail": "displayName(user: User | undefined) now returns user!.profile!.name!. The `!` operators only silence the type checker and do nothing at runtime. If user is undefined, or user.profile or profile.name is missing, the function throws a TypeError at runtime (a missing name returns undefined typed as string). Before the change, these inputs returned 'anonymous'. The signature still accepts `User | undefined`, so callers that pass undefined now crash. Restore `user?.profile?.name ?? 'anonymous'`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 557,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45523,
+          "cacheWriteTokens": 24872,
+          "totalTokens": 70956,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.573,
+        "score": {
+          "found": [
+            "REVEVAL-D-003"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70956
+      },
+      {
+        "caseId": "c04-expiry",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/token.ts",
+            "line": 7,
+            "title": "isExpired comparison is inverted",
+            "detail": "The change replaces `now >= token.expiresAt` with `now <= token.expiresAt`. With expiresAt=100 and now=50, the old code returned false (valid). The new code returns true, so a valid token is rejected. With now=200, the new code returns false, so an expired token is accepted. This is an authentication bypass: expired tokens stay valid forever, and fresh tokens fail. The boundary case now===expiresAt returns true in both versions, which hides the flip at that point. Restore `>=`. Add a test with a time before expiry and a time after expiry.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 646,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45537,
+          "cacheWriteTokens": 24876,
+          "totalTokens": 71063,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.132,
+        "score": {
+          "found": [
+            "REVEVAL-D-004"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71063
+      },
+      {
+        "caseId": "c04-expiry",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/token.ts",
+            "line": 7,
+            "title": "isExpired comparison is inverted",
+            "detail": "The change from `now >= token.expiresAt` to `now <= token.expiresAt` reverses the logic. A token with expiresAt=1000 and now=500 (still valid) returns true (expired). A token with now=2000 (expired) returns false (valid). Expired tokens are accepted and valid tokens are rejected, which is an authentication bypass. The branch is named token-expiry, so the intent was likely a boundary fix. The correct form is `now > token.expiresAt` or the original `>=`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 540,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45538,
+          "cacheWriteTokens": 24876,
+          "totalTokens": 70958,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.458,
+        "score": {
+          "found": [
+            "REVEVAL-D-004"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70958
+      },
+      {
+        "caseId": "c04-expiry",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/token.ts",
+            "line": 7,
+            "title": "isExpired comparison is inverted",
+            "detail": "The change from `now >= token.expiresAt` to `now <= token.expiresAt` reverses the logic. A token with expiresAt=1000 and now=500 (still valid) returns true (expired). A token with now=2000 (past expiry) returns false (not expired). Expired tokens are accepted and valid tokens are rejected. This is an authentication bypass for any caller that relies on isExpired. The original `>=` was correct.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 499,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45532,
+          "cacheWriteTokens": 24869,
+          "totalTokens": 70904,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.168,
+        "score": {
+          "found": [
+            "REVEVAL-D-004"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70904
+      },
+      {
+        "caseId": "c05-missing-await",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/itemNames.ts",
+            "line": 6,
+            "title": "Missing await on api.fetchItems() breaks itemNames",
+            "detail": "The diff removes `await` from `api.fetchItems()`. The `Api` interface declares that `fetchItems()` returns `Promise<{ items: { name: string }[] }>`. So `data` is now a Promise, and `data.items` is `undefined`. Any call to `itemNames(api)` throws `TypeError: Cannot read properties of undefined (reading 'map')`, and the returned promise rejects. The code also fails type checking, because `items` does not exist on `Promise<...>`. Restore `await`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 708,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 80950,
+          "cacheWriteTokens": 25322,
+          "totalTokens": 106988,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.677,
+        "score": {
+          "found": [
+            "REVEVAL-D-005"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 106988
+      },
+      {
+        "caseId": "c05-missing-await",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/itemNames.ts",
+            "line": 6,
+            "title": "Removed `await` on `api.fetchItems()` breaks `itemNames`",
+            "detail": "`Api.fetchItems()` returns `Promise<{ items: { name: string }[] }>` (line 2). The diff drops `await`, so `data` is a Promise. `data.items` is then `undefined`, and `data.items.map(...)` throws `TypeError: Cannot read properties of undefined (reading 'map')`. Every call to `itemNames` rejects. This also fails type-checking, because `items` does not exist on `Promise<...>`. Restore `const data = await api.fetchItems();`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 676,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 80942,
+          "cacheWriteTokens": 25306,
+          "totalTokens": 106932,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.78,
+        "score": {
+          "found": [
+            "REVEVAL-D-005"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 106932
+      },
+      {
+        "caseId": "c05-missing-await",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/itemNames.ts",
+            "line": 6,
+            "title": "Missing `await` on `api.fetchItems()` breaks `itemNames`",
+            "detail": "The diff removes `await` from `api.fetchItems()`. The `Api` interface declares `fetchItems(): Promise<{ items: { name: string }[] }>`, so `data` is now a Promise. `data.items` is `undefined` at runtime. `data.items.map(...)` throws `TypeError: Cannot read properties of undefined (reading 'map')`. Every call to `itemNames` rejects, whatever the API returns. This is also a type error, because `items` does not exist on `Promise`. Restore `await`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 709,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 80943,
+          "cacheWriteTokens": 25334,
+          "totalTokens": 106994,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.313,
+        "score": {
+          "found": [
+            "REVEVAL-D-005"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 106994
+      },
+      {
+        "caseId": "c06-path-join",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/upload.ts",
+            "line": 8,
+            "title": "Removing basename() allows path traversal in readUpload",
+            "detail": "readUpload(name) now calls join(UPLOAD_ROOT, name) with no sanitization. For name='../../etc/passwd', join resolves to '/etc/passwd', so readFile returns that file's content. An absolute name like '/etc/passwd' is also joined under the root, but '..' segments escape it. If name comes from a request (the branch is 'serve-upload'), this is an arbitrary file read. Restore basename(name), or resolve the path and check that it stays inside UPLOAD_ROOT. Reject names that contain separators or '..'.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 561,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45534,
+          "cacheWriteTokens": 25013,
+          "totalTokens": 71112,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.844,
+        "score": {
+          "found": [
+            "REVEVAL-D-006"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71112
+      },
+      {
+        "caseId": "c06-path-join",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/upload.ts",
+            "line": 8,
+            "title": "Removing basename() allows path traversal in readUpload",
+            "detail": "readUpload now calls join(UPLOAD_ROOT, name) with no sanitization. If name is '../../etc/passwd', join resolves to '/etc/passwd' and readFile returns that file. If name comes from a request (for example a serve endpoint), an attacker can read any file the process can access. Fix: restore basename(name), or resolve the path and check that it stays inside UPLOAD_ROOT. This also violates the security rule to validate external input.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 527,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45535,
+          "cacheWriteTokens": 25015,
+          "totalTokens": 71081,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.371,
+        "score": {
+          "found": [
+            "REVEVAL-D-006"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71081
+      },
+      {
+        "caseId": "c06-path-join",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/upload.ts",
+            "line": 8,
+            "title": "Path traversal: basename() removed from readUpload",
+            "detail": "readUpload now calls join(UPLOAD_ROOT, name) with no sanitisation. If name is '../../etc/passwd', join resolves to '/etc/passwd', so the caller can read any file the process can read outside /srv/uploads. The old basename(name) stripped directory parts. Restore basename, or resolve the path and check that it stays inside UPLOAD_ROOT. Reject absolute paths and '..' segments, and validate name at the boundary.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 535,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45536,
+          "cacheWriteTokens": 25015,
+          "totalTokens": 71090,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.488,
+        "score": {
+          "found": [
+            "REVEVAL-D-006"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71090
+      },
+      {
+        "caseId": "c07-math-two",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 2,
+            "title": "clamp swaps min and max, so it returns wrong values",
+            "detail": "The code is Math.max(max, Math.min(min, value)). Input clamp(5, 0, 10): Math.min(0,5)=0, then Math.max(10,0)=10. The expected result is 5. The result is always at least max. The correct code is Math.min(max, Math.max(min, value)).",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 8,
+            "title": "average divides by length + 1, so the result is wrong",
+            "detail": "The code returns sum / (values.length + 1). Input average([2,4,6]): sum is 12, and the code returns 12/4=3. The expected result is 4. Every non-empty input gives a result that is too small. Divide by values.length.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": null,
+            "title": "No tests for the new helpers",
+            "detail": "The diff adds clamp and average with no tests. Tests would have found both bugs.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 672,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45536,
+          "cacheWriteTokens": 25032,
+          "totalTokens": 71244,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.621,
+        "score": {
+          "found": [
+            "REVEVAL-D-007",
+            "REVEVAL-D-008"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71244
+      },
+      {
+        "caseId": "c07-math-two",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 2,
+            "title": "clamp swaps min and max, so it always returns max.",
+            "detail": "The code is Math.max(max, Math.min(min, value)). For clamp(5, 0, 10), Math.min(0, 5) is 0 and Math.max(10, 0) is 10. The expected result is 5. For any valid range where min <= max, the result is always max. The correct code is Math.min(max, Math.max(min, value)).",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 8,
+            "title": "average divides by length + 1, so the result is too low.",
+            "detail": "For average([2, 4, 6]), the sum is 12 and the code returns 12 / 4 = 3. The expected result is 4. Every non-empty input gives a wrong value. Divide by values.length.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 697,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45538,
+          "cacheWriteTokens": 25034,
+          "totalTokens": 71273,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.449,
+        "score": {
+          "found": [
+            "REVEVAL-D-007",
+            "REVEVAL-D-008"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71273
+      },
+      {
+        "caseId": "c07-math-two",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 2,
+            "title": "clamp swaps min and max, so it always returns max",
+            "detail": "The code is Math.max(max, Math.min(min, value)). Math.min(min, value) is at most min. Math.max(max, ...) then returns max when min <= max. Example: clamp(5, 0, 10) returns 10 (expected 5). clamp(-3, 0, 10) returns 10 (expected 0). Fix: Math.min(max, Math.max(min, value)).",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/mathUtil.ts",
+            "line": 8,
+            "title": "average divides by length + 1, so the result is wrong",
+            "detail": "The sum is divided by values.length + 1. Example: average([2, 4, 6]) returns 12/4 = 3 (expected 4). average([5]) returns 2.5 (expected 5). Every non-empty input gives a wrong value. Fix: divide by values.length.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 771,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45536,
+          "cacheWriteTokens": 25032,
+          "totalTokens": 71343,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.051,
+        "score": {
+          "found": [
+            "REVEVAL-D-007",
+            "REVEVAL-D-008"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71343
+      },
+      {
+        "caseId": "c08-retry-cache",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 5,
+            "title": "TTL in seconds is added to a millisecond timestamp",
+            "detail": "set() computes expiresAt = Date.now() + ttlSeconds. Date.now() is in milliseconds. A call with ttlSeconds = 60 expires the entry after 60 ms, not 60 s. Any cache read more than a few ms after set() returns undefined, so the cache nearly never hits. Fix: multiply by 1000.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "Off-by-one: retry runs maxAttempts + 1 attempts",
+            "detail": "The loop runs while attempt <= maxAttempts + 1. With maxAttempts = 3, fn is called 4 times. With maxAttempts = 1, fn is called twice. The parameter name implies a total attempt count. Callers get one extra call, which can matter for non-idempotent operations. Fix: use attempt <= maxAttempts.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 10,
+            "title": "retry with maxAttempts <= -1 throws undefined; no input validation",
+            "detail": "If the loop never runs (maxAttempts < 0, or NaN), the function throws `undefined` because `last` is never set. The caller gets no error object. Validate maxAttempts at the boundary. Also, retry has no backoff or delay between attempts, so a failing dependency receives immediate repeated calls.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 11,
+            "title": "Expired cache entries are never removed",
+            "detail": "get() ignores expired entries but never deletes them. Keys that are not read again stay in the Map forever. This is a memory leak for a long-running process with many distinct keys. Delete the entry in get() when it is expired. Also, the boundary check uses `<`, so an entry is still valid at the exact expiry time.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": null,
+            "title": "No tests added for the new retry and cache modules",
+            "detail": "The diff adds two new modules and no tests. Both high-severity bugs above (unit mismatch and attempt count) would be found by simple tests.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 1065,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45533,
+          "cacheWriteTokens": 25532,
+          "totalTokens": 72134,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.109,
+        "score": {
+          "found": [
+            "REVEVAL-D-009",
+            "REVEVAL-D-010"
+          ],
+          "missed": [],
+          "falseFindings": 3,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 3,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 72134
+      },
+      {
+        "caseId": "c08-retry-cache",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 5,
+            "title": "TtlCache adds seconds to a millisecond timestamp, so entries expire 1000x too early",
+            "detail": "set() computes expiresAt as Date.now() + ttlSeconds, but Date.now() returns milliseconds. A call such as set('k', v, 60) expires the entry after 60 ms, not 60 s. get() then returns undefined almost at once, so the cache does not work. Fix: use ttlSeconds * 1000.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "retry runs maxAttempts + 1 attempts (off-by-one)",
+            "detail": "The loop runs from attempt 1 to maxAttempts + 1 inclusive. With maxAttempts = 3, fn runs 4 times. With maxAttempts = 1, fn runs 2 times. With maxAttempts = 0, fn still runs once. A caller who expects at most N calls makes N+1 calls, which can break rate limits or non-idempotent operations. Fix: use attempt <= maxAttempts, and validate that maxAttempts >= 1.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 1,
+            "title": "retry has no backoff and no input validation",
+            "detail": "The retry calls fn again at once after each failure, with no delay. It does not check maxAttempts. NaN or a negative value skips the loop and throws undefined. Consider a delay and a check on maxAttempts.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 10,
+            "title": "TtlCache never evicts expired entries and has no tests",
+            "detail": "Expired entries are only skipped in get(), never deleted. The map grows without bound for unique keys. The diff also adds no tests. The expiry check uses < so an entry is still valid at the exact expiry time.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 951,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45536,
+          "cacheWriteTokens": 25535,
+          "totalTokens": 72026,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.913,
+        "score": {
+          "found": [
+            "REVEVAL-D-009",
+            "REVEVAL-D-010"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 2,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 72026
+      },
+      {
+        "caseId": "c08-retry-cache",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 3,
+            "title": "retry makes one more attempt than maxAttempts",
+            "detail": "The loop runs while attempt <= maxAttempts + 1. With maxAttempts = 3, fn runs 4 times. With maxAttempts = 1, fn runs twice, so a non-idempotent call runs twice. With maxAttempts = 0, fn still runs once. Use attempt <= maxAttempts. Also, if maxAttempts is below 0 the loop never runs and the function throws undefined.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 5,
+            "title": "TtlCache adds ttlSeconds to a millisecond timestamp",
+            "detail": "Date.now() returns milliseconds, but ttlSeconds is added without multiplying by 1000. set('k', v, 60) expires the entry after 60 ms, not 60 s. Every get after a short delay returns undefined, so the cache does not work. Use Date.now() + ttlSeconds * 1000.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/ttlCache.ts",
+            "line": 11,
+            "title": "Expired entries are never removed and the expiry check is off by one",
+            "detail": "get returns undefined for an expired entry but does not delete it. The Map grows without a limit for unique keys. The check uses < so an entry is still valid at the exact expiry time. Delete the entry on expiry, and use <=.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/retry.ts",
+            "line": 1,
+            "title": "retry has no backoff, no retry predicate and no input validation",
+            "detail": "The retry function retries at once on every error, including errors that are not transient. It does not validate maxAttempts. No tests are in the diff for either new file.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 889,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45535,
+          "cacheWriteTokens": 25532,
+          "totalTokens": 71960,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.826,
+        "score": {
+          "found": [
+            "REVEVAL-D-009",
+            "REVEVAL-D-010"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 2,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71960
+      },
+      {
+        "caseId": "c09-clean-rename",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 311,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45531,
+          "cacheWriteTokens": 24831,
+          "totalTokens": 70677,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.015,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70677
+      },
+      {
+        "caseId": "c09-clean-rename",
+        "run": 2,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 354,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45530,
+          "cacheWriteTokens": 24830,
+          "totalTokens": 70718,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 5.432,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70718
+      },
+      {
+        "caseId": "c09-clean-rename",
+        "run": 3,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 364,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45529,
+          "cacheWriteTokens": 24830,
+          "totalTokens": 70727,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 5.539,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70727
+      },
+      {
+        "caseId": "c10-clean-chunk",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 377,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45524,
+          "cacheWriteTokens": 25033,
+          "totalTokens": 70938,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 5.912,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70938
+      },
+      {
+        "caseId": "c10-clean-chunk",
+        "run": 2,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 369,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45523,
+          "cacheWriteTokens": 24827,
+          "totalTokens": 70723,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 5.6,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70723
+      },
+      {
+        "caseId": "c10-clean-chunk",
+        "run": 3,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 365,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45526,
+          "cacheWriteTokens": 24831,
+          "totalTokens": 70726,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.548,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 70726
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel copies the session fields once, so the label becomes stale.",
+            "detail": "The function destructures `user` and `retries` when it is called. The returned closure uses these copied values. The doc comment says the function reports the current state of the session. Failing input: `const s = {user:'a', retries:0}; const l = createLabel(s); recordRetry(s); l()` returns 'a: 0 retries'. The correct output is 'a: 1 retries'. `recordRetry` in the same file changes `session.retries`, so the stale value happens in normal use. Fix: read `session.user` and `session.retries` inside the closure, or change the doc comment to say the label is a snapshot.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 833,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45527,
+          "cacheWriteTokens": 25049,
+          "totalTokens": 71413,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.883,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71413
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel captures a snapshot, so the label goes stale after recordRetry",
+            "detail": "createLabel destructures user and retries when it is called. The returned closure reads those copied values, not the session object. Example: const s = {user:'a', retries:0}; const label = createLabel(s); recordRetry(s); label() returns 'a: 0 retries', but s.retries is 1. The doc comment says the function reports the current state of the session, and recordRetry in the same file mutates the session, so the two functions contradict each other. Fix: read session.user and session.retries inside the closure.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 665,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45526,
+          "cacheWriteTokens": 25048,
+          "totalTokens": 71243,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.345,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71243
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel captures a snapshot, so the label goes stale after recordRetry",
+            "detail": "createLabel destructures user and retries when it is called. The returned closure uses these copied values. The doc comment says the function reports the current state of the session. Example: const s = {user:'a', retries:0}; const label = createLabel(s); recordRetry(s); label() returns 'a: 0 retries', but the session has 1 retry. Fix: read session.user and session.retries inside the closure.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 12,
+            "title": "recordRetry mutates its argument",
+            "detail": "recordRetry changes the received session object in place. This conflicts with the user's coding style rule to create new objects. It is also the reason the stale snapshot bug is visible. Consider returning a new Session. If the in-place change is intended, document it.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 689,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45523,
+          "cacheWriteTokens": 25045,
+          "totalTokens": 71261,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.933,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71261
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 10,
+            "title": "The last day of the range is not included, which breaks the documented contract.",
+            "detail": "The doc comment says the end day is included. But `new Date(range.end)` parses `YYYY-MM-DD` as midnight UTC at the start of that day. Example: range {start:'2026-11-01', end:'2026-11-15'} and when = 2026-11-15T12:00:00Z. The check `when <= end` is false, so `isInRange` returns false for almost all of the last day. Fix: compare against the end of the day, or use an exclusive bound at the start of the next day (end + 1 day). Alternatively, compare date strings. Also decide which time zone the `when` value uses, because the parse is UTC and the caller may use local time.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 9,
+            "title": "Invalid date strings silently return false.",
+            "detail": "The `start` and `end` fields are external strings. A malformed value gives an Invalid Date (NaN), and every comparison is false. The caller cannot tell a bad range from a date outside the range. Validate the input and throw a clear error. Also, the diff adds no tests for the boundary days.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 862,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45520,
+          "cacheWriteTokens": 25059,
+          "totalTokens": 71445,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.255,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71445
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 9,
+            "title": "The end day is not fully included, which contradicts the doc comment.",
+            "detail": "`new Date(range.end)` parses a YYYY-MM-DD string as midnight UTC at the start of the end day. Take the range { start: '2024-01-01', end: '2024-01-31' } and when = 2024-01-31T12:00:00Z. The check `when <= end` is false, so `isInRange` returns false. The doc says the last day is included. Only the first instant of the end day passes. The same issue shifts the start boundary for non-UTC callers, because the date-only string is parsed as UTC. Fix: compare against the exclusive upper bound (end day + 1 day), or compare UTC date strings.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 8,
+            "title": "Invalid date strings fail silently.",
+            "detail": "A malformed `start` or `end` gives an Invalid Date. Every comparison with it is false, so `isInRange` returns false with no error. The rules ask for validation of external input at the boundary. Throw on `Number.isNaN(start.getTime())`. Also, no tests were added for the boundary cases.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 858,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45525,
+          "cacheWriteTokens": 25065,
+          "totalTokens": 71452,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.989,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71452
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 11,
+            "title": "isInRange excludes most of the last day, against the documented contract",
+            "detail": "The doc comment says the end day is included. The code runs `new Date(range.end)`, and a date-only string parses as midnight UTC. Take range {start:'2026-01-01', end:'2026-01-31'} and when = 2026-01-31T10:00:00Z. The check `when <= end` compares against 2026-01-31T00:00:00Z, so it returns false. Only the exact instant of midnight counts as inside the range on the last day. The fix is to compare against the end of the end day, or to compare the day as a string or as an exclusive next-day bound. The code also uses UTC parsing, so a local-time `when` can shift by a day. The change adds no tests.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 8,
+            "title": "No validation of range strings",
+            "detail": "A malformed `start` or `end` gives an Invalid Date. Every comparison with it is false, so the function silently returns false. This is an external-input boundary, so the function should validate or throw an explicit error.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 825,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45520,
+          "cacheWriteTokens": 25059,
+          "totalTokens": 71408,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.119,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71408
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 14,
+            "title": "syncProfile returns true even when the upload fails",
+            "detail": "The catch block only logs the error. The function then returns true. The doc comment says true means the server stored the profile. If upload rejects (network error, 500), the caller still gets true and thinks the sync worked. The profile is silently not stored, and the caller cannot retry. Return false in the catch block, or rethrow the error.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 487,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45535,
+          "cacheWriteTokens": 25131,
+          "totalTokens": 71157,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.309,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71157
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 13,
+            "title": "syncProfile returns true even when the upload fails.",
+            "detail": "If upload() rejects (for example a network error), the catch block only logs a warning. The function then reaches `return true`. The doc comment says true means the server stored the profile, so the caller sees a successful sync when nothing was stored. The profile is silently lost. Return false in the catch block, or rethrow the error.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 11,
+            "title": "The error is logged with console.warn and the failure is not reported to the caller.",
+            "detail": "The error handling swallows the failure. This conflicts with the rule to handle each error explicitly. Return a failure result or rethrow so the caller can retry.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 601,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45533,
+          "cacheWriteTokens": 25127,
+          "totalTokens": 71265,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.942,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71265
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 14,
+            "title": "syncProfile returns true even when the upload fails",
+            "detail": "If upload() rejects, for example on a network error or a 500 response, the catch block only logs a warning. The function then reaches `return true`. The doc comment says it resolves to true only when the server stored the profile. A caller therefore treats a failed sync as success and can drop or skip a retry, and the profile is silently lost. Return false in the catch block, or rethrow the error. Move `return true` into the try block after the await.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": null,
+            "title": "No tests for syncProfile",
+            "detail": "The diff adds no test. A test that passes a rejecting upload and expects false would have caught the wrong return value.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 592,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45534,
+          "cacheWriteTokens": 25130,
+          "totalTokens": 71260,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.052,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71260
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 8,
+            "title": "topTasks sorts the caller's array in place",
+            "detail": "Array.prototype.sort mutates its receiver. Input [{title:'a',priority:1},{title:'b',priority:5}] is reordered to b,a in the caller's array after topTasks or renderBoard runs. Callers that hold the array, such as UI state, see a surprise reorder. The user's coding rules also forbid mutating received objects. Fix: use [...tasks].sort(...).",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "renderBoard 'rest' list repeats the top tasks and is not the rest",
+            "detail": "`rest` maps over all of `tasks`, not the tasks after the top 3. Every top task is printed twice, once as '* title' and once as 'N. title'. The numbering also depends on the hidden in-place sort from topTasks. For 2 tasks the output is ['* b','* a','1. b','2. a']. Fix: compute a sorted copy once, then use slice(0,3) for the top list and slice(3) for the rest, with numbering that starts at 4 or 1 as the spec requires.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 8,
+            "title": "topTasks does not validate count",
+            "detail": "A negative count makes slice(0, count) drop items from the end. NaN returns an empty list. Clamp or validate count at the boundary.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 1142,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45522,
+          "cacheWriteTokens": 25168,
+          "totalTokens": 71836,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 11.246,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71836
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "topTasks sorts the caller's array in place",
+            "detail": "Array.prototype.sort mutates its receiver. topTasks(tasks, n) reorders the array the caller passed in. Example: renderBoard([{title:'a',priority:1},{title:'b',priority:5}]) leaves the caller's array as [b, a]. The 'rest' list in renderBoard is then built from the already-sorted array, so its numbering follows priority order, not the input order. This is probably not intended, and it is a hidden side effect in a function that looks pure. Fix: copy first, for example [...tasks].sort(...).slice(0, count).",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "renderBoard lists the top tasks twice",
+            "detail": "'rest' maps over all tasks, not over the tasks left after the top ones. Each top task therefore appears once with '* ' and again in the numbered list. If 'rest' should hold only the remaining tasks, slice it. If the repeat is intended, name the variable 'all'. The code has no comment that states the intent.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 8,
+            "title": "No input validation for count and no tests",
+            "detail": "topTasks passes count straight to slice. A negative count, such as -1, silently drops the last item instead of failing. The diff adds no tests for the new module. The hardcoded 3 in renderBoard should be a named constant.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 1172,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45526,
+          "cacheWriteTokens": 25173,
+          "totalTokens": 71875,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 11.98,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71875
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 8,
+            "title": "topTasks mutates the caller's array with in-place sort.",
+            "detail": "Array.prototype.sort sorts in place. topTasks(tasks, n) reorders the input array. In renderBoard, topTasks runs first, so the later tasks.map sees the array already sorted by priority. Input [{A,1},{B,5}] gives rest = ['1. B','2. A'] and not the original order. The caller's data also changes without notice. Fix: use [...tasks].sort(...). This also breaks the user's rule to not mutate received objects.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 13,
+            "title": "renderBoard lists the top tasks twice.",
+            "detail": "The output has the top 3 tasks with '* ' and then all tasks, including the same top 3, with numbers. Each of the top 3 tasks appears twice. If this is not intended, the rest list must exclude the top tasks.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 8,
+            "title": "No input validation for count, and no tests.",
+            "detail": "A negative count makes slice(0, -n) return nearly all tasks. NaN returns none. The diff adds no tests for the new functions.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 750,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45520,
+          "cacheWriteTokens": 25164,
+          "totalTokens": 71438,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.367,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71438
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 26,
+            "title": "canEdit fails open for unknown visibility values",
+            "detail": "The switch default returns true, and Doc.visibility is typed as a plain string. A doc with visibility 'Private' (wrong case), 'restricted', '' or a value added later lets any active user edit it, including users from other teams who are not editors. An authorization check must deny by default. Return false in the default branch. Narrow visibility to a union type such as 'private' | 'shared' | 'team' so the compiler checks the cases are exhaustive.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 17,
+            "title": "Admin role bypasses team and private restrictions",
+            "detail": "The check user.role === 'admin' returns true before the visibility check and without a teamId comparison. An admin of team A can edit a private doc owned by team B. If admins are meant to be team-scoped, this is a cross-tenant access flaw. Confirm the intent. If it is not global, add the teamId check.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 23,
+            "title": "Team visibility lets every team member edit",
+            "detail": "The 'team' case grants edit when the teamId values match, and it ignores doc.editors. This may be intended, but it makes 'team' mean edit access and not view access. Confirm the intent against the spec.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 13,
+            "title": "No tests for the access-control function",
+            "detail": "The diff adds canEdit with several branches (inactive user, owner, admin, each visibility, default) and has no tests. A permission function needs tests for each branch, especially the unknown-visibility case.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 1037,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45530,
+          "cacheWriteTokens": 25313,
+          "totalTokens": 71884,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.572,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 3,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 3,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71884
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 26,
+            "title": "canEdit fails open for any unrecognized visibility value",
+            "detail": "The switch default returns true, and Doc.visibility is typed as plain string. A doc with visibility 'Private' (wrong case), 'public', 'archived', an empty string or a legacy value lets any active user edit it. Example: user {role:'member', active:true} and doc {visibility:'Private', ownerId:'x'} returns true. An authorization check must deny by default. Return false in default, and type visibility as the union 'private' | 'shared' | 'team'.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 17,
+            "title": "Admin role bypasses team boundary",
+            "detail": "The check user.role === 'admin' returns true before any teamId comparison. An admin of team A can edit private docs of team B. If admin is meant to be team-scoped, compare doc.teamId === user.teamId first. If admin is global, document this.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 15,
+            "title": "No tests for the new permission function",
+            "detail": "The diff adds an access-control function with many branches (inactive, owner, admin, each visibility, default) and no tests. A test for the unknown-visibility case would have caught the fail-open default.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 918,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45526,
+          "cacheWriteTokens": 25309,
+          "totalTokens": 71757,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 9.648,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71757
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 26,
+            "title": "canEdit fails open for any unrecognized visibility value",
+            "detail": "The switch default returns true. The Doc.visibility field is typed as plain string, so the compiler does not check it. A user from another team who is not an editor gets edit rights when the value is not exactly 'private', 'shared' or 'team'. Examples are 'Private', 'public', an empty string, or a missing value from a DB row or legacy data. A typo or a new visibility value then silently grants edit access to every active user. Deny by default (return false). Type visibility as a union ('private'|'shared'|'team') and add an exhaustiveness check.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 17,
+            "title": "Admin role bypasses team boundary and private visibility",
+            "detail": "The check user.role === 'admin' returns true before the doc's teamId or visibility is read. An admin of team A can edit a private doc of team B. If admin means team admin, compare doc.teamId === user.teamId. Confirm the intended scope against the requirements.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 14,
+            "title": "No tests added for the new authorization function",
+            "detail": "The diff adds an access-control function with many branches (inactive user, owner, admin, each visibility, unknown visibility) and no tests. A test for the unknown-visibility case would have exposed the fail-open default.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 977,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45527,
+          "cacheWriteTokens": 25309,
+          "totalTokens": 71817,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 10.23,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71817
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by the new value instead of the old value",
+            "detail": "The doc says percent change from old to new. The correct formula is (new - old) / old. The code divides by newValue. Input old=100, new=150 returns 33.3 instead of 50. Input old=100, new=50 returns -100 instead of -50. If newValue is 0, the result is Infinity or NaN, and describeChange prints 'Infinity%' or 'NaN%'. Fix: divide by oldValue and handle oldValue === 0 explicitly.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the whole list when count is 0",
+            "detail": "items.slice(-0) equals slice(0), so lastEntries([1,2,3], 0) returns [1,2,3] instead of []. The doc promises the last count entries. Negative or NaN counts also give wrong results. Fix: return [] when count <= 0, and validate count.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 12,
+            "title": "describeChange has no doc comment and no handling of non-finite results",
+            "detail": "Other exports have doc comments. describeChange passes Infinity or NaN from percentChange into the output string. It inherits the percentChange bug. The diff adds no tests for these functions.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 766,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45523,
+          "cacheWriteTokens": 25174,
+          "totalTokens": 71467,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.103,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71467
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by the new value instead of the old value",
+            "detail": "The doc says percent change from old to new. The formula is (new - old) / new. Correct is (new - old) / old. Example: old=50, new=100 returns 50 and should return 100. Also old=0 is the real undefined case, but new=0 returns -Infinity (or NaN when both are 0) here. describeChange then prints wrong values like '50.0%' or '-Infinity%'.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns all items when count is 0",
+            "detail": "items.slice(-0) equals slice(0), so lastEntries([1,2,3], 0) returns [1,2,3] instead of []. Negative count also gives wrong results: count=-1 gives slice(1). Use items.slice(Math.max(items.length - count, 0)) with count validated as a non-negative integer.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 12,
+            "title": "describeChange has no doc comment and no guard for non-finite results",
+            "detail": "Other exports have doc comments. This function formats Infinity or NaN into strings like 'NaN%' without handling them. Add a guard for a zero base value.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 770,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45523,
+          "cacheWriteTokens": 25174,
+          "totalTokens": 71471,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.234,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71471
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by the new value instead of the old value",
+            "detail": "The formula is (new - old) / new * 100. Percent change from old to new must divide by oldValue. Example: old=50, new=100 returns 50, but the correct result is 100. Example: old=100, new=50 returns -100, but the correct result is -50. If newValue is 0, the result is -Infinity (or NaN when old is also 0). describeChange then outputs wrong text such as '-Infinity%'. Divide by oldValue and handle oldValue === 0 explicitly.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the whole list when count is 0",
+            "detail": "items.slice(-0) equals items.slice(0), so it returns all entries. lastEntries([1,2,3], 0) returns [1,2,3] instead of []. Negative counts also behave wrongly: count=-1 gives slice(1), which returns all but the first entry. Guard with count <= 0 returning [], or use items.slice(Math.max(items.length - count, 0)). Validate that count is a non-negative integer.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 12,
+            "title": "describeChange has no doc comment and no handling of non-finite values",
+            "detail": "The other exported functions have doc comments, and this one does not. It also formats Infinity or NaN from percentChange without a check. Add a comment and handle non-finite results once percentChange is fixed.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 879,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45525,
+          "cacheWriteTokens": 25176,
+          "totalTokens": 71584,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.548,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 1,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71584
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 16,
+            "title": "parseSettings does not validate values or reject arrays",
+            "detail": "The check `typeof raw !== 'object'` accepts arrays. It also accepts objects with non-string values. Input `[1,2]` or `{\"port\":8080}` is returned as `Settings` (Record<string,string>) with no error. Callers then get numbers or arrays typed as strings. Validate that raw is not an array and that each value is a string, at this external-input boundary.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 17,
+            "title": "Own TypeError is rewrapped with a generic message",
+            "detail": "The TypeError 'settings must be an object' is thrown inside the try block. The catch wraps it as 'cannot read settings from <source>'. The cause is kept, but the message hides the shape problem. Move the shape check outside the try block, or wrap only JSON.parse.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 3,
+            "title": "pick uses Map while the parser returns a plain object",
+            "detail": "parseSettings returns a Record, but pick takes a Map<string,string>. The two functions do not compose without a conversion. Callers must convert the result. Align the types. Also, `get(key)!` can be replaced with a single get and an undefined check.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 788,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45524,
+          "cacheWriteTokens": 25272,
+          "totalTokens": 71588,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.653,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 3,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 3,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 71588
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 17,
+            "title": "parseSettings casts parsed JSON to Settings without validating values",
+            "detail": "The code checks only that the parsed value is a non-null object. Arrays pass this check. Values that are not strings, such as {\"a\":1}, also pass. The function then returns them typed as Record<string,string>. Callers can get numbers, nested objects or arrays at runtime. Validate that the value is not an array and that each value is a string, at this boundary.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 18,
+            "title": "Error wrapper hides the specific validation message",
+            "detail": "The TypeError 'settings must be an object' is thrown inside the try block. The catch replaces it with a generic message. The cause is kept, but the message alone does not tell a user why the parse failed. Also, pick takes a Map while parseSettings returns a plain object, so the two exports do not compose.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 655,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45526,
+          "cacheWriteTokens": 25273,
+          "totalTokens": 71458,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.43,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 2,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 2,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 71458
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 15,
+            "title": "parseSettings casts parsed JSON to Settings without validating it",
+            "detail": "The check `typeof raw !== 'object'` accepts arrays. It also accepts objects with non-string values. Input `[1,2]` or `{\"port\":8080}` is returned as `Settings` (Record<string,string>). A caller then gets a number where the type promises a string. The file content is external input and the project rules require validation at the boundary. Reject arrays. Check that every value is a string, or change the type to `unknown` values.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 17,
+            "title": "Inner TypeError is wrapped by the catch block as a generic read error",
+            "detail": "The 'settings must be an object' TypeError is thrown inside the try block. The catch block replaces it with 'cannot read settings from <source>'. The cause is kept, so no data is lost, but the top-level message hides the reason. Consider moving the shape check outside the try block.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/loadConfig.ts",
+            "line": 7,
+            "title": "pick uses a non-null assertion after has()",
+            "detail": "`settings.get(key)!` works. A single `get` call with an `undefined` check is simpler and avoids the assertion. No test file is in the diff for these new functions.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 852,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45524,
+          "cacheWriteTokens": 25271,
+          "totalTokens": 71651,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.816,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 3,
+          "blockingFalse": 0,
+          "caseFailed": true,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 3,
+        "blockingFalse": 0,
+        "caseFailed": true,
+        "tokens": 71651
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 4,
+          "outputTokens": 435,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 45514,
+          "cacheWriteTokens": 25451,
+          "totalTokens": 71404,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 6.705,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 71404
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 2,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6,
+          "outputTokens": 446,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 81113,
+          "cacheWriteTokens": 25208,
+          "totalTokens": 106773,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 7.491,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 106773
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 3,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "usage": {
+          "inputTokens": 6,
+          "outputTokens": 582,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 81164,
+          "cacheWriteTokens": 25406,
+          "totalTokens": 107158,
+          "model": "claude-sonnet-5-5",
+          "estimated": false
+        },
+        "seconds": 8.089,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "blockingFalse": 0,
+        "caseFailed": false,
+        "tokens": 107158
+      }
+    ]
+  }
+}

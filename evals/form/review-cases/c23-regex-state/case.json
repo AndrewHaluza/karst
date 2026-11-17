@@ -1,0 +1,17 @@
+{
+  "id": "c23-regex-state",
+  "title": "Add a secret line finder",
+  "baseRef": "main",
+  "branch": "feat/secrets",
+  "defects": [
+    {
+      "id": "REVEVAL-D-022",
+      "file": "src/secrets.ts",
+      "lineStart": 1,
+      "lineEnd": 5,
+      "kind": "bug",
+      "minSeverity": "medium"
+    }
+  ],
+  "cleanFiles": []
+}

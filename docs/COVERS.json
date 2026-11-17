@@ -55,6 +55,9 @@
   "scripts/evalForm/plan*.mjs": [
     "arch:FORMEVAL-PLAN"
   ],
+  "scripts/evalForm/review*.mjs": [
+    "arch:FORMEVAL-REVIEW"
+  ],
   "scripts/gateScope.mjs": [
     "arch:GATE-SCOPED"
   ],

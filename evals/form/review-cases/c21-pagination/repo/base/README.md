@@ -1,0 +1,3 @@
+# pager
+
+Small TypeScript library.

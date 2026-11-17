@@ -1,0 +1,1009 @@
+{
+  "meta": {
+    "startedAt": "2026-11-15T12:18:20.105Z",
+    "pass": "review",
+    "command": "npm run -s eval:form -- --pass review --provider antigravity --model gemini-3.8-flash-medium --only c11-stale-closure,c12-tz-boundary,c13-swallowed-error,c14-mutated-arg,c15-auth-inverted,c16-two-subtle,c17-clean-tempting,c18-clean-refactor --runs 3 --timeout-min 15",
+    "caseSetVersion": 4,
+    "buildSha": "9abc0fb7b79adff93cea03a869145a7c6f17e960",
+    "coreVersions": {
+      "antigravity": "1.5.9"
+    }
+  },
+  "candidate": {
+    "core": "antigravity",
+    "model": "gemini-3.8-flash-medium",
+    "effort": null,
+    "runs": [
+      {
+        "caseId": "c11-stale-closure",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel captures session properties by value instead of reading current state",
+            "detail": "In `createLabel`, `const { user, retries } = session` destructures the session object at creation time, capturing `retries` and `user` by value. When the session state is updated (for example via `recordRetry(session)` incrementing `retries` from 0 to 1), subsequent invocations of the returned closure still output the stale initial values (e.g. 'alice: 0 retries' instead of 'alice: 1 retries'), failing to report the current state of the session.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 51.318,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel snapshots session state at creation time instead of reporting current state",
+            "detail": "createLabel destructures user and retries from session into local constants at creation time. Because retries is a primitive number, the returned closure closes over the initial number rather than accessing the property dynamically on session. Given a session initialized as { user: 'alice', retries: 0 } and label fn = createLabel(session), calling recordRetry(session) increments session.retries to 1, but calling fn() continues to return 'alice: 0 retries', violating the documented contract to report the current state of the session.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 58.878,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c11-stale-closure",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/sessionLabel.ts",
+            "line": 8,
+            "title": "createLabel captures stale session state by destructuring primitives at creation time.",
+            "detail": "In createLabel, session is destructured into const { user, retries } upon creation. Because user and retries are primitive values, the returned callback captures the initial values rather than accessing current properties on session. For example, given session = { user: 'alice', retries: 0 } and const getLabel = createLabel(session), calling recordRetry(session) increments session.retries to 1, but getLabel() still returns 'alice: 0 retries' instead of 'alice: 1 retries'. To report the current state of the session as documented, access session.user and session.retries directly inside the returned closure.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 50.69,
+        "score": {
+          "found": [
+            "REVEVAL-D-011"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 11,
+            "title": "isInRange excludes timestamps occurring on the range's last day.",
+            "detail": "DateRange documents that 'The last day is included', but `new Date(range.end)` parses date string 'YYYY-MM-DD' to midnight UTC (00:00:00.000Z). Given `range = { start: '2026-05-01', end: '2026-05-10' }` and `when = new Date('2026-05-10T12:00:00.000Z')`, `when <= end` evaluates `2026-05-10T12:00:00.000Z <= 2026-05-10T00:00:00.000Z`, returning `false` for timestamps on the final day instead of `true`.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 75.67,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 10,
+            "title": "isInRange excludes timestamps on the last day of the range.",
+            "detail": "The interface documentation specifies that for range.end, 'The last day is included.' However, const end = new Date(range.end) parses the YYYY-MM-DD string to midnight UTC (00:00:00.000Z). As a result, for an input such as range = { start: '2026-05-01', end: '2026-05-10' } and when = new Date('2026-05-10T12:00:00Z'), when <= end evaluates to false and isInRange returns false despite when falling on the last day. The end boundary should cover the full day (e.g. until 23:59:59.999Z / start of next day) or compare calendar dates directly.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 94.656,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c12-tz-boundary",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/dateRange.ts",
+            "line": 11,
+            "title": "Timestamps on the last day are rejected because `end` is set to midnight at the start of that day.",
+            "detail": "Given `range = { start: \"2026-01-01\", end: \"2026-01-02\" }` and `when = new Date(\"2026-01-02T12:00:00Z\")`, `new Date(range.end)` parses to `2026-01-02T00:00:00.000Z` (midnight UTC at the start of the day). Consequently, `when <= end` evaluates to `false` for any timestamp on the end date after 00:00:00.000 UTC, returning `false` despite the JSDoc contract explicitly stating that the last day is included.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 75.828,
+        "score": {
+          "found": [
+            "REVEVAL-D-012"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true when upload fails",
+            "detail": "When the upload callback throws or rejects with an error, the catch block catches the exception and logs a warning, but execution falls through to return true. The contract states that the function resolves to true when the server stored the profile; when upload fails, callers checking the boolean return value receive true and falsely treat the failed sync as successful, potentially skipping retries or discarding unsaved profile data.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 51.061,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true when upload fails",
+            "detail": "When upload(profile) rejects or throws an error (e.g., due to network error or server failure), the catch block logs a warning but execution proceeds to return true. According to the contract ('Resolves to true when the server stored the profile'), syncProfile should indicate failure (e.g. return false), but returning true causes callers to incorrectly treat failed uploads as successful.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 48.965,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c13-swallowed-error",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/syncProfile.ts",
+            "line": 15,
+            "title": "syncProfile returns true when upload fails",
+            "detail": "When upload(profile) rejects or throws an error, the exception is caught, logged, and execution proceeds to line 15 returning true. The function resolves to true even though the profile was not stored, violating its contract and misleading callers into assuming the upload succeeded.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 56.893,
+        "score": {
+          "found": [
+            "REVEVAL-D-013"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "`topTasks` mutates the input array in place.",
+            "detail": "`tasks.sort(...)` mutates the input `tasks` array in place. For mutable arrays (e.g., `const list = [{ title: 'a', priority: 1 }, { title: 'b', priority: 2 }]`), calling `topTasks(list, 1)` unexpectedly reorders `list` to `[{ title: 'b', priority: 2 }, { title: 'a', priority: 1 }]`, corrupting the caller's array ordering. Furthermore, if passed a frozen array (e.g., `Object.freeze(...)`), calling `topTasks` throws an unhandled `TypeError: Cannot assign to read only property '0' of object '[object Array]'` runtime crash. A copy such as `[...tasks].sort(...)` should be used instead.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "`renderBoard` mutates caller data and relies on `topTasks` mutating its parameter.",
+            "detail": "`renderBoard` mutates the caller's `tasks` array via `topTasks(tasks, 3)`. In addition, line 12 calls `tasks.slice(3)` directly on the input array, relying on `topTasks` having sorted `tasks` in place as a side effect. If `tasks` is frozen, this crashes with a TypeError; if `topTasks` is made pure or does not mutate `tasks`, `tasks.slice(3)` slices the original unsorted array, duplicating tasks in both top and rest and dropping others (e.g., for `[{ title: 'a', priority: 1 }, { title: 'b', priority: 5 }, { title: 'c', priority: 3 }, { title: 'd', priority: 4 }]`, `top` receives 'b', 'd', 'c' and `rest` receives 'd', omitting 'a' and duplicating 'd'). `renderBoard` should sort a copy of `tasks` once and slice both portions from it.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "Negative `count` values in `topTasks` produce unexpected slices.",
+            "detail": "Calling `topTasks(tasks, count)` with a negative count such as `-1` results in `slice(0, -1)`, returning all elements except the last one (e.g., for a list of 2 tasks, `topTasks(tasks, -1)` returns 1 task) rather than returning an empty array.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 100.41,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 1,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "`topTasks` mutates the input array in place.",
+            "detail": "Calling `Array.prototype.sort()` directly on `tasks` mutates the caller's array in place. If `tasks` is frozen (e.g., via `Object.freeze([...])`), `tasks.sort()` throws a `TypeError: Cannot assign to read only property`. In addition, callers passing a mutable array will have their array order unexpectedly reordered as a side effect. `topTasks` should create a shallow copy first, e.g., with `[...tasks].sort(...)` or `tasks.slice().sort(...)`.",
+            "source": "agent"
+          },
+          {
+            "severity": "medium",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 12,
+            "title": "`renderBoard` implicitly relies on `topTasks` mutating the input array.",
+            "detail": "In `renderBoard`, `const rest = tasks.slice(3)` relies on `topTasks(tasks, 3)` having sorted `tasks` in place. If `topTasks` is refactored to not mutate its input, or if an immutable array is passed, `tasks.slice(3)` slices from the original unsorted array, causing `rest` to contain arbitrary tasks instead of the remaining tasks ordered by priority. `renderBoard` should explicitly sort a copy of the tasks before slicing.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "Negative `count` in `topTasks` slices from the end of the array.",
+            "detail": "If a negative number is passed as `count` (e.g., `topTasks(tasks, -1)`), `tasks.slice(0, count)` slices relative to the end of the array, returning all elements except the last `abs(count)` items rather than an empty list. Clamping `count` using `Math.max(0, count)` avoids this.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 97.262,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 1,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c14-mutated-arg",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "Array.prototype.sort mutates input tasks array in place.",
+            "detail": "In topTasks, tasks.sort((a, b) => b.priority - a.priority) mutates the passed tasks array in place. If the caller passes a frozen or read-only array (such as Object.freeze([...]) commonly used in state management), this throws a runtime TypeError. If passed a mutable array, it unexpectedly alters the caller's array ordering. The function should copy the array before sorting, e.g. using [...tasks].sort(...) or tasks.toSorted(...).",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 11,
+            "title": "renderBoard mutates input array and relies on side-effect mutation for remainder slice.",
+            "detail": "renderBoard invokes topTasks(tasks, 3) which mutates tasks in place, and then calls tasks.slice(3). This mutates the caller's array as a side effect and crashes if passed a frozen array. Furthermore, it implicitly couples to topTasks's in-place mutation: if topTasks is refactored to be pure, tasks.slice(3) would slice from the unsorted input rather than remaining tasks in descending priority order.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.ts",
+            "line": 7,
+            "title": "Negative count in topTasks returns trailing items instead of empty list.",
+            "detail": "Calling topTasks(tasks, count) with a negative count passes a negative end index to Array.prototype.slice(0, count), which slices relative to the end of the array (e.g. count = -1 returns all but the last item) rather than returning an empty array or validating the argument.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/taskBoard.test.ts",
+            "line": 13,
+            "title": "Unit tests mask in-place mutation by shallow copying input array.",
+            "detail": "In src/taskBoard.test.ts, all tests invoke topTasks and renderBoard with [...tasks]. This masks the in-place array mutation bug from being caught during test execution and omits assertions ensuring input immutability.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 107.337,
+        "score": {
+          "found": [
+            "REVEVAL-D-014"
+          ],
+          "missed": [],
+          "falseFindings": 2,
+          "duplicates": 1,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 2,
+        "duplicates": 1,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "Unrecognized document visibility defaults to granting edit access.",
+            "detail": "In src/access.ts, doc.visibility is documented as free text from a legacy importer, but switch (doc.visibility) defaults to returning true. For an input where an active member from another team (e.g., user = { id: 'u1', teamId: 't1', role: 'member', active: true }) accesses a document with non-standard, legacy, or sensitive visibility such as 'restricted', 'confidential', or 'Private' (e.g., doc = { ownerId: 'u2', teamId: 't2', visibility: 'restricted', editors: [] }), canEdit returns true instead of false. Access control must fail closed (deny by default) to prevent unauthorized users from editing documents.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 129.272,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "canEdit fails open by returning true for unhandled or legacy visibility values",
+            "detail": "In src/access.ts line 27, switch (doc.visibility) defaults to returning true. Because Doc.visibility is documented as free text from the legacy importer (line 11), any unrecognized visibility string (such as 'confidential', empty string, or case-variant 'Private'/'Shared'/'Team') falls through to default: return true. For example, given user = { id: 'u2', teamId: 't2', role: 'member', active: true } and doc = { ownerId: 'u1', teamId: 't1', visibility: 'Private', editors: [] }, canEdit returns true, granting unauthorized edit access to non-owner, non-admin members from other teams. Access control must fail closed (return false) for unhandled visibility values.",
+            "source": "agent"
+          },
+          {
+            "severity": "low",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 25,
+            "title": "Team visibility check does not allow explicitly listed editors from other teams",
+            "detail": "In src/access.ts line 25, case 'team' only checks doc.teamId === user.teamId and does not check doc.editors.includes(user.id). If a collaborator from another team is listed in doc.editors on a team document, canEdit evaluates to false unless their team matches doc.teamId.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 109.638,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 1,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 1,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c15-auth-inverted",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "critical",
+            "repo": "case-repo",
+            "file": "src/access.ts",
+            "line": 27,
+            "title": "Default branch in canEdit grants edit permission for unhandled visibility values",
+            "detail": "In src/access.ts on line 27, the switch statement over doc.visibility falls through to 'default: return true'. Given user = { id: 'u1', teamId: 't1', role: 'member', active: true } and an unrelated document doc = { ownerId: 'u2', teamId: 't2', visibility: 'restricted', editors: [] }, canEdit(user, doc) returns true. Because doc.visibility is free text from a legacy importer, any unrecognized value (e.g. '', 'restricted', 'confidential') or case variation (e.g. 'Private') results in an authorization bypass where non-owner, non-editor members from other teams are granted full edit permissions. Authorization logic must fail closed (defaulting to false) rather than fail open.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 138.268,
+        "score": {
+          "found": [
+            "REVEVAL-D-015"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 1,
+        "clean": false,
+        "found": 1,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 1,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue.",
+            "detail": "Percent change from an old value to a new value should be calculated relative to the baseline oldValue: ((newValue - oldValue) / oldValue) * 100. In percentChange, dividing by newValue calculates the change relative to the new value. For example, with oldValue = 100 and newValue = 150, expected percent change is 50%, but the function returns 33.33%. Additionally, when newValue is 0 (e.g., oldValue = 50, newValue = 0, representing a -100% drop), the function divides by zero and returns -Infinity.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns all elements when count is 0.",
+            "detail": "In JavaScript, -0 equals 0, so when count is 0, items.slice(-count) evaluates to items.slice(0). Instead of returning an empty array representing the last 0 entries, it returns a shallow copy of the entire input array. For example, lastEntries([1, 2, 3], 0) returns [1, 2, 3] instead of []. The function should guard against count <= 0 (e.g., count <= 0 ? [] : items.slice(-count)).",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 64.045,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 2,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue",
+            "detail": "In src/metrics.ts:3, percentChange computes ((newValue - oldValue) / newValue) * 100. Percentage change from an old value to a new value is defined relative to oldValue: ((newValue - oldValue) / oldValue) * 100. Dividing by newValue yields incorrect results (for example, percentChange(50, 100) returns 50 instead of 100) and triggers division by zero resulting in -Infinity or NaN when newValue is 0 (for example, percentChange(100, 0) returns -Infinity instead of -100).",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns the entire array when count is 0",
+            "detail": "In src/metrics.ts:8, items.slice(-count) evaluates to items.slice(-0) when count is 0. Because -0 === 0 in JavaScript, items.slice(0) returns a shallow copy of the entire array instead of an empty array (for example, lastEntries([1, 2, 3], 0) returns [1, 2, 3] rather than []). When count <= 0, the function should return an empty array.",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 83.333,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c16-two-subtle",
+        "run": 3,
+        "status": "ok",
+        "findings": [
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 3,
+            "title": "percentChange divides by newValue instead of oldValue.",
+            "detail": "The percentage change calculation in percentChange computes ((newValue - oldValue) / newValue) * 100 instead of ((newValue - oldValue) / oldValue) * 100. For example, with oldValue = 100 and newValue = 200, the function returns 50 instead of 100 (+100%). Additionally, when newValue is 0 (e.g., dropping from 100 to 0), division by zero occurs, returning -Infinity instead of -100.",
+            "source": "agent"
+          },
+          {
+            "severity": "high",
+            "repo": "case-repo",
+            "file": "src/metrics.ts",
+            "line": 8,
+            "title": "lastEntries returns all elements instead of an empty array when count is 0.",
+            "detail": "In JavaScript, -0 evaluates to 0. When count is 0, items.slice(-count) executes items.slice(0), which returns a shallow copy of the entire array instead of the last 0 items. For example, lastEntries([1, 2, 3], 0) returns [1, 2, 3] instead of [].",
+            "source": "agent"
+          }
+        ],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 55.505,
+        "score": {
+          "found": [
+            "REVEVAL-D-016",
+            "REVEVAL-D-017"
+          ],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 2,
+        "clean": false,
+        "found": 2,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 80.784,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 2,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 104.926,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c17-clean-tempting",
+        "run": 3,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 113.946,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 1,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 57.646,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 2,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 50.238,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      },
+      {
+        "caseId": "c18-clean-refactor",
+        "run": 3,
+        "status": "ok",
+        "findings": [],
+        "shape": "parsed",
+        "tier": "whole-doc",
+        "droppedCheckoutClaims": 0,
+        "seconds": 48.568,
+        "score": {
+          "found": [],
+          "missed": [],
+          "falseFindings": 0,
+          "duplicates": 0,
+          "blockingFalse": 0,
+          "caseFailed": false,
+          "parseTier": "whole-doc",
+          "shape": "parsed",
+          "droppedCheckoutClaims": 0
+        },
+        "seeded": 0,
+        "clean": true,
+        "found": 0,
+        "falseFindings": 0,
+        "duplicates": 0,
+        "blockingFalse": 0,
+        "caseFailed": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "c17-clean-tempting",
+  "title": "Add settings helpers",
+  "baseRef": "main",
+  "branch": "feat/load-config",
+  "defects": [],
+  "cleanFiles": [
+    "src/loadConfig.ts"
+  ]
+}
