@@ -3309,7 +3309,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       },
       graphEditWorkspaceDeps: (_ticketId, graphRunId) =>
-        openWorkspaceDepsEditor(manifestPathOrThrow, graphRunById(localStore.db, graphRunId)?.blocked_reason ?? ''),
+        void openWorkspaceDepsEditor(
+          {
+            vscode,
+            manifestPath: manifestPathOrThrow,
+            notify: { info: (m) => void toast.info(m), warn: (m) => void toast.warn(m), error: async (m) => void (await toast.error(m)) },
+          },
+          graphRunById(localStore.db, graphRunId)?.blocked_reason ?? '',
+        ),
     },
     // Reveal (never launch) the ticket's own interactive session — the same
     // reveal-or-adopt path `nudge` uses, so a reload that emptied this

@@ -68,6 +68,16 @@ describe('planWorkspaceDepsEdit edge cases', () => {
   });
 });
 
+describe('planWorkspaceDepsEdit flow style', () => {
+  it('inserts nothing into a flow-style entry', () => {
+    expect(planWorkspaceDepsEdit('repositories:\n  web: { path: ./web }\n  api:\n    path: x', 'web')).toEqual({
+      found: true,
+      revealLine: 1,
+    });
+    expect(planWorkspaceDepsEdit('repositories:\n  web: [a]\n', 'web')).toEqual({ found: true, revealLine: 1 });
+  });
+});
+
 describe('repoNameOfDepsReason more', () => {
   it('needs the parenthesised repo form', () => {
     expect(repoNameOfDepsReason('graph-workspace-deps: node run 5 (api-2: x)')).toBe('api-2');

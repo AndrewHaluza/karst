@@ -64,6 +64,8 @@ export function planWorkspaceDepsEdit(yaml: string, repoName: string | undefined
     if (childIndent === -1) childIndent = indentOf(line);
     if (indentOf(line) === childIndent && keyOf(line) === KEY) return { revealLine: i, found: true };
   }
+  // A flow-style entry (`web: { path: ./web }`) has its value on the key line: an inserted child line would break it.
+  if (/:\s*[{[]/.test(lines[entry.line]!)) return { revealLine: entry.line, found: true };
   const at = entry.line + 1;
   return {
     revealLine: at,

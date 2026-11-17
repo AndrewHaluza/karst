@@ -212,8 +212,8 @@ export interface GraphDriverDeps {
   /**
    * The dependency preflight of a graph start: the one warning line (e.g.
    * `deps: web not provided`) when a repository in scope has gate commands but
-   * gets no dependencies, else undefined. Advisory: a launch never waits on it
-   * and never fails on it. Absent → no preflight.
+   * gets no dependencies, else undefined. Advisory: a launch awaits it once
+   * (it only reads files) and never fails or blocks on it. Absent → no preflight.
    */
   depsPreflightOf?: (graphRunId: number) => Promise<string | undefined>;
   /** The canonical worktree for the planner session (first repo). */

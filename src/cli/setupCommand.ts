@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { loadManifestWithDiagnostics } from '../manifest/load.js';
+import { canonicalRepoId } from '../runtime/repoId.js';
 import { describeGraphDeps, type GraphDepsFit } from '../setup/graphDeps.js';
 import { discoverWorkspace, type DiscoveryProbe } from '../setup/discover.js';
 import { MAX_SETUP_PROPOSAL_BYTES, validateSetupProposal, type ChangeProposal } from '../setup/proposal.js';
@@ -31,6 +33,8 @@ export interface SetupCommandDeps {
   /** Workspace root when `--root` is absent. */
   cwd?: string;
   defaultBranch?: string;
+  /** The karst.yml of the project, when known: a repository with a `graphWorkspace` block already fits. */
+  manifestPath?: string;
   /** Injectable graph-deps verdict for tests; the real fs check is the default. */
   graphDeps?: (repoPath: string) => GraphDepsFit;
 }
@@ -89,6 +93,21 @@ function parseDiscover(rest: readonly string[], deps: SetupCommandDeps): { root:
   return { root, defaultBranch };
 }
 
+/** Canonical names of the repositories whose karst.yml entry already has a `graphWorkspace` block. */
+function configuredGraphWorkspaces(manifestPath: string | undefined): ReadonlySet<string> {
+  if (!manifestPath) return new Set();
+  try {
+    const { manifest } = loadManifestWithDiagnostics(manifestPath);
+    return new Set(
+      Object.entries(manifest.repositories ?? {})
+        .filter(([, repo]) => repo.graphWorkspace !== undefined)
+        .map(([name]) => canonicalRepoId(name)),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 function runDiscover(rest: readonly string[], deps: SetupCommandDeps): string {
   const { root, defaultBranch } = parseDiscover(rest, deps);
   const probe = deps.probe ?? realDiscoveryProbe();
@@ -100,7 +119,13 @@ function runDiscover(rest: readonly string[], deps: SetupCommandDeps): string {
   const result = discoverWorkspace(root, probe, defaultBranch);
   // D647: the verdict of the D644 graph-workspace defaults, per repository.
   const graphDeps = deps.graphDeps ?? describeGraphDeps;
-  const repos = result.repos.map((repo) => ({ ...repo, graphDeps: graphDeps(repo.path) }));
+  const configured = configuredGraphWorkspaces(deps.manifestPath);
+  const repos = result.repos.map((repo) => ({
+    ...repo,
+    graphDeps: configured.has(canonicalRepoId(repo.name))
+      ? ({ status: 'fits', reason: 'graphWorkspace is already set in karst.yml' } satisfies GraphDepsFit)
+      : graphDeps(repo.path),
+  }));
   return JSON.stringify({ ...result, repos }, null, 2);
 }
 
