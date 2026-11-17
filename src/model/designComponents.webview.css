@@ -20,20 +20,20 @@
 .k-btn--lg{min-height:var(--k-control-h-lg);padding:var(--k-space-3) var(--k-space-7);font-size:var(--k-text-md)}
 
 .k-btn--primary{background:var(--k-action-bg);color:var(--k-action-fg)}
-.k-btn--primary:hover{background:var(--k-action-bg-hover)}
+.k-btn--primary:hover:not(:disabled):not([aria-disabled="true"]){background:var(--k-action-bg-hover)}
 
 .k-btn--secondary{background:var(--k-action-2-bg);color:var(--k-action-2-fg);border-color:var(--k-border)}
-.k-btn--secondary:hover{background:var(--k-action-2-bg-hover)}
+.k-btn--secondary:hover:not(:disabled):not([aria-disabled="true"]){background:var(--k-action-2-bg-hover)}
 
 .k-btn--ghost{background:transparent;color:var(--k-text-dim);border-color:transparent}
-.k-btn--ghost:hover{background:var(--k-surface-hover);color:var(--k-text)}
+.k-btn--ghost:hover:not(:disabled):not([aria-disabled="true"]){background:var(--k-surface-hover);color:var(--k-text)}
 
 .k-btn--danger{background:transparent;color:var(--k-danger);border-color:var(--k-danger)}
-.k-btn--danger:hover{background:var(--k-danger);color:var(--k-danger-fg)}
+.k-btn--danger:hover:not(:disabled):not([aria-disabled="true"]){background:var(--k-danger);color:var(--k-danger-fg)}
 
 .k-btn--link{background:transparent;color:var(--k-link);border-color:transparent;
   padding:var(--k-space-0);min-height:var(--k-space-0)}
-.k-btn--link:hover{color:var(--k-link-active);text-decoration:underline}
+.k-btn--link:hover:not(:disabled):not([aria-disabled="true"]){color:var(--k-link-active);text-decoration:underline}
 
 /* A framed group of mutually exclusive `.k-btn--sm` options (a radiogroup). The selected option is `--secondary`, the
    others `--ghost`; the frame makes the set read as one control. */

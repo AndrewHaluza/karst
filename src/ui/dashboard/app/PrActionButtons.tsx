@@ -4,7 +4,7 @@
  * keeps its className whatever it shows: the runtime's `is-pending` class lives on that node, and a
  * rewritten className would wipe it mid-request (transient looks ride `aria-busy` / `data-*`).
  */
-import { memo, useCallback, useEffect, useState, type MouseEvent } from 'react';
+import { memo, useCallback, useEffect, useId, useState, type MouseEvent } from 'react';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { useDashboardSend, useOps, usePendingOps } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
@@ -92,6 +92,8 @@ interface Pendable {
   readonly busy: boolean;
 }
 
+const MERGE_UNAVAILABLE = 'Merge is not available';
+
 /**
  * Merging is IRREVERSIBLE, so the click only asks: the host puts a modal in front of the user (which also
  * chooses the strategy) before anything runs. The webview posts only `{type:'merge-pr', repo}` (UI-R37).
@@ -102,6 +104,7 @@ export const MergeButton = memo(function MergeButton({ p, busy }: { readonly p: 
   // Held in the state the stage rail's Merge shares (pendingOps.ts): one operation, one dialog.
   const ops = usePendingOps();
   const repo = p.repo;
+  const reasonId = useId();
   const onClick = useCallback(
     (e: MouseEvent<HTMLButtonElement>) => {
       const requestId = beginPending(e);
@@ -121,10 +124,17 @@ export const MergeButton = memo(function MergeButton({ p, busy }: { readonly p: 
     );
   }
   if (!p.canMerge) {
+    const reason = p.mergeBlockedReason || MERGE_UNAVAILABLE;
+    // The reason is visible text the button points to; `title` alone is invisible to touch and keyboard users (UI-R17).
     return (
-      <button type="button" className={SECONDARY} disabled title={p.mergeBlockedReason}>
-        Merge
-      </button>
+      <>
+        <span className="pmreason" id={reasonId}>
+          {reason}
+        </span>
+        <button type="button" className={SECONDARY} disabled title={p.mergeBlockedReason} aria-describedby={reasonId}>
+          Merge
+        </button>
+      </>
     );
   }
   const num = p.number ? ` #${p.number}` : '';

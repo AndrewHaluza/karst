@@ -173,6 +173,27 @@ describe('PrsPanel — merge and dismiss controls (host verdicts)', () => {
     expect(byAct('merge-pr')).toHaveLength(0);
   });
 
+  it('points a disabled Merge at a visible reason with aria-describedby', () => {
+    mount(stateWith([pr({ canMerge: false, mergeBlockedReason: 'merge conflicts' })]));
+    const b = document.querySelector<HTMLButtonElement>('.mgbtn')!;
+    const id = b.getAttribute('aria-describedby');
+    expect(id).toBeTruthy();
+    const reason = document.getElementById(id!)!;
+    expect(reason.textContent).toBe('merge conflicts');
+    expect(reason.hidden).toBe(false);
+  });
+
+  it('gives a disabled Merge a visible fallback reason when the host sent none', () => {
+    mount(stateWith([pr({ canMerge: false, mergeBlockedReason: '' })]));
+    const b = document.querySelector<HTMLButtonElement>('.mgbtn')!;
+    expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toBe('Merge is not available');
+  });
+
+  it('leaves the busy and the enabled Merge without a reason', () => {
+    mount(stateWith([pr({ canMerge: true, mergeBlockedReason: '' })]));
+    expect(document.querySelector('.mgbtn')!.hasAttribute('aria-describedby')).toBe(false);
+  });
+
   it('offers no Merge on a merged PR', () => {
     mount(stateWith([pr({ status: 'merged', canMerge: true })]));
     expect(document.querySelector('.pacts .mgbtn')).toBeNull();
