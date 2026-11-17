@@ -11,23 +11,23 @@ describe('hasArtifactFiles', () => {
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it('is false for a missing dir', () => {
-    expect(hasArtifactFiles(join(root, 'nope'))).toBe(false);
+  it('is false for a missing dir', async () => {
+    expect(await hasArtifactFiles(join(root, 'nope'))).toBe(false);
   });
-  it('is false for an empty dir and for a dir of empty sub-dirs', () => {
+  it('is false for an empty dir and for a dir of empty sub-dirs', async () => {
     mkdirSync(join(root, 'a'));
-    expect(hasArtifactFiles(root)).toBe(false);
+    expect(await hasArtifactFiles(root)).toBe(false);
   });
-  it('finds a file at the top or in a sub-dir', () => {
+  it('finds a file at the top or in a sub-dir', async () => {
     writeFileSync(join(root, 'plan.md'), 'x');
     mkdirSync(join(root, 'shots'));
     writeFileSync(join(root, 'shots', '1.png'), 'x');
-    expect(hasArtifactFiles(root)).toBe(true);
+    expect(await hasArtifactFiles(root)).toBe(true);
   });
-  it('does not enter sub-dirs below the depth bound', () => {
+  it('does not enter sub-dirs below the depth bound', async () => {
     let d = root;
     for (let i = 0; i < 6; i++) { d = join(d, `d${i}`); mkdirSync(d); }
     writeFileSync(join(d, 'deep.md'), 'x');
-    expect(hasArtifactFiles(root)).toBe(false);
+    expect(await hasArtifactFiles(root)).toBe(false);
   });
 });

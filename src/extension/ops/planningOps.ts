@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { hasArtifactFiles } from '../../planning/artifactFiles.js';
+import { createArtifactCountCache } from '../../artifacts/countCache.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
@@ -175,6 +176,11 @@ export interface PlanningOps {
 const agentLabel = (core: string, model: string | null): string => `${core} · ${model ?? 'default'}`;
 
 export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
+  // The sidebar state build is sync: it reads this cache, which refreshes off the host's event loop.
+  const artifactFlags = createArtifactCountCache({
+    count: async (id) => ((await hasArtifactFiles(planningArtifactsDir(deps.scratchDir(id)))) ? 1 : 0),
+    onChange: () => deps.onChange?.(),
+  });
   const live = new Map<number, SessionTerminal>();
   /** Per window: the planner config a session's user already chose to Keep against. */
   const declined = new Map<number, string>();
@@ -384,7 +390,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     },
 
     artifactCount(id) {
-      return hasArtifactFiles(planningArtifactsDir(deps.scratchDir(id))) ? 1 : 0;
+      return artifactFlags.get(id);
     },
 
     async openArtifacts(id) {
@@ -394,18 +400,22 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         return;
       }
       const dir = planningArtifactsDir(deps.scratchDir(id));
-      if (!hasArtifactFiles(dir)) {
+      if (!(await hasArtifactFiles(dir))) {
+        artifactFlags.set(id, 0);
         debug(`artifacts ${id} blocked: empty`);
         deps.notify.info(`Karst: ${formatId('plan', id)} has no artifacts yet.`);
         return;
       }
+      artifactFlags.set(id, 1);
       if (!deps.openPath) {
         debug(`artifacts ${id} blocked: no opener`);
         deps.notify.warn('Karst: this host cannot open a folder.');
         return;
       }
       try {
-        await deps.openPath(dir);
+        const opened = await deps.openPath(dir);
+        // vscode.env.openExternal resolves false when the OS refuses.
+        if (opened === false) throw new Error('openPath returned false');
         debug(`artifacts ${id} opened`);
       } catch (e) {
         debug(`artifacts ${id} failed: ${e instanceof Error ? e.message : String(e)}`);

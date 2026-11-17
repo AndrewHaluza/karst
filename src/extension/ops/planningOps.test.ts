@@ -472,8 +472,10 @@ describe('planning ops', () => {
       expect(logs).toContain(`[planning] artifacts ${s.id} blocked: empty`);
       expect(messages).toContain(`Karst: P${s.id} has no artifacts yet.`);
       writeFileSync(join(scratch, String(s.id), 'artifacts', 'plan.md'), 'x');
-      expect(ops.artifactCount(s.id)).toBe(1);
+      // The sidebar read is a cache (5 s): an open that scans the dir refreshes it.
+      expect(ops.artifactCount(s.id)).toBe(0);
       await ops.openArtifacts(s.id);
+      expect(ops.artifactCount(s.id)).toBe(1);
       expect(opened).toEqual([join(scratch, String(s.id), 'artifacts')]);
       expect(logs).toContain(`[planning] artifacts ${s.id} opened`);
     });
@@ -486,6 +488,45 @@ describe('planning ops', () => {
       await ops.openArtifacts(s.id);
       expect(logs).toContain(`[planning] artifacts ${s.id} blocked: no opener`);
       expect(messages).toEqual(['Karst: this host cannot open a folder.']);
+    });
+    it('repaints the sidebar when a background load finds a file', async () => {
+      let changes = 0;
+      const ops = createPlanningOps({ ...deps, onChange: () => void changes++ });
+      const s = (await ops.create('t'))!;
+      writeFileSync(join(scratch, String(s.id), 'artifacts', 'a.md'), 'x');
+      const before = changes;
+      ops.artifactCount(s.id);
+      await vi.waitFor(() => expect(changes).toBeGreaterThan(before), { timeout: 1000 });
+    });
+    it('needs no onChange callback, and an open of an emptied dir clears the flag', async () => {
+      const rejected: unknown[] = [];
+      const onRejection = (e: unknown): void => void rejected.push(e);
+      process.on('unhandledRejection', onRejection);
+      const { onChange: _unused, ...withoutOnChange } = deps;
+      void _unused;
+      const ops = createPlanningOps(withoutOnChange);
+      const s = (await ops.create('t'))!;
+      const file = join(scratch, String(s.id), 'artifacts', 'a.md');
+      writeFileSync(file, 'x');
+      ops.artifactCount(s.id);
+      await vi.waitFor(() => expect(ops.artifactCount(s.id)).toBe(1), { timeout: 1000 });
+      await new Promise((r) => setTimeout(r, 20));
+      process.off('unhandledRejection', onRejection);
+      expect(rejected).toEqual([]);
+      rmSync(file);
+      await ops.openArtifacts(s.id);
+      expect(ops.artifactCount(s.id)).toBe(0);
+    });
+    it('treats an opener that resolves false as a failure', async () => {
+      const logs: string[] = [];
+      messages.length = 0;
+      const ops = createPlanningOps({ ...deps, openPath: async () => false, debug: (m) => void logs.push(m) });
+      const s = (await ops.create('t'))!;
+      writeFileSync(join(scratch, String(s.id), 'artifacts', 'a.md'), 'x');
+      await ops.openArtifacts(s.id);
+      expect(logs).not.toContain(`[planning] artifacts ${s.id} opened`);
+      expect(logs).toContain(`[planning] artifacts ${s.id} failed: openPath returned false`);
+      expect(messages).toContain(`Karst: could not open the artifacts folder of P${s.id}.`);
     });
     it('warns for an unknown session and when the open fails', async () => {
       const logs: string[] = [];
