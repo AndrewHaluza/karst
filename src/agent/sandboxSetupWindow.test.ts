@@ -70,6 +70,15 @@ describe('setup network window', () => {
     expect(res.ok ? '' : res.reason).not.toContain('blocked host');
   });
 
+  it('a failed close is reported through onCloseFailed, not only debug, and keeps the verdict', async () => {
+    const order: string[] = [];
+    const failed: string[] = [];
+    const w = port(order, { open: async () => ({ ok: true, close: () => Promise.reject(new Error('rm failed')) }) });
+    const r = rig(order, done(), w, { onCloseFailed: (m: string) => failed.push(m) });
+    await expect(ensureSandboxSetup(r.deps, req)).resolves.toEqual({ ok: true });
+    expect(failed).toEqual(['rm failed']);
+  });
+
   it('closes after an aborted setup', async () => {
     const order: string[] = [];
     const r = rig(order, { kind: 'aborted', output: '' } as ProcessOutcome, port(order));
@@ -124,8 +133,8 @@ describe('setup hosts', () => {
       'release-assets.githubusercontent.com',
       'nodejs.org',
     ]);
-    for (const ok of ['registry.npmjs.org', '*.githubusercontent.com', 'localhost']) expect(setupHostError(ok)).toBeUndefined();
-    for (const bad of ['a b', 'x:443', 'https://x.io', '-x.io', 'host.docker.internal', '*', 'a,b']) expect(setupHostError(bad)).toBeDefined();
+    for (const ok of ['registry.npmjs.org', '*.githubusercontent.com']) expect(setupHostError(ok)).toBeUndefined();
+    for (const bad of ['a b', 'x:443', 'https://x.io', '-x.io', 'host.docker.internal', 'localhost', '*', 'a,b']) expect(setupHostError(bad)).toBeDefined();
   });
 });
 
@@ -140,7 +149,7 @@ describe('sbx setupWindow', () => {
     if (w.ok) await w.close();
     expect(calls(proc).slice(1)).toEqual([
       `policy allow network --sandbox ${NAME} registry.npmjs.org:443,*.github.com:443`,
-      `policy rm network --sandbox ${NAME} registry.npmjs.org:443,*.github.com:443`,
+      `policy rm network --sandbox ${NAME} --resource registry.npmjs.org:443,*.github.com:443 --force`,
     ]);
   });
 
@@ -150,7 +159,7 @@ describe('sbx setupWindow', () => {
     if (w.ok) await w.close();
     expect(calls(proc).slice(1)).toEqual([
       `policy allow network --sandbox ${NAME} github.com:443`,
-      `policy rm network --sandbox ${NAME} github.com:443`,
+      `policy rm network --sandbox ${NAME} --resource github.com:443 --force`,
     ]);
   });
 
@@ -166,6 +175,19 @@ describe('sbx setupWindow', () => {
     const w = await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] }).setupWindow!(['github.com']);
     expect(w).toEqual({ ok: false, reason: 'sbx policy allow failed: denied' });
     expect(calls(proc).some((c) => c.startsWith('policy rm'))).toBe(true);
+  });
+
+  it('a failed close throws, so the caller can tell the user the window is still open', async () => {
+    const proc = fakeSbxProcess({ 'sbx policy rm': { code: 1, stderr: 'no such rule' } });
+    const w = await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] }).setupWindow!(['github.com']);
+    expect(w.ok).toBe(true);
+    if (w.ok) await expect(w.close()).rejects.toThrow(/github\.com:443.*no such rule/);
+  });
+
+  it('a failed rollback is reported in the reason', async () => {
+    const proc = fakeSbxProcess({ 'sbx policy allow': { code: 1, stderr: 'denied' }, 'sbx policy rm': { code: 1, stderr: 'gone' } });
+    const w = await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] }).setupWindow!(['github.com']);
+    expect(w).toEqual({ ok: false, reason: 'sbx policy allow failed: denied; rollback failed, host may stay open: gone' });
   });
 
   it('refuses an invalid host before touching sbx', async () => {

@@ -29,7 +29,7 @@ import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { limitEnvArgs, wrapWithHeap } from './sbxLimits.js';
-import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
+import { isPortTakenError, parseSbxPorts, isHostPortResource, parseSbxAllowed, sbxHostPolicyArgs, sbxRmResourcesArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
 export { SBX_CORES, type SbxCore } from '../sandboxCores.js';
 import type { SbxCore } from '../sandboxCores.js';
@@ -323,10 +323,17 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       if (added.length === 0) return { ok: true, close: async () => undefined };
       const out = await sbx(sbxHostPolicyArgs('allow', opts.name, added));
       if (out.code !== 0) {
-        await sbx(sbxHostPolicyArgs('rm', opts.name, added)); // a partial allow must not stay open
-        return { ok: false, reason: `sbx policy allow failed: ${out.stderr.trim()}` };
+        const rollback = await sbx(sbxHostPolicyArgs('rm', opts.name, added)); // a partial allow must not stay open
+        const open = rollback.code === 0 ? '' : `; rollback failed, host may stay open: ${rollback.stderr.trim()}`;
+        return { ok: false, reason: `sbx policy allow failed: ${out.stderr.trim()}${open}` };
       }
-      return { ok: true, close: async () => { await sbx(sbxHostPolicyArgs('rm', opts.name, added)); } };
+      return {
+        ok: true,
+        close: async () => {
+          const rm = await sbx(sbxHostPolicyArgs('rm', opts.name, added));
+          if (rm.code !== 0) throw new Error(`sbx policy rm failed, ${added.map(setupHostResource).join(',')} may stay open: ${rm.stderr.trim()}`);
+        },
+      };
     },
     sync: async (ticket: SandboxTicketRef): Promise<SyncResult> => {
       const wt = ticket.hostWorktreePath;
@@ -381,8 +388,13 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       return { ok: true, diff: diff.stdout, ref: head.sha };
     },
     // Stopped, not removed: `sbx run --name` restarts it on the next open.
+    // The baseline host rules end with the session (best effort: the next reattach allows them again).
     stop: async (): Promise<void> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
+      const listing = await sbx(['policy', 'ls', 'network', '--sandbox', opts.name]);
+      if (listing.code !== 0) return;
+      const rules = [...parseSbxAllowed(listing.stdout)].filter(isHostPortResource);
+      if (rules.length > 0) await sbx(sbxRmResourcesArgs(opts.name, rules));
     },
     dispose: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);

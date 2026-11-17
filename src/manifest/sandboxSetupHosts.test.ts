@@ -35,7 +35,7 @@ describe('sandboxSetupHosts', () => {
   });
 
   it('validates host formats and rejects invalid host strings or host alias', () => {
-    for (const valid of ['registry.npmjs.org', '*.githubusercontent.com', 'localhost', 'sub.domain.co.uk']) {
+    for (const valid of ['registry.npmjs.org', '*.githubusercontent.com', 'sub.domain.co.uk']) {
       expect(setupHostError(valid)).toBeUndefined();
     }
     const maxValid = 'a.' + 'b'.repeat(251);
@@ -46,7 +46,9 @@ describe('sandboxSetupHosts', () => {
     expect(tooLong.length).toBe(254);
     expect(setupHostError(tooLong)).toBe(`"${tooLong}" is not a host name or *.suffix`);
 
-    expect(setupHostError('host.docker.internal')).toBe('must not be the host alias (baseline ports only)');
+    expect(setupHostError('host.docker.internal')).toBe('must not be the host (baseline ports only)');
+
+    expect(setupHostError('localhost')).toBe('must not be the host (baseline ports only)');
 
     for (const bad of ['a b', 'x:443', 'https://x.io', '-x.io', '*', 'a,b', '']) {
       expect(setupHostError(bad)).toBe(`"${bad}" is not a host name or *.suffix`);

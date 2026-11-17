@@ -10,7 +10,7 @@ import { clearSetupState, LOCKFILES_SH, MISSING_SETUP_HINT, onceByMessage, provi
 
 const HASH = 'c'.repeat(64);
 
-function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandboxed?: boolean; docker?: boolean; turn?: boolean; lockfile?: boolean } = {}) {
+function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandboxed?: boolean; docker?: boolean; turn?: boolean; lockfile?: boolean; closeFails?: boolean } = {}) {
   const errors: string[] = [];
   const ran: string[][] = [];
   const runGate: GateProcessRunner = async (_c, args) => {
@@ -27,7 +27,7 @@ function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandb
   const deps: TicketSetupDeps = {
     windowOf: () => ({
       windowNeedsIdle: opts.docker === true,
-      setupWindow: async (hosts) => { windows.push(`open ${hosts.join(',')}`); return { ok: true, close: async () => { windows.push('close'); } }; },
+      setupWindow: async (hosts) => { windows.push(`open ${hosts.join(',')}`); return { ok: true, close: async () => { windows.push('close'); if (opts.closeFails) throw new Error('rm failed'); } }; },
     }),
     turnActive: () => opts.turn === true,
     manifest: () => manifest, worktrees: () => [{ repo: repoKey, path: '/wt' }], gateProcess: () => (opts.sandboxed === false ? undefined : runGate),
@@ -38,6 +38,12 @@ function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandb
 
 describe('provisionTicketSandbox', () => {
   beforeEach(() => resetSetupLocks());
+
+  it('a window that fails to close is shown to the user and does not fail the setup', async () => {
+    const r = rig({ setup: 'npm ci', closeFails: true });
+    expect(await provisionTicketSandbox(r.deps, 7)).toEqual({ ok: true });
+    expect(r.errors).toEqual(['Karst: T7 sandbox setup network window did not close, a setup host may stay open to the agent: rm failed']);
+  });
 
   it('opens the declared setupHosts around the setup, the defaults when none are declared', async () => {
     const custom = rig({ setup: 'npm ci', setupHosts: ['pypi.org'] });

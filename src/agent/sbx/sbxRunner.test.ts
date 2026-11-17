@@ -233,7 +233,7 @@ describe('createSbxSessionRunner.stop', () => {
     const proc = fakeSbxProcess();
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
     await runner.stop!();
-    expect(proc.calls.map((c) => [c.command, ...c.args].join(' '))).toEqual([`sbx stop ${NAME}`]);
+    expect(proc.calls.map((c) => [c.command, ...c.args].join(' '))).toEqual([`sbx stop ${NAME}`, `sbx policy ls network --sandbox ${NAME}`]);
     expect(runner.placeInteractive(spec()).shellArgs).not.toContain('--clone');
   });
 });
@@ -512,7 +512,18 @@ describe('createSbxSessionRunner memory limit, OOM report and stop', () => {
   it('stop runs `sbx stop` with the exact name and never removes (idle / done stop, arch:AC-37)', async () => {
     const proc = fakeSbxProcess();
     await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] }).stop!();
-    expect(proc.calls.map((c) => [c.command, ...c.args])).toEqual([['sbx', 'stop', NAME]]);
+    expect(proc.calls.map((c) => [c.command, ...c.args])).toEqual([['sbx', 'stop', NAME], ['sbx', 'policy', 'ls', 'network', '--sandbox', NAME]]);
+  });
+
+  it('stop removes the baseline host rules (both forms) and leaves other rules alone', async () => {
+    const proc = fakeSbxProcess({ 'sbx policy ls': { stdout: 'allow network localhost:5432\nallow network host.docker.internal:5432\nallow network github.com:443\n' } });
+    await createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] }).stop!();
+    expect(proc.calls.map((c) => c.args.join(' ')).slice(2)).toEqual([`policy rm network --sandbox ${NAME} --resource localhost:5432,host.docker.internal:5432 --force`]);
+  });
+
+  it('stop never throws when the rule removal fails', async () => {
+    const proc = fakeSbxProcess({ 'sbx policy': { code: 1, stderr: 'x' } });
+    await expect(createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] }).stop!()).resolves.toBeUndefined();
   });
 });
 

@@ -137,7 +137,7 @@ export async function provisionTicketSandbox(deps: TicketSetupDeps, ticketId: nu
     if (!stateFile) return { ok: true }; // no bridge dir: nowhere outside the mount to record, so no step
     const result = await ensureSandboxSetup(
       {
-        runGate, stateFile, ...(window ? { window } : {}), ...(i === 0 && paths ? { logFile: paths.setupLogFile } : {}),
+        runGate, stateFile, ...(window ? { window } : {}), onCloseFailed: (m: string) => { void deps.notify.error(`Karst: ${deps.ticketLabel(ticketId)} sandbox setup network window did not close, a setup host may stay open to the agent: ${m}`); }, ...(i === 0 && paths ? { logFile: paths.setupLogFile } : {}),
         ...(deps.now ? { now: deps.now } : {}), ...(deps.sleep ? { sleep: deps.sleep } : {}), ...(deps.killContextOf?.(ticketId) ? { killContext: deps.killContextOf(ticketId)! } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
       },
       { key: `${ticketId}:${job.name}`, setup: job.setup, hosts: job.hosts, cwd: job.cwd, ...(opts.signal ? { signal: opts.signal } : {}) },

@@ -19,10 +19,10 @@ export const SETUP_HOST_PORT = 443;
 
 const HOST = /^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
 
-/** Why `host` is not a usable setup host, or undefined. The host alias is the baseline's, never a window. */
+/** Why `host` is not a usable setup host, or undefined. The host names (`localhost`, the host alias) are the baseline's, never a window. */
 export function setupHostError(host: string): string | undefined {
   if (host.length > 253 || !HOST.test(host)) return `"${host}" is not a host name or *.suffix`;
-  if (host === 'host.docker.internal') return 'must not be the host alias (baseline ports only)';
+  if (host.toLowerCase() === 'localhost' || host === 'host.docker.internal') return 'must not be the host (baseline ports only)';
   return undefined;
 }
 
