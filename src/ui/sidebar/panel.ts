@@ -45,7 +45,7 @@ export interface SidebarViewOptions {
   debug?: (message: string) => void;
   /** Millisecond clock; defaults to `performance.now`. */
   now?: () => number;
-  /** Files in a planning session's artifacts dir (the Open artifacts action shows when > 0). */
+  /** 1 when a planning session's artifacts dir holds a file (the Open artifacts action shows when > 0). */
   planningArtifactCount?: (sessionId: number) => number;
 }
 

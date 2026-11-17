@@ -1,30 +1,24 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** The deepest sub-directory level the count enters. */
-const MAX_DEPTH = 4;
-
-/** The count stops here: the sidebar needs "none" or "some", not an exact total. */
-const MAX_COUNT = 1000;
+/** The deepest sub-directory level the scan enters. */
+const MAX_DEPTH = 2;
 
 /**
- * How many files a planning session's artifacts dir holds (sub-directories are
- * entered, bounded). 0 when the dir is missing or unreadable. A sync read: the
- * sidebar calls it at state build, and the dir is small.
+ * Whether a planning session's artifacts dir holds at least one file (sub-dirs
+ * are entered, bounded). False when the dir is missing or unreadable. The scan
+ * stops at the first file, so a dir with files costs one `readdir`: the sidebar
+ * calls this at every state build, once per session.
  */
-export function countArtifactFiles(dir: string, depth = 0): number {
+export function hasArtifactFiles(dir: string, depth = 0): boolean {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     // A missing dir is the normal "no artifacts yet" state, not an error.
-    return 0;
+    return false;
   }
-  let count = 0;
-  for (const e of entries) {
-    if (count >= MAX_COUNT) break;
-    if (e.isFile()) count += 1;
-    else if (e.isDirectory() && depth < MAX_DEPTH) count += countArtifactFiles(join(dir, e.name), depth + 1);
-  }
-  return count;
+  if (entries.some((e) => e.isFile())) return true;
+  if (depth >= MAX_DEPTH) return false;
+  return entries.some((e) => e.isDirectory() && hasArtifactFiles(join(dir, e.name), depth + 1));
 }

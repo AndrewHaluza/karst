@@ -211,7 +211,7 @@ export interface PlanningRow {
   title: string;
   status: PlanningStatus;
   ticketCount: number;
-  /** Files in the session's artifacts dir (0 when missing); 0 hides the Open artifacts action. */
+  /** 1 when the session's artifacts dir holds a file, else 0; 0 hides the Open artifacts action. Not live: it updates on the next state build. */
   artifacts: number;
   live: boolean;
   agent: { provider: string; model: string | null };
@@ -425,7 +425,7 @@ export function buildSidebarState(
     artifactCount?: (ticketId: number) => number;
     /** Whether this window holds a live terminal for a planning session. */
     planningLive?: (sessionId: number) => boolean;
-    /** Files in a planning session's artifacts dir. Absent → 0. */
+    /** 1 when a planning session's artifacts dir holds a file, else 0. Absent → 0. */
     planningArtifactCount?: (sessionId: number) => number;
   },
   pathContext?: PathContext,

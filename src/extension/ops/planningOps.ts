@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { countArtifactFiles } from '../../planning/artifactFiles.js';
+import { hasArtifactFiles } from '../../planning/artifactFiles.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
@@ -166,7 +166,7 @@ export interface PlanningOps {
   adopt(terminals: readonly PlanningTerminalCandidate[]): void;
   list(): PlanningListItem[];
   isLive(id: number): boolean;
-  /** Files in the session's artifacts dir; 0 when missing or the session is unknown. */
+  /** 1 when the session's artifacts dir holds a file, else 0 (the scan stops at the first file). */
   artifactCount(id: number): number;
   /** Opens the session's artifacts dir in the OS file manager. The path comes from the session id, never from the caller. */
   openArtifacts(id: number): Promise<void>;
@@ -384,7 +384,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     },
 
     artifactCount(id) {
-      return countArtifactFiles(planningArtifactsDir(deps.scratchDir(id)));
+      return hasArtifactFiles(planningArtifactsDir(deps.scratchDir(id))) ? 1 : 0;
     },
 
     async openArtifacts(id) {
@@ -394,12 +394,16 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         return;
       }
       const dir = planningArtifactsDir(deps.scratchDir(id));
-      if (countArtifactFiles(dir) === 0) {
+      if (!hasArtifactFiles(dir)) {
         debug(`artifacts ${id} blocked: empty`);
         deps.notify.info(`Karst: ${formatId('plan', id)} has no artifacts yet.`);
         return;
       }
-      if (!deps.openPath) return;
+      if (!deps.openPath) {
+        debug(`artifacts ${id} blocked: no opener`);
+        deps.notify.warn('Karst: this host cannot open a folder.');
+        return;
+      }
       try {
         await deps.openPath(dir);
         debug(`artifacts ${id} opened`);
