@@ -1,5 +1,5 @@
 // `npm run -s uat:host:serve -- --port <n>` (arch:UATHOST-08): one live UAT host container per worktree.
-// Attached `docker run -i`: stdin EOF (or this process ending) stops the container, because killTree sends SIGKILL.
+// Attached `docker run -i`: this process ending closes the container's stdin and stops it (killTree sends SIGKILL).
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -71,7 +71,10 @@ const argv = serveDockerArgs({
 });
 const child = spawn('docker', argv, { stdio: ['pipe', 'inherit', 'inherit'] });
 child.stdin.on('error', () => { /* container already gone */ });
-process.stdin.pipe(child.stdin); // our stdin EOF becomes the container's stdin EOF
+// Hold the container's stdin open ourselves. Never forward our own stdin: karst
+// starts a service with stdin closed, and that EOF would stop the host at once.
+// When this process ends (signal, crash or SIGKILL), the OS closes the pipe and
+// the container sees EOF and stops.
 
 let removed = false;
 function removeOwn() {
