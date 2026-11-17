@@ -37,12 +37,6 @@ export function hostPortResources(ports: readonly number[]): string[] {
   return ports.flatMap((p) => [`${PROXY_HOST_NAME}:${checkPort(p)}`, `${SANDBOX_HOST_ALIAS}:${checkPort(p)}`]);
 }
 
-/** True for a `localhost:<port>` or `host.docker.internal:<port>` resource: a baseline rule, not a setup host. */
-export const isHostPortResource = (resource: string): boolean => resource.startsWith(`${PROXY_HOST_NAME}:`) || resource.startsWith(`${SANDBOX_HOST_ALIAS}:`);
-
-/** Remove exactly these resources of one sandbox. */
-export const sbxRmResourcesArgs = (name: string, resources: readonly string[]): string[] => policyArgs('rm', name, resources);
-
 /** `sbx policy rm network` takes no positional resource: removal is `--resource <list>`, `--force` skips the prompt. */
 function policyArgs(verb: 'allow' | 'rm', name: string, resources: readonly string[]): string[] {
   const list = resources.join(',');

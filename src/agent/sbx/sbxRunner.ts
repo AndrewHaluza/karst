@@ -29,7 +29,7 @@ import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { limitEnvArgs, wrapWithHeap } from './sbxLimits.js';
-import { isPortTakenError, parseSbxPorts, isHostPortResource, parseSbxAllowed, sbxHostPolicyArgs, sbxRmResourcesArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
+import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
 export { SBX_CORES, type SbxCore } from '../sandboxCores.js';
 import type { SbxCore } from '../sandboxCores.js';
@@ -387,14 +387,10 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       if (diff.code !== 0) return { ok: false, reason: `git diff failed: ${diff.stderr.trim()}` };
       return { ok: true, diff: diff.stdout, ref: head.sha };
     },
-    // Stopped, not removed: `sbx run --name` restarts it on the next open.
-    // The baseline host rules end with the session (best effort: the next reattach allows them again).
+    // Stopped, not removed: `sbx run --name` restarts it on the next open. The baseline host rules stay: gates and
+    // services exec into a stopped sandbox, and only a reattach allows them again.
     stop: async (): Promise<void> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
-      const listing = await sbx(['policy', 'ls', 'network', '--sandbox', opts.name]);
-      if (listing.code !== 0) return;
-      const rules = [...parseSbxAllowed(listing.stdout)].filter(isHostPortResource);
-      if (rules.length > 0) await sbx(sbxRmResourcesArgs(opts.name, rules));
     },
     dispose: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
