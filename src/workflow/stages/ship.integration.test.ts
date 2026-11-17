@@ -1349,6 +1349,61 @@ setTimeout(() => {
     expect(ship?.verdict).toContain('unable to access remote');
   });
 
+  // T1201: a network timeout from `gh pr create` rejected out of the pr step and
+  // left the step `running`, so "Retry ship" found no failed step.
+  describe('when gh pr create rejects with a non-store error', () => {
+    const timeout = 'dial tcp 140.82.121.6:443: i/o timeout';
+    const rejectingGit: GitRunner = async (args) =>
+      args[0] === 'diff'
+        ? { stdout: '', stderr: '', exitCode: 1 }
+        : { stdout: '', stderr: '', exitCode: 0 };
+    const timingOutGh: GhRunner = async (args) => {
+      if (args[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
+      if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+      throw new Error(timeout);
+    };
+
+    async function failFirstRun(): Promise<void> {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      await expect(
+        shipTicket(store, { ticketId: id }, timingOutGh, fakeAdapter(), rejectingGit),
+      ).rejects.toThrow(/i\/o timeout/);
+    }
+
+    it('closes the open pr step as failed, keeps the intent prepared and fails the run', async () => {
+      await failFirstRun();
+      const ev = listShipEvidence(store, id);
+      expect(ev.run?.status).toBe('failed');
+      const step = ev.repos['/repo/frontend']?.steps.pr;
+      expect(step?.status).toBe('failed');
+      expect(step?.detail).toContain('i/o timeout');
+      expect(step?.endedAt).not.toBeNull();
+      expect(ev.repos['/repo/frontend']?.intents.pr?.status).toBe('prepared');
+      const raw = store.db
+        .prepare(`SELECT COUNT(*) AS n FROM ship_repo_steps WHERE status = 'running'`)
+        .get() as { n: number };
+      expect(raw.n).toBe(0);
+    });
+
+    it('adopts the PR on retry when the timed-out create had landed', async () => {
+      await failFirstRun();
+      const URL = 'https://github.com/o/r/pull/18';
+      const { gh } = ghWithExistingPr(URL);
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), rejectingGit);
+      const prs = listPrsByTicket(store, id);
+      expect(prs).toHaveLength(1);
+      expect(prs[0]?.url).toBe(URL);
+    });
+
+    it('creates the PR on retry when none exists upstream', async () => {
+      await failFirstRun();
+      const fake = fakeGh();
+      await shipTicket(store, { ticketId: id }, fake.gh, fakeAdapter(), rejectingGit);
+      expect(fake.calls).toBe(1);
+      expect(listPrsByTicket(store, id)).toHaveLength(1);
+    });
+  });
+
   // Defect 1: a push failure in ONE repo used to `throw` out of the whole
   // `for (const wt of worktrees)` loop, so every repo after the failing one
   // never got committed/pushed/PR'd — a 4-repo ticket with 2 changed repos

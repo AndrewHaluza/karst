@@ -77,6 +77,7 @@ import {
   finalizeShipOperationIntent,
   finishShipRepoStep,
   listShipEvidence,
+  failRunningShipRepoSteps,
   markShipOperationApplied,
   openShipRepoStep,
   openShipRun,
@@ -1931,6 +1932,11 @@ export async function shipTicket(
         // reconcileShipOperation) already ran at the throw site above; this
         // catch only stops the failure from aborting the repos that follow.
         const message = err instanceof Error ? err.message : String(err);
+        // A throw between opening a step and finishing it (a `gh pr create`
+        // network timeout) leaves that step `running`; close it as failed so
+        // "Retry ship" finds it. The intent stays `prepared` on purpose: the
+        // outcome is unknown and the next run's reconcile probes GitHub.
+        failRunningShipRepoSteps(store, run.id, wt.repo, boundedFailure(message), nowIso());
         repoFailures.push({ repo: wt.repo, message });
       }
     }

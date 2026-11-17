@@ -501,6 +501,29 @@ export function finishShipRepoStep(store: Store, stepId: number, input: FinishSh
     );
 }
 
+/**
+ * Close every step of one run and repo that still reads `running` as `failed`.
+ * A throw between `openShipRepoStep` and its finish leaves such a step behind;
+ * the per-repo catch in ship calls this so a retry finds a failed step. The
+ * operation intents are not touched: an unknown outcome stays `prepared` for
+ * the next run's reconcile probe.
+ */
+export function failRunningShipRepoSteps(
+  store: Store,
+  shipRunId: number,
+  repo: string,
+  detail: string,
+  endedAt: string,
+): void {
+  store.db
+    .prepare(
+      `UPDATE ship_repo_steps
+          SET status = 'failed', detail = ?, ended_at = ?
+        WHERE ship_run_id = ? AND repo = ? AND status = 'running'`,
+    )
+    .run(detail, endedAt, shipRunId, repo);
+}
+
 export interface RecordShipCommitInput {
   shipRunId: number;
   repo: string;
@@ -934,7 +957,19 @@ export function listShipEvidence(store: Store, ticketId: number): ShipEvidence {
       .map((r) => rowToShipCommit(r as ShipCommitRowShape));
 
     const intentKeys = new Set(intents.map((i) => `${i.repo}:${i.step}`));
-    for (const s of steps) {
+    // A step still `running` in a run that is no longer `running` was cut off
+    // (a throw, a dead host): read it as failed so retry and the Inside view
+    // agree. Old rows need no migration.
+    const runClosed = runId !== run.id
+      ? (store.db.prepare('SELECT status FROM ship_runs WHERE id = ?').get(runId) as
+          | { status: ShipRunStatus }
+          | undefined)?.status !== 'running'
+      : run.status !== 'running';
+    for (const raw of steps) {
+      const s: ShipRepoStep =
+        runClosed && raw.status === 'running'
+          ? { ...raw, status: 'failed', detail: 'interrupted' }
+          : raw;
       const e = repoEv(s.repo);
       const evidence: ShipRepoStepEvidence = {
         ...s,

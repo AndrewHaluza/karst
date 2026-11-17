@@ -1050,6 +1050,20 @@ describe('dispatchInsideAction', () => {
       expect(planRetryShip(store, 1)).toEqual({ reason: 'no failed ship step to retry' });
     });
 
+    it('offers a repo whose pr step still reads running in a closed failed run', () => {
+      store.db.prepare(`UPDATE tickets SET stage_current = 'ship' WHERE id = 1`).run();
+      const run = openShipRun(store, { ticketId: 1, attempt: 1, startedAt: '2026-08-08T10:00:00.000Z' });
+      openShipRepoStep(store, {
+        shipRunId: run.id,
+        repo: '/web',
+        step: 'pr',
+        detail: 'title',
+        startedAt: '2026-08-08T10:00:00.000Z',
+      });
+      store.db.prepare(`UPDATE ship_runs SET status = 'failed' WHERE id = ?`).run(run.id);
+      expect(planRetryShip(store, 1)).toEqual({ repos: ['/web'] });
+    });
+
     it('returns every repo whose step failed', () => {
       store.db.prepare(`UPDATE tickets SET stage_current = 'ship' WHERE id = 1`).run();
       failedStep('/web');
