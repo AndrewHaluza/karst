@@ -97,7 +97,9 @@ export function globStaticDir(glob: string): string {
 }
 
 /** The ticket's changed paths, or null when git cannot say (the check then stays silent). */
-async function changedPaths(input: EvidenceCheckInput): Promise<string[] | null> {
+export async function changedPaths(
+  input: Pick<EvidenceCheckInput, 'baseRef' | 'branch' | 'worktreePath' | 'git'>,
+): Promise<string[] | null> {
   const head = input.branch ?? 'HEAD';
   const bases = input.baseRef ? [`origin/${input.baseRef}`, input.baseRef] : [];
   for (const base of bases) {
@@ -107,6 +109,12 @@ async function changedPaths(input: EvidenceCheckInput): Promise<string[] | null>
     }
   }
   return null;
+}
+
+/** The first changed non-test path that one of the globs matches. */
+export function firstTriggerPath(changed: readonly string[], globs: readonly string[]): string | undefined {
+  const triggers = globs.map(globToRegExp);
+  return changed.find((p) => !TEST_FILE.test(p) && triggers.some((re) => re.test(p)));
 }
 
 type FirstStep = 'passed' | 'failed' | 'unreadable';
@@ -136,8 +144,7 @@ async function decide(input: EvidenceCheckInput): Promise<EvidenceCheck> {
   if (rule === undefined) return { kind: 'not-required' };
   const changed = await changedPaths(input);
   if (changed === null) return { kind: 'not-required' };
-  const triggers = rule.whenChanged.map(globToRegExp);
-  const trigger = changed.find((p) => !TEST_FILE.test(p) && triggers.some((re) => re.test(p)));
+  const trigger = firstTriggerPath(changed, rule.whenChanged);
   if (trigger === undefined) return { kind: 'not-required' };
   const fs = input.fs ?? defaultEvidenceFs;
   const pattern = globToRegExp(rule.file);

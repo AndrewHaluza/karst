@@ -8,6 +8,7 @@ import type {
   UatBaselineReviewConfig,
   UatConfig,
   UatGateDef,
+  UatHarnessDef,
   UatRepositoryOverride,
   UatTesterConfig,
   UatTesterObservationsConfig,
@@ -261,6 +262,71 @@ function validateRequireEvidence(raw: unknown): UatTesterRequireEvidence | undef
   return { file, whenChanged };
 }
 
+/** The scratch directory every harness evidence glob lives under (@arch:UAT-HARNESS). */
+export const HARNESS_EVIDENCE_ROOT = '.karst/uat-scratch/out';
+const HARNESS_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+function harnessCommand(value: unknown, path: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ManifestError(`${path} must be a non-empty string`);
+  }
+  return value;
+}
+
+function validateHarness(raw: unknown, index: number): UatHarnessDef {
+  const base = `uat.harnesses[${index}]`;
+  if (!isObject(raw)) throw new ManifestError(`${base} must be a mapping`);
+  if (typeof raw.name !== 'string' || !HARNESS_NAME.test(raw.name)) {
+    throw new ManifestError(`${base}.name must match ${HARNESS_NAME.source}`);
+  }
+  const name = raw.name;
+  if (!Array.isArray(raw.whenChanged) || raw.whenChanged.length === 0) {
+    throw new ManifestError(`${base}.whenChanged must be a non-empty list of globs`);
+  }
+  const whenChanged = raw.whenChanged.map((g, i) => validateRelativeGlob(g, `${base}.whenChanged[${i}]`));
+  const evidence = validateRelativeGlob(raw.evidence, `${base}.evidence`);
+  const prefix = `${HARNESS_EVIDENCE_ROOT}/${name}/`;
+  if (!evidence.startsWith(prefix)) {
+    throw new ManifestError(`${base}.evidence must start with "${prefix}"`);
+  }
+  const def: UatHarnessDef = {
+    name,
+    whenChanged,
+    start: harnessCommand(raw.start, `${base}.start`),
+    stop: harnessCommand(raw.stop, `${base}.stop`),
+    evidence,
+  };
+  if (raw.startTimeoutSeconds !== undefined) {
+    if (
+      typeof raw.startTimeoutSeconds !== 'number' ||
+      !Number.isInteger(raw.startTimeoutSeconds) ||
+      raw.startTimeoutSeconds < 1
+    ) {
+      throw new ManifestError(`${base}.startTimeoutSeconds must be a whole number >= 1`);
+    }
+    def.startTimeoutSeconds = raw.startTimeoutSeconds;
+  }
+  if (raw.description !== undefined) {
+    if (typeof raw.description !== 'string' || raw.description.includes('\n')) {
+      throw new ManifestError(`${base}.description must be a one-line string`);
+    }
+    if (raw.description.trim() !== '') def.description = raw.description.trim();
+  }
+  return def;
+}
+
+function validateHarnesses(raw: unknown): UatHarnessDef[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) throw new ManifestError('uat.harnesses must be a list');
+  const harnesses = raw.map(validateHarness);
+  const seen = new Set<string>();
+  for (const h of harnesses) {
+    if (seen.has(h.name)) throw new ManifestError(`uat.harnesses name "${h.name}" is used twice`);
+    seen.add(h.name);
+  }
+  return harnesses.length === 0 ? undefined : harnesses;
+}
+
 type OnSkipValue = NonNullable<UatTesterObservationsConfig['onSkip']>;
 const ON_SKIP_VALUES: readonly OnSkipValue[] = ['pass', 'reask', 'reask-then-park'];
 
@@ -399,6 +465,8 @@ export function validateUat(raw: unknown): UatConfig | undefined {
   if (tester !== undefined) config.tester = tester;
   const baselineReview = validateBaselineReview(raw.baselineReview);
   if (baselineReview !== undefined) config.baselineReview = baselineReview;
+  const harnesses = validateHarnesses(raw.harnesses);
+  if (harnesses !== undefined) config.harnesses = harnesses;
   const authBootstrap = validateAuthBootstrap(raw.authBootstrap);
   if (authBootstrap !== undefined) config.authBootstrap = authBootstrap;
   const author = validateAuthor(raw.author);

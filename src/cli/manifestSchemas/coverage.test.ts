@@ -40,6 +40,7 @@ import type {
   UatBaselineReviewConfig,
   UatConfig,
   UatGateDef,
+  UatHarnessDef,
   UatRepositoryOverride,
   UatTesterConfig,
   UatTesterObservationsConfig,
@@ -113,11 +114,15 @@ const UAT_GATE: Keys<UatGateDef> = { ...GATE, report: true };
 const UAT: Keys<UatConfig> = {
   testDir: true, maxFixAttempts: true, stallTimeoutMinutes: true, gates: true, probeWhenAllDisabled: true,
   keepStackForUser: true, testerVerifier: true, testerObservations: true, tester: true, baselineReview: true,
+  harnesses: true,
   env: true, secrets: true, passthrough: true, origins: true, authBootstrap: true, author: true, repositories: true,
 };
 const OBSERVATIONS: Keys<UatTesterObservationsConfig> = { blockingSeverity: true, onSkip: true, requireEvidence: true };
 const EVIDENCE: Keys<UatTesterRequireEvidence> = { file: true, whenChanged: true };
 const TESTER: Keys<UatTesterConfig> = { tokenBudget: true };
+const HARNESS: Keys<UatHarnessDef> = {
+  name: true, whenChanged: true, start: true, stop: true, evidence: true, startTimeoutSeconds: true, description: true,
+};
 const BASELINE_REVIEW: Keys<UatBaselineReviewConfig> = { paths: true };
 const AUTH_BOOTSTRAP: Keys<UatAuthBootstrap> = { path: true, secrets: true };
 const AUTHOR: Keys<UatAuthor> = { agent: true, enabled: true };
@@ -187,6 +192,7 @@ const NODES: readonly Node[] = [
   { name: 'UatTesterRequireEvidence', section: 'quality', path: 'uat.testerObservations.requireEvidence', keys: Object.keys(EVIDENCE) },
   { name: 'UatTesterConfig', section: 'quality', path: 'uat.tester', keys: Object.keys(TESTER) },
   { name: 'UatBaselineReviewConfig', section: 'quality', path: 'uat.baselineReview', keys: Object.keys(BASELINE_REVIEW) },
+  { name: 'UatHarnessDef', section: 'quality', path: 'uat.harnesses.*', keys: Object.keys(HARNESS) },
   { name: 'UatAuthBootstrap', section: 'quality', path: 'uat.authBootstrap', keys: Object.keys(AUTH_BOOTSTRAP) },
   { name: 'UatAuthor', section: 'quality', path: 'uat.author', keys: Object.keys(AUTHOR) },
   { name: 'UatRepositoryOverride', section: 'quality', path: 'uat.repositories.*', keys: Object.keys(UAT_REPOSITORY) },

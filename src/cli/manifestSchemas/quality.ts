@@ -40,6 +40,19 @@ const KEY_LIST = arrayOf(TRIMMED_STRING);
 const SEVERITY = enumOf(BLOCKING_SEVERITIES);
 const GATES = arrayOf(ref('gate'));
 
+const HARNESS = lenientObject(
+  {
+    name: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' },
+    whenChanged: arrayOf(TRIMMED_PATH, { minItems: 1 }),
+    start: TRIMMED_STRING,
+    stop: TRIMMED_STRING,
+    evidence: TRIMMED_PATH,
+    startTimeoutSeconds: integer(1),
+    description: STRING,
+  },
+  ['name', 'whenChanged', 'start', 'stop', 'evidence'],
+);
+
 const UAT = lenientObject({
   testDir: STRING,
   maxFixAttempts: integer(1),
@@ -58,6 +71,7 @@ const UAT = lenientObject({
   }),
   tester: lenientObject({ tokenBudget: integer(1) }),
   baselineReview: lenientObject({ paths: arrayOf(TRIMMED_PATH) }),
+  harnesses: arrayOf(HARNESS),
   env: stringMap(),
   secrets: KEY_LIST,
   passthrough: KEY_LIST,

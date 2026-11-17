@@ -597,6 +597,58 @@ ${block === null ? '' : block}`;
     });
   });
 
+  describe('uat.harnesses', () => {
+    const read = (block: string) => {
+      const { path, cleanup } = fixture(`${VALID}
+uat:
+  maxFixAttempts: 2
+${block}`);
+      try {
+        return loadManifest(path).uat?.harnesses;
+      } finally {
+        cleanup();
+      }
+    };
+    const entry = (extra = '', over: Record<string, string> = {}) => {
+      const f = { name: 'sbx', evidence: "'.karst/uat-scratch/out/sbx/**/summary.json'", ...over };
+      return `  harnesses:
+    - name: ${f.name}
+      whenChanged: ['src/sbx/**']
+      start: ./start.sh
+      stop: ./stop.sh
+      evidence: ${f.evidence}
+${extra}`;
+    };
+
+    it('reads a valid harness', () => {
+      expect(read(entry('      startTimeoutSeconds: 30\n      description: a real sandbox\n'))).toEqual([
+        {
+          name: 'sbx',
+          whenChanged: ['src/sbx/**'],
+          start: './start.sh',
+          stop: './stop.sh',
+          evidence: '.karst/uat-scratch/out/sbx/**/summary.json',
+          startTimeoutSeconds: 30,
+          description: 'a real sandbox',
+        },
+      ]);
+    });
+    it('is absent when omitted or empty', () => {
+      expect(read('  harnesses: []\n')).toBeUndefined();
+      expect(read('  testDir: x\n')).toBeUndefined();
+    });
+    it.each([
+      ['a non-list', '  harnesses: yes\n', 'uat.harnesses must be a list'],
+      ['a bad name', entry('', { name: '../x' }), 'harnesses[0].name must match'],
+      ['evidence outside the harness folder', entry('', { evidence: "'.karst/uat-scratch/out/other/**'" }), 'evidence must start with ".karst/uat-scratch/out/sbx/"'],
+      ['a bad timeout', entry('      startTimeoutSeconds: 0\n'), 'startTimeoutSeconds must be a whole number >= 1'],
+      ['a missing start', entry().replace('      start: ./start.sh\n', ''), 'harnesses[0].start must be a non-empty string'],
+      ['a duplicate name', entry() + entry().replace('  harnesses:\n', ''), 'used twice'],
+    ])('rejects %s', (_n, block, message) => {
+      expect(() => read(block)).toThrow(message);
+    });
+  });
+
   it('defaults uat.testerObservations.blockingSeverity to none', () => {
     const yaml = `${VALID}
 uat:

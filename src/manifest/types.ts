@@ -717,6 +717,12 @@ export interface UatConfig {
    * which the validator drops — means the feature is off.
    */
   baselineReview?: UatBaselineReviewConfig;
+  /**
+   * @arch:UAT-HARNESS — live runtimes outside the UAT host. The host starts each
+   * entry whose `whenChanged` matches a non-test path of the ticket diff, before
+   * the Tester, and stops it in the UAT `finally`. Absent or empty → no harness.
+   */
+  harnesses?: UatHarnessDef[];
   env: Record<string, string>;
   secrets: string[];
   passthrough: string[];
@@ -767,6 +773,22 @@ export interface UatTesterObservationsConfig {
    * is newer than the run start. Absent → no check (today's behavior).
    */
   requireEvidence?: UatTesterRequireEvidence;
+}
+
+/** One `uat.harnesses[]` entry (@arch:UAT-HARNESS). */
+export interface UatHarnessDef {
+  name: string;
+  /** Repo-relative globs of the ticket diff that start this harness. */
+  whenChanged: string[];
+  /** Shell command; gets `KARST_TICKET_ID` and `KARST_HARNESS_NAME`; prints one `{"env":{...}}` JSON line. */
+  start: string;
+  /** Shell command; same env as `start`; runs on every exit path. */
+  stop: string;
+  /** Worktree-relative glob under `.karst/uat-scratch/out/<name>/` of the evidence the Tester must leave. */
+  evidence: string;
+  startTimeoutSeconds?: number;
+  /** One line for the Tester. */
+  description?: string;
 }
 
 /** `uat.testerObservations.requireEvidence`: the evidence glob and the diff globs that demand it. */
