@@ -40,13 +40,24 @@ export interface RenderedSidebar {
 
 let sharedRealm: RenderHandle | null = null;
 
-/** Boot (or reboot) the page in the shared realm and wait for its first commit. */
-async function currentRealm(): Promise<RenderHandle> {
+/** The realm's own `Date.now`, kept so a test that pins the clock can hand it back. */
+let realmDateNow: (() => number) | null = null;
+
+/**
+ * Boot (or reboot) the page in the shared realm and wait for its first commit.
+ * `nowMs` pins the page's clock for this mount (an age such as `for 319d` then
+ * does not change with the day the test runs); omitted, the page reads real time.
+ */
+async function currentRealm(nowMs?: number): Promise<RenderHandle> {
   if (!sharedRealm) {
     sharedRealm = await renderWebviewReady('sidebar', { nonce: 'fixture-nonce-000000000000' });
-    return sharedRealm;
+    realmDateNow = sharedRealm.window.Date.now;
+    // A pinned clock needs the page to boot again, since the app reads the time when it mounts.
+    if (nowMs === undefined) return sharedRealm;
   }
   sharedRealm.resetRealm();
+  const pinned = nowMs;
+  sharedRealm.window.Date.now = pinned === undefined ? (realmDateNow as () => number) : () => pinned;
   // The previous page's toast live region and edge stamp live outside #root.
   sharedRealm.document.getElementById('k-toast-root')?.remove();
   sharedRealm.document.documentElement.removeAttribute('data-edge');
@@ -63,8 +74,8 @@ export function closeSidebarRealm(): void {
   sharedRealm = null;
 }
 
-export async function renderSidebarApp(): Promise<RenderedSidebar> {
-  const handle = await currentRealm();
+export async function renderSidebarApp(opts?: { nowMs?: number }): Promise<RenderedSidebar> {
+  const handle = await currentRealm(opts?.nowMs);
   const posted = handle.posted as readonly Outbound[];
   const settle = async (): Promise<void> => {
     // React commits through the realm's zero-delay timers, so pump until none is
