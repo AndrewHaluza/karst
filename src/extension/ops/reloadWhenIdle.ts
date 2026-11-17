@@ -29,7 +29,7 @@ export function countLiveRuns(store: Store, hostPid: number, extra = 0, trackedD
   };
   const marks = trackedDeliverTickets.map(() => '?').join(', ');
   const deliver = store.db
-    .prepare(`SELECT COUNT(*) AS n FROM deliver_runs WHERE state = 'running' AND pid = ?${marks === '' ? '' : ` AND ticket_id NOT IN (${marks})`}`)
+    .prepare(`SELECT COUNT(*) AS n FROM deliver_runs WHERE state = 'running' AND pid = ? AND ticket_id NOT IN (${marks})`)
     .get(hostPid, ...trackedDeliverTickets) as { n: number };
   const ship = store.db
     .prepare("SELECT COUNT(*) AS n FROM ship_runs WHERE status = 'running' AND pid = ?")
