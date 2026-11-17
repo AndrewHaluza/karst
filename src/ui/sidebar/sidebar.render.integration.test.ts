@@ -59,7 +59,7 @@ describe('sidebar render', () => {
       });
 
       it('snapshot (was: full document render)', async () => {
-        const h = await renderSidebarApp();
+        const h = await renderSidebarApp({ nowMs: FIXTURE_NOW.getTime() });
         await h.receive({ type: 'state', state: fixture.state });
         // The app's mount point: the document around it is the injected design
         // system, whose bytes are pinned by their own tests, not by this snapshot.

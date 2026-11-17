@@ -67,6 +67,14 @@ export function ServiceFields({
     onDef(valid ? { ...next, healthTimeoutSeconds: parsed } : next);
   };
 
+  // On = `sandbox: host`; off removes the key (absent = inside). An `inside`
+  // value shows as off and stays in the yml until the user turns the box on and off.
+  const setSandboxHost = (checked: boolean): void => {
+    const next: ServiceDef = { ...def };
+    delete next.sandbox;
+    onDef(checked ? { ...next, sandbox: 'host' } : next);
+  };
+
   return (
     <>
       <Field
@@ -157,6 +165,17 @@ export function ServiceFields({
           value: timeoutText,
           placeholder: '30',
           onChange: setHealthTimeout,
+        }}
+      />
+
+      <Field
+        label="Run on the host for a sandboxed ticket"
+        help="On, a sandboxed ticket starts this service on the host from its host worktree, not inside the sandbox. Code that the agent wrote then runs on the host. Use it for a Docker service of a sandboxed ticket. A service and the services it depends on must have the same setting. A host ticket ignores it."
+        control={{
+          kind: 'checkbox',
+          name: `f-svc-sandbox-host-${scope}`,
+          checked: def.sandbox === 'host',
+          onChange: setSandboxHost,
         }}
       />
 

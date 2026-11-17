@@ -39,7 +39,7 @@ export interface StartResolvedServiceArgs {
   signal?: AbortSignal;
   onReclaim?: (pid: number) => void;
   debug?: (message: string) => void;
-  /** Present → the service starts inside the ticket's sandbox, never on the host. */
+  /** Present → the service starts inside the ticket's sandbox, unless it declares `sandbox: host` (then on the host, arch:AC-36). */
   sandbox?: SandboxServiceContext;
 }
 
@@ -77,9 +77,15 @@ export async function startResolvedService(args: StartResolvedServiceArgs): Prom
   const httpSlot = service.ports.find((p) => p.name === 'http') ?? service.ports[0]!;
   const ownPort = resolvedSvc.ports[httpSlot.name]!;
   const healthTimeoutMs = healthTimeoutMsOf(service);
-  if (args.sandbox) {
+  const hostPlaced = service.sandbox === 'host';
+  if (args.sandbox && hostPlaced) {
+    args.debug?.(`[runtime] ticket ${args.ticketId}: ${args.name} declares sandbox: host — starting on the host`);
+  }
+  if (args.sandbox && !hostPlaced) {
     if (service.docker) {
-      throw new SandboxServiceError(`${args.name}: a docker-image service cannot run inside a sandbox (arch:AC-32)`);
+      throw new SandboxServiceError(
+        `${args.name}: a docker-image service cannot run inside a sandbox (arch:AC-32); declare \`sandbox: host\` on the service to run it on the host`,
+      );
     }
     const { command, args: cmdArgs } = serviceLaunch({
       service, name: args.name, ticketId: args.ticketId, env: spawnEnv, host: args.manifest.host, port: ownPort, cwd,

@@ -112,6 +112,13 @@ export interface ServiceDef {
    * that is slow to become ready, for example an image that builds on first start.
    */
   healthTimeoutSeconds?: number;
+  /**
+   * Where a SANDBOXED ticket runs this service; absent = `inside` (arch:AC-36).
+   * `host` starts it on the host from the ticket's host worktree (synced from the
+   * sandbox before each driver step), the way a host ticket does. A host ticket
+   * ignores it. A `dependsOn` edge must not cross placement.
+   */
+  sandbox?: 'host' | 'inside';
   ports: PortSlot[]; // validated non-empty — a service without a port cannot be addressed
   /**
    * Optional per-service allocation window. When present, ticket-hot ports for

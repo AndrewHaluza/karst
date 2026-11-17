@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
-import { HOST_RESET_TIMEOUT_MS, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
+import { HOST_RESET_TIMEOUT_MS, hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
 
 let store: Store;
 beforeEach(() => { store = openStore(':memory:'); });
@@ -34,6 +34,27 @@ describe('hasRunningHostServices', () => {
     insert(7, 'api', 'running', '/wt');
     store.db.prepare("UPDATE servers SET kind = 'other'").run();
     expect(hasRunningHostServices(store, 7)).toBe(false);
+  });
+});
+
+describe('hasRunningHostPlacedServices', () => {
+  const placed = (key: string): boolean => key === 'api';
+  it('is true for a running host row whose key the predicate accepts', () => {
+    insert(7, 'api', 'running', '/wt');
+    expect(hasRunningHostPlacedServices(store, 7, placed)).toBe(true);
+  });
+  it('is false for a sandbox row, a stopped row, a rejected key and another ticket', () => {
+    insert(7, 'api', 'running', '/wt', 'sbx:x:1');
+    expect(hasRunningHostPlacedServices(store, 7, placed)).toBe(false);
+    store.db.prepare('DELETE FROM servers').run();
+    insert(7, 'api', 'stopped', '/wt');
+    expect(hasRunningHostPlacedServices(store, 7, placed)).toBe(false);
+    store.db.prepare('DELETE FROM servers').run();
+    insert(7, 'web', 'running', '/wt');
+    expect(hasRunningHostPlacedServices(store, 7, placed)).toBe(false);
+    store.db.prepare('DELETE FROM servers').run();
+    insert(7, 'api', 'running', '/wt');
+    expect(hasRunningHostPlacedServices(store, 8, placed)).toBe(false);
   });
 });
 

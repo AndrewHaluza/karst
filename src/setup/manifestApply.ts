@@ -199,6 +199,9 @@ function serviceChanged(before: ServiceDef | undefined, after: ServiceDef | unde
   if (before.healthTimeoutSeconds !== after.healthTimeoutSeconds) {
     details.push(`healthTimeoutSeconds: ${before.healthTimeoutSeconds ?? '(default)'} -> ${after.healthTimeoutSeconds ?? '(default)'}`);
   }
+  if (before.sandbox !== after.sandbox) {
+    details.push(`sandbox: ${before.sandbox ?? '(inside)'} -> ${after.sandbox ?? '(inside)'}`);
+  }
   details.push(...dockerChanged(before.docker, after.docker));
   return details;
 }

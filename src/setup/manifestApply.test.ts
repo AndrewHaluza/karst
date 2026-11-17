@@ -170,6 +170,15 @@ describe('diffManifest', () => {
     expect(diff.entries[0]!.details.join()).toMatch(/healthTimeoutSeconds: \(default\) -> 300/);
   });
 
+  it('reports a service sandbox change', () => {
+    const current = manifest({ repositories: { web: repo('/w/web', { service: service('npm run dev') }) } });
+    const proposed = manifest({
+      repositories: { web: repo('/w/web', { service: { ...service('npm run dev'), sandbox: 'host' } }) },
+    });
+    const diff = diffManifest(current, proposed);
+    expect(diff.entries[0]!.details.join()).toMatch(/sandbox: \(inside\) -> host/);
+  });
+
   it('reports added, changed and removed repositories and lists start commands', () => {
     const current = manifest({
       repositories: {

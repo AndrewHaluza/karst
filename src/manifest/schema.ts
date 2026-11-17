@@ -30,7 +30,7 @@ import {
 } from './validate/primitives.js';
 import { validateRepository } from './validate/repository.js';
 import { assertSharedRepoBaselineBranches } from './baselineBranch.js';
-import { validateGraph } from './validate/graph.js';
+import { assertHostPlacedLoopback, validateGraph } from './validate/graph.js';
 import { validateUat } from './validate/uat.js';
 import { validateAnalysis } from './validate/analysis.js';
 import { validateQuota } from './validate/quota.js';
@@ -784,6 +784,7 @@ export function validateManifest(raw: unknown): Manifest {
 
   assertDistinctRepoIds(repositories);
   validateGraph(repositories);
+  assertHostPlacedLoopback(host, repositories);
   assertSharedRepoBaselineBranches(repositories, baselineBranch);
 
   const agents = validateAgents(raw.agents);
