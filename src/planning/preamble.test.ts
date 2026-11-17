@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { repo } from '../manifest/fixtures.js';
-import { historySection, PLANNING_HISTORY_MAX_CHARS, planningInstructions, planningKickoff, planningAddDirs, planningOutboxDir, PLANNING_OUTBOX_ENV } from './preamble.js';
+import { historySection, PLANNING_HISTORY_MAX_CHARS, planningInstructions, planningKickoff, planningAddDirs, planningOutboxDir,
+  planningArtifactsDir,
+  PLANNING_ARTIFACTS_ENV, PLANNING_OUTBOX_ENV } from './preamble.js';
 
 const manifest = {
   baselineBranch: 'main',
@@ -80,6 +82,20 @@ describe('planningOutboxDir', () => {
   it('is the outbox under the scratch dir, exported through KARST_OUTBOX', () => {
     expect(planningOutboxDir('/s/7')).toBe('/s/7/outbox');
     expect(PLANNING_OUTBOX_ENV).toBe('KARST_OUTBOX');
+  });
+});
+
+describe('planningArtifactsDir', () => {
+  it('is the artifacts dir under the scratch dir, exported through KARST_ARTIFACTS', () => {
+    expect(planningArtifactsDir('/s/7')).toBe('/s/7/artifacts');
+    expect(PLANNING_ARTIFACTS_ENV).toBe('KARST_ARTIFACTS');
+  });
+
+  it('names the artifacts dir once, by absolute path, as the only place for session files', () => {
+    const text = planningInstructions({ sessionId: 7, title: 'T', manifest, artifactsDir: '/s/7/artifacts' });
+    expect(text).toContain('$KARST_ARTIFACTS (/s/7/artifacts)');
+    expect(text.match(/\/s\/7\/artifacts/g)).toHaveLength(1);
+    expect(planningInstructions({ sessionId: 7, title: 'T', manifest })).not.toContain('KARST_ARTIFACTS');
   });
 });
 

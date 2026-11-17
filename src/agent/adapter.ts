@@ -236,6 +236,12 @@ export interface InteractiveCommandOpts {
    * native "plan" modes are NOT used — see there for why.
    */
   readOnly?: boolean;
+  /**
+   * With `readOnly`: the one directory the file tools may write (a planning
+   * session's artifacts dir, outside every repo). Cores with a path-scoped
+   * permission mechanism open it; the rest are pinned in `adapterConformance.test.ts`.
+   */
+  writableDir?: string;
   /** Extra directories the session may read beyond `cwd` (a planning session's stack repos). */
   addDirs?: string[];
   /**

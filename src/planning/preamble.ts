@@ -28,6 +28,14 @@ export function isPlanningSessionEnv(
 /** The env var naming the session's outbox, where `draft propose` writes. */
 export const PLANNING_OUTBOX_ENV = 'KARST_OUTBOX';
 
+/** The env var naming the session's one writable dir, for plans, pages and screenshots. */
+export const PLANNING_ARTIFACTS_ENV = 'KARST_ARTIFACTS';
+
+/** A session's artifacts dir: inside its scratch dir, outside every repository. */
+export function planningArtifactsDir(scratch: string): string {
+  return join(scratch, 'artifacts');
+}
+
 /** A session's outbox: inside its scratch dir (the agent's cwd). */
 export function planningOutboxDir(scratch: string): string {
   return join(scratch, 'outbox');
@@ -65,6 +73,8 @@ export interface PreambleInput {
   notes?: PlanningNotes;
   /** Host-gathered history snapshot, one entry per repoPath; absent = no section. */
   history?: PlanningRepoHistory[];
+  /** The session's writable artifacts dir (absolute); absent = no artifacts line. */
+  artifactsDir?: string;
 }
 
 /** A repo's recent base commits and its docs/arch keys (keys only — never block bodies). */
@@ -195,6 +205,12 @@ export function planningInstructions(input: PreambleInput): string {
     'Investigate, ask the user clarifying questions, and agree on the work.',
     'Do not edit repository files, create branches, or start implementation. Depending on the agent,',
     'edit tools are blocked or need your approval; the repositories are listed below — read them by absolute path.',
+    ...(input.artifactsDir
+      ? [
+          `Write plans, pages, screenshots and other session files only in $${PLANNING_ARTIFACTS_ENV} (${input.artifactsDir}), never in a repo, the Claude scratchpad or /tmp;`,
+          'a skill that names another plan dir (docs/superpowers/plans, a show-me scratchpad) writes there instead.',
+        ]
+      : []),
     '',
     'The stack (repository: path, base branch):',
     ...repos,

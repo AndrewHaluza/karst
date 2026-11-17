@@ -311,6 +311,7 @@ export function buildOpencode2ConfigContent(opts: {
   effort?: string | undefined;
   headless: boolean;
   readOnly?: boolean | undefined;
+  writableDir?: string | undefined;
   addDirs?: string[] | undefined;
   /** Headless gate profile cwd (`gatePolicy.ts`); absent → ordinary permission. */
   gateCwd?: string | undefined;
@@ -501,6 +502,7 @@ export class Opencode2Adapter implements AgentAdapter {
         effort: opts.effort,
         headless: false,
         readOnly: opts.readOnly,
+        writableDir: opts.writableDir,
         addDirs: opts.addDirs,
         policy: opts.policy,
         cwd: opts.cwd,
