@@ -84,7 +84,7 @@ export function parseSbxAllowed(stdout: string): Set<string> {
   return new Set((stdout.toLowerCase().match(/[a-z0-9*][a-z0-9.*-]*:\d+/g) ?? []));
 }
 
-/** True when `resource` is an allowed entry, or lies under an allowed `**.suffix:<port>` (any depth) or `*.suffix:<port>` (one label) wildcard. */
+/** Conservative: sbx's `*.` depth is not confirmed, so one label is the narrow reading; a host wrongly judged uncovered only gets a redundant rule that rm removes. True when `resource` is an allowed entry, or lies under an allowed `**.suffix:<port>` (any depth) or `*.suffix:<port>` (one label) wildcard. */
 export function isResourceAllowed(allowed: ReadonlySet<string>, resource: string): boolean {
   const target = resource.toLowerCase();
   if (allowed.has(target)) return true;

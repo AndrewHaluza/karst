@@ -58,7 +58,8 @@ describe.skipIf(reason !== '')(`sbx policy allow/rm against a real sandbox (${re
     const runner = createSbxSessionRunner({ proc: NODE_SBX_PROCESS, core: 'claude', name: SCRATCH, existing: [SCRATCH] });
     const window = await runner.setupWindow!([WILDCARD_COVERED_HOST]);
     expect(window.ok, JSON.stringify(window)).toBe(true);
-    expect(allowed().has(resource) || [...allowed()].some((r) => r.startsWith('**.'))).toBe(true);
+    expect(allowed().has('**.githubusercontent.com:443')).toBe(true); // the premise: the global policy covers the host by this wildcard only
+    expect(allowed().has(resource)).toBe(false);
     expect(sandboxRules().has(resource)).toBe(false); // covered: no redundant sandbox rule
     if (window.ok) await expect(window.close()).resolves.toBeUndefined();
     expect(sandboxRules().has(resource)).toBe(false);

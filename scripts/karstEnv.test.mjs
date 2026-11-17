@@ -30,8 +30,8 @@ describe('scrubKarstEnv', () => {
 });
 
 describe('vitest setup', () => {
-  it('leaves no KARST_ key in process.env when a test starts', () => {
-    expect(Object.keys(process.env).filter((k) => k.startsWith('KARST_'))).toEqual([]);
+  it('leaves no KARST_ key but the opt-in one in process.env when a test starts', () => {
+    expect(Object.keys(process.env).filter((k) => k.startsWith('KARST_') && k !== 'KARST_SBX_SCRATCH')).toEqual([]);
   });
 
   it('keeps the opt-in KARST_SBX_SCRATCH input of the live sbx test', () => {
