@@ -31,7 +31,7 @@ describe('sendBackBriefForTicket', () => {
   });
 
   it('names the re-run and the re-ship, and forbids a push', () => {
-    expect(SEND_BACK_DONE_MARKER).toContain('karst runs UAT and Review again and then pushes');
+    expect(SEND_BACK_DONE_MARKER).toContain('karst runs UAT and Review again. Karst pushes later, at the ship step');
     expect(SEND_BACK_DONE_MARKER).toContain('Do not push.');
   });
 

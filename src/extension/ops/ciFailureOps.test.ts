@@ -324,7 +324,7 @@ describe('handOffPrompt', () => {
   it('ends with the shared done marker that names the re-run, the re-ship and no push', () => {
     const prompt = handOffPrompt('CI failed');
     expect(prompt).toBe(`CI failed\n${SEND_BACK_DONE_MARKER}`);
-    expect(prompt).toContain('karst runs UAT and Review again and then pushes');
+    expect(prompt).toContain('karst runs UAT and Review again. Karst pushes later, at the ship step');
     expect(prompt).toContain('Do not push.');
   });
 });

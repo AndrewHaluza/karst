@@ -1,4 +1,5 @@
 import { listInbox } from '../../store/ticketMessages.js';
+import { SEND_BACK_AFTER_MARKER } from './sendBackMarker.js';
 import { describe, expect, it, vi } from 'vitest';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
@@ -52,6 +53,7 @@ describe('push-diverged actions', () => {
     expect(p.redrive).toHaveBeenCalledWith(p.id);
     expect(p.handOff).toHaveBeenCalledOnce();
     expect(p.handOff.mock.calls[0]![0]).toContain('merge origin/');
+    expect(p.handOff.mock.calls[0]![0]).toContain(SEND_BACK_AFTER_MARKER);
     expect(p.notify.warn).not.toHaveBeenCalled();
   });
   it('Integrate keeps the send-back event unread after a delivered hand-off', () => {

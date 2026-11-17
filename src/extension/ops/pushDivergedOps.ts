@@ -4,6 +4,7 @@ import { clearStageBlock, stageBlock } from '../../store/stageBlocks.js';
 import { armForcePushLease } from '../../store/worktrees.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { formatId } from '../../model/entityId.js';
+import { SEND_BACK_AFTER_MARKER } from './sendBackMarker.js';
 import type { Notify } from './notify.js';
 
 export type PushDivergedRequest = 'overwrite' | 'integrate';
@@ -61,7 +62,7 @@ export function decidePushDiverged(deps: PushDivergedDeps, request: PushDiverged
   debug(`[gate] push diverged ticket ${ticketId}: sent back to integrate origin/${head.ref}`);
   deps.redrive(ticketId);
   // The driver starts gate stages only: the Implement session needs the hand-off.
-  const refusal = deps.handOff(`${integrateReason(head.ref)}\nCall the karst MCP tool \`stage\` with { stage: "impl" } when done.`);
+  const refusal = deps.handOff(`${integrateReason(head.ref)}\nCall the karst MCP tool \`stage\` with { stage: "impl" } when done. ${SEND_BACK_AFTER_MARKER}`);
   if (refusal !== null) deps.notify.warn(`${label} moved back to Implement. No session was started: ${refusal}`);
   return 'integrate';
 }
