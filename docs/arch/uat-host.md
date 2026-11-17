@@ -166,11 +166,11 @@ Extends @arch:UATHOST-01. `npm run -s uat:host:serve -- --port <n>` starts one c
 
 - **One port.** The container publishes `127.0.0.1:<n>` to its port 8080. The supervisor (`serveServer.mjs`) owns that port. `GET /health` answers 200 with `{"status":"ready"}` and the header `X-Karst-Instance` (the value of `KARST_INSTANCE_TOKEN`), or 503 while the host boots or resets. `GET /` shows the noVNC view under a red FAKE CORE banner. `POST /probe?name=<n>` runs a JSON step script and returns the summary. `POST /reset` restarts the host from a fixture. The CDP port 9222 and the VNC port stay inside the container.
 - **Probe.** The body is a step array or `{"steps": [...]}`. The evidence goes to `.karst/uat-scratch/out/<name>`. A name is used once (409 on a second use). One request runs at a time (409 `busy`). A probe that passes its time limit gives 504 and the supervisor resets the host.
-- **Reset.** `POST /reset` takes `{}`, `{"fixture": <name>}` or `{"fixtureFile": <path inside the checkout>}`. `npm run -s uat:host:serve -- --reset` sends it to the running container of this worktree.
-- **Guards.** Every route but `/health` refuses a `Host` that is not `127.0.0.1:<n>` or `localhost:<n>`, and an `Origin` that is not the same. A POST needs `application/json` and a body of at most 1 MiB. The WebSocket upgrade follows the same guards.
+- **Reset.** `POST /reset` takes `{}`, `{"fixture": <name>}` or `{"fixtureFile": <path inside the checkout>}` and answers when the host is ready (200, or 500 with the boot error). `POST /reset?wait=0` does the same checks, answers 202 `{"status":"resetting"}` at once and resets in the background. `npm run -s uat:host:serve -- --reset` sends the `wait=0` form and stops after 10 s at most, because karst stops a service reset after 30 s (`HOST_RESET_TIMEOUT_MS`). Poll `GET /health` for the result: 503 `resetting`, then 200 `ready` or 503 `failed`.
+- **Guards.** Every route but `/health` refuses a `Host` that is not `127.0.0.1:<n>` or `localhost:<n>`, and an `Origin` that is not the same. A POST needs `application/json` and a body of at most 1 MiB. The WebSocket upgrade follows the same guards. `GET /` sends `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`. A `/novnc/*` response sends `frame-ancestors 'self'` and `SAMEORIGIN`, because `/` frames `/novnc/vnc.html`. The Origin guard does not stop a framed page, so these headers stop clickjacking.
 - **Private build.** The entrypoint copies `/work` to `/srv/karst` and builds there, so a host build in the worktree does not break the live host.
 - **In-host channel.** `testRunnerServe.cjs` activates Karst and listens on a unix socket (`hostChannel.cjs`). The supervisor sends `ping` and `run` lines. `hostPrep.mjs` holds the host preparation that `run.mjs` also uses.
-- **Teardown.** `serve.mjs` runs `docker run -i` attached. When its stdin closes or the process gets a signal, the supervisor stops the host and the container. `serve.mjs` removes its own container by ID. A host that exits while ready ends the container (exit 1).
+- **Teardown.** `serve.mjs` removes a leftover container of this worktree before `docker build`, because that container holds the port and answers `/health` with a foreign instance token. `serve.mjs` runs `docker run -i` attached. When its stdin closes or the process gets a signal, the supervisor stops the host and the container. `serve.mjs` removes its own container by ID. A host that exits while ready ends the container (exit 1).
 - **Limits.** One container for each worktree (`karst-uat-serve-<key>`). Docker must run (exit 3 without it).
 
 ### Tradeoffs
@@ -179,6 +179,7 @@ Extends @arch:UATHOST-01. `npm run -s uat:host:serve -- --port <n>` starts one c
 | One HTTP port with a proxy for the view | Publish the VNC and CDP ports | The service has one port; the debug port stays private |
 | Private copy of the checkout in the container | Build in the bind mount | A host build or a one-shot run cannot break the live host |
 | Stdin EOF stops the container | Signal only | `killTree` sends SIGKILL, which no handler sees |
+| `--reset` returns at 202 and the user polls `/health` | Wait for the boot, or raise `HOST_RESET_TIMEOUT_MS` | A boot takes up to 330 s; karst stops a reset command after 30 s, and a timeout change is a product change |
 
 ### Rules
 @arch:UATHOST-01 · @arch:UATHOST-06 · @arch:ABI-03

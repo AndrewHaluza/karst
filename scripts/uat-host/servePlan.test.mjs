@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { dirname, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { checkoutKey, fixtureArgsFor, parseDockerPort, parseServeArgs, serveContainerName, serveDockerArgs } from './servePlan.mjs';
 
@@ -86,5 +87,16 @@ describe('fixtureArgsFor / parseDockerPort', () => {
     expect(parseDockerPort('127.0.0.1:4090\n')).toBe(4090);
     expect(parseDockerPort('0.0.0.0:4090\n[::]:4090\n')).toBe(4090);
     expect(parseDockerPort('')).toBeNull();
+  });
+});
+
+describe('serve.mjs start order', () => {
+  it('removes the leftover container before the image build', () => {
+    const src = readFileSync(resolve(repoRoot, 'scripts/uat-host/serve.mjs'), 'utf8');
+    const rm = src.indexOf("docker(['rm', '-f', name]");
+    const build = src.indexOf("docker(['build'");
+    expect(rm).toBeGreaterThan(-1);
+    expect(build).toBeGreaterThan(-1);
+    expect(rm).toBeLessThan(build);
   });
 });
