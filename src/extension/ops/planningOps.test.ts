@@ -478,11 +478,13 @@ describe('planning ops', () => {
       expect(logs).toContain(`[planning] artifacts ${s.id} opened`);
     });
     it('warns when the host has no opener', async () => {
-      const ops = createPlanningOps(deps);
+      const logs: string[] = [];
+      const ops = createPlanningOps({ ...deps, debug: (m) => void logs.push(m) });
       const s = (await ops.create('t'))!;
       writeFileSync(join(scratch, String(s.id), 'artifacts', 'a.md'), 'x');
       messages.length = 0;
       await ops.openArtifacts(s.id);
+      expect(logs).toContain(`[planning] artifacts ${s.id} blocked: no opener`);
       expect(messages).toEqual(['Karst: this host cannot open a folder.']);
     });
     it('warns for an unknown session and when the open fails', async () => {
