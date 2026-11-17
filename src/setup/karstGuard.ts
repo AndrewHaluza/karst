@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 /**
@@ -18,6 +18,12 @@ const REASON = 'use `manifest propose` to change karst.yml';
 export function patchTargets(patch: string): string[] {
   const out = new Set<string>();
   for (const line of patch.split(/\r?\n/)) {
+    // A binary, mode-only or header-only patch has no ---/+++ lines: the `diff --git` header names both paths.
+    const g = /^diff --git (?:a\/(.+) b\/(.+)|"(.+)" "(.+)"|(\S+) (\S+))$/.exec(line);
+    if (g !== null) {
+      for (const part of g.slice(1)) if (part !== undefined) out.add(part);
+      continue;
+    }
     const m = /^(?:---|\+\+\+) (.+)$/.exec(line) ?? /^(?:rename|copy) (?:to|from) (.+)$/.exec(line);
     if (m === null) continue;
     let p = m[1]!.split('\t')[0]!.trim();
@@ -103,7 +109,11 @@ export function restoreKarstFiles(snapshots: readonly KarstSnapshot[]): string[]
     const same = s.bytes === null ? now === null : now !== null && s.bytes.equals(now);
     if (same) continue;
     if (s.bytes === null) rmSync(s.file, { force: true });
-    else writeFileSync(s.file, s.bytes);
+    else {
+      // A command may have removed `.karst/` itself.
+      mkdirSync(dirname(s.file), { recursive: true });
+      writeFileSync(s.file, s.bytes);
+    }
     restored.push(s.label);
   }
   return restored;

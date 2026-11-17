@@ -31,6 +31,11 @@ describe('patchTargets', () => {
 });
 
 describe('karstWriteViolation', () => {
+  it('refuses a binary or header-only patch that has no ---/+++ lines', () => {
+    const text = patch(['diff --git a/.karst/karst.yml b/.karst/karst.yml', 'old mode 100644', 'new mode 100755']);
+    expect(karstWriteViolation(text, root, [root])).toMatch(/\.karst\/karst\.yml/);
+    expect(karstWriteViolation(patch(['diff --git "a/.karst/karst.yml" "b/.karst/karst.yml"']), root, [root])).toBeDefined();
+  });
   it('refuses a patch on .karst/karst.yml of the workspace root', () => {
     expect(karstWriteViolation(edit('.karst/karst.yml'), root, [root])).toMatch(/\.karst\/karst\.yml/);
   });
@@ -68,6 +73,12 @@ describe('snapshot and restore', () => {
     writeFileSync(file, 'host: evil\n');
     expect(restoreKarstFiles(snap)).toEqual(['.karst/karst.yml']);
     expect(readFileSync(file, 'utf8')).toBe('host: a\n');
+  });
+  it('recreates .karst/ when a command removed it', () => {
+    const snap = snapshotKarstFiles([root]);
+    rmSync(join(root, '.karst'), { recursive: true });
+    expect(restoreKarstFiles(snap)).toEqual(['.karst/karst.yml']);
+    expect(readFileSync(join(root, '.karst', 'karst.yml'), 'utf8')).toBe('host: a\n');
   });
   it('removes a file that did not exist before', () => {
     const file = join(repo, '.karst', 'karst.yml');

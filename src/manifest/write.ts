@@ -102,12 +102,15 @@ export function manifestWriteSections(path: string, manifest: Manifest): string[
 
 /**
  * Key paths (`a.b[0].c`) that the file at `path` has and that `writeManifest`
- * would drop: the retired and legacy keys. Reads only; writes nothing.
+ * would drop: the retired and legacy keys that the migration removes. Reads only; writes nothing.
  */
 export function manifestRemovedKeys(path: string, manifest: Manifest): string[] {
-  const before = keyPaths(yamlLoad(readFileSync(path, 'utf8')), '');
+  const raw = yamlLoad(readFileSync(path, 'utf8'));
+  const before = keyPaths(raw, '');
+  // Only keys that the legacy migration drops count: the writer also normalizes other keys away.
+  const migrated = new Set(keyPaths(migrateLegacyManifest(isRecord(raw) ? raw : {}).raw, ''));
   const after = new Set(keyPaths(yamlLoad(renderManifest(path, manifest)), ''));
-  return before.filter((k) => !after.has(k)).sort();
+  return before.filter((k) => !migrated.has(k) && !after.has(k)).sort();
 }
 
 function keyPaths(value: unknown, prefix: string): string[] {
