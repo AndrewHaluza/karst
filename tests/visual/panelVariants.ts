@@ -12,6 +12,8 @@ export interface PanelVariantSpec {
   readonly patch: (s: DashboardState) => DashboardState;
   /** A selector clicked after load (opens a popover). */
   readonly click?: string;
+  /** A selector hovered after load and after any click (a hover-state screenshot). */
+  readonly hover?: string;
 }
 
 export const PANEL_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
@@ -132,6 +134,8 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   { id: 'pr-ready', patch: withPrs([READY]) },
   { id: 'pr-optional-failing', patch: withPrs([READY_OPTIONAL_FAILING]) },
   { id: 'pr-ready-info', patch: withPrs([READY]), click: '[data-act="toggle-pr-info"]' },
+  // T1190: a disabled Merge keeps its disabled look under the pointer and shows its visible reason.
+  { id: 'pr-disabled-merge-hover', patch: withPrs([BLOCKED]), hover: '.pacts .k-btn--secondary:disabled' },
   { id: 'pr-rule', patch: withPrs([RULE]) },
   { id: 'pr-unknown', patch: withPrs([UNKNOWN]) },
   { id: 'pr-merged', patch: withPrs([MERGED]) },

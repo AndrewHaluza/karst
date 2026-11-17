@@ -91,6 +91,8 @@ export interface Variant {
   readonly runtimeOpen?: RuntimeOpen;
   /** Dashboard panels: a selector clicked after load (a popover trigger). */
   readonly click?: string;
+  /** Dashboard panels: a selector hovered after load and after any click. */
+  readonly hover?: string;
   /** Dashboard baseline review: selectors clicked in order after load (open the overlay, then reach a state). */
   readonly clicks?: readonly string[];
 }
@@ -134,6 +136,7 @@ function variant(
     ticketDetails?: TicketDetailsSteps;
     runtimeOpen?: RuntimeOpen;
     click?: string;
+    hover?: string;
     clicks?: readonly string[];
   } = {},
 ): Variant {
@@ -151,6 +154,7 @@ function variant(
     ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),
     ...(opts.runtimeOpen === undefined ? {} : { runtimeOpen: opts.runtimeOpen }),
     ...(opts.click === undefined ? {} : { click: opts.click }),
+    ...(opts.hover === undefined ? {} : { hover: opts.hover }),
     ...(opts.clicks === undefined ? {} : { clicks: opts.clicks }),
   };
 }
@@ -440,6 +444,7 @@ const panelStateVariants = (): Variant[] => [
         skipLayout: true,
         width,
         ...(v.click === undefined ? {} : { click: v.click }),
+        ...(v.hover === undefined ? {} : { hover: v.hover }),
       }),
     ),
   ),

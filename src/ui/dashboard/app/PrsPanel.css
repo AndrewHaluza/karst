@@ -2,7 +2,7 @@
 .prpanel{container-type:inline-size}
 /* A PR line is a Row (Section.css): lead status icon | main (wraps) | trail. The trail wraps under main at narrow widths. */
 .pr .pacts{display:flex;align-items:center;gap:var(--k-space-2);flex-shrink:0}
-.pr .pmreason{font-size:var(--k-text-xs);color:var(--k-text-dim);max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr .pmreason{font-size:var(--k-text-xs);color:var(--k-text-dim);max-width:24ch;overflow-wrap:anywhere}
 .pr .pr-lead.ok{color:var(--k-success)}
 .pr .pr-lead.bad{color:var(--k-danger)}
 .pr .pr-lead.merged{color:var(--k-series-2)}
