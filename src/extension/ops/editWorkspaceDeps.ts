@@ -69,7 +69,7 @@ export function planWorkspaceDepsEdit(yaml: string, repoName: string | undefined
   const at = entry.line + 1;
   return {
     revealLine: at,
-    insert: { beforeLine: at, text: `${' '.repeat(childIndent === -1 ? entry.indent + 2 : childIndent)}${KEY}:` },
+    insert: { beforeLine: at, text: `${' '.repeat(childIndent === -1 ? entry.indent + 2 : childIndent)}${KEY}: {}` },
     found: true,
   };
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,7 +34,10 @@ describe('runSetupCommand discover', () => {
     writeFileSync(manifestPath, yaml(''));
     expect(run().graphDeps).toEqual({ status: 'gap', reason: 'no default' });
     writeFileSync(manifestPath, 'not: [valid');
+    const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     expect(run().graphDeps).toEqual({ status: 'gap', reason: 'no default' });
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('could not read the manifest'));
+    err.mockRestore();
   });
 
   it('adds the graph-deps verdict of each repository', () => {

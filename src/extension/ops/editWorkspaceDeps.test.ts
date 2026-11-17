@@ -15,7 +15,7 @@ describe('planWorkspaceDepsEdit', () => {
     expect(planWorkspaceDepsEdit(YAML, 'web')).toEqual({
       found: true,
       revealLine: 3,
-      insert: { beforeLine: 3, text: '    graphWorkspace:' },
+      insert: { beforeLine: 3, text: '    graphWorkspace: {}' },
     });
   });
   it('reveals the existing key and inserts nothing', () => {
@@ -33,14 +33,14 @@ describe('planWorkspaceDepsEdit edge cases', () => {
     expect(planWorkspaceDepsEdit(yaml, 'web')).toEqual({
       found: true,
       revealLine: 4,
-      insert: { beforeLine: 4, text: '      graphWorkspace:' },
+      insert: { beforeLine: 4, text: '      graphWorkspace: {}' },
     });
   });
   it('indents two spaces under an entry with no children', () => {
     expect(planWorkspaceDepsEdit('repositories:\n  web:\n  api:\n', 'web')).toEqual({
       found: true,
       revealLine: 2,
-      insert: { beforeLine: 2, text: '    graphWorkspace:' },
+      insert: { beforeLine: 2, text: '    graphWorkspace: {}' },
     });
   });
   it('reads quoted keys and stops at the next top-level key', () => {
@@ -56,7 +56,7 @@ describe('planWorkspaceDepsEdit edge cases', () => {
     expect(planWorkspaceDepsEdit(y, 'web')).toEqual({
       found: true,
       revealLine: 5,
-      insert: { beforeLine: 5, text: '    graphWorkspace:' },
+      insert: { beforeLine: 5, text: '    graphWorkspace: {}' },
     });
   });
   it('does not match a child key with a larger indent than the first child', () => {

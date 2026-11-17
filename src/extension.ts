@@ -1206,6 +1206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
+  const graphDeps = createGraphDepsPreflight({ manifest: currentManifest, domainsOf: (id) => graphDomainsFor(id), gitCommonDirOf: gitCommonDirFromFs });
   sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id) }); // AC-32
   // The host gate re-run (@arch:AC-45): one dependency set for its three call sites, run through `runGateList`.
   const gateRerunDeps = bindGateRerunDeps({
@@ -4507,7 +4508,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return resolveRepoWorktrees(manifest.repositories ?? {}, worktrees);
   };
 
-  const graphDeps = createGraphDepsPreflight({ manifest: currentManifest, domainsOf: graphDomainsFor, gitCommonDirOf: gitCommonDirFromFs });
 
   /**
    * Claim-time base heads (Slice 5 T1): per physical-domain HEAD of the

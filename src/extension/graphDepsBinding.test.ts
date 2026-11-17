@@ -56,7 +56,7 @@ describe('openWorkspaceDepsEditor', () => {
       { vscode: fakeVscode(log), manifestPath: () => '/p/karst.yml', notify: notify(log), readFile: () => YAML },
       'graph-workspace-deps: node run 5 (web: x)',
     );
-    expect(log.slice(0, 4)).toEqual(['open:/p/karst.yml', 'insert@2:"    graphWorkspace:\\n"', 'apply', 'show']);
+    expect(log.slice(0, 4)).toEqual(['open:/p/karst.yml', 'insert@2:"    graphWorkspace: {}\\n"', 'apply', 'show']);
     expect(log.some((l) => l.startsWith('reveal@'))).toBe(true);
   });
 

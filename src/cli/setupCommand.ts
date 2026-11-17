@@ -95,7 +95,7 @@ function parseDiscover(rest: readonly string[], deps: SetupCommandDeps): { root:
 
 /** Canonical names of the repositories whose karst.yml entry already has a `graphWorkspace` block. */
 function configuredGraphWorkspaces(manifestPath: string | undefined): ReadonlySet<string> {
-  if (!manifestPath) return new Set();
+  if (!manifestPath || !existsSync(manifestPath)) return new Set();
   try {
     const { manifest } = loadManifestWithDiagnostics(manifestPath);
     return new Set(
@@ -103,7 +103,8 @@ function configuredGraphWorkspaces(manifestPath: string | undefined): ReadonlySe
         .filter(([, repo]) => repo.graphWorkspace !== undefined)
         .map(([name]) => canonicalRepoId(name)),
     );
-  } catch {
+  } catch (err) {
+    process.stderr.write(`karst: setup discover could not read the manifest (${err instanceof Error ? err.message : String(err)}); graph deps are checked per repository\n`);
     return new Set();
   }
 }
