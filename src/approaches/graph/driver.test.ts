@@ -2019,6 +2019,51 @@ describe('driveReadyNodeRuns', () => {
       await drive;
     });
 
+    it('a lost launching→running CAS stops the spawned process tree, closes its tab and leaves the row alone', async () => {
+      const { h, graphRunId, nodeRunId } = await launchTwoRepoNode(undefined, { skipDrive: true });
+      const dispose = vi.fn();
+      const terminate = vi.fn(async () => ({ kind: 'attributable', kill: 'killed' }) as const);
+      const debug = vi.fn();
+      h.deps.debug = debug;
+      h.deps.transport.terminate = terminate;
+      h.deps.transport.start = async (request) => {
+        h.starts.push(request as unknown as Record<string, unknown>);
+        // Another window parks the row while this drive spawns.
+        h.db.prepare("UPDATE approach_node_runs SET status = 'blocked', reason = 'other' WHERE id = ?").run(request.nodeRunId);
+        return {
+          ticketId: h.ticketId, nodeRunId: request.nodeRunId, graphRunId: request.graphRunId,
+          cwd: request.cwd, pid: 4242, startedAt: NOW, processRunId: null, providerSessionId: null,
+          terminal: { dispose },
+        } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+      };
+      const result = await driveReadyNodeRuns(h.deps, graphRunId);
+      expect(result.launched).toBe(0);
+      expect(terminate).toHaveBeenCalledTimes(1);
+      expect(dispose).toHaveBeenCalledTimes(1);
+      expect(nodeRow(h, nodeRunId)).toMatchObject({ status: 'blocked', reason: 'other' });
+      expect(debug.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(new RegExp(`node run ${nodeRunId}.*pid 4242`));
+    });
+
+    it('a failed stop after a lost CAS is logged, never swallowed', async () => {
+      const { h, graphRunId, nodeRunId } = await launchTwoRepoNode(undefined, { skipDrive: true });
+      const debug = vi.fn();
+      h.deps.debug = debug;
+      h.deps.transport.terminate = async () => {
+        throw new Error('boom');
+      };
+      h.deps.transport.start = async (request) => {
+        h.db.prepare("UPDATE approach_node_runs SET status = 'blocked' WHERE id = ?").run(request.nodeRunId);
+        return {
+          ticketId: h.ticketId, nodeRunId: request.nodeRunId, graphRunId: request.graphRunId,
+          cwd: request.cwd, pid: 4243, startedAt: NOW, processRunId: null, providerSessionId: null,
+        } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+      };
+      const result = await driveReadyNodeRuns(h.deps, graphRunId);
+      expect(result.launched).toBe(0);
+      expect(debug.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/WARN.*node run .*stopping.*boom/);
+      expect(nodeRow(h, nodeRunId).status).toBe('blocked');
+    });
+
     it('a workspace budget stop after the claim parks the node from launching', async () => {
       const { h, nodeRunId } = await launchTwoRepoNode({
         kind: 'budget-exhausted',
