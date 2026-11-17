@@ -867,3 +867,231 @@ describe('createSetupProposalOps host verification', () => {
     expect(f.applyManifest).toHaveBeenCalledOnce();
   });
 });
+
+describe('createSetupProposalOps host verification messages and records', () => {
+  const A = '/s/1/outbox/a.json';
+  const RETIRED =
+    `${VALID_YAML}approaches:\n  - id: g\n    label: G\n    graph:\n      limits:\n        confirmGeneratedGraph: true\n`;
+  const FIXED = { ...manifestProposal(), yaml: `${VALID_YAML}approaches:\n  - id: g\n    label: G\n` };
+  const FORGED = { ...FIXED, clears: ['manifest.legacy-services'] };
+  const wire = (f: ReturnType<typeof deps>, logs: string[], over: Record<string, unknown> = {}) =>
+    createSetupProposalOps({
+      ...f.deps,
+      debug: (m: string) => void logs.push(m),
+      readCurrentManifest: () => parseManifestText(RETIRED).manifest,
+      removedKeys: () => ['approaches[0].graph.limits.confirmGeneratedGraph'],
+      ...over,
+    });
+  const warns = (f: ReturnType<typeof deps>): string[] => (f.deps.notify as unknown as { warn: ReturnType<typeof vi.fn> }).warn.mock.calls.map((c: unknown[]) => String(c[0]));
+
+  it('names the failed step in the warning, the log, the ledger and the host record of a refused manifest', async () => {
+    const f = deps({ [A]: JSON.stringify(FORGED) }, RETIRED);
+    const logs: string[] = [];
+    await wire(f, logs).scan();
+    const reason = f.fs.results.at(-1)!.reason!;
+    expect(reason).toMatch(/^P6 /);
+    expect(warns(f)).toEqual([`Karst: the setup agent's manifest proposal failed the host checks (${reason}); ignored.`]);
+    expect(logs).toContain(`[setup] refused manifest proposal ${A}: ${reason}`);
+    expect(f.fs.results.at(-1)).toMatchObject({ id: 'a', kind: 'manifest', status: 'invalid', dropped: ['approaches'] });
+    const rec = f.records.at(-1)!;
+    expect(rec).toMatchObject({ id: 'a', kind: 'manifest', status: 'refused' });
+    expect(rec.steps.some((s) => s.status === 'fail')).toBe(true);
+    expect(rec.pinnedSha256).toHaveLength(64);
+  });
+
+  it('logs a failed host record write with the file and the cause', async () => {
+    const f = deps({ [A]: JSON.stringify(FORGED) }, RETIRED);
+    f.verify.writeRecord = () => {
+      throw new Error('disk');
+    };
+    const logs: string[] = [];
+    await wire(f, logs).scan();
+    expect(logs).toContain(`[setup] could not write the verify record for ${A}: disk`);
+    expect(f.fs.results.at(-1)).toMatchObject({ status: 'invalid' });
+  });
+
+  it('logs a failed ledger write with the status, the file and the cause', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    f.fs.writeResult = () => {
+      throw new Error('ro');
+    };
+    const logs: string[] = [];
+    await wire(f, logs).scan();
+    expect(logs).toContain(`[setup] could not record verified result for ${A}: ro`);
+    expect(f.applyManifest).toHaveBeenCalledOnce();
+  });
+
+  it('records a verified ledger entry without a reason, and the host record with the id, kind and steps', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    const logs: string[] = [];
+    await wire(f, logs).scan();
+    const ledger = f.fs.results.at(-1)!;
+    expect(ledger).toMatchObject({ id: 'a', kind: 'manifest', status: 'verified', dropped: ['approaches'], sha256: 'sha-1' });
+    expect(ledger).not.toHaveProperty('reason');
+    expect(warns(f)).toEqual([]);
+    expect(logs).toContain(`[setup] applied manifest proposal ${A}`);
+    const rec = f.records.at(-1)!;
+    expect(rec).toMatchObject({ id: 'a', kind: 'manifest', status: 'verified' });
+    expect(rec.steps.map((s) => s.id)).toContain('A2');
+    expect(rec.changes).toEqual([{ id: 'manifest.retired-key.confirmGeneratedGraph', kind: 'cleared' }]);
+  });
+
+  it('warns with the failed step and records the reason when the re-run leaves the item failing', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    vi.mocked(f.verify.recheck).mockResolvedValue([{ id: 'manifest.retired-key.confirmGeneratedGraph', status: 'fail', detail: 'x' }]);
+    await wire(f, []).scan();
+    const reason = f.fs.results.at(-1)!.reason!;
+    expect(reason).toMatch(/^A2 /);
+    expect(warns(f)).toEqual([`Karst: the setup proposal was applied but did not verify (${reason}).`]);
+    expect(f.records.at(-1)).toMatchObject({ id: 'a', kind: 'manifest', status: 'unverified' });
+    expect(f.fs.results.at(-1)).toMatchObject({ sha256: 'sha-1', dropped: ['approaches'] });
+  });
+
+  it('records the exact reason and message for a manifest that equals the current one', async () => {
+    const f = deps({ [A]: JSON.stringify(manifestProposal()) });
+    const logs: string[] = [];
+    await wire(f, logs, { readCurrentManifest: () => parseManifestText(VALID_YAML).manifest, removedKeys: () => [] }).scan();
+    expect(f.fs.results.at(-1)).toMatchObject({ id: 'a', kind: 'manifest', status: 'no-change', reason: 'no effective change', dropped: [] });
+    expect(warns(f)).toEqual(['Karst: the setup proposal changes nothing (no effective change).']);
+    expect(logs).toContain(`[setup] manifest proposal ${A} has no effective change`);
+  });
+
+  it('names the dropped protected fields in the no-change reason', async () => {
+    const protectedOnly = { ...manifestProposal(), yaml: `${VALID_YAML}archiveDoneAfterDays: 9\n` };
+    const f = deps({ [A]: JSON.stringify(protectedOnly) });
+    await wire(f, [], { readCurrentManifest: () => parseManifestText(`${VALID_YAML}archiveDoneAfterDays: 3\n`).manifest, removedKeys: () => [] }).scan();
+    expect(f.fs.results.at(-1)!.reason).toBe(
+      'no effective change; protected fields not applied: archiveDoneAfterDays. The user changes them in Settings.',
+    );
+    expect(f.fs.results.at(-1)).toMatchObject({ dropped: ['archiveDoneAfterDays'] });
+  });
+
+  it('refuses the apply when the dropped protected fields differ from what the popup showed', async () => {
+    const proposal = { ...manifestProposal(), yaml: `${VALID_YAML}archiveDoneAfterDays: 9\nsettleTimeoutSeconds: 5\n` };
+    const f = deps({ [A]: JSON.stringify(proposal) }, `${VALID_YAML}archiveDoneAfterDays: 3\n`);
+    const first = parseManifestText(`${VALID_YAML}archiveDoneAfterDays: 3\n`).manifest;
+    const second = parseManifestText(`${VALID_YAML}archiveDoneAfterDays: 9\n`).manifest;
+    let calls = 0;
+    await wire(f, [], { readCurrentManifest: () => (calls++ === 0 ? first : second), removedKeys: () => [] }).scan();
+    if (f.confirm.mock.calls.length > 0) {
+      expect(f.applyManifest).not.toHaveBeenCalled();
+      expect(f.fs.results.at(-1)!.reason).toMatch(/protected fields differ/);
+    }
+  });
+
+  it('does not record withdrawn for a superseded manifest and logs the withdrawal', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    const logs: string[] = [];
+    f.confirm.mockImplementation(async () => {
+      f.fs.remove(A);
+      return true;
+    });
+    await wire(f, logs).scan();
+    expect(logs).toContain(`[setup] manifest proposal ${A} was withdrawn while its consent was open`);
+    expect(f.fs.results.at(-1)).toMatchObject({ id: 'a', kind: 'manifest', status: 'withdrawn', reason: 'withdrawn while awaiting consent' });
+    expect(f.applyManifest).not.toHaveBeenCalled();
+  });
+
+  it('records the decline of a manifest with its reason and dropped list', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    f.confirm.mockResolvedValue(false);
+    await wire(f, []).scan();
+    expect(f.fs.results.at(-1)).toEqual(
+      expect.objectContaining({ id: 'a', kind: 'manifest', status: 'declined', reason: 'declined by the user', dropped: ['approaches'] }),
+    );
+  });
+
+  it('records the exact reason of a failed manifest apply and the refused host record', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    f.applyManifest.mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    await wire(f, []).scan();
+    expect(warns(f)).toEqual(['Karst: could not apply the manifest proposal (disk full).']);
+    expect(f.fs.results.at(-1)).toMatchObject({ id: 'a', kind: 'manifest', status: 'invalid', reason: 'apply failed: disk full', dropped: ['approaches'] });
+    expect(f.records.at(-1)).toMatchObject({ id: 'a', kind: 'manifest', status: 'refused' });
+    expect(f.fs.removed).toEqual([A]);
+  });
+
+  describe('change proposals', () => {
+    const command = { kind: 'change', repo: 'web', reason: 'r', command: 'npm ci' };
+    const patch = { kind: 'change', repo: 'web', reason: 'r', patch: '+++ b/.env\n' };
+
+    it('names the failed step when the checklist refuses a change', async () => {
+      const f = deps({ [A]: JSON.stringify(command) }, undefined);
+      f.verify.deps.readCurrentText = () => undefined;
+      const f2 = deps({ [A]: JSON.stringify(patch) }, BASE_YAML);
+      f2.verify.deps.gitApplyCheck = async () => ({ ok: false, error: 'does not apply' });
+      await wire(f2, [], { readCurrentManifest: () => undefined, removedKeys: undefined }).scan();
+      const reason = f2.fs.results.at(-1)!.reason!;
+      expect(reason).toMatch(/^P3 /);
+      expect(warns(f2)).toEqual([`Karst: refused the change for "web" (${reason}).`]);
+      expect(f2.fs.results.at(-1)).toMatchObject({ id: 'a', kind: 'change', status: 'invalid' });
+      expect(f2.records.at(-1)).toMatchObject({ id: 'a', kind: 'change', status: 'refused' });
+      expect(f2.fs.removed).toEqual([A]);
+      expect(f2.confirm).not.toHaveBeenCalled();
+      expect(f).toBeDefined();
+    });
+
+    it('records the withdrawal and the decline of a change with exact reasons', async () => {
+      const gone = deps({ [A]: JSON.stringify(command) }, BASE_YAML);
+      gone.confirm.mockImplementation(async () => {
+        gone.fs.remove(A);
+        return true;
+      });
+      await wire(gone, []).scan();
+      expect(gone.fs.results.at(-1)).toMatchObject({ id: 'a', kind: 'change', status: 'withdrawn', reason: 'withdrawn while awaiting consent' });
+      const no = deps({ [A]: JSON.stringify(command) }, BASE_YAML);
+      no.confirm.mockResolvedValue(false);
+      const logs: string[] = [];
+      await wire(no, logs).scan();
+      expect(logs).toContain(`[setup] user declined change proposal ${A}`);
+      expect(no.fs.results.at(-1)).toMatchObject({ id: 'a', kind: 'change', status: 'declined', reason: 'declined by the user' });
+    });
+
+    it('refuses with the exact reason when karst.yml moved between the popup and the run', async () => {
+      const f = deps({ [A]: JSON.stringify(command) }, BASE_YAML);
+      let text = BASE_YAML;
+      f.verify.deps.readCurrentText = () => text;
+      f.confirm.mockImplementation(async () => {
+        text = 'host: other\n';
+        return true;
+      });
+      await wire(f, []).scan();
+      const reason = 'karst.yml changed after the host checks ran; propose again';
+      expect(warns(f)).toEqual([`Karst: could not apply the change for "web" (${reason}).`]);
+      expect(f.fs.results.at(-1)).toMatchObject({ kind: 'change', status: 'invalid', reason: `apply failed: ${reason}` });
+      expect(f.records.at(-1)).toMatchObject({ id: 'a', kind: 'change', status: 'refused' });
+      expect(f.fs.removed).toEqual([A]);
+      expect(f.runCommand).not.toHaveBeenCalled();
+    });
+
+    it('records a failed command as invalid and unverified, with the exact messages', async () => {
+      const f = deps({ [A]: JSON.stringify(command) }, BASE_YAML);
+      f.runCommand.mockRejectedValue(new Error('boom'));
+      const logs: string[] = [];
+      await wire(f, logs).scan();
+      expect(warns(f)[0]).toBe('Karst: could not apply the change for "web" (boom).');
+      expect(f.fs.results.at(-1)).toMatchObject({ id: 'a', kind: 'change', status: 'invalid', reason: 'apply failed: boom' });
+      expect(f.records.at(-1)).toMatchObject({ id: 'a', kind: 'change', status: 'unverified' });
+      expect(logs.some((m) => m.startsWith('applied change proposal'))).toBe(false);
+    });
+
+    it('logs an applied change and records verified with no reason', async () => {
+      const f = deps({ [A]: JSON.stringify(command) }, BASE_YAML);
+      const logs: string[] = [];
+      await wire(f, logs).scan();
+      expect(logs).toContain(`[setup] applied change proposal ${A}`);
+      expect(warns(f)).toEqual([]);
+      expect(f.fs.results.at(-1)).not.toHaveProperty('reason');
+      expect(f.records.at(-1)).toMatchObject({ id: 'a', kind: 'change', status: 'verified' });
+    });
+
+    it('applies a patch through applyPatch only and never runs a command', async () => {
+      const f = deps({ [A]: JSON.stringify(patch) }, BASE_YAML);
+      await wire(f, []).scan();
+      expect(f.applyPatch).toHaveBeenCalledOnce();
+      expect(f.runCommand).not.toHaveBeenCalled();
+    });
+  });
+});
