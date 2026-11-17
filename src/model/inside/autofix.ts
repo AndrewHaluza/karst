@@ -25,9 +25,16 @@ export interface AutofixTarget {
   readonly logUrl?: string;
 }
 
+/** The local gate a CI round waits on after the agent fired the impl marker (T1193). Absent while the agent works. */
+export type AutofixGate = 'uat' | 'review';
+
 export interface AutofixRound extends AutofixTarget {
   readonly used: number;
   readonly max: number;
+  /** CI round only: the ticket is at this gate, so the agent is done and the gates run again. */
+  readonly gate?: AutofixGate;
+  /** With `gate`: the re-ship would keep the Confirm click (the mark is gone), so no push follows by itself. */
+  readonly reshipWaits?: boolean;
 }
 
 export interface AutofixFacts {
@@ -80,7 +87,8 @@ export interface AutofixAttemptRow {
 export interface AutofixStepRow {
   readonly label: string;
   readonly detail: string;
-  readonly status: 'pass' | 'run';
+  /** `pending` is only the re-ship row of a CI round at a gate: the host proves it from `ci_round_at` (@arch:AP-06). */
+  readonly status: 'pass' | 'run' | 'pending';
   /** The row that holds "Last round" (the running step). */
   readonly stopAfter?: boolean;
 }
@@ -98,6 +106,9 @@ export interface AutofixRowView {
 export const STEP_FETCH_LOG = 'fetch CI log';
 export const STEP_CI_AGENT = 'agent fix';
 export const STEP_CONFLICT_AGENT = 'agent resolving';
+export const STEP_GATES_AGAIN = 'gates run again';
+export const STEP_RESHIP_CONFIRM = 'ship waits for Confirm';
+const GATE_WORD: Record<AutofixGate, string> = { uat: 'UAT', review: 'Review' };
 
 const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
 // The engine's own park for a CI round that did not start (a gh fetch failure refunds the attempt), and the prototype's wording.
@@ -122,12 +133,21 @@ const capitalize = (s: string): string => (s === '' ? s : `${s[0]!.toUpperCase()
 const kindWord = (kind: AutofixKind): string => (kind === 'ci' ? 'CI' : 'conflict');
 const unitWord = (kind: AutofixKind): string => (kind === 'ci' ? 'attempt' : 'round');
 
-/** The step rows the host can prove. A CI round has fetched its log (the host does that before the hand-off) and the agent works. */
-function provableSteps(round: AutofixRound): readonly AutofixStepRow[] {
+/**
+ * The step rows the host can prove. A CI round has fetched its log (the host does that before the hand-off). The step that runs
+ * follows the stage: the agent in Implement, then the gates again at UAT or Review, then the re-ship (T1193).
+ */
+export function provableSteps(round: AutofixRound): readonly AutofixStepRow[] {
   if (round.kind === 'ci') {
+    const fetched: AutofixStepRow = { label: STEP_FETCH_LOG, detail: round.check ? `gh · ${round.check}` : 'gh', status: 'pass' };
+    const agentDetail = `${unitWord('ci')} ${round.used}`;
+    if (round.gate === undefined) return [fetched, { label: STEP_CI_AGENT, detail: agentDetail, status: 'run', stopAfter: true }];
+    const target = prLabel(round);
     return [
-      { label: STEP_FETCH_LOG, detail: round.check ? `gh · ${round.check}` : 'gh', status: 'pass' },
-      { label: STEP_CI_AGENT, detail: `${unitWord('ci')} ${round.used}`, status: 'run', stopAfter: true },
+      fetched,
+      { label: STEP_CI_AGENT, detail: agentDetail, status: 'pass' },
+      { label: STEP_GATES_AGAIN, detail: GATE_WORD[round.gate], status: 'run', stopAfter: true },
+      { label: round.reshipWaits === true ? STEP_RESHIP_CONFIRM : `re-ship to ${target === '' ? 'the open PR' : target}`, detail: '', status: 'pending' },
     ];
   }
   return [{ label: STEP_CONFLICT_AGENT, detail: `${unitWord('conflicts')} ${round.used}`, status: 'run', stopAfter: true }];

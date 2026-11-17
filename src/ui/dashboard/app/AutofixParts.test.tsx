@@ -168,6 +168,23 @@ describe('Stop auto-fix now (stage menu)', () => {
     expect(q('[data-stage-menu="ship"]')).toBeNull();
   });
 
+  it('says the round stops and no re-ship follows while the gates run again', () => {
+    const gates: AutofixRowView = {
+      ...RUNNING,
+      steps: [
+        { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
+        { label: 'agent fix', detail: 'attempt 2', status: 'pass' },
+        { label: 'gates run again', detail: 'UAT', status: 'run', stopAfter: true },
+        { label: 're-ship to api #88', detail: '', status: 'pending' },
+      ],
+    };
+    mountInside(ship(SLICE, gates));
+    openMenu();
+    fireEvent.click(must('[data-act="autopilot-stop-confirm"]'));
+    expect(must('[role="alertdialog"]').textContent).toContain('no re-ship follows');
+    expect(must('[role="alertdialog"]').textContent).not.toContain('ends the agent session');
+  });
+
   it('asks before stopping; Cancel sends nothing', () => {
     const h = mountInside(ship(SLICE, RUNNING));
     openMenu();

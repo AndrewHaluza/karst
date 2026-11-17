@@ -1,5 +1,5 @@
 import type { DashboardState } from './state.js';
-import { STEP_CI_AGENT, STEP_CONFLICT_AGENT, STEP_FETCH_LOG, type AutofixAttemptRow, type AutofixRowView } from '../../model/inside/autofix.js';
+import { STEP_CI_AGENT, STEP_CONFLICT_AGENT, STEP_FETCH_LOG, STEP_GATES_AGAIN, STEP_RESHIP_CONFIRM, type AutofixAttemptRow, type AutofixRowView, type AutofixStepRow } from '../../model/inside/autofix.js';
 import { autofixProcess } from '../../model/inside/ship.js';
 import type { GraphNodeListRow, InsideProcessView, InsideNowView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { StageKey } from '../../model/types.js';
@@ -123,6 +123,17 @@ const RUNNING_CI: AutofixRowView = {
   ],
   stopAfterRequested: false,
 };
+/** T1193: the agent fired the impl marker; the gates run again and karst re-ships next (@arch:AP-06). */
+const gatesAgain = (word: 'UAT' | 'Review', reship: AutofixStepRow): AutofixRowView => ({
+  ...RUNNING_CI,
+  steps: [
+    { label: STEP_FETCH_LOG, detail: 'gh · lint', status: 'pass' },
+    { label: STEP_CI_AGENT, detail: 'attempt 2', status: 'pass' },
+    { label: STEP_GATES_AGAIN, detail: word, status: 'run', stopAfter: true },
+    reship,
+  ],
+});
+const RESHIP: AutofixStepRow = { label: 're-ship to api #88', detail: '', status: 'pending' };
 const PARKED = { attempts: [] as readonly AutofixAttemptRow[], steps: [] as readonly never[], stopAfterRequested: false };
 
 // ----------------------------------------------------------- gate-stage rows
@@ -618,6 +629,9 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   // auto-fix on the Merge row and the blocked banner (T1004): HAND-WRITTEN, outside the layout ledger
   { stage: 'ship', id: 'auto-conflict-running', allThemes: true, state: autofixShip(RUNNING_CONFLICT, {}) },
   { stage: 'ship', id: 'auto-ci-running', allThemes: true, state: autofixShip(RUNNING_CI, { override: 'on' }) },
+  { stage: 'ship', id: 'auto-ci-uat', allThemes: true, state: autofixShip(gatesAgain('UAT', RESHIP), { override: 'on' }) },
+  { stage: 'ship', id: 'auto-ci-review', allThemes: true, state: autofixShip(gatesAgain('Review', RESHIP), { override: 'on' }) },
+  { stage: 'ship', id: 'auto-ci-review-confirm', allThemes: true, state: autofixShip(gatesAgain('Review', { label: STEP_RESHIP_CONFIRM, detail: '', status: 'pending' }), { override: 'on' }) },
   {
     stage: 'ship',
     id: 'auto-budget-spent',
