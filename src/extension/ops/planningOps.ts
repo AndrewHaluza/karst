@@ -25,7 +25,9 @@ import {
 } from '../../store/planningSessions.js';
 import {
   KARST_PLANNING_SESSION_ENV,
+  PLANNING_ARTIFACTS_ENV,
   PLANNING_OUTBOX_ENV,
+  planningArtifactsDir,
   historySection,
   planningAddDirs,
   planningInstructions,
@@ -251,6 +253,8 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const cwd = deps.scratchDir(session.id);
       const outbox = planningOutboxDir(cwd);
       mkdirSync(outbox, { recursive: true });
+      const artifacts = planningArtifactsDir(cwd);
+      mkdirSync(artifacts, { recursive: true });
       // The standing rules are (re)written on EVERY launch — fresh or reopen —
       // from the running karst version, and delivered through the core's own
       // channel; the kickoff is separate (empty today). The same file is
@@ -258,7 +262,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const history = await historyFor(session.id, manifest);
       const instructions = writeSessionInstructions(
         cwd,
-        planningInstructions({ sessionId: session.id, title: session.title, manifest, notes: notesFor(manifest), history }),
+        planningInstructions({ sessionId: session.id, title: session.title, manifest, notes: notesFor(manifest), history, artifactsDir: artifacts }),
       );
       const historyChars = historySection(history).join('\n').length;
       const kickoff = firstMessage ?? planningKickoff();
@@ -271,6 +275,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const cmd = adapter.buildInteractiveCommand({
         cwd,
         readOnly: true,
+        writableDir: artifacts,
         // Read-only already blocks edits; `attended` adds the explicit kill and
         // home-config denies on top (D170).
         policy: 'attended',
@@ -305,6 +310,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
           ...(cliEntry ? { [KARST_CLI_ENV]: cliEntry } : {}),
           [KARST_INSTRUCTIONS_ENV]: instructions.path,
           [PLANNING_OUTBOX_ENV]: outbox,
+          [PLANNING_ARTIFACTS_ENV]: artifacts,
           [KARST_PLANNING_SESSION_ENV]: String(session.id),
           // `notes --repos` reads the project the host launched this session for.
           ...(deps.dbPath !== undefined ? { [KARST_DB_READONLY_ENV]: deps.dbPath } : {}),

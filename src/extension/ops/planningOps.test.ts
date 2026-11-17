@@ -116,7 +116,7 @@ describe('planning ops', () => {
     expect(existsSync(opts.cwd)).toBe(true);
     expect(opts.name).toBe(`P${session.id} Auth rework`);
     expect(opts.iconPath).toBe(KARST_TERMINAL_ICON_ID);
-    expect(opts.shellArgs).toEqual(expect.arrayContaining(['--disallowedTools', 'Edit', '--add-dir', '/src/api', '/src/web']));
+    expect(opts.shellArgs).toEqual(expect.arrayContaining(['--disallowedTools', 'NotebookEdit', '--add-dir', '/src/api', '/src/web']));
     // The standing rules ride the instruction FILE through claude's own
     // system-prompt channel — never as inline kickoff prose.
     const instructionsPath = opts.env!.KARST_INSTRUCTIONS!;
@@ -130,8 +130,14 @@ describe('planning ops', () => {
       KARST_CLI: '/dist/cli/main.js',
       KARST_INSTRUCTIONS: instructionsPath,
       KARST_OUTBOX: join(opts.cwd, 'outbox'),
+      KARST_ARTIFACTS: join(opts.cwd, 'artifacts'),
     }));
     expect(existsSync(join(opts.cwd, 'outbox'))).toBe(true);
+    expect(existsSync(join(opts.cwd, 'artifacts'))).toBe(true);
+    // The artifacts dir is named in the standing rules and is the one path the file tools may write.
+    expect(readFileSync(instructionsPath, 'utf8')).toContain(`$KARST_ARTIFACTS (${join(opts.cwd, 'artifacts')})`);
+    expect(opts.shellArgs).toContain(`Edit(/${join(opts.cwd, 'artifacts')}/**)`);
+    expect(opts.shellArgs).toContain(`Write(/${join(opts.cwd, 'outbox')}/**)`);
     for (const key of ['KARST_TICKET_ID', 'KARST_DB', 'KARST_MANIFEST']) expect(opts.env).not.toHaveProperty(key);
   });
 

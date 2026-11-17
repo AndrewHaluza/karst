@@ -1555,6 +1555,8 @@ export class OpencodeAdapter implements AgentAdapter {
  */
 export function opencodeLaunchPermission(opts: {
   readOnly?: boolean | undefined;
+  /** With `readOnly`: the one dir edits are allowed in (last match wins over the `*` deny). */
+  writableDir?: string | undefined;
   addDirs?: string[] | undefined;
   /** Headless gate profile: edits confined to `cwd` + tmp, build/home-config denies. */
   gate?: { cwd: string; policy?: HeadlessPolicy | undefined; gateScripts?: readonly string[] | undefined } | undefined;
@@ -1577,7 +1579,9 @@ export function opencodeLaunchPermission(opts: {
   }
   const killDeny = opencodeProcessKillDeny();
   return {
-    ...(opts.readOnly ? { edit: 'deny' } : opts.attended ? { edit: opencodeAttendedEdit() } : {}),
+    ...(opts.readOnly
+      ? { edit: opts.writableDir ? { '*': 'deny', [`${opts.writableDir}/**`]: 'allow' } : 'deny' }
+      : opts.attended ? { edit: opencodeAttendedEdit() } : {}),
     // `bash` as an object is last-match-wins: readOnly's catch-all `*` asks
     // first, then a matching kill pattern denies. Non-readOnly keeps just the
     // deny patterns, so every other command keeps opencode's permissive default.

@@ -306,6 +306,47 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     expect(launch.args.at(-1), `${provider} prompt stays last`).toBe('plan it');
   });
 
+  it('opens only the artifacts dir to the file tools on a read-only planning launch', () => {
+    const supported = surfacesOf(provider).readOnlyInteractive.supported;
+    const { args, env } = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/karst/scratch',
+      readOnly: true,
+      writableDir: '/karst/scratch/artifacts',
+      addDirs: ['/repos/api'],
+      initialPrompt: 'plan it',
+    });
+    const l = { args, env };
+    if (provider === 'claude') {
+      const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--allowedTools') + 3);
+      expect(allowed).toEqual(['Edit(//karst/scratch/artifacts/**)', 'Write(//karst/scratch/artifacts/**)']);
+      const denied = args.slice(args.indexOf('--disallowedTools') + 1);
+      expect(denied).toContain('NotebookEdit');
+      expect(denied).not.toContain('Edit');
+      expect(denied).not.toContain('Write');
+      for (const path of ['/repos/api/**', '/karst/scratch/outbox/**', '/karst/scratch/karst-instructions.md']) {
+        expect(denied).toContain(`Edit(/${path})`);
+        expect(denied).toContain(`Write(/${path})`);
+      }
+    } else if (provider === 'codex') {
+      // workspace-write with no extra roots: cwd (so artifacts) is writable, the repos are not.
+      expect(after(args, '--sandbox')).toBe('workspace-write');
+      expect(args).toContain('sandbox_workspace_write.writable_roots=[]');
+      expect(args).not.toContain('/repos/api');
+    } else if (provider === 'opencode' || provider === 'opencode2') {
+      const permission = provider === 'opencode' ? opencodePermission(l) : opencode2Permission(l);
+      // Last match wins: the catch-all deny comes first, the artifacts allow after it.
+      expect(Object.entries(permission.edit as Record<string, string>)).toEqual([
+        ['*', 'deny'],
+        ['/karst/scratch/artifacts/**', 'allow'],
+      ]);
+      expect(permission.bash).toMatchObject({ '*': 'ask' });
+    } else {
+      // agy: `--mode plan` stays; a write to the artifacts dir is not verified.
+      expect(supported).toBe(false);
+      expect(after(args, '--mode')).toBe('plan');
+    }
+  });
+
   it('never applies the read-only policy to an ordinary launch (the kill deny is not one)', () => {
     const { args, env } = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'go' });
     // The read-only POLICY tokens are absent from an ordinary launch.

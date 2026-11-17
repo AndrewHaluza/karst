@@ -318,10 +318,27 @@ export class ClaudeAdapter implements AgentAdapter {
       // saved acceptEdits/bypass mode; the edit tools are denied outright and
       // every other shell command asks — filing is one approval. The process
       // kill deny rides along (`processKillGuard`).
-      args.push(
-        '--permission-mode', 'default', '--disallowedTools',
-        'Edit', 'Write', 'NotebookEdit', ...claudeProcessKillDeny(),
-      );
+      args.push('--permission-mode', 'default');
+      if (opts.writableDir) {
+        // The artifacts dir is the one path the file tools may write. Deny beats
+        // allow, so the repos, the outbox and the instruction file stay closed
+        // (`//` anchors a rule at the filesystem root); any other path asks.
+        const rule = (tool: string, path: string): string => `${tool}(/${path})`;
+        const closed = [
+          ...(opts.addDirs ?? []).map((d) => `${d}/**`),
+          `${opts.cwd}/outbox/**`,
+          `${opts.cwd}/karst-instructions.md`,
+        ].flatMap((path) => [rule('Edit', path), rule('Write', path)]);
+        args.push(
+          '--allowedTools',
+          rule('Edit', `${opts.writableDir}/**`),
+          rule('Write', `${opts.writableDir}/**`),
+          '--disallowedTools',
+          'NotebookEdit', ...closed, ...claudeProcessKillDeny(),
+        );
+      } else {
+        args.push('--disallowedTools', 'Edit', 'Write', 'NotebookEdit', ...claudeProcessKillDeny());
+      }
     } else if (!opts.hookChannel) {
       // A WRITABLE launch with no hook channel — a graph node/planner session
       // (`supervisedCliTransport`) or any bare `buildInteractiveCommand` — has
