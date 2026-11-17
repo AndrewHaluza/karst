@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, mkdirSync, realpathSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runSetupCommand } from './setupCommand.js';
@@ -22,6 +22,36 @@ function fakeProbe(): DiscoveryProbe {
 }
 
 describe('runSetupCommand discover', () => {
+  it('reports fits for a repository whose karst.yml entry already has a graphWorkspace block', () => {
+    const manifestPath = join(dir, 'karst.yml');
+    const yaml = (extra: string): string =>
+      `host: localhost\nportRange: [4000, 4999]\nbaselineBranch: develop\nrepositories:\n  WEB:\n    repoPath: ../web\n${extra}`;
+    const gap = () => ({ status: 'gap' as const, reason: 'no default' });
+    const run = (): { graphDeps: unknown } =>
+      JSON.parse(runSetupCommand(['setup', 'discover', '--root', '/w'], { probe: fakeProbe(), graphDeps: gap, manifestPath })).repos[0];
+    writeFileSync(manifestPath, yaml('    graphWorkspace:\n      link: [.venv]\n'));
+    expect(run().graphDeps).toEqual({ status: 'fits', reason: 'graphWorkspace is already set in karst.yml' });
+    writeFileSync(manifestPath, yaml('    graphWorkspace: {}\n'));
+    expect(run().graphDeps).toEqual({ status: 'gap', reason: 'no default' });
+    writeFileSync(manifestPath, yaml(''));
+    expect(run().graphDeps).toEqual({ status: 'gap', reason: 'no default' });
+    writeFileSync(manifestPath, 'not: [valid');
+    const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(run().graphDeps).toEqual({ status: 'gap', reason: 'no default' });
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('could not read the manifest'));
+    err.mockRestore();
+  });
+
+  it('adds the graph-deps verdict of each repository', () => {
+    const out = JSON.parse(
+      runSetupCommand(['setup', 'discover', '--root', '/w'], {
+        probe: fakeProbe(),
+        graphDeps: (path) => ({ status: 'gap', reason: `gap at ${path}` }),
+      }),
+    );
+    expect(out.repos[0].graphDeps).toEqual({ status: 'gap', reason: `gap at ${out.repos[0].path}` });
+  });
+
   it('prints the deterministic discovery result', () => {
     const out = JSON.parse(
       runSetupCommand(['setup', 'discover', '--root', '/w', '--default-branch', 'main'], { probe: fakeProbe() }),

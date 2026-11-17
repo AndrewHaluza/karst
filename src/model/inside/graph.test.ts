@@ -204,6 +204,31 @@ describe('graphInsideProcess', () => {
     expect(blocked.evidence.leadRows).toBe(3);
   });
 
+  it('offers the workspace-deps action only for a graph-workspace-deps block, and suffixes the preflight warning', () => {
+    const run = (over: object) =>
+      graphInsideProcess(
+        input({
+          graphRun: {
+            id: 7,
+            runNumber: 1,
+            status: 'blocked',
+            approachId: 'g',
+            stageAttempt: 0,
+            createdAt: '2026-08-11T00:00:00.000Z',
+            ...over,
+          },
+        }),
+      )!;
+    const labels = (p: ReturnType<typeof run>): string[] =>
+      p.evidence?.kind === 'rows' ? p.evidence.rows.map((r) => r.label) : [];
+    expect(labels(run({ blockedReason: 'graph-workspace-deps: node run 3 (web: x)' }))).toContain('workspace deps');
+    expect(labels(run({ blockedReason: 'failed-to-launch: node run 3' }))).not.toContain('workspace deps');
+    expect(labels(run({ blockedReason: null }))).not.toContain('workspace deps');
+    const warned = run({ status: 'running', depsWarning: 'deps: web not provided' });
+    expect(JSON.stringify(warned)).toContain(' · deps: web not provided');
+    expect(JSON.stringify(run({ status: 'running' }))).not.toContain('deps: web');
+  });
+
   it('never confirms a blocked or launch-unknown planner with the run it never delivered for', () => {
     // A planner that never delivered has no outcome to inherit: rewriting it
     // to a closed run's `pass` would confirm work that never happened. It

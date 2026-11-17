@@ -753,6 +753,7 @@ export function runCli(
   if (subcommand === 'setup') {
     return runSetupCommand(effectiveRest, {
       outboxEnv: env.KARST_SETUP_OUTBOX,
+      manifestPath: env[KARST_MANIFEST_ENV],
       // Structured input for `propose-change` is the flat tool object
       // `{subcommand, repo, reason, command?}`; the handler wants the change
       // proposal itself, so `kind` is added and `subcommand` dropped. The

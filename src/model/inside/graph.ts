@@ -181,7 +181,12 @@ export type GraphActionTarget =
   | { kind: 'graph-replan'; graphRunId: number }
   | { kind: 'graph-mark-impl'; graphRunId: number }
   | { kind: 'graph-discard-node'; nodeRunId: number }
-  | { kind: 'graph-edit-override'; nodeRunId: number };
+  | { kind: 'graph-edit-override'; nodeRunId: number }
+  // D647: open karst.yml at the repository entry a `graph-workspace-deps:` block names.
+  | { kind: 'graph-edit-workspace-deps'; graphRunId: number };
+
+/** The block-reason prefix a node workspace dependency failure records (`driver.ts`). */
+export const GRAPH_WORKSPACE_DEPS_REASON_PREFIX = 'graph-workspace-deps';
 
 export interface GraphInsideInput {
   /** Feature flag: the projection ships inert until Slice 3 enables it. */
@@ -197,6 +202,10 @@ export interface GraphInsideInput {
     approachId: string;
     stageAttempt: number;
     createdAt: string;
+    /** The run's recorded block reason; a `graph-workspace-deps:` prefix offers the edit action. */
+    blockedReason?: string | null;
+    /** The dependency preflight warning of the run start, shown as a header suffix. */
+    depsWarning?: string;
   } | null;
   /**
    * The graph run's spend — its planner runs and node runs, which the ledger
@@ -383,6 +392,7 @@ function runHeaderDetail(input: GraphInsideInput): string {
   for (const n of input.topology?.nodes ?? []) known.add(n.id);
   const running = new Set(input.nodeRuns.filter((n) => nodeRunStatus(n.status) === 'run').map((n) => n.nodeId));
   if (known.size > 0) parts.push(`${running.size} of ${known.size} nodes running`);
+  if (run.depsWarning) parts.push(run.depsWarning);
   return sanitizeGraphText(parts.join(' · '));
 }
 
@@ -418,6 +428,14 @@ export function graphInsideProcess(
       status: 'wait',
       action: input.attach({ kind: 'graph-replan', graphRunId: input.graphRun.id }),
     });
+    if (input.graphRun.blockedReason?.startsWith(GRAPH_WORKSPACE_DEPS_REASON_PREFIX)) {
+      rows.push({
+        label: 'workspace deps',
+        detail: 'Open karst.yml at the repository to set graphWorkspace, then Resume',
+        status: 'wait',
+        action: input.attach({ kind: 'graph-edit-workspace-deps', graphRunId: input.graphRun.id }),
+      });
+    }
     rows.push({
       label: 'stop graph',
       detail: 'Terminate any remaining graph sessions without changing the blocked stage',

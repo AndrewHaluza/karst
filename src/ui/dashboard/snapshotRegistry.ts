@@ -171,6 +171,7 @@ export const NOOP_INSIDE_HOST: InsideActionHost = {
   graphMarkImpl: () => undefined,
   graphDiscardNode: () => undefined,
   graphEditOverride: () => undefined,
+  graphEditWorkspaceDeps: () => undefined,
   retryShipRepo: () => undefined,
 };
 
@@ -198,5 +199,7 @@ export function toRegisteredGraphTarget(
       return { kind: 'graph-discard-node', ticketId, nodeRunId: target.nodeRunId };
     case 'graph-edit-override':
       return { kind: 'graph-edit-override', ticketId, nodeRunId: target.nodeRunId };
+    case 'graph-edit-workspace-deps':
+      return { kind: 'graph-edit-workspace-deps', ticketId, graphRunId: target.graphRunId };
   }
 }

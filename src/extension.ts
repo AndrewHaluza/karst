@@ -46,6 +46,7 @@ import { resolveConflictClick, makeSessionHandOff } from './extension/ops/confli
 import { ticketHandOff } from './extension/ops/guardedHandOff.js';
 import { compileExpertSpend, compileSpentNodeRuns, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
+import { createGraphDepsPreflight, openWorkspaceDepsEditor } from './extension/graphDepsBinding.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
@@ -315,6 +316,7 @@ import {
   graphRunTicketId as storeGraphRunTicketId,
   graphRunTicketStageAttempt,
   markGraphRunBlocked,
+  graphRunById,
 } from './store/graph/graphRuns.js';
 import { advanceConsumedGraphAttempt } from './extension/ops/graphLaunchOps.js';
 import { canonicalPath } from './runtime/pathScope.js';
@@ -1206,6 +1208,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
+  const graphDeps = createGraphDepsPreflight({ manifest: currentManifest, domainsOf: (id) => graphDomainsFor(id), gitCommonDirOf: gitCommonDirFromFs });
   sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id) }); // AC-32
   // The host gate re-run (@arch:AC-45): one dependency set for its three call sites, run through `runGateList`.
   const gateRerunDeps = bindGateRerunDeps({
@@ -3308,6 +3311,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           `Ticket ${formatId('ticket', ticketId)}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
         );
       },
+      graphEditWorkspaceDeps: (_ticketId, graphRunId) =>
+        void openWorkspaceDepsEditor(
+          {
+            vscode,
+            manifestPath: manifestPathOrThrow,
+            notify: { info: (m) => void toast.info(m), warn: (m) => void toast.warn(m), error: async (m) => void (await toast.error(m)) },
+          },
+          graphRunById(localStore.db, graphRunId)?.blocked_reason ?? '',
+        ),
     },
     // Reveal (never launch) the ticket's own interactive session — the same
     // reveal-or-adopt path `nudge` uses, so a reload that emptied this
@@ -3349,6 +3361,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           store: localStore,
           manifest: () => currentManifest(),
           liveSessions: () => graphTransport?.sessions() ?? [],
+          depsWarningOf: (graphRunId) => graphDeps.warningOf(graphRunId),
           now: () => new Date().toISOString(),
           debug: (m) => logger.debug(m),
         },
@@ -4497,6 +4510,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return resolveRepoWorktrees(manifest.repositories ?? {}, worktrees);
   };
 
+
   /**
    * Claim-time base heads (Slice 5 T1): per physical-domain HEAD of the
    * canonical worktrees, captured right before a coordinator tick claims
@@ -4865,6 +4879,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       commandDefOf: (graphRunId, commandId) =>
         graphApproachConfigFor(graphRunApproachId(graphRunId))?.commands[commandId],
       runProcess,
+      depsPreflightOf: graphDeps.preflight,
       plannerCwdOf: (graphRunId) => {
         const wt = listWorktreesByTicket(localStore, graphRunTicketId(graphRunId))[0];
         return wt ? { repo: wt.repo, cwd: wt.path } : undefined;

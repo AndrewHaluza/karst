@@ -34,6 +34,8 @@ export interface GraphInsideDeps {
   manifest: () => Manifest | undefined;
   /** The supervised transport's live sessions (empty when none). */
   liveSessions: () => SupervisedAgentSession[];
+  /** The run's dependency preflight warning (e.g. `deps: web not provided`), when it has one. */
+  depsWarningOf?: (graphRunId: number) => string | undefined;
   now: () => string;
   /** Injected debug sink (CLAUDE.md debug rules); absent → silent. */
   debug?: (message: string) => void;
@@ -41,7 +43,7 @@ export interface GraphInsideDeps {
 
 type GraphRunRow = Pick<
   FullGraphRunRow,
-  'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at'
+  'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at' | 'blocked_reason'
 >;
 
 /** The latest graph run of the ticket, or undefined. */
@@ -246,6 +248,7 @@ export function buildGraphInsideInput(
       return kind === null ? [] : [{ kind, runId: s.nodeRunId }];
     });
 
+  const depsWarning = deps.depsWarningOf?.(run.id);
   return {
     enabled: true,
     graphRun: {
@@ -255,6 +258,8 @@ export function buildGraphInsideInput(
       approachId: run.approach_id,
       stageAttempt: run.stage_attempt,
       createdAt: run.created_at,
+      blockedReason: run.blocked_reason,
+      ...(depsWarning === undefined ? {} : { depsWarning }),
     },
     plannerRuns: plannerRuns.map((p) => ({
       plannerRunNumber: p.planner_run_number,
