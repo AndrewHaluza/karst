@@ -7,6 +7,7 @@ import { stampScaffold } from '../manifest/scaffoldStamp.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
+import { toast, ask } from './toastSeam.js';
 export { readScaffoldManifest } from '../setup/scaffoldManifest.js';
 
 /**
@@ -86,7 +87,7 @@ export async function scaffoldManifest(): Promise<void> {
     /* the manifest is what matters; the guide is reference material */
   }
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifestPath));
-  void vscode.window.showInformationMessage(
+  void toast.info(
     `Created karst.yml — set each repository's repoPath, then try again. Quality-gate setup runbook: ${SETUP_GUIDE_FILENAME}`,
   );
 }
@@ -110,13 +111,13 @@ export async function resolveManifest(
 ): Promise<Manifest | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
-    void vscode.window.showErrorMessage('Open a folder before using Karst.');
+    void toast.error('Open a folder before using Karst.');
     return undefined;
   }
   const manifestPath = manifestPathOrThrow();
 
   if (!existsSync(manifestPath)) {
-    const pick = await vscode.window.showWarningMessage(
+    const pick = await ask.warn(
       'No karst.yml in this workspace. Create one from the template?',
       'Create karst.yml',
       'Cancel',
@@ -125,7 +126,7 @@ export async function resolveManifest(
       try {
         await scaffoldManifest();
       } catch (err) {
-        void vscode.window.showErrorMessage(
+        void toast.error(
           `Could not create karst.yml: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
@@ -138,12 +139,12 @@ export async function resolveManifest(
     // Non-fatal: a legacy `services:` manifest still loads, but the author
     // should know it's deprecated. One toast per resolve (not per repository).
     for (const w of warnings) {
-      void vscode.window.showWarningMessage(`Karst manifest: ${w}`);
+      void toast.warn(`Karst manifest: ${w}`);
     }
     for (const n of notices) info(`karst.yml: ${n}`);
     return manifest;
   } catch (err) {
-    void vscode.window.showErrorMessage(
+    void toast.error(
       `Karst manifest: ${err instanceof Error ? err.message : String(err)}`,
     );
     return undefined;

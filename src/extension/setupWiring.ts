@@ -15,6 +15,7 @@ import type { TerminalHost } from '../ui/session.js';
 import { manifestPathOrThrow, readScaffoldManifest } from './manifestResolve.js';
 import { manifestRemovedKeys, manifestWriteSections, writeManifestWithBackup } from '../manifest/write.js';
 import { ownedScratches, readSetupOwner } from '../setup/owner.js';
+import { ask } from './toastSeam.js';
 
 /**
  * The vscode binding for the onboarding setup feature (§ ONBOARDING-SETUP-AGENT).
@@ -119,7 +120,7 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     },
     notify: deps.notify,
     confirmUnsafeCore: async () =>
-      (await vscode.window.showWarningMessage('agy cannot block edits; approve each action.', { modal: true }, 'Start')) ===
+      (await ask.warn('agy cannot block edits; approve each action.', { modal: true }, 'Start')) ===
       'Start',
     debug: deps.debug,
   });
@@ -131,7 +132,7 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     outboxes: () => ownedScratches(setupRoot, workspaceRoot(), deps.debug),
     readCurrentManifest: deps.currentManifest,
     confirm: async (d) =>
-      (await vscode.window.showWarningMessage(d.message, { modal: true, detail: d.detail }, 'Apply')) === 'Apply',
+      (await ask.warn(d.message, { modal: true, detail: d.detail }, 'Apply')) === 'Apply',
     isScaffold: (current) => isScaffoldManifest(current, readScaffoldManifest()),
     writtenSections: (applied, scratch) => {
       const path = targetManifestPath(scratch);

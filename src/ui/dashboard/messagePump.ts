@@ -1,5 +1,6 @@
+import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { LogError } from '../../logging/logger.js';
-import { readRequestId, reportAction } from '../../model/actionResult.js';
+import { actionRecorderFor, postActionResult, readRequestId, reportAction } from '../../model/actionResult.js';
 import type { DashboardPanel } from './panelTypes.js';
 import { parseWebviewMessage, routeAction, type DashboardActions } from './messages.js';
 import type { InsideActionResult } from './messages.js';
@@ -32,6 +33,9 @@ export interface MessagePumpDeps {
  */
 export function attachMessagePump(panel: DashboardPanel, deps: MessagePumpDeps): void {
   const { ticketId, actions, selections, registry, logError } = deps;
+  // The dashboard links each recorded outcome to its ticket; other panels write project-level rows.
+  const record = actionRecorderFor(ticketId);
+  const post = (message: ActionResultMessage): void => panel.postMessage(message);
   panel.onDidReceiveMessage((raw) => {
     // Read the correlation id off the RAW message, before it is narrowed —
     // `parseWebviewMessage` deliberately drops fields it does not model, and
@@ -73,17 +77,12 @@ export function attachMessagePump(panel: DashboardPanel, deps: MessagePumpDeps):
       const result = routeAction(raw, actions) as InsideActionResult | void | Promise<void>;
       if (isInsideActionResult(result)) {
         if (requestId) {
-          panel.postMessage({
-            type: 'action-result',
-            requestId,
-            ok: result.ok,
-            ...(result.message ? { message: result.message } : {}),
-          });
+          postActionResult(post, { requestId, ok: result.ok, message: result.message }, record);
         }
         return;
       }
       // A void/promise-returning factory keeps its exact old semantics.
-      void reportAction(requestId, (message) => panel.postMessage(message), () => result);
+      void reportAction(requestId, post, () => result, record);
       return;
     }
     if (parsed.type === 'change-base-ref') {
@@ -99,36 +98,18 @@ export function attachMessagePump(panel: DashboardPanel, deps: MessagePumpDeps):
         (outcome) => {
           if (outcome.ok) deps.pushState(ticketId);
           if (!requestId) return;
-          try {
-            panel.postMessage({
-              type: 'action-result',
-              requestId,
-              ok: outcome.ok,
-              ...(outcome.message ? { message: outcome.message } : {}),
-            });
-          } catch {
-            // A disposed panel. The change already ran (or was refused); losing
-            // the receipt is not a reason to surface an error nobody can act on.
-          }
+          // A disposed panel is swallowed by the helper: the change already ran (or was refused).
+          postActionResult(post, { requestId, ok: outcome.ok, message: outcome.message }, record);
         },
         (err: unknown) => {
           logError('karst: change base ref failed', err);
           if (!requestId) return;
-          try {
-            panel.postMessage({
-              type: 'action-result',
-              requestId,
-              ok: false,
-              message: 'Changing the base branch failed.',
-            });
-          } catch {
-            // A disposed panel.
-          }
+          postActionResult(post, { requestId, ok: false, message: 'Changing the base branch failed.' }, record);
         },
       );
       return;
     }
-    void reportAction(requestId, (message) => panel.postMessage(message), () => {
+    void reportAction(requestId, post, () => {
       try {
         const result = routeAction(raw, actions);
         if (result && typeof (result as PromiseLike<void>).then === 'function') {
@@ -144,7 +125,7 @@ export function attachMessagePump(panel: DashboardPanel, deps: MessagePumpDeps):
         logError('karst: dashboard action failed', err);
         throw err;
       }
-    });
+    }, record);
   });
 }
 
@@ -162,12 +143,11 @@ function refuseDroppedDecision(
   if (typeof type !== 'string' || !DECISION_TYPES.has(type)) return;
   deps.logError(`karst: dashboard dropped an invalid ${type} message`, 'refused by the message parse');
   if (!requestId) return;
-  panel.postMessage({
-    type: 'action-result',
-    requestId,
-    ok: false,
-    message: 'The request was refused: it was malformed or too large. Reopen the review and try again.',
-  });
+  postActionResult(
+    (message) => panel.postMessage(message),
+    { requestId, ok: false, message: 'The request was refused: it was malformed or too large. Reopen the review and try again.' },
+    actionRecorderFor(deps.ticketId),
+  );
 }
 
 /** Narrow a routed action's return to the synchronous inside outcome, if that is what it is. */

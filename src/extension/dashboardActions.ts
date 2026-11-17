@@ -72,6 +72,7 @@ import { formatId } from '../model/entityId.js';
 import { type CapabilityGuard } from './insideActionHost.js';
 import { planRetryShip } from '../ui/dashboard/insideActions.js';
 import { ShipDrainingError } from './ops/reloadWhenIdle.js';
+import { toast, ask, showToast } from './toastSeam.js';
 
 /**
  * Bind dashboard actions to real vscode side-effects. Server lifecycle: stop and
@@ -80,10 +81,11 @@ import { ShipDrainingError } from './ops/reloadWhenIdle.js';
  * user to re-spin — honest rather than a fake no-op.
  */
 export const vscodeNotify: Notify = {
-  info: (m) => void vscode.window.showInformationMessage(m),
-  warn: (m) => void vscode.window.showWarningMessage(m),
-  error: async (m) => { await vscode.window.showErrorMessage(m); }, errorActions: async (m, actions) => vscode.window.showErrorMessage(m, ...actions),
-  infoActions: async (m, actions) => vscode.window.showInformationMessage(m, ...actions),
+  info: (m, ticketId) => void showToast('info', m, [], ticketId),
+  warn: (m, ticketId) => void showToast('warn', m, [], ticketId),
+  error: async (m, ticketId) => { await showToast('error', m, [], ticketId); },
+  errorActions: async (m, actions, ticketId) => showToast('error', m, actions, ticketId),
+  infoActions: async (m, actions, ticketId) => showToast('info', m, actions, ticketId),
 };
 
 /** The host seams of the review-stall actions. */
@@ -195,6 +197,12 @@ export function makeDashboardActions(
   // Commits the ticket holds that its PRs lack (the in-memory undelivered tracker); Merge all skips PRs while it is above 0.
   unpushedCount: (ticketId: number, repo: string) => number,
 ): DashboardActions {
+  // Every toast of this dashboard links its karst_events row to the ticket (D641).
+  const toast = {
+    info: (m: string, ...items: string[]) => showToast('info', m, items, ticketId),
+    warn: (m: string, ...items: string[]) => showToast('warn', m, items, ticketId),
+    error: (m: string, ...items: string[]) => showToast('error', m, items, ticketId),
+  };
   const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
     {
@@ -218,9 +226,9 @@ export function makeDashboardActions(
   const serverDeps: ServerOpsDeps = {
     store,
     notify: {
-      info: (m) => void vscode.window.showInformationMessage(m),
-      warn: (m) => void vscode.window.showWarningMessage(m),
-      error: async (m) => { await vscode.window.showErrorMessage(m); },
+      info: (m) => void toast.info(m),
+      warn: (m) => void toast.warn(m),
+      error: async (m) => { await toast.error(m); },
     },
     afterServerChange,
     loadManifest: async () => (await resolveManifest(debug)) ?? null,
@@ -284,13 +292,13 @@ export function makeDashboardActions(
     launchWorktreeExtension: async (path) => {
       if (!(await guardCapability('worktrees'))) return;
       if (!launchConfig().enabled) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           'Launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
         );
         return;
       }
       if (!listWorktreesByTicket(store, ticketId).some((w) => w.path === path)) {
-        void vscode.window.showWarningMessage('That worktree is not registered to this ticket.');
+        void toast.warn('That worktree is not registered to this ticket.');
         return;
       }
       launchWorktree(path);
@@ -316,7 +324,7 @@ export function makeDashboardActions(
       void runShipSaga(ticketId).catch((e) => {
         if (e instanceof ShipDrainingError) {
           onInsideProgress(shipClearedEvent(ticketId));
-          void vscode.window.showInformationMessage(`Karst: ${e.message}`);
+          void toast.info(`Karst: ${e.message}`);
           return;
         }
         logError('ship failed', e);
@@ -327,7 +335,7 @@ export function makeDashboardActions(
         // toast lands.
         afterServerChange();
         onInsideProgress(shipClearedEvent(ticketId));
-        void vscode.window.showErrorMessage(
+        void toast.error(
           `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
         );
       });
@@ -338,18 +346,18 @@ export function makeDashboardActions(
       if (!(await guardCapability('ship'))) return;
       const plan = planRetryShip(store, ticketId);
       if ('reason' in plan) {
-        void vscode.window.showInformationMessage(`Retry ship: ${plan.reason}.`);
+        void toast.info(`Retry ship: ${plan.reason}.`);
         afterServerChange();
         return;
       }
       void runShipSaga(ticketId, true, { repos: plan.repos }).catch((e) => {
         if (e instanceof ShipDrainingError) {
-          void vscode.window.showInformationMessage(`Karst: ${e.message}`);
+          void toast.info(`Karst: ${e.message}`);
           return;
         }
         logError('retry ship failed', e);
         afterServerChange();
-        void vscode.window.showErrorMessage(
+        void toast.error(
           `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
         );
       });
@@ -379,7 +387,7 @@ export function makeDashboardActions(
           // for a stage the ticket has since left or landed.
           const state = sendBackState(store, ticketId);
           if (!state.available) {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               `Ticket ${formatId('ticket', ticketId)} cannot be sent back to Implement right now.`,
             );
             return;
@@ -391,19 +399,19 @@ export function makeDashboardActions(
                 + 'kept as they are — they are not merged or closed.'
             : 'Move this ticket back to Implement? UAT and Review will need to run again. '
                 + 'Existing evidence will remain in history.';
-          const choice = await vscode.window.showWarningMessage(
+          const choice = await ask.warn(
             'Send back to Implement?',
             { modal: true, detail },
             'Send back to Implement',
           );
           if (!choice) return; // dismissed: nothing ran, and nothing is claimed
           const result = sendBackToImplement(store, ticketId, { debug });
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', ticketId)} moved back to Implement${result.from === 'ship' ? ' — open pull requests kept' : ''}.`,
           );
         } catch (e) {
           logError('send back to implement failed', e);
-          void vscode.window.showErrorMessage(
+          void toast.error(
             `Could not send ticket ${formatId('ticket', ticketId)} back: ${e instanceof Error ? e.message : String(e)}`,
           );
         } finally {
@@ -416,10 +424,10 @@ export function makeDashboardActions(
       resetStageAction({
         store, ticketId, afterServerChange, logError, debug,
         drive: () => driveAfterResume(ticketId),
-        info: (m) => void vscode.window.showInformationMessage(m),
-        error: (m) => void vscode.window.showErrorMessage(m),
+        info: (m) => void toast.info(m),
+        error: (m) => void toast.error(m),
         confirm: async (title, detail) =>
-          (await vscode.window.showWarningMessage(title, { modal: true, detail }, 'Reset stage')) !== undefined,
+          (await ask.warn(title, { modal: true, detail }, 'Reset stage')) !== undefined,
       }),
     // Answers to a review stall (T1001); logic in ops/stallActions.
     ...makeStallActions({
@@ -436,10 +444,10 @@ export function makeDashboardActions(
       addressPrFeedback({
         store, ticketId, afterServerChange, logError, debug,
         drive: () => driveAfterResume(ticketId),
-        info: (m) => void vscode.window.showInformationMessage(m),
-        error: (m) => void vscode.window.showErrorMessage(m),
+        info: (m) => void toast.info(m),
+        error: (m) => void toast.error(m),
         confirm: async (detail) =>
-          (await vscode.window.showWarningMessage(
+          (await ask.warn(
             'Address pull request feedback?',
             { modal: true, detail },
             'Address feedback',
@@ -465,13 +473,13 @@ export function makeDashboardActions(
         try {
           const state = retryGateState(store, ticketId);
           if (!state.available) {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               'This stage cannot be retried right now.',
             );
             return;
           }
           const stageLabel = stage === 'uat' ? 'UAT' : 'Review';
-          const choice = await vscode.window.showWarningMessage(
+          const choice = await ask.warn(
             `Retry ${stageLabel}?`,
             { modal: true, detail: `Re-run the ${stageLabel} stage. Existing evidence will remain in history.` },
             'Retry',
@@ -479,13 +487,13 @@ export function makeDashboardActions(
           if (!choice || (await askPausedModal(store, ticketId, `retry ${stageLabel}`, `Retry ${stageLabel}`, () => afterServerChange())) === 'cancel') return;
           const result = retryGateStage(store, ticketId, stage);
           if (!result.ok) {
-            void vscode.window.showInformationMessage(`Could not retry: ${result.reason}`);
+            void toast.info(`Could not retry: ${result.reason}`);
             return;
           }
-          void vscode.window.showInformationMessage(`${stageLabel} stage reset — retrying.`);
+          void toast.info(`${stageLabel} stage reset — retrying.`);
         } catch (e) {
           logError('retry gate failed', e);
-          void vscode.window.showErrorMessage(
+          void toast.error(
             `Could not retry the stage: ${e instanceof Error ? e.message : String(e)}`,
           );
         } finally {
@@ -517,13 +525,13 @@ export function makeDashboardActions(
       if (outcome.kind === 'graph-mark-impl') {
         const result = fireGraphImplMarkerFromHost(store, outcome.ticketId);
         if (result.ok) {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             `Ticket ${formatId('ticket', outcome.ticketId)}: the implementation marker fired (graph run ${outcome.graphRunId}) — advancing to uat.`,
           );
           afterServerChange();
           driveAfterResume(outcome.ticketId);
         } else {
-          void vscode.window.showWarningMessage(
+          void toast.warn(
             `Ticket ${formatId('ticket', outcome.ticketId)}: could not fire the implementation marker (${result.reason}).`,
           );
         }
@@ -545,7 +553,7 @@ export function makeDashboardActions(
           { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
         );
         if (recovery.kind === 'refused') {
-          void vscode.window.showInformationMessage(
+          void toast.info(
             graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
           );
         }
@@ -586,7 +594,7 @@ export function makeDashboardActions(
     openStageLog: (stageKey) => {
       const artifact = resolveStageLogPath((id) => getTicket(store, id), ticketId, stageKey);
       if (artifact === null) {
-        void vscode.window.showWarningMessage('That stage has no log to open.');
+        void toast.warn('That stage has no log to open.');
         return;
       }
       void (async () => {
@@ -595,7 +603,7 @@ export function makeDashboardActions(
           await vscode.window.showTextDocument(doc, { preview: true });
         } catch (e) {
           // The gate wrote the path, but the file can be gone (worktree removed).
-          void vscode.window.showWarningMessage(`Cannot open the log at ${artifact}.`);
+          void toast.warn(`Cannot open the log at ${artifact}.`);
           logError('open stage log failed', e);
         }
       })();
@@ -638,14 +646,14 @@ export function makeDashboardActions(
         const artifact = buildTicketArtifacts(store, ticketId).find((a) => a.id === artifactId);
         const resource = artifact && artifact.resources[index];
         if (!artifact || !resource) {
-          void vscode.window.showWarningMessage('That artifact file is no longer available.');
+          void toast.warn('That artifact file is no longer available.');
           return;
         }
         try {
           const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resource.path));
           await vscode.window.showTextDocument(doc, { preview: true });
         } catch (e) {
-          void vscode.window.showWarningMessage(`Cannot open the file at ${resource.path}.`);
+          void toast.warn(`Cannot open the file at ${resource.path}.`);
           logError('open artifact resource failed', e);
         }
       })();
@@ -662,7 +670,7 @@ export function makeDashboardActions(
         briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
         arm: (r) => armConflictRound(store, conflictRounds, ticketId, r),
         prepareSandbox: () => sandbox.life().ensureInSync(ticketId),
-        notify: (message) => void vscode.window.showInformationMessage(message),
+        notify: (message) => void toast.info(message),
         deliver: (brief, hit) => handOffToSession(brief, hit),
       }) : undefined));
     },
@@ -684,20 +692,20 @@ export function makeDashboardActions(
           // message and a stale panel can name a PR that has since gone.
           const pr = findTicketPr(store, ticketId, repo);
           if (!pr) {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               `No pull request is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to merge.`,
             );
             return;
           }
           if (pr.status === 'merged') {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               `Pull request${pr.number ? ` #${pr.number}` : ''} is already merged.`,
             );
             return;
           }
 
           const target = pr.baseRef ? ` into ${pr.baseRef}` : '';
-          const choice = await vscode.window.showWarningMessage(
+          const choice = await ask.warn(
             `Merge pull request${pr.number ? ` #${pr.number}` : ''}${target}?`,
             {
               modal: true,
@@ -717,7 +725,7 @@ export function makeDashboardActions(
             unpushed: unpushedCount(ticketId, repo),
           });
           if (result.ok) {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               result.completedTicket
                 ? `Merged pull request${pr.number ? ` #${pr.number}` : ''} — ticket ${formatId('ticket', ticketId)} done.`
                 : `Merged pull request${pr.number ? ` #${pr.number}` : ''}.`,
@@ -733,10 +741,10 @@ export function makeDashboardActions(
           // already persisted the real, re-probed state, so the panel and this
           // message describe the same PR.
           logError(`merge failed for ticket ${formatId('ticket', ticketId)} (${repo})`, undefined);
-          void vscode.window.showErrorMessage(`Merge failed: ${result.reason}`);
+          void toast.error(`Merge failed: ${result.reason}`);
         } catch (e) {
           logError('merge failed', e);
-          void vscode.window.showErrorMessage(
+          void toast.error(
             `Merge failed: ${e instanceof Error ? e.message : String(e)}`,
           );
         } finally {
@@ -761,9 +769,9 @@ export function makeDashboardActions(
         autofixRunning: () => readAutofix(store, ticketId, manifest()?.autopilot).input.running !== null,
         unpushed: (r) => unpushedCount(ticketId, r),
         askModal: async (modal) =>
-          (await vscode.window.showWarningMessage(modal.title, { modal: true, detail: modal.detail }, modal.confirm)) === modal.confirm,
-        info: (m) => void vscode.window.showInformationMessage(m),
-        error: (m) => void vscode.window.showErrorMessage(m),
+          (await ask.warn(modal.title, { modal: true, detail: modal.detail }, modal.confirm)) === modal.confirm,
+        info: (m) => void toast.info(m),
+        error: (m) => void toast.error(m),
         logError,
         debug,
         onTicketCompleted,
@@ -790,13 +798,13 @@ export function makeDashboardActions(
         try {
           const pr = findTicketPr(store, ticketId, repo);
           if (!pr) {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               `No pull request is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to dismiss.`,
             );
             return;
           }
           const num = pr.number ? ` #${pr.number}` : '';
-          const choice = await vscode.window.showWarningMessage(
+          const choice = await ask.warn(
             `Stop waiting on pull request${num}?`,
             {
               modal: true,
@@ -820,10 +828,10 @@ export function makeDashboardActions(
             defaultGitRunner,
           );
           if (!result.ok) {
-            void vscode.window.showErrorMessage(result.reason);
+            void toast.error(result.reason);
             return;
           }
-          void vscode.window.showInformationMessage(
+          void toast.info(
             result.completedTicket
               ? `Dismissed pull request${num} — ticket ${formatId('ticket', ticketId)} done.`
               : `Dismissed pull request${num}.`,
@@ -834,7 +842,7 @@ export function makeDashboardActions(
           if (result.completedTicket) await onTicketCompleted();
         } catch (e) {
           logError('dismiss failed', e);
-          void vscode.window.showErrorMessage(
+          void toast.error(
             `Could not dismiss the pull request: ${e instanceof Error ? e.message : String(e)}`,
           );
         } finally {
@@ -849,10 +857,10 @@ export function makeDashboardActions(
       if (!(await guardCapability('ship'))) return;
       try {
         const result = undismissTicketPr(store, { ticketId, repo, debug });
-        if (!result.ok) void vscode.window.showInformationMessage(result.reason);
+        if (!result.ok) void toast.info(result.reason);
       } catch (e) {
         logError('undismiss failed', e);
-        void vscode.window.showErrorMessage(
+        void toast.error(
           `Could not undo the dismissal: ${e instanceof Error ? e.message : String(e)}`,
         );
       } finally {
@@ -899,7 +907,7 @@ export function makeDashboardActions(
     saveEnvOverrides: async (scope, text) => {
       const known = getTicket(store, ticketId).selectedRepos;
       if (scope !== ALL_SERVICES && !known.includes(scope)) {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           `“${scope}” is not a repository this ticket scopes — nothing was saved.`,
         );
         return;

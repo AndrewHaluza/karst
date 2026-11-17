@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  actionEvent,
+  actionRecorderFor,
+  bindActionRecorder,
+  postActionResult,
   readRequestId,
   reportAction,
   MAX_RESULT_MESSAGE_CHARS,
@@ -143,5 +147,89 @@ describe('reportAction', () => {
     });
     expect(sent[0]!.ok).toBe(false);
     expect(sent[0]!.message).toBeUndefined();
+  });
+});
+
+describe('actionEvent — the noise rule', () => {
+  it.each([
+    [false, 'Merge refused', { level: 'error', message: 'Merge refused' }],
+    [false, undefined, { level: 'error', message: 'The action failed.' }],
+    [null, 'No answer', { level: 'warn', message: 'No answer' }],
+    [null, undefined, { level: 'warn', message: 'The action result is unknown.' }],
+    [true, 'Archived', { level: 'success', message: 'Archived' }],
+    [true, undefined, undefined],
+    [true, '', undefined],
+  ] as const)('ok:%s message:%s', (ok, message, expected) => {
+    expect(actionEvent(ok, message)).toEqual(expected);
+  });
+});
+
+describe('reportAction recording', () => {
+  it('records the failure before the result is posted', async () => {
+    const order: string[] = [];
+    await reportAction('r1', () => order.push('post'), () => { throw new Error('nope'); }, () => order.push('record'));
+    expect(order).toEqual(['record', 'post']);
+  });
+
+  it('records an error row with the message', async () => {
+    const record = vi.fn();
+    await reportAction('r1', () => {}, () => { throw new Error('nope'); }, record);
+    expect(record).toHaveBeenCalledWith({ level: 'error', message: 'nope' });
+  });
+
+  it('records nothing for ok:true without a message', async () => {
+    const record = vi.fn();
+    await reportAction('r1', () => {}, () => {}, record);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('records nothing and posts nothing without a request id', async () => {
+    const record = vi.fn();
+    const post = vi.fn();
+    await reportAction(undefined, post, () => { throw new Error('x'); }, record);
+    expect(record).not.toHaveBeenCalled();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('still posts when the recorder throws', async () => {
+    const post = vi.fn();
+    await reportAction('r1', post, () => { throw new Error('x'); }, () => { throw new Error('db'); });
+    expect(post).toHaveBeenCalledWith({ type: 'action-result', requestId: 'r1', ok: false, message: 'x' });
+  });
+
+  it('uses the bound host recorder when none is given', async () => {
+    const bound = vi.fn();
+    bindActionRecorder(bound);
+    try {
+      await reportAction('r1', () => {}, () => { throw new Error('x'); });
+      expect(bound).toHaveBeenCalledWith({ level: 'error', message: 'x' });
+    } finally {
+      bindActionRecorder(undefined);
+    }
+  });
+});
+
+describe('postActionResult and actionRecorderFor', () => {
+  it('records a success with a message and posts it', () => {
+    const post = vi.fn();
+    const record = vi.fn();
+    postActionResult(post, { requestId: 'r1', ok: true, message: 'Merged' }, record);
+    expect(record).toHaveBeenCalledWith({ level: 'success', message: 'Merged' });
+    expect(post).toHaveBeenCalledWith({ type: 'action-result', requestId: 'r1', ok: true, message: 'Merged' });
+  });
+
+  it('survives a disposed panel', () => {
+    expect(() => postActionResult(() => { throw new Error('disposed'); }, { requestId: 'r1', ok: false, message: 'x' }, () => {})).not.toThrow();
+  });
+
+  it('links the row to the ticket over the bound recorder', () => {
+    const bound = vi.fn();
+    bindActionRecorder(bound);
+    try {
+      actionRecorderFor(5)({ level: 'warn', message: 'w' });
+      expect(bound).toHaveBeenCalledWith({ level: 'warn', message: 'w', ticketId: 5 });
+    } finally {
+      bindActionRecorder(undefined);
+    }
   });
 });

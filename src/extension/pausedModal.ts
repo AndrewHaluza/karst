@@ -3,6 +3,7 @@ import type { Store } from '../store/db.js';
 import { getTicket, unpauseTicket } from '../store/tickets.js';
 import { formatId } from '../model/entityId.js';
 import { askWhenPaused } from './ops/pausedAsk.js';
+import { ask } from './toastSeam.js';
 
 /** Modal binding of `askWhenPaused` for actions that need the driver (D303). */
 export function askPausedModal(
@@ -21,6 +22,6 @@ export function askPausedModal(
       unpauseTicket(s, ticketId);
       afterUnpause();
     },
-    choose: async (message, choices) => vscode.window.showWarningMessage(message, { modal: true }, ...choices),
+    choose: async (message, choices) => ask.warn(message, { modal: true }, ...choices),
   });
 }

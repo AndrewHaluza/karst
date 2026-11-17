@@ -10,6 +10,7 @@ import {
   type StoredArtifactActions,
   type StoredArtifactUi,
 } from './ops/storedArtifactOps.js';
+import { ask } from './toastSeam.js';
 
 export type { StoredArtifactActions };
 
@@ -72,7 +73,7 @@ export function createStoredArtifactBinding(deps: StoredArtifactBindingDeps): {
       await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(path));
     },
     async confirm(message) {
-      return (await vscode.window.showWarningMessage(message, { modal: true }, 'Purge artifacts')) === 'Purge artifacts';
+      return (await ask.warn(message, { modal: true }, 'Purge artifacts')) === 'Purge artifacts';
     },
   };
   const disposable = vscode.Disposable.from(provider, changed, { dispose: () => docs.clear() });

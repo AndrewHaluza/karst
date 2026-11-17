@@ -31,6 +31,7 @@ import {
 import type { DiagnosticDraft, FinalizedDiagnosticReport } from '../diagnostics/types.js'
 import type { HookChannelSnapshot } from '../diagnostics/hookChannel.js'
 import { hookFailureLogPath } from '../agent/hookFailureLog.js'
+import { toast, ask } from './toastSeam.js';
 
 const SCHEME = 'karst-diagnostic'
 
@@ -112,7 +113,7 @@ async function chooseFinalAction(
     'Refresh snapshot',
     'Cancel',
   ]
-  const choice = await vscode.window.showInformationMessage(
+  const choice = await ask.info(
     `${buildReviewSummary(snapshot)}\n\nCopy and Save use exactly the snapshot shown. `
       + 'Karst does not upload it automatically.',
     { modal: true },
@@ -148,7 +149,7 @@ function makePorts(
           requestedId,
         )
       } catch {
-        void vscode.window.showWarningMessage(
+        void toast.warn(
           'That ticket is not available in the current project. Choose another ticket.',
         )
         candidates = ticketCandidates(
@@ -165,7 +166,7 @@ function makePorts(
         }
       }
       if (candidates.length === 0) {
-        void vscode.window.showInformationMessage(
+        void toast.info(
           'Karst: no tickets found; preparing an extension-level report.',
         )
         selectedScope = 'project'
@@ -242,7 +243,7 @@ function makePorts(
     },
     previewMetadata: async (draft): Promise<MetadataPreviewAction> => {
       await reveal(deps.documents, deps.documents.put('metadata', draft.reportId, metadataPreview(draft)))
-      const choice = await vscode.window.showInformationMessage(
+      const choice = await ask.info(
         'Review before sharing. Continue does not approve session context.',
         { modal: true },
         'Continue',
@@ -255,7 +256,7 @@ function makePorts(
     },
     decideContext: async () => {
       if (selectedScope === 'project') return 'decline'
-      const choice = await vscode.window.showInformationMessage(
+      const choice = await ask.info(
         'Include session context in this report?\n\n'
           + 'Approval adds only the ticket title, description, and brief. It may contain '
           + 'business details or other text you entered. Secrets remain excluded. '
@@ -281,7 +282,7 @@ function makePorts(
     },
     copy: async (snapshot) => {
       await vscode.env.clipboard.writeText(snapshot.exportMarkdown())
-      void vscode.window.showInformationMessage(
+      void toast.info(
         'Report copied to clipboard. Nothing was uploaded.',
       )
     },
@@ -297,10 +298,10 @@ function makePorts(
       })
       if (!uri) return 'cancelled'
       await vscode.workspace.fs.writeFile(uri, Buffer.from(snapshot.exportMarkdown(), 'utf8'))
-      void vscode.window.showInformationMessage('Report saved. Nothing was uploaded.')
+      void toast.info('Report saved. Nothing was uploaded.')
     },
     handoff: async (snapshot) => {
-      const choice = await vscode.window.showInformationMessage(
+      const choice = await ask.info(
         'GitHub will open with a short issue template. Diagnostics are not uploaded. '
           + 'Copy or save the reviewed report, then paste or attach it and submit in GitHub.',
         { modal: true },
@@ -313,12 +314,12 @@ function makePorts(
         vscode.Uri.parse(buildGitHubIssueUrl(snapshot, version)),
       )
       if (!opened) throw new Error('browser_open_failed')
-      void vscode.window.showInformationMessage(
+      void toast.info(
         'GitHub opened — finish and submit the issue in your browser. Nothing was uploaded.',
       )
     },
     onExportError: async () => {
-      const choice = await vscode.window.showErrorMessage(
+      const choice = await ask.error(
         'Could not export the report (export_failed). The reviewed snapshot is still available.',
         'Try again',
         'Cancel',
@@ -335,7 +336,7 @@ export function createReportIssueHandler(
     const project = deps.currentProject()
     const manifest = deps.currentManifest()
     if (!project || !manifest) {
-      void vscode.window.showWarningMessage(
+      void toast.warn(
         'Karst: open a configured project before creating an issue report.',
       )
       return
@@ -350,19 +351,19 @@ export function createReportIssueHandler(
             ticketIdArg(argument),
           ))
           if (result.status === 'cancelled') {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               'Issue report cancelled. Nothing was submitted.',
             )
           }
           return
         } catch (error) {
           if (error instanceof CollectionCancelledError) {
-            void vscode.window.showInformationMessage(
+            void toast.info(
               'Issue report cancelled. Nothing was submitted.',
             )
             return
           }
-          const choice = await vscode.window.showErrorMessage(
+          const choice = await ask.error(
             'Could not prepare the issue report (collection_failed). Nothing was submitted.',
             'Try again',
             'Cancel',
