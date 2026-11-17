@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, watch as fsWatch } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import { isScaffoldManifest } from '../setup/manifestApply.js';
 import { resolveChangeDir, type ChangeDir } from '../setup/changeTarget.js';
@@ -16,6 +16,8 @@ import { manifestPathOrThrow, readScaffoldManifest } from './manifestResolve.js'
 import { manifestRemovedKeys, manifestWriteSections, writeManifestWithBackup } from '../manifest/write.js';
 import { ownedScratches, readSetupOwner } from '../setup/owner.js';
 import { ask } from './toastSeam.js';
+import { nodeRecheck, nodeVerifyDeps } from '../setup/verify/node.js';
+import { writeVerifyRecord } from '../setup/verify/record.js';
 
 /**
  * The vscode binding for the onboarding setup feature (§ ONBOARDING-SETUP-AGENT).
@@ -96,6 +98,8 @@ function applyPatch(cwd: string, patch: string): Promise<void> {
 export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
   const setupRoot = join(deps.storageDir, 'setup-scratch');
   const scratchDir = (id: string): string => join(setupRoot, id);
+  /** Host records live in extension storage, never in the agent-writable scratch. */
+  const verifyDir = (id: string): string => join(deps.storageDir, 'setup-verify', id);
   const workspaceRoot = (): string | undefined => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const manifestOrEmpty = (): SetupManifest | undefined => deps.currentManifest();
 
@@ -108,6 +112,7 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     workspaceRoot,
     defaultAgent: deps.defaultAgent,
     scratchDir,
+    verifyDir,
     host: { createTerminal: (opts) => deps.terminalHost().createTerminal(opts) },
     cliEntry: deps.cliEntry,
     dbPath: deps.dbPath,
@@ -155,6 +160,15 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
       mkdirSync(dirname(path), { recursive: true });
       writeManifestWithBackup(path, applied);
       return createHash('sha256').update(readFileSync(path)).digest('hex');
+    },
+    verify: (scratch) => {
+      const manifestPath = targetManifestPath(scratch);
+      const dir = verifyDir(basename(scratch));
+      return {
+        deps: nodeVerifyDeps(manifestPath),
+        recheck: nodeRecheck(manifestPath),
+        writeRecord: (record) => writeVerifyRecord(dir, record),
+      };
     },
     resolveDir,
     runCommand: (cwd, command) => runShellCommand(cwd, command),

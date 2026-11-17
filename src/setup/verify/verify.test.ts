@@ -220,11 +220,17 @@ describe('verifyAfterApply', () => {
     const r = await verifyAfterApply(before, 'manifest', applied, deps({ readCurrentText: () => 'new' }));
     expect(step(r, 'A1').status).toBe('ok');
   });
-  it('A2 fails when a named item still fails or is missing', async () => {
+  it('A2 fails when a named item still fails', async () => {
     const still = await verifyAfterApply(before, 'change', applied, deps({ recheck: async () => [{ id: 'manifest.legacy-services', status: 'fail' as const, detail: '' }] }));
     expect(step(still, 'A2').status).toBe('fail');
+  });
+  it('A2 passes a cleared item that left the list, and fails an added item that is missing', async () => {
     const gone = await verifyAfterApply(before, 'change', applied, deps({ recheck: async () => [] }));
-    expect(step(gone, 'A2').status).toBe('fail');
+    expect(step(gone, 'A2').status).toBe('ok');
+    const added: VerifyResult = { ...before, changes: [{ id: 'repo.api.git', kind: 'added' }] };
+    const missing = await verifyAfterApply(added, 'change', applied, deps({ recheck: async () => [] }));
+    expect(step(missing, 'A2').status).toBe('fail');
+    expect(step(missing, 'A2').detail).toContain('repo.api.git');
   });
   it('A2 passes a warn item and re-runs only the named ids', async () => {
     let asked: readonly string[] = [];

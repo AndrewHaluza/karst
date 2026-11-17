@@ -285,14 +285,19 @@ export async function verifyAfterApply(
     }
     return ok(kind === 'manifest' ? 'karst.yml written' : 'the change ran and karst.yml is unchanged');
   });
-  const named = before.changes.filter((c) => c.kind === 'cleared' || c.kind === 'added').map((c) => c.id);
+  const namedChanges = before.changes.filter((c) => c.kind === 'cleared' || c.kind === 'added');
+  const named = namedChanges.map((c) => c.id);
   await list.run('A2', async () => {
     if (named.length === 0) return info('the proposal named no item to re-run');
     const items = await deps.recheck(named);
-    const bad = named.filter((id) => {
-      const item = items.find((i) => i.id === id);
-      return item === undefined || item.status === 'fail';
-    });
+    const bad = namedChanges
+      .filter((change) => {
+        const item = items.find((i) => i.id === change.id);
+        // A cleared warning item leaves the list when its cause goes; an added item must be there.
+        if (item === undefined) return change.kind === 'added';
+        return item.status === 'fail';
+      })
+      .map((c) => c.id);
     return bad.length === 0 ? ok(`re-ran ${named.join(', ')}`) : failed(`still failing or missing: ${bad.join(', ')}`);
   });
   const result: VerifyResult = {

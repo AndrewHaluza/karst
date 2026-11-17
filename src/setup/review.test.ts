@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
-import { describeChangeProposal, describeManifestProposal } from './review.js';
+import { describeChangeProposal, describeManifestProposal, describeVerification, withVerification } from './review.js';
+import type { VerifyResult } from './verify/types.js';
 
 function service(start: string): ServiceDef {
   return { start, ports: [{ name: 'port', env: 'PORT', default: 3000 }], dependsOn: [] };
@@ -83,5 +84,40 @@ describe('describeManifestProposal written sections and no dropped line', () => 
     });
     expect(d.detail).toContain('this write changes: approaches, review.');
     expect(d.detail).not.toContain('NOT applied');
+  });
+});
+
+describe('describeVerification', () => {
+  const result = (over: Partial<VerifyResult> = {}): VerifyResult => ({
+    ok: true,
+    steps: [
+      { id: 'P1', label: 'shape', status: 'ok', detail: 'a valid change proposal' },
+      { id: 'P3', label: 'dry apply', status: 'info', detail: 'not dry-run: the command runs only after you approve' },
+    ],
+    changes: [{ id: 'manifest.legacy-services', kind: 'cleared' }],
+    clears: ['manifest.legacy-services'],
+    pinnedSha256: null,
+    ...over,
+  });
+  it('lists each step with its mark and the computed item changes', () => {
+    const text = describeVerification(result());
+    expect(text).toContain('Host checks (all passed):');
+    expect(text).toContain('P1 shape: ok - a valid change proposal');
+    expect(text).toContain('P3 dry apply: info - not dry-run');
+    expect(text).toContain('cleared manifest.legacy-services');
+  });
+  it('marks a failed run and names a skipped step and no change', () => {
+    const text = describeVerification(
+      result({ ok: false, changes: [], steps: [{ id: 'P2', label: 'write scope', status: 'fail', detail: 'x' }, { id: 'P3', label: 'dry apply', status: 'skipped', detail: 'y' }] }),
+    );
+    expect(text).toContain('Host checks (FAILED):');
+    expect(text).toContain('P2 write scope: FAIL - x');
+    expect(text).toContain('P3 dry apply: skipped - y');
+    expect(text).toContain('  none');
+  });
+  it('puts the host checks before the agent text', () => {
+    const d = withVerification({ message: 'm', detail: 'AGENT', startCommandsChanged: true }, result());
+    expect(d.detail.indexOf('Host checks')).toBeLessThan(d.detail.indexOf('AGENT'));
+    expect(d).toMatchObject({ message: 'm', startCommandsChanged: true });
   });
 });

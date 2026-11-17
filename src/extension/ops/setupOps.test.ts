@@ -57,6 +57,7 @@ describe('setup ops', () => {
       scratchDir: (id) => join(scratch, id),
       host: fake.host,
       cliEntry: () => '/dist/cli/main.js',
+      verifyDir: (id) => `/store/setup-verify/${id}`,
       dbPath: '/db/karst.db',
       manifestPath: () => '/ws/.karst/karst.yml',
       nextId: () => 'abc123',
@@ -129,6 +130,11 @@ describe('setup ops', () => {
     expect(await ops.create()).toBe(true);
     expect(created[0]!.opts.env).not.toHaveProperty('KARST_OPENCODE2_BINARY');
     expect(created[0]!.opts.env).not.toHaveProperty('KARST_OPENCODE2_HOME');
+  });
+
+  it('exports the host verify record directory of the session', async () => {
+    await createSetupOps({ ...deps, nextId: () => 'own1' }).create();
+    expect(created[0]!.opts.env).toMatchObject({ KARST_SETUP_VERIFY_DIR: '/store/setup-verify/own1' });
   });
 
   it('launches the setup session under the attended policy (kill + home-config denies)', async () => {

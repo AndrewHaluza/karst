@@ -7,6 +7,7 @@ import { opencode2ConfigEnv } from '../../agent/opencode2Binary.js';
 import { writeSessionInstructions } from '../../agent/instructions.js';
 import { measureSeed } from '../../agent/seed.js';
 import { SETUP_OUTBOX_ENV } from '../../setup/proposal.js';
+import { SETUP_VERIFY_ENV } from '../../setup/verify/record.js';
 import {
   KARST_SETUP_SESSION_ENV,
   setupAddDirs,
@@ -43,6 +44,8 @@ export interface SetupOpsDeps {
   defaultAgent: () => { provider: AgentProvider; model: string | null };
   /** The session's own scratch directory (created if missing). */
   scratchDir: (sessionId: string) => string;
+  /** The host-side verify record directory of one session, outside the agent's scratch. */
+  verifyDir: (sessionId: string) => string;
   host: TerminalHost;
   cliEntry: () => string | undefined;
   /** The registry DB path, exported so the session can run `setup verify`. */
@@ -134,6 +137,7 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
             ...opencode2ConfigEnv(),
             [KARST_INSTRUCTIONS_ENV]: instructions.path,
             [SETUP_OUTBOX_ENV]: outbox,
+            [SETUP_VERIFY_ENV]: deps.verifyDir(id),
             [KARST_SETUP_SESSION_ENV]: id,
           },
         });

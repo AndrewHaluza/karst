@@ -3,8 +3,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseManifestText } from '../../manifest/load.js';
-import { createSetupProposalOps, defaultSetupProposalFs, type SetupProposalFs } from './setupProposalOps.js';
+import { createSetupProposalOps, defaultSetupProposalFs, type SetupProposalFs, type SetupVerifyWiring } from './setupProposalOps.js';
 import type { ProposalResult } from '../../setup/ledger.js';
+import { BASE_YAML, fakeVerifyDeps } from '../../setup/verify/verify.testutil.js';
+import type { VerifyRecord } from '../../setup/verify/types.js';
 import { MAX_SETUP_PROPOSAL_BYTES, type ManifestProposal, type ChangeProposal } from '../../setup/proposal.js';
 
 const VALID_YAML = `host: localhost\nportRange: [4000, 4999]\nbaselineBranch: main\nrepositories:\n  web:\n    repoPath: ../web\n`;
@@ -35,19 +37,42 @@ function manifestProposal(): ManifestProposal {
   return { kind: 'manifest', targetPath: '/w/.karst/karst.yml', yaml: VALID_YAML, summary: 'discovered web' };
 }
 
-function deps(files: Record<string, string>) {
+const PENDING = { code: 'test.pending', message: 'a pending test item' };
+
+/** Real loader; a load with a created-file overlay (a patch result) clears one test item. */
+function verifyWiring(text: string | undefined, records: VerifyRecord[] = []): SetupVerifyWiring {
+  const base = fakeVerifyDeps({ text });
+  return {
+    deps: {
+      ...base,
+      loadText: (t, o) => {
+        const r = base.loadText(t, o);
+        return r.ok && o === undefined ? { ...r, codedWarnings: [...r.codedWarnings, PENDING] } : r;
+      },
+    },
+    recheck: vi.fn(async (ids: readonly string[]) => ids.map((id) => ({ id, status: 'ok' as const, detail: '' }))),
+    writeRecord: (r) => void records.push(r),
+  };
+}
+
+function deps(files: Record<string, string>, text?: string) {
   const fs = fakeFs(files);
+  const records: VerifyRecord[] = [];
+  const verify = verifyWiring(text, records);
   const applyManifest = vi.fn((_applied: unknown, _scratch: string) => 'sha-1');
   const runCommand = vi.fn(async () => {});
   const applyPatch = vi.fn(async () => {});
   const confirm = vi.fn(async (_d: { message: string; detail: string; startCommandsChanged: boolean }) => true);
   return {
     fs,
+    records,
+    verify,
     applyManifest,
     runCommand,
     applyPatch,
     confirm,
     deps: {
+      verify: () => verify,
       resolveDir: (c: ChangeProposal) => ({ ok: true as const, dir: `/w/${c.path ?? c.repo}` }),
       outboxes: () => ['/s/1'],
       readCurrentManifest: () => undefined,
@@ -92,7 +117,7 @@ describe('createSetupProposalOps.scan', () => {
   it('runs an approved change command and applies an approved patch', async () => {
     const command: ChangeProposal = { kind: 'change', repo: 'web', reason: 'deps', command: 'npm ci' };
     const patch: ChangeProposal = { kind: 'change', repo: 'api', reason: 'env', patch: '+++ b/.env\n' };
-    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(command), '/s/1/outbox/b.json': JSON.stringify(patch) });
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(command), '/s/1/outbox/b.json': JSON.stringify(patch) }, BASE_YAML);
     await createSetupProposalOps(f.deps).scan();
     expect(f.runCommand).toHaveBeenCalledWith('/w/web', 'npm ci');
     expect(f.applyPatch).toHaveBeenCalledWith('/w/api', '+++ b/.env\n');
@@ -129,7 +154,7 @@ describe('createSetupProposalOps.scan', () => {
     expect(declined.fs.results[0]).toMatchObject({ kind: 'change', status: 'declined', reason: 'declined by the user' });
     const applied = deps({ '/s/1/outbox/a.json': JSON.stringify(change) });
     await createSetupProposalOps(applied.deps).scan();
-    expect(applied.fs.results[0]).toMatchObject({ kind: 'change', status: 'applied' });
+    expect(applied.fs.results[0]).toMatchObject({ kind: 'change', status: 'verified' });
   });
 
   it('drops an invalid proposal with a warning and ignores non-json', async () => {
@@ -223,6 +248,7 @@ describe('createSetupProposalOps with the real fs (defaultFs coverage)', () => {
 
   function realDeps(confirm = true) {
     return {
+      verify: (() => { const w = verifyWiring(undefined); return () => w; })(),
       resolveDir: (c: { repo: string; path?: string }) => ({ ok: true as const, dir: `/w/${c.path ?? c.repo}` }),
       outboxes: () => [root],
       readCurrentManifest: () => undefined,
@@ -281,7 +307,7 @@ describe('createSetupProposalOps with the real fs (defaultFs coverage)', () => {
     const ops = createSetupProposalOps(d);
     const first = ops.scan();
     const second = ops.scan(); // an fs event during the open modal
-    expect(confirm).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalledOnce());
     release(true);
     await Promise.all([first, second]);
     expect(confirm).toHaveBeenCalledOnce();
@@ -350,6 +376,7 @@ describe('createSetupProposalOps branches', () => {
     return {
       removed,
       deps: {
+        verify: (() => { const w = verifyWiring(BASE_YAML); return () => w; })(),
         resolveDir: (c: { repo: string; path?: string }) => ({ ok: true as const, dir: `/w/${c.path ?? c.repo}` }),
         outboxes: () => ['/s/1'],
         readCurrentManifest: () => undefined,
@@ -402,7 +429,7 @@ describe('proposal ledger', () => {
   it('records applied with the file hash', async () => {
     const f = deps({ [A]: JSON.stringify(manifestProposal()) });
     await createSetupProposalOps(f.deps).scan();
-    expect(last(f)).toMatchObject({ id: 'a', kind: 'manifest', status: 'applied', sha256: 'sha-1' });
+    expect(last(f)).toMatchObject({ id: 'a', kind: 'manifest', status: 'verified', sha256: 'sha-1' });
   });
 
   it('records declined', async () => {
@@ -429,7 +456,7 @@ describe('proposal ledger', () => {
     const f = deps({ [A]: JSON.stringify(manifestProposal()), [B]: JSON.stringify(manifestProposal()) });
     await createSetupProposalOps(f.deps).scan();
     expect(f.applyManifest).toHaveBeenCalledOnce();
-    expect(f.fs.results.map((r) => [r.id, r.status])).toEqual([['a', 'superseded'], ['b', 'applied']]);
+    expect(f.fs.results.map((r) => [r.id, r.status])).toEqual([['a', 'superseded'], ['b', 'verified']]);
     expect(f.fs.results[0]!.reason).toBe('superseded by b');
     expect(f.fs.removed).toContain(A);
   });
@@ -439,7 +466,7 @@ describe('proposal ledger', () => {
     const f = deps({ [A]: JSON.stringify(manifestProposal()), [B]: JSON.stringify(change) });
     await createSetupProposalOps(f.deps).scan();
     expect(f.runCommand).toHaveBeenCalledOnce();
-    expect(f.fs.results.map((r) => r.status)).toEqual(['applied', 'applied']);
+    expect(f.fs.results.map((r) => r.status)).toEqual(['verified', 'verified']);
   });
 
   it('records withdrawn and skips the apply when the file vanishes during consent', async () => {
@@ -474,18 +501,18 @@ describe('first setup vs established manifest', () => {
 
   it('takes protected fields from the proposal when the current manifest is a scaffold, naming them in the modal', async () => {
     const files = { [A]: JSON.stringify(prop) };
-    const f = deps(files);
+    const f = deps(files, VALID_YAML.replace('main', 'develop'));
     const scaffold = parseManifestText(VALID_YAML.replace('main', 'develop'), 'x').manifest;
     const d = { ...f.deps, readCurrentManifest: () => scaffold, isScaffold: () => true };
     await createSetupProposalOps(d).scan();
     const [applied] = f.applyManifest.mock.calls[0]!;
     expect((applied as { baselineBranch: string }).baselineBranch).toBe('main');
     expect(f.confirm.mock.calls[0]![0].detail).toMatch(/First setup: .*protected fields/);
-    expect(last(f)).toMatchObject({ status: 'applied', dropped: [] });
+    expect(last(f)).toMatchObject({ status: 'verified', dropped: [] });
   });
 
   it('keeps protection on an established manifest and reports each dropped field', async () => {
-    const f = deps({ [A]: JSON.stringify(prop) });
+    const f = deps({ [A]: JSON.stringify(prop) }, VALID_YAML.replace('main', 'develop'));
     const current = parseManifestText(VALID_YAML.replace('main', 'develop'), 'x').manifest;
     const d = { ...f.deps, readCurrentManifest: () => current, isScaffold: () => false };
     await createSetupProposalOps(d).scan();
@@ -497,7 +524,7 @@ describe('first setup vs established manifest', () => {
   });
 
   it('treats an established manifest as protected when no scaffold detector is injected', async () => {
-    const f = deps({ [A]: JSON.stringify(prop) });
+    const f = deps({ [A]: JSON.stringify(prop) }, VALID_YAML.replace('main', 'develop'));
     const current = parseManifestText(VALID_YAML.replace('main', 'develop'), 'x').manifest;
     await createSetupProposalOps({ ...f.deps, readCurrentManifest: () => current }).scan();
     const [applied] = f.applyManifest.mock.calls[0]!;
@@ -517,7 +544,7 @@ describe('ledger details', () => {
     const f = deps({ [A]: JSON.stringify(manifestProposal()), [B]: JSON.stringify(manifestProposal()) });
     f.fs.mtime = (p) => (p === A ? 2 : 1);
     await createSetupProposalOps(f.deps).scan();
-    expect(f.fs.results.map((r) => [r.id, r.status])).toEqual([['b', 'superseded'], ['a', 'applied']]);
+    expect(f.fs.results.map((r) => [r.id, r.status])).toEqual([['b', 'superseded'], ['a', 'verified']]);
     expect(f.fs.results[0]!.reason).toBe('superseded by a');
   });
 
@@ -578,7 +605,7 @@ describe('default fs ledger seam', () => {
       writeFileSync(join(root, 'a.json'), 'x');
       expect(defaultSetupProposalFs.mtime(join(root, 'a.json'))).toBeGreaterThan(0);
       expect(defaultSetupProposalFs.mtime(join(root, 'missing'))).toBe(0);
-      defaultSetupProposalFs.writeResult(root, { id: 'a', kind: 'change', status: 'applied', dropped: [], at: 't' });
+      defaultSetupProposalFs.writeResult(root, { id: 'a', kind: 'change', status: 'verified', dropped: [], at: 't' });
       expect(readdirSync(join(root, 'results'))).toEqual(['a.json']);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -588,7 +615,8 @@ describe('default fs ledger seam', () => {
 
 describe('createSetupProposalOps raw delta', () => {
   it('asks for consent when the proposal equals the current manifest but the write removes a key', async () => {
-    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) });
+    const retiredText = `${VALID_YAML}approaches:\n  - id: g\n    label: G\n    graph:\n      limits:\n        confirmGeneratedGraph: true\n`;
+    const f = deps({ '/s/1/outbox/a.json': JSON.stringify(manifestProposal()) }, retiredText);
     await createSetupProposalOps({
       ...f.deps,
       readCurrentManifest: () => parseManifestText(VALID_YAML).manifest,
@@ -597,7 +625,7 @@ describe('createSetupProposalOps raw delta', () => {
     expect(f.confirm).toHaveBeenCalledOnce();
     expect(f.confirm.mock.calls[0]![0].detail).toContain('approaches[0].graph.limits.confirmGeneratedGraph');
     expect(f.applyManifest).toHaveBeenCalledOnce();
-    expect(f.fs.results[0]).toMatchObject({ status: 'applied' });
+    expect(f.fs.results[0]).toMatchObject({ status: 'verified' });
   });
 });
 
@@ -649,7 +677,7 @@ describe('createSetupProposalOps .karst guard', () => {
   const patchOn = (path: string): string =>
     `--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-host: a\n+host: b\n`;
   const run = async (change: Record<string, unknown>) => {
-    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', ...change }) });
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', ...change }) }, BASE_YAML);
     await createSetupProposalOps({
       ...f.deps,
       resolveDir: (c: ChangeProposal) => ({ ok: true as const, dir: c.path === undefined ? root : join(root, c.path) }),
@@ -684,7 +712,7 @@ describe('createSetupProposalOps .karst guard', () => {
 
   it('restores karst.yml that a command wrote and records it invalid', async () => {
     const file = join(root, '.karst', 'karst.yml');
-    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'sh x' }) });
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'sh x' }) }, BASE_YAML);
     f.runCommand.mockImplementation(async () => {
       writeFileSync(file, 'host: evil\n');
     });
@@ -713,7 +741,7 @@ describe('createSetupProposalOps .karst guard', () => {
   it('warns about a restored command and removes the file', async () => {
     const warns: string[] = [];
     const file = join(root, '.karst', 'karst.yml');
-    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'sh x' }) });
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'sh x' }) }, BASE_YAML);
     f.runCommand.mockImplementation(async () => {
       writeFileSync(file, 'x');
       throw new Error('late failure');
@@ -732,22 +760,110 @@ describe('createSetupProposalOps .karst guard', () => {
     const f = await run({ patch: patchOn('a.txt') });
     expect(f.applyPatch).toHaveBeenCalledWith(root, patchOn('a.txt'));
     expect(f.runCommand).not.toHaveBeenCalled();
-    expect(f.fs.results[0]).toMatchObject({ status: 'applied' });
+    expect(f.fs.results[0]).toMatchObject({ status: 'verified' });
   });
 
   it('does not restore a file for a patch, since the patch guard runs before it', async () => {
     const file = join(root, '.karst', 'karst.yml');
-    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', patch: patchOn('a.txt') }) });
+    const f = deps({ '/s/1/outbox/b.json': JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', patch: patchOn('a.txt') }) }, BASE_YAML);
     f.applyPatch.mockImplementation(async () => {
       writeFileSync(file, 'changed by patch\n');
     });
     await createSetupProposalOps({ ...f.deps, resolveDir: () => ({ ok: true as const, dir: root }), karstRoots: () => [root] }).scan();
     expect(readFileSync(file, 'utf8')).toBe('changed by patch\n');
-    expect(f.fs.results[0]).toMatchObject({ status: 'applied' });
+    expect(f.fs.results[0]).toMatchObject({ status: 'verified' });
   });
 
   it('applies a command that leaves karst.yml alone', async () => {
     const f = await run({ command: 'npm ci' });
-    expect(f.fs.results[0]).toMatchObject({ status: 'applied' });
+    expect(f.fs.results[0]).toMatchObject({ status: 'verified' });
+  });
+});
+
+describe('createSetupProposalOps host verification', () => {
+  const A = '/s/1/outbox/a.json';
+  const RETIRED =
+    `${VALID_YAML}approaches:\n  - id: g\n    label: G\n    graph:\n      limits:\n        confirmGeneratedGraph: true\n`;
+  const FIXED = { ...manifestProposal(), yaml: `${VALID_YAML}approaches:\n  - id: g\n    label: G\n` };
+  const scanWith = async (f: ReturnType<typeof deps>, over: Record<string, unknown> = {}) =>
+    createSetupProposalOps({
+      ...f.deps,
+      readCurrentManifest: () => parseManifestText(RETIRED).manifest,
+      removedKeys: () => ['approaches[0].graph.limits.confirmGeneratedGraph'],
+      ...over,
+    }).scan();
+
+  it('shows the host checks and the computed item in the popup, and records verified on the host side', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    await scanWith(f);
+    const detail = f.confirm.mock.calls[0]![0].detail;
+    expect(detail).toContain('Host checks (all passed):');
+    expect(detail).toContain('cleared manifest.retired-key.confirmGeneratedGraph');
+    expect(f.records.at(-1)).toMatchObject({ id: 'a', kind: 'manifest', status: 'verified' });
+    expect(f.fs.results.at(-1)).toMatchObject({ status: 'verified' });
+  });
+
+  it('refuses a forged outbox file that the checklist fails, without asking', async () => {
+    const forged = { ...FIXED, clears: ['manifest.legacy-services'] };
+    const f = deps({ [A]: JSON.stringify(forged) }, RETIRED);
+    await scanWith(f);
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.applyManifest).not.toHaveBeenCalled();
+    expect(f.fs.results.at(-1)).toMatchObject({ status: 'invalid' });
+    expect(f.fs.results.at(-1)!.reason).toMatch(/P6/);
+    expect(f.records.at(-1)).toMatchObject({ status: 'refused' });
+    expect(f.fs.removed).toEqual([A]);
+  });
+
+  it('refuses a forged file with a bad shape the same way', async () => {
+    const f = deps({ [A]: JSON.stringify({ kind: 'manifest', yaml: 5 }) }, RETIRED);
+    await scanWith(f);
+    expect(f.applyManifest).not.toHaveBeenCalled();
+  });
+
+  it('refuses the apply when karst.yml changed between the popup and the apply', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    let text = RETIRED;
+    f.verify.deps.readCurrentText = () => text;
+    f.confirm.mockImplementation(async () => {
+      text = `${RETIRED}# edited\n`;
+      return true;
+    });
+    await scanWith(f);
+    expect(f.applyManifest).not.toHaveBeenCalled();
+    expect(f.fs.results.at(-1)).toMatchObject({ status: 'invalid' });
+    expect(f.fs.results.at(-1)!.reason).toMatch(/changed after the host checks/);
+    expect(f.records.at(-1)).toMatchObject({ status: 'refused' });
+  });
+
+  it('records unverified when the readiness item still fails after the apply', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    vi.mocked(f.verify.recheck).mockResolvedValue([{ id: 'manifest.retired-key.confirmGeneratedGraph', status: 'fail', detail: 'x' }]);
+    await scanWith(f);
+    expect(f.fs.results.at(-1)).toMatchObject({ status: 'unverified' });
+    expect(f.records.at(-1)).toMatchObject({ status: 'unverified' });
+  });
+
+  it('refuses a change when karst.yml changed between the popup and the run', async () => {
+    const change = { kind: 'change', repo: 'web', reason: 'r', command: 'npm ci' };
+    const f = deps({ [A]: JSON.stringify(change) }, RETIRED);
+    let text = RETIRED;
+    f.verify.deps.readCurrentText = () => text;
+    f.confirm.mockImplementation(async () => {
+      text = 'host: other\n';
+      return true;
+    });
+    await scanWith(f);
+    expect(f.runCommand).not.toHaveBeenCalled();
+    expect(f.fs.results.at(-1)).toMatchObject({ status: 'invalid' });
+  });
+
+  it('still verifies when the host record write fails', async () => {
+    const f = deps({ [A]: JSON.stringify(FIXED) }, RETIRED);
+    f.verify.writeRecord = () => {
+      throw new Error('disk');
+    };
+    await scanWith(f);
+    expect(f.applyManifest).toHaveBeenCalledOnce();
   });
 });
