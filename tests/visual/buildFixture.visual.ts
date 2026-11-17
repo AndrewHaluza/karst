@@ -85,8 +85,8 @@ test.describe('buildFixture', () => {
       'vscode-light vscode-theme-defaults-themes-light_modern-json';
     const hcClass = 'vscode-high-contrast vscode-theme-defaults-themes-hc_black-json';
 
-    // dashboard's markup has no <body> tag — the case that used to be skipped.
-    const noBodyTag = buildFixture('dashboard', 'light', [{ type: 'state', state: {} }]);
+    // settings' markup has no <body> tag — the case that used to be skipped (the dashboard has one since T1183).
+    const noBodyTag = buildFixture('settings', 'light', [{ type: 'state', state: {} }]);
     expect(noBodyTag).not.toMatch(/<body[\s>]/i);
     expect(noBodyTag).toContain(`document.body.classList.add(..."${lightClass}"`);
 
