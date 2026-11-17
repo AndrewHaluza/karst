@@ -58,6 +58,8 @@ describe('parseSteps: UI steps', () => {
       { type: 'type', text: 'x', target: { selector: 'input', surface: 'webview' } },
       { type: 'press', key: 'Control+Shift+P' },
       { type: 'read' },
+      { type: 'hover', target: { selector: '.mgbtn', surface: 'webview' } },
+      { type: 'hover', target: { act: 'merge-pr' }, timeoutMs: 5000 },
     ];
     const steps = parseSteps(input);
     expect(steps).toEqual([{ ...input[0], timeoutMs: 60_000 }, ...input.slice(1)]);
@@ -84,6 +86,9 @@ describe('parseSteps: UI steps', () => {
     [{ type: 'press', key: 'Ctrl-P' }, 'key must be'],
     [{ type: 'press' }, 'key needs a non-empty string'],
     [{ type: 'read', target: { act: 'a' } }, 'unknown field "target"'],
+    [{ type: 'hover' }, '"target" must be an object'],
+    [{ type: 'hover', target: { quickInput: true } }, 'one of act, quickPick, selector'],
+    [{ type: 'hover', target: { act: 'a' }, force: true }, 'unknown field "force"'],
   ])('refuses %j', (step, msg) => {
     expect(() => parseSteps([step])).toThrow(msg);
   });
