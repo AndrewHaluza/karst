@@ -27,6 +27,7 @@ export type SidebarScenario =
   | 'subtasks'
   | 'planning-deps'
   | 'waits-on'
+  | 'planning-artifacts'
   | 'priority'
   | 'queue'
   | 'queue-long'
@@ -35,7 +36,7 @@ export type SidebarScenario =
   | 'peek-states';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'priority', 'queue', 'queue-long', 'hostile', 'cloud-sessions', 'peek-states',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'planning-artifacts', 'priority', 'queue', 'queue-long', 'hostile', 'cloud-sessions', 'peek-states',
 ];
 
 export interface SidebarRenderFixture {
@@ -139,6 +140,7 @@ export function fixturePlanningRow(sessionId: number, overrides: Partial<Plannin
     title: `Planning ${sessionId}`,
     status: 'active',
     ticketCount: 0,
+    artifacts: 0,
     live: false,
     agent: { provider: 'claude', model: 'opus' },
     proposals: [],
@@ -375,6 +377,18 @@ function planningDepsState(): SidebarState {
   };
 }
 
+/** T1213: planning rows with the Open artifacts action (live, long title, archived) and one without (no files). */
+function planningArtifactsState(): SidebarState {
+  return {
+    ...allSectionsState(),
+    planning: [
+      fixturePlanningRow(95, { live: true, artifacts: 3, title: 'Plan the sidebar planning tree artifacts action with a long title' }),
+      fixturePlanningRow(94, { status: 'archived', artifacts: 1 }),
+      fixturePlanningRow(93),
+    ],
+  };
+}
+
 /** T1103: rows with one, three and no "Waits on" references (+N list at 460px and 300px, @ui:UI-R57). */
 function waitsOnState(): SidebarState {
   const dep = (id: number, key: string, stage: string) =>
@@ -537,6 +551,7 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   subtasks: subtasksState,
   'planning-deps': planningDepsState,
   'waits-on': waitsOnState,
+  'planning-artifacts': planningArtifactsState,
   priority: priorityState,
   queue: queueState,
   'queue-long': queueLongState,

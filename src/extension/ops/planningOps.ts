@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { countArtifactFiles } from '../../planning/artifactFiles.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
@@ -144,6 +145,8 @@ export interface PlanningOpsDeps {
    * instructions. A rejection is logged and the launch continues without it.
    */
   planningHistory?: (manifest: PlanningManifest) => Promise<PlanningRepoHistory[]>;
+  /** Opens a directory in the OS file manager (the host binds `vscode.env.openExternal`). */
+  openPath?: (dir: string) => PromiseLike<unknown>;
   debug?: (message: string) => void;
 }
 
@@ -163,6 +166,10 @@ export interface PlanningOps {
   adopt(terminals: readonly PlanningTerminalCandidate[]): void;
   list(): PlanningListItem[];
   isLive(id: number): boolean;
+  /** Files in the session's artifacts dir; 0 when missing or the session is unknown. */
+  artifactCount(id: number): number;
+  /** Opens the session's artifacts dir in the OS file manager. The path comes from the session id, never from the caller. */
+  openArtifacts(id: number): Promise<void>;
 }
 
 const agentLabel = (core: string, model: string | null): string => `${core} · ${model ?? 'default'}`;
@@ -374,6 +381,32 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       setPlanningSessionStatus(deps.store, id, 'archived');
       debug(`archived ${id}`);
       deps.onChange?.();
+    },
+
+    artifactCount(id) {
+      return countArtifactFiles(planningArtifactsDir(deps.scratchDir(id)));
+    },
+
+    async openArtifacts(id) {
+      if (!getPlanningSession(deps.store, id)) {
+        debug(`artifacts ${id} blocked: unknown`);
+        deps.notify.warn(`Karst: planning session ${formatId('plan', id)} no longer exists.`);
+        return;
+      }
+      const dir = planningArtifactsDir(deps.scratchDir(id));
+      if (countArtifactFiles(dir) === 0) {
+        debug(`artifacts ${id} blocked: empty`);
+        deps.notify.info(`Karst: ${formatId('plan', id)} has no artifacts yet.`);
+        return;
+      }
+      if (!deps.openPath) return;
+      try {
+        await deps.openPath(dir);
+        debug(`artifacts ${id} opened`);
+      } catch (e) {
+        debug(`artifacts ${id} failed: ${e instanceof Error ? e.message : String(e)}`);
+        deps.notify.warn(`Karst: could not open the artifacts folder of ${formatId('plan', id)}.`);
+      }
     },
 
     unarchive(id) {

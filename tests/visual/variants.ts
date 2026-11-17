@@ -821,6 +821,10 @@ const sidebarVariants = (): Variant[] => {
     ...CHIP_TIERS.map(([tier, width]) =>
       variant('sidebar', `waits-on-${tier}`, s('waits-on'), { width, themes: CHIP_THEMES }),
     ),
+    // T1213: the Open artifacts icon action on a planning row at the 460 and 300 px hosts (@ui:RD-TIERS).
+    ...CHIP_TIERS.map(([tier, width]) =>
+      variant('sidebar', `planning-artifacts-${tier}`, s('planning-artifacts'), { width, themes: CHIP_THEMES, hover: '[data-node="s95"] .pt-row' }),
+    ),
     // T1171: every state family's expanded row (the mini-dashboard card) at the 460 and 300 px hosts (@ui:RD-TIERS).
     ...CHIP_TIERS.map(([tier, width]) =>
       variant('sidebar', `peek-${tier}`, s('peek-states'), {

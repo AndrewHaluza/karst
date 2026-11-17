@@ -211,6 +211,8 @@ export interface PlanningRow {
   title: string;
   status: PlanningStatus;
   ticketCount: number;
+  /** Files in the session's artifacts dir (0 when missing); 0 hides the Open artifacts action. */
+  artifacts: number;
   live: boolean;
   agent: { provider: string; model: string | null };
   /**
@@ -423,6 +425,8 @@ export function buildSidebarState(
     artifactCount?: (ticketId: number) => number;
     /** Whether this window holds a live terminal for a planning session. */
     planningLive?: (sessionId: number) => boolean;
+    /** Files in a planning session's artifacts dir. Absent → 0. */
+    planningArtifactCount?: (sessionId: number) => number;
   },
   pathContext?: PathContext,
 ): SidebarState {
@@ -614,7 +618,7 @@ export function buildSidebarState(
       },
       done: [],
       rows: [],
-      planning: planningRows(store, opts.projectId, query, opts.planningLive),
+      planning: planningRows(store, opts.projectId, query, opts.planningLive, opts.planningArtifactCount),
     };
   }
 
@@ -624,7 +628,7 @@ export function buildSidebarState(
       sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
       done: enrich(filterTickets(active.filter(isDoneTicket).sort(byCompletedAtDesc), query)),
       rows: [],
-      planning: planningRows(store, opts.projectId, query, opts.planningLive),
+      planning: planningRows(store, opts.projectId, query, opts.planningLive, opts.planningArtifactCount),
     };
   }
 
@@ -634,7 +638,7 @@ export function buildSidebarState(
     sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: enrich(filterTickets(source, query)),
-    planning: planningRows(store, opts.projectId, query, opts.planningLive),
+    planning: planningRows(store, opts.projectId, query, opts.planningLive, opts.planningArtifactCount),
   };
 }
 
@@ -683,6 +687,7 @@ function planningRows(
   projectId: number | undefined,
   query: string,
   isLive: ((sessionId: number) => boolean) | undefined,
+  artifactCount: ((sessionId: number) => number) | undefined,
 ): PlanningRow[] {
   if (projectId === undefined) return [];
   const needle = query.trim().toLowerCase();
@@ -707,6 +712,7 @@ function planningRows(
       title: s.title,
       status: s.status,
       ticketCount: listPlanningTickets(store, s.id).length,
+      artifacts: artifactCount?.(s.id) ?? 0,
       live: isLive?.(s.id) ?? false,
       agent: { provider: s.core, model: s.model },
       proposals: drafts.filter((p) => p.sessionId === s.id).map((p) => ({

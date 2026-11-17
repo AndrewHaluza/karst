@@ -64,6 +64,10 @@ export function sessionActions(p: PlanningRow): PlanAction[] {
   const archived = p.status === 'archived';
   return [
     { key: 'open', spec: { act: 'plan-open', plan }, label: 'Open terminal', aria: `Open terminal: ${p.title}`, icon: 'terminal-2', kind: 'icon', primary: true },
+    // Shown for an archived session too, so an old plan stays reachable.
+    ...(p.artifacts > 0
+      ? [{ key: 'artifacts', spec: { act: 'plan-artifacts', plan }, label: 'Open artifacts', aria: `Open artifacts: ${p.title}`, icon: 'folder', kind: 'icon' } as const]
+      : []),
     archived
       ? { key: 'unarchive', spec: { act: 'plan-unarchive', plan }, label: 'Unarchive', aria: `Unarchive ${p.title}`, icon: 'history', kind: 'icon' }
       : { key: 'archive', spec: { act: 'plan-archive', plan }, label: 'Archive', aria: `Archive ${p.title}`, icon: 'archive', kind: 'icon' },

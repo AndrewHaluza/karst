@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { historySection } from '../../planning/preamble.js';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -457,6 +457,48 @@ describe('planning ops', () => {
     const unknown: string[] = [];
     createPlanningOps({ ...deps, debug: (m) => void unknown.push(m) }).unarchive(9999);
     expect(unknown).toContain('[planning] unarchive 9999 blocked: unknown');
+  });
+
+  describe('artifacts', () => {
+    it('counts files of the session artifacts dir and opens that dir, never a caller path', async () => {
+      const opened: string[] = [];
+      const logs: string[] = [];
+      messages.length = 0;
+      const ops = createPlanningOps({ ...deps, openPath: async (d) => void opened.push(d), debug: (m) => void logs.push(m) });
+      const s = (await ops.create('t'))!;
+      expect(ops.artifactCount(s.id)).toBe(0);
+      await ops.openArtifacts(s.id);
+      expect(opened).toEqual([]);
+      expect(logs).toContain(`[planning] artifacts ${s.id} blocked: empty`);
+      expect(messages).toContain(`Karst: P${s.id} has no artifacts yet.`);
+      writeFileSync(join(scratch, String(s.id), 'artifacts', 'plan.md'), 'x');
+      expect(ops.artifactCount(s.id)).toBe(1);
+      await ops.openArtifacts(s.id);
+      expect(opened).toEqual([join(scratch, String(s.id), 'artifacts')]);
+      expect(logs).toContain(`[planning] artifacts ${s.id} opened`);
+    });
+    it('does nothing more when the host has no opener', async () => {
+      const ops = createPlanningOps(deps);
+      const s = (await ops.create('t'))!;
+      writeFileSync(join(scratch, String(s.id), 'artifacts', 'a.md'), 'x');
+      messages.length = 0;
+      await ops.openArtifacts(s.id);
+      expect(messages).toEqual([]);
+    });
+    it('warns for an unknown session and when the open fails', async () => {
+      const logs: string[] = [];
+      messages.length = 0;
+      const ops = createPlanningOps({ ...deps, openPath: async () => { throw new Error('boom'); }, debug: (m) => void logs.push(m) });
+      expect(ops.artifactCount(9999)).toBe(0);
+      await ops.openArtifacts(9999);
+      expect(logs).toContain('[planning] artifacts 9999 blocked: unknown');
+      expect(messages).toContain('Karst: planning session P9999 no longer exists.');
+      const s = (await ops.create('t'))!;
+      writeFileSync(join(scratch, String(s.id), 'artifacts', 'a.md'), 'x');
+      await ops.openArtifacts(s.id);
+      expect(logs).toContain(`[planning] artifacts ${s.id} failed: boom`);
+      expect(messages).toContain(`Karst: could not open the artifacts folder of P${s.id}.`);
+    });
   });
 
   it('does not forget a live terminal when a stale one closes', async () => {

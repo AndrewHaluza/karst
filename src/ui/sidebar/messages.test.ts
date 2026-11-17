@@ -12,6 +12,9 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'plan-create' })).toEqual({ type: 'plan-create' });
     expect(parseSidebarMessage({ type: 'plan-open', sessionId: 3 })).toEqual({ type: 'plan-open', sessionId: 3 });
     expect(parseSidebarMessage({ type: 'plan-archive', sessionId: 3 })).toEqual({ type: 'plan-archive', sessionId: 3 });
+    expect(parseSidebarMessage({ type: 'plan-artifacts', sessionId: 3 })).toEqual({ type: 'plan-artifacts', sessionId: 3 });
+    expect(parseSidebarMessage({ type: 'plan-artifacts', sessionId: '3' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'plan-artifacts', path: '/x' })).toBeNull();
     expect(parseSidebarMessage({ type: 'plan-unarchive', sessionId: 3 })).toEqual({ type: 'plan-unarchive', sessionId: 3 });
     expect(parseSidebarMessage({ type: 'plan-unarchive', sessionId: Infinity })).toBeNull();
     expect(parseSidebarMessage({ type: 'plan-open', sessionId: '3' })).toBeNull();
@@ -176,6 +179,7 @@ describe('routeSidebarAction', () => {
       sendCiFailure: vi.fn(),
       planCreate: vi.fn(),
       planOpen: vi.fn(),
+      planArtifacts: vi.fn(),
       planArchive: vi.fn(),
       planUnarchive: vi.fn(),
       planProposalReview: vi.fn(),
@@ -238,6 +242,8 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'plan-open', sessionId: 4 }, a);
     routeSidebarAction({ type: 'plan-archive', sessionId: 5 }, a);
     routeSidebarAction({ type: 'plan-unarchive', sessionId: 6 }, a);
+    routeSidebarAction({ type: 'plan-artifacts', sessionId: 8 }, a);
+    expect(a.planArtifacts).toHaveBeenCalledWith(8);
     expect(a.planUnarchive).toHaveBeenCalledWith(6);
     expect(a.planCreate).toHaveBeenCalledOnce();
     expect(a.planOpen).toHaveBeenCalledWith(4);
