@@ -498,6 +498,9 @@
   "src/extension/ops/baseMovedCheck.ts": [
     "arch:GATE-BASE-MOVED"
   ],
+  "src/extension/ops/baseMovedFailureOps.ts#sendGateFailureToAgent": [
+    "arch:AP-06"
+  ],
   "src/extension/ops/baseMovedHost.ts": [
     "arch:GATE-BASE-MOVED",
     "arch:GATE-REPEAT"
@@ -507,6 +510,9 @@
   ],
   "src/extension/ops/ciActionsWiring.ts": [
     "arch:AP-05"
+  ],
+  "src/extension/ops/ciFailureOps.ts#sendCiFailureToAgent": [
+    "arch:AP-06"
   ],
   "src/extension/ops/ciFailureOps.ts#takesFixRoute": [
     "arch:AP-08"
