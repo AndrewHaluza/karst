@@ -127,8 +127,8 @@ describe('design system components', () => {
     const hovers = (CSS.match(/\.k-btn--[a-z]+:hover[^{]*\{/g) ?? []).map((h) => h.slice(0, -1));
     expect(hovers.length).toBeGreaterThanOrEqual(5);
     for (const sel of hovers) {
-      expect(sel, sel).toContain(':not(:disabled)');
-      expect(sel, sel).toContain(':not([aria-disabled="true"])');
+      // `:where()` keeps the guard at zero specificity, so a surface override such as `.rowopen:hover` still wins.
+      expect(sel, sel).toContain(':where(:not(:disabled):not([aria-disabled="true"]))');
     }
   });
 
