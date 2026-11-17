@@ -6,13 +6,14 @@ import { postAutopilotNote } from './autopilotWiring.js';
 import { getTicket } from '../../store/tickets.js';
 import { getStage } from '../../store/stages.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { clearCiRound, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, getCiRoundAt, listAutopilotBudgets } from '../../store/autopilot.js';
+import { clearCiRound, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, getCiRoundAt, getCiRoundSource, listAutopilotBudgets } from '../../store/autopilot.js';
 
 /**
- * Auto re-ship after an Autopilot CI round (T1095, @arch:AP-00). A CI round hands the ticket to Implement; uat and review pass
+ * Auto re-ship after a CI round (T1095, @arch:AP-00). A CI round hands the ticket to Implement; uat and review pass
  * again and the driver then stops at the ship boundary (`ship-confirm`). When the PRs already exist, nothing outward is
  * opened by a re-ship, so Autopilot runs ship without the Confirm click. A first ship (no open PR) always keeps the click.
- * `vscode`-free: the ship saga, the preview and the controller test are injected.
+ * A manual send-back (Send CI failure, Send gate failure; T1212) sets the same mark with source `manual`: it re-ships with
+ * Autopilot off too, and the Autopilot pause and stop state does not apply. `vscode`-free: the ship saga, the preview and the controller test are injected.
  */
 
 const LOG = '[ship] autopilot';
@@ -79,13 +80,16 @@ function roundOf(d: AutoReshipDeps, cfg: AutopilotConfig): { used: number; max: 
 
 /** Policy part of the decision: a reason to wait, or null. The mark is read here; nothing is written. */
 function waitReason(d: AutoReshipDeps, cfg: AutopilotConfig | undefined): string | null {
-  if (!cfg) return 'no autopilot config';
-  if (getCiRoundAt(d.store, d.ticketId) === null) return 'no ci round was sent';
+  const source = getCiRoundSource(d.store, d.ticketId);
+  if (source === null) return 'no ci round was sent';
+  const manual = source === 'manual';
+  if (!manual && !cfg) return 'no autopilot config';
   const ticket = getTicket(d.store, d.ticketId);
   if (ticket.stageCurrent !== 'ship') return 'the ticket is not at ship';
-  if (!effectiveAutopilot(d.store, d.ticketId, cfg.enabled)) return OFF_REASON;
+  if (!manual && !effectiveAutopilot(d.store, d.ticketId, cfg!.enabled)) return OFF_REASON;
   const state = getAutopilotTicket(d.store, d.ticketId);
-  if (state.stopAfter || state.pausedReason !== null || state.stoppedReason !== null || ticket.pausedAt !== null) return 'the ticket is paused or stopped';
+  if (ticket.pausedAt !== null) return 'the ticket is paused or stopped';
+  if (!manual && (state.stopAfter || state.pausedReason !== null || state.stoppedReason !== null)) return 'the ticket is paused or stopped';
   if (stageBlock(d.store, d.ticketId, 'ship') !== null) return 'the ship stage has a block';
   if (getStage(d.store, d.ticketId, 'ship')?.status === 'running') return 'a ship is running';
   if (!d.controls()) return 'another window controls the ticket';
@@ -125,11 +129,17 @@ export async function autoReship(d: AutoReshipDeps): Promise<AutoReshipResult> {
     // The preview awaited: re-read the policy, a pause or a Stop may have landed meanwhile.
     const again = waitReason(d, cfg);
     if (again !== null) return wait(again);
-    const { used, max } = roundOf(d, cfg!);
+    const manual = getCiRoundSource(d.store, d.ticketId) === 'manual';
+    const { used, max } = manual ? { used: 0, max: 0 } : roundOf(d, cfg!);
     // One UPDATE takes the mark: of two windows that reach here, only one finds it set.
     if (!clearCiRound(d.store, d.ticketId)) return wait('another window took the re-ship');
-    d.note(`Autopilot: re-shipped after ci round ${used}/${max}`, `${d.key}: ship ran without the Confirm click; every PR it pushes to is already open.`);
-    d.debug(`${LOG} ticket ${d.key}: re-ship after ci round ${used}/${max}`);
+    if (manual) {
+      d.note('Re-shipped after CI fix (manual send)', `${d.key}: ship ran without the Confirm click; every PR it pushes to is already open.`);
+      d.debug(`${LOG} ticket ${d.key}: re-ship after a manual send`);
+    } else {
+      d.note(`Autopilot: re-shipped after ci round ${used}/${max}`, `${d.key}: ship ran without the Confirm click; every PR it pushes to is already open.`);
+      d.debug(`${LOG} ticket ${d.key}: re-ship after ci round ${used}/${max}`);
+    }
     try {
       await d.ship(RESHIP_SHIP_OPTS);
     } catch (err) {

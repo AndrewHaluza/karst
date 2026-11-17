@@ -455,8 +455,8 @@ export function makeDashboardActions(
           )) === 'Address feedback',
       }),
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
-    sendGateFailure: () => void askPausedModal(store, ticketId, 'sending the gate failure to the agent', 'Send gate failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendGateFailureAction(ciActionsInput()) : undefined)),
-    sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction(ciActionsInput()) : undefined)),
+    sendGateFailure: () => void askPausedModal(store, ticketId, 'sending the gate failure to the agent', 'Send gate failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendGateFailureAction({ ...ciActionsInput(), manualSend: true }) : undefined)),
+    sendCiFailure: () => void askPausedModal(store, ticketId, 'sending the CI failure to the agent', 'Send CI failure', () => afterServerChange()).then((r) => (r === 'proceed' ? sendCiFailureAction({ ...ciActionsInput(), manualSend: true }) : undefined)),
     deliverToPr: () => void deliverToPrAction(ciActionsInput()),
     dismissDeliverFailures: (gate) => { dismissDeliverFailures(store, ticketId, gate, nowIso()); afterServerChange(); },
     // Auto-fix controls (T1004): the command owns the store write, the note and the confirmation.

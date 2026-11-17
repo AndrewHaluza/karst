@@ -7,6 +7,7 @@ import { sendBackToImplement, SEND_BACK_EVENT_PREFIX } from '../../workflow/send
 import { enterShipFixRound } from '../../workflow/shipFixRound.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 import { getTicket } from '../../store/tickets.js';
+import { markCiRound } from '../../store/autopilot.js';
 import { listPrFeedback, type PrFeedbackRow } from '../../store/prFeedback.js';
 
 /**
@@ -50,6 +51,8 @@ export interface CiFailureOpsDeps {
    * the round enters a fix round at ship instead (`enterShipFixRound`) and the driver resumes it. Absent: false.
    */
   readonly implRunsGraph?: () => boolean;
+  /** A person clicked: mark the round so the driver re-ships to the open PRs after UAT and Review, as for an Autopilot round (T1212, @arch:AP-06). */
+  readonly markManualReship?: boolean;
   /** Settles the webview's pending state. Must run on EVERY exit. */
   readonly afterServerChange: () => void;
 }
@@ -198,6 +201,7 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
       enterShipFixRound(deps.store, deps.ticketId, { reason, artifactPath: paths[0] ?? null, debug: deps.debug });
       for (const pr of state.prs) clearOpenPrProbe(deps.store, deps.ticketId, pr.repo);
       // The driver resumes the pending round in a fix session (stage-resume); no impl session gets a hand-off.
+      if (deps.markManualReship === true) markCiRound(deps.store, deps.ticketId, Date.now(), 'manual');
       deps.drive();
       deps.info('CI failure sent to a fix session; ticket moved to Fix from ship.');
       return;
@@ -206,6 +210,7 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
     // The rollup belongs to the head the agent is about to replace: forget it so a
     // stale 'failing' never re-offers this action once the ticket is back at ship.
     for (const pr of state.prs) clearOpenPrProbe(deps.store, deps.ticketId, pr.repo);
+    if (deps.markManualReship === true) markCiRound(deps.store, deps.ticketId, Date.now(), 'manual');
     deps.drive();
     const refusal = deps.handOff(handOffPrompt(reason));
     deps.info(

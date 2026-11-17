@@ -3073,5 +3073,11 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 129) {
+    // v129: `autopilot_tickets.ci_round_manual` — 1 when the re-ship mark `ci_round_at` came from a manual send-back (T1212, @arch:AP-06). Additive; 0 = an Autopilot round (no backfill).
+    const cols129 = tableColumns(db, 'autopilot_tickets');
+    if (cols129.size > 0 && !cols129.has('ci_round_manual')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN ci_round_manual INTEGER NOT NULL DEFAULT 0');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

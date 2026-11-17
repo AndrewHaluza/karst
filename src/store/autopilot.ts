@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   claim_until   INTEGER,
   session_owner TEXT,
   conflict_round_at INTEGER,
-  ci_round_at INTEGER
+  ci_round_at INTEGER,
+  ci_round_manual INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -111,12 +112,22 @@ export function clearConflictRound(store: Store, ticketId: number): void {
  * An Autopilot CI round was sent at `atMs` (v118, T1095): the ticket may re-ship to its open PRs without the Confirm click
  * (`autoReship`). Cleared when ship starts, on a park, a pause, a change of the override and on Stop.
  */
-export function markCiRound(store: Store, ticketId: number, atMs: number): void {
+export function markCiRound(store: Store, ticketId: number, atMs: number, source: CiRoundSource = 'autopilot'): void {
   ensureRow(store, ticketId);
-  store.db.prepare('UPDATE autopilot_tickets SET ci_round_at = ? WHERE ticket_id = ?').run(atMs, ticketId);
+  store.db.prepare('UPDATE autopilot_tickets SET ci_round_at = ?, ci_round_manual = ? WHERE ticket_id = ?').run(atMs, source === 'manual' ? 1 : 0, ticketId);
 }
 
-/** When the engine sent its last CI round (ms), or null. A manual Send CI failure click leaves it null. */
+/** Who sent the round (v129, T1212): the engine, or a person by hand. A manual round re-ships with Autopilot off too. */
+export type CiRoundSource = 'autopilot' | 'manual';
+
+/** The source of the pending re-ship mark, or null when no mark is set. */
+export function getCiRoundSource(store: Store, ticketId: number): CiRoundSource | null {
+  const row = store.db.prepare('SELECT ci_round_at AS at, ci_round_manual AS manual FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { at: number | null; manual: number } | undefined;
+  if (row?.at == null) return null;
+  return row.manual === 1 ? 'manual' : 'autopilot';
+}
+
+/** When the last CI round that may re-ship was sent (ms), by the engine or by a manual send (`getCiRoundSource`), or null. */
 export function getCiRoundAt(store: Store, ticketId: number): number | null {
   const row = store.db.prepare('SELECT ci_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { at: number | null } | undefined;
   return row?.at ?? null;
