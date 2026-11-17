@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, watch as fsWatch } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import { isScaffoldManifest } from '../setup/manifestApply.js';
 import { resolveChangeDir, type ChangeDir } from '../setup/changeTarget.js';
@@ -13,7 +13,7 @@ import { createSetupProposalOps } from './ops/setupProposalOps.js';
 import type { Notify } from './ops/notify.js';
 import type { TerminalHost } from '../ui/session.js';
 import { manifestPathOrThrow, readScaffoldManifest } from './manifestResolve.js';
-import { manifestWriteSections, writeManifestWithBackup } from '../manifest/write.js';
+import { manifestRemovedKeys, manifestWriteSections, writeManifestWithBackup } from '../manifest/write.js';
 import { ownedScratches, readSetupOwner } from '../setup/owner.js';
 
 /**
@@ -136,6 +136,18 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     writtenSections: (applied, scratch) => {
       const path = targetManifestPath(scratch);
       return existsSync(path) ? manifestWriteSections(path, applied) : [];
+    },
+    removedKeys: (applied, scratch) => {
+      const path = targetManifestPath(scratch);
+      return existsSync(path) ? manifestRemovedKeys(path, applied) : [];
+    },
+    karstRoots: () => {
+      const root = workspaceRoot();
+      const manifest = deps.currentManifest();
+      const repos = Object.values(manifest?.repositories ?? {}).map((r) =>
+        isAbsolute(r.repoPath) ? r.repoPath : join(root ?? process.cwd(), r.repoPath),
+      );
+      return [...(root !== undefined ? [root] : []), ...repos];
     },
     applyManifest: (applied, scratch) => {
       const path = targetManifestPath(scratch);

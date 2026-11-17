@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dump, load } from 'js-yaml';
 import { basename, resolve } from 'node:path';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
+import { manifestRemovedKeys } from '../manifest/write.js';
 import type { Manifest } from '../manifest/types.js';
 import { applyManifestProposal, droppedProtectedFields, sameManifest } from '../setup/manifestApply.js';
 import { isFirstSetup, readScaffoldManifest } from '../setup/scaffoldManifest.js';
@@ -98,10 +99,26 @@ function compareWithCurrent(draft: Manifest, deps: ManifestCommandDeps): Compari
   }
   const template = (deps.scaffold ?? readScaffoldManifest)();
   const firstSetup = isFirstSetup(current, template);
+  const effective = applyManifestProposal(current, draft, firstSetup);
   return {
     wouldDrop: droppedProtectedFields(current, draft, firstSetup),
-    noEffect: sameManifest(applyManifestProposal(current, draft, firstSetup), current),
+    // A raw delta counts: the write drops a retired key that the loader already drops in memory.
+    noEffect: sameManifest(effective, current) && !writeChangesFile(deps.manifestPath, effective),
   };
+}
+
+/**
+ * True when writing `effective` over the file at `path` removes a key (a retired or legacy key).
+ * Defaults the writer adds are not a delta: they would make every proposal look like a change.
+ */
+function writeChangesFile(path: string | undefined, effective: Manifest): boolean {
+  if (path === undefined) return false;
+  try {
+    return manifestRemovedKeys(path, effective).length > 0;
+  } catch {
+    // The host treats an unpreviewable write as no raw delta too.
+    return false;
+  }
 }
 
 function runValidate(file: string, deps: ManifestCommandDeps): string {

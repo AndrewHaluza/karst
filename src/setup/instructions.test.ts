@@ -50,6 +50,11 @@ describe('setupInstructions', () => {
     expect(text).toMatch(/fail in a protected field[^.]*Settings/);
   });
 
+  it('routes a retired or legacy key warning to a manifest proposal and forbids propose-change on .karst/', () => {
+    expect(text).toMatch(/retired or legacy key[^.]*manifest propose/);
+    expect(text).toMatch(/Never use propose-change on \.karst\//);
+  });
+
   it('prints setup verify and setup check with their required flags', () => {
     const flags = '--db "$KARST_DB" --manifest "$KARST_MANIFEST"';
     expect(text).toContain(`setup verify ${flags}`);

@@ -12,6 +12,7 @@ import { adoptedProtectedFields, applyManifestProposal, droppedProtectedFields, 
 import { writeProposalResult, type ProposalResult } from '../../setup/ledger.js';
 import type { ChangeDir } from '../../setup/changeTarget.js';
 import { describeChangeProposal, describeManifestProposal, type ProposalDescription } from '../../setup/review.js';
+import { karstWriteViolation, restoreKarstFiles, snapshotKarstFiles } from '../../setup/karstGuard.js';
 import type { Notify } from './notify.js';
 
 /**
@@ -95,6 +96,10 @@ export interface SetupProposalOpsDeps {
   applyManifest: (applied: Manifest, scratch: string) => string;
   /** Top-level sections of karst.yml that writing `applied` changes, defaults the writer adds included. Shown before consent. */
   writtenSections?: (applied: Manifest, scratch: string) => string[];
+  /** Key paths in karst.yml that writing `applied` removes (retired and legacy keys). Named in the consent detail. */
+  removedKeys?: (applied: Manifest, scratch: string) => string[];
+  /** Directories whose `.karst/` a change must not write: the workspace root and every repo. */
+  karstRoots?: () => string[];
   /** True when `current` is still the unedited scaffold (protected fields are then proposable). */
   isScaffold?: (current: Manifest) => boolean;
   /** Run an approved change command. */
@@ -159,7 +164,16 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     const firstSetup = isFirstSetup(current);
     const dropped = droppedProtectedFields(current, proposed, firstSetup);
     const effective = applyManifestProposal(current, proposed, firstSetup);
-    if (current !== undefined && sameManifest(effective, current)) {
+    let writtenSections: string[] = [];
+    let removedKeys: string[] = [];
+    try {
+      writtenSections = deps.writtenSections?.(effective, scratch) ?? [];
+      removedKeys = deps.removedKeys?.(effective, scratch) ?? [];
+    } catch (e) {
+      debug(`could not preview written sections: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    // A raw delta counts: a retired key that the loader drops in memory still changes the file.
+    if (current !== undefined && sameManifest(effective, current) && removedKeys.length === 0) {
       // Nothing would change: offer no Apply, write no file, and say so in the ledger.
       const reason =
         dropped.length > 0
@@ -171,16 +185,11 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       record(scratch, file, 'manifest', 'no-change', { reason, dropped });
       return;
     }
-    let writtenSections: string[] = [];
-    try {
-      writtenSections = deps.writtenSections?.(effective, scratch) ?? [];
-    } catch (e) {
-      debug(`could not preview written sections: ${e instanceof Error ? e.message : String(e)}`);
-    }
     const description = describeManifestProposal(current, proposal, proposed, {
       dropped,
       adopted: adoptedProtectedFields(proposed, firstSetup),
       writtenSections,
+      removedKeys,
     });
     const approved = await deps.confirm(description);
     if (!fs.exists(file)) {
@@ -221,6 +230,16 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       fs.remove(file);
       return;
     }
+    const roots = [...new Set([target.dir, ...(deps.karstRoots?.() ?? [])])];
+    if (change.patch !== undefined) {
+      const violation = karstWriteViolation(change.patch, target.dir, roots);
+      if (violation !== undefined) {
+        deps.notify.warn(`Karst: refused the change for "${change.repo}" (${violation}).`);
+        record(scratch, file, 'change', 'invalid', { reason: violation });
+        fs.remove(file);
+        return;
+      }
+    }
     const approved = await deps.confirm(describeChangeProposal(change, target.dir));
     if (!fs.exists(file)) {
       record(scratch, file, 'change', 'withdrawn', { reason: 'withdrawn while awaiting consent' });
@@ -232,15 +251,27 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       record(scratch, file, 'change', 'declined', { reason: 'declined by the user' });
       return;
     }
+    const snapshots = change.command !== undefined ? snapshotKarstFiles(roots) : [];
+    let failure: string | undefined;
     try {
       if (change.command !== undefined) await deps.runCommand(target.dir, change.command);
       else if (change.patch !== undefined) await deps.applyPatch(target.dir, change.patch);
+    } catch (e) {
+      failure = (e as Error).message;
+    }
+    const restored = restoreKarstFiles(snapshots);
+    if (restored.length > 0) {
+      failure = `command wrote ${restored.join(', ')}; the host restored it. Use \`manifest propose\` to change karst.yml`;
+    }
+    if (failure === undefined) {
       debug(`applied change proposal ${file}`);
       record(scratch, file, 'change', 'applied');
-    } catch (e) {
-      const reason = (e as Error).message;
-      deps.notify.warn(`Karst: could not apply the change for "${change.repo}" (${reason}).`);
-      record(scratch, file, 'change', 'invalid', { reason: `apply failed: ${reason}` });
+    } else {
+      deps.notify.warn(`Karst: could not apply the change for "${change.repo}" (${failure}).`);
+      record(scratch, file, 'change', 'invalid', {
+        reason:
+          restored.length > 0 ? `invalid: command wrote ${restored.join(', ')}` : `apply failed: ${failure}`,
+      });
     }
     fs.remove(file);
   }

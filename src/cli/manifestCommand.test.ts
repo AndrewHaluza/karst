@@ -179,6 +179,34 @@ describe('manifest validate/propose against the current manifest', () => {
     expect(readdirSync(outbox)).toEqual([]);
   });
 
+  it('queues a draft that only drops a retired key from the current file', () => {
+    const retired = `${VALID}approaches:
+  - id: karst-graph-engineering
+    label: Dynamic Graph
+    enabled: false
+    graph:
+      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }
+      profiles:
+        expert: { provider: claude, model: claude-opus-5, effort: high }
+        worker: { provider: claude, model: claude-sonnet-5, effort: low }
+      limits:
+        confirmGeneratedGraph: true
+        maxParallel: 1
+`;
+    const { manifestPath, outbox } = setup();
+    writeFileSync(manifestPath, retired);
+    const out = JSON.parse(
+      runManifestCommand(['manifest', 'propose', '--file', writeYaml(retired)], {
+        manifestPath,
+        outboxEnv: outbox,
+        uuid: () => 'fixed',
+        scaffold: () => undefined,
+      }),
+    );
+    expect(out.ok).toBe(true);
+    expect(readdirSync(outbox)).toHaveLength(1);
+  });
+
   it('passes the same draft when the current manifest is the unedited scaffold', () => {
     const { manifestPath, outbox } = setup();
     const out = JSON.parse(
