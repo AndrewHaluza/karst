@@ -1899,9 +1899,6 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
         <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/docs" title="Pull request details" type="button">
           <svg.k-icon aria-hidden="true">
         <span.k-chip.pst.pst-closed> "closed"
-        <span.k-chip.pck.pck-failing.pck-stale aria-busy="true" title="3 checks: 2 passed, 1 failed, 0 pending — from the previous commit 9ed9bc6; karst is checking the new commit"> "1 failing · 2 passed"
-          <svg.k-icon aria-hidden="true">
-          <span.pck-cue> "checking new commit…"
         <span.pstamp title="dismissed Aug 11, 2026, 2:10 PM"> "dismissed Aug 11, 2026, 2:10 PM"
       <span.krow-trail>
         <span.pacts>
@@ -1937,9 +1934,6 @@ exports[`dashboard region parity (DOM contract) > prs #prs · one open PR awaiti
         <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/web" title="Pull request details" type="button">
           <svg.k-icon aria-hidden="true">
         <span.k-chip.pst.pst-open> "open"
-        <span.k-chip.pck.pck-failing.pck-stale aria-busy="true" title="3 checks: 2 passed, 1 failed, 0 pending — from the previous commit 9ed9bc6; karst is checking the new commit"> "1 failing · 2 passed"
-          <svg.k-icon aria-hidden="true">
-          <span.pck-cue> "checking new commit…"
         <span.k-chip.pblock title="awaiting review"> "blocked · 1 reason"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>

@@ -28,7 +28,7 @@ export interface PrChecksView {
   cue: string;
 }
 
-/** A snapshot older than this is not shown: a repo that dropped its CI must not show old counts for ever. */
+/** A snapshot older than this (counted from the push that cleared the rollup) is not shown: a repo that dropped its CI must not show old counts for ever. */
 export const STALE_CHECKS_MAX_AGE_MS = 30 * 60 * 1000;
 export const STALE_CHECKS_CUE = 'checking new commit…';
 

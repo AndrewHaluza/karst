@@ -373,7 +373,7 @@ END_DOC_BLOCK: [@arch:V121]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
-**v130:** `prs.last_checks` (JSON, same shape as `checks`), `last_checks_head` and `last_checks_at` (epoch ms) — the last rollup that had checks, for the PR row chip only (`@arch:GH-03`). Additive, NULL = never had checks, no backfill.
+**v130:** `prs.last_checks` (JSON, same shape as `checks`), `last_checks_head` and `last_checks_at` (epoch ms of the last write, or of the clearing push) — the last rollup that had checks, for the PR row chip only (`@arch:GH-03`). Additive, NULL = never had checks, no backfill.
 
 **v129:** `autopilot_tickets.ci_round_manual INTEGER NOT NULL DEFAULT 0` — 1 when the re-ship mark came from a manual send (`@arch:AP-06`). Additive, no backfill.
 

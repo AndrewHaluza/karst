@@ -537,12 +537,17 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
 }
 
 /**
- * Forget the stored rollup, merge block and head of a ticket's open PRs. Run after a
+ * Forget the stored rollup, merge block and head of a ticket's open PRs (the display snapshot stays; its time restarts). Run after a
  * rebase push: the old rollup belongs to the old head, so it must not feed
  * "Send CI failure to agent" before the re-probe writes the new one.
  */
-export function clearOpenPrProbe(store: Store, ticketId: number, repo: string): void {
+export function clearOpenPrProbe(store: Store, ticketId: number, repo: string, nowMs: number = Date.now()): void {
+  // The display snapshot stays, and its clock restarts: the stale window counts from the push, not from the last sweep that saw checks.
   store.db
-    .prepare(`UPDATE prs SET checks = NULL, merge_block = NULL, head_oid = NULL WHERE ticket_id = ? AND repo = ? AND status = 'open'`)
-    .run(ticketId, repo);
+    .prepare(
+      `UPDATE prs SET checks = NULL, merge_block = NULL, head_oid = NULL,
+              last_checks_at = CASE WHEN last_checks IS NULL THEN last_checks_at ELSE ? END
+        WHERE ticket_id = ? AND repo = ? AND status = 'open'`,
+    )
+    .run(nowMs, ticketId, repo);
 }

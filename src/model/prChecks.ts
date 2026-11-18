@@ -48,7 +48,7 @@ export interface PrChecks {
   required?: RequiredChecks | null;
 }
 
-/** The last rollup that had checks: the head it belongs to (null when unknown) and when it was stored (epoch ms). Display only. */
+/** The last rollup that had checks: the head it belongs to (null when unknown) and the epoch ms of its last write or of the push that cleared the gate rollup (the stale window starts there). Display only. */
 export interface PrChecksSnapshot {
   checks: PrChecks;
   head: string | null;

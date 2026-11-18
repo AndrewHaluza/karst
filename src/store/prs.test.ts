@@ -224,6 +224,17 @@ describe('updatePrDetail', () => {
       expect(listPrsByTicket(store, a.id)[0]!.lastChecks?.checks.failed).toBe(1);
     });
 
+    it('starts the expiry window at the push: clearOpenPrProbe stamps the snapshot time, only when a snapshot exists', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      seedPr(store, a.id, 'api', 12, 'open');
+      clearOpenPrProbe(store, a.id, 'api', 50);
+      expect(raw(a.id).last_checks_at).toBeNull();
+      write(a.id, { ...base, checks: failingRollup, headOid: 'a'.repeat(40) }, 1234);
+      clearOpenPrProbe(store, a.id, 'api', 9999);
+      expect(raw(a.id)).toMatchObject({ last_checks_at: 9999, last_checks_head: 'a'.repeat(40) });
+      expect(raw(a.id).last_checks).not.toBeNull();
+    });
+
     it('keeps the snapshot when GitHub answers an empty rollup after a push', () => {
       const a = createTicket(store, { key: 'A', title: 'a' });
       seedPr(store, a.id, 'api', 12, 'open');
