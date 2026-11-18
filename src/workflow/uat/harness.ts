@@ -4,9 +4,10 @@
  * `vscode`, no real process here: `HarnessExec` is the injected seam, and
  * `harnessExec.ts` holds the one real spawn.
  */
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { globToRegExp } from '../../artifacts/globMatch.js';
 import type { UatHarnessDef } from '../../manifest/types.js';
+import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 import {
   defaultEvidenceFs,
   firstTriggerPath,
@@ -22,9 +23,9 @@ export const HARNESS_STOP_TIMEOUT_SECONDS = 60;
  * worktree is any repo, so it cannot hold the runner (`copy-assets.mjs` ships it).
  */
 export function harnessRunnerPath(): string {
-  // Lazy: a module that imports this file also loads in a jsdom webview test, where
-  // `import.meta.url` is not a file URL. Only the Tester prompt reads the path.
-  return fileURLToPath(new URL('./harnessRunner.mjs', import.meta.url));
+  // Lazy: only the Tester prompt reads the path. Not `import.meta.url`: in the one
+  // esbuild bundle that is `dist/extension.js`, so the path would miss `workflow/uat/`.
+  return join(RUNTIME_ASSETS_ROOT, 'workflow/uat/harnessRunner.mjs');
 }
 const MAX_OUTPUT_CHARS = 2000;
 const MAX_ENV_VALUE_CHARS = 200;
