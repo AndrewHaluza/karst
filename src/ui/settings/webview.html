@@ -911,14 +911,15 @@
     .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100vh;min-height:0}
     .main{height:auto;min-height:0}
     .sidebar{
-      position:static;flex-direction:row;align-items:center;gap:var(--k-space-4);
+      position:static;flex-direction:row;align-items:center;align-content:flex-start;gap:var(--k-space-2);
       padding:var(--k-space-3) var(--k-space-4);flex-wrap:wrap;overflow:visible;border-right:none;
       border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
     }
     .brand{display:none}
-    .nav-group{display:flex;flex-wrap:wrap;gap:var(--k-space-2);margin:var(--k-space-0)}
+    /* One wrapping chip row: the groups dissolve so every chip is a flex item of .sidebar. */
+    .nav-group{display:contents}
     .nav-caption{display:none}
-    .nav-btn{margin:var(--k-space-0);white-space:nowrap}
+    .nav-btn{margin:var(--k-space-0);width:auto;white-space:nowrap}
     .sidebar-foot{display:none}
     .topbar{padding:var(--k-space-3) var(--k-space-4);gap:var(--k-space-3)}
     .topbar h1{font-size:var(--k-text-base)}
