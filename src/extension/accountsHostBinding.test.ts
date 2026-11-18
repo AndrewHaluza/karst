@@ -54,10 +54,31 @@ describe('bindAccountsHost', () => {
     const host = bindAccountsHost(accountOps, (m) => posted.push(m), { secrets, onChanged: (n, c) => changed.push(`${n}:${c}`) });
     await host.handle({ type: 'accounts-set-sbx-token', core: 'claude', name: 'w' });
     expect(showInputBox).toHaveBeenCalledWith(expect.objectContaining({ password: true, ignoreFocusOut: true }));
+    const box = showInputBox.mock.calls[0]![0] as { prompt: string; validateInput: (v: string) => string | null };
+    expect(box.prompt).toContain("Claude account 'w'");
+    expect(box.prompt).toContain('claude setup-token');
+    expect(box.validateInput('sk-ant-api03-wrong')).toMatch(/must start with/);
+    expect(box.validateInput('sk-ant-oat01-abcdefghij')).toBeNull();
     expect(kv.get('karst.sbx.token.claude.w')).toBe('sk-ant-oat01-abcdefghij');
     expect(changed).toEqual(['w:set']);
     await host.handle({ type: 'accounts-remove-sbx-token', core: 'claude', name: 'w' });
     expect(kv.size).toBe(0);
     expect(JSON.stringify(posted)).not.toContain('abcdefghij');
+  });
+
+  it('reports whether each eligible account holds a token in the state it pushes', async () => {
+    const kv = new Map([['karst.sbx.token.claude.has', 'sk-ant-oat01-abcdefghij']]);
+    const secrets = { get: async (k: string) => kv.get(k), store: async () => {}, delete: async () => {} };
+    const posted: Array<{ type: string; cores?: Array<{ core: string; rows: Array<{ name: string; sbxToken?: string }> }> }> = [];
+    const accountOps = {
+      listAccounts: async (core: string) => core !== 'claude' ? [] : [
+        { name: 'has', active: false, account: { source: 'managed', dir: '/h/a' } },
+        { name: 'none', active: false, account: { source: 'folder', dir: '/h/b' } },
+      ],
+      accountStatus: async () => 'unknown',
+    } as never;
+    await bindAccountsHost(accountOps, (m) => posted.push(m as never), { secrets }).handle({ type: 'accounts-load' });
+    const claude = posted[0]!.cores!.find((c) => c.core === 'claude')!;
+    expect(claude.rows.map((r) => [r.name, r.sbxToken])).toEqual([['has', 'set'], ['none', 'not-set']]);
   });
 });
