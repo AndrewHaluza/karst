@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, utimesSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename, dirname } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
   ensureCliCopy,
   pruneCliCopies,
@@ -202,6 +202,31 @@ describe('writeGraphLauncher', () => {
     const launcher = await writeGraphLauncher(storage, a);
     await writeGraphLauncher(storage, b);
     expect(spawnSync(process.execPath, [launcher], { encoding: 'utf8' }).stdout.trim()).toBe('b');
+  });
+
+  it('leaves no temp file and replaces the launcher by rename, not in place', async () => {
+    const launcher = await writeGraphLauncher(storage, '/x');
+    const inode = statSync(launcher).ino;
+    await writeGraphLauncher(storage, '/y');
+    expect(statSync(launcher).ino).not.toBe(inode);
+    expect(readdirSync(join(storage, CLI_COPY_DIR)).filter((n) => n.startsWith('.tmp'))).toEqual([]);
+  });
+
+  it('forwards a signal to the CLI and exits with the signal status', async () => {
+    const target = join(root, 'wait.mjs');
+    writeFileSync(target, 'console.log("ready");setInterval(()=>{},1000);');
+    const launcher = await writeGraphLauncher(storage, target);
+    const child = spawn(process.execPath, [launcher]);
+    await new Promise<void>((res) => child.stdout.once('data', () => res()));
+    child.kill('SIGTERM');
+    const code = await new Promise<number | null>((res) => child.on('exit', (c) => res(c)));
+    expect(code).toBe(128 + 15);
+  });
+
+  it('reports a spawn error and exits 1', async () => {
+    const launcher = await writeGraphLauncher(storage, '/x');
+    const r = spawnSync(process.execPath, [launcher], { encoding: 'utf8', env: { ...process.env, PATH: '' }, cwd: '/nonexistent-dir-for-test' });
+    expect(r.status).not.toBe(0);
   });
 
   it('fails with a message when current.json is missing', async () => {

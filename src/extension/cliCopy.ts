@@ -182,9 +182,10 @@ export async function pruneCliCopies(input: PruneInput): Promise<string[]> {
 }
 
 const LAUNCHER_SOURCE = `import { readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { constants } from 'node:os';
 // Runs the CLI of the newest host that wrote current.json. A graph session keeps one path for its whole life.
 const here = dirname(fileURLToPath(import.meta.url));
 let entry;
@@ -194,8 +195,15 @@ try {
   process.stderr.write('karst graph launcher: cannot read ${CURRENT_FILE}: ' + String(err) + '\\n');
   process.exit(1);
 }
-const r = spawnSync(process.execPath, [entry, ...process.argv.slice(2)], { stdio: 'inherit' });
-process.exit(r.status ?? 1);
+const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], { stdio: 'inherit' });
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig));
+child.on('error', (err) => {
+  process.stderr.write('karst graph launcher: cannot start the CLI: ' + String(err) + '\\n');
+  process.exit(1);
+});
+child.on('exit', (code, signal) => {
+  process.exit(code ?? 128 + (constants.signals[signal] ?? 0));
+});
 `;
 
 /**
@@ -207,9 +215,14 @@ export async function writeGraphLauncher(storageDir: string, entry: string): Pro
   const root = join(storageDir, CLI_COPY_DIR);
   await mkdir(root, { recursive: true });
   const launcher = join(root, LAUNCHER_FILE);
-  await writeFile(launcher, LAUNCHER_SOURCE);
-  const temp = join(root, `${TEMP_PREFIX}current-${process.pid}-${randomBytes(4).toString('hex')}`);
-  await writeFile(temp, JSON.stringify({ entry }) + '\n');
-  await rename(temp, join(root, CURRENT_FILE));
+  // A live graph verb may read either file, so each is published by one rename, never rewritten in place.
+  await publish(root, launcher, LAUNCHER_SOURCE);
+  await publish(root, join(root, CURRENT_FILE), JSON.stringify({ entry }) + '\n');
   return launcher;
+}
+
+async function publish(root: string, target: string, content: string): Promise<void> {
+  const temp = join(root, `${TEMP_PREFIX}file-${process.pid}-${randomBytes(4).toString('hex')}`);
+  await writeFile(temp, content);
+  await rename(temp, target);
 }

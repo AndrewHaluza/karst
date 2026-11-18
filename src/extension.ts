@@ -674,15 +674,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   // Each host gives its sessions a CLI copy of its own build (an in-place install must not swap the CLI under a live host). Failure falls back to the install path. Async, so the event loop stays free; awaited, so no session starts before the copy exists.
   await (async () => {
+    let copy: Awaited<ReturnType<typeof ensureCliCopy>>;
     try {
-      const copy = await ensureCliCopy({ installDistDir: join(context.extensionUri.fsPath, 'dist'), storageDir, version: String(context.extension.packageJSON.version) });
-      setActiveCliCopy(copy.entry);
-      context.subscriptions.push({ dispose: startCliCopyHeartbeat(copy.entry) });
-      logger.debug(`karst: CLI copy ${copy.copied ? 'made' : 'reused'}: ${copy.entry}`);
-      setActiveGraphCli(await writeGraphLauncher(storageDir, copy.entry));
-      await pruneCliCopies({ storageDir, keep: [copy.entry], now: Date.now(), warn: (m) => logger.warn(m) });
+      copy = await ensureCliCopy({ installDistDir: join(context.extensionUri.fsPath, 'dist'), storageDir, version: String(context.extension.packageJSON.version) });
     } catch (e) {
       logger.warn(`karst: CLI copy failed, sessions use the install path: ${String(e)}`);
+      return;
+    }
+    setActiveCliCopy(copy.entry);
+    context.subscriptions.push({ dispose: startCliCopyHeartbeat(copy.entry) });
+    logger.debug(`karst: CLI copy ${copy.copied ? 'made' : 'reused'}: ${copy.entry}`);
+    try {
+      setActiveGraphCli(await writeGraphLauncher(storageDir, copy.entry));
+    } catch (e) {
+      logger.warn(`karst: graph launcher not written, graph sessions use the install path: ${String(e)}`);
+    }
+    try {
+      await pruneCliCopies({ storageDir, keep: [copy.entry], now: Date.now(), warn: (m) => logger.warn(m) });
+    } catch (e) {
+      logger.warn(`karst: old CLI copies not pruned: ${String(e)}`);
     }
   })();
   setShipCiDebug((m) => logger.debug(m));
