@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderGateOnlyInstruction } from '../../agent/workflowCommand.js';
-import { ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST, guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, wantsSbxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
+import { ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST, ACCOUNT_BLOCK_TOKEN, guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, wantsSbxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
 import type { LaunchBackend } from './sandboxSyncOps.js';
 
 const backend = (over: Partial<LaunchBackend> = {}): LaunchBackend => ({ options: {}, sandboxed: false, placement: { backend: 'host', core: null, sandboxName: null, reason: null }, ...over });
@@ -170,6 +170,19 @@ describe('launchWithoutSilentHostFallback: account block on a sandbox backend', 
     expect(message).toContain(reason);
     expect(options).toEqual([ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST]);
     expect(i.removeSandbox).not.toHaveBeenCalled();
+  });
+  it('offers Add a token first for an account that can hold one, and returns it without any launch', async () => {
+    const i = base({ tokenAccount: () => 'nd', chooseModal: vi.fn(async () => ACCOUNT_BLOCK_TOKEN) });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'add-token', account: 'nd' });
+    expect((i.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).toEqual([ACCOUNT_BLOCK_TOKEN, ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST]);
+    expect(i.launch).toHaveBeenCalledTimes(1);
+    expect(i.confirmHost).not.toHaveBeenCalled();
+    expect(i.removeSandbox).not.toHaveBeenCalled();
+  });
+  it('hides Add a token when no account can hold one', async () => {
+    const i = base({ tokenAccount: () => undefined });
+    await launchWithoutSilentHostFallback(i);
+    expect((i.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).not.toContain(ACCOUNT_BLOCK_TOKEN);
   });
   it('offers no Retry with an existing sandbox, and removes nothing unless the host is chosen', async () => {
     const i = base({ hasSandbox: async () => true });

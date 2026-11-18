@@ -83,7 +83,10 @@ const REQUIRED_ARTIFACTS = [
 // the requireEvidence toggle, file glob input, changed-path textarea with local raw
 // text, evidenceErrors and the shared relativeGlobProblem; ~2 KB minified): bundle
 // is 409694 bytes (~2.2 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 402 * 1024;
+// Raised 402 → 406 KB for the sbx token cell on the Accounts tab (T1228: SbxTokenCell
+// with its saving, confirm and error states, the token op effects and the hint; ~3.5 KB
+// minified): bundle is 413148 bytes (~2.7 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 406 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

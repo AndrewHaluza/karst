@@ -184,6 +184,15 @@ describe('SettingsManager', () => {
     expect(panel().revealed).toBe(1); // second open revealed the existing panel
   });
 
+  it('openAt opens the panel then posts a navigate message for the hash', async () => {
+    const { mgr, panel } = make({ manifest: M, error: null });
+    await mgr.openAt('#agents/accounts/claude/work');
+    expect(panel().posted.at(-1)).toEqual({ type: 'navigate', hash: '#agents/accounts/claude/work' });
+    await mgr.openAt('#agents/accounts/claude/other');
+    expect(panel().revealed).toBe(1);
+    expect(panel().posted.at(-1)).toEqual({ type: 'navigate', hash: '#agents/accounts/claude/other' });
+  });
+
   it('routes incoming messages through injected actions without throwing on junk', async () => {
     const { mgr, panel } = make({ manifest: M, error: null });
     await mgr.open();

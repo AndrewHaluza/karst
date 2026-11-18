@@ -14,6 +14,12 @@ describe('agents route', () => {
     expect(parseAgentsHash('#agents/accounts/codex')).toEqual({ tab: 'accounts', selected: 'codex' });
     expect(parseAgentsHash(formatAgentsHash({ tab: 'accounts', selected: 'claude' }))).toEqual({ tab: 'accounts', selected: 'claude' });
   });
+  it('parses and formats an account row link', () => {
+    expect(parseAgentsHash('#agents/accounts/claude/work%20a')).toEqual({ tab: 'accounts', selected: 'claude', account: 'work a' });
+    const route = { tab: 'accounts', selected: 'claude', account: 'a/b' } as const;
+    expect(parseAgentsHash(formatAgentsHash(route))).toEqual(route);
+    expect(formatAgentsHash({ tab: 'accounts', account: 'x' })).toBe('#agents/accounts'); // no core: the account is dropped
+  });
   it('redirects old Presets links and unknown hashes to the Roles tab', () => {
     expect(parseAgentsHash('#presets')).toEqual({ tab: 'roles' });
     expect(parseAgentsHash('#presets/x?compare=a')).toEqual({ tab: 'roles' });

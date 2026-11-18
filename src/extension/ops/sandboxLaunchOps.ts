@@ -169,9 +169,10 @@ import type { AgentBackends } from '../../agent/backendChoices.js';
 export const HOST_FALLBACK_RETRY = 'Retry';
 export const HOST_FALLBACK_HOST = 'Sync and remove sandbox, then run on host with a fresh session';
 
-/** The two choices of an account block on a sandbox backend; Cancel is the dismissal. Add a choice here (D650/D652: 'Add a token'). */
+/** The choices of an account block on a sandbox backend; Cancel is the dismissal. 'Add a token' shows only for an account that can hold an sbx token (D651). */
 export const ACCOUNT_BLOCK_DEFAULT = 'Start fresh under default for this ticket';
 export const ACCOUNT_BLOCK_HOST = 'Run on host';
+export const ACCOUNT_BLOCK_TOKEN = 'Add a token';
 const ACCOUNT_BLOCK_CHOICES: readonly string[] = [ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST];
 
 const HOST_REMOVE_CONFIRM = (label: string): string =>
@@ -194,6 +195,8 @@ export interface HostFallbackInput<T extends { readonly sandboxed: boolean; read
   readonly failClosed?: boolean;
   /** A recovery relaunch: no modal, an account block is refused with its reason like an Autopilot round. */
   readonly refuseOnBlock?: boolean;
+  /** The blocked account when it can hold an sbx token (a folder or managed claude account); absent hides 'Add a token'. */
+  readonly tokenAccount?: () => string | undefined;
 }
 
 export type HostFallbackResult<T> =
@@ -201,6 +204,8 @@ export type HostFallbackResult<T> =
   | { readonly kind: 'cancelled' }
   /** The user chose a NEW session under the explicit `default` account: the caller relaunches with it; nothing ran. */
   | { readonly kind: 'restart-default' }
+  /** The user chose 'Add a token': the caller opens Settings on that account's row; nothing ran. */
+  | { readonly kind: 'add-token'; readonly account: string }
   /** `failClosed` and the backend came up on the host: no choice was offered, nothing was removed. */
   | { readonly kind: 'refused'; readonly reason: string };
 
@@ -230,7 +235,10 @@ export async function launchWithoutSilentHostFallback<T extends { readonly sandb
 
 async function accountBlockChoice<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>, backend: T, reason: string): Promise<HostFallbackResult<T>> {
   if (input.failClosed || input.refuseOnBlock) return { kind: 'refused', reason: `${reason}; the launch never runs on the host unasked` };
-  const picked = await input.chooseModal(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, ACCOUNT_BLOCK_CHOICES);
+  const tokenAccount = input.tokenAccount?.();
+  const choices = tokenAccount === undefined ? ACCOUNT_BLOCK_CHOICES : [ACCOUNT_BLOCK_TOKEN, ...ACCOUNT_BLOCK_CHOICES];
+  const picked = await input.chooseModal(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, choices);
+  if (picked === ACCOUNT_BLOCK_TOKEN && tokenAccount !== undefined) return { kind: 'add-token', account: tokenAccount };
   if (picked === ACCOUNT_BLOCK_DEFAULT) return { kind: 'restart-default' };
   if (picked !== ACCOUNT_BLOCK_HOST) return { kind: 'cancelled' };
   // The existing host path (F14): a ticket with a sandbox syncs it to the host branch, removes it and starts a fresh host session.
