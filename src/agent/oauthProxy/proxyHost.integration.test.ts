@@ -1,11 +1,12 @@
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProxyClient, newSandboxKey, proxyPaths } from './client.js';
 import { createProxyLifecycle } from './lifecycle.js';
+import { prepareControlDir } from './controlServer.js';
 import { startProxyHost, type RunningProxy } from './proxyHost.js';
 
 const TOKEN = 'sk-ant-oat01-secret-token-value';
@@ -90,5 +91,38 @@ describe('proxy host', () => {
     expect(running!.port).toBe(firstPort);
     expect(await viaProxy(running!.port, key)).toBe(200);
     expect(await lifecycle.probe()).toBe(false);
+  });
+
+  it('lets only one of two simultaneous starts run, and keeps the live socket', async () => {
+    const paths = proxyPaths(root);
+    const [a, b] = await Promise.all([start(paths), start(paths)]);
+    running = a ?? b;
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    expect(await createProxyClient(paths).health()).toMatchObject({ ok: true, port: running!.port });
+  });
+
+  it('takes over a stale lock of a dead process', async () => {
+    const paths = proxyPaths(root);
+    await running?.close();
+    prepareControlDir(paths.controlDir);
+    await writeFile(join(paths.controlDir, 'proxy.lock'), '999999\n');
+    running = await start(paths);
+    expect(running).toBeDefined();
+  });
+
+  it('refuses a control directory that others can open, and a socket of another type', async () => {
+    const paths = proxyPaths(root);
+    running = await start(paths);
+    const client = createProxyClient(paths);
+    expect(await client.health()).toBeDefined();
+    await chmod(paths.controlDir, 0o755);
+    expect(await client.health()).toBeUndefined();
+    await expect(client.register(newSandboxKey(), TOKEN)).rejects.toThrow(/not private/);
+    await chmod(paths.controlDir, 0o700);
+    expect(await client.health()).toBeDefined();
+  });
+
+  it('puts the user id in the control directory name', () => {
+    if (typeof process.getuid === 'function') expect(proxyPaths(root).controlDir).toContain(`karst-oauth-${process.getuid()}-`);
   });
 });
