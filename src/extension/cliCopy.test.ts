@@ -13,6 +13,7 @@ import {
   startCliCopyHeartbeat,
   writeGraphLauncher,
   copyDirOf,
+  activateCliCopy,
   CLI_COPY_DIR,
   CLI_COPY_MAX_AGE_MS,
 } from './cliCopy.js';
@@ -302,5 +303,84 @@ describe('pruneCliCopies', () => {
     const now = Date.now();
     makeCopy('1-old', CLI_COPY_MAX_AGE_MS + 1000, now);
     expect(await pruneCliCopies({ storageDir: storage, keep: [], now, remove: () => Promise.reject(new Error('busy')) })).toEqual([]);
+  });
+});
+
+describe('activateCliCopy', () => {
+  const deps = (over: Record<string, unknown> = {}) => {
+    const log = { debug: vi.fn(), warn: vi.fn(), disposers: [] as Array<() => void> };
+    return {
+      log,
+      d: {
+        installDistDir: dist,
+        installEntry: join(dist, 'cli', 'main.js'),
+        storageDir: storage,
+        version: '1.2.3',
+        debug: log.debug,
+        warn: log.warn,
+        onDispose: (f: () => void) => log.disposers.push(f),
+        ...over,
+      },
+    };
+  };
+
+  it('makes the copy, activates it, points the launcher at it and registers the heartbeat disposer', async () => {
+    const { d, log } = deps();
+    await activateCliCopy(d);
+    const entry = resolveCliEntry('/install');
+    expect(entry.startsWith(join(storage, CLI_COPY_DIR, '1.2.3-'))).toBe(true);
+    expect(resolveGraphCliEntry('/install')).toBe(join(storage, CLI_COPY_DIR, 'graph-launcher.mjs'));
+    expect(JSON.parse(readFileSync(join(storage, CLI_COPY_DIR, 'current.json'), 'utf8')).entry).toBe(entry);
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('made'));
+    expect(log.disposers).toHaveLength(1);
+    log.disposers[0]!();
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it('says reused on the second activation of the same build', async () => {
+    await activateCliCopy(deps().d);
+    const { d, log } = deps();
+    await activateCliCopy(d);
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('reused'));
+    log.disposers[0]!();
+  });
+
+  it('prunes old copies that it does not keep', async () => {
+    const old = join(storage, CLI_COPY_DIR, '0-old');
+    mkdirSync(join(old, 'cli'), { recursive: true });
+    const t = new Date(Date.now() - CLI_COPY_MAX_AGE_MS * 2);
+    utimesSync(old, t, t);
+    const { d, log } = deps();
+    await activateCliCopy(d);
+    expect(existsSync(old)).toBe(false);
+    log.disposers[0]!();
+  });
+
+  it('on a copy failure warns, keeps the install path for sessions and points the launcher at the install CLI', async () => {
+    rmSync(join(dist, 'cli', 'main.js'));
+    const { d, log } = deps();
+    await activateCliCopy(d);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('CLI copy failed'));
+    expect(resolveCliEntry('/install')).toBe('/install');
+    expect(JSON.parse(readFileSync(join(storage, CLI_COPY_DIR, 'current.json'), 'utf8')).entry).toBe(join(dist, 'cli', 'main.js'));
+    expect(log.disposers).toHaveLength(0);
+  });
+
+  it('warns about the launcher and keeps the copy when the launcher cannot be written', async () => {
+    const { d, log } = deps();
+    await ensureCliCopy({ installDistDir: dist, storageDir: storage, version: '1.2.3' });
+    mkdirSync(join(storage, CLI_COPY_DIR, 'graph-launcher.mjs', 'x'), { recursive: true });
+    await activateCliCopy(d);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('graph launcher not written'));
+    expect(resolveCliEntry('/install')).not.toBe('/install');
+    expect(resolveGraphCliEntry('/install')).toBe('/install');
+    log.disposers[0]!();
+  });
+
+  it('warns and goes on when the prune throws', async () => {
+    const { d, log } = deps({ now: () => { throw new Error('clock'); } });
+    await activateCliCopy(d);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('not pruned'));
+    log.disposers[0]!();
   });
 });

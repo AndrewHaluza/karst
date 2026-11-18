@@ -19,7 +19,7 @@ import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js'
 import { worktreePathContext } from './extension/worktreePathContext.js';
 import { currentConflictDelivery } from './store/fixDeliveries.js';
 import { makeConflictDelivery } from './extension/ops/conflictDeliveryOps.js';
-import { ensureCliCopy, pruneCliCopies, resolveGraphCliEntry, setActiveCliCopy, setActiveGraphCli, startCliCopyHeartbeat, writeGraphLauncher } from './extension/cliCopy.js';
+import { activateCliCopy, resolveGraphCliEntry } from './extension/cliCopy.js';
 import { cliEntryAndManifest, cliLiteral, cliSessionInput, launchTokens, buildCliContextPrefix, buildCliStagePrefix, buildCliPhasePrefix, buildCliGuidePrefix, buildCliServersPrefix, buildCliTestPrefix, buildCliFixBriefPrefix, buildCliConflictBriefPrefix } from './extension/cliPrefixes.js';
 import { terminalEnv, makeTerminalIdentityRegistry, restoredSessionOf, wrapTerminal, graphTerminalCwd, wrapRevivedGraphTerminal, makeTerminalHost, makeGraphTerminalHost } from './extension/terminalHosts.js';
 import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions.js';
@@ -673,29 +673,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagnosticLogBuffer = makeBoundedLogBuffer();
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   // Each host gives its sessions a CLI copy of its own build (an in-place install must not swap the CLI under a live host). Failure falls back to the install path. Async, so the event loop stays free; awaited, so no session starts before the copy exists.
-  await (async () => {
-    let copy: Awaited<ReturnType<typeof ensureCliCopy>> | undefined;
-    try {
-      copy = await ensureCliCopy({ installDistDir: join(context.extensionUri.fsPath, 'dist'), storageDir, version: String(context.extension.packageJSON.version) });
-      setActiveCliCopy(copy.entry);
-      context.subscriptions.push({ dispose: startCliCopyHeartbeat(copy.entry) });
-      logger.debug(`karst: CLI copy ${copy.copied ? 'made' : 'reused'}: ${copy.entry}`);
-    } catch (e) {
-      logger.warn(`karst: CLI copy failed, sessions use the install path: ${String(e)}`);
-    }
-    try {
-      // Without a copy the launcher still moves to this host's install path, so a live graph session never keeps a stale CLI.
-      setActiveGraphCli(await writeGraphLauncher(storageDir, copy?.entry ?? cliEntryAndManifest(context).cliEntry));
-    } catch (e) {
-      logger.warn(`karst: graph launcher not written, graph sessions use the install path: ${String(e)}`);
-    }
-    if (!copy) return;
-    try {
-      await pruneCliCopies({ storageDir, keep: [copy.entry], now: Date.now(), warn: (m) => logger.warn(m) });
-    } catch (e) {
-      logger.warn(`karst: old CLI copies not pruned: ${String(e)}`);
-    }
-  })();
+  await activateCliCopy({ installDistDir: join(context.extensionUri.fsPath, 'dist'), installEntry: cliEntryAndManifest(context).cliEntry, storageDir, version: String(context.extension.packageJSON.version), debug: (m) => logger.debug(m), warn: (m) => logger.warn(m), onDispose: (d) => context.subscriptions.push({ dispose: d }) });
   setShipCiDebug((m) => logger.debug(m));
   // @arch:AC-55: publish the machine-local agent accounts to every spawn path.
   // T1076: the accounts config changed (a switch here or in another window); QuotaOps exists later, so a holder.

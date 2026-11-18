@@ -184,10 +184,9 @@ export async function pruneCliCopies(input: PruneInput): Promise<string[]> {
 const LAUNCHER_SOURCE = `import { readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { constants } from 'node:os';
 // Runs the CLI of the newest host that wrote current.json. A graph session keeps one path for its whole life.
-const here = dirname(fileURLToPath(import.meta.url));
+const here = dirname(process.argv[1]);
 let entry;
 try {
   entry = JSON.parse(readFileSync(join(here, '${CURRENT_FILE}'), 'utf8')).entry;
@@ -225,4 +224,45 @@ async function publish(root: string, target: string, content: string): Promise<v
   const temp = join(root, `${TEMP_PREFIX}file-${process.pid}-${randomBytes(4).toString('hex')}`);
   await writeFile(temp, content);
   await rename(temp, target);
+}
+
+export interface ActivateCliCopyDeps {
+  readonly installDistDir: string;
+  readonly installEntry: string;
+  readonly storageDir: string;
+  readonly version: string;
+  readonly debug: (message: string) => void;
+  readonly warn: (message: string) => void;
+  /** Receives the disposer of the age heartbeat. */
+  readonly onDispose: (dispose: () => void) => void;
+  readonly now?: () => number;
+}
+
+/**
+ * The activation step: make this build's CLI copy, keep it young, point the
+ * graph launcher at this host's CLI and prune old copies. Each step logs its
+ * own failure and never throws, so activation is never blocked.
+ */
+export async function activateCliCopy(deps: ActivateCliCopyDeps): Promise<void> {
+  let copy: CliCopyResult | undefined;
+  try {
+    copy = await ensureCliCopy({ installDistDir: deps.installDistDir, storageDir: deps.storageDir, version: deps.version });
+    setActiveCliCopy(copy.entry);
+    deps.onDispose(startCliCopyHeartbeat(copy.entry));
+    deps.debug(`karst: CLI copy ${copy.copied ? 'made' : 'reused'}: ${copy.entry}`);
+  } catch (e) {
+    deps.warn(`karst: CLI copy failed, sessions use the install path: ${String(e)}`);
+  }
+  try {
+    // Without a copy the launcher still moves to this host's install path, so a live graph session never keeps a stale CLI.
+    setActiveGraphCli(await writeGraphLauncher(deps.storageDir, copy?.entry ?? deps.installEntry));
+  } catch (e) {
+    deps.warn(`karst: graph launcher not written, graph sessions use the install path: ${String(e)}`);
+  }
+  if (!copy) return;
+  try {
+    await pruneCliCopies({ storageDir: deps.storageDir, keep: [copy.entry], now: (deps.now ?? Date.now)(), warn: deps.warn });
+  } catch (e) {
+    deps.warn(`karst: old CLI copies not pruned: ${String(e)}`);
+  }
 }
