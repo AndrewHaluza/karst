@@ -4,12 +4,14 @@
  * `mkdir` is atomic, and a lock older than the stale limit belongs to a holder that died.
  * Vscode-free: it takes the lock path as an argument.
  */
-import { mkdir, rm, stat } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 export const DIR_LOCK_STALE_MS = 10_000;
 export const DIR_LOCK_TIMEOUT_MS = 5_000;
 export const DIR_LOCK_RETRY_MS = 25;
+const OWNER_FILE = 'owner';
 
 export interface DirLockOptions {
   /** A lock older than this has no live holder. */
@@ -27,10 +29,11 @@ export function createDirLock(path: string, options: DirLockOptions = {}): WithL
   const staleMs = options.staleMs ?? DIR_LOCK_STALE_MS;
   const timeoutMs = options.timeoutMs ?? DIR_LOCK_TIMEOUT_MS;
   const retryMs = options.retryMs ?? DIR_LOCK_RETRY_MS;
-  const take = async (): Promise<boolean> => {
+  const take = async (owner: string): Promise<boolean> => {
     await mkdir(dirname(path), { recursive: true });
     try {
       await mkdir(path);
+      await writeFile(join(path, OWNER_FILE), owner);
       return true;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
@@ -40,15 +43,18 @@ export function createDirLock(path: string, options: DirLockOptions = {}): WithL
     }
   };
   return async <T>(section: () => Promise<T>): Promise<T> => {
+    const owner = randomUUID();
     const deadline = Date.now() + timeoutMs;
-    while (!(await take())) {
+    while (!(await take(owner))) {
       if (Date.now() >= deadline) throw new Error('the cross-window lock is held by another window');
       await sleep(retryMs);
     }
     try {
       return await section();
     } finally {
-      await rm(path, { recursive: true, force: true });
+      // A holder that ran past the stale limit may have lost the lock to another window: remove only a lock that is still ours.
+      const current = await readFile(join(path, OWNER_FILE), 'utf8').catch(() => undefined);
+      if (current === owner) await rm(path, { recursive: true, force: true });
     }
   };
 }

@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -96,5 +96,19 @@ describe('createDirLock', () => {
     } finally {
       await chmod(root, 0o700);
     }
+  });
+
+  it('does not remove the lock that another window took over while the section ran', async () => {
+    const dir = join(await fresh(), 'l');
+    const lock = createDirLock(dir, { staleMs: 1, retryMs: 2 });
+    const other = createDirLock(dir, { staleMs: 1, retryMs: 2 });
+    let inside = false;
+    await lock(async () => {
+      await sleep(15); // older than the stale limit: the other window takes the lock over
+      await other(async () => { inside = true; await rm(join(dir, 'owner')); await writeFile(join(dir, 'owner'), 'peer'); });
+    });
+    expect(inside).toBe(true);
+    // The peer still holds its lock (owner file 'peer'): the first holder must have left it.
+    expect(await readFile(join(dir, 'owner'), 'utf8')).toBe('peer');
   });
 });
