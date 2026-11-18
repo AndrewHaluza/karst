@@ -28,6 +28,7 @@ import { OOM_LOG, OOM_LOOKUP_TIMEOUT_MS, oomMessage, parseGuestLimit, parseKille
 import { listSbx } from './sbxList.js';
 import { assertRebuildSafe, waitForCloneReady, type CloneReadyOptions } from './sbxCloneReady.js';
 import type { SbxProcess } from './sbxProcess.js';
+import { APPROVAL_KEY_ENV, KEY_ENV, approvalExecArgs, oauthLaunchArgs, oauthPolicyArgs, type SbxOauthLaunch } from './sbxOauthGuest.js';
 import { limitEnvArgs, wrapWithHeap } from './sbxLimits.js';
 import { isPortTakenError, parseSbxPorts, isResourceAllowed, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPolicyListArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
@@ -60,6 +61,8 @@ export interface SbxRunnerOptions {
   readonly log?: (line: string) => void;
   /** Clock for the guest-memory recheck interval (tests). Default `Date.now`. */
   readonly now?: () => number;
+  /** claude only: launch through the host OAuth proxy (@arch:AC-51). `account` set = a stored-token account gets a key per launch. */
+  readonly oauth?: SbxOauthLaunch;
 }
 
 /**
@@ -222,6 +225,43 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   };
   /** Size flags for a NEW sandbox, on `sbx create` and `sbx run` alike. Never passed on reattach. */
   const sizeArgs = (): string[] => [...(opts.memory ? ['--memory', opts.memory] : []), ...(opts.cpus !== undefined ? ['--cpus', String(opts.cpus)] : [])];
+  /** This launch's proxy key and port: set by `prepareLaunch`, read by `placeInteractive`. */
+  let issued: { readonly key: string; readonly port: number } | undefined;
+  let oauthPrepared = false;
+  /** The key is issued but the guest is not set up yet (the sandbox does not exist before its create). */
+  let guestPending = false;
+  const removeProxyPolicy = async (port: number): Promise<void> => {
+    const out = await sbx(oauthPolicyArgs('rm', opts.name, port));
+    if (out.code !== 0) opts.log?.(`[sbx ${opts.name}] proxy policy rm failed (exit ${out.code}): ${out.stderr.trim().slice(0, 300)}`);
+  };
+  /** Allow the proxy port for this sandbox, then approve the key in the guest. The key travels only in the exec client env. */
+  const setupGuestOauth = async (): Promise<StepOutcome> => {
+    if (!issued) return { ok: true };
+    const allowed = await sbx(oauthPolicyArgs('allow', opts.name, issued.port));
+    if (allowed.code !== 0) return { ok: false, reason: `sbx policy allow failed: ${allowed.stderr.trim()}` };
+    const approved = await opts.proc.run(SBX_BIN, approvalExecArgs(opts.name), { env: { [APPROVAL_KEY_ENV]: issued.key } });
+    if (approved.code !== 0) return { ok: false, reason: `sbx exec failed to approve the proxy key: ${approved.stderr.trim()}` };
+    guestPending = false;
+    return { ok: true };
+  };
+  const prepareLaunch = async (): Promise<StepOutcome> => {
+    const oauth = opts.oauth!;
+    oauthPrepared = false;
+    issued = undefined;
+    if (oauth.account === undefined) {
+      const old = await oauth.grants.release(opts.name);
+      if (old.port !== undefined) await removeProxyPolicy(old.port);
+      oauthPrepared = true;
+      return { ok: true };
+    }
+    const grant = await oauth.grants.issue(opts.name, oauth.account);
+    if (!grant.ok) return { ok: false, reason: grant.reason };
+    if (grant.replacedPort !== undefined && grant.replacedPort !== grant.port) await removeProxyPolicy(grant.replacedPort);
+    issued = { key: grant.key, port: grant.port };
+    oauthPrepared = true;
+    guestPending = true;
+    return known.has(opts.name) ? setupGuestOauth() : { ok: true };
+  };
   /** Create (when new) then link: the same workspace args as `placeInteractive`, so the later `sbx run` only reattaches. */
   const linkTranscripts: NonNullable<SessionRunner['linkTranscripts']> = async (input) => {
     const cwd = opts.cloneDir ?? input.hostWorktreePath;
@@ -231,6 +271,10 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const created = await opts.proc.run(SBX_BIN, ['create', '--clone', ...sizeArgs(), '--name', opts.name, opts.core, cwd, input.bridgeDir], { signal });
       if (created.code !== 0) return { ok: false, reason: `sbx create failed: ${signal.aborted ? 'timed out' : created.stderr.trim()}` };
       known.add(opts.name);
+    }
+    if (guestPending) {
+      const ready = await setupGuestOauth();
+      if (!ready.ok) return ready;
     }
     const linked = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...transcriptLinkCommand(input.bridgeDir, cwd)], { signal, ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}) });
     return linked.code === 0 ? { ok: true } : { ok: false, reason: `transcript link failed: ${signal.aborted ? 'timed out' : linked.stderr.trim()}` };
@@ -246,17 +290,20 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const create = known.has(opts.name) ? [] : ['--clone', ...sizeArgs()];
       const source = opts.cloneDir ?? spec.hostWorktreePath;
       const workspace = known.has(opts.name) ? [] : [source, ...(spec.bridgeDir ? [spec.bridgeDir] : [])];
+      if (opts.oauth?.account !== undefined && (!oauthPrepared || !issued)) throw new Error('sbx launch not prepared: no proxy key was issued for this launch');
+      const proxyArgs = issued ? oauthLaunchArgs(issued.port) : [];
       return {
         cwd: opts.cloneDir ?? spec.hostWorktreePath,
         shellPath: SBX_BIN,
         shellArgs: [
           'run', ...create, // The heap flag is merged into the spec's NODE_OPTIONS, else the guest's own value read by `ensureWritable` before the launch.
-          ...limitArgs(spec.env?.NODE_OPTIONS ?? guestNodeOptions), '--name', opts.name, opts.core, ...workspace,
+          ...limitArgs(spec.env?.NODE_OPTIONS ?? guestNodeOptions), ...proxyArgs, '--name', opts.name, opts.core, ...workspace,
           '--', ...autonomousLaunch(opts.core, runner).args, ...spec.args,
         ],
-        env: withoutHostOnlyEnv(spec.env),
+        env: { ...withoutHostOnlyEnv(spec.env), ...(issued ? { [KEY_ENV]: issued.key } : {}) },
       };
     },
+    ...(opts.oauth ? { prepareLaunch } : {}),
     ...(opts.core === 'claude' ? { linkTranscripts: linkTranscripts } : {}),
     // sbx mounts extra workspaces at the same absolute path.
     bridgeRunDir: (paths) => paths.dir,
@@ -394,6 +441,12 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     },
     dispose: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
+      if (opts.oauth) {
+        const old = await opts.oauth.grants.release(opts.name);
+        if (old.port !== undefined) await removeProxyPolicy(old.port);
+        issued = undefined;
+        oauthPrepared = false;
+      }
       const rm = disposeStep('sbx rm', await opts.proc.run(SBX_BIN, ['rm', '--force', opts.name]));
       // A failed rm keeps the clone, the remote and the known name: the sandbox may still hold unsynced commits and a retry needs them.
       if (rm.status === 'failed') return disposeResult([rm]);

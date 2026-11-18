@@ -201,17 +201,32 @@ export function launchAccountName(core: AccountCore, account: string | undefined
 }
 
 /**
+ * The account name when it can hold an sbx token (a stored folder or managed `claude`
+ * account), else `undefined`: the default account keeps the global sbx secret, a command
+ * account runs a host binary, and only `claude` has the host OAuth proxy (@arch:AC-51).
+ */
+export function sbxTokenAccount(core: AccountCore, account?: string): string | undefined {
+  if (core !== 'claude') return undefined;
+  const name = account ?? config[core]?.active ?? DEFAULT_ACCOUNT;
+  const found = name === DEFAULT_ACCOUNT ? undefined : config[core]?.list?.[name];
+  return found && found.source !== 'command' ? name : undefined;
+}
+
+/**
  * Why a sandbox backend (docker, sbx) cannot run this account, or `undefined`
  * when it can (@arch:AC-51). A command account names a host binary that is not
- * in the container, so the launch falls back to the host with this reason.
- * The default, folder and managed accounts only change the home folder.
+ * in the container. Under sbx a folder or managed `claude` account runs only
+ * when it has a stored token (`tokenAccounts`): the host OAuth proxy then
+ * carries its login. The default account only changes the home folder.
  */
-export function sandboxAccountBlock(core: AccountCore, account?: string, backend: 'docker' | 'sbx' = 'docker'): string | undefined {
+export function sandboxAccountBlock(core: AccountCore, account?: string, backend: 'docker' | 'sbx' = 'docker', tokenAccounts: ReadonlySet<string> = new Set()): string | undefined {
   const list = config[core]?.list ?? {};
   const name = account ?? config[core]?.active ?? DEFAULT_ACCOUNT;
   const found = name === DEFAULT_ACCOUNT ? undefined : list[name];
-  // An sbx sandbox keeps its own login and has no account folder: any account but default would run under the wrong login.
   if (found?.source === 'command') return `${core} account '${name}' runs the host command '${found.command}', which is not in the container`;
-  if (found && backend === 'sbx') return `${core} account '${name}' has its own login, which the sbx sandbox does not use`;
+  if (found && backend === 'sbx') {
+    if (sbxTokenAccount(core, name) !== undefined && tokenAccounts.has(name)) return undefined;
+    return `${core} account '${name}' has its own login and no sbx token, so the sbx sandbox cannot use it`;
+  }
   return undefined;
 }
