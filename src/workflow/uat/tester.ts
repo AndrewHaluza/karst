@@ -31,6 +31,7 @@
  * to the target this invocation was scoped to.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
@@ -61,7 +62,14 @@ import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
-import { checkProbeEvidence, evidenceReaskPrefix, type EvidenceFs } from './testerEvidence.js';
+import {
+  changedPaths,
+  checkProbeEvidence,
+  evidenceReaskPrefix,
+  evidenceRuleParagraph,
+  firstTriggerPath,
+  type EvidenceFs,
+} from './testerEvidence.js';
 import { checkHarnessEvidence, harnessPromptLines, harnessReaskPrefix, type StartedHarness } from './harness.js';
 import type { UatTesterRequireEvidence } from '../../manifest/types.js';
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
@@ -752,6 +760,8 @@ export interface TesterPromptExtra {
   outputForm?: StructuredOutputForm;
   /** The started harnesses of THIS target (@arch:UAT-HARNESS). */
   harnesses?: readonly StartedHarness[];
+  /** The evidence rule paragraph (`evidenceRuleParagraph`); set only when the diff matches `requireEvidence.whenChanged`. */
+  evidenceRule?: string;
 }
 
 /** Karst-owned scratch dir for UAT probe files; under `/.karst/`, which KARST_EXCLUDE_RULES covers. */
@@ -782,6 +792,24 @@ export function testerCoreHint(core?: string | null): string | undefined {
 export function testerMergeBaseRule(baseRef: string | null | undefined): string {
   const base = baseRef ? `origin/${baseRef}` : 'origin/<base>';
   return `If you compare against base at all, use the merge-base range \`${base}...HEAD\` (three dots), never the two-dot \`${base}\` form, which reads newer base work as deletions.`;
+}
+
+/**
+ * The evidence paragraph for the first prompt: only when a rule is set and the
+ * diff matches `whenChanged`. A re-ask carries the paragraph in its own prefix,
+ * so it passes `include = false`. Git trouble means no paragraph (the check fails open too).
+ */
+async function evidenceRuleFor(
+  opts: Pick<RunUatTesterOpts, 'requireEvidence' | 'git'>,
+  target: TesterTarget,
+  runId: string,
+  include: boolean,
+): Promise<string | undefined> {
+  const rule = opts.requireEvidence;
+  if (!include || rule === undefined || !opts.git) return undefined;
+  const changed = await changedPaths({ baseRef: target.baseRef, branch: target.branch, worktreePath: target.worktreePath, git: opts.git });
+  if (changed === null || firstTriggerPath(changed, rule.whenChanged) === undefined) return undefined;
+  return evidenceRuleParagraph(runId);
 }
 
 export function buildTesterPrompt(
@@ -839,6 +867,7 @@ export function buildTesterPrompt(
     `Put any probe scripts or scratch files under \`${target.worktreePath}/${TESTER_SCRATCH_DIR}/\` (karst-owned, git-excluded); files anywhere else in the checkout dirty it and block host gates.`,
     ...(coreHint ? [coreHint] : []),
     ...harnessPromptLines(extra?.harnesses),
+    ...(extra?.evidenceRule ? [extra.evidenceRule] : []),
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.
@@ -1085,6 +1114,10 @@ async function runTesterBody(
       debug?.(
         `[gate] uat tester ${target.repo}: snapshot ${snapshotRef ?? 'unavailable — using the branch range'}`,
       );
+      // One id per Tester call: a direct-run summary counts only when it carries it.
+      const runId = randomUUID();
+      const reaskMissing = opts.reaskEvidence?.[target.repo];
+      const evidenceRule = await evidenceRuleFor(opts, target, runId, reaskMissing === undefined);
       const basePrompt = buildTesterPrompt(
         target,
         opts.assignment.instructions,
@@ -1099,14 +1132,14 @@ async function runTesterBody(
           provider: opts.assignment.provider,
           outputForm: structuredOutputFormOf(opts.adapter),
           harnesses: harnessesOf(opts, target.repo),
+          ...(evidenceRule === undefined ? {} : { evidenceRule }),
         },
       );
       const reaskTitle = opts.reaskTitles?.[target.repo];
-      const reaskMissing = opts.reaskEvidence?.[target.repo];
       const reaskHarness = opts.reaskHarness?.[target.repo];
       const prefixes = [
         ...(reaskTitle === undefined ? [] : [reaskPrefix(reaskTitle)]),
-        ...(reaskMissing === undefined ? [] : [evidenceReaskPrefix(reaskMissing)]),
+        ...(reaskMissing === undefined ? [] : [evidenceReaskPrefix(reaskMissing, runId)]),
         ...(reaskHarness === undefined ? [] : [harnessReaskPrefix(reaskHarness)]),
       ];
       const prompt = prefixes.length === 0 ? basePrompt : `${prefixes.join('\n\n')}\n\n${basePrompt}`;
@@ -1308,6 +1341,7 @@ async function runTesterBody(
           baseRef: target.baseRef,
           branch: target.branch,
           startedAtMs: Date.parse(startedAt),
+          runId,
           git: opts.git,
           ...(deps.evidenceFs ? { fs: deps.evidenceFs } : {}),
         });

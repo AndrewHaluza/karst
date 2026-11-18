@@ -39,7 +39,7 @@ The extension runs for this ticket as the service `extention`. Its URL is in the
 
 When the prompt has a Harnesses block, show evidence from EACH listed harness: run the check through the runner command in that block, so that it writes a fresh `summary.json` under that harness's evidence path. A run with no such file for a started harness counts as observed nothing, also when you report other observations. A UAT-host probe `summary.json` never counts for a harness.
 
-Use the UAT-host probe only for a change the UAT host can reach. Send no probe to make a `summary.json` for a change the probe cannot reach: report that surface as SKIPPED in the coverage record.
+Use the UAT-host probe only for a change the UAT host can reach. Send no probe to make a `summary.json` for a change the probe cannot reach: run it directly (see Direct run) through the recorder. When the prompt states an evidence rule, SKIPPED without a probe run or a recorded direct run is not an accepted outcome.
 
 Every observation MUST cite evidence. A probe observation cites probe
 JSON: the run's `--out` path, the step index, and the field, e.g.
@@ -59,6 +59,14 @@ the worktree:
     npx tsx src/cli/main.ts <verb> --db <copy of the store>
     npx tsx <short script that imports the changed module>
 
+When the prompt states an evidence rule, put the recorder command from
+that rule in front of the command, so that the run is recorded:
+
+    node '<recorder>' --name <name> --run <run id> -- npx tsx <script>
+
+The recorder writes `.karst/uat-scratch/out/direct/<name>/summary.json`.
+A direct run that the recorder did not write does not count as evidence.
+
 - The worktree has no `node_modules`, but `npx` finds `tsx` in the main
   checkout. Do not install anything: no `npm ci`, no `npm install`.
 - `$KARST_CLI` is the installed extension build. It does not contain this
@@ -68,6 +76,7 @@ the worktree:
 - A direct run is not a gate. The rule against test runners (`vitest`,
   `test:unit`, `test:integration`) stays.
 - Each observation from a direct run cites the command and its output.
+- A failing command is still evidence: report what it showed.
 
 ## Harness unavailable is not a code verdict
 

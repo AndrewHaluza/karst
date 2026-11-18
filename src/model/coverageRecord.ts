@@ -20,7 +20,8 @@ const SHAPE =
 export const COVERAGE_RULE_UAT =
   `Always finish by recording ${SHAPE}` +
   `If the changed code is not reachable by the harness (for example webview DOM the uat:host probe cannot see, or code behind the faked agent core), ` +
-  `say so inside that same entry as SKIPPED with the reason and what else covers it.`;
+  `say so inside that same entry as SKIPPED with the reason and what else covers it. ` +
+  `When the prompt states an evidence rule, run a direct run (for example npx tsx) through the recorder it names, and SKIPPED without a probe run or a recorded direct run is not an accepted outcome.`;
 
 export const COVERAGE_RULE_REVIEW =
   `Always finish by recording ${SHAPE}` +
