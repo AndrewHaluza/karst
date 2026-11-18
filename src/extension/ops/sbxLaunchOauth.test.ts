@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { oauthPolicyArgs } from '../../agent/sbx/sbxOauthGuest.js';
-import { createSbxGrantReleaser } from './sbxLaunchOauth.js';
+import { createLaunchOauthInput, createSbxGrantReleaser } from './sbxLaunchOauth.js';
 
 describe('createSbxGrantReleaser', () => {
   it('revokes the key, then removes the policy rule of the proxy port', async () => {
@@ -42,5 +42,20 @@ describe('createSbxGrantReleaser', () => {
 
   it('works with no debug callback', async () => {
     await expect(createSbxGrantReleaser({ grants: { release: async () => ({ port: 1 }) }, run: async () => ({ code: 1, stderr: '' }) })('sb')).resolves.toBeUndefined();
+  });
+});
+
+describe('launch oauth input errors', () => {
+  it('logs, without the error text, when the account list fails, and still returns no token account', async () => {
+    const debug: string[] = [];
+    const input = createLaunchOauthInput({
+      grants: {} as never, secrets: {} as never,
+      listAccounts: async () => { throw new Error('sk-ant-oat01-secret'); },
+      debug: (m) => debug.push(m),
+    });
+    const out = await input();
+    expect([...out.tokenAccounts]).toEqual([]);
+    expect(debug).toHaveLength(1);
+    expect(debug.join()).not.toContain('secret');
   });
 });

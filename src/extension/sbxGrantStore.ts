@@ -20,6 +20,8 @@ interface Grant {
   readonly port: number;
   /** The key is revoked at the proxy (its token was removed); the record stays for the port of the policy rule. */
   readonly revoked?: boolean;
+  /** Keys of earlier launches whose revoke failed; each later revoke retries them. */
+  readonly stale?: readonly string[];
 }
 
 export interface SbxGrantStoreDeps {
@@ -32,7 +34,8 @@ export interface SbxGrantStoreDeps {
 
 const isGrant = (v: unknown): v is Grant => {
   const g = v as Partial<Grant> | null;
-  return typeof g?.key === 'string' && typeof g.account === 'string' && typeof g.port === 'number';
+  return typeof g?.key === 'string' && typeof g.account === 'string' && typeof g.port === 'number'
+    && (g.stale === undefined || (Array.isArray(g.stale) && g.stale.every((k) => typeof k === 'string')));
 };
 
 export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
@@ -61,10 +64,16 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
     await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify(grant));
     await changeIndex((list) => (list.includes(sandbox) ? list : [...list, sandbox]));
   };
-  /** `true` when the key is dead at the proxy (or was revoked before). */
-  const revokeKey = async (sandbox: string, grant: Grant): Promise<boolean> => {
-    if (grant.revoked) return true;
-    try { await deps.client.revoke(grant.key); return true; } catch (e) { log('revoke failed', sandbox, e); return false; }
+  const tryRevoke = async (sandbox: string, key: string): Promise<boolean> => {
+    try { await deps.client.revoke(key); return true; } catch (e) { log('revoke failed', sandbox, e); return false; }
+  };
+  /** Revoke the key and the stale keys of a grant. `done` when none is live; `grant` keeps the ones that are. */
+  const revokeAll = async (sandbox: string, grant: Grant): Promise<{ readonly grant: Grant; readonly done: boolean }> => {
+    const revoked = grant.revoked === true || (await tryRevoke(sandbox, grant.key));
+    const stale: string[] = [];
+    for (const key of grant.stale ?? []) if (!(await tryRevoke(sandbox, key))) stale.push(key);
+    const { stale: _drop, ...rest } = grant;
+    return { grant: { ...rest, revoked, ...(stale.length > 0 ? { stale } : {}) }, done: revoked && stale.length === 0 };
   };
 
   async function issue(sandbox: string, account: string): Promise<OauthIssue> {
@@ -76,8 +85,10 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
     const key = newSandboxKey();
     try { await deps.client.register(key, token); } catch (e) { log('register failed', sandbox, e); return { ok: false, reason: 'the OAuth proxy refused the sandbox key' }; }
     const old = await load(sandbox);
-    await save(sandbox, { key, account, port });
-    if (old) await revokeKey(sandbox, old);
+    // The keys of the earlier launches die now; a key the proxy would not revoke is kept for the next revoke.
+    const left = old ? (await revokeAll(sandbox, old)).grant : undefined;
+    const stale = left ? [...(left.revoked ? [] : [left.key]), ...(left.stale ?? [])] : [];
+    await save(sandbox, { key, account, port, ...(stale.length > 0 ? { stale } : {}) });
     return { ok: true, key, port, ...(old ? { replacedPort: old.port } : {}) };
   }
 
@@ -85,7 +96,11 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
     const grant = await load(sandbox);
     if (!grant) return {};
     // A key that is still live keeps its record, so a later release or account change retries the revoke.
-    if (!(await revokeKey(sandbox, grant))) return { port: grant.port };
+    const result = await revokeAll(sandbox, grant);
+    if (!result.done) {
+      await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify(result.grant));
+      return { port: grant.port };
+    }
     await deps.secrets.delete(GRANT_PREFIX + sandbox);
     await changeIndex((list) => list.filter((n) => n !== sandbox));
     return { port: grant.port };
@@ -106,9 +121,9 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
   async function revokeAccount(account: string): Promise<void> {
     for (const sandbox of await names()) {
       const grant = await load(sandbox);
-      if (!grant || grant.account !== account || grant.revoked) continue;
-      await revokeKey(sandbox, grant);
-      await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify({ ...grant, revoked: true }));
+      if (!grant || grant.account !== account || (grant.revoked && !grant.stale)) continue;
+      // `revoked` is set only when the proxy confirmed it: a refused revoke stays for the next call.
+      await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify((await revokeAll(sandbox, grant)).grant));
     }
   }
 

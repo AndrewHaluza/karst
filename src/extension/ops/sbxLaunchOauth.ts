@@ -34,6 +34,7 @@ export interface LaunchOauthInputDeps {
   readonly grants: SbxOauthGrants;
   readonly secrets: SecretStore;
   readonly listAccounts: (core: typeof SBX_TOKEN_CORE) => Promise<readonly AccountRow[]>;
+  readonly debug?: (message: string) => void;
 }
 
 /** The `oauth` input of the backend resolver, read fresh at each launch: the accounts with a stored token. */
@@ -44,7 +45,10 @@ export function createLaunchOauthInput(deps: LaunchOauthInputDeps): () => Promis
       for (const row of await deps.listAccounts(SBX_TOKEN_CORE)) {
         if (await hasSbxToken(deps.secrets, SBX_TOKEN_CORE, row.name)) tokenAccounts.add(row.name);
       }
-    } catch { /* no account list: no token account, the account block then asks the user */ }
+    } catch {
+      // No account list: no token account, so the account block asks the user. The error text is not logged (a store error may name a secret).
+      deps.debug?.('[oauth-proxy] the token accounts could not be read; the launch treats every account as without a token');
+    }
     return { grants: deps.grants, tokenAccounts };
   };
 }

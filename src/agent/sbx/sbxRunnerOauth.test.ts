@@ -30,13 +30,15 @@ describe('sbx launch through the proxy', () => {
     expect(JSON.stringify(placed.shellArgs)).not.toContain(KEY);
   });
 
-  it('puts the same pairs on a create and on a reattach', async () => {
+  it('puts the same pairs on a new sandbox, after its create, and on a reattach', async () => {
     for (const existing of [[], [NAME]]) {
       const { runner } = make(grants(), existing);
       await runner.prepareLaunch!();
+      if (existing.length === 0) await runner.linkTranscripts!(link);
       const args = runner.placeInteractive(spec).shellArgs;
       expect(args).toContain('ANTHROPIC_BASE_URL=http://host.docker.internal:8787');
-      expect(args.includes('--clone')).toBe(existing.length === 0);
+      // A new sandbox is created by the link step, so the run then reattaches to it.
+      expect(args.includes('--clone')).toBe(false);
     }
   });
 
@@ -80,6 +82,15 @@ describe('sbx launch through the proxy', () => {
   it('fails the prepare, with the reason, when the proxy refuses a key', async () => {
     const { runner } = make(grants({ issue: async () => ({ ok: false, reason: 'no token' }) }), [NAME]);
     expect(await runner.prepareLaunch!()).toEqual({ ok: false, reason: 'no token' });
+  });
+
+  it('refuses to place a launch of a new sandbox whose guest setup failed, and a retry can place it', async () => {
+    const proc = fakeSbxProcess({ 'sbx policy allow': { code: 1, stderr: 'denied' } });
+    const { runner } = make(grants(), [], 'work', proc);
+    await runner.prepareLaunch!();
+    const linked = await runner.linkTranscripts!(link);
+    expect(linked.ok).toBe(false);
+    expect(() => runner.placeInteractive(spec)).toThrow(/not approved in the guest/);
   });
 
   it('fails the prepare when the policy rule is refused', async () => {

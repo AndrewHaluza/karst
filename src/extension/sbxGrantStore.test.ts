@@ -90,6 +90,31 @@ describe('sbx grant store', () => {
     expect(JSON.parse(secrets.map.get('karst.sbx.grants.index') ?? '[]').sort()).toEqual(['s3', 's4', 's5']);
   });
 
+  it('revokeAccount does not mark a key revoked when the proxy refuses, and a later call retries it', async () => {
+    let down = true;
+    const { store, secrets, client } = await setup({ revoke: async () => { if (down) throw new Error('down'); } });
+    const a = await store.issue('sb', 'work');
+    if (!a.ok) throw new Error('unreachable');
+    await store.revokeAccount('work');
+    expect(JSON.parse(secrets.map.get('karst.sbx.grant.sb')!).revoked).not.toBe(true);
+    down = false;
+    await store.revokeAccount('work');
+    expect(client.revoke).toHaveBeenLastCalledWith(a.key);
+    expect(JSON.parse(secrets.map.get('karst.sbx.grant.sb')!).revoked).toBe(true);
+  });
+
+  it('issue keeps the old key for a retry when its revoke fails, and the release revokes both keys', async () => {
+    let down = true;
+    const { store, client } = await setup({ revoke: async () => { if (down) throw new Error('down'); } });
+    const a = await store.issue('sb', 'work');
+    const b = await store.issue('sb', 'work');
+    if (!a.ok || !b.ok) throw new Error('unreachable');
+    down = false;
+    client.revoke.mockClear();
+    expect(await store.release('sb')).toEqual({ port: 8787 });
+    expect(client.revoke.mock.calls.map((c) => c[0]).sort()).toEqual([a.key, b.key].sort());
+  });
+
   it('lists the live keys with their account tokens for a proxy restart', async () => {
     const { store } = await setup();
     const a = await store.issue('sb1', 'work');

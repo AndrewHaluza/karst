@@ -291,6 +291,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const source = opts.cloneDir ?? spec.hostWorktreePath;
       const workspace = known.has(opts.name) ? [] : [source, ...(spec.bridgeDir ? [spec.bridgeDir] : [])];
       if (opts.oauth?.account !== undefined && (!oauthPrepared || !issued)) throw new Error('sbx launch not prepared: no proxy key was issued for this launch');
+      // A new sandbox is set up after its create: when that failed, the key is not approved and the run must not start.
+      if (issued && guestPending) throw new Error('sbx launch not ready: the proxy key is not approved in the guest');
       const proxyArgs = issued ? oauthLaunchArgs(issued.port) : [];
       return {
         cwd: opts.cloneDir ?? spec.hostWorktreePath,
