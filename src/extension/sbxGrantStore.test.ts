@@ -103,6 +103,22 @@ describe('sbx grant store', () => {
     expect(JSON.parse(secrets.map.get('karst.sbx.grant.sb')!).revoked).toBe(true);
   });
 
+  it('revokeAccount revokes the key that a launch issued while it ran, and does not write the old record over it', async () => {
+    let racing = false;
+    let launch: Promise<unknown> | undefined;
+    // eslint-disable-next-line prefer-const -- the revoke callback needs the store that setup returns
+    let ref: Awaited<ReturnType<typeof setup>> | undefined;
+    const s = await setup({ revoke: async () => { if (!racing) { racing = true; launch = ref!.store.issue('sb', 'work'); await launch; } } });
+    ref = s;
+    const first = await s.store.issue('sb', 'work');
+    if (!first.ok) throw new Error('unreachable');
+    await s.store.revokeAccount('work');
+    const record = JSON.parse(s.secrets.map.get('karst.sbx.grant.sb')!);
+    expect(record.key).not.toBe(first.key);
+    expect(record.revoked).toBe(true);
+    expect(s.client.revoke).toHaveBeenCalledWith(record.key);
+  });
+
   it('issue keeps the old key for a retry when its revoke fails, and the release revokes both keys', async () => {
     let down = true;
     const { store, client } = await setup({ revoke: async () => { if (down) throw new Error('down'); } });

@@ -12,6 +12,8 @@ import type { WithLock } from './crossWindowLock.js';
 import type { SecretStore } from './secretStore.js';
 import { getSbxToken, SBX_TOKEN_CORE } from './sbxTokenStore.js';
 
+/** How often one revoke of an account re-reads a record that a launch changed meanwhile. */
+const REVOKE_PASSES = 3;
 const GRANT_PREFIX = 'karst.sbx.grant.';
 const INDEX_KEY = 'karst.sbx.grants.index';
 
@@ -133,10 +135,16 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
   /** The account lost its token: kill the keys of its sandboxes now. The records stay until the sandbox is removed. */
   async function revokeAccount(account: string): Promise<void> {
     for (const sandbox of await names()) {
-      const grant = await load(sandbox);
-      if (!grant || grant.account !== account || (grant.revoked && !grant.stale)) continue;
-      // `revoked` is set only when the proxy confirmed it: a refused revoke stays for the next call.
-      await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify((await revokeAll(sandbox, grant)).grant));
+      // A launch may issue a new key while the revoke runs: the old record must not be written over it, so the new key is revoked in the next pass.
+      for (let pass = 0; pass < REVOKE_PASSES; pass++) {
+        const grant = await load(sandbox);
+        if (!grant || grant.account !== account || (grant.revoked && !grant.stale)) break;
+        // `revoked` is set only when the proxy confirmed it: a refused revoke stays for the next call.
+        const next = (await revokeAll(sandbox, grant)).grant;
+        if ((await load(sandbox))?.key !== grant.key) continue;
+        await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify(next));
+        break;
+      }
     }
   }
 

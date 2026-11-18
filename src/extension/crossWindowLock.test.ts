@@ -35,6 +35,50 @@ describe('createDirLock', () => {
     expect(await createDirLock(dir, { staleMs: 1000, retryMs: 2 })(async () => 'ok')).toBe('ok');
   });
 
+  it('removes a stale lock by a rename and leaves no moved copy behind', async () => {
+    const root = await fresh();
+    const dir = join(root, 'l');
+    await mkdir(dir);
+    await writeFile(join(dir, 'owner'), 'dead');
+    const old = new Date(Date.now() - 60_000);
+    await utimes(dir, old, old);
+    expect(await createDirLock(dir, { staleMs: 1000, retryMs: 2 })(async () => 'ok')).toBe('ok');
+    const { readdir } = await import('node:fs/promises');
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it('gives a lock back that another window took after the stale check, and then waits for it', async () => {
+    const root = await fresh();
+    const dir = join(root, 'l');
+    await mkdir(dir);
+    await writeFile(join(dir, 'owner'), 'live');
+    const real = Date.now.bind(Date);
+    let calls = 0;
+    // The second clock read is the stale check of the lock directory: it sees a stale lock, the check of the moved copy sees the real age.
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => (++calls === 2 ? real() + 3_600_000 : real()));
+    const section = vi.fn(async () => 'ran');
+    await expect(createDirLock(dir, { timeoutMs: 40, retryMs: 5 })(section)).rejects.toThrow('held by another window');
+    clock.mockRestore();
+    expect(section).not.toHaveBeenCalled();
+    expect(await readFile(join(dir, 'owner'), 'utf8')).toBe('live');
+    const { readdir } = await import('node:fs/promises');
+    expect(await readdir(root)).toEqual(['l']);
+  });
+
+  it('does not take a lock that is exactly as old as the stale limit', async () => {
+    const dir = join(await fresh(), 'l');
+    await mkdir(dir);
+    const at = new Date(1_700_000_000_000);
+    await utimes(dir, at, at);
+    const mtime = (await stat(dir)).mtimeMs;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(mtime + 1000);
+    const section = vi.fn(async () => 'ran');
+    await expect(createDirLock(dir, { staleMs: 1000, timeoutMs: 0, retryMs: 2 })(section)).rejects.toThrow('held by another window');
+    clock.mockRestore();
+    expect(section).not.toHaveBeenCalled();
+    expect((await stat(dir)).isDirectory()).toBe(true);
+  });
+
   it('fails, and does not run the section, when a live lock is held past the time limit', async () => {
     const dir = join(await fresh(), 'l');
     await mkdir(dir);

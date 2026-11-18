@@ -5,7 +5,7 @@
  * Vscode-free: it takes the lock path as an argument.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 export const DIR_LOCK_STALE_MS = 10_000;
@@ -29,6 +29,17 @@ export function createDirLock(path: string, options: DirLockOptions = {}): WithL
   const staleMs = options.staleMs ?? DIR_LOCK_STALE_MS;
   const timeoutMs = options.timeoutMs ?? DIR_LOCK_TIMEOUT_MS;
   const retryMs = options.retryMs ?? DIR_LOCK_RETRY_MS;
+  // A missing directory has no age: it is not stale.
+  const isStale = async (dir: string): Promise<boolean> => Date.now() - (await stat(dir).then((s) => s.mtimeMs, () => Date.now())) > staleMs;
+  // The stale lock moves away by `rename`, which one window wins. If the moved lock is fresh, another window took the lock after the check: it goes back.
+  const clearStale = async (owner: string): Promise<void> => {
+    if (!(await isStale(path))) return;
+    const grave = `${path}.stale-${owner}`;
+    // A window that lost the rename race finds no grave: the check and the two moves below then do nothing.
+    await rename(path, grave).catch(() => undefined);
+    if (await isStale(grave)) await rm(grave, { recursive: true, force: true });
+    else await rename(grave, path).catch(() => rm(grave, { recursive: true, force: true }));
+  };
   const take = async (owner: string): Promise<boolean> => {
     await mkdir(dirname(path), { recursive: true });
     try {
@@ -37,8 +48,7 @@ export function createDirLock(path: string, options: DirLockOptions = {}): WithL
       return true;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-      const held = await stat(path).catch(() => undefined);
-      if (held && Date.now() - held.mtimeMs > staleMs) await rm(path, { recursive: true, force: true });
+      await clearStale(owner);
       return false;
     }
   };

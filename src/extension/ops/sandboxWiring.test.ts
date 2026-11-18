@@ -249,6 +249,16 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     expect(proc.calls.some((c) => c.args.join(' ').startsWith('policy rm'))).toBe(true);
   });
 
+  it('a sandbox rebuild revokes the proxy key of the sandbox it removes (@arch:AC-60)', async () => {
+    const { projectId, a, proc, dockerProc } = live();
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(a);
+    const release = vi.fn(async () => ({ port: 8787 }));
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]), proc, dockerProc, sbxOauth: () => ({ grants: { issue: vi.fn(), release }, releaseGrant: vi.fn(async () => {}) }) });
+    await w.rebuild(a);
+    expect(proc.calls.some((c) => c.args[0] === 'rm' && c.args[1] === '--force')).toBe(true);
+    expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' }));
+  });
+
   it('the stray sweep of a closed ticket releases the proxy grant of its clone dir (@arch:AC-51)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-wiring-strays-'));
     const root = join(dir, 'karst.yml');
