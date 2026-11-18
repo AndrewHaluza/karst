@@ -613,6 +613,7 @@ const dashboardVariants = (): Variant[] => [
 const LEGACY_SETTINGS_BASELINES: Readonly<Record<string, string>> = {
   [`agents${formatAgentsHash({ tab: 'roles' })}`]: 'agents-roles',
   'agents#agents/roles?compare=fast': 'agents-compare',
+  [`agents${formatAgentsHash({ tab: 'sandbox' })}`]: 'agents-sandbox',
   [`agents${formatAgentsHash({ tab: 'profiles', selected: LONG_BODY_PROFILE })}`]: 'agents-profile',
 };
 
@@ -775,6 +776,24 @@ const settingsVariants = (): Variant[] => [
     layoutRouteId: `agents${formatAgentsHash({ tab: 'profiles', selected: LONG_BODY_PROFILE })}`,
   },
   ...settingsRouteVariants().filter((v) => v.baseline !== 'agents-profile' && !v.baseline.endsWith('agents-accounts')),
+  // Backend check error: sbx selected for claude, the host reports it not signed in.
+  {
+    ...variant(
+      'settings',
+      'agents-sandbox-error',
+      () => ({
+        messages: [
+          ...stateMessage({
+            ...REALISTIC_SETTINGS,
+            manifest: { ...REALISTIC_SETTINGS.manifest, agentBackends: { claude: 'sbx' } },
+          }).messages,
+          { type: 'backend-status', status: { sbx: { ok: false, reason: 'sbx not signed in (run `sbx login`)' }, docker: { ok: true } } },
+        ] as never,
+      }),
+      { baseline: 'settings--agents-sandbox-error', themes: DARK_ONLY, skipLayout: true },
+    ),
+    route: { section: 'agents', hash: formatAgentsHash({ tab: 'sandbox' }) },
+  },
   accountsVariant('accounts-default-only', DEFAULT_ONLY_CORES, { skipLayout: true }),
   accountsVariant('accounts-several', SEVERAL_CORES),
   accountsVariant('accounts-sbx-token', TOKEN_CORES, { skipLayout: true }),

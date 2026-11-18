@@ -182,6 +182,15 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer, focusTick }: 
               </Chip>
             </div>
 
+            {selected.group === 'builtin' ? (
+              <div className="agents-detail-toolbar" data-region="toolbar">
+                <Button variant="secondary" size="sm" disabled={!selected.promptBearing} onClick={() => customize(selected)}>
+                  Customize…
+                </Button>
+                <span className="agents-muted">built-in prompt</span>
+              </div>
+            ) : null}
+
             {selected.group !== 'builtin' ? (
               <Switch
                 name={`agent-enabled-${selected.id}`}
@@ -225,7 +234,6 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer, focusTick }: 
               onBuffer={(text) => setBuffer(selected.id, text)}
               onSave={() => commit(selected)}
               onRevert={() => setBuffer(selected.id, null)}
-              onCustomize={() => customize(selected)}
               onManage={() => setSection('approaches')}
               saving={save.busy}
               dirty={isDirty(selected, buffers)}
@@ -250,11 +258,10 @@ interface ProfileTextProps {
   readonly onBuffer: (text: string) => void;
   readonly onSave: () => void;
   readonly onRevert: () => void;
-  readonly onCustomize: () => void;
   readonly onManage: () => void;
 }
 
-function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert, onCustomize, onManage }: ProfileTextProps) {
+function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert, onManage }: ProfileTextProps) {
   if (entry.group === 'local') {
     return (
       <div className="agents-text">
@@ -281,7 +288,7 @@ function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert,
   if (entry.group === 'approach') {
     return (
       <div className="agents-text">
-        <pre className="agents-readonly" aria-label={`${entry.name} text`}>{entry.text ?? 'The text could not be read.'}</pre>
+        <PromptPreview key={entry.id} label={`${entry.name} text`} text={entry.text ?? 'The text could not be read.'} />
         <div className="agents-text-foot" data-region="toolbar">
           <span className="agents-muted">Provided by approach {entry.approachId} — manage in approach</span>
           <Button variant="text" size="sm" onClick={onManage}>
@@ -294,19 +301,35 @@ function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert,
   return (
     <div className="agents-text">
       {entry.promptBearing ? (
-        <pre className="agents-readonly" aria-label={`${entry.name} built-in prompt`}>{entry.text ?? ''}</pre>
+        <PromptPreview key={entry.id} label={`${entry.name} built-in prompt`} text={entry.text ?? ''} />
       ) : (
         <div className="agents-note">
           This process keeps its built-in prompt; an agent profile changes identity only.
         </div>
       )}
-      <div className="agents-text-foot" data-region="toolbar">
-        <span className="agents-muted">built-in prompt</span>
-        <Button variant="secondary" size="sm" disabled={!entry.promptBearing} onClick={onCustomize}>
-          Customize…
-        </Button>
-      </div>
     </div>
+  );
+}
+
+/** Lines a read-only prompt shows before it collapses behind 'Show full prompt'. */
+const PREVIEW_LINES = 12;
+
+function PromptPreview({ label, text }: { readonly label: string; readonly text: string }) {
+  const [open, setOpen] = useState(false);
+  const lines = text.split('\n');
+  const long = lines.length > PREVIEW_LINES;
+  // The preview cuts the TEXT, not the box: a clipped box fails the layout sweep (no ellipsis)
+  // and an inner scroll box is forbidden (UI-R45).
+  const shown = long && !open ? `${lines.slice(0, PREVIEW_LINES).join('\n')}\n…` : text;
+  return (
+    <>
+      <pre className="agents-readonly" aria-label={label}>{shown}</pre>
+      {long ? (
+        <Button variant="text" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Show less' : 'Show full prompt'}
+        </Button>
+      ) : null}
+    </>
   );
 }
 

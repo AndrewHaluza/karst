@@ -36,3 +36,10 @@ describe('agents route', () => {
     expect(parseAgentsHash('#agents/profiles/%E0%A4%A')).toEqual({ tab: 'profiles', selected: '%E0%A4%A' });
   });
 });
+
+describe('agentsRoute sandbox', () => {
+  it('parses and formats #agents/sandbox', () => {
+    expect(parseAgentsHash('#agents/sandbox')).toEqual({ tab: 'sandbox' });
+    expect(formatAgentsHash({ tab: 'sandbox' })).toBe('#agents/sandbox');
+  });
+});

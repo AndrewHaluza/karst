@@ -5,12 +5,13 @@
  *   #agents/roles[/<capability>][?compare=<preset>]
  *   #agents/profiles[/<name>]
  *   #agents/accounts[/<core>[/<account>]]
+ *   #agents/sandbox
  *
  * An old Presets link (`#presets…`) redirects to the Roles tab. Anything
  * unrecognised parses to the Roles tab with no selection — never an error, a
  * stale hash must not leave the page blank.
  */
-export type AgentsTab = 'roles' | 'profiles' | 'accounts';
+export type AgentsTab = 'roles' | 'profiles' | 'accounts' | 'sandbox';
 
 export interface AgentsRoute {
   readonly tab: AgentsTab;
@@ -36,6 +37,7 @@ export function parseAgentsHash(hash: string): AgentsRoute {
     if (!core) return { tab: 'accounts' };
     return account ? { tab: 'accounts', selected: core, account } : { tab: 'accounts', selected: core };
   }
+  if (head === 'agents' && tab === 'sandbox') return { tab: 'sandbox' };
   const onRoles = head === 'agents' && tab === 'roles';
   return {
     tab: 'roles',

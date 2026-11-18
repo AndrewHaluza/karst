@@ -134,13 +134,47 @@ describe('Agents page — tabs and location', () => {
   it('renders a tablist with Roles and Agent profiles (n), arrow keys switch, the hash follows', () => {
     mount();
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Roles', 'Agent profiles (2)', 'Accounts']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Roles', 'Agent profiles (10)', 'Accounts', 'Sandbox']);
     expect(tabs[0]!.getAttribute('aria-selected')).toBe('true');
     fireEvent.keyDown(tabs[0]!, { key: 'ArrowRight' });
     expect(screen.getAllByRole('tab')[1]!.getAttribute('aria-selected')).toBe('true');
     expect(window.location.hash).toBe('#agents/profiles');
     fireEvent.keyDown(screen.getAllByRole('tab')[1]!, { key: 'ArrowLeft' });
     expect(window.location.hash).toBe('#agents/roles');
+  });
+
+  it('the profiles count is the total the list shows, and no sandbox panel sits above the tablist', () => {
+    mount();
+    expect(document.querySelector('[data-region="backend"]')).toBeNull();
+    fireEvent.click(screen.getAllByRole('tab')[1]!);
+    expect(document.querySelectorAll('.agents-item')).toHaveLength(10);
+    expect(screen.getAllByRole('tab')[1]!.textContent).toBe('Agent profiles (10)');
+    const tablist = screen.getByRole('tablist');
+    expect(tablist.previousElementSibling?.getAttribute('data-region')).toBe('header');
+  });
+
+  it('a built-in profile puts Customize in a toolbar under the title, before the prompt', () => {
+    mount();
+    fireEvent.click(screen.getAllByRole('tab')[1]!);
+    fireEvent.click(screen.getByText('UAT Agent'));
+    const detail = document.querySelector('[data-region="detail"]')!;
+    const order = [...detail.querySelectorAll('.agents-detail-head, [data-region="toolbar"], .agents-readonly')].map((n) => n.getAttribute('data-region') ?? n.className);
+    expect(order[0]).toBe('agents-detail-head');
+    expect(order[1]).toBe('toolbar');
+    expect(order[2]).toContain('agents-readonly');
+    expect(detail.querySelector('[data-region="toolbar"]')!.textContent).toContain('Customize');
+  });
+
+  it('a long built-in prompt collapses to 12 lines behind Show full prompt', () => {
+    mount();
+    fireEvent.click(screen.getAllByRole('tab')[1]!);
+    fireEvent.click(screen.getByText('UAT Agent'));
+    const pre = screen.getByLabelText(/built-in prompt$/);
+    const toggle = screen.getByRole('button', { name: 'Show full prompt' });
+    expect(pre.textContent!.split('\n')).toHaveLength(13);
+    fireEvent.click(toggle);
+    expect(pre.textContent!.split('\n').length).toBeGreaterThan(13);
+    expect(screen.getByRole('button', { name: 'Show less' })).not.toBeNull();
   });
 
   it('redirects an old Presets hash to the Roles tab', () => {
@@ -153,9 +187,9 @@ describe('Agents page — tabs and location', () => {
     mount();
     const tabs = (): HTMLElement[] => screen.getAllByRole('tab');
     fireEvent.keyDown(tabs()[0]!, { key: 'End' });
-    expect(tabs()[2]!.getAttribute('aria-selected')).toBe('true');
-    expect(window.location.hash).toBe('#agents/accounts');
-    fireEvent.keyDown(tabs()[2]!, { key: 'Home' });
+    expect(tabs()[3]!.getAttribute('aria-selected')).toBe('true');
+    expect(window.location.hash).toBe('#agents/sandbox');
+    fireEvent.keyDown(tabs()[3]!, { key: 'Home' });
     expect(tabs()[0]!.getAttribute('aria-selected')).toBe('true');
     expect(window.location.hash).toBe('#agents/roles');
   });
@@ -620,6 +654,9 @@ describe('Agents page — roles table layout markup', () => {
 });
 
 describe('Agents page — sandbox backend', () => {
+  beforeEach(() => {
+    window.location.hash = '#agents/sandbox';
+  });
   const withStatus = (manifest: Manifest, status: unknown) => {
     const view = mount(manifest);
     act(() => view.bridge.push({ type: 'backend-status', status } as never));
@@ -666,15 +703,15 @@ describe('Agents page — sandbox backend', () => {
     expect('agentBackends' in draftOf(probe)).toBe(false);
   });
 
-  it('mixed sbx + docker: effective line per core and both statuses shown', () => {
+  it('mixed sbx + docker: each core shows its choice and both statuses show', () => {
     withStatus(
       { ...BASE, agentBackends: { claude: 'sbx', opencode: 'docker' } } as Manifest,
       { sbx: { ok: true }, docker: { ok: true } },
     );
-    const line = screen.getByTestId('effective-backend').textContent;
-    expect(line).toContain('claude: sbx');
-    expect(line).toContain('opencode: docker');
-    expect(line).toContain('codex: host');
+    expect(checkedOf('claude')).toEqual(['sbx']);
+    expect(checkedOf('opencode')).toEqual(['docker']);
+    expect(checkedOf('codex')).toEqual(['host']);
+    expect(screen.queryByTestId('effective-backend')).toBeNull();
     expect(screen.getByTestId('backend-status-sbx').textContent).toContain('ready');
     expect(screen.getByTestId('backend-status-docker').textContent).toContain('ready');
   });
@@ -684,7 +721,7 @@ describe('Agents page — sandbox backend', () => {
       { ...BASE, agentBackends: { claude: 'sbx' } } as Manifest,
       { sbx: { ok: false, reason: 'sbx not signed in (run `sbx login`)' }, docker: { ok: true } },
     );
-    expect(screen.getByTestId('effective-backend').textContent).toContain('claude: host (sbx not signed in (run `sbx login`))');
+    expect(screen.queryByTestId('effective-backend')).toBeNull();
     expect(screen.getByTestId('backend-status-sbx').textContent).toContain('sbx not signed in');
     expect(screen.queryByTestId('backend-status-docker')).toBeNull();
   });

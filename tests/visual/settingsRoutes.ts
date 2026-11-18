@@ -28,6 +28,7 @@ const AGENTS_HASHES: readonly string[] = [
   formatAgentsHash({ tab: 'profiles', selected: APPROACH_PROFILE }),
   formatAgentsHash({ tab: 'profiles', selected: `builtin:${FIRST_ROLE}` }),
   formatAgentsHash({ tab: 'accounts' }),
+  formatAgentsHash({ tab: 'sandbox' }),
 ];
 
 export function settingsRoutes(): readonly LayoutRoute[] {

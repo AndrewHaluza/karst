@@ -4,7 +4,7 @@
  * and the readiness of the backends some core selects. Opt-in; host is the
  * default and choosing it deletes the core's key.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import type { Manifest } from '../../../../manifest/types.js';
 import {
   allowedBackends,
@@ -14,15 +14,10 @@ import {
   type BackendCore,
   type CoreBackend,
 } from '../../../../agent/backendChoices.js';
-import {
-  deriveEffectiveBackends,
-  formatEffectiveBackends,
-  type BackendStatus,
-} from '../../../../agent/effectiveBackend.js';
+import type { BackendStatus } from '../../../../agent/effectiveBackend.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
 
-const UNCHECKED: BackendStatus = { ok: false, reason: 'not checked yet' };
 const NO_SANDBOX_NOTE = 'no sandbox yet';
 
 function setCoreBackend(core: BackendCore, value: CoreBackend): (draft: Manifest) => Manifest {
@@ -51,16 +46,6 @@ export function BackendPanel() {
     send.checkBackends({ sbx: want.sbx, docker: want.docker });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the two flags
   }, [want.sbx, want.docker]);
-  const rows = useMemo(
-    () =>
-      deriveEffectiveBackends({
-        backends,
-        cores: BACKEND_CORES,
-        sbx: status?.sbx ?? UNCHECKED,
-        docker: status?.docker ?? UNCHECKED,
-      }),
-    [backends, status],
-  );
   return (
     <div className="section-block" data-region="backend">
       <div className="section-head">
@@ -97,14 +82,11 @@ export function BackendPanel() {
           </div>
         );
       })}
-      <div data-testid="effective-backend" className="field-help">
-        {formatEffectiveBackends(rows)}
-      </div>
       <div className="field-help">
         {want.sbx ? <div data-testid="backend-status-sbx">sbx: {statusText(status?.sbx)}</div> : null}
         {want.docker ? <div data-testid="backend-status-docker">docker: {statusText(status?.docker)}</div> : null}
       </div>
-      <Button variant="secondary" size="sm" onClick={() => send.checkBackends({ sbx: want.sbx, docker: want.docker })}>
+      <Button className="backend-recheck" variant="secondary" size="sm" onClick={() => send.checkBackends({ sbx: want.sbx, docker: want.docker })}>
         Re-check
       </Button>
     </div>
