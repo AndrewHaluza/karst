@@ -34,6 +34,8 @@ export interface AccountOpsDeps {
   readonly lookupAlias: (name: string) => Promise<string>;
   /** Signed-in probe on an account folder; `unknown` when no probe exists. */
   readonly signedIn: (core: AccountCore, dir: string | undefined) => Promise<boolean | undefined>;
+  /** Remove the sbx token of a deleted account (SecretStorage). Called for every deleted account. */
+  readonly removeSbxToken?: (core: AccountCore, name: string) => Promise<void>;
   readonly debug?: (message: string) => void;
 }
 
@@ -105,6 +107,7 @@ export function createAccountOps(deps: AccountOpsDeps) {
     const prev = config[core] as { active: string; list: Record<string, Account> };
     const { [name]: _removed, ...rest } = prev.list;
     await deps.store.save(withCore(config, core, { active: prev.active === name ? DEFAULT_ACCOUNT : prev.active, list: rest }));
+    await deps.removeSbxToken?.(core, name);
     // Only a managed folder is removed; a folder or command account keeps the user's files.
     if (account.source !== 'managed' || options.removeFolder === false) return;
     // The stored dir is data from a file: remove it only when it is exactly the folder karst made.

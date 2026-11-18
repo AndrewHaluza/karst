@@ -58,6 +58,7 @@ import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
 import { accountForLaunch, activeAccountLabel, sessionReaderEnv } from './agent/accounts/registry.js';
 import { wireAccounts } from './extension/ops/accountsWiring.js';
+import { registerSbxOauth } from './extension/sbxOauthBinding.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
 import { hostRerunFor, makeRequestedRerunSweep, preBriefRerunFor } from './extension/ops/fixRerunOps.js';
@@ -672,8 +673,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // @arch:AC-55: publish the machine-local agent accounts to every spawn path.
   // T1076: the accounts config changed (a switch here or in another window); QuotaOps exists later, so a holder.
   let onAccountsChanged: () => void = () => {};
-  const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, store: localStore, debug: (m) => logger.debug(m), onChange: () => onAccountsChanged() }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
+  const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, secrets: context.secrets, store: localStore, debug: (m) => logger.debug(m), onChange: () => onAccountsChanged() }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
   if (accountsWiring) context.subscriptions.push({ dispose: () => accountsWiring.dispose() });
+  if (accountsWiring) registerSbxOauth({ vscode, secrets: context.secrets, accounts: accountsWiring.ops, notify: vscodeNotify, globalStorageRoot: storageDir, extensionPath: context.extensionPath, subscriptions: context.subscriptions, liveRegistrations: async () => [], debug: (m) => logger.debug(m) });
   const logError: LogError = (m, e) => logger.error(m, e);
   // T1012: reap the headless child of a run a new open supersedes (dead owner only).
   context.subscriptions.push({ dispose: bindOrphanReap(localStore, { debug: (m) => logger.debug(m), logError }) });
