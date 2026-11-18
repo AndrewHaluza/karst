@@ -7,6 +7,10 @@ import type { AccountCore, AccountSource } from '../../agent/accounts/types.js';
 
 export type AccountStatusView = 'signed-in' | 'not-signed-in' | 'unknown';
 
+/** Whether a Claude account holds an sbx token. Never the token itself (@arch:AC-51). */
+/** `unknown`: the keychain read failed, so the row says so instead of claiming 'not set'. */
+export type SbxTokenStateView = 'set' | 'not-set' | 'unknown';
+
 export interface AccountRowView {
   readonly name: string;
   /** Display label: the built-in account reads "Default (CLI home)". */
@@ -18,6 +22,8 @@ export interface AccountRowView {
   readonly dir?: string;
   readonly command?: string;
   readonly status: AccountStatusView;
+  /** Present only for a folder or managed Claude account; absent rows show no token action. */
+  readonly sbxToken?: SbxTokenStateView;
 }
 
 export interface AccountsCoreView {
@@ -40,7 +46,10 @@ export type AccountsWebviewMessage =
   | { type: 'accounts-seed-items'; core: AccountCore; name: string }
   | { type: 'accounts-copy-seed'; core: AccountCore; name: string; items: string[] }
   | { type: 'accounts-login'; core: AccountCore; name: string }
-  | { type: 'accounts-pick-folder' };
+  | { type: 'accounts-pick-folder' }
+  /** No value: the host asks for the token in its own masked input box. */
+  | { type: 'accounts-set-sbx-token'; core: AccountCore; name: string }
+  | { type: 'accounts-remove-sbx-token'; core: AccountCore; name: string };
 
 export interface SeedItemView {
   readonly id: string;
@@ -67,6 +76,8 @@ export type AccountsHostMessage =
   | { type: 'accounts-copy-result'; core: AccountCore; name: string; copied: readonly string[]; skipped: readonly { path: string; reason: string }[] }
   | { type: 'accounts-status'; core: AccountCore; name: string; status: AccountStatusView }
   | { type: 'accounts-folder-picked'; path: string }
+  /** A token action ended (done, cancelled or refused); the tab stops showing 'Saving…'. */
+  | { type: 'accounts-token-done'; core: AccountCore; name: string }
   | { type: 'accounts-error'; core?: AccountCore; op: AccountsWebviewMessage['type']; message: string };
 
 export const DEFAULT_ACCOUNT_LABEL = 'Default (CLI home)';

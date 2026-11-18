@@ -77,8 +77,6 @@ export function registerSbxOauth(host: SbxOauthHost) {
     lifecycle, sync: proxy.sync, grants,
     /** The `oauth` input of the launch backend resolver. */
     oauthInput: createLaunchOauthInput({ grants, secrets: host.secrets, listAccounts, debug: host.debug }),
-    /** The dialog option 'Add a token': ask for the token of the account. */
-    addToken: (account: string) => ops.setFor(account),
     /** Revoke the key and remove the policy rule of a sandbox that is removed by name. */
     releaseGrant: createSbxGrantReleaser({ grants, run: (args) => NODE_SBX_PROCESS.run('sbx', args), debug: host.debug }),
   };

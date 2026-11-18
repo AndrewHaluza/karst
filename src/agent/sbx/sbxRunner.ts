@@ -242,7 +242,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     const allowed = await opts.proc.run(SBX_BIN, oauthPolicyArgs('allow', opts.name, issued.port), { signal });
     if (allowed.code !== 0) return { ok: false, reason: `sbx policy allow failed: ${why(allowed.stderr)}` };
     const approved = await opts.proc.run(SBX_BIN, approvalExecArgs(opts.name), { env: { [APPROVAL_KEY_ENV]: issued.key }, signal });
-    if (approved.code !== 0) return { ok: false, reason: `sbx exec failed to approve the proxy key: ${why(approved.stderr)}` };
+    if (approved.code !== 0) return { ok: false, reason: `sbx exec failed to approve the proxy key: ${signal.aborted ? 'timed out' : `exit ${approved.code}`}` };
     guestPending = false;
     return { ok: true };
   };

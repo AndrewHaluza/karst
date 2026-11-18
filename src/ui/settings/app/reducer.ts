@@ -339,6 +339,9 @@ export function settingsAppReducer(
     case 'repo-path-picked':
       return applyRepoPath(state, message.name, message.path);
 
+    case 'navigate':
+      return state; // handled by the provider (it owns the section); nothing to store
+
     case 'accounts-state':
       return { ...state, accounts: { ...state.accounts, cores: message.cores } };
 
@@ -348,6 +351,7 @@ export function settingsAppReducer(
     case 'accounts-copy-result':
     case 'accounts-status':
     case 'accounts-folder-picked':
+    case 'accounts-token-done':
     case 'accounts-error':
       return {
         ...state,

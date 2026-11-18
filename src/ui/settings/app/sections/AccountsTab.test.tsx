@@ -11,6 +11,7 @@ import { AnnouncerProvider } from '../primitives/LiveRegion.js';
 import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { AccountsTab } from './AccountsTab.js';
+import type { AgentsRoute } from './agentsRoute.js';
 
 afterEach(cleanup);
 
@@ -25,12 +26,12 @@ const CORE = (core: AccountsCoreView['core'], extra: AccountsCoreView['rows'] = 
 const WORK = { name: 'work', label: 'work', active: false, builtIn: false, source: 'managed', dir: '/a/work', status: 'not-signed-in' } as const;
 const FOLDER = { name: 'fold', label: 'fold', active: false, builtIn: false, source: 'folder', dir: '/h/f', status: 'unknown' } as const;
 
-function mount(cores: AccountsCoreView[] = [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')]) {
+function mount(cores: AccountsCoreView[] = [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')], route: AgentsRoute = { tab: 'accounts' }) {
   const bridge: TestBridge = createTestBridge();
   render(
     <AnnouncerProvider>
       <SettingsAppProvider bridge={bridge} initialSection="agents">
-        <AccountsTab route={{ tab: 'accounts' }} navigate={() => {}} />
+        <AccountsTab route={route} navigate={() => {}} />
       </SettingsAppProvider>
     </AnnouncerProvider>,
   );
@@ -214,5 +215,92 @@ describe('Accounts tab', () => {
     expect(within(wizard).getByText(/lowercase slug/i)).toBeTruthy();
     expect((within(wizard).getByRole('button', { name: /^add$/i }) as HTMLButtonElement).disabled).toBe(true);
     expect(bridge.last('accounts-add')).toBeUndefined();
+  });
+});
+
+describe('Accounts tab sbx token cell (D651)', () => {
+  const TOKEN_ROWS = [
+    { ...WORK, sbxToken: 'not-set' },
+    { ...FOLDER, sbxToken: 'set' },
+    { name: 'cmd', label: 'cmd', active: false, builtIn: false, source: 'command', command: 'claude', status: 'unknown' },
+  ] as const;
+  const mountTokens = () => mount([CORE('claude', [...TOKEN_ROWS]), CORE('codex', [{ ...WORK, name: 'cw', label: 'cw' }])]);
+  const cellOf = (name: string): HTMLElement => {
+    const tr = [...document.querySelectorAll('tbody tr')].find((r) => r.querySelector('[data-col="name"]')?.textContent?.startsWith(name));
+    return tr!.querySelector('[data-col="sbx-token"]') as HTMLElement;
+  };
+
+  it('has an sbx token column that reads as a labelled card cell', () => {
+    mountTokens();
+    expect(cellOf('work').getAttribute('data-label')).toBe('sbx token');
+    expect(document.querySelector('th')?.parentElement?.textContent).toContain('sbx token');
+  });
+
+  it("shows '—' and no action for default, command and non-claude rows", () => {
+    mountTokens();
+    for (const name of ['Default', 'cmd', 'cw']) {
+      const cell = cellOf(name);
+      expect(cell.textContent).toBe('—');
+      expect(within(cell).queryAllByRole('button').length).toBe(0);
+    }
+  });
+
+  it('sends the set request with no value, then shows saving until the host answers', () => {
+    const { bridge, push } = mountTokens();
+    fireEvent.click(within(cellOf('work')).getByRole('button', { name: 'Set token work' }));
+    expect(bridge.last('accounts-set-sbx-token')).toMatchObject({ type: 'accounts-set-sbx-token', core: 'claude', name: 'work' });
+    expect(Object.keys(bridge.last('accounts-set-sbx-token') as object).sort()).not.toContain('token');
+    expect(cellOf('work').textContent).toContain('Saving');
+    push({ type: 'accounts-state', cores: [CORE('claude', [{ ...WORK, sbxToken: 'set' }, { ...FOLDER, sbxToken: 'set' }])] });
+    expect(cellOf('work').textContent).toContain('Saving'); // an unrelated state push does not end the op
+    push({ type: 'accounts-token-done', core: 'claude', name: 'work' });
+    expect(cellOf('work').textContent).toContain('Token set');
+  });
+
+  it('says the token status is unknown when the host could not read the keychain', () => {
+    const { push } = mountTokens();
+    push({ type: 'accounts-state', cores: [CORE('claude', [{ ...WORK, sbxToken: 'unknown' }, FOLDER])] });
+    expect(cellOf('work').textContent).toContain('Token status unknown');
+    expect(within(cellOf('work')).getByRole('button', { name: 'Set token work' })).toBeTruthy();
+  });
+
+  it('focuses the token control of the account named in the route', () => {
+    mount([CORE('claude', [...TOKEN_ROWS]), CORE('codex')], { tab: 'accounts', selected: 'claude', account: 'work' });
+    expect(document.activeElement).toBe(within(cellOf('work')).getByRole('button', { name: 'Set token work' }));
+  });
+
+  it('focuses nothing when the route names no account', () => {
+    mount([CORE('claude', [...TOKEN_ROWS]), CORE('codex')]);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('shows the host error and keeps the Set token action when the token is invalid', () => {
+    const { push } = mountTokens();
+    fireEvent.click(within(cellOf('work')).getByRole('button', { name: 'Set token work' }));
+    push({ type: 'accounts-error', core: 'claude', op: 'accounts-set-sbx-token', message: 'The token must start with sk-ant-oat' });
+    expect(within(cellOf('work')).getByRole('alert').textContent).toMatch(/must start with/);
+    expect(within(cellOf('work')).getByRole('button', { name: 'Set token work' })).toBeTruthy();
+  });
+
+  it('asks to confirm before it removes a token', () => {
+    const { bridge } = mountTokens();
+    expect(cellOf('fold').textContent).toContain('Token set');
+    fireEvent.click(within(cellOf('fold')).getByRole('button', { name: 'Remove token fold' }));
+    expect(bridge.last('accounts-remove-sbx-token')).toBeUndefined();
+    fireEvent.click(within(cellOf('fold')).getByRole('button', { name: 'Cancel' }));
+    expect(within(cellOf('fold')).getByRole('button', { name: 'Remove token fold' })).toBeTruthy();
+    fireEvent.click(within(cellOf('fold')).getByRole('button', { name: 'Remove token fold' }));
+    fireEvent.click(within(cellOf('fold')).getByRole('button', { name: 'Confirm remove token fold' }));
+    expect(bridge.last('accounts-remove-sbx-token')).toMatchObject({ core: 'claude', name: 'fold' });
+    expect(cellOf('fold').textContent).toContain('Saving');
+  });
+
+  it('shows the setup-token hint only when a row can hold a token', () => {
+    mountTokens();
+    const hint = document.querySelector('[data-hint="sbx-token"]');
+    expect(hint?.textContent).toBe('Run claude setup-token, then paste the token. Each editor (Cursor, VS Code) keeps its own token.');
+    cleanup();
+    mount();
+    expect(document.querySelector('[data-hint="sbx-token"]')).toBeNull();
   });
 });

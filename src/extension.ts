@@ -17,7 +17,8 @@ import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
 import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
 import { worktreePathContext } from './extension/worktreePathContext.js';
-import { makeConflictDelivery } from './extension/ops/conflictNudgeOps.js';
+import { currentConflictDelivery } from './store/fixDeliveries.js';
+import { makeConflictDelivery } from './extension/ops/conflictDeliveryOps.js';
 import { cliEntryAndManifest, cliLiteral, cliSessionInput, launchTokens, buildCliContextPrefix, buildCliStagePrefix, buildCliPhasePrefix, buildCliGuidePrefix, buildCliServersPrefix, buildCliTestPrefix, buildCliFixBriefPrefix, buildCliConflictBriefPrefix } from './extension/cliPrefixes.js';
 import { terminalEnv, makeTerminalIdentityRegistry, restoredSessionOf, wrapTerminal, graphTerminalCwd, wrapRevivedGraphTerminal, makeTerminalHost, makeGraphTerminalHost } from './extension/terminalHosts.js';
 import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions.js';
@@ -43,7 +44,7 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
-import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
+import { resolveConflictClick } from './extension/ops/conflictResolveOps.js';
 import { ticketHandOff } from './extension/ops/guardedHandOff.js';
 import { compileExpertSpend, compileSpentNodeRuns, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
@@ -57,7 +58,8 @@ import { regenerateEntries, makeLaunchTracker, makePlacementCheck, makeSandboxPr
 import { conflictRounds, armConflictRound, isAutoDelivering, isConflictRoundStalled, freeSlotOnConflictRoundEnd } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
-import { accountForLaunch, activeAccountLabel, sessionReaderEnv } from './agent/accounts/registry.js';
+import { accountForLaunch, accountsConfig, activeAccountLabel, launchAccountName, sessionReaderEnv } from './agent/accounts/registry.js';
+import { sbxTokenEligibility } from './extension/sbxTokenStore.js';
 import { wireAccounts } from './extension/ops/accountsWiring.js';
 import { registerSbxOauth } from './extension/sbxOauthBinding.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
@@ -353,7 +355,7 @@ import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAtt
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { snapshotThenResume } from './workflow/fixRoundGuard.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
-import { buildConflictBrief, conflictBriefPointer } from './workflow/conflictSession.js';
+import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
 import { createServersBinding } from './extension/serversBinding.js';
 import { describeReap } from './runtime/worktreeServers.js';
@@ -812,10 +814,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
         prepareSandbox: () => sandboxLife.ensureInSync(id),
         notify: (message) => void toast.info(message),
-        deliver: (brief) => {
-          if (sessions.nudge(id, brief)) { sessions.focusSession(id); return; }
-          void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief, seedRepo: repo });
-        },
+        deliver: (brief, hit) => conflictDelivery(id, brief, hit),
       });
     },
     // Peek CTA "Send CI failure to agent": the dashboard's own action (availability and confirm re-derived from the store), bound per ticket.
@@ -2021,14 +2020,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void subtaskAutostart.sweep();
   const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
-  // An Autopilot conflict round types a short pointer into a live session, not the full brief (@arch:AP-01).
-  const conflictDelivery = makeConflictDelivery({
-    nudge: (id, text) => sessions.nudge(id, text), focus: (id) => sessions.focusSession(id), open: (id, brief, repo) => launches.open(id, brief, repo),
-    pointer: (id, repo) => conflictBriefPointer({
-      key: formatId('ticket', id), repo, command: buildCliConflictBriefPrefix(launchTokens(cliLiteral(context, dbPath))),
-    }),
-    key: (id) => formatId('ticket', id), debug: (m) => logger.debug(m),
-  });
   const autopilot = startAutopilot({
     store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
     debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
@@ -2051,16 +2042,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
       arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
       notify: (message) => logger.debug(`[ship] autopilot ticket ${formatId('ticket', id)} conflicts: ${message}`),
-      deliver: (brief, hit, sandboxed) => conflictDelivery.deliver(id, brief, hit, sandboxed),
+      deliver: (brief, hit) => conflictDelivery(id, brief, hit),
     }),
     conflictRoundActive: (id) => conflictRounds.armed(id) !== null || isAutoDelivering(id),
-    conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id),
+    conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id, (repo) => currentConflictDelivery(localStore, id, repo)?.readAt ?? null),
     dropConflictRound: (id) => conflictRounds.disarm(id),
-    conflictPickup: (id) => ({
-      state: () => conflictRounds.pickup(id),
-      noteTurn: () => conflictRounds.noteTurn(id),
-      resend: () => { conflictRounds.markResent(id); conflictDelivery.resend(id); },
-    }),
     isDraining: () => drain.isDraining(),
     startAutoDeliver: (id) => startAutoDeliver(id),
   });
@@ -2082,6 +2068,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     literal: () => cliLiteral(context, dbPath),
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
+  });
+  // A conflict round reaches a live session as a stored `conflict` delivery and the fixed pointer; a closed one is seeded (@arch:AP-01).
+  const conflictDelivery = makeConflictDelivery({
+    isLive: (id) => sessions.isLive(id), isGraphTicket: (id) => nudgeSurface(localStore.db, id) === 'no-op',
+    nudge: (id, text) => sessions.nudge(id, text), focus: (id) => sessions.focusSession(id),
+    open: (id, brief, repo) => launches.open(id, brief, repo),
+    deliverLive: fixDelivery.deliverConflict, recordSeed: fixDelivery.recordConflictSeed,
+    key: (id) => formatId('ticket', id), debug: (m) => logger.debug(m),
   });
   // Host CLI fix markers (@arch:AC-45): a refused `stage fix pass` stored a re-run request; the one host gate re-run runs here.
   const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, drain, projectId: () => currentProject()?.id });
@@ -2123,6 +2117,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isCurrentHook: (id, launchId) => isCurrentHookAfterAdopt(recoveryLifecycle, (ticketId) => { void sessions.isLive(ticketId); }, id, launchId),
     fixEligible: fixDelivery.eligible,
     fixArmed: fixDelivery.armed,
+    fixRound: fixDelivery.roundOf,
     activeLaunchOf: (id) => recoveryLifecycle.currentLaunchId(id),
     ticketStage: (id) => getTicket(localStore, id).stageCurrent,
     claimFixPointed: fixDelivery.claimPointed,
@@ -2451,7 +2446,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.path));
         await vscode.window.showTextDocument(doc, { preview: true });
       },
-      ...(accountsWiring ? { accountsHost: (post: Parameters<typeof bindAccountsHost>[1]) => bindAccountsHost(accountsWiring.ops, post) } : {}),
+      ...(accountsWiring ? { accountsHost: (post: Parameters<typeof bindAccountsHost>[1]) => bindAccountsHost(accountsWiring.ops, post, { secrets: context.secrets, onChanged: (_name, change) => { if (change === 'set') void sbxOauth?.sync(); } }) } : {}),
     }),
     listInstalledApproachIds,
     () => hasToken(context),
@@ -3122,7 +3117,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // launch one seeded with the brief instead of the ticket's own context.
         // A graph ticket is never nudged from here: the graph coordinator owns
         // its sessions (entry-point matrix, Slice 3 Task 7).
-        makeSessionHandOff(sessionSeams(ticketId)),
+        (brief, repo) => { if (!sessionSeams(ticketId).isGraphTicket()) conflictDelivery(ticketId, brief, repo); },
         () => {
           // Manifest-gated (`diffsInSourceControl`, OFF by default): the ticket's
           // changed files render in the IDE's Source Control view instead of the
@@ -6642,7 +6637,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider; if (!options.recovery && !options.memoryAdmitted && !sessions.isOpen(ticketId) && wantsSbxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend) && listWorktreesByTicket(localStore, ticketId).length <= 1 && memoryGuard && !(await memoryGuard.admitLaunch(ticketId, options))) return { kind: 'not-applicable', reason: 'cancelled' }; // queued: 'Waiting for memory'; a recovery relaunch is never queued (recoverSession would count it as failed)
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, failClosed: options.failClosed === true, reuseLive: () => sbxOauth !== undefined && sessions.isLive(ticketId), refuseOnBlock: options.recovery === true, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ...(shouldResumeSession({ sessionId: t.sessionId, sessionProvider: t.sessionProvider, stageCurrent: t.stageCurrent as StageKey, provider: launchProvider, allowResume: options.allowResume }) && t.sessionId ? { resumeSessionId: t.sessionId } : {}), ticketOverride: t.agentBackend, ...(options.account !== undefined ? { account: options.account } : {}), warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true), ...(sbxOauth ? { oauth: sbxOauth.oauthInput } : {}) }, (core) => sandboxB?.remember(ticketId, core)), (late) => late.abortLaunch?.() ?? Promise.resolve()), ...hostFallbackPrompts({ showWarningMessage: ask.warn }), ...(sbxOauth ? { addToken: sbxOauth.addToken } : {}), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; if (fallback.kind === 'reused') { if (options.reveal !== false) sessions.revealSession(ticketId); ownedSessionTickets.add(ticketId); await persistOwnedSessionTickets(); sandboxB?.reattach(ticketId); showStatusFor(ticketId); return { kind: 'launched' }; } /* a live (or revived) session gets the ownership and re-verify steps of a normal launch, with no new key */ /* a live session is only revealed: a new launch would revoke its sbx key */ if (fallback.kind === 'restart-default') return vscode.commands.executeCommand<SessionOutcome>('karst.openSession', ticketId, { ...options, account: 'default', allowResume: false, memoryAdmitted: true }); /* a NEW session under explicit 'default'; the active account is untouched (@arch:AC-55) */ if (fallback.kind === 'refused') return startGuards.failedLaunch(ticketId, fallback.reason); const launchBackend = fallback.backend; await launchBackend.linkTranscripts?.(); /* after the bounded step: a slow `sbx create` must not stop the launch (AC-34); a failed guest setup throws here, so no placement is recorded for a launch that never ran */ sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); // D245: one recorded placement, written with sessionProvider
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, failClosed: options.failClosed === true, reuseLive: () => sbxOauth !== undefined && sessions.isLive(ticketId), refuseOnBlock: options.recovery === true, tokenAccount: () => { if (launchProvider !== 'claude') return undefined; const n = launchAccountName('claude', options.account); return sbxTokenEligibility('claude', n, accountsConfig().claude?.list[n]) === null ? n : undefined; }, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ...(shouldResumeSession({ sessionId: t.sessionId, sessionProvider: t.sessionProvider, stageCurrent: t.stageCurrent as StageKey, provider: launchProvider, allowResume: options.allowResume }) && t.sessionId ? { resumeSessionId: t.sessionId } : {}), ticketOverride: t.agentBackend, ...(options.account !== undefined ? { account: options.account } : {}), warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true), ...(sbxOauth ? { oauth: sbxOauth.oauthInput } : {}) }, (core) => sandboxB?.remember(ticketId, core)), (late) => late.abortLaunch?.() ?? Promise.resolve()), ...hostFallbackPrompts({ showWarningMessage: ask.warn }), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; if (fallback.kind === 'reused') { if (options.reveal !== false) sessions.revealSession(ticketId); ownedSessionTickets.add(ticketId); await persistOwnedSessionTickets(); sandboxB?.reattach(ticketId); showStatusFor(ticketId); return { kind: 'launched' }; } /* a live (or revived) session gets the ownership and re-verify steps of a normal launch, with no new key */ if (fallback.kind === 'restart-default') return vscode.commands.executeCommand<SessionOutcome>('karst.openSession', ticketId, { ...options, account: 'default', allowResume: false, memoryAdmitted: true }); /* a NEW session under explicit 'default'; the active account is untouched (@arch:AC-55) */ if (fallback.kind === 'add-token') { await settings.openAt(`#agents/accounts/claude/${encodeURIComponent(fallback.account)}`); return { kind: 'not-applicable', reason: 'cancelled' }; } /* D651: Settings opens on that account's token control; nothing launches */ if (fallback.kind === 'refused') return startGuards.failedLaunch(ticketId, fallback.reason); const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session

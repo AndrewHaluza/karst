@@ -102,11 +102,11 @@ describe('sbx launch through the proxy', () => {
     expect(log.join()).not.toContain('secret');
   });
 
-  it('bounds the guest stderr in the reason of a failed approval', async () => {
-    const proc = fakeSbxProcess({ 'sbx exec': { code: 1, stderr: 'x'.repeat(5000) } });
+  it('keeps the guest stderr of the approval step out of the reason (it can hold a part of ~/.claude.json)', async () => {
+    const proc = fakeSbxProcess({ 'sbx exec': { code: 1, stderr: 'SyntaxError in {"customApiKeyResponses":{"approved":["sk-ant-secret"]}}' } });
     const { runner } = make(grants(), [NAME], 'work', proc);
     const out = await runner.prepareLaunch!();
-    expect(out.ok === false && out.reason.length).toBeLessThan(500);
+    expect(out).toEqual({ ok: false, reason: 'sbx exec failed to approve the proxy key: exit 1' });
   });
 
   it('refuses to place a launch of a new sandbox whose guest setup failed, and a retry can place it', async () => {

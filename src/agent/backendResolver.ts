@@ -49,10 +49,6 @@ export interface ResolveBackendInput {
 export interface AccountBlock {
   readonly kind: 'account';
   readonly reason: string;
-  /** The blocked account; the one an 'Add a token' choice stores a token for. */
-  readonly account?: string;
-  /** The account can take an sbx token (a stored folder or managed claude account under sbx). */
-  readonly canAddToken: boolean;
 }
 
 export interface ResolvedBackend {
@@ -78,8 +74,7 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
     ? sandboxAccountBlock(input.core as AccountCore, input.account, backend === 'sbx' ? 'sbx' : 'docker', input.oauth?.tokenAccounts)
     : undefined;
   if (accountBlock) {
-    const tokenAccount = backend === 'sbx' ? sbxTokenAccount(input.core as AccountCore, input.account) : undefined;
-    return { ...onHost(accountBlock), blocked: { kind: 'account', reason: accountBlock, ...(tokenAccount !== undefined ? { account: tokenAccount } : {}), canAddToken: tokenAccount !== undefined } };
+    return { ...onHost(accountBlock), blocked: { kind: 'account', reason: accountBlock } };
   }
   if (backend === 'docker') {
     const docker = await resolveDocker({

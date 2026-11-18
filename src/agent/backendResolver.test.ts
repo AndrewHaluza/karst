@@ -153,13 +153,6 @@ describe('resolveBackend sbx token account', () => {
     expect(out.runner.kind).toBe('sbx');
     expect(out.runner.prepareLaunch).toBeTypeOf('function');
   });
-  it('blocks a stored account without a token, and offers a token for a folder account only', async () => {
-    configureAccounts({ claude: { active: 'work', list: { ...work.claude.list, cmd: { kind: 'subscription', source: 'command', command: 'x' } } } } as never);
-    const noToken = await resolveBackend({ ...base, backends: { claude: 'sbx' }, preflight: ok, worktree, oauth: { grants, tokenAccounts: new Set() } });
-    expect(noToken.blocked).toMatchObject({ account: 'work', canAddToken: true });
-    const cmd = await resolveBackend({ ...base, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'cmd', oauth: { grants, tokenAccounts: new Set(['cmd']) } });
-    expect(cmd.blocked).toMatchObject({ canAddToken: false });
-  });
   it('lets the default account release a stale grant', async () => {
     configureAccounts(work as never);
     const out = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'default', oauth: { grants, tokenAccounts: new Set(['work']) } });

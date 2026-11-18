@@ -10,12 +10,15 @@ import {
   claimRepointed,
   clearEnqueued,
   claimRead,
-  currentFixDelivery,
+  nextUnreadDelivery,
   getFixDelivery,
   supersedeFixDelivery,
   upsertFixDelivery,
   type FixDelivery,
 } from '../../store/fixDeliveries.js';
+import { activeFixRound } from '../../store/recoveryRoundsRead.js';
+import { getTicket } from '../../store/tickets.js';
+import { getMergeCheck } from '../../store/mergeChecks.js';
 import { getSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
 
 /**
@@ -95,6 +98,39 @@ export function hasPendingFixIntent(store: Store, launchId: string | null): bool
 }
 
 /**
+ * Whether the round of an unread row is still open (@arch:AP-01): a `conflict` row while its repo is `conflicted`, a
+ * `fix` row while the ticket is at `fix` and its tracked round is the active one.
+ */
+export function deliveryRoundOpen(host: FixDeliveryHost, row: FixDelivery): boolean {
+  const { store } = host;
+  if (row.kind === 'conflict') return row.repo !== null && getMergeCheck(store, row.ticketId, row.repo)?.state === 'conflicted';
+  if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return false;
+  return row.recoveryRoundId === null || activeFixRound(store, row.ticketId)?.id === row.recoveryRoundId;
+}
+
+/**
+ * Whether the round of an unread row has ended for good. A `conflict` row ends only on a `clean` check: a missing or
+ * `unknown` check is a transient answer (a re-check in flight) and must not drop the brief. A `fix` row ends as soon
+ * as it is no longer open.
+ */
+function deliveryRoundOver(host: FixDeliveryHost, row: FixDelivery): boolean {
+  if (row.kind === 'conflict') return row.repo !== null && getMergeCheck(host.store, row.ticketId, row.repo)?.state === 'clean';
+  return !deliveryRoundOpen(host, row);
+}
+
+/**
+ * Close the oldest unread row whose round is over (`deliveryRoundOver`), of either kind, so it cannot hold the pointer of a later round.
+ * Repeats until the oldest unread row is live.
+ */
+export function closeStaleDeliveries(host: FixDeliveryHost, ticketId: number): void {
+  for (let row = nextUnreadDelivery(host.store, ticketId); row !== null; row = nextUnreadDelivery(host.store, ticketId)) {
+    if (!deliveryRoundOver(host, row)) return;
+    if (!supersedeFixDelivery(host.store, row.id, host.now())) return;
+    host.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: the ${row.kind} round is over; closed`);
+  }
+}
+
+/**
  * The row the turn-end hook may point at right now, or null. Eligible = the
  * ticket's current row, armed but not yet pointed, unread, not superseded, not
  * failed, no typed line in flight, bound to the CURRENT session generation, and
@@ -103,7 +139,8 @@ export function hasPendingFixIntent(store: Store, launchId: string | null): bool
  * off `running`.
  */
 export function eligibleFixDelivery(host: FixDeliveryHost, ticketId: number): FixDelivery | null {
-  const row = currentFixDelivery(host.store, ticketId);
+  closeStaleDeliveries(host, ticketId);
+  const row = nextUnreadDelivery(host.store, ticketId, true);
   if (row === null) return null;
   if (row.readAt !== null || row.pointerFailedAt !== null || row.enqueuedAt !== null) return null;
   if (row.armedAt === null || row.pointedAt !== null) return null;
@@ -151,6 +188,9 @@ export interface DeliverLiveFixInput {
   body: string;
   /** Appended when the body exceeds the cap. */
   truncatedFooter: string;
+  /** Default `fix`. A `conflict` round (@arch:AP-01) names its repo and shares the route, the sweep and the receipt. */
+  kind?: 'fix' | 'conflict';
+  repo?: string | null;
 }
 
 /**
@@ -169,9 +209,11 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
     body: input.body,
     truncatedFooter: input.truncatedFooter,
     at,
+    ...(input.kind !== undefined ? { kind: input.kind } : {}),
+    ...(input.repo !== undefined ? { repo: input.repo } : {}),
   });
-  const row = currentFixDelivery(host.store, input.ticketId);
-  if (row === null || row.id !== id) return false;
+  const row = getFixDelivery(host.store, id);
+  if (row === null || row.supersededAt !== null) return false;
   // A refused write (tampered inbox) leaves the row for the sweep; nothing is typed this round.
   if (host.writeBrief?.(input.ticketId, id) === false) return true;
   const route = host.routeFor(input.ticketId);

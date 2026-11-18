@@ -4,7 +4,7 @@
  *
  *   #agents/roles[/<capability>][?compare=<preset>]
  *   #agents/profiles[/<name>]
- *   #agents/accounts[/<core>]
+ *   #agents/accounts[/<core>[/<account>]]
  *
  * An old Presets link (`#presets…`) redirects to the Roles tab. Anything
  * unrecognised parses to the Roles tab with no selection — never an error, a
@@ -16,6 +16,8 @@ export interface AgentsRoute {
   readonly tab: AgentsTab;
   /** The selected role capability (Roles), profile name (Profiles) or agent core (Accounts). */
   readonly selected?: string;
+  /** The account whose row is focused (Accounts only; `selected` is its core). */
+  readonly account?: string;
   /** The preset compared against the selected one (Roles only). */
   readonly compare?: string;
 }
@@ -30,7 +32,9 @@ export function parseAgentsHash(hash: string): AgentsRoute {
     return selected ? { tab: 'profiles', selected } : { tab: 'profiles' };
   }
   if (head === 'agents' && tab === 'accounts') {
-    return selected ? { tab: 'accounts', selected } : { tab: 'accounts' };
+    const [core, account] = rest.map(safeDecode);
+    if (!core) return { tab: 'accounts' };
+    return account ? { tab: 'accounts', selected: core, account } : { tab: 'accounts', selected: core };
   }
   const onRoles = head === 'agents' && tab === 'roles';
   return {
@@ -41,7 +45,8 @@ export function parseAgentsHash(hash: string): AgentsRoute {
 }
 
 export function formatAgentsHash(route: AgentsRoute): string {
-  const sel = route.selected ? `/${encodeURIComponent(route.selected)}` : '';
+  const acct = route.tab === 'accounts' && route.selected && route.account ? `/${encodeURIComponent(route.account)}` : '';
+  const sel = route.selected ? `/${encodeURIComponent(route.selected)}${acct}` : '';
   const query = route.tab === 'roles' && route.compare ? `?compare=${encodeURIComponent(route.compare)}` : '';
   return `#agents/${route.tab}${sel}${query}`;
 }

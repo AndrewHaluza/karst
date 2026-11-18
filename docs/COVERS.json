@@ -520,7 +520,7 @@
   "src/extension/ops/cloudSessionLinkOps.ts": [
     "arch:CLOUD-01"
   ],
-  "src/extension/ops/conflictNudgeOps.ts": [
+  "src/extension/ops/conflictDeliveryOps.ts": [
     "arch:AP-10"
   ],
   "src/extension/ops/conflictResolveOps.ts": [

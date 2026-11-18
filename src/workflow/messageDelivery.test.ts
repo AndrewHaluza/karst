@@ -24,6 +24,13 @@ describe('messagePointer', () => {
     );
   });
 
+  it('a conflict pointer names the conflict brief and no done marker', () => {
+    expect(messagePointer(fixPointer(12, 'ship', 'conflict'), 'mcp')).toBe('karst: conflict brief #12 ready - call the karst MCP tool "fix-brief" with ack: true');
+    expect(messagePointer(fixPointer(12, 'ship', 'conflict'), 'cli-env')).toBe(
+      'karst: conflict brief #12 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"',
+    );
+  });
+
   it('cli-env: "$KARST_*" refs only', () => {
     expect(messagePointer(mailPointer(3), 'cli-env')).toBe(`karst: 3 new message(s) - ${CLI('inbox')}`);
     expect(messagePointer(notesPointer(2), 'cli-env')).toBe(

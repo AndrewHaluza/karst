@@ -169,21 +169,16 @@ import type { AgentBackends } from '../../agent/backendChoices.js';
 export const HOST_FALLBACK_RETRY = 'Retry';
 export const HOST_FALLBACK_HOST = 'Sync and remove sandbox, then run on host with a fresh session';
 
-/** The choices of an account block on a sandbox backend; Cancel is the dismissal. 'Add a token' shows only for an account that can take one (@arch:AC-51). */
-export const ACCOUNT_BLOCK_ADD_TOKEN = 'Add a token';
+/** The choices of an account block on a sandbox backend; Cancel is the dismissal. 'Add a token' shows only for an account that can hold an sbx token (D651). */
 export const ACCOUNT_BLOCK_DEFAULT = 'Start fresh under default for this ticket';
 export const ACCOUNT_BLOCK_HOST = 'Run on host';
+export const ACCOUNT_BLOCK_TOKEN = 'Add a token';
+const ACCOUNT_BLOCK_CHOICES: readonly string[] = [ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST];
 
 const HOST_REMOVE_CONFIRM = (label: string): string =>
   `The agent's sandbox commits for ${label} will be synced to the host branch and the sandbox removed; the agent then runs on the host WITHOUT the sandbox boundary, in a fresh session. Continue?`;
 
-/** A launch result that may carry a typed account block (`AccountBlock`, structurally). */
-export interface BlockedLaunch {
-  readonly sandboxed: boolean;
-  readonly blocked?: { readonly kind: 'account'; readonly reason: string; readonly account?: string; readonly canAddToken?: boolean };
-}
-
-export interface HostFallbackInput<T extends BlockedLaunch> {
+export interface HostFallbackInput<T extends { readonly sandboxed: boolean; readonly blocked?: { readonly kind: 'account'; readonly reason: string } }> {
   readonly ticketLabel: string;
   readonly launch: () => Promise<T>;
   /** The project/ticket asked for a sandbox backend. */
@@ -200,8 +195,8 @@ export interface HostFallbackInput<T extends BlockedLaunch> {
   readonly failClosed?: boolean;
   /** A recovery relaunch: no modal, an account block is refused with its reason like an Autopilot round. */
   readonly refuseOnBlock?: boolean;
-  /** Ask for and store an sbx token for the blocked account; true once one is stored. Absent = no 'Add a token' choice. */
-  readonly addToken?: (account: string) => Promise<boolean>;
+  /** The blocked account when it can hold an sbx token (a folder or managed claude account); absent hides 'Add a token'. */
+  readonly tokenAccount?: () => string | undefined;
   /** The ticket's agent is live in this window: a new launch only reveals it, so no backend is resolved (a new sbx key would revoke the key the live agent runs on). */
   readonly reuseLive?: () => boolean;
 }
@@ -213,23 +208,21 @@ export type HostFallbackResult<T> =
   | { readonly kind: 'reused' }
   /** The user chose a NEW session under the explicit `default` account: the caller relaunches with it; nothing ran. */
   | { readonly kind: 'restart-default' }
+  /** The user chose 'Add a token': the caller opens Settings on that account's row; nothing ran. */
+  | { readonly kind: 'add-token'; readonly account: string }
   /** `failClosed` and the backend came up on the host: no choice was offered, nothing was removed. */
   | { readonly kind: 'refused'; readonly reason: string };
 
 export const FAIL_CLOSED_REASON = 'the sandbox backend is unavailable and auto-fix never runs on the host';
 
 /** F14: a ticket with a sandbox never silently falls back to the host; the user picks Retry / host-after-removal / Cancel. */
-export async function launchWithoutSilentHostFallback<T extends BlockedLaunch>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
+export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean; readonly blocked?: { readonly kind: 'account'; readonly reason: string } }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
   if (input.reuseLive?.()) return { kind: 'reused' };
   for (;;) {
     const backend = await input.launch();
     if (backend.sandboxed || !input.wantsSandbox) return { kind: 'launched', backend, freshSession: false };
     // An account block is never a silent host run, whether or not a sandbox exists (@arch:AC-55).
-    if (backend.blocked) {
-      const answer = await accountBlockChoice(input, backend, backend.blocked);
-      if (answer === 'retry') continue; // a token was stored: resolve the backend again
-      return answer;
-    }
+    if (backend.blocked) return accountBlockChoice(input, backend, backend.blocked.reason);
     // Checked BEFORE hasSandbox: a sandbox listing that fails must not let an auto round run on the host.
     if (input.failClosed) return { kind: 'refused', reason: FAIL_CLOSED_REASON };
     if (!(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
@@ -245,13 +238,12 @@ export async function launchWithoutSilentHostFallback<T extends BlockedLaunch>(i
   }
 }
 
-async function accountBlockChoice<T extends BlockedLaunch>(input: HostFallbackInput<T>, backend: T, block: NonNullable<BlockedLaunch['blocked']>): Promise<HostFallbackResult<T> | 'retry'> {
-  const reason = block.reason;
+async function accountBlockChoice<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>, backend: T, reason: string): Promise<HostFallbackResult<T>> {
   if (input.failClosed || input.refuseOnBlock) return { kind: 'refused', reason: `${reason}; the launch never runs on the host unasked` };
-  const tokenAccount = block.canAddToken && input.addToken ? block.account : undefined;
-  const choices = [...(tokenAccount !== undefined ? [ACCOUNT_BLOCK_ADD_TOKEN] : []), ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST];
+  const tokenAccount = input.tokenAccount?.();
+  const choices = tokenAccount === undefined ? ACCOUNT_BLOCK_CHOICES : [ACCOUNT_BLOCK_TOKEN, ...ACCOUNT_BLOCK_CHOICES];
   const picked = await input.chooseModal(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, choices);
-  if (picked === ACCOUNT_BLOCK_ADD_TOKEN && tokenAccount !== undefined) return (await input.addToken!(tokenAccount)) ? 'retry' : { kind: 'cancelled' };
+  if (picked === ACCOUNT_BLOCK_TOKEN && tokenAccount !== undefined) return { kind: 'add-token', account: tokenAccount };
   if (picked === ACCOUNT_BLOCK_DEFAULT) return { kind: 'restart-default' };
   if (picked !== ACCOUNT_BLOCK_HOST) return { kind: 'cancelled' };
   // The existing host path (F14): a ticket with a sandbox syncs it to the host branch, removes it and starts a fresh host session.

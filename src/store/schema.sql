@@ -1464,7 +1464,9 @@ CREATE TABLE IF NOT EXISTS fix_deliveries (
   pointer_failed_at TEXT,    -- the pointer could not be built (needs-you, once)
   read_at           TEXT,    -- the receipt
   delivered_via     TEXT CHECK (delivered_via IN ('seed', 'pointer')),
-  superseded_at     TEXT
+  superseded_at     TEXT,
+  kind              TEXT NOT NULL DEFAULT 'fix' CHECK (kind IN ('fix', 'conflict')), -- v131: a conflict round (@arch:AP-01) shares the table
+  repo              TEXT     -- v131: the conflicted repo of a 'conflict' row
 );
 CREATE INDEX IF NOT EXISTS idx_fix_deliveries_ticket
   ON fix_deliveries(ticket_id, superseded_at, read_at);

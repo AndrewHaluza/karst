@@ -386,6 +386,15 @@ describe('parseSettingsMessage — accounts (D505)', () => {
     expect(parseSettingsMessage({ type: 'accounts-add', core: 'claude', name: 'w', spec: { source: 'command', command: 'c', args: [1] } })).toBeNull();
     expect(parseSettingsMessage({ type: 'accounts-delete', core: 'claude', name: 'w' })).toBeNull();
     expect(parseSettingsMessage({ type: 'accounts-copy-seed', core: 'claude', name: 'w', items: [1] })).toBeNull();
+    for (const type of ['accounts-set-sbx-token', 'accounts-remove-sbx-token']) {
+      expect(parseSettingsMessage({ type, core: 'claude', name: 'w' })).toEqual({ type, core: 'claude', name: 'w' });
+      expect(parseSettingsMessage({ type, core: 'claude', name: 'default' })).toBeNull();
+      expect(parseSettingsMessage({ type, core: 'codex', name: 'w' })).toBeNull();
+      expect(parseSettingsMessage({ type, core: 'claude', name: '' })).toBeNull();
+    }
+    // A token value in the message is dropped at the boundary.
+    expect(parseSettingsMessage({ type: 'accounts-set-sbx-token', core: 'claude', name: 'w', token: 'sk-ant-oat-secret' }))
+      .toEqual({ type: 'accounts-set-sbx-token', core: 'claude', name: 'w' });
     expect(parseSettingsMessage({ type: 'accounts-import-alias', core: 'claude', alias: 'a', text: 5 })).toBeNull();
   });
 

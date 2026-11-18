@@ -42,7 +42,7 @@ export type DeliveryResult = 'delivered' | 'armed' | 'deferred';
 export type MessagePointer =
   | { kind: 'mail'; unread: number }
   | { kind: 'notes'; unread: number }
-  | { kind: 'fix'; deliveryId: number; stage: string | null };
+  | { kind: 'fix'; deliveryId: number; stage: string | null; round: 'fix' | 'conflict' };
 
 /** The mail pointer; a helper so callers never spell the kind. */
 export function mailPointer(unread: number): MessagePointer {
@@ -55,8 +55,8 @@ export function notesPointer(unread: number): MessagePointer {
 }
 
 /** The fix-brief pointer (@arch:V77): names the stored snapshot by its row id, never a body. */
-export function fixPointer(deliveryId: number, stage: string | null = null): MessagePointer {
-  return { kind: 'fix', deliveryId, stage };
+export function fixPointer(deliveryId: number, stage: string | null = null, round: 'fix' | 'conflict' = 'fix'): MessagePointer {
+  return { kind: 'fix', deliveryId, stage, round };
 }
 
 export interface MessageDelivery {
@@ -162,7 +162,7 @@ const POINTER_TEXT = {
     follow: (_c: DeliveryChannel, _s: string | null) => '; informational, then continue your current task - a note never ends your turn',
   },
   fix: {
-    lead: (p: { deliveryId: number }) => `fix brief #${p.deliveryId} ready`,
+    lead: (p: { deliveryId: number; round: 'fix' | 'conflict' }) => `${p.round} brief #${p.deliveryId} ready`,
     command: 'fix-brief',
     ack: true,
     follow: fixMarkerFollow,
@@ -192,7 +192,8 @@ function pointerLead(pointer: MessagePointer): string {
  */
 export function messagePointer(pointer: MessagePointer, channel: DeliveryChannel): string {
   const { command, ack } = POINTER_TEXT[pointer.kind];
-  const follow = POINTER_TEXT[pointer.kind].follow(channel, pointer.kind === 'fix' ? pointer.stage : null);
+  // A conflict round has no done marker: the Autopilot engine delivers the resolved merge (@arch:AP-01).
+  const follow = pointer.kind === 'fix' && pointer.round === 'conflict' ? '' : POINTER_TEXT[pointer.kind].follow(channel, pointer.kind === 'fix' ? pointer.stage : null);
   const lead = pointerLead(pointer);
   if (isSandboxChannel(channel)) {
     const ref = inboxRef(pointer);

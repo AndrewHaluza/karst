@@ -89,14 +89,6 @@ describe('sbx oauth binding', () => {
     [a, b].forEach((s) => s.subscriptions.forEach((d) => d.dispose()));
   });
 
-  it('addToken stores the token of the named account for the launch dialog', async () => {
-    const s = setup();
-    expect(await s.reg.addToken('work')).toBe(true);
-    expect(s.map.get('karst.sbx.token.claude.work')).toBe(TOKEN);
-    expect([...(await s.reg.oauthInput()).tokenAccounts]).toEqual(['work']);
-    s.subscriptions.forEach((d) => d.dispose());
-  });
-
   it('removing a token leaves no live key for the account', async () => {
     const s = setup({ stored: true });
     await s.commands.get(REMOVE_SBX_TOKEN_COMMAND)!();

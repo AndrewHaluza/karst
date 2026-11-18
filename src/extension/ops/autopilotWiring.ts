@@ -1,4 +1,4 @@
-import type { AutopilotDeps, ConflictPickupSeam, FixOutcome, Placement } from './autopilotOps.js';
+import type { AutopilotDeps, FixOutcome, Placement } from './autopilotOps.js';
 import type { ResumeOutcome } from './conflictResumeOps.js';
 import type { CiActionsInput } from './ciActionsWiring.js';
 import { formatId } from '../../model/entityId.js';
@@ -96,7 +96,6 @@ export interface TicketSeams {
   /** An armed round that never delivered (arch:AC-39). */
   readonly conflictRoundStalled: () => boolean;
   readonly dropConflictRound: () => void;
-  readonly conflictPickup?: ConflictPickupSeam;
   readonly resumeDeliver?: (fromRound: boolean) => Promise<ResumeOutcome>;
   readonly localHead?: (repo: string) => Promise<string | null>;
   /** gh seams of the transient CI re-run (T1019). Absent: no re-run. */
@@ -188,7 +187,6 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         ...(seams.isDraining ? { isDraining: seams.isDraining } : {}),
         conflictRoundStalled: seams.conflictRoundStalled,
         dropConflictRound: seams.dropConflictRound,
-        ...(seams.conflictPickup ? { conflictPickup: seams.conflictPickup } : {}),
         ...(seams.resumeDeliver ? { resumeDeliver: seams.resumeDeliver } : {}),
         ...(seams.localHead ? { localHead: seams.localHead } : {}),
         ...(seams.transientCi ? { transientCi: seams.transientCi } : {}),

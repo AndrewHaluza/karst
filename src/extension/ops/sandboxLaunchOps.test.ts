@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderGateOnlyInstruction } from '../../agent/workflowCommand.js';
-import { ACCOUNT_BLOCK_ADD_TOKEN, ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST, guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, wantsSbxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
+import { ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST, ACCOUNT_BLOCK_TOKEN, guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, wantsSbxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
 import type { LaunchBackend } from './sandboxSyncOps.js';
 
 const backend = (over: Partial<LaunchBackend> = {}): LaunchBackend => ({ options: {}, sandboxed: false, placement: { backend: 'host', core: null, sandboxName: null, reason: null }, ...over });
@@ -178,58 +178,24 @@ describe('launchWithoutSilentHostFallback: account block on a sandbox backend', 
     expect(options).toEqual([ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST]);
     expect(i.removeSandbox).not.toHaveBeenCalled();
   });
+  it('offers Add a token first for an account that can hold one, and returns it without any launch', async () => {
+    const i = base({ tokenAccount: () => 'nd', chooseModal: vi.fn(async () => ACCOUNT_BLOCK_TOKEN) });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'add-token', account: 'nd' });
+    expect((i.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).toEqual([ACCOUNT_BLOCK_TOKEN, ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST]);
+    expect(i.launch).toHaveBeenCalledTimes(1);
+    expect(i.confirmHost).not.toHaveBeenCalled();
+    expect(i.removeSandbox).not.toHaveBeenCalled();
+  });
+  it('hides Add a token when no account can hold one', async () => {
+    const i = base({ tokenAccount: () => undefined });
+    await launchWithoutSilentHostFallback(i);
+    expect((i.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).not.toContain(ACCOUNT_BLOCK_TOKEN);
+  });
   it('offers no Retry with an existing sandbox, and removes nothing unless the host is chosen', async () => {
     const i = base({ hasSandbox: async () => true });
     await launchWithoutSilentHostFallback(i);
     expect((i.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).not.toContain(HOST_FALLBACK_RETRY);
     expect(i.removeSandbox).not.toHaveBeenCalled();
-  });
-  describe('Add a token', () => {
-    const tokenBlock = { sandboxed: false, blocked: { kind: 'account' as const, reason, account: 'nd', canAddToken: true } };
-    it('is offered only when the account can take a token and the caller can store one', async () => {
-      const plain = base({});
-      await launchWithoutSilentHostFallback(plain);
-      expect((plain.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).not.toContain(ACCOUNT_BLOCK_ADD_TOKEN);
-      const noHandler = base({ launch: vi.fn(async () => tokenBlock) });
-      await launchWithoutSilentHostFallback(noHandler);
-      expect((noHandler.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).not.toContain(ACCOUNT_BLOCK_ADD_TOKEN);
-      const full = base({ launch: vi.fn(async () => tokenBlock), addToken: vi.fn(async () => false) });
-      await launchWithoutSilentHostFallback(full);
-      expect((full.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).toEqual([ACCOUNT_BLOCK_ADD_TOKEN, ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST]);
-    });
-    it('stores the token for the blocked account, then launches again', async () => {
-      const ok = { sandboxed: true };
-      const launch = vi.fn().mockResolvedValueOnce(tokenBlock).mockResolvedValueOnce(ok);
-      const addToken = vi.fn(async () => true);
-      const i = base({ launch, addToken, chooseModal: vi.fn(async () => ACCOUNT_BLOCK_ADD_TOKEN) });
-      expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'launched', backend: ok, freshSession: false });
-      expect(addToken).toHaveBeenCalledWith('nd');
-      expect(launch).toHaveBeenCalledTimes(2);
-    });
-    it('does not offer it for an account that cannot take a token, even with a caller that can store one', async () => {
-      const noToken = { sandboxed: false, blocked: { kind: 'account' as const, reason, account: 'nd', canAddToken: false } };
-      const i = base({ launch: vi.fn(async () => noToken), addToken: vi.fn(async () => true) });
-      await launchWithoutSilentHostFallback(i);
-      expect((i.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).toEqual([ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST]);
-    });
-    it('stores no token when the user picks another option or cancels', async () => {
-      for (const [pick, kind] of [[ACCOUNT_BLOCK_DEFAULT, 'restart-default'], [undefined, 'cancelled']] as const) {
-        const addToken = vi.fn(async () => true);
-        const i = base({ launch: vi.fn(async () => tokenBlock), addToken, chooseModal: vi.fn(async () => pick) });
-        expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind });
-        expect(addToken).not.toHaveBeenCalled();
-      }
-    });
-    it('does not offer it when the block names no account', async () => {
-      const i = base({ launch: vi.fn(async () => ({ sandboxed: false, blocked: { kind: 'account' as const, reason, canAddToken: true } })), addToken: vi.fn(async () => true) });
-      await launchWithoutSilentHostFallback(i);
-      expect((i.chooseModal.mock.calls[0] as unknown as [string, string[]])[1]).not.toContain(ACCOUNT_BLOCK_ADD_TOKEN);
-    });
-    it('cancels when no token is stored', async () => {
-      const i = base({ launch: vi.fn(async () => tokenBlock), addToken: vi.fn(async () => false), chooseModal: vi.fn(async () => ACCOUNT_BLOCK_ADD_TOKEN) });
-      expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'cancelled' });
-      expect(i.launch).toHaveBeenCalledTimes(1);
-    });
   });
   it('Start fresh under default: restarts, no second launch here, no host run', async () => {
     const i = base({ chooseModal: vi.fn(async () => ACCOUNT_BLOCK_DEFAULT) });

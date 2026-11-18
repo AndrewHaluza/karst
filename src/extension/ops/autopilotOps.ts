@@ -7,7 +7,6 @@ import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { mergeHeadFactsByRepo } from '../../store/mergeHeads.js';
 import { isLocalHeadUnpushed } from '../../model/inside/deliver.js';
-import type { ConflictPickupState } from './autoDeliverOps.js';
 import type { ResumeOutcome } from './conflictResumeOps.js';
 import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
@@ -84,11 +83,6 @@ export interface AutopilotDeps {
   readonly conflictRoundStalled: () => boolean;
   readonly dropConflictRound: () => void;
   /**
-   * The pickup of an engine conflict brief (@arch:AP-01): whether an agent turn started, the one re-send, and the note
-   * of a turn. Absent: no re-send, and a stall is one case.
-   */
-  readonly conflictPickup?: ConflictPickupSeam;
-  /**
    * Delivers a merge that is finished in the worktree but not pushed, with no new round (@arch:AP-01). `fromRound`: the store
    * holds a conflict round slot. Absent: no resume. It re-arms the round from the store and starts the auto-deliver.
    */
@@ -123,16 +117,7 @@ const LOG = '[ship] autopilot';
 const GRAPH_REASON = 'auto-fix not run: graph ticket';
 const UNKNOWN_PLACEMENT_REASON = 'auto-fix not run: placement unknown';
 export const NO_CHANGE_BASE_MOVED_REASON = 'auto-fix stopped: base-moved round made no change';
-/** The host side of the conflict brief pickup (@arch:AP-01). */
-export interface ConflictPickupSeam {
-  readonly state: () => ConflictPickupState | null;
-  readonly noteTurn: () => void;
-  /** Send the brief again; the host records that the one re-send is used. */
-  readonly resend: () => void;
-}
-
 const UNFINISHED_BODY = 'the resolved merge was not delivered (the agent left it unfinished, or a gate failed). The round is dropped; approve one more attempt or resolve the conflict by hand.';
-const NO_TURN_BODY = 'the conflict brief was sent twice and started no agent turn. The round is dropped; approve one more attempt or resolve the conflict by hand.';
 const STALLED_REASON = 'auto-fix stopped: conflict round did not deliver';
 
 function openPrRepos(store: Store, ticketId: number): Set<string> {
@@ -298,10 +283,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     d.debug(`${LOG} ticket ${d.key}: no round, the host drains for a reload`);
     return { kind: 'busy' };
   }
-  if (d.sessionRunning() || ticket.agentState === 'running') {
-    d.conflictPickup?.noteTurn();
-    return { kind: 'busy' };
-  }
+  if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
   if (blockKind === 'base-moved-failed') return guardedRound(d, () => runBaseMovedRound(d, cfg));
   // The merge check stays 'conflicted' (and the CI rollup stays on the old head) until the resolved merge is pushed and
   // probed again, so no time cooldown can tell a round in progress from a new one: read the round state itself.
@@ -312,20 +294,13 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (resumed !== null) return resumed;
   // Only a round the engine sent can stall: the round of a manual Resolve conflicts click is not ours to drop.
   const engineRound = getConflictRoundAt(d.store, d.ticketId) !== null;
-  const pickup = engineRound ? d.conflictPickup?.state() ?? null : null;
-  if (pickup === 'resend') {
-    // No agent turn started: the brief was typed but not submitted. Send it again once, with no attempt cost.
-    d.debug(`${LOG} ticket ${d.key}: conflict brief not picked up; sent again`);
-    d.conflictPickup!.resend();
-    return { kind: 'busy' };
-  }
   if (engineRound && d.conflictRoundStalled()) {
     d.dropConflictRound();
     d.debug(`${LOG} ticket ${d.key}: the conflict round did not deliver; it is dropped`);
     clearConflictRound(d.store, d.ticketId);
     // The probe may read the local merge commit as clean and the CI rollup is of the old head: no round (CI included) may
     // start on that. Park, so a person sees it; approve one more attempt or resolve it by hand.
-    return park(d, 'conflicts', STALLED_REASON, pickup === 'no-turn' ? NO_TURN_BODY : UNFINISHED_BODY);
+    return park(d, 'conflicts', STALLED_REASON, UNFINISHED_BODY);
   } else if (d.conflictRoundActive()) {
     d.debug(`${LOG} ticket ${d.key}: no round, a conflict round is armed or its resolved merge is being delivered`);
     return { kind: 'busy' };
