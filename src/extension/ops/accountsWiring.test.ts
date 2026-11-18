@@ -326,3 +326,17 @@ it('signals a change after a write and a reload, but not after the first load (T
     store.close();
   }
 });
+
+it('removes the sbx token of a deleted account when secrets are wired, and deletes without secrets', async () => {
+  const store = openStore(':memory:');
+  const map = new Map<string, string>([['karst.sbx.token.claude.h', 'sk-ant-oat01-abcdefghijkl'], ['karst.sbx.token.claude.keep', 'sk-ant-oat01-zzzzzzzzzzzz']]);
+  const secrets = { get: async (k: string) => map.get(k), store: async (k: string, v: string) => { map.set(k, v); }, delete: async (k: string) => { map.delete(k); } };
+  const w = await wireAccounts({ globalStorageRoot: root, store, secrets });
+  await w.ops.createAccount('claude', 'h', { source: 'folder', dir: '/h/c' });
+  await w.ops.deleteAccount('claude', 'h');
+  expect([...map.keys()]).toEqual(['karst.sbx.token.claude.keep']);
+  const bare = await wireAccounts({ globalStorageRoot: await mkdtemp(join(tmpdir(), 'acct-wire2-')), store });
+  await bare.ops.createAccount('claude', 'g', { source: 'folder', dir: '/h/g' });
+  await expect(bare.ops.deleteAccount('claude', 'g')).resolves.toBeUndefined();
+  store.close();
+});

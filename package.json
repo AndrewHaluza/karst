@@ -313,6 +313,14 @@
         "title": "Karst: Set Up with Agent"
       },
       {
+        "command": "karst.sbx.setClaudeToken",
+        "title": "Karst: Set sbx token for Claude account"
+      },
+      {
+        "command": "karst.sbx.removeClaudeToken",
+        "title": "Karst: Remove sbx token for Claude account"
+      },
+      {
         "command": "karst.recheckDeps",
         "title": "Karst: Re-check Required Tools"
       },

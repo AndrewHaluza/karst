@@ -82,6 +82,15 @@ const proxyOpts = {
   outfile: 'dist/sandbox/opencode/allowlist-proxy.mjs',
 };
 
+// The host OAuth proxy (src/agent/oauthProxy): a detached node process, so its
+// own self-contained bundle (node builtins only).
+/** @type {import('esbuild').BuildOptions} */
+const oauthProxyOpts = {
+  ...base,
+  entryPoints: ['src/agent/oauthProxy/proxyMain.ts'],
+  outfile: 'dist/oauth-proxy/oauth-proxy.mjs',
+};
+
 /** @type {import('esbuild').BuildOptions} */
 const uatHostOpts = {
   ...base,
@@ -115,13 +124,14 @@ function dedupeShebang(outfile) {
 await buildWebviewBundles({ prod });
 
 if (watch) {
-  const ctxs = await Promise.all([context(extensionOpts), context(cliOpts), context(proxyOpts), context(uatHostOpts), context(stubAgentOpts)]);
+  const ctxs = await Promise.all([context(extensionOpts), context(cliOpts), context(proxyOpts), context(oauthProxyOpts), context(uatHostOpts), context(stubAgentOpts)]);
   await Promise.all(ctxs.map((ctx) => ctx.watch()));
   console.log('watching for changes…');
 } else {
   await build(extensionOpts);
   await build(cliOpts);
   await build(proxyOpts);
+  await build(oauthProxyOpts);
   await build(uatHostOpts);
   await build(stubAgentOpts);
   dedupeShebang(cliOpts.outfile);

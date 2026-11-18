@@ -9,7 +9,7 @@ let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'acct-ops-')); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-function setup(over: { live?: string[]; resolves?: boolean; signed?: boolean | undefined } = {}) {
+function setup(over: { live?: string[]; resolves?: boolean; signed?: boolean | undefined; removeSbxToken?: (core: string, name: string) => Promise<void> } = {}) {
   const store = memoryAccountStore();
   const debug: string[] = [];
   const ops = createAccountOps({
@@ -20,6 +20,7 @@ function setup(over: { live?: string[]; resolves?: boolean; signed?: boolean | u
     lookupAlias: async () => '',
     signedIn: async () => over.signed,
     debug: (m) => debug.push(m),
+    ...(over.removeSbxToken ? { removeSbxToken: over.removeSbxToken } : {}),
   });
   return { store, ops, debug };
 }
@@ -157,5 +158,24 @@ describe('alias import keeps the arguments', () => {
     const r = await ops.importShellAlias('claude', 'cw', `cw='CLAUDE_CONFIG_DIR="$HOME/.cw" claude --model opus'`);
     expect(r.ok).toBe(true);
     expect(store.current().claude?.list.cw).toMatchObject({ source: 'folder', args: ['--model', 'opus'] });
+  });
+
+  it('removes the sbx token of a deleted account, for a folder account too', async () => {
+    const removed: string[] = [];
+    const { ops } = setup({ removeSbxToken: async (c, n) => { removed.push(`${c}/${n}`); } });
+    await ops.createAccount('claude', 'work', { source: 'managed' });
+    await ops.createAccount('claude', 'home', { source: 'folder', dir: join(root, 'home-dir') });
+    await ops.deleteAccount('claude', 'work');
+    await ops.deleteAccount('claude', 'home');
+    expect(removed).toEqual(['claude/work', 'claude/home']);
+  });
+
+  it('keeps the sbx token when the delete is refused', async () => {
+    const removed: string[] = [];
+    const { ops } = setup({ live: ['work'], removeSbxToken: async (c, n) => { removed.push(`${c}/${n}`); } });
+    await ops.createAccount('claude', 'work', { source: 'managed' });
+    await expect(ops.deleteAccount('claude', 'work')).rejects.toThrow(/live session/);
+    await expect(ops.deleteAccount('claude', 'default')).rejects.toThrow(/built-in/);
+    expect(removed).toEqual([]);
   });
 });
