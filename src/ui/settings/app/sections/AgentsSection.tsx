@@ -1,12 +1,13 @@
 /**
- * The Agents page: ONE place for agent identity. Three tabs —
+ * The Agents page: ONE place for agent identity. Four tabs —
  *
  *  - **Roles**: the preset selector, the roles table (every cell shows where its
  *    value comes from), the Default row and preset comparison;
  *  - **Agent profiles**: the reusable profiles with their real text, plus the
  *    built-in prompt behind each role;
  *  - **Accounts**: the machine-local subscription accounts of each agent core
- *    (applied at once, never part of the manifest Save).
+ *    (applied at once, never part of the manifest Save);
+ *  - **Sandbox**: the sandbox backend per agent core.
  *
  * An edit always lands in the layer that wins — the pin when the role is pinned,
  * otherwise the selected preset — so no edit can be dead (`rolesModel.ts`).
@@ -16,16 +17,17 @@
  * Presets link redirects to Roles. Tab switches keep both tabs' edits: every
  * edit is a draft edit in the shared reducer, and nothing here owns draft state.
  */
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
 import { RolesTab } from './RolesTab.js';
 import { BackendPanel } from './BackendPanel.js';
 import { ProfilesTab } from './ProfilesTab.js';
 import { AccountsTab } from './AccountsTab.js';
+import { buildProfileEntries } from './profileModel.js';
 import { formatAgentsHash, parseAgentsHash, type AgentsRoute, type AgentsTab } from './agentsRoute.js';
 
-const TABS: readonly AgentsTab[] = ['roles', 'profiles', 'accounts'];
+const TABS: readonly AgentsTab[] = ['roles', 'profiles', 'accounts', 'sandbox'];
 
 /**
  * What the unsaved bar is waiting on. A route move (another tab or profile) is
@@ -59,6 +61,11 @@ export function AgentsSection() {
     });
   }, []);
   const rows = state.host?.agents ?? [];
+  const labelsByKey = useMemo(
+    () => Object.fromEntries((state.processAssignments ?? []).map((v) => [v.key, v.roleLabel])),
+    [state.processAssignments],
+  );
+  const capabilityKeys = useMemo(() => (state.processAssignments ?? []).map((v) => v.key as string), [state.processAssignments]);
   const dirtyNames = Object.keys(buffers).filter(
     (name) => rows.find((r) => r.name === name)?.body !== buffers[name],
   );
@@ -71,7 +78,7 @@ export function AgentsSection() {
   // opened it on Escape / Keep editing (UI-R23, R27).
   const saveRef = useRef<HTMLButtonElement>(null);
   const returnRef = useRef<HTMLElement | null>(null);
-  const refs = useRef<Record<AgentsTab, HTMLButtonElement | null>>({ roles: null, profiles: null, accounts: null });
+  const refs = useRef<Record<AgentsTab, HTMLButtonElement | null>>({ roles: null, profiles: null, accounts: null, sandbox: null });
   // Bumped when a resolved move must land focus on a profile item. The list
   // owns its item refs, so the request travels as a prop, not a DOM query.
   const [focusTick, setFocusTick] = useState(0);
@@ -177,11 +184,19 @@ export function AgentsSection() {
 
   const navigate = go;
 
-  const profileCount = (state.host?.agents ?? []).length;
+  // The total the list shows: built-in prompts, approach and local profiles.
+  const profileCount = buildProfileEntries(
+    state.host?.agents ?? [],
+    state.draft,
+    labelsByKey,
+    state.host?.builtInPrompts ?? {},
+    capabilityKeys,
+  ).length;
   const labels: Record<AgentsTab, string> = {
     roles: 'Roles',
     profiles: `Agent profiles (${profileCount})`,
     accounts: 'Accounts',
+    sandbox: 'Sandbox',
   };
 
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, tab: AgentsTab): void => {
@@ -207,8 +222,6 @@ export function AgentsSection() {
           </div>
         </div>
       </div>
-
-      <BackendPanel />
 
       <div className="agents-tabs" role="tablist" aria-label="Agents" data-region="tabs">
         {TABS.map((tab) => (
@@ -268,6 +281,8 @@ export function AgentsSection() {
           <RolesTab route={route} navigate={navigate} />
         ) : route.tab === 'accounts' ? (
           <AccountsTab route={route} navigate={navigate} />
+        ) : route.tab === 'sandbox' ? (
+          <BackendPanel />
         ) : (
           <ProfilesTab route={route} navigate={navigate} buffers={buffers} setBuffer={setBuffer} focusTick={focusTick} />
         )}

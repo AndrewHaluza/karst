@@ -118,7 +118,7 @@ export function PresetToolbar({
         {compareSlot}
         <div className="agents-tgroup agents-tgroup--end" role="group" aria-label="Delete preset">
           <Button
-            variant="danger"
+            variant={selected === null ? 'ghost' : 'danger'}
             size="lg"
             disabled={selected === null}
             onClick={() => {

@@ -232,9 +232,11 @@
 
 #section-agents .agents-default {
   margin-top: var(--k-space-4);
-  padding-top: var(--k-space-3);
-  border-top: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
+  padding: var(--k-space-3);
+  border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
+  border-radius: var(--k-radius-md);
 }
+#section-agents .backend-recheck { margin-top: var(--k-space-3); }
 #section-agents .agents-default-title { font-weight: 600; }
 #section-agents .agents-default-desc { color: var(--vscode-descriptionForeground); margin-bottom: var(--k-space-2); }
 
@@ -284,9 +286,16 @@
   padding: var(--k-space-3);
   border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   border-radius: var(--k-radius-md);
-  max-height: calc(var(--k-control-h-lg) * 14);
-  overflow: auto;
 }
+/* Collapsed preview: about 12 lines, no inner scroll box (UI-R45). */
+#section-agents .agents-readonly.is-collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 12;
+  line-clamp: 12;
+  overflow: hidden;
+}
+#section-agents .agents-detail-toolbar { display: flex; align-items: center; gap: var(--k-space-2); flex-wrap: wrap; }
 #section-agents .agents-text-foot { display: flex; align-items: center; gap: var(--k-space-2); margin-top: var(--k-space-2); }
 #section-agents .agents-back { display: none; }
 
