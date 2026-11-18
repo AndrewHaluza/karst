@@ -291,6 +291,14 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
               onOpenProfile={(name) =>
                 navigate({ tab: 'profiles', selected: name ?? `builtin:${cap}` })
               }
+              onToggle={(open) => {
+                const keep = open ? cap : route.selected === cap ? undefined : route.selected;
+                navigate({
+                  tab: 'roles',
+                  ...(keep ? { selected: keep } : {}),
+                  ...(route.compare ? { compare: route.compare } : {}),
+                });
+              }}
             />
           );
         })}

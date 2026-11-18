@@ -945,7 +945,7 @@ describe('compact effort placeholder', () => {
   });
   it('ships the disabled select placeholder and its CSS', () => {
     expect(js).toContain('ap-effort--na');
-    expect(js).toContain(': not available for this model');
+    expect(js).toContain('apEffortNaText(state.model).toLowerCase()');
     expect(js).not.toContain('data-ap-effort-placeholder');
     expect(agentPickerCss()).toContain('.ap-effort--na');
     expect(agentPickerCss()).toMatch(/\.ap-effort--na\{[^}]*color:var\(--k-text-dim\)[^}]*dashed/);

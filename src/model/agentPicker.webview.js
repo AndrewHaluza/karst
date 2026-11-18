@@ -1207,7 +1207,7 @@ function mountAgentPicker(root, opts) {
       sel.disabled = true;
       sel.classList.add('ap-effort--na');
       sel.innerHTML = '<option value="" selected>' + apEsc(apEffortNaText(state.model)) + '</option>';
-      sel.setAttribute('aria-label', apEsc(labelEffort) + ': not available for this model');
+      sel.setAttribute('aria-label', apEsc(labelEffort) + ': ' + apEffortNaText(state.model).toLowerCase());
       state.effort = '';
       return;
     }

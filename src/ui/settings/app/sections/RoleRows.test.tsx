@@ -59,6 +59,7 @@ describe('RoleRows — RoleRow and SourceCell semantics', () => {
         onProfile={vi.fn()}
         onEnabled={vi.fn()}
         onOpenProfile={vi.fn()}
+        onToggle={vi.fn()}
       />,
     );
 
@@ -89,6 +90,7 @@ describe('RoleRows — RoleRow and SourceCell semantics', () => {
         onProfile={vi.fn()}
         onEnabled={vi.fn()}
         onOpenProfile={vi.fn()}
+        onToggle={vi.fn()}
       />,
     );
 
@@ -121,6 +123,7 @@ describe('RoleRows — RoleRow and SourceCell semantics', () => {
           onProfile={vi.fn()}
           onEnabled={vi.fn()}
           onOpenProfile={vi.fn()}
+          onToggle={vi.fn()}
         />
       </SettingsAppProvider>,
     );
@@ -157,6 +160,7 @@ describe('RoleRows — RoleRow and SourceCell semantics', () => {
           onProfile={vi.fn()}
           onEnabled={vi.fn()}
           onOpenProfile={vi.fn()}
+          onToggle={vi.fn()}
         />
       </SettingsAppProvider>,
     );
@@ -182,6 +186,7 @@ describe('RoleRows — RoleRow and SourceCell semantics', () => {
         onProfile={vi.fn()}
         onEnabled={vi.fn()}
         onOpenProfile={vi.fn()}
+        onToggle={vi.fn()}
       />,
     );
 
@@ -232,6 +237,7 @@ describe('RoleRows — narrow summary row (T1239)', () => {
     onProfile: vi.fn(),
     onEnabled: vi.fn(),
     onOpenProfile: vi.fn(),
+    onToggle: vi.fn(),
     ...over,
   });
 
@@ -264,6 +270,16 @@ describe('RoleRows — narrow summary row (T1239)', () => {
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-expanded')).toBe('true');
     expect(container.querySelector('.agents-row')!.classList.contains('is-open')).toBe(true);
+  });
+
+  it('reports each toggle, so the route can keep the opened role', () => {
+    const onToggle = vi.fn();
+    wrap(<RoleRow {...rowProps({ onToggle })} />);
+    const btn = screen.getByRole('button', { name: /^Settings for Planner$/ });
+    fireEvent.click(btn);
+    expect(onToggle).toHaveBeenLastCalledWith(true);
+    fireEvent.click(btn);
+    expect(onToggle).toHaveBeenLastCalledWith(false);
   });
 
   it('opens a row that the route selects', () => {

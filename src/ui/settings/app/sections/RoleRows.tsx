@@ -78,6 +78,8 @@ export interface RoleRowProps {
   readonly onProfile: (name: string) => void;
   readonly onEnabled: (enabled: boolean) => void;
   readonly onOpenProfile: (name: string | null) => void;
+  /** The summary row opened (true) or closed (false); the route keeps the opened role. */
+  readonly onToggle: (open: boolean) => void;
 }
 
 /** The Agent profile cell: select + link into the Agent profiles tab. */
@@ -225,7 +227,10 @@ export function RoleRow(props: RoleRowProps) {
           label={`Settings for ${label}`}
           aria-expanded={open}
           aria-controls={`${panelId}-profile ${panelId}-picker`}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            setOpen(!open);
+            props.onToggle(!open);
+          }}
         >
           <TablerIcon name="chevron-down" />
         </IconButton>
