@@ -31,4 +31,10 @@ describe('approvalExecArgs', () => {
     expect(args.join(' ')).not.toContain(KEY);
   });
 
+  it('drops the key of the earlier launch, so the approved list does not grow', () => {
+    const script = approvalExecArgs('sb').at(-1)!;
+    expect(script).toContain('karstApprovedKey');
+    expect(script).toMatch(/k !== old/);
+  });
+
 });

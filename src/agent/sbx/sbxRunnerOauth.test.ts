@@ -156,6 +156,16 @@ describe('sbx launch through the proxy', () => {
     expect(log.join()).not.toContain('secret');
   });
 
+  it('abortLaunch revokes the issued key and removes the policy rule, and a later placement is refused', async () => {
+    const g = grants();
+    const { runner, proc } = make(g, [], 'work');
+    await runner.prepareLaunch!();
+    await runner.abortLaunch!();
+    expect(g.release).toHaveBeenCalledWith(NAME);
+    expect(sbxCalls(proc).some((c) => c.args[0] === 'policy' && c.args[1] === 'rm')).toBe(true);
+    expect(runner.guestSetupPending!()).toBe(true);
+  });
+
   it('revokes the key and removes the policy rule before it removes the sandbox', async () => {
     const g = grants();
     const { runner, proc } = make(g, [NAME]);

@@ -29,7 +29,7 @@ export function oauthPolicyArgs(verb: 'allow' | 'rm', name: string, port: number
   return verb === 'allow' ? ['policy', 'allow', 'network', '--sandbox', name, list] : ['policy', 'rm', 'network', '--sandbox', name, '--resource', list, '--force'];
 }
 
-/** Runs in the guest: add the key to `customApiKeyResponses.approved` in `~/.claude.json`, so Claude does not ask about it. */
+/** Runs in the guest: add the key to `customApiKeyResponses.approved` in `~/.claude.json`, so Claude does not ask about it. The key of the earlier launch is dropped (`karstApprovedKey`), so the list does not grow. */
 const APPROVAL_SCRIPT = `node -e '
 const fs = require("fs");
 const file = require("path").join(process.env.HOME, ".claude.json");
@@ -37,8 +37,10 @@ let cfg = {};
 try { cfg = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { if (e.code !== "ENOENT") throw e; }
 const id = process.env.${APPROVAL_KEY_ENV}.slice(-${APPROVED_SUFFIX});
 const r = cfg.customApiKeyResponses || {};
-const approved = (r.approved || []).filter((k) => k !== id).concat(id);
+const old = cfg.karstApprovedKey;
+const approved = (r.approved || []).filter((k) => k !== id && k !== old).concat(id);
 const rejected = (r.rejected || []).filter((k) => k !== id);
+cfg.karstApprovedKey = id;
 cfg.customApiKeyResponses = Object.assign({}, r, { approved, rejected });
 fs.writeFileSync(file, JSON.stringify(cfg), { mode: 0o600 });
 '`;

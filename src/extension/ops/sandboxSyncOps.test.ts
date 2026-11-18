@@ -603,6 +603,14 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: empty, line: 'sbx' }) })).rejects.toThrow(/K-7 sandbox clone is empty.*Rebuild Sandbox/);
   });
 
+  it('gives the proxy key back when the launch stops after prepareLaunch', async () => {
+    const abortLaunch = vi.fn(async () => undefined);
+    const runner = { kind: 'sbx', enforcesSandbox: true, hasSandbox: async () => true, prepareLaunch: async () => ({ ok: true as const }), abortLaunch } as never;
+    const syncExisting = async () => ({ ok: false as const, reason: 'diverged', diverged: true });
+    await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }), syncExisting })).rejects.toThrow(/diverged/);
+    expect(abortLaunch).toHaveBeenCalledTimes(1);
+  });
+
   it('syncs an EXISTING sandbox before the session starts; a blocker stops the launch (F8)', async () => {
     const mk = (has: boolean) => ({ kind: 'docker', enforcesSandbox: true, hasSandbox: async () => has, bridgeRunDir: (p: { runDir: string }) => p.runDir }) as never;
     const syncExisting = vi.fn(async () => ({ ok: true as const }));

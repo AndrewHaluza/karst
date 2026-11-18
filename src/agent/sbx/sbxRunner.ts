@@ -245,6 +245,17 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     guestPending = false;
     return { ok: true };
   };
+  /** Revoke the key of this sandbox and drop its policy rule. A secret-store error must not stop the caller: the key then stays live until a later release retries it. */
+  const releaseLaunchGrant = async (goesOn: string): Promise<void> => {
+    try {
+      const old = await opts.oauth!.grants.release(opts.name);
+      if (old.port !== undefined) await removeProxyPolicy(old.port);
+    } catch {
+      opts.log?.(`[sbx ${opts.name}] grant release failed; ${goesOn}`);
+    }
+    issued = undefined;
+    oauthPrepared = false;
+  };
   const prepareLaunch = async (): Promise<StepOutcome> => {
     const oauth = opts.oauth!;
     oauthPrepared = false;
@@ -312,7 +323,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         ...(issued ? { transient: true } : {}),
       };
     },
-    ...(opts.oauth ? { prepareLaunch, guestSetupPending: () => guestPending } : {}),
+    ...(opts.oauth ? { prepareLaunch, guestSetupPending: () => guestPending, abortLaunch: () => releaseLaunchGrant('the launch stops') } : {}),
     ...(opts.core === 'claude' ? { linkTranscripts: linkTranscripts } : {}),
     // sbx mounts extra workspaces at the same absolute path.
     bridgeRunDir: (paths) => paths.dir,
@@ -450,17 +461,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     },
     dispose: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
-      if (opts.oauth) {
-        // A secret-store error must not stop the removal: the key then stays live until a later release retries it.
-        try {
-          const old = await opts.oauth.grants.release(opts.name);
-          if (old.port !== undefined) await removeProxyPolicy(old.port);
-        } catch {
-          opts.log?.(`[sbx ${opts.name}] grant release failed; the removal goes on`);
-        }
-        issued = undefined;
-        oauthPrepared = false;
-      }
+      if (opts.oauth) await releaseLaunchGrant('the removal goes on');
       const rm = disposeStep('sbx rm', await opts.proc.run(SBX_BIN, ['rm', '--force', opts.name]));
       // A failed rm keeps the clone, the remote and the known name: the sandbox may still hold unsynced commits and a retry needs them.
       if (rm.status === 'failed') return disposeResult([rm]);

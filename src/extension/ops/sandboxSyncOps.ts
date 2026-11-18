@@ -157,20 +157,26 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
     }
   }
   // sbx claude through the host proxy: a new key per launch, the policy rule and the key approval (@arch:AC-51).
-  const prepared = await resolved.runner.prepareLaunch?.();
-  if (prepared && !prepared.ok) throw new Error(`Karst: ${input.ticketLabel} ${prepared.reason}`);
-  if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
-    const synced = await input.syncExisting();
-    if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);
+  // A launch that stops after the key is issued gives the key back: no key outlives a failed launch.
+  try {
+    const prepared = await resolved.runner.prepareLaunch?.();
+    if (prepared && !prepared.ok) throw new Error(`Karst: ${input.ticketLabel} ${prepared.reason}`);
+    if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
+      const synced = await input.syncExisting();
+      if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);
+    }
+    const paths = await options.bridgeFor?.(input.ticketId);
+    const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
+    if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
+    const canLink = Boolean(paths && input.worktree);
+    // The guest setup of a new sandbox runs in the link step: without a bridge it could not run, and the launch would fail later without a reason.
+    if (!canLink && resolved.runner.guestSetupPending?.()) throw new Error(`Karst: ${input.ticketLabel} the proxy key of a new sandbox needs a bridge and a worktree to be set up; the launch stops`);
+    const link = paths && input.worktree ? transcriptLinkStep(resolved.runner, input, paths.dir, input.worktree.path) : undefined;
+    return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}), ...(link ? { linkTranscripts: link } : {}) };
+  } catch (err) {
+    await resolved.runner.abortLaunch?.().catch(() => undefined);
+    throw err;
   }
-  const paths = await options.bridgeFor?.(input.ticketId);
-  const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
-  if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
-  const canLink = Boolean(paths && input.worktree);
-  // The guest setup of a new sandbox runs in the link step: without a bridge it could not run, and the launch would fail later without a reason.
-  if (!canLink && resolved.runner.guestSetupPending?.()) throw new Error(`Karst: ${input.ticketLabel} the proxy key of a new sandbox needs a bridge and a worktree to be set up; the launch stops`);
-  const link = paths && input.worktree ? transcriptLinkStep(resolved.runner, input, paths.dir, input.worktree.path) : undefined;
-  return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}), ...(link ? { linkTranscripts: link } : {}) };
 }
 
 /**
@@ -185,7 +191,10 @@ function transcriptLinkStep(runner: SessionRunner, input: BackendSessionInput, b
     const linked = await link({ bridgeDir, hostWorktreePath })
       .catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err) }));
     // A failed guest setup is no transcript problem: the launch stops with its own reason, before `placeInteractive` fails without one.
-    if (!linked.ok && runner.guestSetupPending?.()) throw new Error(`Karst: ${input.ticketLabel} ${linked.reason}`);
+    if (!linked.ok && runner.guestSetupPending?.()) {
+      await runner.abortLaunch?.().catch(() => undefined);
+      throw new Error(`Karst: ${input.ticketLabel} ${linked.reason}`);
+    }
     if (!linked.ok) input.info(`warning: ${input.ticketLabel}: sandbox transcripts are not linked, token usage will not be counted: ${linked.reason}`);
   };
 }
