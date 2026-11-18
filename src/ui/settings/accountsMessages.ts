@@ -7,6 +7,9 @@ import type { AccountCore, AccountSource } from '../../agent/accounts/types.js';
 
 export type AccountStatusView = 'signed-in' | 'not-signed-in' | 'unknown';
 
+/** Whether a Claude account holds an sbx token. Never the token itself (@arch:AC-51). */
+export type SbxTokenStateView = 'set' | 'not-set';
+
 export interface AccountRowView {
   readonly name: string;
   /** Display label: the built-in account reads "Default (CLI home)". */
@@ -18,6 +21,8 @@ export interface AccountRowView {
   readonly dir?: string;
   readonly command?: string;
   readonly status: AccountStatusView;
+  /** Present only for a folder or managed Claude account; absent rows show no token action. */
+  readonly sbxToken?: SbxTokenStateView;
 }
 
 export interface AccountsCoreView {
@@ -40,7 +45,10 @@ export type AccountsWebviewMessage =
   | { type: 'accounts-seed-items'; core: AccountCore; name: string }
   | { type: 'accounts-copy-seed'; core: AccountCore; name: string; items: string[] }
   | { type: 'accounts-login'; core: AccountCore; name: string }
-  | { type: 'accounts-pick-folder' };
+  | { type: 'accounts-pick-folder' }
+  /** No value: the host asks for the token in its own masked input box. */
+  | { type: 'accounts-set-sbx-token'; core: AccountCore; name: string }
+  | { type: 'accounts-remove-sbx-token'; core: AccountCore; name: string };
 
 export interface SeedItemView {
   readonly id: string;

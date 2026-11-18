@@ -5,7 +5,7 @@
  * credentials, history or env values.
  */
 import type { AccountOps } from '../../agent/accounts/accountOps.js';
-import { ACCOUNT_CORES, DEFAULT_ACCOUNT, isAccountCore, type AccountCore } from '../../agent/accounts/types.js';
+import { ACCOUNT_CORES, DEFAULT_ACCOUNT, isAccountCore, type Account, type AccountCore } from '../../agent/accounts/types.js';
 import {
   DEFAULT_ACCOUNT_LABEL,
   type AccountRowView,
@@ -13,13 +13,33 @@ import {
   type AccountsHostMessage,
   type AccountsWebviewMessage,
   type AccountStatusView,
+  type SbxTokenStateView,
 } from './accountsMessages.js';
+import { sbxTokenEligibility, validateSbxToken } from '../../extension/sbxTokenStore.js';
 
 export interface LoginCommand {
   readonly binary: string;
   readonly args: string[];
   readonly env: Record<string, string>;
 }
+
+/**
+ * The sbx token seam (@arch:AC-51). The token lives only in the host: `ask` opens the
+ * masked input box, `store` and `remove` write SecretStorage. The webview never sees it.
+ */
+export interface SbxTokenDeps {
+  readonly has: (name: string) => Promise<boolean>;
+  /** The masked input box; `undefined` when the user cancels. */
+  readonly ask: (name: string) => Promise<string | undefined>;
+  readonly store: (name: string, token: string) => Promise<void>;
+  readonly remove: (name: string) => Promise<void>;
+  /** Called after a token is stored, so the proxy can start and register. */
+  readonly onChanged?: (name: string, change: 'set' | 'removed') => void;
+}
+
+export const SBX_TOKEN_STORE_FAILED = 'The sbx token was not stored.';
+export const SBX_TOKEN_REMOVE_FAILED = 'The sbx token was not removed.';
+export const SBX_TOKEN_UNAVAILABLE = 'The sbx token store is not available.';
 
 export interface AccountsHostDeps {
   readonly ops: AccountOps;
@@ -28,6 +48,8 @@ export interface AccountsHostDeps {
   readonly openLogin: (core: AccountCore, name: string, command: LoginCommand) => void | Promise<void>;
   /** Native folder picker; `undefined` when the user cancels. */
   readonly pickFolder: () => Promise<string | undefined>;
+  /** Absent when SecretStorage is not wired: rows then show no token action. */
+  readonly sbxToken?: SbxTokenDeps;
 }
 
 function reason(e: unknown): string {
@@ -45,6 +67,52 @@ export function createAccountsHost(deps: AccountsHostDeps) {
     }
   }
 
+  async function tokenState(core: AccountCore, name: string, account: Account | undefined): Promise<SbxTokenStateView | undefined> {
+    if (!deps.sbxToken || sbxTokenEligibility(core, name, account) !== null) return undefined;
+    try {
+      return (await deps.sbxToken.has(name)) ? 'set' : 'not-set';
+    } catch {
+      return 'not-set';
+    }
+  }
+
+  /** Set or remove a token. Errors reach the webview as fixed texts: no raw error, no token. */
+  async function tokenAction(op: 'accounts-set-sbx-token' | 'accounts-remove-sbx-token', core: AccountCore, name: string): Promise<void> {
+    const tokens = deps.sbxToken;
+    const row = (await ops.listAccounts(core)).find((r) => r.name === name);
+    const refusal = sbxTokenEligibility(core, name, row?.account);
+    if (!tokens || refusal !== null) {
+      post({ type: 'accounts-error', op, core, message: tokens ? refusal! : SBX_TOKEN_UNAVAILABLE });
+      return;
+    }
+    if (op === 'accounts-remove-sbx-token') {
+      try {
+        await tokens.remove(name);
+      } catch {
+        post({ type: 'accounts-error', op, core, message: SBX_TOKEN_REMOVE_FAILED });
+        return;
+      }
+      tokens.onChanged?.(name, 'removed');
+      return pushState();
+    }
+    const token = await tokens.ask(name).catch(() => undefined);
+    if (token) {
+      const problem = validateSbxToken(token);
+      if (problem !== null) {
+        post({ type: 'accounts-error', op, core, message: problem });
+        return;
+      }
+      try {
+        await tokens.store(name, token);
+      } catch {
+        post({ type: 'accounts-error', op, core, message: SBX_TOKEN_STORE_FAILED });
+        return;
+      }
+      tokens.onChanged?.(name, 'set');
+    }
+    return pushState();
+  }
+
   async function coreView(core: AccountCore): Promise<AccountsCoreView> {
     const list = await ops.listAccounts(core);
     const rows: AccountRowView[] = await Promise.all(
@@ -54,8 +122,10 @@ export function createAccountsHost(deps: AccountsHostDeps) {
           return { name: row.name, label: DEFAULT_ACCOUNT_LABEL, active: row.active, builtIn: true, status };
         }
         const { source, dir, command } = row.account;
+        const sbxToken = await tokenState(core, row.name, row.account);
         return {
           name: row.name, label: row.name, active: row.active, builtIn: false, source, status,
+          ...(sbxToken ? { sbxToken } : {}),
           ...(dir ? { dir } : {}),
           ...(command ? { command } : {}),
         };
@@ -117,6 +187,9 @@ export function createAccountsHost(deps: AccountsHostDeps) {
         await deps.openLogin(message.core, message.name, command);
         return;
       }
+      case 'accounts-set-sbx-token':
+      case 'accounts-remove-sbx-token':
+        return tokenAction(message.type, message.core, message.name);
       case 'accounts-pick-folder': {
         const path = await deps.pickFolder();
         if (path) post({ type: 'accounts-folder-picked', path });

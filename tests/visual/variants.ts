@@ -728,6 +728,12 @@ const SEVERAL_CORES = DEFAULT_ONLY_CORES.map((c) => c.core !== 'claude' ? c : {
   ],
 });
 
+// D651: a Claude account row with and without an sbx token. Deviation from the Agents prototype (UI-R39-REJECT): it has no token column.
+const TOKEN_CORES = SEVERAL_CORES.map((c) => c.core !== 'claude' ? c : {
+  ...c,
+  rows: c.rows.map((r) => r.name === 'work' ? { ...r, sbxToken: 'set' } : r.name === 'shared-team' ? { ...r, sbxToken: 'not-set' } : r),
+});
+
 const settingsVariants = (): Variant[] => [
   variant('settings', 'populated', () => stateMessage(REALISTIC_SETTINGS), { baseline: 'settings--populated', themes: ALL_THEMES }),
   // The pre-registry MINIMAL page; its baselines predate the registry.
@@ -746,6 +752,7 @@ const settingsVariants = (): Variant[] => [
   ...settingsRouteVariants().filter((v) => v.baseline !== 'agents-profile' && !v.baseline.endsWith('agents-accounts')),
   accountsVariant('accounts-default-only', DEFAULT_ONLY_CORES, { skipLayout: true }),
   accountsVariant('accounts-several', SEVERAL_CORES),
+  accountsVariant('accounts-sbx-token', TOKEN_CORES),
   qualityStallVariant('quality-stall-disabled', { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null }),
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),

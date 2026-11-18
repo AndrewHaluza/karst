@@ -676,7 +676,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let onAccountsChanged: () => void = () => {};
   const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, secrets: context.secrets, store: localStore, debug: (m) => logger.debug(m), onChange: () => onAccountsChanged() }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
   if (accountsWiring) context.subscriptions.push({ dispose: () => accountsWiring.dispose() });
-  if (accountsWiring) registerSbxOauth({ vscode, secrets: context.secrets, accounts: accountsWiring.ops, notify: vscodeNotify, globalStorageRoot: storageDir, extensionPath: context.extensionPath, subscriptions: context.subscriptions, liveRegistrations: async () => [], debug: (m) => logger.debug(m) });
+  const sbxOauth = accountsWiring ? registerSbxOauth({ vscode, secrets: context.secrets, accounts: accountsWiring.ops, notify: vscodeNotify, globalStorageRoot: storageDir, extensionPath: context.extensionPath, subscriptions: context.subscriptions, liveRegistrations: async () => [], debug: (m) => logger.debug(m) }) : undefined;
   const logError: LogError = (m, e) => logger.error(m, e);
   // T1012: reap the headless child of a run a new open supersedes (dead owner only).
   context.subscriptions.push({ dispose: bindOrphanReap(localStore, { debug: (m) => logger.debug(m), logError }) });
@@ -2451,7 +2451,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.path));
         await vscode.window.showTextDocument(doc, { preview: true });
       },
-      ...(accountsWiring ? { accountsHost: (post: Parameters<typeof bindAccountsHost>[1]) => bindAccountsHost(accountsWiring.ops, post) } : {}),
+      ...(accountsWiring ? { accountsHost: (post: Parameters<typeof bindAccountsHost>[1]) => bindAccountsHost(accountsWiring.ops, post, { secrets: context.secrets, onChanged: (_name, change) => { if (change === 'set') void sbxOauth?.sync(); } }) } : {}),
     }),
     listInstalledApproachIds,
     () => hasToken(context),

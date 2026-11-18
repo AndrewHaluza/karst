@@ -6,7 +6,7 @@ import type { TicketList } from '../../integrations/ticketing.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import { normalizeSection, type SettingsSection } from './sections.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
-import { isAccountCore, type AccountCore } from '../../agent/accounts/types.js';
+import { DEFAULT_ACCOUNT, isAccountCore, type AccountCore } from '../../agent/accounts/types.js';
 import type { AccountsHostMessage, AccountsWebviewMessage, AccountSpecInput } from './accountsMessages.js';
 
 /** Webview → host messages. The webview is untrusted; parse before use. */
@@ -417,6 +417,10 @@ function parseAccountsMessage(raw: unknown): AccountsWebviewMessage | null {
       return core && name ? { type: 'accounts-seed-items', core, name } : null;
     case 'accounts-login':
       return core && name ? { type: 'accounts-login', core, name } : null;
+    case 'accounts-set-sbx-token':
+    case 'accounts-remove-sbx-token':
+      // Only a named Claude account can hold a token; the host also refuses a command account.
+      return core === 'claude' && name && name !== DEFAULT_ACCOUNT ? { type: raw.type, core, name } : null;
     case 'accounts-copy-seed':
       return core && name && Array.isArray(raw.items) && raw.items.every((i) => typeof i === 'string')
         ? { type: 'accounts-copy-seed', core, name, items: raw.items as string[] }
