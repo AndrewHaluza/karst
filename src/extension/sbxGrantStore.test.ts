@@ -100,4 +100,76 @@ describe('sbx grant store', () => {
     const grant = [...secrets.map.entries()].find(([k]) => k.startsWith('karst.sbx.grant.'))!;
     expect(grant[1]).not.toContain(TOKEN);
   });
+  it('gives an exact reason for each failed issue', async () => {
+    expect(await (await setup({ ensure: async () => { throw new Error('x'); } })).store.issue('sb', 'work')).toEqual({ ok: false, reason: 'the OAuth proxy did not start' });
+    expect(await (await setup({ port: undefined })).store.issue('sb', 'work')).toEqual({ ok: false, reason: 'the OAuth proxy port is unknown' });
+    expect(await (await setup({ register: async () => { throw new Error('x'); } })).store.issue('sb', 'work')).toEqual({ ok: false, reason: 'the OAuth proxy refused the sandbox key' });
+  });
+
+  it('logs a failure with the step and the sandbox, and no detail of the error', async () => {
+    const a = await setup({ ensure: async () => { throw new Error('secret ' + TOKEN); } });
+    await a.store.issue('sb', 'work');
+    expect(a.debug).toHaveBeenCalledWith('[oauth-proxy] start failed for sb: error');
+    const b = await setup({ register: async () => { throw 'plain'; } });
+    await b.store.issue('sb', 'work');
+    expect(b.debug).toHaveBeenCalledWith('[oauth-proxy] register failed for sb: unknown error');
+  });
+
+  it('works with no debug callback', async () => {
+    const secrets = memory();
+    await setSbxToken(secrets, 'claude', 'work', TOKEN);
+    const store = createSbxGrantStore({ secrets, client: { register: async () => undefined, revoke: async () => { throw new Error('x'); }, readPort: async () => 1 }, ensureProxy: async () => { throw new Error('y'); } });
+    expect(await store.issue('sb', 'work')).toMatchObject({ ok: false });
+    await expect(store.release('sb')).resolves.toEqual({});
+  });
+
+  it('lists a sandbox once in the index, however often it launches, and keeps the others on release', async () => {
+    const { store, secrets } = await setup();
+    await store.issue('sb1', 'work');
+    await store.issue('sb1', 'work');
+    await store.issue('sb2', 'work');
+    expect(JSON.parse(secrets.map.get('karst.sbx.grants.index')!)).toEqual(['sb1', 'sb2']);
+    await store.release('sb1');
+    expect(JSON.parse(secrets.map.get('karst.sbx.grants.index')!)).toEqual(['sb2']);
+    expect(await store.liveRegistrations()).toHaveLength(1);
+  });
+
+  it('reads no grant from a damaged record or index', async () => {
+    const { store, secrets } = await setup();
+    const bad = [null, 1, {}, { key: 'k', account: 'work' }, { key: 'k', account: 'work', port: '1' }, { key: 1, account: 'work', port: 1 }, { key: 'k', account: 2, port: 1 }];
+    for (const [i, g] of bad.entries()) secrets.map.set(`karst.sbx.grant.bad${i}`, JSON.stringify(g));
+    secrets.map.set('karst.sbx.grant.junk', 'not json');
+    secrets.map.set('karst.sbx.grants.index', JSON.stringify([...bad.keys()].map((i) => `bad${i}`).concat(['junk', 5 as unknown as string])));
+    expect(await store.liveRegistrations()).toEqual([]);
+    for (const n of ['bad0', 'bad3', 'bad4', 'bad5', 'bad6', 'junk']) expect(await store.release(n)).toEqual({});
+    secrets.map.set('karst.sbx.grants.index', '{"a":1}');
+    expect(await store.liveRegistrations()).toEqual([]);
+    secrets.map.set('karst.sbx.grants.index', 'not json');
+    expect(await store.liveRegistrations()).toEqual([]);
+    expect(await store.issue('sb', 'work')).toMatchObject({ ok: true });
+  });
+
+  it('revokeAccount leaves other accounts alone and revokes a key once', async () => {
+    const { store, client, secrets } = await setup();
+    await setSbxToken(secrets, 'claude', 'other', TOKEN);
+    const a = await store.issue('sb1', 'work');
+    const b = await store.issue('sb2', 'other');
+    if (!a.ok || !b.ok) throw new Error('unreachable');
+    await store.revokeAccount('work');
+    await store.revokeAccount('work');
+    expect(client.revoke).toHaveBeenCalledTimes(1);
+    expect(client.revoke).toHaveBeenCalledWith(a.key);
+    expect(JSON.parse(secrets.map.get('karst.sbx.grant.sb1')!)).toMatchObject({ revoked: true, account: 'work' });
+    expect(JSON.parse(secrets.map.get('karst.sbx.grant.sb2')!).revoked).toBeUndefined();
+    expect(await store.liveRegistrations()).toEqual([{ key: b.key, token: TOKEN }]);
+    await store.release('sb1');
+    expect(client.revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('a live key whose account lost its token is not listed', async () => {
+    const { store, secrets } = await setup();
+    await store.issue('sb', 'work');
+    secrets.map.delete('karst.sbx.token.claude.work');
+    expect(await store.liveRegistrations()).toEqual([]);
+  });
 });

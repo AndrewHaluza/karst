@@ -6,7 +6,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
 import { makeSandboxWiring, type SandboxWiringInput } from './sandboxWiring.js';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setStage } from '../../store/stages.js';
@@ -247,6 +247,22 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     await w.cleanupOrphans();
     expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: ROOT, ticketId: gone, core: 'claude' }));
     expect(proc.calls.some((c) => c.args.join(' ').startsWith('policy rm'))).toBe(true);
+  });
+
+  it('the stray sweep of a closed ticket releases the proxy grant of its clone dir (@arch:AC-51)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-wiring-strays-'));
+    const root = join(dir, 'karst.yml');
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const closed = createTicket(store, { key: 'A-9', title: 'z', projectId }).id;
+    archiveTicket(store, closed);
+    const name = sbxName({ projectRoot: root, ticketId: closed, core: 'claude' });
+    mkdirSync(join(dir, '.karst', 'sbx-clones', name), { recursive: true });
+    const releaseGrant = vi.fn(async () => {});
+    const info = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => root, projectId: () => projectId, owned: new Set([closed]), info, sbxOauth: () => ({ grants: { issue: vi.fn(), release: vi.fn() }, releaseGrant }) });
+    await w.reconcile();
+    expect(releaseGrant).toHaveBeenCalledWith(name);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('removed 1 stray sandbox resource'));
   });
 
   it('archive of a running sandbox syncs, disposes and removes its bridge; done stops it', async () => {

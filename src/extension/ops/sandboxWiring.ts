@@ -503,7 +503,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
         },
         live: reconcileTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
         sweepStrays: async (inv) => {
-          const sd = { projectRoot: d.projectRoot, docker: d.dockerProc ?? NODE_DOCKER_PROCESS, liveTicketIds: new Set(liveTickets().map((t) => t.id)), ...(w.sbxOauth?.() ? { releaseGrant: w.sbxOauth()!.releaseGrant } : {}) };
+          const { releaseGrant } = oauthDeps();
+          const sd = { projectRoot: d.projectRoot, docker: d.dockerProc ?? NODE_DOCKER_PROCESS, liveTicketIds: new Set(liveTickets().map((t) => t.id)), ...(releaseGrant ? { releaseGrant } : {}) };
           const strays = await findStrays(sd, inv);
           const failed = await removeStrays(sd, strays);
           const kept = strays.filter((s) => !s.removable).map((s) => `${s.kind} ${s.name}`);

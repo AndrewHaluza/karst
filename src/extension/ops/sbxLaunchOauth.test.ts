@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { oauthPolicyArgs } from '../../agent/sbx/sbxOauthGuest.js';
 import { createSbxGrantReleaser } from './sbxLaunchOauth.js';
 
 describe('createSbxGrantReleaser', () => {
@@ -23,5 +24,23 @@ describe('createSbxGrantReleaser', () => {
     const release = createSbxGrantReleaser({ grants: { release: async () => ({ port: 1 }) }, run: async () => ({ code: 1, stderr: 'no such sandbox' }), debug });
     await expect(release('sb')).resolves.toBeUndefined();
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('policy rm'));
+  });
+  it('runs the exact policy rm of the sandbox and port, and logs nothing on success', async () => {
+    const run = vi.fn(async () => ({ code: 0, stderr: 'noise' }));
+    const debug = vi.fn();
+    await createSbxGrantReleaser({ grants: { release: async () => ({ port: 8787 }) }, run, debug })('sb');
+    expect(run).toHaveBeenCalledWith(oauthPolicyArgs('rm', 'sb', 8787));
+    expect(debug).not.toHaveBeenCalled();
+  });
+
+  it('logs the exit code and a trimmed, bounded stderr of a refused rule removal', async () => {
+    const debug = vi.fn();
+    const stderr = `  ${'x'.repeat(300)}  `;
+    await createSbxGrantReleaser({ grants: { release: async () => ({ port: 1 }) }, run: async () => ({ code: 3, stderr }), debug })('sb');
+    expect(debug).toHaveBeenCalledWith(`[oauth-proxy] sbx policy rm for sb exited 3: ${'x'.repeat(200)}`);
+  });
+
+  it('works with no debug callback', async () => {
+    await expect(createSbxGrantReleaser({ grants: { release: async () => ({ port: 1 }) }, run: async () => ({ code: 1, stderr: '' }) })('sb')).resolves.toBeUndefined();
   });
 });
