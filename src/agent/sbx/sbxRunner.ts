@@ -445,8 +445,13 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     dispose: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
       if (opts.oauth) {
-        const old = await opts.oauth.grants.release(opts.name);
-        if (old.port !== undefined) await removeProxyPolicy(old.port);
+        // A secret-store error must not stop the removal: the key then stays live until a later release retries it.
+        try {
+          const old = await opts.oauth.grants.release(opts.name);
+          if (old.port !== undefined) await removeProxyPolicy(old.port);
+        } catch {
+          opts.log?.(`[sbx ${opts.name}] grant release failed; the removal goes on`);
+        }
         issued = undefined;
         oauthPrepared = false;
       }

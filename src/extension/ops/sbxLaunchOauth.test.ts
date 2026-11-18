@@ -59,3 +59,15 @@ describe('launch oauth input errors', () => {
     expect(debug.join()).not.toContain('secret');
   });
 });
+
+describe('grant releaser errors', () => {
+  it('logs, without the error text, and does not throw when the release fails', async () => {
+    const debug: string[] = [];
+    const run = vi.fn();
+    const release = createSbxGrantReleaser({ grants: { release: async () => { throw new Error('sk-ant-secret'); } }, run, debug: (m) => debug.push(m) });
+    await expect(release('sb')).resolves.toBeUndefined();
+    expect(run).not.toHaveBeenCalled();
+    expect(debug).toHaveLength(1);
+    expect(debug.join()).not.toContain('secret');
+  });
+});

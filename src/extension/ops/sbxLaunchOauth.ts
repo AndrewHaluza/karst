@@ -22,7 +22,14 @@ export interface SbxGrantReleaserDeps {
 
 export function createSbxGrantReleaser(deps: SbxGrantReleaserDeps): SbxGrantReleaser {
   return async (sandbox) => {
-    const { port } = await deps.grants.release(sandbox);
+    let port: number | undefined;
+    try {
+      ({ port } = await deps.grants.release(sandbox));
+    } catch {
+      // A secret-store error must not stop the removal of the sandbox; the error text may name a secret, so it is not logged.
+      deps.debug?.(`[oauth-proxy] grant release for ${sandbox} failed; the removal goes on`);
+      return;
+    }
     if (port === undefined) return;
     const out = await deps.run(oauthPolicyArgs('rm', sandbox, port));
     // The sandbox may be gone already, and its rules with it: only a log.

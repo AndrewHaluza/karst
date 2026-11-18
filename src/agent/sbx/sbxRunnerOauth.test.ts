@@ -129,6 +129,17 @@ describe('sbx launch through the proxy', () => {
     expect(placed.env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
+  it('still removes the sandbox, and logs without the error text, when the grant release throws', async () => {
+    const log: string[] = [];
+    const proc = fakeSbxProcess();
+    const g = grants({ release: vi.fn(async () => { throw new Error('keychain locked sk-ant-secret'); }) });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME], log: (m: string) => log.push(m), oauth: { grants: g, account: 'work' } });
+    await runner.dispose!({ hostWorktreePath: '', branch: 'b' });
+    expect(sbxCalls(proc).some((c) => c.args[0] === 'rm' && c.args[1] === '--force')).toBe(true);
+    expect(log.join()).toMatch(/grant release failed/);
+    expect(log.join()).not.toContain('secret');
+  });
+
   it('revokes the key and removes the policy rule before it removes the sandbox', async () => {
     const g = grants();
     const { runner, proc } = make(g, [NAME]);
