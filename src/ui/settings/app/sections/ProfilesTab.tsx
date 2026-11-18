@@ -316,10 +316,14 @@ const PREVIEW_LINES = 12;
 
 function PromptPreview({ label, text }: { readonly label: string; readonly text: string }) {
   const [open, setOpen] = useState(false);
-  const long = text.split('\n').length > PREVIEW_LINES;
+  const lines = text.split('\n');
+  const long = lines.length > PREVIEW_LINES;
+  // The preview cuts the TEXT, not the box: a clipped box fails the layout sweep (no ellipsis)
+  // and an inner scroll box is forbidden (UI-R45).
+  const shown = long && !open ? `${lines.slice(0, PREVIEW_LINES).join('\n')}\n…` : text;
   return (
     <>
-      <pre className={`agents-readonly${long && !open ? ' is-collapsed' : ''}`} aria-label={label}>{text}</pre>
+      <pre className="agents-readonly" aria-label={label}>{shown}</pre>
       {long ? (
         <Button variant="text" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Show less' : 'Show full prompt'}

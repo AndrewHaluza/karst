@@ -165,18 +165,16 @@ describe('Agents page — tabs and location', () => {
     expect(detail.querySelector('[data-region="toolbar"]')!.textContent).toContain('Customize');
   });
 
-  it('a long built-in prompt collapses behind Show full prompt', () => {
+  it('a long built-in prompt collapses to 12 lines behind Show full prompt', () => {
     mount();
     fireEvent.click(screen.getAllByRole('tab')[1]!);
     fireEvent.click(screen.getByText('UAT Agent'));
     const pre = screen.getByLabelText(/built-in prompt$/);
-    if (pre.textContent!.split('\n').length > 12) {
-      expect(pre.className).toContain('is-collapsed');
-      fireEvent.click(screen.getByRole('button', { name: 'Show full prompt' }));
-      expect(pre.className).not.toContain('is-collapsed');
-    } else {
-      expect(screen.queryByRole('button', { name: 'Show full prompt' })).toBeNull();
-    }
+    const toggle = screen.getByRole('button', { name: 'Show full prompt' });
+    expect(pre.textContent!.split('\n')).toHaveLength(13);
+    fireEvent.click(toggle);
+    expect(pre.textContent!.split('\n').length).toBeGreaterThan(13);
+    expect(screen.getByRole('button', { name: 'Show less' })).not.toBeNull();
   });
 
   it('redirects an old Presets hash to the Roles tab', () => {

@@ -287,14 +287,6 @@
   border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   border-radius: var(--k-radius-md);
 }
-/* Collapsed preview: about 12 lines, no inner scroll box (UI-R45). */
-#section-agents .agents-readonly.is-collapsed {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 12;
-  line-clamp: 12;
-  overflow: hidden;
-}
 #section-agents .agents-detail-toolbar { display: flex; align-items: center; gap: var(--k-space-2); flex-wrap: wrap; }
 #section-agents .agents-text-foot { display: flex; align-items: center; gap: var(--k-space-2); margin-top: var(--k-space-2); }
 #section-agents .agents-back { display: none; }
