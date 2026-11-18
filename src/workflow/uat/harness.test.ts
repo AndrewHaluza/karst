@@ -1,4 +1,6 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 import type { UatHarnessDef } from '../../manifest/types.js';
 import {
   HarnessStartError,
@@ -124,5 +126,12 @@ describe('harnessReaskPrefix', () => {
   it('names the detail and the harness block', () => {
     expect(harnessReaskPrefix('D')).toContain('(D)');
     expect(harnessReaskPrefix('D')).toContain('Harnesses block');
+  });
+});
+
+describe('harnessRunnerPath', () => {
+  it('resolves from the runtime assets root, where copy-assets ships the runner', async () => {
+    const { harnessRunnerPath } = await import('./harness.js');
+    expect(harnessRunnerPath()).toBe(join(RUNTIME_ASSETS_ROOT, 'workflow/uat/harnessRunner.mjs'));
   });
 });

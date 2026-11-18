@@ -24,6 +24,9 @@ const REQUIRED_ARTIFACTS = [
   'dist/ui/shared/anchoredPopover.webview.js',
   'dist/ui/sidebar/app.webview.js',
   'dist/ui/settings/app.webview.js',
+  // The UAT harness evidence runner: harnessRunnerPath() joins RUNTIME_ASSETS_ROOT with
+  // this path (T1202: a wrong path gave MODULE_NOT_FOUND in the Tester run).
+  'dist/workflow/uat/harnessRunner.mjs',
 ];
 
 // NDL-126 §7 budget: React 19 production + ReactDOM is ~190 KB min, so a
