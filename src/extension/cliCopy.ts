@@ -1,22 +1,17 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { cp, mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
+import { CLI_COPY_DIR, CLI_ENTRY_PATH, CURRENT_FILE, HASH_LENGTH, LAUNCHER_FILE } from '../agent/cliCopyLayout.js';
 
-/** Directory under globalStorage that holds one CLI copy per extension build. */
-export const CLI_COPY_DIR = 'cli';
+export { CLI_COPY_DIR };
+
 /** A copy that no host keeps fresh and that is older than this age is removed. */
 export const CLI_COPY_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 /** A live host refreshes the age of its copy this often. */
 export const CLI_COPY_HEARTBEAT_MS = 60 * 60 * 1000;
-/** The CLI entry inside a copy; it mirrors `dist/cli/main.js` so `../store/schema.sql` resolves. */
-const CLI_ENTRY_PATH = join('cli', 'main.js');
 /** Top-level `dist` entries the CLI never reads at run time. */
 const SKIPPED_TOP_LEVEL = new Set(['extension.js', 'extension.js.map', 'vendor', 'ui']);
-const HASH_LENGTH = 12;
 const TEMP_PREFIX = '.tmp-';
-const CURRENT_FILE = 'current.json';
-const LAUNCHER_FILE = 'graph-launcher.mjs';
 
 export interface CliCopyInput {
   /** The `dist` directory of the installed extension. */
@@ -60,6 +55,15 @@ export function resolveGraphCliEntry(installEntry: string): string {
   return activeGraphEntry ?? installEntry;
 }
 
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function included(distDir: string, path: string): boolean {
   const top = relative(distDir, path).split(/[\\/]/)[0] ?? '';
   return path === distDir || !SKIPPED_TOP_LEVEL.has(top);
@@ -97,7 +101,7 @@ export async function ensureCliCopy(input: CliCopyInput): Promise<CliCopyResult>
   const root = join(input.storageDir, CLI_COPY_DIR);
   const finalDir = join(root, `${input.version}-${hash}`);
   const entry = join(finalDir, CLI_ENTRY_PATH);
-  if (existsSync(entry)) {
+  if (await exists(entry)) {
     await touch(finalDir, input.utimes ?? ((d, w) => utimes(d, w, w)));
     return { entry, copied: false };
   }
@@ -113,7 +117,7 @@ export async function ensureCliCopy(input: CliCopyInput): Promise<CliCopyResult>
     try {
       await (input.rename ?? rename)(tempDir, finalDir);
     } catch (err) {
-      if (!existsSync(entry)) throw err;
+      if (!(await exists(entry))) throw err;
       return { entry, copied: false };
     }
   } finally {
@@ -162,7 +166,7 @@ export interface PruneInput {
 /** Remove copies that are not kept and are older than the max age. Returns the removed paths. */
 export async function pruneCliCopies(input: PruneInput): Promise<string[]> {
   const root = join(input.storageDir, CLI_COPY_DIR);
-  if (!existsSync(root)) return [];
+  if (!(await exists(root))) return [];
   const maxAge = input.maxAgeMs ?? CLI_COPY_MAX_AGE_MS;
   const remove = input.remove ?? ((dir: string) => rm(dir, { recursive: true }));
   const kept = new Set(input.keep.map(copyDirOf));
