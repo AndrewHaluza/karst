@@ -8,15 +8,13 @@ import {
 } from '../../store/fixDeliveries.js';
 import { DELIVERY_CHECK_MS } from './fixWatchdog.js';
 import { claimPointerFailed } from '../../store/fixDeliveries.js';
-import { activeFixRound } from '../../store/recoveryRoundsRead.js';
-import { getTicket } from '../../store/tickets.js';
-import { getMergeCheck } from '../../store/mergeChecks.js';
 import {
   failPointer,
   hasPendingFixIntent,
   isPushRoute,
   sendTypedPointer,
-  closeStaleConflict,
+  closeStaleDeliveries,
+  deliveryRoundOpen,
   type FixDeliveryHost,
 } from './fixDeliveryOps.js';
 
@@ -63,12 +61,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
    * active (a settled round is the stall watchdog's). A `conflict` row (@arch:AP-01) lives while the merge check of its
    * repo is still `conflicted`, at any stage: the manual click and the Autopilot round share this ladder.
    */
-  function roundOpen(row: FixDelivery): boolean {
-    const { store } = deps;
-    if (row.kind === 'conflict') return row.repo !== null && getMergeCheck(store, row.ticketId, row.repo)?.state === 'conflicted';
-    if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return false;
-    return row.recoveryRoundId === null || activeFixRound(store, row.ticketId)?.id === row.recoveryRoundId;
-  }
+  const roundOpen = (row: FixDelivery): boolean => deliveryRoundOpen(deps, row);
 
   /** The gates every row passes before any rule applies. */
   function gated(row: FixDelivery): boolean {
@@ -199,7 +192,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
       if (projectId === undefined) return;
       for (const row of listOpenFixDeliveries(deps.store, projectId)) {
         try {
-          if (row.kind === 'conflict') closeStaleConflict(deps, row.ticketId);
+          closeStaleDeliveries(deps, row.ticketId);
           escalateUnsendable(row);
           escalateDeadConflict(row);
           if (gated(row)) apply(row);

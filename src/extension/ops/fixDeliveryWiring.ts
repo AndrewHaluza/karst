@@ -24,6 +24,7 @@ import { sandboxTextTransform } from './sandboxLaunchOps.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
 import {
   deliverLiveFix,
+  closeStaleDeliveries,
   eligibleFixDelivery,
   hasPendingFixIntent,
   type FixDeliveryHost,
@@ -232,6 +233,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     },
     eligible: (ticketId) => eligibleFixDelivery(host, ticketId)?.id ?? null,
     armed: (ticketId) => {
+      closeStaleDeliveries(host, ticketId);
       const row = nextUnreadDelivery(deps.store, ticketId);
       return row !== null && row.armedAt !== null && row.pointedAt === null && row.readAt === null && row.pointerFailedAt === null;
     },

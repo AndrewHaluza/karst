@@ -16,6 +16,8 @@ import {
   upsertFixDelivery,
   type FixDelivery,
 } from '../../store/fixDeliveries.js';
+import { activeFixRound } from '../../store/recoveryRoundsRead.js';
+import { getTicket } from '../../store/tickets.js';
 import { getMergeCheck } from '../../store/mergeChecks.js';
 import { getSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
 
@@ -96,14 +98,25 @@ export function hasPendingFixIntent(store: Store, launchId: string | null): bool
 }
 
 /**
- * Close the oldest unread `conflict` row whose conflict is gone (@arch:AP-01), so it cannot hold the pointer of a
- * later round. Repeats until the oldest unread row is not a stale conflict row.
+ * Whether the round of an unread row is still open (@arch:AP-01): a `conflict` row while its repo is `conflicted`, a
+ * `fix` row while the ticket is at `fix` and its tracked round is the active one.
  */
-export function closeStaleConflict(host: FixDeliveryHost, ticketId: number): void {
-  for (let row = nextUnreadDelivery(host.store, ticketId); row !== null && row.kind === 'conflict'; row = nextUnreadDelivery(host.store, ticketId)) {
-    if (row.repo !== null && getMergeCheck(host.store, ticketId, row.repo)?.state === 'conflicted') return;
+export function deliveryRoundOpen(host: FixDeliveryHost, row: FixDelivery): boolean {
+  const { store } = host;
+  if (row.kind === 'conflict') return row.repo !== null && getMergeCheck(store, row.ticketId, row.repo)?.state === 'conflicted';
+  if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return false;
+  return row.recoveryRoundId === null || activeFixRound(store, row.ticketId)?.id === row.recoveryRoundId;
+}
+
+/**
+ * Close the oldest unread row whose round is over, of either kind, so it cannot hold the pointer of a later round.
+ * Repeats until the oldest unread row is live.
+ */
+export function closeStaleDeliveries(host: FixDeliveryHost, ticketId: number): void {
+  for (let row = nextUnreadDelivery(host.store, ticketId); row !== null; row = nextUnreadDelivery(host.store, ticketId)) {
+    if (deliveryRoundOpen(host, row)) return;
     if (!supersedeFixDelivery(host.store, row.id, host.now())) return;
-    host.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: conflict is gone; closed`);
+    host.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: the ${row.kind} round is over; closed`);
   }
 }
 
@@ -116,7 +129,7 @@ export function closeStaleConflict(host: FixDeliveryHost, ticketId: number): voi
  * off `running`.
  */
 export function eligibleFixDelivery(host: FixDeliveryHost, ticketId: number): FixDelivery | null {
-  closeStaleConflict(host, ticketId);
+  closeStaleDeliveries(host, ticketId);
   const row = nextUnreadDelivery(host.store, ticketId);
   if (row === null) return null;
   if (row.readAt !== null || row.pointerFailedAt !== null || row.enqueuedAt !== null) return null;

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getFixDelivery, currentFixDelivery, claimArmed, claimRead, upsertFixDelivery } from '../../store/fixDeliveries.js';
+import { setStageCurrent } from '../../store/tickets.js';
+import { setMergeCheck } from '../../store/mergeChecks.js';
+import { getFixDelivery, currentConflictDelivery, currentFixDelivery, claimArmed, claimRead, upsertFixDelivery } from '../../store/fixDeliveries.js';
 import { recordSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
 import { ackFixDeliveryRef, deliverLiveFix, eligibleFixDelivery, failPointer, sendTypedPointer } from './fixDeliveryOps.js';
 import { makeHarness, type Harness } from '../../store/fixtures/fixDeliveryHarness.js';
@@ -19,7 +21,7 @@ describe('fixDeliveryOps', () => {
     ...over,
   });
 
-  describe('closeStaleConflict', () => {
+  describe('closeStaleDeliveries', () => {
     it('a stale unread conflict row never holds the pointer of a later fix row', () => {
       const conflict = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'C', at: h.host.now(), kind: 'conflict', repo: 'api' });
       claimArmed(h.store, conflict, h.host.now());
@@ -27,6 +29,19 @@ describe('fixDeliveryOps', () => {
       const fix = currentFixDelivery(h.store, h.ticketId)!;
       expect(eligibleFixDelivery(h.host, h.ticketId)?.id).toBe(fix.id);
       expect(getFixDelivery(h.store, conflict)?.supersededAt).not.toBeNull();
+    });
+  });
+
+  describe('closeStaleDeliveries (fix row)', () => {
+    it('an old unread fix row from a finished round never holds the pointer of a later conflict row', () => {
+      const old = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'F', at: h.host.now() });
+      claimArmed(h.store, old, h.host.now());
+      setStageCurrent(h.store, h.ticketId, 'ship');
+      setMergeCheck(h.store, { ticketId: h.ticketId, repo: 'api', state: 'conflicted', files: ['a.ts'], reason: null, headSha: 'h', baseSha: 'b', baseRef: 'main', checkedAt: 'x' });
+      expect(deliverLiveFix(h.host, input({ kind: 'conflict', repo: 'api', body: 'C' }))).toBe(true);
+      const conflict = currentConflictDelivery(h.store, h.ticketId, 'api')!;
+      expect(eligibleFixDelivery(h.host, h.ticketId)?.id).toBe(conflict.id);
+      expect(getFixDelivery(h.store, old)?.supersededAt).not.toBeNull();
     });
   });
 
