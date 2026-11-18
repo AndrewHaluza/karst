@@ -520,6 +520,9 @@
   "src/extension/ops/cloudSessionLinkOps.ts": [
     "arch:CLOUD-01"
   ],
+  "src/extension/ops/conflictNudgeOps.ts": [
+    "arch:AP-10"
+  ],
   "src/extension/ops/conflictResolveOps.ts": [
     "arch:AP-01"
   ],
@@ -1154,6 +1157,9 @@
   ],
   "src/workflow/ciFailure.ts": [
     "arch:AP-07"
+  ],
+  "src/workflow/conflictSession.ts": [
+    "arch:AP-10"
   ],
   "src/workflow/conventionContext.ts#resolveRepoConventions": [
     "arch:RENDERERS"

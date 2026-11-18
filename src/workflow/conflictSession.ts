@@ -44,3 +44,20 @@ export function buildConflictBrief(store: Store, ticketId: number, repo: string,
     stageCurrent: ticket.stageCurrent as StageKey | null,
   });
 }
+
+export interface ConflictPointerInput {
+  readonly key: string;
+  readonly repo: string;
+  /** The CLI prefix with the session's env refs (never a host path): `node "$KARST_CLI" conflict-brief --db ...`. */
+  readonly command: string;
+}
+
+/**
+ * The one short line an Autopilot conflict round types into a live session instead of the ~1400-character brief
+ * (@arch:AP-01): the TUI paste/submit split cannot cut a line this short. The agent fetches the brief with the
+ * `conflict-brief` tool. One line, no newline.
+ */
+export function conflictBriefPointer(input: ConflictPointerInput): string {
+  const { key, repo, command } = input;
+  return `karst: conflict brief ready - call the karst MCP tool \`conflict-brief\` with { key: "${key}", repo: "${repo}" } FIRST (if the tool is not available, run \`${command} ${key} "${repo}"\`)`;
+}

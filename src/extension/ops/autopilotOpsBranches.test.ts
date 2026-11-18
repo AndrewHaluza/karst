@@ -333,6 +333,56 @@ describe('resume and stalled rounds', () => {
   });
 });
 
+describe('conflict brief pickup (@arch:AP-01)', () => {
+  const pickup = (state: 'turn' | 'waiting' | 'resend' | 'no-turn' | null) => ({ state: vi.fn(() => state), noteTurn: vi.fn(), resend: vi.fn() });
+
+  it('sends the brief again once, writes the debug line, and neither parks nor drops before it', async () => {
+    seedPr(PASSING);
+    markConflictRound(store, id, Date.now());
+    const drop = vi.fn();
+    const p = pickup('resend');
+    const r = rig({ conflictRoundActive: () => true, dropConflictRound: drop, conflictPickup: p });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'busy' });
+    expect(p.resend).toHaveBeenCalledTimes(1);
+    expect(drop).not.toHaveBeenCalled();
+    expect(getConflictRoundAt(store, id)).not.toBeNull();
+    expect(lines(r.debug)).toContain('[ship] autopilot ticket AP-1: conflict brief not picked up; sent again');
+    expect(r.notes).toEqual([]);
+  });
+
+  it('does not send again of a round a click armed (no stored engine slot)', async () => {
+    seedPr(PASSING);
+    const p = pickup('resend');
+    const r = rig({ conflictRoundActive: () => true, conflictPickup: p });
+    await autopilotTick(r.deps);
+    expect(p.resend).not.toHaveBeenCalled();
+  });
+
+  it('parks after the re-send also started no turn, and the note says so', async () => {
+    seedPr(PASSING);
+    markConflictRound(store, id, Date.now());
+    const r = rig({ conflictRoundStalled: () => true, conflictRoundActive: () => true, conflictPickup: pickup('no-turn') });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: STALLED });
+    expect(r.notes[0]![1]).toContain('started no agent turn');
+    expect(r.notes[0]![1]).toContain('sent twice');
+  });
+
+  it('keeps today\'s park text when a turn started and left no merge', async () => {
+    seedPr(PASSING);
+    markConflictRound(store, id, Date.now());
+    const r = rig({ conflictRoundStalled: () => true, conflictPickup: pickup('turn') });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: STALLED });
+    expect(r.notes[0]![1]).toContain('the agent left it unfinished, or a gate failed');
+  });
+
+  it('notes a started turn while the agent runs', async () => {
+    const p = pickup('waiting');
+    const r = rig({ sessionRunning: () => true, conflictPickup: p });
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'busy' });
+    expect(p.noteTurn).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('proven clean after a stalled round', () => {
   const run = async (checks: unknown, merge: 'clean' | 'conflicted' = 'clean'): Promise<string> => {
     store.db.prepare('DELETE FROM prs').run();

@@ -17,6 +17,7 @@ import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
 import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
 import { worktreePathContext } from './extension/worktreePathContext.js';
+import { makeConflictDelivery } from './extension/ops/conflictNudgeOps.js';
 import { cliEntryAndManifest, cliLiteral, cliSessionInput, launchTokens, buildCliContextPrefix, buildCliStagePrefix, buildCliPhasePrefix, buildCliGuidePrefix, buildCliServersPrefix, buildCliTestPrefix, buildCliFixBriefPrefix, buildCliConflictBriefPrefix } from './extension/cliPrefixes.js';
 import { terminalEnv, makeTerminalIdentityRegistry, restoredSessionOf, wrapTerminal, graphTerminalCwd, wrapRevivedGraphTerminal, makeTerminalHost, makeGraphTerminalHost } from './extension/terminalHosts.js';
 import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions.js';
@@ -352,7 +353,7 @@ import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAtt
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { snapshotThenResume } from './workflow/fixRoundGuard.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
-import { buildConflictBrief } from './workflow/conflictSession.js';
+import { buildConflictBrief, conflictBriefPointer } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
 import { createServersBinding } from './extension/serversBinding.js';
 import { describeReap } from './runtime/worktreeServers.js';
@@ -2020,6 +2021,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void subtaskAutostart.sweep();
   const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
+  // An Autopilot conflict round types a short pointer into a live session, not the full brief (@arch:AP-01).
+  const conflictDelivery = makeConflictDelivery({
+    nudge: (id, text) => sessions.nudge(id, text), focus: (id) => sessions.focusSession(id), open: (id, brief, repo) => launches.open(id, brief, repo),
+    pointer: (id, repo) => conflictBriefPointer({
+      key: formatId('ticket', id), repo, command: buildCliConflictBriefPrefix(launchTokens(cliLiteral(context, dbPath))),
+    }),
+    key: (id) => formatId('ticket', id), debug: (m) => logger.debug(m),
+  });
   const autopilot = startAutopilot({
     store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
     debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
@@ -2042,11 +2051,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
       arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
       notify: (message) => logger.debug(`[ship] autopilot ticket ${formatId('ticket', id)} conflicts: ${message}`),
-      deliver: (brief, hit) => { if (sessions.nudge(id, brief)) sessions.focusSession(id); else launches.open(id, brief, hit); },
+      deliver: (brief, hit, sandboxed) => conflictDelivery.deliver(id, brief, hit, sandboxed),
     }),
     conflictRoundActive: (id) => conflictRounds.armed(id) !== null || isAutoDelivering(id),
     conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id),
     dropConflictRound: (id) => conflictRounds.disarm(id),
+    conflictPickup: (id) => ({
+      state: () => conflictRounds.pickup(id),
+      noteTurn: () => conflictRounds.noteTurn(id),
+      resend: () => { conflictRounds.markResent(id); conflictDelivery.resend(id); },
+    }),
     isDraining: () => drain.isDraining(),
     startAutoDeliver: (id) => startAutoDeliver(id),
   });
