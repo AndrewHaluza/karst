@@ -219,6 +219,22 @@ export function currentFixDelivery(store: Store, ticketId: number): FixDelivery 
   return row === undefined ? null : rowToDelivery(row);
 }
 
+/**
+ * The oldest unread, non-superseded row of a ticket, of any kind, or null. The hook pointer and the `fix-brief --ack`
+ * read both use it, so each pointer line and each receipt name the same row: an unread fix row and an unread conflict
+ * row of one ticket are read one after the other, never in place of each other.
+ */
+export function nextUnreadDelivery(store: Store, ticketId: number): FixDelivery | null {
+  const row = store.db
+    .prepare(
+      `SELECT * FROM fix_deliveries
+        WHERE ticket_id = ? AND read_at IS NULL AND superseded_at IS NULL
+        ORDER BY id ASC LIMIT 1`,
+    )
+    .get(ticketId) as FixDeliveryRow | undefined;
+  return row === undefined ? null : rowToDelivery(row);
+}
+
 /** The latest non-superseded `conflict` row of a ticket (of one repo when given), or null: its `readAt` is the round's receipt. */
 export function currentConflictDelivery(store: Store, ticketId: number, repo?: string): FixDelivery | null {
   const row = store.db

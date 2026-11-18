@@ -7,6 +7,7 @@ import {
   claimPointed,
   claimRead,
   currentFixDelivery,
+  nextUnreadDelivery,
   getFixDelivery,
   openFixDeliveryForLaunch,
   supersedeFixDeliveries,
@@ -233,7 +234,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     },
     eligible: (ticketId) => eligibleFixDelivery(host, ticketId)?.id ?? null,
     armed: (ticketId) => {
-      const row = currentFixDelivery(deps.store, ticketId);
+      const row = nextUnreadDelivery(deps.store, ticketId);
       return row !== null && row.armedAt !== null && row.pointedAt === null && row.readAt === null && row.pointerFailedAt === null;
     },
     claimPointed: (ticketId, deliveryId) => {

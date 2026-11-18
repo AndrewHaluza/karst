@@ -11,6 +11,7 @@ import {
   clearEnqueued,
   claimRead,
   currentFixDelivery,
+  nextUnreadDelivery,
   getFixDelivery,
   supersedeFixDelivery,
   upsertFixDelivery,
@@ -103,7 +104,7 @@ export function hasPendingFixIntent(store: Store, launchId: string | null): bool
  * off `running`.
  */
 export function eligibleFixDelivery(host: FixDeliveryHost, ticketId: number): FixDelivery | null {
-  const row = currentFixDelivery(host.store, ticketId);
+  const row = nextUnreadDelivery(host.store, ticketId);
   if (row === null) return null;
   if (row.readAt !== null || row.pointerFailedAt !== null || row.enqueuedAt !== null) return null;
   if (row.armedAt === null || row.pointedAt !== null) return null;

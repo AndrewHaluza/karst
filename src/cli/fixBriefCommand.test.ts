@@ -170,6 +170,14 @@ describe('runFixBriefCommand --ack', () => {
     expect(getFixDelivery(store, row)).toMatchObject({ readAt: NOW, deliveredVia: 'pointer' });
   });
 
+  it('reads an unread fix row and an unread conflict row one after the other, oldest first', () => {
+    const fix = upsertFixDelivery(store, { ticketId: id, recoveryRoundId: null, launchId: 'L', body: 'FIX BODY', at: NOW });
+    const conflict = upsertFixDelivery(store, { ticketId: id, recoveryRoundId: null, launchId: 'L', body: 'CONFLICT BODY', at: NOW, kind: 'conflict', repo: 'api' });
+    expect(ack('PROJ-1', 'PROJ-1')).toBe(`karst fix brief #${fix}:\nFIX BODY`);
+    expect(getFixDelivery(store, conflict)?.readAt).toBeNull();
+    expect(ack('PROJ-1', 'PROJ-1')).toBe(`karst conflict brief #${conflict}:\nCONFLICT BODY`);
+  });
+
   it('prints (already read) on a repeat and does not re-claim', () => {
     const row = snapshot();
     ack('PROJ-1', 'PROJ-1');
