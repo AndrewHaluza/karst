@@ -19,6 +19,14 @@ describe('runMcpInstall', () => {
     });
   });
 
+  it('names the stable launcher, not a versioned CLI copy, in a config that outlives the session', () => {
+    const env = { ...ENV, KARST_CLI: '/g/karst.karst/cli/1.0.0-0123456789ab/cli/main.js' };
+    const out = parse(runMcpInstall(['mcp', 'install'], {}, env));
+    expect(out.config).toMatchObject({
+      mcpServers: { karst: { args: ['/g/karst.karst/cli/graph-launcher.mjs', 'mcp', 'serve', '--db', '/db', '--manifest', '/m.yml', '--ticket', 'K-1'] } },
+    });
+  });
+
   it('shapes opencode config as a local server whose command is one argv array', () => {
     const out = parse(runMcpInstall(['mcp', 'install', '--agent', 'opencode'], {}, ENV));
     expect(out.config).toMatchObject({

@@ -11,6 +11,7 @@ import { composeConflictBriefCommand } from '../cli/conflictBriefCommand.js';
 import { composeServersPrefix } from '../cli/serversCommand.js';
 import { cliTokensFor, exportedCliEnv, sessionCliEnv, type CliTokens } from '../agent/cliEnv.js';
 import { manifestPathOrThrow } from './manifestResolve.js';
+import { resolveCliEntry } from './cliCopy.js';
 
 /**
  * The two inputs every `buildCli*Prefix` needs: the CLI karst ships
@@ -28,7 +29,8 @@ export function cliEntryAndManifest(context: vscode.ExtensionContext): {
   } catch {
     manifestPath = undefined;
   }
-  return { cliEntry: join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js'), manifestPath };
+  // The host's own copy (cliCopy.ts) when activation made one, so a session runs the CLI of the host that started it.
+  return { cliEntry: resolveCliEntry(join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js')), manifestPath };
 }
 
 /**

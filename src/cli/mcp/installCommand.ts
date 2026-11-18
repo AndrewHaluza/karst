@@ -18,6 +18,7 @@ import {
   type McpAgent,
   type McpConnection,
 } from '../../agent/mcpConfig.js';
+import { durableCliEntry } from '../../agent/cliCopyLayout.js';
 import { KARST_CLI_ENV, KARST_DB_ENV, KARST_MANIFEST_ENV, KARST_TICKET_KEY_ENV } from '../../agent/cliEnv.js';
 import { KARST_OUTBOX_ENV, type McpGlobalFlags } from './config.js';
 
@@ -149,8 +150,10 @@ export function runMcpInstall(
   env: Readonly<Record<string, string | undefined>>,
 ): string {
   const parsed = parseInstallArgs(rest);
-  const cliEntry = parsed.cli ?? env[KARST_CLI_ENV];
-  if (!cliEntry) throw new Error('mcp install needs --cli <path> (or KARST_CLI)');
+  const givenCli = parsed.cli ?? env[KARST_CLI_ENV];
+  if (!givenCli) throw new Error('mcp install needs --cli <path> (or KARST_CLI)');
+  // The config outlives the session; a versioned CLI copy is pruned, so name the stable launcher instead.
+  const cliEntry = durableCliEntry(givenCli);
   const connection: McpConnection = {
     cliEntry,
     ...(flags.db ?? env[KARST_DB_ENV] ? { dbPath: flags.db ?? env[KARST_DB_ENV] } : {}),

@@ -26,11 +26,15 @@ describe('extension.ts CLI path ratchet', () => {
     const inHelper = functionBody('cliEntryAndManifest')
       .split('\n')
       .filter((l) => l.includes(CLI_PATH));
-    const graphCliPath = lines.filter((l) => /^\s*cliPath: join\(/.test(l));
+    const graphCliPath = lines.filter((l) => /^\s*cliPath: resolveGraphCliEntry\(join\(/.test(l));
 
     expect(inHelper).toHaveLength(1);
     expect(graphCliPath).toHaveLength(1);
     expect(lines).toHaveLength(inHelper.length + graphCliPath.length);
+  });
+
+  it('gives graph sessions the graph launcher, not the install path', () => {
+    expect(SOURCE).toMatch(/cliPath: resolveGraphCliEntry\(join\(context\.extensionUri\.fsPath, 'dist', 'cli', 'main\.js'\)\)/);
   });
 
   it('composes the graph node completion command from the env ref', () => {
