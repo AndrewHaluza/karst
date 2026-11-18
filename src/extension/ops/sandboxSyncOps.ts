@@ -184,6 +184,8 @@ function transcriptLinkStep(runner: SessionRunner, input: BackendSessionInput, b
     // A missing token count must not stop a session: a failed link is only a warning.
     const linked = await link({ bridgeDir, hostWorktreePath })
       .catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err) }));
+    // A failed guest setup is no transcript problem: the launch stops with its own reason, before `placeInteractive` fails without one.
+    if (!linked.ok && runner.guestSetupPending?.()) throw new Error(`Karst: ${input.ticketLabel} ${linked.reason}`);
     if (!linked.ok) input.info(`warning: ${input.ticketLabel}: sandbox transcripts are not linked, token usage will not be counted: ${linked.reason}`);
   };
 }

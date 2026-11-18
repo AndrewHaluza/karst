@@ -526,6 +526,13 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
       const runner = { ...(mk(async () => ({ ok: true as const })) as object), linkTranscripts: async () => ({ ok: true as const }), guestSetupPending: () => true } as never;
       await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }) })).rejects.toThrow(/K-7 .*bridge/);
     });
+    it('a failed guest setup stops the launch with its own reason, not the transcript warning', async () => {
+      const info = vi.fn();
+      const runner = { ...(mk(async () => ({ ok: true as const })) as object), linkTranscripts: async () => ({ ok: false as const, reason: 'sbx policy allow failed: denied' }), guestSetupPending: () => true } as never;
+      const out = await resolveLaunchBackend({ ...base, info, worktree: { path: '/wt/b', branch: 'k/b' }, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths });
+      await expect(out.linkTranscripts!()).rejects.toThrow(/K-7 .*sbx policy allow failed: denied/);
+      expect(info).not.toHaveBeenCalledWith(expect.stringContaining('token usage'));
+    });
     it('does not prepare a host runner', async () => {
       const prepare = vi.fn();
       const host = { kind: 'host', enforcesSandbox: false, prepareLaunch: prepare } as never;

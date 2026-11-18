@@ -230,6 +230,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   let oauthPrepared = false;
   /** The key is issued but the guest is not set up yet (the sandbox does not exist before its create). */
   let guestPending = false;
+  const GUEST_ERR_MAX = 300;
   const removeProxyPolicy = async (port: number): Promise<void> => {
     const out = await sbx(oauthPolicyArgs('rm', opts.name, port));
     if (out.code !== 0) opts.log?.(`[sbx ${opts.name}] proxy policy rm failed (exit ${out.code}): ${out.stderr.trim().slice(0, 300)}`);
@@ -238,9 +239,9 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const setupGuestOauth = async (): Promise<StepOutcome> => {
     if (!issued) return { ok: true };
     const allowed = await sbx(oauthPolicyArgs('allow', opts.name, issued.port));
-    if (allowed.code !== 0) return { ok: false, reason: `sbx policy allow failed: ${allowed.stderr.trim()}` };
+    if (allowed.code !== 0) return { ok: false, reason: `sbx policy allow failed: ${allowed.stderr.trim().slice(0, GUEST_ERR_MAX)}` };
     const approved = await opts.proc.run(SBX_BIN, approvalExecArgs(opts.name), { env: { [APPROVAL_KEY_ENV]: issued.key } });
-    if (approved.code !== 0) return { ok: false, reason: `sbx exec failed to approve the proxy key: ${approved.stderr.trim()}` };
+    if (approved.code !== 0) return { ok: false, reason: `sbx exec failed to approve the proxy key: ${approved.stderr.trim().slice(0, GUEST_ERR_MAX)}` };
     guestPending = false;
     return { ok: true };
   };
@@ -249,8 +250,13 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     oauthPrepared = false;
     issued = undefined;
     if (oauth.account === undefined) {
-      const old = await oauth.grants.release(opts.name);
-      if (old.port !== undefined) await removeProxyPolicy(old.port);
+      // This launch uses no key, so a secret-store error must not stop it; the record stays and a later release retries it.
+      try {
+        const old = await oauth.grants.release(opts.name);
+        if (old.port !== undefined) await removeProxyPolicy(old.port);
+      } catch {
+        opts.log?.(`[sbx ${opts.name}] release of a stale grant failed; the launch goes on`);
+      }
       oauthPrepared = true;
       return { ok: true };
     }

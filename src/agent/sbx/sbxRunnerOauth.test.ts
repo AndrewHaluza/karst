@@ -93,6 +93,22 @@ describe('sbx launch through the proxy', () => {
     expect(await runner.prepareLaunch!()).toEqual({ ok: false, reason: 'no token' });
   });
 
+  it('launches a default account when the release of a stale grant throws, and logs without the error text', async () => {
+    const log: string[] = [];
+    const g = grants({ release: vi.fn(async () => { throw new Error('keychain sk-ant-secret'); }) });
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [NAME], log: (m: string) => log.push(m), oauth: { grants: g } });
+    expect((await runner.prepareLaunch!()).ok).toBe(true);
+    expect(log.join()).toMatch(/stale grant/);
+    expect(log.join()).not.toContain('secret');
+  });
+
+  it('bounds the guest stderr in the reason of a failed approval', async () => {
+    const proc = fakeSbxProcess({ 'sbx exec': { code: 1, stderr: 'x'.repeat(5000) } });
+    const { runner } = make(grants(), [NAME], 'work', proc);
+    const out = await runner.prepareLaunch!();
+    expect(out.ok === false && out.reason.length).toBeLessThan(500);
+  });
+
   it('refuses to place a launch of a new sandbox whose guest setup failed, and a retry can place it', async () => {
     const proc = fakeSbxProcess({ 'sbx policy allow': { code: 1, stderr: 'denied' } });
     const { runner } = make(grants(), [], 'work', proc);
