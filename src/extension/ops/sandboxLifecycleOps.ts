@@ -5,6 +5,7 @@ import { isDockerCore } from '../../agent/docker/dockerImage.js';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
 import { disposeFailures, disposeResult, disposeStep, type DisposeResult } from '../../agent/disposeResult.js';
 import type { SessionRunner, SandboxTicketRef } from '../../agent/sessionRunner.js';
+import type { SbxGrantReleaser } from './sbxLaunchOauth.js';
 import { ensureSandboxSynced, sandboxRunnerFor, type SandboxSyncDeps, type SandboxSyncTarget } from './sandboxSyncOps.js';
 
 /** A modal choice; `undefined` = dismissed (treated as the safe default). */
@@ -24,6 +25,8 @@ export interface SandboxLifecycleDeps extends SandboxSyncDeps {
   readonly openSyncDiff: (target: SandboxSyncTarget) => Promise<void>;
   /** The recorded host worktree of a ticket (orphan cleanup's remote step); `undefined` = no record. */
   readonly worktreeOf?: (ticketId: number) => string | undefined;
+  /** Revoke the proxy key and remove the policy rule of an sbx sandbox that is removed by name (@arch:AC-51). */
+  readonly releaseGrant?: SbxGrantReleaser;
   readonly debug?: (message: string) => void;
 }
 
@@ -292,6 +295,7 @@ export function idleSandboxes(
 
 /** A sandbox named for a core no runner hosts has no runner to dispose it: remove the named object directly. */
 async function removeInvalidCoreSandbox(deps: SandboxLifecycleDeps, o: ProjectSandbox): Promise<void> {
+  if (o.runner === 'sbx') await deps.releaseGrant?.(o.name);
   const removal = await removeVerified(deps, async () => {
     if (o.runner === 'sbx') return disposeResult([disposeStep('sbx rm', await (deps.proc ?? NODE_SBX_PROCESS).run('sbx', ['rm', '--force', o.name]))]);
     const docker = deps.dockerProc ?? NODE_DOCKER_PROCESS;

@@ -327,6 +327,15 @@ describe('invalid-core sandboxes are orphans even for a live ticket (F6)', () =>
     expect(notify.info).toHaveBeenCalledWith('Karst: removed 2 orphan sandbox(es).');
   });
 
+  it('cleanup releases the proxy grant of an sbx orphan before it removes it, and of no docker orphan', async () => {
+    const sbxBad = bad('sbx', 'agy');
+    const dockerBad = bad('docker', 'null');
+    const released: string[] = [];
+    const { d } = deps({ inv: [sbxBad, dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS) });
+    await cleanupOrphansOp({ ...d, releaseGrant: async (n: string) => { released.push(n); } }, new Set([7]));
+    expect(released).toEqual([sbxBad.name]);
+  });
+
   it('cleanup also removes the -repo and -data volumes of a docker orphan (a volume-only orphan has no container to remove)', async () => {
     const dockerBad = bad('docker', 'null');
     const { d, lines } = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS) });

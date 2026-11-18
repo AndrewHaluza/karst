@@ -17,6 +17,8 @@ export interface StrayDeps {
   readonly docker: SbxProcess;
   /** Open (non-archived) ticket ids of this project. */
   readonly liveTicketIds: ReadonlySet<number>;
+  /** Revoke the proxy key and remove the policy rule of the sandbox a clone dir belonged to (@arch:AC-51). */
+  readonly releaseGrant?: (sandbox: string) => Promise<void>;
   readonly listCloneDirs?: (root: string) => Promise<readonly string[]>;
 }
 
@@ -73,6 +75,7 @@ export async function removeStrays(deps: StrayDeps, strays: readonly Stray[]): P
     if (!s.removable) continue;
     try {
       if (s.kind === 'clone-dir') {
+        await deps.releaseGrant?.(s.name);
         await removeSbxClone(join(sandboxProjectDir(deps.projectRoot), '.karst', 'sbx-clones', s.name));
         continue;
       }
