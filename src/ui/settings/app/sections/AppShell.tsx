@@ -274,35 +274,36 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             <span className="manifest-name" id="footManifestName">{manifestName}</span>
             <span className="manifest-open">Open ↗</span>
           </button>
-          {/* The pop is closed by its own `display:none` rule — it must NOT
-              carry the `hidden` class: `.hidden` is `display:none !important`
-              and would defeat `.open{display:block}` here. */}
-          <div
-            className={infoOpen ? 'project-info-pop open' : 'project-info-pop'}
-            id="projectInfoPop"
-            ref={infoPopRef}
-            role="dialog"
-            aria-label="Project information"
-          >
-            <div className="project-info-title">Project information</div>
-            <div className="project-info-row">
-              <span>Project ID</span>
-              <strong className="mono" id="popProjectId">{slug?.value || '(unresolved)'}</strong>
-            </div>
-            <div className="project-info-row">
-              <span>ID source</span>
-              <strong id="popIdSource">
-                {slug?.derived ? 'Derived from workspace path' : 'Explicit (manifest id:)'}
-              </strong>
-            </div>
-            <div className="project-info-row">
-              <span>Version</span>
-              <strong className="mono" id="popVersion">{version || '—'}</strong>
-            </div>
-            <div className="project-info-row">
-              <span>Manifest</span>
-              <strong className="mono" id="popManifestPath">{manifestPath || '(unresolved)'}</strong>
-            </div>
+        </div>
+        {/* The pop sits outside .sidebar-foot: below 40em the foot is display:none, which would hide the pop too.
+            The pop is closed by its own `display:none` rule — it must NOT
+            carry the `hidden` class: `.hidden` is `display:none !important`
+            and would defeat `.open{display:block}` here. */}
+        <div
+          className={infoOpen ? 'project-info-pop open' : 'project-info-pop'}
+          id="projectInfoPop"
+          ref={infoPopRef}
+          role="dialog"
+          aria-label="Project information"
+        >
+          <div className="project-info-title">Project information</div>
+          <div className="project-info-row">
+            <span>Project ID</span>
+            <strong className="mono" id="popProjectId">{slug?.value || '(unresolved)'}</strong>
+          </div>
+          <div className="project-info-row">
+            <span>ID source</span>
+            <strong id="popIdSource">
+              {slug?.derived ? 'Derived from workspace path' : 'Explicit (manifest id:)'}
+            </strong>
+          </div>
+          <div className="project-info-row">
+            <span>Version</span>
+            <strong className="mono" id="popVersion">{version || '—'}</strong>
+          </div>
+          <div className="project-info-row">
+            <span>Manifest</span>
+            <strong className="mono" id="popManifestPath">{manifestPath || '(unresolved)'}</strong>
           </div>
         </div>
       </nav>
