@@ -11,7 +11,17 @@ import { MAX_SETUP_PROPOSAL_BYTES } from './proposal.js';
  * A pending proposal is derived from the outbox itself, not from a result.
  */
 
-export type ProposalStatus = 'pending' | 'applied' | 'declined' | 'invalid' | 'superseded' | 'withdrawn' | 'no-change';
+export type ProposalStatus =
+  | 'pending'
+  | 'applied'
+  | 'declined'
+  | 'invalid'
+  | 'superseded'
+  | 'withdrawn'
+  | 'no-change'
+  // The host ran its checklist after the apply: every step passed, or one failed.
+  | 'verified'
+  | 'unverified';
 
 export interface ProposalResult {
   id: string;
@@ -26,7 +36,7 @@ export interface ProposalResult {
 }
 
 const ID = /^[A-Za-z0-9-]{1,64}$/;
-const STATUSES: readonly string[] = ['pending', 'applied', 'declined', 'invalid', 'superseded', 'withdrawn', 'no-change'];
+const STATUSES: readonly string[] = ['pending', 'applied', 'declined', 'invalid', 'superseded', 'withdrawn', 'no-change', 'verified', 'unverified'];
 
 export const resultsDir = (outbox: string): string => join(outbox, 'results');
 export const withdrawnDir = (outbox: string): string => join(outbox, 'withdrawn');

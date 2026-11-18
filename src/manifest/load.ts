@@ -7,11 +7,12 @@ import { ManifestError } from './error.js';
 import { migrateLegacyManifest } from './migrate.js';
 import { foldProcessRows } from './foldProcessRows.js';
 import { detectInertKeys } from './inertKeys.js';
-import { uatEnvWarnings } from './validate/uat.js';
-import { deprecatedPresetKeyWarnings } from './validate/agentPresets.js';
+import { uatEnvWarningsCoded } from './validate/uat.js';
+import { deprecatedPresetKeyWarningsCoded } from './validate/agentPresets.js';
 import { assertReferencesResolve } from './validate/semantics.js';
-import { envWarnings, type EnvProbe } from './validate/envWarnings.js';
+import { envWarningsCoded, type EnvProbe } from './validate/envWarnings.js';
 import { nodeEnvProbe } from './nodeEnvProbe.js';
+import { warningMessages, type CodedWarning } from './warningCode.js';
 
 export type { Manifest } from './types.js';
 export { ManifestError } from './error.js';
@@ -28,6 +29,8 @@ export interface LoadedManifestResult {
    * should change.
    */
   warnings: string[];
+  /** The same warnings, in the same order, each with a stable code (see `warningCode.ts`). */
+  codedWarnings: CodedWarning[];
   /**
    * Non-fatal FACTS: keys the file declares that no code reads yet (D1). Not a
    * problem and not the author's mistake, so kept out of `warnings` — a project
@@ -88,24 +91,26 @@ export function parseManifestText(
   }
 
   try {
-    const { raw: migrated, warnings } = migrateLegacyManifest(parsed);
+    const { raw: migrated, coded: migrationWarnings } = migrateLegacyManifest(parsed);
     // Unpinned `processes.<role>` core fields move into presets (or a pin)
     // BEFORE validation, which refuses them on an unpinned row.
     const { raw, notices: folded } = foldProcessRows(migrated);
     const manifest = validateManifest(raw);
     assertReferencesResolve(manifest, isObject(raw) && isObject(raw.review) && Array.isArray(raw.review.gates) && raw.review.gates.length === 0);
+    const codedWarnings: CodedWarning[] = [
+      ...migrationWarnings,
+      ...(manifest.uat ? uatEnvWarningsCoded(manifest.uat) : []),
+      // §6: `processes.<key>.preset` is deprecated but still honoured.
+      ...deprecatedPresetKeyWarningsCoded(manifest.processes),
+      ...(probe ? envWarningsCoded(manifest, probe) : []),
+    ];
     return {
       manifest,
       // uatEnvWarnings has existed since UAT landed and was called by nothing,
       // so this check has never run. It is a warning, never a block: it cannot
       // be reliable, and the mistake it catches is the likely one.
-      warnings: [
-        ...warnings,
-        ...(manifest.uat ? uatEnvWarnings(manifest.uat) : []),
-        // §6: `processes.<key>.preset` is deprecated but still honoured.
-        ...deprecatedPresetKeyWarnings(manifest.processes),
-        ...(probe ? envWarnings(manifest, probe) : []),
-      ],
+      warnings: warningMessages(codedWarnings),
+      codedWarnings,
       notices: [...folded, ...detectInertKeys(raw)],
       migrated: folded.length > 0,
     };

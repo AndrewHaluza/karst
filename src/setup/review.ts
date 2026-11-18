@@ -1,3 +1,4 @@
+import type { VerifyResult, VerifyStep } from './verify/types.js';
 import type { Manifest } from '../manifest/types.js';
 import { diffManifest } from './manifestApply.js';
 import type { ChangeProposal, ManifestProposal } from './proposal.js';
@@ -83,4 +84,26 @@ export function describeChangeProposal(change: ChangeProposal, dir: string): Pro
     detail: lines.join('\n'),
     startCommandsChanged: false,
   };
+}
+
+const MARK: Record<VerifyStep['status'], string> = { ok: 'ok', fail: 'FAIL', skipped: 'skipped', info: 'info' };
+
+/**
+ * The host's own checklist result for the popup: each step with ok/fail and the
+ * readiness item changes the host computed. These are the host's findings; the
+ * agent's summary below them is only a claim. Only the steps that ran before
+ * consent can show: a command proposal says it is not dry-run.
+ */
+export function describeVerification(result: VerifyResult): string {
+  const lines = [result.ok ? 'Host checks (all passed):' : 'Host checks (FAILED):'];
+  for (const step of result.steps) lines.push(`  ${step.id} ${step.label}: ${MARK[step.status]} - ${step.detail}`);
+  lines.push('Readiness item changes the host computed:');
+  if (result.changes.length === 0) lines.push('  none');
+  for (const change of result.changes) lines.push(`  ${change.kind} ${change.id}`);
+  return lines.join('\n');
+}
+
+/** The description with the host checks first, so a long agent diff cannot push them out of view. */
+export function withVerification(description: ProposalDescription, result: VerifyResult): ProposalDescription {
+  return { ...description, detail: `${describeVerification(result)}\n\n${description.detail}` };
 }

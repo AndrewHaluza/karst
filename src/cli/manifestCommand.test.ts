@@ -103,6 +103,16 @@ describe('runManifestCommand propose', () => {
     expect(written.summary).toBe('mine');
   });
 
+  it('writes a --clears list into the proposal and parses it', () => {
+    expect(parseManifestArgs(['manifest', 'propose', '--file', '/a.yml', '--clears', 'a.b,,c']).clears).toEqual(['a.b', 'c']);
+    expect(() => parseManifestArgs(['manifest', 'propose', '--file', '/a.yml', '--clears'])).toThrow(/--clears needs a value/);
+    const outbox = join(dir, 'outbox3');
+    mkdirSync(outbox, { recursive: true });
+    runManifestCommand(['manifest', 'propose', '--file', writeYaml(VALID), '--clears', 'x.y'], { outboxEnv: outbox, uuid: () => 'fixed' });
+    const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ManifestProposal;
+    expect(written.clears).toEqual(['x.y']);
+  });
+
   it('refuses to propose without KARST_SETUP_OUTBOX', () => {
     expect(() => runManifestCommand(['manifest', 'propose', '--file', writeYaml(VALID)])).toThrow(
       /KARST_SETUP_OUTBOX/,

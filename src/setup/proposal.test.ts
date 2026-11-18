@@ -118,3 +118,22 @@ describe('change proposal path', () => {
     },
   );
 });
+
+describe('proposal clears', () => {
+  const manifest = { kind: 'manifest', targetPath: '/w/karst.yml', yaml: 'a: 1', summary: 's' };
+  const change = { kind: 'change', repo: 'web', reason: 'r', command: 'git init' };
+
+  it('accepts a clears list on both kinds and keeps it', () => {
+    const ids = ['manifest.review-signal', 'repo.git.web'];
+    for (const base of [manifest, change]) {
+      const r = validateSetupProposal({ ...base, clears: ids });
+      expect(r.ok && (r.value as { clears?: string[] }).clears).toEqual(ids);
+    }
+  });
+
+  it('refuses a clears value that is not a bounded list of item ids', () => {
+    for (const clears of ['x', [1], ['bad id'], [''], Array.from({ length: 65 }, (_, i) => `a${i}`)]) {
+      expect(validateSetupProposal({ ...manifest, clears }).ok).toBe(false);
+    }
+  });
+});

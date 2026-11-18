@@ -1,5 +1,6 @@
 import type { GateDef, Manifest, RepositoryDef } from '../types.js';
 import { resolveBaselineBranch } from '../baselineBranch.js';
+import { type CodedWarning, warningMessages } from '../warningCode.js';
 
 /**
  * The machine facts the env warnings need. Injected so the loader stays pure
@@ -39,44 +40,52 @@ function pinnedPaths(g: GateDef, repos: Named[]): string[] {
   });
 }
 
-function pinWarnings(g: GateDef, where: string, repos: Named[]): string[] {
-  return pinnedPaths(g, repos).map(
-    (p) => `${where}: gate ${g.name} pins ${p} in the main checkout; use a path relative to the worktree`,
-  );
+function pinWarnings(g: GateDef, where: string, base: string, repos: Named[]): CodedWarning[] {
+  return pinnedPaths(g, repos).map((p) => ({
+    code: `manifest.gate-pin.${base}.${g.name}`,
+    message: `${where}: gate ${g.name} pins ${p} in the main checkout; use a path relative to the worktree`,
+  }));
 }
 
-function gateWarnings(gates: GateDef[], where: string, repos: Named[], probe: EnvProbe): string[] {
+function gateWarnings(gates: GateDef[], where: string, repos: Named[], probe: EnvProbe): CodedWarning[] {
   return gates.flatMap((g, i) => {
-    const pins = pinWarnings(g, `${where}[${i}]`, repos);
+    const pins = pinWarnings(g, `${where}[${i}]`, where, repos);
     const script = relativeScript(g.command);
     if (script === undefined) return pins;
     const targets = repos.filter(([name]) => g.repo === undefined || name.toLowerCase() === g.repo.toLowerCase());
     // Unscoped gates run in every repo, so name each one that lacks the file.
     return [
       ...pins,
-      ...targets.filter(([, r]) => !probe.fileExists(r.repoPath, script)).map(
-        ([, r]) => `${where}[${i}].command: '${script}' not found in ${r.repoPath} — add the script or fix the path`,
-      ),
+      ...targets
+        .filter(([, r]) => !probe.fileExists(r.repoPath, script))
+        .map(([name, r]) => ({
+          code: `manifest.gate-script-missing.${where}.${g.name}.${name}`,
+          message: `${where}[${i}].command: '${script}' not found in ${r.repoPath} — add the script or fix the path`,
+        })),
     ];
   });
 }
 
-function singleGate(gate: GateDef | undefined, where: string, repos: Named[], probe: EnvProbe): string[] {
-  return gate ? gateWarnings([gate], where, repos, probe).map((w) => w.replace('[0]', '')) : [];
+function singleGate(gate: GateDef | undefined, where: string, repos: Named[], probe: EnvProbe): CodedWarning[] {
+  return gate
+    ? gateWarnings([gate], where, repos, probe).map((w) => ({ ...w, message: w.message.replace('[0]', '') }))
+    : [];
 }
 
-function repoWarnings(manifest: Manifest, name: string, repo: RepositoryDef, probe: EnvProbe): string[] {
-  const out: string[] = [];
+function repoWarnings(manifest: Manifest, name: string, repo: RepositoryDef, probe: EnvProbe): CodedWarning[] {
+  const out: CodedWarning[] = [];
   const branch = resolveBaselineBranch(manifest, repo);
   if (!probe.branchExists(repo.repoPath, branch)) {
-    out.push(
-      `repositories.${name}.baselineBranch: branch '${branch}' not found in ${repo.repoPath} (local or origin) — create or push it, or set baselineBranch`,
-    );
+    out.push({
+      code: `manifest.baseline-missing.${name}`,
+      message: `repositories.${name}.baselineBranch: branch '${branch}' not found in ${repo.repoPath} (local or origin) — create or push it, or set baselineBranch`,
+    });
   }
   if (!probe.hasRemote(repo.repoPath, 'origin')) {
-    out.push(
-      `repositories.${name}: no 'origin' remote in ${repo.repoPath} — ship push needs one (git remote add origin <url>)`,
-    );
+    out.push({
+      code: `manifest.origin-missing.${name}`,
+      message: `repositories.${name}: no 'origin' remote in ${repo.repoPath} — ship push needs one (git remote add origin <url>)`,
+    });
   }
   return out;
 }
@@ -86,7 +95,7 @@ function repoWarnings(manifest: Manifest, name: string, repo: RepositoryDef, pro
  * package.json scripts; none to probe leaves `requireIndependentSignal` with
  * nothing to satisfy it.
  */
-function reviewSignalWarnings(manifest: Manifest, repos: Named[], probe: EnvProbe): string[] {
+function reviewSignalWarnings(manifest: Manifest, repos: Named[], probe: EnvProbe): CodedWarning[] {
   const { review } = manifest;
   if (!review || !review.requireIndependentSignal || repos.length === 0) return [];
   const declared =
@@ -94,12 +103,16 @@ function reviewSignalWarnings(manifest: Manifest, repos: Named[], probe: EnvProb
     Object.values(review.repositories).some((r) => (r.gates ?? []).length > 0);
   if (declared || repos.some(([, r]) => probe.fileExists(r.repoPath, 'package.json'))) return [];
   return [
-    'review.gates: none declared and no repository has a package.json to probe, so review has no independent signal — declare review.gates or set review.requireIndependentSignal: false',
+    {
+      code: 'manifest.review-signal',
+      message:
+        'review.gates: none declared and no repository has a package.json to probe, so review has no independent signal — declare review.gates or set review.requireIndependentSignal: false',
+    },
   ];
 }
 
-/** Environment warnings for a validated manifest. Disabled repos and missing paths are skipped (doctor reports those). */
-export function envWarnings(manifest: Manifest, probe: EnvProbe): string[] {
+/** Environment warnings for a validated manifest, each with a stable code. Disabled repos and missing paths are skipped (doctor reports those). */
+export function envWarningsCoded(manifest: Manifest, probe: EnvProbe): CodedWarning[] {
   const repos = Object.entries(manifest.repositories).filter(
     ([, r]) => r.enabled !== false && probe.pathExists(r.repoPath),
   );
@@ -111,4 +124,9 @@ export function envWarnings(manifest: Manifest, probe: EnvProbe): string[] {
     ...gateWarnings(review?.gates ?? [], 'review.gates', repos, probe),
     ...reviewSignalWarnings(manifest, repos, probe),
   ];
+}
+
+/** The display strings of `envWarningsCoded`. */
+export function envWarnings(manifest: Manifest, probe: EnvProbe): string[] {
+  return warningMessages(envWarningsCoded(manifest, probe));
 }

@@ -43,11 +43,30 @@ describe('runReadiness', () => {
     const r = await runReadiness(input({ manifest: undefined }));
     expect(r.items[0]!.detail).toBe('manifest could not be loaded');
   });
-  it('every warning is a fail', async () => {
-    const r = await runReadiness(input({ warnings: ['a', 'b'] }));
+  it('every warning is a fail, with the id of its code', async () => {
+    const r = await runReadiness(
+      input({
+        warnings: [
+          { code: 'manifest.legacy-services', message: 'a' },
+          { code: 'manifest.retired-key.confirmGeneratedGraph', message: 'b' },
+        ],
+      }),
+    );
     expect(r.ok).toBe(false);
-    expect(find(r, 'manifest.warning.0')).toMatchObject({ status: 'fail', detail: 'a' });
-    expect(find(r, 'manifest.warning.1')!.status).toBe('fail');
+    expect(find(r, 'manifest.legacy-services')).toMatchObject({ status: 'fail', detail: 'a' });
+    expect(find(r, 'manifest.retired-key.confirmGeneratedGraph')!.status).toBe('fail');
+  });
+  it('a warning id does not move when an earlier warning goes away', async () => {
+    const retired = { code: 'manifest.retired-key.confirmGeneratedGraph', message: 'b' };
+    const both = await runReadiness(input({ warnings: [{ code: 'manifest.legacy-services', message: 'a' }, retired] }));
+    const one = await runReadiness(input({ warnings: [retired] }));
+    expect(find(both, retired.code)).toEqual(find(one, retired.code));
+  });
+  it('two warnings with the same code get distinct ids', async () => {
+    const w = { code: 'manifest.gate-pin.uat.gates.x', message: 'm' };
+    const r = await runReadiness(input({ warnings: [w, w] }));
+    const ids = r.items.filter((i) => i.id.startsWith(w.code)).map((i) => i.id);
+    expect(ids).toEqual([w.code, `${w.code}#2`]);
   });
   it('--repos filters and flags unknown names', async () => {
     const m = manifest();

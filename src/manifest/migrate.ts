@@ -21,6 +21,7 @@
  */
 
 import { ManifestError } from './schema.js';
+import type { CodedWarning } from './warningCode.js';
 
 /** Fields that lived flat on a legacy service and now belong under `service:`. */
 const RUNTIME_FIELDS = ['start', 'health', 'ports', 'dependsOn'] as const;
@@ -37,6 +38,8 @@ export interface MigrationResult {
   raw: unknown;
   /** Deprecation notices for the host to surface. Empty when nothing moved. */
   warnings: string[];
+  /** The same notices with a stable code each, in the same order. */
+  coded: CodedWarning[];
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -82,7 +85,7 @@ function translateEntry(raw: unknown): unknown {
  */
 function migrateLegacyServices(raw: unknown): MigrationResult {
   // Not a mapping: nothing to translate, and validation owns the error message.
-  if (!isObject(raw)) return { raw, warnings: [] };
+  if (!isObject(raw)) return { raw, warnings: [], coded: [] };
 
   const hasLegacy = raw.services !== undefined;
   const hasCurrent = raw.repositories !== undefined;
@@ -95,13 +98,13 @@ function migrateLegacyServices(raw: unknown): MigrationResult {
     );
   }
 
-  if (!hasLegacy) return { raw, warnings: [] };
+  if (!hasLegacy) return { raw, warnings: [], coded: [] };
 
   if (!isObject(raw.services)) {
     // Malformed legacy key: hand it to validation under the new name so the
     // error names `repositories`, which is what the author must now write.
     const { services: _dropped, ...rest } = raw;
-    return { raw: { ...rest, repositories: raw.services }, warnings: [] };
+    return { raw: { ...rest, repositories: raw.services }, warnings: [], coded: [] };
   }
 
   const repositories: Record<string, unknown> = {};
@@ -110,13 +113,14 @@ function migrateLegacyServices(raw: unknown): MigrationResult {
   }
 
   const { services: _legacy, ...rest } = raw;
+  const message =
+    'uses the legacy `services:` key. It was read as `repositories:` with ' +
+    'each entry\'s start/health/ports/dependsOn moved under `service:`. ' +
+    'Save from Karst Settings to write the new shape to disk.';
   return {
     raw: { ...rest, repositories },
-    warnings: [
-      'uses the legacy `services:` key. It was read as `repositories:` with ' +
-        'each entry\'s start/health/ports/dependsOn moved under `service:`. ' +
-        'Save from Karst Settings to write the new shape to disk.',
-    ],
+    warnings: [message],
+    coded: [{ code: 'manifest.legacy-services', message }],
   };
 }
 
@@ -153,13 +157,13 @@ export function migrateLegacyManifest(raw: unknown): MigrationResult {
   const services = migrateLegacyServices(raw);
   const confirm = dropLegacyConfirmKey(services.raw);
   if (!confirm.changed) return services;
+  const message =
+    'sets `limits.confirmGeneratedGraph`, which is retired: a compiled bootstrap ' +
+    'plan now starts the graph run at once. The value was ignored. ' +
+    'Save from Karst Settings to remove the key from the file.';
   return {
     raw: confirm.raw,
-    warnings: [
-      ...services.warnings,
-      'sets `limits.confirmGeneratedGraph`, which is retired: a compiled bootstrap ' +
-        'plan now starts the graph run at once. The value was ignored. ' +
-        'Save from Karst Settings to remove the key from the file.',
-    ],
+    warnings: [...services.warnings, message],
+    coded: [...services.coded, { code: `manifest.retired-key.${LEGACY_CONFIRM_KEY}`, message }],
   };
 }

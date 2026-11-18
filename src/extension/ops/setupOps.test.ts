@@ -131,6 +131,11 @@ describe('setup ops', () => {
     expect(created[0]!.opts.env).not.toHaveProperty('KARST_OPENCODE2_HOME');
   });
 
+  it('does not export the host verify record directory to the agent', async () => {
+    await createSetupOps({ ...deps, nextId: () => 'own1' }).create();
+    expect(created[0]!.opts.env).not.toHaveProperty('KARST_SETUP_VERIFY_DIR');
+  });
+
   it('launches the setup session under the attended policy (kill + home-config denies)', async () => {
     await createSetupOps(deps).create();
     const args = created[0]!.opts.shellArgs.join(' ');

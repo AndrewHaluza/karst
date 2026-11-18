@@ -30,6 +30,9 @@ export const MAX_SETUP_REASON = 2 * 1024;
 export const MAX_SETUP_COMMAND = 4 * 1024;
 export const MAX_SETUP_PATCH = 256 * 1024;
 export const MAX_SETUP_PATH = 1024;
+/** `clears`: at most this many readiness item ids, each matching `SETUP_ITEM_ID`. */
+export const MAX_SETUP_CLEARS = 64;
+export const SETUP_ITEM_ID = /^[A-Za-z0-9._:#-]{1,200}$/;
 /** Repository names use the same grammar as a manifest repository key. */
 export const SETUP_REPO_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -41,6 +44,8 @@ export interface ManifestProposal {
   yaml: string;
   /** One-paragraph human summary of what the proposal does (shown in the diff). */
   summary: string;
+  /** Readiness item ids the agent says this clears. A claim only: the host computes the list and refuses a mismatch. */
+  clears?: string[];
 }
 
 export interface ChangeProposal {
@@ -55,6 +60,8 @@ export interface ChangeProposal {
   patch?: string;
   /** Directory the change runs in: absolute, or relative to the workspace root; must stay inside it. Overrides `repo` for resolution. */
   path?: string;
+  /** Readiness item ids the agent says this clears (a claim; the host computes the real list). */
+  clears?: string[];
 }
 
 export type SetupProposal = ManifestProposal | ChangeProposal;
@@ -92,10 +99,21 @@ export function validateSetupProposal(raw: unknown): SetupProposalResult {
   return fail("kind must be 'manifest' or 'change'");
 }
 
+/** `undefined` = absent; `null` = present but invalid. */
+function cleanClears(v: unknown): string[] | undefined | null {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > MAX_SETUP_CLEARS) return null;
+  return v.every((id) => typeof id === 'string' && SETUP_ITEM_ID.test(id)) ? [...(v as string[])] : null;
+}
+
+const CLEARS_REASON = `clears must be a list of at most ${MAX_SETUP_CLEARS} readiness item ids`;
+
 function validateManifestProposal(rec: Record<string, unknown>): SetupProposalResult {
-  if (!exactKeys(rec, ['kind', 'targetPath', 'yaml', 'summary'], ['kind', 'targetPath', 'yaml', 'summary'])) {
-    return fail('manifest proposal keys must be exactly kind, targetPath, yaml, summary');
+  if (!exactKeys(rec, ['kind', 'targetPath', 'yaml', 'summary'], ['kind', 'targetPath', 'yaml', 'summary', 'clears'])) {
+    return fail('manifest proposal keys must be exactly kind, targetPath, yaml, summary (plus an optional clears)');
   }
+  const clears = cleanClears(rec.clears);
+  if (clears === null) return fail(CLEARS_REASON);
   const targetPath = rec.targetPath;
   if (typeof targetPath !== 'string' || targetPath.trim() === '') {
     return fail('targetPath must be a non-empty string');
@@ -111,13 +129,17 @@ function validateManifestProposal(rec: Record<string, unknown>): SetupProposalRe
   }
   const summary = cleanBody(rec.summary, MAX_SETUP_SUMMARY);
   if (summary === undefined) return fail(`summary must be a string of at most ${MAX_SETUP_SUMMARY} characters`);
-  return { ok: true, value: { kind: 'manifest', targetPath: cleanedPath, yaml, summary } };
+  const value: ManifestProposal = { kind: 'manifest', targetPath: cleanedPath, yaml, summary };
+  if (clears !== undefined) value.clears = clears;
+  return { ok: true, value };
 }
 
 function validateChangeProposal(rec: Record<string, unknown>): SetupProposalResult {
-  if (!exactKeys(rec, ['kind', 'repo', 'reason'], ['kind', 'repo', 'reason', 'command', 'patch', 'path'])) {
-    return fail('change proposal keys must be exactly kind, repo, reason (plus an optional command or patch, and an optional path)');
+  if (!exactKeys(rec, ['kind', 'repo', 'reason'], ['kind', 'repo', 'reason', 'command', 'patch', 'path', 'clears'])) {
+    return fail('change proposal keys must be exactly kind, repo, reason (plus an optional command or patch, an optional path, and an optional clears)');
   }
+  const clears = cleanClears(rec.clears);
+  if (clears === null) return fail(CLEARS_REASON);
   const repo = rec.repo;
   if (typeof repo !== 'string' || !SETUP_REPO_NAME.test(repo) || repo === '.' || repo === '..') {
     return fail('repo must be a name matching [A-Za-z0-9._-]{1,64}, not . or ..');
@@ -151,5 +173,6 @@ function validateChangeProposal(rec: Record<string, unknown>): SetupProposalResu
   if (path !== undefined) value.path = path;
   if (command !== undefined) value.command = command;
   if (patch !== undefined) value.patch = patch;
+  if (clears !== undefined) value.clears = clears;
   return { ok: true, value };
 }

@@ -12,7 +12,10 @@ import { adoptedProtectedFields, applyManifestProposal, droppedProtectedFields, 
 import { writeProposalResult, type ProposalResult } from '../../setup/ledger.js';
 import type { ChangeDir } from '../../setup/changeTarget.js';
 import { describeChangeProposal, describeManifestProposal, type ProposalDescription } from '../../setup/review.js';
-import { karstWriteViolation, restoreKarstFiles, snapshotKarstFiles } from '../../setup/karstGuard.js';
+import { restoreKarstFiles, snapshotKarstFiles } from '../../setup/karstGuard.js';
+import { withVerification } from '../../setup/review.js';
+import { firstFailure, sha256Of, verifyAfterApply, verifyBeforeConsent } from '../../setup/verify/verify.js';
+import type { RecheckDeps, VerifyDeps, VerifyRecord, VerifyResult } from '../../setup/verify/types.js';
 import type { Notify } from './notify.js';
 
 /**
@@ -86,7 +89,20 @@ export const defaultSetupProposalFs: SetupProposalFs = {
   writeResult: writeProposalResult,
 };
 
+/**
+ * What the host needs to run its checklist. The outbox is not a trust boundary:
+ * the agent can write a proposal file there directly, so the host verifies each
+ * proposal itself, whatever wrote the file.
+ */
+export interface SetupVerifyWiring extends RecheckDeps {
+  deps: VerifyDeps;
+  /** Persist the authoritative host-side record (extension storage, never the agent's outbox). */
+  writeRecord: (record: VerifyRecord) => void;
+}
+
 export interface SetupProposalOpsDeps {
+  /** The verify wiring for one setup scratch: each scratch targets its own karst.yml. */
+  verify: (scratch: string) => SetupVerifyWiring;
   /** The setup scratch dirs to scan (already filtered to this window's own); each holds an `outbox/` subdir. */
   outboxes: () => string[];
   readCurrentManifest: () => Manifest | undefined;
@@ -145,6 +161,66 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
   const isFirstSetup = (current: Manifest | undefined): boolean =>
     current === undefined || (deps.isScaffold?.(current) ?? false);
 
+  const failureReason = (result: VerifyResult): string => {
+    const f = firstFailure(result);
+    return f === undefined ? 'host verification failed' : `${f.id} ${f.label}: ${f.detail}`;
+  };
+
+  const hostRecord = (
+    scratch: string,
+    file: string,
+    kind: VerifyRecord['kind'],
+    status: VerifyRecord['status'],
+    result: VerifyResult,
+  ): void => {
+    try {
+      deps.verify(scratch).writeRecord({
+        id: basename(file, '.json'),
+        kind,
+        status,
+        steps: result.steps,
+        changes: result.changes,
+        pinnedSha256: result.pinnedSha256,
+        at: new Date().toISOString(),
+      });
+    } catch (e) {
+      debug(`could not write the verify record for ${file}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  /** The karst.yml text changed since the checklist ran on it. */
+  const manifestMoved = (scratch: string, pinned: string | null): boolean =>
+    sha256Of(deps.verify(scratch).deps.readCurrentText()) !== pinned;
+
+  /** Runs A1-A3 and writes both records; the ledger shows verified or unverified. */
+  async function finishVerify(
+    file: string,
+    scratch: string,
+    kind: VerifyRecord['kind'],
+    before: VerifyResult,
+    outcome: { applied: boolean; error?: string; restored: readonly string[] },
+    extra: Partial<ProposalResult>,
+    invalid?: string,
+  ): Promise<void> {
+    const after = await verifyAfterApply(before, kind, outcome, {
+      recheck: deps.verify(scratch).recheck,
+      readCurrentText: deps.verify(scratch).deps.readCurrentText,
+      record: (r) => deps.verify(scratch).writeRecord({
+        id: basename(file, '.json'), kind, status: r.ok ? 'verified' : 'unverified',
+        steps: r.steps, changes: r.changes, pinnedSha256: r.pinnedSha256, at: new Date().toISOString(),
+      }),
+    });
+    if (invalid !== undefined) {
+      record(scratch, file, kind, 'invalid', { ...extra, reason: invalid });
+      return;
+    }
+    record(scratch, file, kind, after.ok ? 'verified' : 'unverified', {
+      ...extra,
+      ...(after.ok ? {} : { reason: failureReason(after) }),
+    });
+    if (!after.ok) deps.notify.warn(`Karst: the setup proposal was applied but did not verify (${failureReason(after)}).`);
+  }
+
   /** Files superseded by a newer proposal; a modal still open on one must not record 'withdrawn'. */
   const superseded = new Set<string>();
 
@@ -185,12 +261,25 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       record(scratch, file, 'manifest', 'no-change', { reason, dropped });
       return;
     }
-    const description = describeManifestProposal(current, proposal, proposed, {
-      dropped,
-      adopted: adoptedProtectedFields(proposed, firstSetup),
-      writtenSections,
-      removedKeys,
-    });
+    const run = await verifyBeforeConsent(proposal, { firstSetup }, deps.verify(scratch).deps);
+    if (!run.result.ok) {
+      const reason = failureReason(run.result);
+      deps.notify.warn(`Karst: the setup agent's manifest proposal failed the host checks (${reason}); ignored.`);
+      debug(`refused manifest proposal ${file}: ${reason}`);
+      fs.remove(file);
+      hostRecord(scratch, file, 'manifest', 'refused', run.result);
+      record(scratch, file, 'manifest', 'invalid', { reason, dropped });
+      return;
+    }
+    const description = withVerification(
+      describeManifestProposal(current, proposal, proposed, {
+        dropped,
+        adopted: adoptedProtectedFields(proposed, firstSetup),
+        writtenSections,
+        removedKeys,
+      }),
+      run.result,
+    );
     const approved = await deps.confirm(description);
     if (!fs.exists(file)) {
       debug(`manifest proposal ${file} was withdrawn while its consent was open`);
@@ -208,15 +297,19 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       const latest = deps.readCurrentManifest();
       const latestFirst = isFirstSetup(latest);
       const latestDropped = droppedProtectedFields(latest, proposed, latestFirst);
+      if (manifestMoved(scratch, run.result.pinnedSha256)) {
+        throw new Error('karst.yml changed after the host checks ran; propose again');
+      }
       if (latestFirst !== firstSetup || latestDropped.join() !== dropped.join()) {
         throw new Error('karst.yml changed while awaiting consent; protected fields differ from what was shown');
       }
       const sha256 = deps.applyManifest(applyManifestProposal(latest, proposed, latestFirst), scratch);
       debug(`applied manifest proposal ${file}`);
-      record(scratch, file, 'manifest', 'applied', { dropped, sha256 });
+      await finishVerify(file, scratch, 'manifest', run.result, { applied: true, restored: [] }, { dropped, sha256 });
     } catch (e) {
       const reason = (e as Error).message;
       deps.notify.warn(`Karst: could not apply the manifest proposal (${reason}).`);
+      hostRecord(scratch, file, 'manifest', 'refused', run.result);
       record(scratch, file, 'manifest', 'invalid', { reason: `apply failed: ${reason}`, dropped });
     }
     fs.remove(file);
@@ -231,16 +324,20 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       return;
     }
     const roots = [...new Set([target.dir, ...(deps.karstRoots?.() ?? [])])];
-    if (change.patch !== undefined) {
-      const violation = karstWriteViolation(change.patch, target.dir, roots);
-      if (violation !== undefined) {
-        deps.notify.warn(`Karst: refused the change for "${change.repo}" (${violation}).`);
-        record(scratch, file, 'change', 'invalid', { reason: violation });
-        fs.remove(file);
-        return;
-      }
+    const run = await verifyBeforeConsent(
+      change,
+      { firstSetup: false, dir: target.dir, karstRoots: roots },
+      deps.verify(scratch).deps,
+    );
+    if (!run.result.ok) {
+      const reason = failureReason(run.result);
+      deps.notify.warn(`Karst: refused the change for "${change.repo}" (${reason}).`);
+      hostRecord(scratch, file, 'change', 'refused', run.result);
+      record(scratch, file, 'change', 'invalid', { reason });
+      fs.remove(file);
+      return;
     }
-    const approved = await deps.confirm(describeChangeProposal(change, target.dir));
+    const approved = await deps.confirm(withVerification(describeChangeProposal(change, target.dir), run.result));
     if (!fs.exists(file)) {
       record(scratch, file, 'change', 'withdrawn', { reason: 'withdrawn while awaiting consent' });
       return;
@@ -249,6 +346,14 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       debug(`user declined change proposal ${file}`);
       fs.remove(file);
       record(scratch, file, 'change', 'declined', { reason: 'declined by the user' });
+      return;
+    }
+    if (manifestMoved(scratch, run.result.pinnedSha256)) {
+      const reason = 'karst.yml changed after the host checks ran; propose again';
+      deps.notify.warn(`Karst: could not apply the change for "${change.repo}" (${reason}).`);
+      hostRecord(scratch, file, 'change', 'refused', run.result);
+      record(scratch, file, 'change', 'invalid', { reason: `apply failed: ${reason}` });
+      fs.remove(file);
       return;
     }
     const snapshots = change.command !== undefined ? snapshotKarstFiles(roots) : [];
@@ -265,14 +370,22 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     }
     if (failure === undefined) {
       debug(`applied change proposal ${file}`);
-      record(scratch, file, 'change', 'applied');
     } else {
       deps.notify.warn(`Karst: could not apply the change for "${change.repo}" (${failure}).`);
-      record(scratch, file, 'change', 'invalid', {
-        reason:
-          restored.length > 0 ? `invalid: command wrote ${restored.join(', ')}` : `apply failed: ${failure}`,
-      });
     }
+    await finishVerify(
+      file,
+      scratch,
+      'change',
+      run.result,
+      { applied: failure === undefined, ...(failure !== undefined ? { error: failure } : {}), restored },
+      {},
+      failure === undefined
+        ? undefined
+        : restored.length > 0
+          ? `invalid: command wrote ${restored.join(', ')}`
+          : `apply failed: ${failure}`,
+    );
     fs.remove(file);
   }
 

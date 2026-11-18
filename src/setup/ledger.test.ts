@@ -15,6 +15,11 @@ const result = (id: string, status: 'applied' | 'declined' = 'applied') => ({
 });
 
 describe('ledger', () => {
+  it.each(['verified', 'unverified'] as const)('reads the %s status', (status) => {
+    writeProposalResult(outbox, { ...result('r1'), status });
+    expect(readLedger(outbox).map((r) => [r.id, r.status])).toEqual([['r1', status]]);
+  });
+
   it('skips a pending file that vanishes mid-scan', () => {
     symlinkSync(join(outbox, 'gone-target'), join(outbox, 'gone.json'));
     writeFileSync(join(outbox, 'p1.json'), '{}');

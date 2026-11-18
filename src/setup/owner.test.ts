@@ -24,6 +24,7 @@ describe('setup scratch ownership', () => {
     const confirm = vi.fn(async () => false);
     const debug = vi.fn();
     const ops = createSetupProposalOps({
+      verify: () => ({ deps: { manifestPath: '/w/karst.yml', readCurrentText: () => undefined, loadText: () => ({ ok: false, error: 'x' }), gitApplyCheck: async () => ({ ok: true }) }, recheck: async () => [], writeRecord: () => {} }),
       resolveDir: (c: { repo: string; path?: string }) => ({ ok: true as const, dir: `/w/${c.path ?? c.repo}` }),
       outboxes: () => ownedScratches(root, ws, debug),
       readCurrentManifest: () => undefined,
