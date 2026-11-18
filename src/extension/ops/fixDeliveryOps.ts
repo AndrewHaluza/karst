@@ -16,6 +16,7 @@ import {
   upsertFixDelivery,
   type FixDelivery,
 } from '../../store/fixDeliveries.js';
+import { getMergeCheck } from '../../store/mergeChecks.js';
 import { getSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
 
 /**
@@ -95,6 +96,18 @@ export function hasPendingFixIntent(store: Store, launchId: string | null): bool
 }
 
 /**
+ * Close the oldest unread `conflict` row whose conflict is gone (@arch:AP-01), so it cannot hold the pointer of a
+ * later round. Repeats until the oldest unread row is not a stale conflict row.
+ */
+export function closeStaleConflict(host: FixDeliveryHost, ticketId: number): void {
+  for (let row = nextUnreadDelivery(host.store, ticketId); row !== null && row.kind === 'conflict'; row = nextUnreadDelivery(host.store, ticketId)) {
+    if (row.repo !== null && getMergeCheck(host.store, ticketId, row.repo)?.state === 'conflicted') return;
+    if (!supersedeFixDelivery(host.store, row.id, host.now())) return;
+    host.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: conflict is gone; closed`);
+  }
+}
+
+/**
  * The row the turn-end hook may point at right now, or null. Eligible = the
  * ticket's current row, armed but not yet pointed, unread, not superseded, not
  * failed, no typed line in flight, bound to the CURRENT session generation, and
@@ -103,6 +116,7 @@ export function hasPendingFixIntent(store: Store, launchId: string | null): bool
  * off `running`.
  */
 export function eligibleFixDelivery(host: FixDeliveryHost, ticketId: number): FixDelivery | null {
+  closeStaleConflict(host, ticketId);
   const row = nextUnreadDelivery(host.store, ticketId);
   if (row === null) return null;
   if (row.readAt !== null || row.pointerFailedAt !== null || row.enqueuedAt !== null) return null;

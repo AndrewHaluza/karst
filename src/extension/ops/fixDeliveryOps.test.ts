@@ -19,6 +19,17 @@ describe('fixDeliveryOps', () => {
     ...over,
   });
 
+  describe('closeStaleConflict', () => {
+    it('a stale unread conflict row never holds the pointer of a later fix row', () => {
+      const conflict = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'C', at: h.host.now(), kind: 'conflict', repo: 'api' });
+      claimArmed(h.store, conflict, h.host.now());
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const fix = currentFixDelivery(h.store, h.ticketId)!;
+      expect(eligibleFixDelivery(h.host, h.ticketId)?.id).toBe(fix.id);
+      expect(getFixDelivery(h.store, conflict)?.supersededAt).not.toBeNull();
+    });
+  });
+
   describe('deliverLiveFix', () => {
     it('a tracked round updated in place still delivers when a younger conflict row exists', () => {
       const round = h.openRound();

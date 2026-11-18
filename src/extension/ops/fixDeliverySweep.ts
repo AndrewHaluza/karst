@@ -16,6 +16,7 @@ import {
   hasPendingFixIntent,
   isPushRoute,
   sendTypedPointer,
+  closeStaleConflict,
   type FixDeliveryHost,
 } from './fixDeliveryOps.js';
 
@@ -198,6 +199,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
       if (projectId === undefined) return;
       for (const row of listOpenFixDeliveries(deps.store, projectId)) {
         try {
+          if (row.kind === 'conflict') closeStaleConflict(deps, row.ticketId);
           escalateUnsendable(row);
           escalateDeadConflict(row);
           if (gated(row)) apply(row);
