@@ -22,6 +22,7 @@ import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostH
 import { DIRTY_NOT_BEHIND, stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
 import type { TicketPlacement } from '../../store/placement.js';
+import type { SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
 
 export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps.js';
@@ -213,6 +214,8 @@ export interface SandboxSyncDeps {
   readonly dockerProc?: DockerProcess;
   /** The sbx memory ceiling, so a runner built here can name it in an OOM report. */
   readonly sbxMemory?: () => string | undefined;
+  /** The proxy grants: a runner built here revokes the key of its sandbox at dispose (@arch:AC-51). */
+  readonly oauthGrants?: SbxOauthGrants;
   readonly temp?: TempDirs;
   readonly platform?: NodeJS.Platform;
   /** The bridge dir as the host sees it: sbx hands the host's bundle to the sandbox through its `xfer/` (F8). */
@@ -229,7 +232,7 @@ export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, tic
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
     const evidenceDir = deps.evidenceDirOf?.(ticketId);
     const memory = deps.sbxMemory?.();
-    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}), ...(memory ? { memory } : {}) });
+    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}), ...(memory ? { memory } : {}), ...(deps.oauthGrants ? { oauth: { grants: deps.oauthGrants } } : {}) });
   }
   if (core !== null && isDockerCore(core)) {
     return createDockerSessionRunner({

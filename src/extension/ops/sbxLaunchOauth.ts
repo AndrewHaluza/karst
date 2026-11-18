@@ -4,7 +4,11 @@
  * `removeInvalidCoreSandbox`, the stray clone dir) share it. Vscode-free: the grant store and
  * the `sbx` caller are injected.
  */
+import type { AccountRow } from '../../agent/accounts/accountOps.js';
+import type { ResolveBackendInput } from '../../agent/backendResolver.js';
 import { oauthPolicyArgs, type SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
+import type { SecretStore } from '../secretStore.js';
+import { hasSbxToken, SBX_TOKEN_CORE } from '../sbxTokenStore.js';
 
 /** Revoke and unallow for the sandbox of that name; resolves when done, never for a missing grant. */
 export type SbxGrantReleaser = (sandbox: string) => Promise<void>;
@@ -23,5 +27,24 @@ export function createSbxGrantReleaser(deps: SbxGrantReleaserDeps): SbxGrantRele
     const out = await deps.run(oauthPolicyArgs('rm', sandbox, port));
     // The sandbox may be gone already, and its rules with it: only a log.
     if (out.code !== 0) deps.debug?.(`[oauth-proxy] sbx policy rm for ${sandbox} exited ${out.code}: ${out.stderr.trim().slice(0, 200)}`);
+  };
+}
+
+export interface LaunchOauthInputDeps {
+  readonly grants: SbxOauthGrants;
+  readonly secrets: SecretStore;
+  readonly listAccounts: (core: typeof SBX_TOKEN_CORE) => Promise<readonly AccountRow[]>;
+}
+
+/** The `oauth` input of the backend resolver, read fresh at each launch: the accounts with a stored token. */
+export function createLaunchOauthInput(deps: LaunchOauthInputDeps): () => Promise<NonNullable<ResolveBackendInput['oauth']>> {
+  return async () => {
+    const tokenAccounts = new Set<string>();
+    try {
+      for (const row of await deps.listAccounts(SBX_TOKEN_CORE)) {
+        if (await hasSbxToken(deps.secrets, SBX_TOKEN_CORE, row.name)) tokenAccounts.add(row.name);
+      }
+    } catch { /* no account list: no token account, the account block then asks the user */ }
+    return { grants: deps.grants, tokenAccounts };
   };
 }

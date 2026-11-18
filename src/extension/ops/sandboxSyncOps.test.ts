@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, stashSandboxAndUpdate, syncSandboxOp } from './sandboxSyncOps.js';
+import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, sandboxRunnerFor, ensureSandboxInSync, ensureSandboxSynced, stashSandboxAndUpdate, syncSandboxOp } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -817,5 +817,16 @@ describe('backendSessionOptions explicit account (@arch:AC-55)', () => {
       backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), warn: vi.fn(), resolve,
     });
     expect(out.blocked).toEqual(blocked);
+  });
+});
+
+describe('sandboxRunnerFor releases the proxy grant at dispose (@arch:AC-51)', () => {
+  it('an sbx runner built here revokes the key of its sandbox before it removes it', async () => {
+    const release = vi.fn(async () => ({ port: 8787 }));
+    const proc = fakeSbxProcess();
+    const runner = sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p/karst.yml', proc, oauthGrants: { issue: vi.fn(), release } }, 'claude', 7)!;
+    await runner.dispose!({ hostWorktreePath: '', branch: 'b' });
+    expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: '/p/karst.yml', ticketId: 7, core: 'claude' }));
+    expect(proc.calls.some((c) => c.args.join(' ').startsWith('policy rm'))).toBe(true);
   });
 });

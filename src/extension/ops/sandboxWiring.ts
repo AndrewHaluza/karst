@@ -1,3 +1,5 @@
+import type { SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
+import type { SbxGrantReleaser } from './sbxLaunchOauth.js';
 import { findStrays, removeStrays } from './sandboxStrays.js';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
 import { createSandboxSessionEnder } from './sandboxSessionEnd.js';
@@ -49,6 +51,8 @@ export interface SandboxWiringInput {
   /** Opens a unified diff in a read-only editor. */
   readonly showDiff: (title: string, diff: string) => Promise<void>;
   readonly debug?: (m: string) => void;
+  /** The sbx proxy grants (@arch:AC-51): every removal path revokes the key of the sandbox it removes. */
+  readonly sbxOauth?: () => { readonly grants: SbxOauthGrants; readonly releaseGrant: SbxGrantReleaser } | undefined;
   /** The sbx memory ceiling a new sandbox gets (`resolveSbxMemory`); names the limit in an OOM report. */
   readonly sbxMemory?: () => string | undefined;
   readonly info: (m: string) => void;
@@ -105,6 +109,10 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const core = placement ? (placement.backend === 'host' ? null : placement.core) : (t.sessionProvider ?? null);
     return { ticketId, ticketLabel: t.key ?? String(ticketId), core, worktree: readClonedWorktree(w.bridgeDirOf?.(ticketId), worktrees) ?? worktrees[0] };
   };
+  const oauthDeps = (): Pick<SandboxLifecycleDeps, 'oauthGrants' | 'releaseGrant'> => {
+    const o = w.sbxOauth?.();
+    return o ? { oauthGrants: o.grants, releaseGrant: o.releaseGrant } : {};
+  };
   const deps = (): SandboxLifecycleDeps | undefined => {
     const projectRoot = w.projectRoot();
     if (!w.backendOn() || projectRoot === undefined) return undefined;
@@ -115,6 +123,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       worktreeOf: (id) => { try { return target(id).worktree?.path; } catch { return undefined; } },
       debug: w.debug,
       ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
+      ...oauthDeps(),
     };
   };
   /** Dashboard Stop / Remove: explicit user actions, independent of the configured backend (ownership and the unsynced-commit guard still apply). */
@@ -127,6 +136,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
         notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: controls,
         ...(bridges ? { bridges } : {}), openSyncDiff: (target) => w.openSyncDiff(target.ticketId),
         ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
+        ...oauthDeps(),
       },
     };
   };
@@ -493,7 +503,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
         },
         live: reconcileTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
         sweepStrays: async (inv) => {
-          const sd = { projectRoot: d.projectRoot, docker: d.dockerProc ?? NODE_DOCKER_PROCESS, liveTicketIds: new Set(liveTickets().map((t) => t.id)) };
+          const sd = { projectRoot: d.projectRoot, docker: d.dockerProc ?? NODE_DOCKER_PROCESS, liveTicketIds: new Set(liveTickets().map((t) => t.id)), ...(w.sbxOauth?.() ? { releaseGrant: w.sbxOauth()!.releaseGrant } : {}) };
           const strays = await findStrays(sd, inv);
           const failed = await removeStrays(sd, strays);
           const kept = strays.filter((s) => !s.removable).map((s) => `${s.kind} ${s.name}`);

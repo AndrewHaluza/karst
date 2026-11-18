@@ -23,6 +23,27 @@ export function createSbxTokenOps(deps: SbxTokenOpsDeps) {
   const eligible = async (): Promise<string[]> =>
     (await deps.listAccounts(SBX_TOKEN_CORE)).filter((row) => sbxTokenEligibility(SBX_TOKEN_CORE, row.name, row.account) === null).map((row) => row.name);
 
+  /** Ask for and store the token of one account. `true` when a token was stored. */
+  async function setFor(account: string): Promise<boolean> {
+    const row = (await deps.listAccounts(SBX_TOKEN_CORE)).find((r) => r.name === account);
+    const problem = sbxTokenEligibility(SBX_TOKEN_CORE, account, row?.account);
+    if (problem) {
+      deps.notify.warn(problem);
+      return false;
+    }
+    const token = await deps.askToken(account);
+    if (!token) return false;
+    try {
+      await setSbxToken(deps.secrets, SBX_TOKEN_CORE, account, token);
+    } catch (e) {
+      deps.notify.warn(e instanceof Error ? e.message : 'The sbx token was not stored.');
+      return false;
+    }
+    deps.onChanged?.(account, 'set');
+    deps.notify.info(`The sbx token for the Claude account '${account}' is stored.`);
+    return true;
+  }
+
   async function set(): Promise<void> {
     const names = await eligible();
     if (names.length === 0) {
@@ -30,17 +51,7 @@ export function createSbxTokenOps(deps: SbxTokenOpsDeps) {
       return;
     }
     const account = await deps.pickAccount(names, 'Claude account to set the sbx token for');
-    if (!account) return;
-    const token = await deps.askToken(account);
-    if (!token) return;
-    try {
-      await setSbxToken(deps.secrets, SBX_TOKEN_CORE, account, token);
-    } catch (e) {
-      deps.notify.warn(e instanceof Error ? e.message : 'The sbx token was not stored.');
-      return;
-    }
-    deps.onChanged?.(account, 'set');
-    deps.notify.info(`The sbx token for the Claude account '${account}' is stored.`);
+    if (account) await setFor(account);
   }
 
   async function remove(): Promise<void> {
@@ -57,5 +68,5 @@ export function createSbxTokenOps(deps: SbxTokenOpsDeps) {
     deps.notify.info(`The sbx token for the Claude account '${account}' is removed.`);
   }
 
-  return { set, remove };
+  return { set, setFor, remove };
 }

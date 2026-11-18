@@ -238,6 +238,17 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     expect(rms).toEqual([sbxName({ projectRoot: ROOT, ticketId: gone, core: 'claude' })]);
   });
 
+  it('orphan cleanup and a dashboard remove revoke the proxy key of the removed sbx sandbox (@arch:AC-51)', async () => {
+    const { projectId, gone, a, proc, dockerProc } = live();
+    const release = vi.fn(async () => ({ port: 8787 }));
+    const sbxOauth = () => ({ grants: { issue: vi.fn(), release }, releaseGrant: vi.fn(async () => {}) });
+    const { w, choose } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a, gone]), proc, dockerProc, sbxOauth });
+    choose.mockResolvedValue(REMOVE_ORPHANS as never);
+    await w.cleanupOrphans();
+    expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: ROOT, ticketId: gone, core: 'claude' }));
+    expect(proc.calls.some((c) => c.args.join(' ').startsWith('policy rm'))).toBe(true);
+  });
+
   it('archive of a running sandbox syncs, disposes and removes its bridge; done stops it', async () => {
     const { projectId, a, proc, dockerProc } = live();
     const bridges = { dispose: vi.fn(async () => {}) };
