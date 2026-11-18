@@ -234,7 +234,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     eligible: (ticketId) => eligibleFixDelivery(host, ticketId)?.id ?? null,
     armed: (ticketId) => {
       closeStaleDeliveries(host, ticketId);
-      const row = nextUnreadDelivery(deps.store, ticketId);
+      const row = nextUnreadDelivery(deps.store, ticketId, true);
       return row !== null && row.armedAt !== null && row.pointedAt === null && row.readAt === null && row.pointerFailedAt === null;
     },
     claimPointed: (ticketId, deliveryId) => {

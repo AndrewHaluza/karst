@@ -222,16 +222,18 @@ export function currentFixDelivery(store: Store, ticketId: number): FixDelivery 
 /**
  * The oldest unread, non-superseded row of a ticket, of any kind, or null. The hook pointer and the `fix-brief --ack`
  * read both use it, so each pointer line and each receipt name the same row: an unread fix row and an unread conflict
- * row of one ticket are read one after the other, never in place of each other.
+ * row of one ticket are read one after the other, never in place of each other. `skipFailed` leaves out a pointer-failed
+ * row, so a row that can never be pointed at does not hold the hook pointer of a later row.
  */
-export function nextUnreadDelivery(store: Store, ticketId: number): FixDelivery | null {
+export function nextUnreadDelivery(store: Store, ticketId: number, skipFailed = false): FixDelivery | null {
   const row = store.db
     .prepare(
       `SELECT * FROM fix_deliveries
         WHERE ticket_id = ? AND read_at IS NULL AND superseded_at IS NULL
+          AND (? = 0 OR pointer_failed_at IS NULL)
         ORDER BY id ASC LIMIT 1`,
     )
-    .get(ticketId) as FixDeliveryRow | undefined;
+    .get(ticketId, skipFailed ? 1 : 0) as FixDeliveryRow | undefined;
   return row === undefined ? null : rowToDelivery(row);
 }
 

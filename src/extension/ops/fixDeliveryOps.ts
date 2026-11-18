@@ -109,12 +109,22 @@ export function deliveryRoundOpen(host: FixDeliveryHost, row: FixDelivery): bool
 }
 
 /**
- * Close the oldest unread row whose round is over, of either kind, so it cannot hold the pointer of a later round.
+ * Whether the round of an unread row has ended for good. A `conflict` row ends only on a `clean` check: a missing or
+ * `unknown` check is a transient answer (a re-check in flight) and must not drop the brief. A `fix` row ends as soon
+ * as it is no longer open.
+ */
+function deliveryRoundOver(host: FixDeliveryHost, row: FixDelivery): boolean {
+  if (row.kind === 'conflict') return row.repo !== null && getMergeCheck(host.store, row.ticketId, row.repo)?.state === 'clean';
+  return !deliveryRoundOpen(host, row);
+}
+
+/**
+ * Close the oldest unread row whose round is over (`deliveryRoundOver`), of either kind, so it cannot hold the pointer of a later round.
  * Repeats until the oldest unread row is live.
  */
 export function closeStaleDeliveries(host: FixDeliveryHost, ticketId: number): void {
   for (let row = nextUnreadDelivery(host.store, ticketId); row !== null; row = nextUnreadDelivery(host.store, ticketId)) {
-    if (deliveryRoundOpen(host, row)) return;
+    if (!deliveryRoundOver(host, row)) return;
     if (!supersedeFixDelivery(host.store, row.id, host.now())) return;
     host.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: the ${row.kind} round is over; closed`);
   }
@@ -130,7 +140,7 @@ export function closeStaleDeliveries(host: FixDeliveryHost, ticketId: number): v
  */
 export function eligibleFixDelivery(host: FixDeliveryHost, ticketId: number): FixDelivery | null {
   closeStaleDeliveries(host, ticketId);
-  const row = nextUnreadDelivery(host.store, ticketId);
+  const row = nextUnreadDelivery(host.store, ticketId, true);
   if (row === null) return null;
   if (row.readAt !== null || row.pointerFailedAt !== null || row.enqueuedAt !== null) return null;
   if (row.armedAt === null || row.pointedAt !== null) return null;
