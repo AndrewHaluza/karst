@@ -4,7 +4,7 @@ import type { SandboxLimitsConfig } from '../../agent/sbx/sbxLimits.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendCoreKey, backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { accountForLaunch } from '../../agent/accounts/registry.js';
-import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
+import { resolveBackend, type ResolveBackendInput, type ResolvedBackend } from '../../agent/backendResolver.js';
 import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
@@ -47,6 +47,8 @@ export interface BackendSessionInput {
   /** An explicit launch account (a fresh start under `default`); wins over the resumed session's account (@arch:AC-55). */
   readonly account?: string;
   readonly resolve?: typeof resolveBackend;
+  /** The host OAuth proxy side of an sbx claude launch, read at each resolve so a token added a moment ago counts (@arch:AC-51). */
+  readonly oauth?: () => Promise<NonNullable<ResolveBackendInput['oauth']>>;
   /** Attaches the ticket's evidence bridge; `openSession` calls it only for a sandbox runner (arch:AC-34). */
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
@@ -85,7 +87,9 @@ export function backendSessionOptions(input: BackendSessionInput): {
   const resolve = input.resolve ?? resolveBackend;
   const resolveRunner = async (): Promise<ResolvedBackend> => {
     const bridgePaths = input.bridgeFor ? await input.bridgeFor(input.ticketId).catch(() => undefined) : undefined;
+    const oauth = input.oauth ? await input.oauth() : undefined;
     const out = await resolve({
+      ...(oauth ? { oauth } : {}),
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...accountFor(input.core, input.resumeSessionId, input.account),
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
@@ -151,6 +155,9 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
       if (!ready.ok) throw new Error(`Karst: ${input.ticketLabel} ${ready.reason}`);
     }
   }
+  // sbx claude through the host proxy: a new key per launch, the policy rule and the key approval (@arch:AC-51).
+  const prepared = await resolved.runner.prepareLaunch?.();
+  if (prepared && !prepared.ok) throw new Error(`Karst: ${input.ticketLabel} ${prepared.reason}`);
   if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
     const synced = await input.syncExisting();
     if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);

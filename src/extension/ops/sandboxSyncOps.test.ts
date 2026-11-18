@@ -501,6 +501,34 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     expect(resolve).toHaveBeenCalledTimes(1);
   });
 
+  describe('sbx proxy launch (@arch:AC-51)', () => {
+    const oauth = { grants: { issue: vi.fn(), release: vi.fn() }, tokenAccounts: new Set(['work']) };
+    const mk = (prepareLaunch?: unknown) => ({ kind: 'sbx', enforcesSandbox: true, ...(prepareLaunch ? { prepareLaunch } : {}), bridgeRunDir: (p: { dir: string }) => p.dir }) as never;
+    it('reads the token accounts at each resolve and hands them to the backend resolver', async () => {
+      const resolve = vi.fn(async () => ({ runner: mk(), line: 'sbx' }));
+      const oauthNow = vi.fn(async () => oauth);
+      await resolveLaunchBackend({ ...base, resolve, oauth: oauthNow, bridgeFor: async () => paths });
+      expect(oauthNow).toHaveBeenCalledTimes(1);
+      expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ oauth }));
+    });
+    it('prepares the launch, which issues the key, before the launch is handed back', async () => {
+      const prepare = vi.fn(async () => ({ ok: true as const }));
+      const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(prepare), line: 'sbx' }), bridgeFor: async () => paths });
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(out.sandboxed).toBe(true);
+    });
+    it('stops the launch with the reason when the prepare fails', async () => {
+      const prepare = vi.fn(async () => ({ ok: false as const, reason: 'proxy is down' }));
+      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(prepare), line: 'sbx' }), bridgeFor: async () => paths })).rejects.toThrow('Karst: K-7 proxy is down');
+    });
+    it('does not prepare a host runner', async () => {
+      const prepare = vi.fn();
+      const host = { kind: 'host', enforcesSandbox: false, prepareLaunch: prepare } as never;
+      await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: host, line: 'host (x)' }) });
+      expect(prepare).not.toHaveBeenCalled();
+    });
+  });
+
   it('hands back the transcript link step without running it; a failed link only logs and the launch proceeds', async () => {
     const worktree = { path: '/wt/b', branch: 'k/b' };
     const link = vi.fn(async () => ({ ok: true as const }));
