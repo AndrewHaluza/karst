@@ -275,6 +275,7 @@ flowchart LR
   workflow --> manifest
   workflow --> model
   workflow --> runtime
+  workflow --> runtimeAssetsRoot_ts
   workflow --> store
   workflow --> template
 <!-- GENERATED:end id=MAP-01 -->
