@@ -572,17 +572,6 @@ describe('a conflict round', () => {
     handle.dispose();
   });
 
-  it('hands the pickup of the ticket to the engine: a stored round with no turn is sent again', async () => {
-    const resend = vi.fn();
-    const r = conflicted({ conflictRoundActive: () => true, conflictPickup: () => ({ state: () => 'resend', noteTurn: () => {}, resend }) });
-    markConflictRound(r.store, r.id, Date.now());
-    const handle = startAutopilot(r.deps);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(resend).toHaveBeenCalled();
-    expect(r.deliver).not.toHaveBeenCalled();
-    handle.dispose();
-  });
-
   it('starts no round while a conflict round or its auto-deliver is active', async () => {
     const r = conflicted({ conflictRoundActive: () => true });
     const handle = startAutopilot(r.deps);

@@ -163,6 +163,11 @@ describe('makeHookReply — fix delivery', () => {
     expect(d.blockedAtFix!.get(42)).toEqual({ launchId: 'L1', deliveryId: 9 });
   });
 
+  it('a conflict delivery at ship names the conflict brief and no done marker', () => {
+    const r = makeHookReply(fixDeps({ ticketStage: () => 'ship', fixRound: () => 'conflict' }))({ ticketId: 42, event: 'Stop', launchId: 'L1' });
+    expect(r?.reason).toBe('karst: conflict brief #9 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"');
+  });
+
   it('blocks once per delivery: the same key does not block again', () => {
     const reply = makeHookReply(fixDeps());
     expect(reply({ ticketId: 42, event: 'Stop', launchId: 'L1' })).not.toBeNull();

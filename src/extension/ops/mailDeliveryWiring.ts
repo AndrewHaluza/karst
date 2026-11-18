@@ -69,6 +69,8 @@ export interface MailDeliveryWiringDeps {
   fixEligible?: (ticketId: number) => number | null;
   ticketStage?: (ticketId: number) => string | null;
   claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
+  /** The round of a fix-channel delivery (default `fix`): a `conflict` pointer names no done marker (@arch:AP-01). */
+  fixRound?: (deliveryId: number) => 'fix' | 'conflict';
   /** Names the launch a refused hook should have carried, and an armed-but-ineligible fix row, in the log only. */
   activeLaunchOf?: (ticketId: number) => string | undefined;
   fixArmed?: (ticketId: number) => boolean;
@@ -183,6 +185,7 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
       ? {
           fixEligible: deps.fixEligible,
           ...(deps.ticketStage !== undefined ? { ticketStage: deps.ticketStage } : {}),
+          ...(deps.fixRound !== undefined ? { fixRound: deps.fixRound } : {}),
           claimFixPointed: (ticketId: number, deliveryId: number) => {
             const claimed = deps.claimFixPointed!(ticketId, deliveryId);
             if (claimed) fixBlocked.add(ticketId);

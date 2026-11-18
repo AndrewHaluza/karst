@@ -10,6 +10,7 @@ import { DELIVERY_CHECK_MS } from './fixWatchdog.js';
 import { claimPointerFailed } from '../../store/fixDeliveries.js';
 import { activeFixRound } from '../../store/recoveryRoundsRead.js';
 import { getTicket } from '../../store/tickets.js';
+import { getMergeCheck } from '../../store/mergeChecks.js';
 import {
   failPointer,
   hasPendingFixIntent,
@@ -56,6 +57,18 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
 
   const ageMs = (stamp: string): number => Date.parse(deps.now()) - Date.parse(stamp);
 
+  /**
+   * Whether a row is still live for its round. A `fix` row lives while the ticket is at `fix` and its round is
+   * active (a settled round is the stall watchdog's). A `conflict` row (@arch:AP-01) lives while the merge check of its
+   * repo is still `conflicted`, at any stage: the manual click and the Autopilot round share this ladder.
+   */
+  function roundOpen(row: FixDelivery): boolean {
+    const { store } = deps;
+    if (row.kind === 'conflict') return row.repo !== null && getMergeCheck(store, row.ticketId, row.repo)?.state === 'conflicted';
+    if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return false;
+    return row.recoveryRoundId === null || activeFixRound(store, row.ticketId)?.id === row.recoveryRoundId;
+  }
+
   /** The gates every row passes before any rule applies. */
   function gated(row: FixDelivery): boolean {
     const { store } = deps;
@@ -63,12 +76,9 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     // pointer must still reach the agent once it is live/idle again.
     if (row.pointerFailedAt !== null && !(deps.retryAfterFailure?.(row.ticketId) === true && row.pointedAt === null && row.readAt === null)) return false;
     if (deps.isGraphTicket(row.ticketId)) return false;
-    if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return false;
-    // A tracked row is live only while its round is: a settled/parked round is
+    // A tracked fix row is live only while its round is: a settled/parked round is
     // the stall watchdog's, and wins over this sweep.
-    if (row.recoveryRoundId !== null && activeFixRound(store, row.ticketId)?.id !== row.recoveryRoundId) {
-      return false;
-    }
+    if (!roundOpen(row)) return false;
     if (!deps.isLive(row.ticketId)) return false;
     return !hasPendingFixIntent(store, row.launchId);
   }
@@ -84,8 +94,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     if (deps.unsendableInbox === undefined && deps.hostUnsendable === undefined) return;
     if (row.pointerFailedAt !== null || row.pointedAt !== null || row.readAt !== null) return;
     if (deps.isGraphTicket(row.ticketId)) return;
-    if (getTicket(store, row.ticketId).stageCurrent !== 'fix') return;
-    if (row.recoveryRoundId !== null && activeFixRound(store, row.ticketId)?.id !== row.recoveryRoundId) return;
+    if (!roundOpen(row)) return;
     if (ageMs(row.createdAt) < FIX_POINTER_UNSENDABLE_MS) return;
     const file = deps.unsendableInbox?.(row.ticketId, row.id) ?? null;
     const hostWhy = file === null ? (deps.hostUnsendable?.(row.ticketId, row.id) ?? null) : null;
@@ -148,7 +157,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     }
     // Rule 5 — escalate before re-sending again.
     if (row.repointedAt !== null && ageMs(row.repointedAt) >= FIX_UNREAD_NEEDS_YOU_MS) {
-      deps.needsYou(row.ticketId, 'the fix brief was pointed at twice and never read');
+      deps.needsYou(row.ticketId, `the ${row.kind} brief was pointed at twice and never read`);
       return;
     }
     // Rule 4 — one typed re-send of an unread pointer, on every route.

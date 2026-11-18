@@ -151,6 +151,9 @@ export interface DeliverLiveFixInput {
   body: string;
   /** Appended when the body exceeds the cap. */
   truncatedFooter: string;
+  /** Default `fix`. A `conflict` round (@arch:AP-01) names its repo and shares the route, the sweep and the receipt. */
+  kind?: 'fix' | 'conflict';
+  repo?: string | null;
 }
 
 /**
@@ -169,6 +172,8 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
     body: input.body,
     truncatedFooter: input.truncatedFooter,
     at,
+    ...(input.kind !== undefined ? { kind: input.kind } : {}),
+    ...(input.repo !== undefined ? { repo: input.repo } : {}),
   });
   const row = currentFixDelivery(host.store, input.ticketId);
   if (row === null || row.id !== id) return false;

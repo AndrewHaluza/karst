@@ -164,6 +164,12 @@ describe('runFixBriefCommand --ack', () => {
     expect(getFixDelivery(store, row)).toMatchObject({ readAt: NOW, deliveredVia: 'pointer' });
   });
 
+  it('words the header of a conflict snapshot as a conflict brief', () => {
+    const row = upsertFixDelivery(store, { ticketId: id, recoveryRoundId: null, launchId: 'L', body: 'CONFLICT BRIEF', at: NOW, kind: 'conflict', repo: 'api' });
+    expect(ack('PROJ-1', 'PROJ-1')).toBe(`karst conflict brief #${row}:\nCONFLICT BRIEF`);
+    expect(getFixDelivery(store, row)).toMatchObject({ readAt: NOW, deliveredVia: 'pointer' });
+  });
+
   it('prints (already read) on a repeat and does not re-claim', () => {
     const row = snapshot();
     ack('PROJ-1', 'PROJ-1');

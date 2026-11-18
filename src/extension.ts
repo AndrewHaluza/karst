@@ -17,7 +17,8 @@ import { sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { makeInsideActionHost } from './extension/insideActionHost.js';
 import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js';
 import { worktreePathContext } from './extension/worktreePathContext.js';
-import { makeConflictDelivery } from './extension/ops/conflictNudgeOps.js';
+import { currentConflictDelivery } from './store/fixDeliveries.js';
+import { makeConflictDelivery } from './extension/ops/conflictDeliveryOps.js';
 import { cliEntryAndManifest, cliLiteral, cliSessionInput, launchTokens, buildCliContextPrefix, buildCliStagePrefix, buildCliPhasePrefix, buildCliGuidePrefix, buildCliServersPrefix, buildCliTestPrefix, buildCliFixBriefPrefix, buildCliConflictBriefPrefix } from './extension/cliPrefixes.js';
 import { terminalEnv, makeTerminalIdentityRegistry, restoredSessionOf, wrapTerminal, graphTerminalCwd, wrapRevivedGraphTerminal, makeTerminalHost, makeGraphTerminalHost } from './extension/terminalHosts.js';
 import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions.js';
@@ -43,7 +44,7 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
-import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
+import { resolveConflictClick } from './extension/ops/conflictResolveOps.js';
 import { ticketHandOff } from './extension/ops/guardedHandOff.js';
 import { compileExpertSpend, compileSpentNodeRuns, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
@@ -353,7 +354,7 @@ import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAtt
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { snapshotThenResume } from './workflow/fixRoundGuard.js';
 import { resumeBlockedStage } from './workflow/stageResume.js';
-import { buildConflictBrief, conflictBriefPointer } from './workflow/conflictSession.js';
+import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
 import { createServersBinding } from './extension/serversBinding.js';
 import { describeReap } from './runtime/worktreeServers.js';
@@ -812,10 +813,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
         prepareSandbox: () => sandboxLife.ensureInSync(id),
         notify: (message) => void toast.info(message),
-        deliver: (brief) => {
-          if (sessions.nudge(id, brief)) { sessions.focusSession(id); return; }
-          void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief, seedRepo: repo });
-        },
+        deliver: (brief, hit) => conflictDelivery(id, brief, hit),
       });
     },
     // Peek CTA "Send CI failure to agent": the dashboard's own action (availability and confirm re-derived from the store), bound per ticket.
@@ -2021,14 +2019,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void subtaskAutostart.sweep();
   const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
-  // An Autopilot conflict round types a short pointer into a live session, not the full brief (@arch:AP-01).
-  const conflictDelivery = makeConflictDelivery({
-    nudge: (id, text) => sessions.nudge(id, text), focus: (id) => sessions.focusSession(id), open: (id, brief, repo) => launches.open(id, brief, repo),
-    pointer: (id, repo) => conflictBriefPointer({
-      key: formatId('ticket', id), repo, command: buildCliConflictBriefPrefix(launchTokens(cliLiteral(context, dbPath))),
-    }),
-    key: (id) => formatId('ticket', id), debug: (m) => logger.debug(m),
-  });
   const autopilot = startAutopilot({
     store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
     debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
@@ -2051,16 +2041,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
       arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
       notify: (message) => logger.debug(`[ship] autopilot ticket ${formatId('ticket', id)} conflicts: ${message}`),
-      deliver: (brief, hit, sandboxed) => conflictDelivery.deliver(id, brief, hit, sandboxed),
+      deliver: (brief, hit) => conflictDelivery(id, brief, hit),
     }),
     conflictRoundActive: (id) => conflictRounds.armed(id) !== null || isAutoDelivering(id),
-    conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id),
+    conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id, (repo) => currentConflictDelivery(localStore, id, repo)?.readAt ?? null),
     dropConflictRound: (id) => conflictRounds.disarm(id),
-    conflictPickup: (id) => ({
-      state: () => conflictRounds.pickup(id),
-      noteTurn: () => conflictRounds.noteTurn(id),
-      resend: () => { conflictRounds.markResent(id); conflictDelivery.resend(id); },
-    }),
     isDraining: () => drain.isDraining(),
     startAutoDeliver: (id) => startAutoDeliver(id),
   });
@@ -2082,6 +2067,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     literal: () => cliLiteral(context, dbPath),
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
+  });
+  // A conflict round reaches a live session as a stored `conflict` delivery and the fixed pointer; a closed one is seeded (@arch:AP-01).
+  const conflictDelivery = makeConflictDelivery({
+    isLive: (id) => sessions.isLive(id), isGraphTicket: (id) => nudgeSurface(localStore.db, id) === 'no-op',
+    nudge: (id, text) => sessions.nudge(id, text), focus: (id) => sessions.focusSession(id),
+    open: (id, brief, repo) => launches.open(id, brief, repo),
+    deliverLive: fixDelivery.deliverConflict, recordSeed: fixDelivery.recordConflictSeed,
+    key: (id) => formatId('ticket', id), debug: (m) => logger.debug(m),
   });
   // Host CLI fix markers (@arch:AC-45): a refused `stage fix pass` stored a re-run request; the one host gate re-run runs here.
   const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, drain, projectId: () => currentProject()?.id });
@@ -2123,6 +2116,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isCurrentHook: (id, launchId) => isCurrentHookAfterAdopt(recoveryLifecycle, (ticketId) => { void sessions.isLive(ticketId); }, id, launchId),
     fixEligible: fixDelivery.eligible,
     fixArmed: fixDelivery.armed,
+    fixRound: fixDelivery.roundOf,
     activeLaunchOf: (id) => recoveryLifecycle.currentLaunchId(id),
     ticketStage: (id) => getTicket(localStore, id).stageCurrent,
     claimFixPointed: fixDelivery.claimPointed,
@@ -3122,7 +3116,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // launch one seeded with the brief instead of the ticket's own context.
         // A graph ticket is never nudged from here: the graph coordinator owns
         // its sessions (entry-point matrix, Slice 3 Task 7).
-        makeSessionHandOff(sessionSeams(ticketId)),
+        (brief, repo) => { if (!sessionSeams(ticketId).isGraphTicket()) conflictDelivery(ticketId, brief, repo); },
         () => {
           // Manifest-gated (`diffsInSourceControl`, OFF by default): the ticket's
           // changed files render in the IDE's Source Control view instead of the

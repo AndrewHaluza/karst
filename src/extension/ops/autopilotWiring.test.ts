@@ -80,15 +80,6 @@ describe('autopilotSweep', () => {
     expect((store.db.prepare('SELECT title FROM karst_events').get() as { title: string }).title).toBe('Autopilot: auto-fix not run: graph ticket');
   });
 
-  it('hands the pickup seam to the engine: a stored round with no turn is sent again', async () => {
-    const { store, projectId, id } = shipTicket();
-    markConflictRound(store, id, Date.now());
-    const resend = vi.fn();
-    const s = seams({ conflictPickup: { state: () => 'resend', noteTurn: () => {}, resend }, conflictRoundActive: () => true });
-    await sweepOnce(store, projectId, s);
-    expect(resend).toHaveBeenCalledTimes(1);
-  });
-
   it('a graph ticket whose graph runs are all closed gets the CI round', async () => {
     const { store, projectId, id } = shipTicket();
     graphRun(store, id, 'closed');

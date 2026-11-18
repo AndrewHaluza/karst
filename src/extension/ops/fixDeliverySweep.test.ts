@@ -6,6 +6,7 @@ import {
   getFixDelivery,
 } from '../../store/fixDeliveries.js';
 import { setStageCurrent } from '../../store/tickets.js';
+import { setMergeCheck, clearMergeCheck } from '../../store/mergeChecks.js';
 import { deliverLiveFix } from './fixDeliveryOps.js';
 import {
   ARMED_FIX_TIMEOUT_MS,
@@ -250,6 +251,51 @@ describe('fixDeliverySweep', () => {
       h.advance(ARMED_FIX_TIMEOUT_MS * 2);
       sweep();
       expect(h.sent).toEqual([]);
+    });
+  });
+
+  describe('a conflict row (@arch:AP-01)', () => {
+    const conflicted = (state: 'conflicted' | 'clean' = 'conflicted'): void =>
+      setMergeCheck(h.store, { ticketId: h.ticketId, repo: 'api', state, files: ['a.ts'], reason: null, headSha: 'h', baseSha: 'b', baseRef: 'main', checkedAt: 'x' });
+    const deliverConflict = (): number => {
+      deliverLiveFix(h.host, { ticketId: h.ticketId, roundId: null, body: 'B', truncatedFooter: '', kind: 'conflict', repo: 'api' });
+      return currentFixDelivery(h.store, h.ticketId)!.id;
+    };
+
+    it('is swept at the ship stage while its repo is still conflicted: one pointer after 60 s', () => {
+      setStageCurrent(h.store, h.ticketId, 'ship');
+      conflicted();
+      const id = deliverConflict();
+      h.advance(ARMED_FIX_TIMEOUT_MS);
+      sweep();
+      expect(h.sent).toHaveLength(1);
+      expect(row(id).enqueuedAt).not.toBeNull();
+    });
+
+    it('is not swept once the conflict is gone or the check is missing', () => {
+      setStageCurrent(h.store, h.ticketId, 'ship');
+      conflicted();
+      deliverConflict();
+      conflicted('clean');
+      h.advance(ARMED_FIX_TIMEOUT_MS * 20);
+      sweep();
+      clearMergeCheck(h.store, h.ticketId, 'api');
+      sweep();
+      expect(h.sent).toEqual([]);
+      expect(h.needsYou).toEqual([]);
+    });
+
+    it('raises needs-you after 15 minutes unread', () => {
+      setStageCurrent(h.store, h.ticketId, 'ship');
+      conflicted();
+      const id = deliverConflict();
+      claimPointed(h.store, id, new Date(h.clock.ms).toISOString());
+      h.advance(FIX_POINTER_RESEND_MS);
+      sweep();
+      typeAll();
+      h.advance(FIX_UNREAD_NEEDS_YOU_MS);
+      sweep();
+      expect(h.needsYou.join(' ')).toContain('conflict brief');
     });
   });
 

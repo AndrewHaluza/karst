@@ -130,7 +130,8 @@ function ackBrief(store: Store, ticketId: number, options: FixBriefOptions): str
   const row = currentFixDelivery(store, ticketId);
   if (row === null) return liveBrief(store, ticketId);
   const first = claimRead(store, row.id, 'pointer', (options.now ?? (() => new Date().toISOString()))());
-  const head = first ? `karst fix brief ${formatFixBriefNumber(row.id)}:` : `karst fix brief ${formatFixBriefNumber(row.id)} (already read):`;
+  const what = row.kind === 'conflict' ? 'conflict brief' : 'fix brief';
+  const head = first ? `karst ${what} ${formatFixBriefNumber(row.id)}:` : `karst ${what} ${formatFixBriefNumber(row.id)} (already read):`;
   return `${head}\n${row.body}`;
 }
 

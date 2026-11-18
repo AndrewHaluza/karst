@@ -33,19 +33,7 @@ export interface ConflictRounds {
   /** When the round was armed (ms), or null. */
   armedAt(ticketId: number): number | null;
   disarm(ticketId: number): void;
-  /** An agent turn started (or ended) for the ticket since the brief went out; ignored when no round is armed. */
-  noteTurn(ticketId: number): void;
-  /** The one re-send of the brief went out at `now`; the pickup window starts again. */
-  markResent(ticketId: number, now?: number): void;
-  /** Whether the agent picked the brief up (@arch:AP-01); null when no round is armed. */
-  pickup(ticketId: number, now?: number): ConflictPickupState | null;
 }
-
-/**
- * `turn`: an agent turn started. `waiting`: no turn yet, inside the pickup window. `resend`: no turn, the window is
- * over and the brief was not re-sent. `no-turn`: the brief was re-sent and the window after it is over.
- */
-export type ConflictPickupState = 'turn' | 'waiting' | 'resend' | 'no-turn';
 
 /**
  * In memory on purpose: a reload loses the session too, and the manual Deliver button remains. `onDisarm` lets the store
@@ -54,25 +42,11 @@ export type ConflictPickupState = 'turn' | 'waiting' | 'resend' | 'no-turn';
 export function createConflictRounds(onDisarm?: (ticketId: number) => void): ConflictRounds {
   const byTicket = new Map<number, ResolvedRound>();
   const since = new Map<number, number>();
-  const sentAt = new Map<number, number>();
-  const turns = new Set<number>();
-  const resent = new Set<number>();
   return {
     arm: (ticketId, round) => {
       byTicket.set(ticketId, round);
       const now = Date.now();
       since.set(ticketId, now);
-      sentAt.set(ticketId, now);
-      turns.delete(ticketId);
-      resent.delete(ticketId);
-    },
-    noteTurn: (ticketId) => { turns.add(ticketId); }, // `arm` resets it, `pickup` reads it only for an armed round
-    markResent: (ticketId, now = Date.now()) => { resent.add(ticketId); sentAt.set(ticketId, now); },
-    pickup: (ticketId, now = Date.now()) => {
-      if (!byTicket.has(ticketId)) return null;
-      if (turns.has(ticketId)) return 'turn';
-      if (now - (sentAt.get(ticketId) ?? now) <= CONFLICT_PICKUP_MS) return 'waiting';
-      return resent.has(ticketId) ? 'no-turn' : 'resend';
     },
     armedAt: (ticketId) => since.get(ticketId) ?? null,
     armed: (ticketId) => byTicket.get(ticketId) ?? null,
@@ -207,23 +181,30 @@ export function isAutoDelivering(ticketId: number): boolean {
 /** An armed round with no agent and no delivery for this long never delivered (the agent left it unfinished, or a gate failed). */
 export const CONFLICT_ROUND_STALL_MS = 5 * 60_000;
 
-/** The brief of an armed round gets this long to start an agent turn before it is sent again once (@arch:AP-01). */
-export const CONFLICT_PICKUP_MS = 60_000;
-
 /**
- * A round stalls in two cases: an agent turn started and left no merge for the stall time, or the brief was sent
- * twice and started no turn. A round that never started a turn and was not re-sent yet is not stalled: it is sent again first.
+ * The stall clock starts at the receipt: the agent's `fix-brief --ack` read of the stored conflict brief, or the launch
+ * seed (@arch:AP-01). A round with no receipt is never stalled here: `fixDeliverySweep` re-sends the pointer and
+ * raises needs-you, and the round is not dropped. A receipt and no merge after the stall time is a round that did not deliver.
+ * `receiptAt(repo)` is the ISO read time of the latest conflict delivery of the round's repo, or null.
  */
-export function isConflictRoundStalled(rounds: ConflictRounds, ticketId: number, now: number = Date.now()): boolean {
+export function isConflictRoundStalled(
+  rounds: ConflictRounds,
+  ticketId: number,
+  receiptAt: (repo: string) => string | null,
+  now: number = Date.now(),
+): boolean {
   if (isAutoDelivering(ticketId)) return false;
-  const state = rounds.pickup(ticketId, now); // null (no round) is never stalled
-  return state === 'no-turn' || (state === 'turn' && now - rounds.armedAt(ticketId)! > CONFLICT_ROUND_STALL_MS);
+  const round = rounds.armed(ticketId); // null (no round) is never stalled
+  if (round === null) return false;
+  const receipt = receiptAt(round.repo);
+  if (receipt === null) return false;
+  const at = Date.parse(receipt);
+  return Number.isFinite(at) && now - at > CONFLICT_ROUND_STALL_MS;
 }
 
 /** Run on a Stop/session.idle of a ticket; a no-op unless a Resolve-conflicts round is armed for it. */
 export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void> {
   const round = d.rounds.armed(d.ticketId);
-  d.rounds.noteTurn(d.ticketId); // a Stop/idle of the ticket: the agent took a turn (`arm` resets it)
   if (round === null || inFlight.has(d.ticketId) || d.agentActive()) return;
   if (drainProbe?.() === true) {
     d.log(`[ship] ticket ${d.key} auto-deliver not started: draining`);

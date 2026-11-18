@@ -5,6 +5,7 @@ import { fixPointer, inboxRef, isSandboxChannel, messagePointer, type DeliveryCh
 import { getTicket, setAgentState } from '../../store/tickets.js';
 import {
   claimPointed,
+  claimRead,
   currentFixDelivery,
   getFixDelivery,
   openFixDeliveryForLaunch,
@@ -99,6 +100,15 @@ export interface FixDeliveryWiring {
   sweep: FixDeliverySweep;
   /** Live path: store the round's snapshot and point the live agent at it. */
   deliver: (ticketId: number, roundId: number | null) => boolean;
+  /**
+   * Conflict round (@arch:AP-01), live path: store the brief as a `conflict` row and point the live agent at it, like a
+   * fix round. False when no session could take it (the caller seeds a launch instead).
+   */
+  deliverConflict: (ticketId: number, repo: string, brief: string) => boolean;
+  /** Conflict round, seed path: the launch seed carries the brief, so the row is read at once (`delivered_via='seed'`). */
+  recordConflictSeed: (ticketId: number, repo: string, brief: string) => void;
+  /** The pointer round of a delivery the hook is about to name: `conflict` words it and drops the marker clause. */
+  roundOf: (deliveryId: number) => 'fix' | 'conflict';
   /** Seed path: store the snapshot for a prepared fix launch (call inside the intent's transaction). */
   recordSeed: (ticketId: number, roundId: number, launchId: string) => void;
   /** Seed path, untracked round: the seed carries the newer brief, so older unread rows go stale. */
@@ -151,7 +161,8 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       if (deps.agyBusy(id)) return 'held';
       const channel = deps.sessionChannel(id);
       if (isSandboxChannel(channel) && !writeFixBrief(deps, id, deliveryId)) return 'unavailable';
-      const line = messagePointer(fixPointer(deliveryId, getTicket(deps.store, id).stageCurrent), channel);
+      const kind = getFixDelivery(deps.store, deliveryId)?.kind ?? 'fix';
+      const line = messagePointer(fixPointer(deliveryId, getTicket(deps.store, id).stageCurrent, kind), channel);
       return deps.nudge(id, line, hooks) ? 'queued' : 'unavailable';
     },
     writeBrief: (id, deliveryId) => {
@@ -189,6 +200,13 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId), deps.sessionChannel(ticketId) === 'mcp');
       return deliverLiveFix(host, { ticketId, roundId, body, truncatedFooter: footer });
     },
+    deliverConflict: (ticketId, repo, brief) => deliverLiveFix(host, { ticketId, roundId: null, body: brief, truncatedFooter: '… truncated', kind: 'conflict', repo }),
+    recordConflictSeed: (ticketId, repo, brief) => {
+      const at = now();
+      const id = upsertFixDelivery(deps.store, { ticketId, recoveryRoundId: null, launchId: deps.currentLaunchId(ticketId) ?? null, body: brief, truncatedFooter: '… truncated', at, kind: 'conflict', repo });
+      claimRead(deps.store, id, 'seed', at);
+    },
+    roundOf: (deliveryId) => getFixDelivery(deps.store, deliveryId)?.kind ?? 'fix',
     recordSeed: (ticketId, roundId, launchId) => {
       const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId), deps.sessionChannel(ticketId) === 'mcp');
       upsertFixDelivery(deps.store, {

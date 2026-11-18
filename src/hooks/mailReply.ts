@@ -92,6 +92,8 @@ export interface MailReplyDeps {
   /** The ticket's current stage, so the fix pointer names a marker only where one exists. */
   ticketStage?: (ticketId: number) => string | null;
   claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
+  /** The round of a delivery (default `fix`): a `conflict` pointer names no done marker (@arch:AP-01). */
+  fixRound?: (deliveryId: number) => 'fix' | 'conflict';
   blockedAtFix?: Map<number, BlockedAtFix>;
   /**
    * The marker nudge (last priority): the in-memory snapshot `dispatchHook` took
@@ -141,7 +143,7 @@ function fixReply(deps: MailReplyDeps, ticketId: number, launchId: string | unde
   }
   const prev = deps.blockedAtFix.get(ticketId);
   if (prev !== undefined && prev.launchId === launchId && prev.deliveryId === deliveryId) return null;
-  const line = messagePointer(fixPointer(deliveryId, deps.ticketStage?.(ticketId) ?? null), deps.sessionChannel(ticketId));
+  const line = messagePointer(fixPointer(deliveryId, deps.ticketStage?.(ticketId) ?? null, deps.fixRound?.(deliveryId) ?? 'fix'), deps.sessionChannel(ticketId));
   if (!deps.claimFixPointed(ticketId, deliveryId)) return null;
   deps.blockedAtFix.set(ticketId, { launchId, deliveryId });
   deps.debug?.(`[driver] delivery reply ${formatId('ticket', ticketId)}: fix pointer #${deliveryId}`);
