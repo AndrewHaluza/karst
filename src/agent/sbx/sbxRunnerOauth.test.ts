@@ -156,6 +156,17 @@ describe('sbx launch through the proxy', () => {
     expect(log.join()).not.toContain('secret');
   });
 
+  it('stops a guest setup that hangs past the time limit, with a reason', async () => {
+    const hang = { calls: [] as string[][], run: (_c: string, args: readonly string[], o?: { signal?: AbortSignal }) => new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+      hang.calls.push([...args]);
+      if (args[0] === 'ls' || args[0] === 'ps') { resolve({ code: 0, stdout: '', stderr: '' }); return; }
+      o?.signal?.addEventListener('abort', () => resolve({ code: 127, stdout: '', stderr: 'aborted' }));
+    }) };
+    const runner = createSbxSessionRunner({ proc: hang, core: 'claude', name: NAME, existing: [NAME], linkTimeoutMs: 20, oauth: { grants: grants(), account: 'work' } });
+    const out = await runner.prepareLaunch!();
+    expect(out).toEqual({ ok: false, reason: 'sbx policy allow failed: timed out' });
+  });
+
   it('abortLaunch revokes the issued key and removes the policy rule, and a later placement is refused', async () => {
     const g = grants();
     const { runner, proc } = make(g, [], 'work');

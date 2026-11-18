@@ -236,12 +236,13 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     if (out.code !== 0) opts.log?.(`[sbx ${opts.name}] proxy policy rm failed (exit ${out.code}): ${out.stderr.trim().slice(0, 300)}`);
   };
   /** Allow the proxy port for this sandbox, then approve the key in the guest. The key travels only in the exec client env. */
-  const setupGuestOauth = async (): Promise<StepOutcome> => {
+  const setupGuestOauth = async (signal: AbortSignal = AbortSignal.timeout(opts.linkTimeoutMs ?? TRANSCRIPT_LINK_TIMEOUT_MS)): Promise<StepOutcome> => {
     if (!issued) return { ok: true };
-    const allowed = await sbx(oauthPolicyArgs('allow', opts.name, issued.port));
-    if (allowed.code !== 0) return { ok: false, reason: `sbx policy allow failed: ${allowed.stderr.trim().slice(0, GUEST_ERR_MAX)}` };
-    const approved = await opts.proc.run(SBX_BIN, approvalExecArgs(opts.name), { env: { [APPROVAL_KEY_ENV]: issued.key } });
-    if (approved.code !== 0) return { ok: false, reason: `sbx exec failed to approve the proxy key: ${approved.stderr.trim().slice(0, GUEST_ERR_MAX)}` };
+    const why = (stderr: string): string => (signal.aborted ? 'timed out' : stderr.trim().slice(0, GUEST_ERR_MAX));
+    const allowed = await opts.proc.run(SBX_BIN, oauthPolicyArgs('allow', opts.name, issued.port), { signal });
+    if (allowed.code !== 0) return { ok: false, reason: `sbx policy allow failed: ${why(allowed.stderr)}` };
+    const approved = await opts.proc.run(SBX_BIN, approvalExecArgs(opts.name), { env: { [APPROVAL_KEY_ENV]: issued.key }, signal });
+    if (approved.code !== 0) return { ok: false, reason: `sbx exec failed to approve the proxy key: ${why(approved.stderr)}` };
     guestPending = false;
     return { ok: true };
   };
@@ -290,7 +291,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       known.add(opts.name);
     }
     if (guestPending) {
-      const ready = await setupGuestOauth();
+      const ready = await setupGuestOauth(signal);
       if (!ready.ok) return ready;
     }
     const linked = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...transcriptLinkCommand(input.bridgeDir, cwd)], { signal, ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}) });
