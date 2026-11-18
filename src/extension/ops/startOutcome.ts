@@ -129,7 +129,7 @@ export function makeStartGuards(deps: StartGuardsDeps) {
       const tracked = (): Promise<T> => work().finally(() => hung.delete(ticketId));
       const step = await withBackendTimeout(tracked, LAUNCH_BACKEND_TIMEOUT_MS, (late) => {
         deps.warn(`open session ${ticketId}: backend result for ${label} arrived after the timeout; ignored`);
-        discard?.(late).catch((e: unknown) => deps.logError(`open session ${ticketId}: could not discard the late backend result of ${label}`, e));
+        Promise.resolve().then(() => discard?.(late)).catch((e: unknown) => deps.logError(`open session ${ticketId}: could not discard the late backend result of ${label}`, e));
       });
       if (step.kind === 'done') return step.value;
       hung.add(ticketId);

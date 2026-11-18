@@ -52,6 +52,14 @@ describe('sbx oauth binding grants', () => {
     s.subscriptions.forEach((d) => d.dispose());
   });
 
+  it('hands the launch resolver the accounts with a stored token, read through its own account list and store', async () => {
+    const s = setup();
+    const input = await s.reg.oauthInput();
+    expect([...input.tokenAccounts]).toEqual(['work']);
+    expect(input.grants).toBe(s.reg.grants);
+    s.subscriptions.forEach((d) => d.dispose());
+  });
+
   it('issues a key through its grant store and the proxy of this window', async () => {
     const s = setup();
     const out = await s.reg.grants.issue('sb2', 'work');

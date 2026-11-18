@@ -123,6 +123,34 @@ describe('makeStartGuards', () => {
     vi.useRealTimers();
   });
 
+  it('logs a failed discard of a late backend result, with the label and the error', async () => {
+    vi.useFakeTimers();
+    const { d, g } = guards();
+    const boom = new Error('discard failed');
+    let release!: (v: string) => void;
+    const caught = g.boundedBackendStep(8, 'T8', () => new Promise<string>((r) => { release = r; }), async () => { throw boom; }).catch(() => 'timeout');
+    await vi.advanceTimersByTimeAsync(LAUNCH_BACKEND_TIMEOUT_MS);
+    await caught;
+    release('late');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.logError).toHaveBeenCalledWith(expect.stringContaining('T8'), boom);
+    vi.useRealTimers();
+  });
+
+  it('a late backend result with no discard only warns', async () => {
+    vi.useFakeTimers();
+    const { d, g } = guards();
+    let release!: (v: string) => void;
+    const caught = g.boundedBackendStep(9, 'T9', () => new Promise<string>((r) => { release = r; })).catch(() => 'timeout');
+    await vi.advanceTimersByTimeAsync(LAUNCH_BACKEND_TIMEOUT_MS);
+    await caught;
+    release('late');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.warn).toHaveBeenCalledWith(expect.stringContaining('ignored'));
+    expect(d.logError).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   it('a healthy backend passes its value through without marking', async () => {
     const { d, g } = guards();
     await expect(g.boundedBackendStep(5, 'T5', async () => 'ok')).resolves.toBe('ok');

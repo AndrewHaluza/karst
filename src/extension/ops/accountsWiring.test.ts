@@ -359,3 +359,21 @@ it('revokes the sandbox keys of a deleted claude account before its token goes, 
   expect(map.has('karst.sbx.token.claude.k')).toBe(false);
   store.close();
 });
+
+it('logs a failed key revoke of a deleted account without the error text, and does not revoke for another core', async () => {
+  const store = openStore(':memory:');
+  const map = new Map<string, string>([['karst.sbx.token.claude.k', 'sk-ant-oat01-zzzzzzzzzzzz']]);
+  const secrets = { get: async (k: string) => map.get(k), store: async (k: string, v: string) => { map.set(k, v); }, delete: async (k: string) => { map.delete(k); } };
+  const debug = vi.fn();
+  const revokeSbxKeys = vi.fn(async (_a: string) => { throw new Error('keychain sk-ant-secret'); });
+  const w = await wireAccounts({ globalStorageRoot: await mkdtemp(join(tmpdir(), 'acct-wire4-')), store, secrets, revokeSbxKeys, debug });
+  await w.ops.createAccount('claude', 'k', { source: 'folder', dir: '/h/k' });
+  await w.ops.deleteAccount('claude', 'k');
+  expect(debug).toHaveBeenCalledWith(expect.stringContaining('revoke of the keys of the deleted account k failed'));
+  expect(JSON.stringify(debug.mock.calls)).not.toContain('secret');
+  revokeSbxKeys.mockClear();
+  await w.ops.createAccount('codex', 'c', { source: 'folder', dir: '/h/c' });
+  await w.ops.deleteAccount('codex', 'c');
+  expect(revokeSbxKeys).not.toHaveBeenCalled();
+  store.close();
+});

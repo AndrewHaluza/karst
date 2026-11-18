@@ -533,6 +533,32 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
       await expect(out.linkTranscripts!()).rejects.toThrow(/K-7 .*sbx policy allow failed: denied/);
       expect(info).not.toHaveBeenCalledWith(expect.stringContaining('token usage'));
     });
+    it('hands back the abort of the launch, which gives the key back', async () => {
+      const abortLaunch = vi.fn(async () => undefined);
+      const runner = { ...(mk(async () => ({ ok: true as const })) as object), abortLaunch } as never;
+      const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths });
+      await out.abortLaunch!();
+      expect(abortLaunch).toHaveBeenCalledTimes(1);
+      expect((await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(), line: 'sbx' }), bridgeFor: async () => paths })).abortLaunch).toBeUndefined();
+    });
+    it('keeps the launch error when the give-back of the key fails too', async () => {
+      const abortLaunch = vi.fn(async () => { throw new Error('revoke failed'); });
+      const runner = { ...(mk(async () => ({ ok: false as const, reason: 'proxy is down' })) as object), abortLaunch } as never;
+      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths })).rejects.toThrow('proxy is down');
+      expect(abortLaunch).toHaveBeenCalledTimes(1);
+    });
+    it('launches a runner with no sandbox probe, no run dir and no bridge, and records no clone without a bridge', async () => {
+      const runner = { kind: 'sbx', enforcesSandbox: true } as never;
+      const syncExisting = vi.fn(async () => ({ ok: true as const }));
+      const out = await resolveLaunchBackend({ ...base, worktree: { path: '/wt/b', branch: 'k/b' }, syncExisting, resolve: async () => ({ runner, line: 'sbx' }) });
+      expect(out.sandboxed).toBe(true);
+      expect(syncExisting).not.toHaveBeenCalled();
+      expect(out.runDir).toBeUndefined();
+      expect(out.bridge).toBeUndefined();
+      const withBridge = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths });
+      expect(withBridge.runDir).toBeUndefined();
+      expect(withBridge.bridge).toEqual(paths);
+    });
     it('does not prepare a host runner', async () => {
       const prepare = vi.fn();
       const host = { kind: 'host', enforcesSandbox: false, prepareLaunch: prepare } as never;
