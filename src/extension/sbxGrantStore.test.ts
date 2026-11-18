@@ -231,4 +231,31 @@ describe('sbx grant store', () => {
     secrets.map.delete('karst.sbx.token.claude.work');
     expect(await store.liveRegistrations()).toEqual([]);
   });
+  it('keeps both sandbox names when two windows (two stores on one secret storage) launch at the same time', async () => {
+    const map = new Map<string, string>();
+    const sleep = (): Promise<void> => new Promise((r) => setTimeout(r, 5));
+    // A slow shared storage: every read and write yields, so an unguarded read-change-write loses an update.
+    const secrets: SecretStore = { get: async (k) => { await sleep(); return map.get(k); }, store: async (k, v) => { await sleep(); map.set(k, v); }, delete: async (k) => { map.delete(k); } };
+    await setSbxToken(secrets, 'claude', 'work', TOKEN);
+    const client = { register: vi.fn(async () => undefined), revoke: vi.fn(async () => undefined), readPort: vi.fn(async () => 8787) };
+    let held = false;
+    let queue: Promise<unknown> = Promise.resolve();
+    // One lock for both windows (the production lock is a directory shared by the windows).
+    const lock = <T,>(section: () => Promise<T>): Promise<T> => { const run = queue.then(async () => { if (held) throw new Error('overlap'); held = true; try { return await section(); } finally { held = false; } }); queue = run.catch(() => undefined); return run; };
+    const win = (): ReturnType<typeof createSbxGrantStore> => createSbxGrantStore({ secrets, client, ensureProxy: async () => undefined, lock });
+    const [a, b] = [win(), win()];
+    await Promise.all([a.issue('sb-a', 'work'), b.issue('sb-b', 'work')]);
+    expect(JSON.parse(map.get('karst.sbx.grants.index') ?? '[]').sort()).toEqual(['sb-a', 'sb-b']);
+    expect((await a.liveRegistrations()).length).toBe(2);
+  });
+
+  it('fails the launch, and revokes its key, when the index lock cannot be taken', async () => {
+    const secrets = memory();
+    await setSbxToken(secrets, 'claude', 'work', TOKEN);
+    const client = { register: vi.fn(async () => undefined), revoke: vi.fn(async () => undefined), readPort: vi.fn(async () => 8787) };
+    const store = createSbxGrantStore({ secrets, client, ensureProxy: async () => undefined, lock: async () => { throw new Error('held'); } });
+    const out = await store.issue('sb', 'work');
+    expect(out).toEqual({ ok: false, reason: 'the sandbox key could not be stored' });
+    expect(client.revoke).toHaveBeenCalled();
+  });
 });

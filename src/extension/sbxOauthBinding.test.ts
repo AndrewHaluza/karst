@@ -26,7 +26,7 @@ function setup(opts: { stored?: boolean; registrations?: { key: string; token: s
   const debug: string[] = [];
   const reg = registerSbxOauth({
     vscode, secrets, accounts: { listAccounts: async () => rows }, notify: { info: (m) => { infos.push(m); }, warn: () => {}, error: async () => {} },
-    globalStorageRoot: '/gs', extensionPath: '/ext', subscriptions, ...(opts.registrations ? { liveRegistrations: async () => opts.registrations! } : {}), debug: (m) => debug.push(m),
+    globalStorageRoot: '/gs', grantLock: async (section) => section(), extensionPath: '/ext', subscriptions, ...(opts.registrations ? { liveRegistrations: async () => opts.registrations! } : {}), debug: (m) => debug.push(m),
     spawn: (i) => { spawns.push(i); },
   });
   return { commands, picks, inputs, map, spawns, infos, subscriptions, debug, reg };

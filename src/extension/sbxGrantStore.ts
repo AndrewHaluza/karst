@@ -8,6 +8,7 @@
 import { newSandboxKey, type ProxyClient } from '../agent/oauthProxy/client.js';
 import type { SandboxRegistration } from '../agent/oauthProxy/lifecycle.js';
 import type { OauthIssue, SbxOauthGrants } from '../agent/sbx/sbxOauthGuest.js';
+import type { WithLock } from './crossWindowLock.js';
 import type { SecretStore } from './secretStore.js';
 import { getSbxToken, SBX_TOKEN_CORE } from './sbxTokenStore.js';
 
@@ -31,6 +32,8 @@ export interface SbxGrantStoreDeps {
   readonly client: Pick<ProxyClient, 'register' | 'revoke' | 'readPort'>;
   /** Start the proxy when it is missing (the proxy lifecycle `sync`). */
   readonly ensureProxy: () => Promise<void>;
+  /** Runs the read-change-write of the shared index alone across the windows (SecretStorage has no compare-and-set). */
+  readonly lock?: WithLock;
   readonly debug?: (message: string) => void;
 }
 
@@ -49,10 +52,11 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
     } catch { return []; }
   };
   const writeNames = (list: readonly string[]): Promise<void> => Promise.resolve(deps.secrets.store(INDEX_KEY, JSON.stringify(list)));
-  // One chain: the index is read, changed and written in order, so two overlapping launches keep both names.
+  // One chain per window and the cross-window lock around each change: two launches, in this window or in two, keep both names.
+  const guarded = <T,>(section: () => Promise<T>): Promise<T> => (deps.lock ? deps.lock(section) : section());
   let indexChain: Promise<void> = Promise.resolve();
   const changeIndex = (change: (list: readonly string[]) => readonly string[]): Promise<void> => {
-    const next = indexChain.then(async () => writeNames(change(await names())));
+    const next = indexChain.then(() => guarded(async () => writeNames(change(await names()))));
     indexChain = next.catch(() => undefined);
     return next;
   };

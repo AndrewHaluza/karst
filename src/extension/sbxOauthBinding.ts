@@ -4,6 +4,7 @@ import { createProxyClient, proxyPaths } from '../agent/oauthProxy/client.js';
 import { createProxyLifecycle, type SandboxRegistration } from '../agent/oauthProxy/lifecycle.js';
 import { spawnDetachedProxy } from '../agent/oauthProxy/spawnProxy.js';
 import { join } from 'node:path';
+import { createDirLock, type WithLock } from './crossWindowLock.js';
 import { createSbxGrantStore } from './sbxGrantStore.js';
 import { createLaunchOauthInput, createSbxGrantReleaser } from './ops/sbxLaunchOauth.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
@@ -26,6 +27,8 @@ export interface SbxOauthHost {
   readonly subscriptions: { dispose(): unknown }[];
   /** Overrides the keys and tokens of the live sandboxes; the default is the grant store of this binding. */
   readonly liveRegistrations?: () => Promise<readonly SandboxRegistration[]>;
+  /** Overrides the cross-window lock of the grant index; the default is a lock directory in the storage root. */
+  readonly grantLock?: WithLock;
   readonly spawn?: typeof spawnDetachedProxy;
   readonly debug: (message: string) => void;
 }
@@ -51,7 +54,7 @@ export function registerSbxOauth(host: SbxOauthHost) {
     lifecycle, listAccounts: (core) => host.accounts.listAccounts(core), secrets: host.secrets,
     every: intervalEvery, debug: host.debug,
   });
-  grants = createSbxGrantStore({ secrets: host.secrets, client, ensureProxy: proxy.sync, debug: host.debug });
+  grants = createSbxGrantStore({ secrets: host.secrets, client, ensureProxy: proxy.sync, lock: host.grantLock ?? createDirLock(join(host.globalStorageRoot, 'sbx-grants-index.lock')), debug: host.debug });
   const ops = createSbxTokenOps({
     secrets: host.secrets,
     listAccounts: (core) => host.accounts.listAccounts(core),

@@ -36,7 +36,7 @@ function setup(opts: { failGrantWrite?: boolean } = {}) {
   const subscriptions: { dispose(): unknown }[] = [];
   const reg = registerSbxOauth({
     vscode, secrets, accounts: { listAccounts: async () => rows }, notify: { info: () => {}, warn: () => {}, error: async () => {} },
-    globalStorageRoot: '/gs', extensionPath: '/ext', subscriptions, debug: (m) => debug.push(m), spawn: () => {},
+    globalStorageRoot: '/gs', grantLock: async (section) => section(), extensionPath: '/ext', subscriptions, debug: (m) => debug.push(m), spawn: () => {},
   });
   return { commands, map, debug, reg, subscriptions };
 }
