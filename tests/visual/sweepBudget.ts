@@ -34,7 +34,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },
   serverLogs: { screenshots: 8, layout: 30 },
-  settings: { screenshots: 62, layout: 118 },
+  // T1228 accounts-sbx-token (the sbx token cell, set and not set), @ui:UI-R57: 3 themes (+3 screenshots); skipLayout, because accounts-several already runs the same route.
+  settings: { screenshots: 65, layout: 118 },
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
   // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).

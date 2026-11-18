@@ -752,7 +752,7 @@ const settingsVariants = (): Variant[] => [
   ...settingsRouteVariants().filter((v) => v.baseline !== 'agents-profile' && !v.baseline.endsWith('agents-accounts')),
   accountsVariant('accounts-default-only', DEFAULT_ONLY_CORES, { skipLayout: true }),
   accountsVariant('accounts-several', SEVERAL_CORES),
-  accountsVariant('accounts-sbx-token', TOKEN_CORES),
+  accountsVariant('accounts-sbx-token', TOKEN_CORES, { skipLayout: true }),
   qualityStallVariant('quality-stall-disabled', { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null }),
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
