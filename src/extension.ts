@@ -19,7 +19,7 @@ import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js'
 import { worktreePathContext } from './extension/worktreePathContext.js';
 import { currentConflictDelivery } from './store/fixDeliveries.js';
 import { makeConflictDelivery } from './extension/ops/conflictDeliveryOps.js';
-import { ensureCliCopy, pruneCliCopies, setActiveCliCopy } from './extension/cliCopy.js';
+import { ensureCliCopy, pruneCliCopies, resolveCliEntry, setActiveCliCopy } from './extension/cliCopy.js';
 import { cliEntryAndManifest, cliLiteral, cliSessionInput, launchTokens, buildCliContextPrefix, buildCliStagePrefix, buildCliPhasePrefix, buildCliGuidePrefix, buildCliServersPrefix, buildCliTestPrefix, buildCliFixBriefPrefix, buildCliConflictBriefPrefix } from './extension/cliPrefixes.js';
 import { terminalEnv, makeTerminalIdentityRegistry, restoredSessionOf, wrapTerminal, graphTerminalCwd, wrapRevivedGraphTerminal, makeTerminalHost, makeGraphTerminalHost } from './extension/terminalHosts.js';
 import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions.js';
@@ -4810,7 +4810,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           artifactRoot: input.artifactRoot,
           callbackUrl: route.url,
           callbackToken: route.token,
-          cliPath: join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js'),
+          cliPath: resolveCliEntry(join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js')),
           dbPath,
           projectId: currentProject()?.id ?? 0,
         });
