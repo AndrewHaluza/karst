@@ -46,9 +46,16 @@ export function createProxyLifecycle(deps: ProxyLifecycleDeps) {
     return running;
   }
 
-  /** One health probe: a failed probe (crash, no keys) runs a full sync. Returns whether it re-synced. */
+  /**
+   * One health probe. A failed probe (crash, no keys) runs a full sync and returns true.
+   * A healthy probe still re-registers this window's sandboxes: another window may have
+   * restarted the shared proxy, which then has none of these keys. Registering is idempotent.
+   */
   async function probe(): Promise<boolean> {
-    if (await deps.client.health()) return false;
+    if (await deps.client.health()) {
+      for (const { key, token } of await deps.liveRegistrations()) await deps.client.register(key, token);
+      return false;
+    }
     deps.debug?.('[oauth-proxy] health probe failed; restarting and re-registering');
     await sync();
     return true;

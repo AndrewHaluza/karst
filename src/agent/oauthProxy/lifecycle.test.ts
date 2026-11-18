@@ -47,12 +47,13 @@ describe('proxy lifecycle', () => {
     expect(spawns).toBe(1);
   });
 
-  it('probe re-syncs only after a failed health check', async () => {
+  it('probe re-registers when healthy and fully re-syncs after a failed health check', async () => {
     let up = true;
     const { client, registered } = fakeClient(() => up);
     const l = createProxyLifecycle({ client, spawnProxy: () => { up = true; }, liveRegistrations: async () => [{ key: 'a', token: 't' }], wait });
     expect(await l.probe()).toBe(false);
-    expect(registered).toEqual([]);
+    expect(registered).toEqual([['a', 't']]); // healthy: still re-registers, a peer window may have restarted the proxy
+    registered.length = 0;
     up = false;
     expect(await l.probe()).toBe(true);
     expect(registered).toEqual([['a', 't']]);
