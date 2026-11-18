@@ -11,6 +11,7 @@ import {
   deliverTakeOverNote,
   autoDeliverPhase,
   isConflictRoundStalled,
+  CONFLICT_PICKUP_MS,
   CONFLICT_ROUND_STALL_MS,
   createConflictRounds,
   verifyMergeResolved,
@@ -280,15 +281,87 @@ describe('isAutoDelivering', () => {
 });
 
 describe('isConflictRoundStalled', () => {
-  it('is true only for a round armed longer than the stall time with no delivery running', () => {
+  it('is true only for a round with a started turn, armed longer than the stall time, with no delivery running', () => {
     const rounds = createConflictRounds();
     expect(isConflictRoundStalled(rounds, 9)).toBe(false);
     rounds.arm(9, ROUND);
+    rounds.noteTurn(9);
     const at = rounds.armedAt(9)!;
     expect(isConflictRoundStalled(rounds, 9, at + CONFLICT_ROUND_STALL_MS)).toBe(false);
     expect(isConflictRoundStalled(rounds, 9, at + CONFLICT_ROUND_STALL_MS + 1)).toBe(true);
     rounds.disarm(9);
     expect(rounds.armedAt(9)).toBeNull();
+  });
+
+  it('does not stall a round while its resolved merge is being delivered', async () => {
+    const seen: boolean[] = [];
+    const { deps, rounds } = rig({
+      runGates: async () => {
+        seen.push(isConflictRoundStalled(rounds, 1, rounds.armedAt(1)! + CONFLICT_ROUND_STALL_MS * 3));
+        return null;
+      },
+    });
+    rounds.noteTurn(1);
+    expect(isConflictRoundStalled(rounds, 1, rounds.armedAt(1)! + CONFLICT_ROUND_STALL_MS * 3)).toBe(true);
+    await autoDeliverAfterConflict(deps);
+    expect(seen).toEqual([false]);
+  });
+
+  it('does not stall a round with no turn before the one re-send, however old it is', () => {
+    const rounds = createConflictRounds();
+    rounds.arm(9, ROUND);
+    const at = rounds.armedAt(9)!;
+    expect(isConflictRoundStalled(rounds, 9, at + CONFLICT_ROUND_STALL_MS * 2)).toBe(false);
+  });
+});
+
+describe('conflict round pickup', () => {
+  it('is null with no round and waiting inside the pickup window', () => {
+    const rounds = createConflictRounds();
+    expect(rounds.pickup(9)).toBeNull();
+    rounds.arm(9, ROUND);
+    const at = rounds.armedAt(9)!;
+    expect(rounds.pickup(9, at + CONFLICT_PICKUP_MS)).toBe('waiting');
+  });
+
+  it('asks for one re-send after the window, then waits, then reports no-turn', () => {
+    const rounds = createConflictRounds();
+    rounds.arm(9, ROUND);
+    const at = rounds.armedAt(9)!;
+    expect(rounds.pickup(9, at + CONFLICT_PICKUP_MS + 1)).toBe('resend');
+    rounds.markResent(9, at + CONFLICT_PICKUP_MS + 1);
+    expect(rounds.pickup(9, at + CONFLICT_PICKUP_MS + 2)).toBe('waiting');
+    expect(rounds.pickup(9, at + 2 * CONFLICT_PICKUP_MS + 2)).toBe('no-turn');
+    expect(isConflictRoundStalled(rounds, 9, at + 2 * CONFLICT_PICKUP_MS + 2)).toBe(true);
+  });
+
+  it('reports turn once an agent turn started, and the re-send state is gone with the round', () => {
+    const rounds = createConflictRounds();
+    rounds.arm(9, ROUND);
+    rounds.noteTurn(9);
+    expect(rounds.pickup(9, rounds.armedAt(9)! + 10 * CONFLICT_PICKUP_MS)).toBe('turn');
+    rounds.disarm(9);
+    rounds.noteTurn(9);
+    expect(rounds.pickup(9)).toBeNull();
+    rounds.arm(9, ROUND);
+    expect(rounds.pickup(9, rounds.armedAt(9)! + 1)).toBe('waiting');
+  });
+
+  it('a new round starts with no turn and no re-send of an earlier round', () => {
+    const rounds = createConflictRounds();
+    rounds.arm(9, ROUND);
+    rounds.noteTurn(9);
+    rounds.arm(9, ROUND);
+    expect(rounds.pickup(9, rounds.armedAt(9)! + 1)).toBe('waiting');
+    rounds.markResent(9);
+    rounds.arm(9, ROUND);
+    expect(rounds.pickup(9, rounds.armedAt(9)! + CONFLICT_PICKUP_MS + 1)).toBe('resend');
+  });
+
+  it('a Stop of the ticket counts as a started turn', async () => {
+    const { deps, rounds } = rig({ agentActive: () => true });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.pickup(1, rounds.armedAt(1)! + 1)).toBe('turn');
   });
 });
 

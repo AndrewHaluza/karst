@@ -6,7 +6,7 @@ import { setStage } from '../store/stages.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { transition } from '../workflow/machine.js';
 import { makeLaunchTracker, makePlacementCheck, makeSandboxPreflight, makeSessionOwnerSync, makeStopSession, regenerateEntries, registerAutopilotCommands, stableWindowId, startAutopilot, type AutopilotBindingDeps } from './autopilotBinding.js';
-import { claimAutopilotTicket, getAutopilotSessionOwner, getAutopilotTicket, staleRebaseRuns, syncAutopilotSessionOwner } from '../store/autopilot.js';
+import { markConflictRound, claimAutopilotTicket, getAutopilotSessionOwner, getAutopilotTicket, staleRebaseRuns, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
 import { rebaseOnBaseAction, sendCiFailureAction } from './ops/ciActionsWiring.js';
 
@@ -565,10 +565,21 @@ describe('a conflict round', () => {
     const handle = startAutopilot(r.deps);
     await vi.advanceTimersByTimeAsync(1000);
     expect(r.deliver).toHaveBeenCalledTimes(1);
-    expect(r.deliver).toHaveBeenCalledWith('BRIEF', 'r');
+    expect(r.deliver).toHaveBeenCalledWith('BRIEF', 'r', false);
     expect(sendCiFailureAction).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(5000);
     expect(r.deliver).toHaveBeenCalledTimes(1);
+    handle.dispose();
+  });
+
+  it('hands the pickup of the ticket to the engine: a stored round with no turn is sent again', async () => {
+    const resend = vi.fn();
+    const r = conflicted({ conflictRoundActive: () => true, conflictPickup: () => ({ state: () => 'resend', noteTurn: () => {}, resend }) });
+    markConflictRound(r.store, r.id, Date.now());
+    const handle = startAutopilot(r.deps);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(resend).toHaveBeenCalled();
+    expect(r.deliver).not.toHaveBeenCalled();
     handle.dispose();
   });
 

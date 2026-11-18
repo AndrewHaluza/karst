@@ -7,7 +7,7 @@ import type { ResolveConflictInput } from './ops/conflictResolveOps.js';
 import { approveCommand, retryCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './ops/autopilotCommandOps.js';
 import type { AutopilotKind, AutopilotOverride } from '../store/autopilot.js';
 import { claimAutopilotTicket, getAutopilotSessionOwner, syncAutopilotSessionOwner } from '../store/autopilot.js';
-import { roundDied, type FixOutcome, type Placement } from './ops/autopilotOps.js';
+import { roundDied, type ConflictPickupSeam, type FixOutcome, type Placement } from './ops/autopilotOps.js';
 import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
 import type { GhRunner } from '../integrations/github.js';
@@ -142,6 +142,8 @@ export interface AutopilotBindingDeps {
   /** The host drains for a planned reload (@arch:DRAIN-01): the engine sends no round. */
   readonly isDraining?: () => boolean;
   readonly dropConflictRound: (ticketId: number) => void;
+  /** The pickup of an engine conflict brief of one ticket (@arch:AP-01). Absent: no re-send. */
+  readonly conflictPickup?: (ticketId: number) => ConflictPickupSeam;
   /** Starts the auto-deliver of the armed conflict round in the background (the Stop-hook path). Absent: no resume after a reload. */
   readonly startAutoDeliver?: (ticketId: number) => void;
   /** Take the pending session launch the last hand-off started for the ticket (undefined: a nudge, no launch). */
@@ -266,6 +268,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         conflictRoundStalled: () => d.conflictRoundStalled(id),
         ...(d.isDraining ? { isDraining: d.isDraining } : {}),
         dropConflictRound: () => d.dropConflictRound(id),
+        ...(d.conflictPickup ? { conflictPickup: d.conflictPickup(id) } : {}),
         ...(d.startAutoDeliver ? { resumeDeliver: (fromRound: boolean) => resumeFinishedMerge(resumeDepsOf(d, id), fromRound) } : {}),
         localHead: async (repo) => {
           const t = deliverTargets(d.store, id);

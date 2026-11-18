@@ -72,7 +72,7 @@ describe('resolveConflictClick', () => {
 
     await resolveConflictClick(input);
 
-    expect(deliver).toHaveBeenCalledWith('BRIEF', '/repos/api');
+    expect(deliver).toHaveBeenCalledWith('BRIEF', '/repos/api', false);
     expect(notify).not.toHaveBeenCalled();
   });
 

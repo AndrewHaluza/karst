@@ -30,7 +30,8 @@ export interface ResolveConflictInput {
   readonly probeSandbox: () => Promise<SandboxProbe>;
   readonly briefFor: (sandboxed: boolean) => string | null;
   readonly notify: (message: string) => void;
-  readonly deliver: (brief: string, repo: string) => void;
+  /** `sandboxed`: the brief is the sandbox variant (a sandbox session has no host CLI). */
+  readonly deliver: (brief: string, repo: string, sandboxed: boolean) => void;
   /** Called once the brief is going out: arms Karst's own delivery of the resolved merge (D247). */
   readonly arm?: (repo: string) => void;
   /**
@@ -77,7 +78,7 @@ export async function resolveConflictRound(input: ResolveConflictInput): Promise
     if (failure !== null) return { kind: 'declined', reason: failure.message, environment: failure.blocker };
   }
   input.arm?.(input.repo);
-  input.deliver(brief, input.repo);
+  input.deliver(brief, input.repo, sandboxed);
   return { kind: 'sent' };
 }
 
