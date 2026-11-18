@@ -1,4 +1,5 @@
-import { configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
+import { configureAccounts, configureRecordedAccountLookup, resetAccounts } from '../../agent/accounts/registry.js';
+import { resolveBackend } from '../../agent/backendResolver.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
@@ -786,6 +787,34 @@ describe('backendSessionOptions resume account (@arch:AC-55)', () => {
     } finally {
       configureRecordedAccountLookup(undefined);
     }
+  });
+});
+
+describe('a resume under a token account runs in sbx (@arch:AC-51)', () => {
+  const grants = { issue: vi.fn(), release: vi.fn() };
+  const make = (tokenAccounts: string[]) => backendSessionOptions({
+    backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p/karst.yml', ticketId: 7, ticketLabel: 'K-7',
+    info: vi.fn(), warn: vi.fn(), resumeSessionId: 'sess-1', oauth: async () => ({ grants, tokenAccounts: new Set(tokenAccounts) }),
+    resolve: (input) => resolveBackend({ ...input, proc: fakeSbxProcess(), preflight: async () => ({ ok: true, existing: [sbxName({ projectRoot: '/p/karst.yml', ticketId: 7, core: 'claude' })] }), worktree: { hostWorktreePath: '/p/wt', branch: 'karst/t7' } }),
+  });
+  beforeEach(() => configureAccounts({ claude: { active: 'default', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } }));
+  afterEach(() => resetAccounts());
+
+  it('uses the recorded account: with a token it is not blocked and the runner prepares a key', async () => {
+    configureRecordedAccountLookup((_core, id) => (id === 'sess-1' ? 'work' : undefined));
+    try {
+      const resolved = await make(['work']).resolveRunner!();
+      expect(resolved.blocked).toBeUndefined();
+      expect(resolved.runner.prepareLaunch).toBeDefined();
+    } finally { configureRecordedAccountLookup(undefined); }
+  });
+
+  it('without a token the recorded account is blocked, and the dialog may add one', async () => {
+    configureRecordedAccountLookup((_core, id) => (id === 'sess-1' ? 'work' : undefined));
+    try {
+      const resolved = await make([]).resolveRunner!();
+      expect(resolved.blocked).toMatchObject({ kind: 'account', account: 'work' });
+    } finally { configureRecordedAccountLookup(undefined); }
   });
 });
 
