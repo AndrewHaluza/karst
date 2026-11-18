@@ -303,9 +303,10 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
           '--', ...autonomousLaunch(opts.core, runner).args, ...spec.args,
         ],
         env: { ...withoutHostOnlyEnv(spec.env), ...(issued ? { [KEY_ENV]: issued.key } : {}) },
+        ...(issued ? { transient: true } : {}),
       };
     },
-    ...(opts.oauth ? { prepareLaunch } : {}),
+    ...(opts.oauth ? { prepareLaunch, guestSetupPending: () => guestPending } : {}),
     ...(opts.core === 'claude' ? { linkTranscripts: linkTranscripts } : {}),
     // sbx mounts extra workspaces at the same absolute path.
     bridgeRunDir: (paths) => paths.dir,

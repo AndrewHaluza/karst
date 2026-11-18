@@ -303,6 +303,22 @@ describe('SessionManager', () => {
         ...(withRunDir ? { bridgeRunDir: (p) => p.runDir } : {}),
       });
 
+      it('a launch that holds a secret in its env makes a terminal that VS Code does not keep (transient)', async () => {
+        const { adapter } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const seen: Array<boolean | undefined> = [];
+        const create = host.createTerminal.bind(host);
+        host.createTerminal = (opts) => { seen.push(opts.transient); return create(opts); };
+        const runner = (transient: boolean): SessionRunner => ({
+          kind: 'sbx', enforcesSandbox: true, runHeadless: () => Promise.reject(new Error('not used')),
+          placeInteractive: () => ({ cwd: '/w', shellPath: 'sbx', shellArgs: [], env: {}, ...(transient ? { transient } : {}) }),
+        });
+        for (const transient of [true, false]) {
+          await new DefaultedSessionManager(host, channelFor).openSession(adapter, 7 + Number(transient), '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, { ...cli, resolveRunner: () => Promise.resolve({ runner: runner(transient), line: 'sbx' }) });
+        }
+        expect(seen).toEqual([true, undefined]);
+      });
+
       it('a sandbox launch with a bridge carries the bridge dir and the file hook channel', async () => {
         const { adapter, calls } = fakeAdapter('claude');
         const { host } = fakeHost();

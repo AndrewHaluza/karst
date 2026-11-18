@@ -166,6 +166,9 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   const paths = await options.bridgeFor?.(input.ticketId);
   const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
   if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
+  const canLink = Boolean(paths && input.worktree);
+  // The guest setup of a new sandbox runs in the link step: without a bridge it could not run, and the launch would fail later without a reason.
+  if (!canLink && resolved.runner.guestSetupPending?.()) throw new Error(`Karst: ${input.ticketLabel} the proxy key of a new sandbox needs a bridge and a worktree to be set up; the launch stops`);
   const link = paths && input.worktree ? transcriptLinkStep(resolved.runner, input, paths.dir, input.worktree.path) : undefined;
   return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}), ...(link ? { linkTranscripts: link } : {}) };
 }

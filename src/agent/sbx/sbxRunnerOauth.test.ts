@@ -30,6 +30,15 @@ describe('sbx launch through the proxy', () => {
     expect(JSON.stringify(placed.shellArgs)).not.toContain(KEY);
   });
 
+  it('marks a launch that holds the key in its env as transient, and a launch without a key as not', async () => {
+    const a = make(grants(), [NAME]);
+    await a.runner.prepareLaunch!();
+    expect(a.runner.placeInteractive(spec).transient).toBe(true);
+    const b = make(grants(), [NAME], null);
+    await b.runner.prepareLaunch!();
+    expect(b.runner.placeInteractive(spec).transient).toBeUndefined();
+  });
+
   it('puts the same pairs on a new sandbox, after its create, and on a reattach', async () => {
     for (const existing of [[], [NAME]]) {
       const { runner } = make(grants(), existing);

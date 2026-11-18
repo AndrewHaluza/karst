@@ -522,6 +522,10 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
       const prepare = vi.fn(async () => ({ ok: false as const, reason: 'proxy is down' }));
       await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(prepare), line: 'sbx' }), bridgeFor: async () => paths })).rejects.toThrow('Karst: K-7 proxy is down');
     });
+    it('stops the launch with a reason when a new sandbox needs a guest setup but no bridge gives a link step', async () => {
+      const runner = { ...(mk(async () => ({ ok: true as const })) as object), linkTranscripts: async () => ({ ok: true as const }), guestSetupPending: () => true } as never;
+      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }) })).rejects.toThrow(/K-7 .*bridge/);
+    });
     it('does not prepare a host runner', async () => {
       const prepare = vi.fn();
       const host = { kind: 'host', enforcesSandbox: false, prepareLaunch: prepare } as never;

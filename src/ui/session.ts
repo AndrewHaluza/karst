@@ -232,6 +232,8 @@ export interface CreateTerminalOpts {
   mcp?: boolean;
   /** Keep automated continuations out of the visible terminal UI. */
   hideFromUser?: boolean;
+  /** The env holds a secret: VS Code must not persist the terminal or its env. */
+  transient?: boolean;
   /** File path to a tinted icon SVG (real: mapped to `vscode.Uri.file`). */
   iconPath?: string;
   /** Terminal-color ThemeColor key (real: `new vscode.ThemeColor(color)`). */
@@ -724,6 +726,7 @@ export class SessionManager {
         shellPath: placed.shellPath,
         shellArgs: placed.shellArgs,
         env: placed.env,
+        ...(placed.transient ? { transient: true } : {}),
         ...(identity ? { identity } : {}),
         ...(mcpConfigPath ? { mcp: true } : {}),
         ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
