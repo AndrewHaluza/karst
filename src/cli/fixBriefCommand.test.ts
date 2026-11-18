@@ -5,7 +5,7 @@ import { setStage } from '../store/stages.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { reconcilePrFeedback, adoptPrFeedbackIntoRound } from '../store/prFeedback.js';
 import { openRecoveryRound } from '../store/recoveryRounds.js';
-import { currentFixDelivery, upsertFixDelivery, getFixDelivery } from '../store/fixDeliveries.js';
+import { currentFixDelivery, upsertFixDelivery, getFixDelivery, claimPointed } from '../store/fixDeliveries.js';
 import { parseFixBriefArgs, runFixBriefCommand } from './fixBriefCommand.js';
 
 describe('parseFixBriefArgs', () => {
@@ -176,6 +176,14 @@ describe('runFixBriefCommand --ack', () => {
     expect(ack('PROJ-1', 'PROJ-1')).toBe(`karst fix brief #${fix}:\nFIX BODY`);
     expect(getFixDelivery(store, conflict)?.readAt).toBeNull();
     expect(ack('PROJ-1', 'PROJ-1')).toBe(`karst conflict brief #${conflict}:\nCONFLICT BODY`);
+  });
+
+  it('serves the row the pointer named: a younger pointed row before an older unread one', () => {
+    const older = upsertFixDelivery(store, { ticketId: id, recoveryRoundId: null, launchId: 'L', body: 'OLD', at: NOW });
+    const younger = upsertFixDelivery(store, { ticketId: id, recoveryRoundId: null, launchId: 'L', body: 'YOUNG', at: NOW, kind: 'conflict', repo: 'api' });
+    claimPointed(store, younger, NOW);
+    expect(ack('PROJ-1', 'PROJ-1')).toBe(`karst conflict brief #${younger}:\nYOUNG`);
+    expect(getFixDelivery(store, older)?.readAt).toBeNull();
   });
 
   it('prints (already read) on a repeat and does not re-claim', () => {

@@ -110,6 +110,19 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     deps.needsYou(row.ticketId, `the fix pointer could not be sent (${hostWhy}) — open the ticket session and ask the agent to read its fix brief`);
   }
 
+  /**
+   * A conflict brief nobody received and no live session can take (the session closed after the round was armed):
+   * `gated` skips such a row for ever, so after the unread window raise Needs you once (`pointer_failed_at` is the once-claim).
+   */
+  function escalateDeadConflict(row: FixDelivery): void {
+    if (row.kind !== 'conflict' || row.readAt !== null || row.pointerFailedAt !== null) return;
+    if (deps.isGraphTicket(row.ticketId) || deps.isLive(row.ticketId) || !roundOpen(row)) return;
+    if (ageMs(row.createdAt) < FIX_UNREAD_NEEDS_YOU_MS) return;
+    if (!claimPointerFailed(deps.store, row.id, deps.now())) return;
+    deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: conflict brief reached no live session`);
+    deps.needsYou(row.ticketId, 'the conflict brief reached no live session — open the ticket session and resolve the conflict');
+  }
+
   function apply(row: FixDelivery): void {
     const { store } = deps;
     const route = deps.routeFor(row.ticketId);
@@ -186,6 +199,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
       for (const row of listOpenFixDeliveries(deps.store, projectId)) {
         try {
           escalateUnsendable(row);
+          escalateDeadConflict(row);
           if (gated(row)) apply(row);
         } catch (err) {
           // One bad row must never starve the rest; the next tick retries.

@@ -20,6 +20,13 @@ describe('fixDeliveryOps', () => {
   });
 
   describe('deliverLiveFix', () => {
+    it('a tracked round updated in place still delivers when a younger conflict row exists', () => {
+      const round = h.openRound();
+      expect(deliverLiveFix(h.host, input({ roundId: round }))).toBe(true);
+      upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'C', at: h.host.now(), kind: 'conflict', repo: 'api' });
+      expect(deliverLiveFix(h.host, input({ roundId: round, body: 'BRIEF 2' }))).toBe(true);
+    });
+
     it('push route: stores the snapshot against the live generation and arms it', () => {
       expect(deliverLiveFix(h.host, input())).toBe(true);
       const row = currentFixDelivery(h.store, h.ticketId)!;

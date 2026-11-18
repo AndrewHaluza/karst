@@ -8,7 +8,7 @@ import { activeRecoverySeries } from '../store/recoveryRounds.js';
 import { listPrFeedbackForRound } from '../store/prFeedback.js';
 import { hasLinkedPrototype, renderFixBrief } from '../agent/fixBrief.js';
 import { resolveTicketByKey } from './resolveTicket.js';
-import { currentFixDelivery, nextUnreadDelivery, claimRead } from '../store/fixDeliveries.js';
+import { currentFixDelivery, ackTargetDelivery, claimRead } from '../store/fixDeliveries.js';
 import { quoteArg } from '../agent/cliEnv.js';
 import { formatTicketRef } from '../model/entityId.js';
 
@@ -127,7 +127,7 @@ function ackBrief(store: Store, ticketId: number, options: FixBriefOptions): str
         'refusing: a session may read only its own fix brief',
     );
   }
-  const row = nextUnreadDelivery(store, ticketId) ?? currentFixDelivery(store, ticketId);
+  const row = ackTargetDelivery(store, ticketId) ?? currentFixDelivery(store, ticketId);
   if (row === null) return liveBrief(store, ticketId);
   const first = claimRead(store, row.id, 'pointer', (options.now ?? (() => new Date().toISOString()))());
   const what = row.kind === 'conflict' ? 'conflict brief' : 'fix brief';

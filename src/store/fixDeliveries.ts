@@ -235,6 +235,22 @@ export function nextUnreadDelivery(store: Store, ticketId: number): FixDelivery 
   return row === undefined ? null : rowToDelivery(row);
 }
 
+/**
+ * The row an `--ack` read serves: the unread row pointed at most recently (the pointer line names that row), else the
+ * oldest unread row. A typed send can point at a younger row while an older unread row waits, so the oldest row alone
+ * could differ from the row the pointer named.
+ */
+export function ackTargetDelivery(store: Store, ticketId: number): FixDelivery | null {
+  const row = store.db
+    .prepare(
+      `SELECT * FROM fix_deliveries
+        WHERE ticket_id = ? AND read_at IS NULL AND superseded_at IS NULL
+        ORDER BY (pointed_at IS NULL), COALESCE(repointed_at, pointed_at) DESC, id ASC LIMIT 1`,
+    )
+    .get(ticketId) as FixDeliveryRow | undefined;
+  return row === undefined ? null : rowToDelivery(row);
+}
+
 /** The latest non-superseded `conflict` row of a ticket (of one repo when given), or null: its `readAt` is the round's receipt. */
 export function currentConflictDelivery(store: Store, ticketId: number, repo?: string): FixDelivery | null {
   const row = store.db

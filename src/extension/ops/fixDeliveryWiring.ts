@@ -6,7 +6,6 @@ import { getTicket, setAgentState } from '../../store/tickets.js';
 import {
   claimPointed,
   claimRead,
-  currentFixDelivery,
   nextUnreadDelivery,
   getFixDelivery,
   openFixDeliveryForLaunch,
@@ -210,7 +209,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     roundOf: (deliveryId) => getFixDelivery(deps.store, deliveryId)?.kind ?? 'fix',
     recordSeed: (ticketId, roundId, launchId) => {
       const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId), deps.sessionChannel(ticketId) === 'mcp');
-      upsertFixDelivery(deps.store, {
+      const id = upsertFixDelivery(deps.store, {
         ticketId,
         recoveryRoundId: roundId,
         launchId,
@@ -218,8 +217,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
         truncatedFooter: footer,
         at: now(),
       });
-      const row = currentFixDelivery(deps.store, ticketId);
-      if (row !== null && isSandboxChannel(deps.sessionChannel(ticketId))) writeFixBrief(deps, ticketId, row.id);
+      if (isSandboxChannel(deps.sessionChannel(ticketId))) writeFixBrief(deps, ticketId, id);
     },
     supersedeUnread: (ticketId) => {
       supersedeFixDeliveries(deps.store, ticketId, now());

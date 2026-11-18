@@ -272,6 +272,20 @@ describe('fixDeliverySweep', () => {
       expect(row(id).enqueuedAt).not.toBeNull();
     });
 
+    it('raises Needs you once when no live session can take an unread brief for 15 minutes', () => {
+      setStageCurrent(h.store, h.ticketId, 'ship');
+      conflicted();
+      deliverConflict();
+      h.state.live = false;
+      h.advance(FIX_UNREAD_NEEDS_YOU_MS - 1);
+      sweep();
+      expect(h.needsYou).toHaveLength(0);
+      h.advance(1);
+      sweep();
+      sweep();
+      expect(h.needsYou).toEqual(['the conflict brief reached no live session — open the ticket session and resolve the conflict']);
+    });
+
     it('is not swept once the conflict is gone or the check is missing', () => {
       setStageCurrent(h.store, h.ticketId, 'ship');
       conflicted();

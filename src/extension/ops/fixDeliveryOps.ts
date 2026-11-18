@@ -10,7 +10,6 @@ import {
   claimRepointed,
   clearEnqueued,
   claimRead,
-  currentFixDelivery,
   nextUnreadDelivery,
   getFixDelivery,
   supersedeFixDelivery,
@@ -176,8 +175,8 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
     ...(input.kind !== undefined ? { kind: input.kind } : {}),
     ...(input.repo !== undefined ? { repo: input.repo } : {}),
   });
-  const row = currentFixDelivery(host.store, input.ticketId);
-  if (row === null || row.id !== id) return false;
+  const row = getFixDelivery(host.store, id);
+  if (row === null || row.supersededAt !== null) return false;
   // A refused write (tampered inbox) leaves the row for the sweep; nothing is typed this round.
   if (host.writeBrief?.(input.ticketId, id) === false) return true;
   const route = host.routeFor(input.ticketId);
