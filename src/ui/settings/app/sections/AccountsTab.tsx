@@ -10,7 +10,7 @@
  * in its own masked input box and sends back only `set` / `not-set` (@arch:AC-51). Below 700px the rows
  * stack into cards (agents.webview.css).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
 import { Field } from '../primitives/Field.js';
@@ -79,14 +79,29 @@ export function AccountsTab({ route }: AccountsTabProps) {
     : null;
 
   // The host answers a token action with a fresh state (done or cancelled) or an error text.
+  // Only its own `accounts-token-done` ends the op: an unrelated state push must not clear 'Saving…'.
   useEffect(() => {
-    setTokenOp((cur) => (cur !== null && cur.error === null ? null : cur));
-  }, [cores]);
-  useEffect(() => {
-    if (last?.message.type !== 'accounts-error' || !TOKEN_OPS.has(last.message.op)) return;
+    if (last === null) return;
     const { seq, message } = last;
-    setTokenOp((cur) => (cur !== null && cur.error === null && seq > cur.openedSeq ? { ...cur, error: message.message } : cur));
+    if (message.type === 'accounts-token-done') {
+      setTokenOp((cur) => (cur !== null && seq > cur.openedSeq && cur.core === message.core && cur.name === message.name ? null : cur));
+    } else if (message.type === 'accounts-error' && TOKEN_OPS.has(message.op)) {
+      setTokenOp((cur) => (cur !== null && cur.error === null && seq > cur.openedSeq ? { ...cur, error: message.message } : cur));
+    }
   }, [last]);
+
+  // A link from a launch dialog (#agents/accounts/<core>/<account>) lands with that row's token control focused.
+  const focusKey = route.selected !== undefined && route.account !== undefined ? `${route.selected}/${route.account}` : null;
+  const focusedRef = useRef<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusKey === null || cores === null || focusedRef.current === focusKey) return;
+    const cells = Array.from(rootRef.current?.querySelectorAll('[data-sbx-token-row]') ?? []);
+    const target = cells.find((c) => c.getAttribute('data-sbx-token-row') === focusKey)?.querySelector<HTMLElement>('button');
+    if (!target) return;
+    focusedRef.current = focusKey;
+    target.focus();
+  }, [focusKey, cores]);
 
   const sendToken = (type: 'accounts-set-sbx-token' | 'accounts-remove-sbx-token', core: AccountCore, name: string): void => {
     setRemoving(null);
@@ -100,7 +115,7 @@ export function AccountsTab({ route }: AccountsTabProps) {
   };
 
   return (
-    <div className="accounts-tab" data-region="accounts-tabs">
+    <div className="accounts-tab" data-region="accounts-tabs" ref={rootRef}>
       <p className="accounts-note">
         Accounts are machine-local. Add, set active and delete apply at once and are not part of Save.
       </p>
@@ -202,7 +217,7 @@ function CoreRow(p: CoreRowProps) {
               <td data-col="dir" data-label="Folder">{row.dir ?? '—'}</td>
               <td data-col="command" data-label="Command">{row.command ?? '—'}</td>
               <td data-col="status" data-label="Status">{STATUS_TEXT[row.status]}</td>
-              <td data-col="sbx-token" data-label="sbx token"><SbxTokenCell row={row} {...p} /></td>
+              <td data-col="sbx-token" data-label="sbx token" data-sbx-token-row={`${view.core}/${row.name}`}><SbxTokenCell row={row} {...p} /></td>
               <td data-col="actions" data-label="Actions" className="accounts-row-actions">
                 <Button variant="ghost" size="sm" aria-label={`Log in ${row.name}`} onClick={() => send.accounts({ type: 'accounts-login', core: view.core, name: row.name })}>Log in</Button>
                 {!row.active ? (
@@ -265,6 +280,7 @@ function SbxTokenCell({ row, tokenOp, removing, onSetToken, onAskRemoveToken, on
   const error = mine?.error ?? null;
   return (
     <span className="accounts-token">
+      {row.sbxToken === 'unknown' ? <span>Token status unknown</span> : null}
       {row.sbxToken === 'set' ? (
         <>
           <span>Token set</span>

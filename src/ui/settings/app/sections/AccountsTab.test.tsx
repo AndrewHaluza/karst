@@ -11,6 +11,7 @@ import { AnnouncerProvider } from '../primitives/LiveRegion.js';
 import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { AccountsTab } from './AccountsTab.js';
+import type { AgentsRoute } from './agentsRoute.js';
 
 afterEach(cleanup);
 
@@ -25,12 +26,12 @@ const CORE = (core: AccountsCoreView['core'], extra: AccountsCoreView['rows'] = 
 const WORK = { name: 'work', label: 'work', active: false, builtIn: false, source: 'managed', dir: '/a/work', status: 'not-signed-in' } as const;
 const FOLDER = { name: 'fold', label: 'fold', active: false, builtIn: false, source: 'folder', dir: '/h/f', status: 'unknown' } as const;
 
-function mount(cores: AccountsCoreView[] = [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')]) {
+function mount(cores: AccountsCoreView[] = [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')], route: AgentsRoute = { tab: 'accounts' }) {
   const bridge: TestBridge = createTestBridge();
   render(
     <AnnouncerProvider>
       <SettingsAppProvider bridge={bridge} initialSection="agents">
-        <AccountsTab route={{ tab: 'accounts' }} navigate={() => {}} />
+        <AccountsTab route={route} navigate={() => {}} />
       </SettingsAppProvider>
     </AnnouncerProvider>,
   );
@@ -251,7 +252,26 @@ describe('Accounts tab sbx token cell (D651)', () => {
     expect(Object.keys(bridge.last('accounts-set-sbx-token') as object).sort()).not.toContain('token');
     expect(cellOf('work').textContent).toContain('Saving');
     push({ type: 'accounts-state', cores: [CORE('claude', [{ ...WORK, sbxToken: 'set' }, { ...FOLDER, sbxToken: 'set' }])] });
+    expect(cellOf('work').textContent).toContain('Saving'); // an unrelated state push does not end the op
+    push({ type: 'accounts-token-done', core: 'claude', name: 'work' });
     expect(cellOf('work').textContent).toContain('Token set');
+  });
+
+  it('says the token status is unknown when the host could not read the keychain', () => {
+    const { push } = mountTokens();
+    push({ type: 'accounts-state', cores: [CORE('claude', [{ ...WORK, sbxToken: 'unknown' }, FOLDER])] });
+    expect(cellOf('work').textContent).toContain('Token status unknown');
+    expect(within(cellOf('work')).getByRole('button', { name: 'Set token work' })).toBeTruthy();
+  });
+
+  it('focuses the token control of the account named in the route', () => {
+    mount([CORE('claude', [...TOKEN_ROWS]), CORE('codex')], { tab: 'accounts', selected: 'claude', account: 'work' });
+    expect(document.activeElement).toBe(within(cellOf('work')).getByRole('button', { name: 'Set token work' }));
+  });
+
+  it('focuses nothing when the route names no account', () => {
+    mount([CORE('claude', [...TOKEN_ROWS]), CORE('codex')]);
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('shows the host error and keeps the Set token action when the token is invalid', () => {

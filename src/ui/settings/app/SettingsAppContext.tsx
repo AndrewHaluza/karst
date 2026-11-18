@@ -183,7 +183,18 @@ export function SettingsAppProvider({
   // Every host message goes through the pure reducer; nothing here interprets a
   // message's payload beyond handing it over.
   useEffect(
-    () => host.subscribe((message) => dispatch({ kind: 'host', message })),
+    () => host.subscribe((message) => {
+      if (message.type === 'navigate') {
+        // A host deep link: the hash first (the Agents page reads it on mount and on hashchange), then the tab.
+        try {
+          window.location.hash = message.hash;
+        } catch {
+          /* hash unavailable — the section still switches */
+        }
+        if (message.hash.startsWith('#agents')) setSection('agents');
+      }
+      dispatch({ kind: 'host', message });
+    }),
     [host],
   );
 

@@ -72,7 +72,7 @@ export function createAccountsHost(deps: AccountsHostDeps) {
     try {
       return (await deps.sbxToken.has(name)) ? 'set' : 'not-set';
     } catch {
-      return 'not-set';
+      return 'unknown';
     }
   }
 
@@ -93,7 +93,7 @@ export function createAccountsHost(deps: AccountsHostDeps) {
         return;
       }
       tokens.onChanged?.(name, 'removed');
-      return pushState();
+      return finishToken(core, name);
     }
     const token = await tokens.ask(name).catch(() => undefined);
     if (token) {
@@ -110,7 +110,13 @@ export function createAccountsHost(deps: AccountsHostDeps) {
       }
       tokens.onChanged?.(name, 'set');
     }
-    return pushState();
+    return finishToken(core, name);
+  }
+
+  /** Push the fresh state, then tell the tab this token action is over. */
+  async function finishToken(core: AccountCore, name: string): Promise<void> {
+    await pushState();
+    post({ type: 'accounts-token-done', core, name });
   }
 
   async function coreView(core: AccountCore): Promise<AccountsCoreView> {

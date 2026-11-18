@@ -60,6 +60,8 @@ export type SettingsWebviewMessage =
 /** Host → webview messages. */
 export type SettingsHostMessage =
   | { type: 'state'; state: SettingsState }
+  /** Show the Agents page at this hash (`#agents/accounts/claude/<account>`); sent by the host to deep-link a row. */
+  | { type: 'navigate'; hash: string }
   | { type: 'models'; models: ModelCatalog; modelCompatibility: ModelCatalog; recentModels: Record<string, string[]> }
   /** Fresh host-computed views for the inside-process assignment rows. */
   | { type: 'process-assignment-views'; rows: SettingsProcessAssignmentView[] }

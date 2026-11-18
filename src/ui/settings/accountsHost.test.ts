@@ -204,7 +204,7 @@ describe('accounts host', () => {
       await ops.createAccount('claude', 'w', { source: 'managed' });
       await host.handle({ type: 'accounts-set-sbx-token', core: 'claude', name: 'w' });
       expect(stored.size).toBe(0);
-      expect(posted.map((m) => m.type)).toEqual(['accounts-state']);
+      expect(posted.map((m) => m.type)).toEqual(['accounts-state', 'accounts-token-done']);
     });
 
     it('refuses a bad prefix with a fixed message and stores nothing', async () => {

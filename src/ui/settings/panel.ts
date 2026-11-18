@@ -88,6 +88,12 @@ export class SettingsManager {
     await this.start(this.host.createPanel('Karst Settings'));
   }
 
+  /** Open (or reveal) the panel, then show the Agents page at `hash`, for example a row's token control. */
+  async openAt(hash: string): Promise<void> {
+    await this.open();
+    this.panel?.postMessage({ type: 'navigate', hash });
+  }
+
   /**
    * Adopt the settings tab VS Code restored after a window reload. A second
    * copy (the slot is already held) is closed. Never reveals or focuses.

@@ -8,7 +8,8 @@ import type { AccountCore, AccountSource } from '../../agent/accounts/types.js';
 export type AccountStatusView = 'signed-in' | 'not-signed-in' | 'unknown';
 
 /** Whether a Claude account holds an sbx token. Never the token itself (@arch:AC-51). */
-export type SbxTokenStateView = 'set' | 'not-set';
+/** `unknown`: the keychain read failed, so the row says so instead of claiming 'not set'. */
+export type SbxTokenStateView = 'set' | 'not-set' | 'unknown';
 
 export interface AccountRowView {
   readonly name: string;
@@ -75,6 +76,8 @@ export type AccountsHostMessage =
   | { type: 'accounts-copy-result'; core: AccountCore; name: string; copied: readonly string[]; skipped: readonly { path: string; reason: string }[] }
   | { type: 'accounts-status'; core: AccountCore; name: string; status: AccountStatusView }
   | { type: 'accounts-folder-picked'; path: string }
+  /** A token action ended (done, cancelled or refused); the tab stops showing 'Saving…'. */
+  | { type: 'accounts-token-done'; core: AccountCore; name: string }
   | { type: 'accounts-error'; core?: AccountCore; op: AccountsWebviewMessage['type']; message: string };
 
 export const DEFAULT_ACCOUNT_LABEL = 'Default (CLI home)';
