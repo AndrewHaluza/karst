@@ -215,7 +215,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
   return (
     <div className="app">
-      <nav className="sidebar" aria-label="Settings sections">
+      <nav className="sidebar" aria-label="Settings sections" data-region="nav">
         <div className="brand">
           <ProjectGlyph idPrefix="set" className="brandmark" />
           <span className="brand-name">Karst settings</span>
@@ -309,17 +309,6 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
       <div className="main">
         <div className="topbar" data-region="toolbar">
-          <span
-            id="dirtyDot"
-            className={dirty ? 'dirty-dot' : 'dirty-dot hidden'}
-            title="Unsaved changes on this tab"
-          />
-          {/* Names the tab Save now acts on — the scope of the button is not
-              obvious from a bare "Settings" heading. */}
-          <h1>
-            Settings{' '}
-            <span className="topbar-section" id="topbarSection">› {SECTION_LABELS[section]}</span>
-          </h1>
           <button
             className="mobile-project-btn"
             id="mobileProjectBtn"
@@ -331,6 +320,17 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           >
             <ProjectGlyph idPrefix="mob" />
           </button>
+          <span
+            id="dirtyDot"
+            className={dirty ? 'dirty-dot' : 'dirty-dot hidden'}
+            title="Unsaved changes on this tab"
+          />
+          {/* Names the tab Save now acts on — the scope of the button is not
+              obvious from a bare "Settings" heading. */}
+          <h1>
+            Settings{' '}
+            <span className="topbar-section" id="topbarSection">› {SECTION_LABELS[section]}</span>
+          </h1>
           <span className="spacer" />
           <span
             id="saveState"

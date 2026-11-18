@@ -679,6 +679,31 @@ function autopilotVariant(
   };
 }
 
+/** T1236: the section nav as one wrapping chip row below 40em, on general, agents roles and autopilot (@ui:RD-TIERS). */
+const NAV_NARROW_TIERS = [['narrow', 630], ['tight', 320]] as const;
+const NAV_NARROW_ROUTES = [
+  ['general', { section: 'general' }],
+  ['agents', { section: 'agents', hash: formatAgentsHash({ tab: 'roles' }) }],
+  ['autopilot', { section: 'autopilot' }],
+] as const;
+
+const navNarrowVariants = (): Variant[] =>
+  NAV_NARROW_ROUTES.flatMap(([name, route]) =>
+    NAV_NARROW_TIERS.map(([tier, width]) => {
+      const id = `nav-${name}-${tier}`;
+      return {
+        ...variant('settings', id, () => stateMessage(REALISTIC_SETTINGS), {
+          baseline: `settings--${id}`,
+          themes: DARK_ONLY,
+          // The route layout run already covers these routes; this variant records the nav shot only.
+          skipLayout: true,
+          width,
+        }),
+        route,
+      };
+    }),
+  );
+
 const AUTOPILOT_FAULT = 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1';
 const AUTOPILOT_TIERS = [['mid', 800], ['narrow', 480]] as const;
 const MANY_CHECKS = ['lint', 'typecheck', 'test:unit', 'test:integration', 'test:e2e', 'build', 'docs-gate', 'docs-graph', 'mutation-score', 'visual-regression', 'layout-sanity', 'a-very-long-check-name-for-wrapping'];
@@ -758,6 +783,7 @@ const settingsVariants = (): Variant[] => [
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
   qualityKillVariant('quality-oom-disabled', { enabled: false }),
   ...autopilotVariants(),
+  ...navNarrowVariants(),
   qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 }),
   // T1091: the provider select near the bottom edge of a short window.
   {

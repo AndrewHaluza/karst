@@ -129,6 +129,13 @@ describe('AppShell — the brand and project footer carry the approved #35 mark'
     expect(document.querySelector('span.project-icon')).toBeNull();
   });
 
+  it('puts the project button first in the top bar and marks the nav region', () => {
+    mount();
+    const topbar = document.querySelector('.topbar')!;
+    expect(topbar.firstElementChild?.id).toBe('mobileProjectBtn');
+    expect(document.querySelector('nav.sidebar')?.getAttribute('data-region')).toBe('nav');
+  });
+
   it('adds a compact project identity footer with manifest open and a details popover', () => {
     mount();
     for (const id of [
