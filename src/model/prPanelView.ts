@@ -280,7 +280,8 @@ export function buildPrPanelRows(
         when: formatPrStamp(c.at),
         body: c.body,
       })),
-      checks: buildPrChecksView(pr.checks),
+      // The snapshot only ever feeds the chip, and only for an open PR: a merged PR keeps no chip.
+      checks: buildPrChecksView(pr.checks, status === 'open' ? (pr.lastChecks ?? null) : null, Date.parse(now) || 0),
       mergeBlockLabel: mergeBlockNotice(pr.mergeBlock).label,
       canMerge,
       mergeBlockedReason: blocking || reason,

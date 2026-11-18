@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent } from '@testing-library/react';
 import type { Reason } from '../../../model/prMergeReadiness.js';
 import type { DashboardState } from '../state.js';
-import { blockedBy, waitsOnChecks, failing, installRuntimeDoubles, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
+import { blockedBy, waitsOnChecks, failing, staleChecks, installRuntimeDoubles, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
 
 installRuntimeDoubles();
 
@@ -45,7 +45,7 @@ describe('PrsPanel — header and empty states', () => {
 
 describe('PrsPanel — the PR line', () => {
   it('lays out lead icon, repo, number, copy, details, chips, stamp and branch, with the actions in the trail', () => {
-    mount(stateWith([pr({ canMerge: true, mergeBlockedReason: '', canDismiss: true, checks: { state: 'passing', label: '3 passed', title: 'all green', detailsLabel: '', failing: [] } })]));
+    mount(stateWith([pr({ canMerge: true, mergeBlockedReason: '', canDismiss: true, checks: { state: 'passing', label: '3 passed', title: 'all green', detailsLabel: '', failing: [], stale: false, cue: '' } })]));
     const line = row().querySelector('.pr')!;
     expect([...line.querySelector('.krow-main')!.children].map((c) => c.className)).toEqual([
       'prepo', 'pnum', 'k-iconbtn ib t-copy url-copy', 'k-iconbtn ib pinfo-btn', 'k-chip pst pst-open', 'k-chip pck pck-passing', 'pstamp', 'pbranch',
@@ -115,6 +115,27 @@ describe('PrsPanel — the PR line', () => {
     cleanup();
     mount(stateWith([pr({ readiness: waitsOnChecks(1) })]));
     expect(text('.pwait')).toBe('waits on 1 check');
+  });
+
+  it('renders a stale chip dimmed with the cue, aria-busy and the host tooltip, and only while the PR is live (T1217)', () => {
+    mount(stateWith([pr({ checks: staleChecks() })]));
+    const chip = document.querySelector('.pck')!;
+    expect(chip.className).toBe('k-chip pck pck-failing pck-stale');
+    expect(chip.getAttribute('aria-busy')).toBe('true');
+    expect(chip.getAttribute('title')).toContain('previous commit abc1234');
+    expect(text('.pck-cue')).toBe('checking new commit…');
+    expect(chip.textContent).toContain('1 failing · 2 passed');
+    cleanup();
+    mount(stateWith([pr({ checks: staleChecks(), status: 'merged' })]));
+    expect(document.querySelector('.pck')).toBeNull();
+  });
+
+  it('a current chip has no stale class, cue or aria-busy', () => {
+    mount(stateWith([pr({ checks: { ...failing(['lint', null]), label: '1 failing' } })]));
+    const chip = document.querySelector('.pck')!;
+    expect(chip.className).not.toContain('pck-stale');
+    expect(chip.hasAttribute('aria-busy')).toBe(false);
+    expect(document.querySelector('.pck-cue')).toBeNull();
   });
 
   it('chips the CI rollup and the blocked-reason count with their tooltips, only while the PR is live', () => {
@@ -453,7 +474,7 @@ describe('PrsPanel — summary, the details popover and the blocked reason', () 
   });
 
   it('opens a details dialog from the ⓘ toggle and closes it on Escape, returning focus', () => {
-    mount(stateWith([pr({ checks: { state: 'passing', label: '3 passed', title: 'all green', detailsLabel: '', failing: [] } })]));
+    mount(stateWith([pr({ checks: { state: 'passing', label: '3 passed', title: 'all green', detailsLabel: '', failing: [], stale: false, cue: '' } })]));
     const info = one('toggle-pr-info');
     expect(info.getAttribute('aria-haspopup')).toBe('dialog');
     expect(info.getAttribute('aria-label')).toBe('Pull request details');

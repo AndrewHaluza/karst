@@ -36,6 +36,8 @@ const checks = (state: 'passing' | 'failing' | 'pending', label: string): PrPane
   title: `${label} (fixture)`,
   detailsLabel: '',
   failing: [],
+  stale: false,
+  cue: '',
 });
 
 const pr = (over: Partial<PrPanelRow> & Pick<PrPanelRow, 'repo' | 'repoDisplay' | 'number' | 'status'>): PrPanelRow => ({
@@ -48,7 +50,7 @@ const pr = (over: Partial<PrPanelRow> & Pick<PrPanelRow, 'repo' | 'repoDisplay' 
   mergedTitle: '',
   commentsLabel: '',
   comments: [],
-  checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [] },
+  checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [], stale: false, cue: '' },
   mergeBlockLabel: '',
   canMerge: false,
   mergeBlockedReason: '',
@@ -86,6 +88,14 @@ const READY_OPTIONAL_FAILING = pr({
     ready: true, headline: 'Ready to merge', facts: 'checks passed · no conflicts · approved',
     reasons: [{ kind: 'checks', state: 'note', label: 'Optional checks failing', short: 'optional checks failing · 1', detail: '1 optional check failing',
       action: { act: 'send-ci-failure', label: 'Send CI failure to agent' }, list: [{ text: 'lint' }] }],
+  },
+});
+// T1217: the previous commit's counts while the new head has no rollup — a dimmed chip with the cue.
+const STALE_CHECKS = pr({
+  repo: 'fixture:/repos/api', repoDisplay: 'api', number: 91, status: 'open',
+  checks: {
+    state: 'failing', label: '1 failing · 2 passed', detailsLabel: '', failing: [], stale: true, cue: 'checking new commit…',
+    title: '3 checks: 2 passed, 1 failed, 0 pending — from the previous commit 9ed9bc6; karst is checking the new commit',
   },
 });
 const MERGED = pr({
@@ -133,6 +143,7 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   { id: 'pr-mixed', patch: withPrs([READY, BLOCKED, DISMISSED]) },
   { id: 'pr-ready', patch: withPrs([READY]) },
   { id: 'pr-optional-failing', patch: withPrs([READY_OPTIONAL_FAILING]) },
+  { id: 'pr-stale-checks', patch: withPrs([STALE_CHECKS]) },
   { id: 'pr-ready-info', patch: withPrs([READY]), click: '[data-act="toggle-pr-info"]' },
   // T1190: a disabled Merge keeps its disabled look under the pointer and shows its visible reason.
   { id: 'pr-disabled-merge-hover', patch: withPrs([BLOCKED]), hover: '.pacts .k-btn--secondary:disabled' },

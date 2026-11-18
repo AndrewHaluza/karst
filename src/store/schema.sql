@@ -768,7 +768,12 @@ CREATE TABLE IF NOT EXISTS prs (
   review_requests TEXT,
   -- v124: the PR head sha GitHub holds (headRefOid), current state re-probed every sweep (arch:GH-03).
   -- NULL = never stated; the merge-check wording reads it to tell a local merge that is not pushed.
-  head_oid        TEXT
+  head_oid        TEXT,
+  -- v130: the last rollup that had checks (same JSON as `checks`), the head it belongs to and when it was written.
+  -- DISPLAY only: the PR row chip shows it dimmed while a new head has no rollup. No gate reads it (arch:GH-03).
+  last_checks      TEXT,
+  last_checks_head TEXT,
+  last_checks_at   INTEGER
 );
 
 -- v47: one row per (ticket, repo, url) — see recordShippedPr (store/prs.ts) and

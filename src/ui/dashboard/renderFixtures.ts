@@ -1270,7 +1270,7 @@ function populatedPrs(): PrPanelRow[] {
         { author: 'octoreviewer', when: '1 day ago', body: 'Looks right — one nit on the combobox label.' },
         { author: 'fixture-author', when: '20 hours ago', body: 'Fixed, PTAL.' },
       ],
-      checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [] },
+      checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [], stale: false, cue: '' },
       mergeBlockLabel: '',
       canMerge: false,
       mergeBlockedReason: 'awaiting review',

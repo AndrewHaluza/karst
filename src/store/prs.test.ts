@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { listPrsByTicket } from './dashboard.js';
+import { parseChecks } from '../model/prChecks.js';
 import {
   updatePrStatus,
   updatePrDetail,
@@ -193,6 +194,64 @@ describe('updatePrDetail', () => {
     expect(listPrsByTicket(store, a.id)[0]!.headOid).toBe('d'.repeat(40));
     clearOpenPrProbe(store, a.id, 'api');
     expect(listPrsByTicket(store, a.id)[0]!.headOid).toBeNull();
+  });
+
+  describe('last known CI snapshot (v130, display only)', () => {
+    const base = { status: 'open', headRef: null, baseRef: null, createdAt: null, mergedAt: null, comments: null, mergeBlock: 'unknown', mergeSha: null, changedPaths: null } as const;
+    const failingRollup = { state: 'failing', total: 3, passed: 2, failed: 1, pending: 0, failing: [{ name: 'unit', url: null }], failedShown: 1 } as const;
+    const emptyRollup = { state: 'none', total: 0, passed: 0, failed: 0, pending: 0, failing: [], failedShown: 0 } as const;
+    const write = (a: number, detail: Parameters<typeof updatePrDetail>[1]['detail'], nowMs?: number): void =>
+      updatePrDetail(store, { ticketId: a, repo: 'api', url: url(12), detail, nowMs });
+    const raw = (a: number) =>
+      store.db.prepare('SELECT checks, last_checks, last_checks_head, last_checks_at FROM prs WHERE ticket_id = ?').get(a) as {
+        checks: string | null; last_checks: string | null; last_checks_head: string | null; last_checks_at: number | null;
+      };
+
+    it('records a rollup that has checks, with its head and time', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      seedPr(store, a.id, 'api', 12, 'open');
+      write(a.id, { ...base, checks: failingRollup, headOid: 'a'.repeat(40) }, 1234);
+      expect(listPrsByTicket(store, a.id)[0]!.lastChecks).toEqual({ checks: expect.objectContaining({ state: 'failing', failed: 1 }), head: 'a'.repeat(40), at: 1234 });
+    });
+
+    it('keeps the snapshot when clearOpenPrProbe empties the gate rollup', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      seedPr(store, a.id, 'api', 12, 'open');
+      write(a.id, { ...base, checks: failingRollup, headOid: 'a'.repeat(40) }, 1234);
+      clearOpenPrProbe(store, a.id, 'api');
+      expect(parseChecks(raw(a.id).checks)).toBeNull();
+      expect(raw(a.id).last_checks).not.toBeNull();
+      expect(listPrsByTicket(store, a.id)[0]!.lastChecks?.checks.failed).toBe(1);
+    });
+
+    it('starts the expiry window at the push: clearOpenPrProbe stamps the snapshot time, only when a snapshot exists', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      seedPr(store, a.id, 'api', 12, 'open');
+      clearOpenPrProbe(store, a.id, 'api', 50);
+      expect(raw(a.id).last_checks_at).toBeNull();
+      write(a.id, { ...base, checks: failingRollup, headOid: 'a'.repeat(40) }, 1234);
+      clearOpenPrProbe(store, a.id, 'api', 9999);
+      expect(raw(a.id)).toMatchObject({ last_checks_at: 9999, last_checks_head: 'a'.repeat(40) });
+      expect(raw(a.id).last_checks).not.toBeNull();
+    });
+
+    it('keeps the snapshot when GitHub answers an empty rollup after a push', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      seedPr(store, a.id, 'api', 12, 'open');
+      write(a.id, { ...base, checks: failingRollup, headOid: 'a'.repeat(40) }, 1234);
+      write(a.id, { ...base, checks: emptyRollup, headOid: 'b'.repeat(40) }, 5678);
+      expect(parseChecks(raw(a.id).checks)?.state).toBe('none');
+      expect(raw(a.id)).toMatchObject({ last_checks_head: 'a'.repeat(40), last_checks_at: 1234 });
+    });
+
+    it('does not write a snapshot for a PR that never had checks', () => {
+      const a = createTicket(store, { key: 'A', title: 'a' });
+      seedPr(store, a.id, 'api', 12, 'open');
+      write(a.id, { ...base, checks: emptyRollup });
+      write(a.id, { ...base, checks: null });
+      expect(raw(a.id).last_checks).toBeNull();
+      expect(listPrsByTicket(store, a.id)[0]!.lastChecks).toBeNull();
+    });
   });
 
   describe('PR facts (v114)', () => {

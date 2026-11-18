@@ -3079,5 +3079,13 @@ function migrateLocked(db: Database): void {
     if (cols129.size > 0 && !cols129.has('ci_round_manual')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN ci_round_manual INTEGER NOT NULL DEFAULT 0');
   }
 
+  if (current < 130) {
+    // v130: `prs.last_checks`, `last_checks_head`, `last_checks_at` — the last rollup with checks, for the PR row chip only (@arch:GH-03). Additive; NULL = never had checks (no backfill).
+    const cols130 = tableColumns(db, 'prs');
+    if (cols130.size > 0 && !cols130.has('last_checks')) db.exec('ALTER TABLE prs ADD COLUMN last_checks TEXT');
+    if (cols130.size > 0 && !cols130.has('last_checks_head')) db.exec('ALTER TABLE prs ADD COLUMN last_checks_head TEXT');
+    if (cols130.size > 0 && !cols130.has('last_checks_at')) db.exec('ALTER TABLE prs ADD COLUMN last_checks_at INTEGER');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

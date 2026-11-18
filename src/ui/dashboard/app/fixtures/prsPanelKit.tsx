@@ -30,7 +30,7 @@ export const pr = (over: Partial<Row> = {}): Row => ({
   mergedTitle: '',
   commentsLabel: '',
   comments: [],
-  checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [] },
+  checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [], stale: false, cue: '' },
   mergeBlockLabel: '',
   canMerge: false,
   mergeBlockedReason: 'awaiting review',
@@ -75,6 +75,19 @@ export const failing = (...names: Array<[string, string | null]>): Row['checks']
   title: `${names.length} failing`,
   detailsLabel: `${names.length} failing ${names.length === 1 ? 'check' : 'checks'}`,
   failing: names.map(([name, url]) => ({ name, url, conclusion: 'failure' })),
+  stale: false,
+  cue: '',
+});
+
+/** The last known counts of the previous commit, shown while the new head has no rollup (T1217). */
+export const staleChecks = (): Row['checks'] => ({
+  state: 'failing',
+  label: '1 failing · 2 passed',
+  title: '3 checks: 2 passed, 1 failed, 0 pending — from the previous commit abc1234; karst is checking the new commit',
+  detailsLabel: '',
+  failing: [],
+  stale: true,
+  cue: 'checking new commit…',
 });
 
 export const mc = (over: Partial<Check> = {}): Check => ({

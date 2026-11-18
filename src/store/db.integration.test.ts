@@ -609,6 +609,33 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'auto_recovery_count')).toHaveLength(1);
   });
 
+  it('migrates a pre-v130 database by adding the prs.last_checks snapshot columns, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE prs (ticket_id INTEGER, repo TEXT, url TEXT)');
+    legacy.exec("INSERT INTO prs (ticket_id, repo, url) VALUES (1, 'api', 'u')");
+    legacy.pragma('user_version = 129');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('prs')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toEqual(expect.arrayContaining(['last_checks', 'last_checks_head', 'last_checks_at']));
+    expect(migrated.db.prepare('SELECT last_checks, last_checks_head, last_checks_at FROM prs').get()).toEqual({
+      last_checks: null,
+      last_checks_head: null,
+      last_checks_at: null,
+    });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'last_checks')).toHaveLength(1);
+  });
+
   it('migrates a pre-v124 database by adding prs.head_oid, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

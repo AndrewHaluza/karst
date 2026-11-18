@@ -112,6 +112,8 @@ export interface UpdatePrDetailInput {
   repo: string;
   url: string;
   detail: PrDetail;
+  /** Epoch ms for the display snapshot; absent = the clock. */
+  nowMs?: number;
 }
 
 /**
@@ -133,6 +135,9 @@ export interface UpdatePrDetailInput {
  *    GitHub computes mergeability lazily and answers UNKNOWN at first, so writing
  *    it would erase a real `blocked` whenever GitHub is mid-think. A NULL
  *    `checks` ("gh did not say") keeps the stored rollup via COALESCE.
+ *  - `last_checks*` is a display-only snapshot of the last rollup with checks. A
+ *    rollup with total 0 keeps it, and `clearOpenPrProbe` never touches it. No
+ *    gate reads it (@arch:GH-03).
  *
  * The write runs in ONE transaction with a read of the OLD row, because it is
  * also the merge hook: on the FIRST probe that reports the PR merged AND states
@@ -146,6 +151,8 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
   const { detail } = input;
   const mergeBlock = detail.mergeBlock === 'unknown' ? null : detail.mergeBlock;
   const fresh = detail.status !== 'unknown' ? 1 : 0;
+  // The display snapshot follows only a rollup that has checks: an empty one (GitHub right after a push) keeps the last known.
+  const snapshot = detail.checks !== null && detail.checks.state !== 'unknown' && detail.checks.total > 0;
   const run = store.db.transaction(() => {
     const old = store.db
       .prepare('SELECT status, merge_sha FROM prs WHERE ticket_id = ? AND repo = ? AND url = ?')
@@ -173,7 +180,10 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
            review_decision = CASE WHEN ? THEN ? ELSE review_decision END,
            approvals       = CASE WHEN ? THEN ? ELSE approvals END,
            review_requests = CASE WHEN ? THEN ? ELSE review_requests END,
-           head_oid        = COALESCE(?, head_oid)
+           head_oid        = COALESCE(?, head_oid),
+           last_checks      = CASE WHEN ? THEN ? ELSE last_checks END,
+           last_checks_head = CASE WHEN ? THEN COALESCE(?, head_oid) ELSE last_checks_head END,
+           last_checks_at   = CASE WHEN ? THEN ? ELSE last_checks_at END
          WHERE ticket_id = ? AND repo = ? AND url = ?`,
       )
       .run(
@@ -202,6 +212,9 @@ export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
         fresh && Array.isArray(detail.reviewRequests) ? 1 : 0,
         Array.isArray(detail.reviewRequests) ? JSON.stringify(detail.reviewRequests) : null,
         detail.headOid ?? null,
+        snapshot ? 1 : 0, snapshot ? serializeChecks(detail.checks) : null,
+        snapshot ? 1 : 0, detail.headOid ?? null,
+        snapshot ? 1 : 0, input.nowMs ?? Date.now(),
         input.ticketId,
         input.repo,
         input.url,
@@ -524,12 +537,17 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
 }
 
 /**
- * Forget the stored rollup, merge block and head of a ticket's open PRs. Run after a
+ * Forget the stored rollup, merge block and head of a ticket's open PRs (the display snapshot stays; its time restarts). Run after a
  * rebase push: the old rollup belongs to the old head, so it must not feed
  * "Send CI failure to agent" before the re-probe writes the new one.
  */
-export function clearOpenPrProbe(store: Store, ticketId: number, repo: string): void {
+export function clearOpenPrProbe(store: Store, ticketId: number, repo: string, nowMs: number = Date.now()): void {
+  // The display snapshot stays, and its clock restarts: the stale window counts from the push, not from the last sweep that saw checks.
   store.db
-    .prepare(`UPDATE prs SET checks = NULL, merge_block = NULL, head_oid = NULL WHERE ticket_id = ? AND repo = ? AND status = 'open'`)
-    .run(ticketId, repo);
+    .prepare(
+      `UPDATE prs SET checks = NULL, merge_block = NULL, head_oid = NULL,
+              last_checks_at = CASE WHEN last_checks IS NULL THEN last_checks_at ELSE ? END
+        WHERE ticket_id = ? AND repo = ? AND status = 'open'`,
+    )
+    .run(nowMs, ticketId, repo);
 }
