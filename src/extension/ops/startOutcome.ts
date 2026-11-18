@@ -123,12 +123,14 @@ export function makeStartGuards(deps: StartGuardsDeps) {
       deps.log(`open session ${ticketId}: not launched: ${reason}`);
       return { kind: 'failed', reason };
     },
-    /** Bounds the backend step; a late result is logged, never launched. */
-    async boundedBackendStep<T>(ticketId: number, label: string, work: () => Promise<T>): Promise<T> {
+    /** Bounds the backend step; a late result is logged, never launched, and handed to `discard` (it frees what the step took, such as a proxy key). */
+    async boundedBackendStep<T>(ticketId: number, label: string, work: () => Promise<T>, discard?: (late: T) => Promise<void>): Promise<T> {
       if (hung.has(ticketId)) throw new Error(`the earlier sandbox backend step for ${label} is still running; try again when it ends`);
       const tracked = (): Promise<T> => work().finally(() => hung.delete(ticketId));
-      const step = await withBackendTimeout(tracked, LAUNCH_BACKEND_TIMEOUT_MS, () =>
-        deps.warn(`open session ${ticketId}: backend result for ${label} arrived after the timeout; ignored`));
+      const step = await withBackendTimeout(tracked, LAUNCH_BACKEND_TIMEOUT_MS, (late) => {
+        deps.warn(`open session ${ticketId}: backend result for ${label} arrived after the timeout; ignored`);
+        discard?.(late).catch((e: unknown) => deps.logError(`open session ${ticketId}: could not discard the late backend result of ${label}`, e));
+      });
       if (step.kind === 'done') return step.value;
       hung.add(ticketId);
       markNotStarted(ticketId);

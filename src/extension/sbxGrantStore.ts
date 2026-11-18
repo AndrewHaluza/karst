@@ -20,6 +20,8 @@ interface Grant {
   readonly port: number;
   /** The key is revoked at the proxy (its token was removed); the record stays for the port of the policy rule. */
   readonly revoked?: boolean;
+  /** The sandbox is removed but the revoke failed: the record stays for a retry, and a proxy start must not register the key again. */
+  readonly released?: boolean;
   /** Keys of earlier launches whose revoke failed; each later revoke retries them. */
   readonly stale?: readonly string[];
 }
@@ -105,7 +107,7 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
     // A key that is still live keeps its record, so a later release or account change retries the revoke.
     const result = await revokeAll(sandbox, grant);
     if (!result.done) {
-      await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify(result.grant));
+      await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify({ ...result.grant, released: true }));
       return { port: grant.port };
     }
     await deps.secrets.delete(GRANT_PREFIX + sandbox);
@@ -117,7 +119,7 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
     const out: SandboxRegistration[] = [];
     for (const sandbox of await names()) {
       const grant = await load(sandbox);
-      if (!grant || grant.revoked) continue;
+      if (!grant || grant.revoked || grant.released) continue;
       const token = await getSbxToken(deps.secrets, SBX_TOKEN_CORE, grant.account);
       if (token !== undefined) out.push({ key: grant.key, token });
     }

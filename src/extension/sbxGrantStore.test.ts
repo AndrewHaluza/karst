@@ -126,6 +126,13 @@ describe('sbx grant store', () => {
     expect(client.revoke).toHaveBeenCalledWith(registered);
   });
 
+  it('does not register again, at a proxy start, the key of a removed sandbox whose revoke failed', async () => {
+    const { store } = await setup({ revoke: async () => { throw new Error('down'); } });
+    await store.issue('sb', 'work');
+    await store.release('sb');
+    expect(await store.liveRegistrations()).toEqual([]);
+  });
+
   it('lists the live keys with their account tokens for a proxy restart', async () => {
     const { store } = await setup();
     const a = await store.issue('sb1', 'work');

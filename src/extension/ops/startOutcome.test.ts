@@ -109,6 +109,20 @@ describe('makeStartGuards', () => {
     vi.useRealTimers();
   });
 
+  it('hands a late backend result to discard, so it can free what the step took', async () => {
+    vi.useFakeTimers();
+    const { g } = guards();
+    const discard = vi.fn(async () => undefined);
+    let release!: (v: string) => void;
+    const caught = g.boundedBackendStep(7, 'T7', () => new Promise<string>((r) => { release = r; }), discard).catch(() => 'timeout');
+    await vi.advanceTimersByTimeAsync(LAUNCH_BACKEND_TIMEOUT_MS);
+    await caught;
+    release('late');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(discard).toHaveBeenCalledWith('late');
+    vi.useRealTimers();
+  });
+
   it('a healthy backend passes its value through without marking', async () => {
     const { d, g } = guards();
     await expect(g.boundedBackendStep(5, 'T5', async () => 'ok')).resolves.toBe('ok');
