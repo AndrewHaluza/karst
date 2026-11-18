@@ -245,7 +245,7 @@ Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks.
 | general | numeric pairs | pair stacks when each < 80 px; input min 6ch |
 | git | `.k-field-help` variables chip | wraps, `overflow-wrap:anywhere` |
 | services | repo card | `repeat(auto-fill, minmax(min(100%, 290px), 1fr))` |
-| agents → roles | `--agents-cols` matrix (`agents.webview.css:73`) | region container: wide 6-col; mid 4-col; narrow/tight cards (one core per card: core icon+name heading, then labelled rows `Model`, `Effort`, `Backend`) |
+| agents → roles | `--agents-cols` matrix (`agents.webview.css:73`) | region container: wide 6-col; mid 4-col; narrow/tight (region < 700 px) a ~64 px summary row per role: line 1 switch slot, name, source chip, pin; line 2 `<profile> · <core> · <model>` + expand button that opens the 4 pickers in place (user choice, T1239; supersedes one core per card; differs from the prototype stacking, UI-R39-REJECT). Tiers key on the roles region (container query), not the window |
 | agents → profiles | master/detail (`:227`) | narrow/tight: list OR detail with Back |
 | presets | `240px 140px minmax(360px,1fr)` | wide as is; mid `minmax(0,1fr) minmax(0,1fr)`; narrow/tight single column, label above |
 | all | window `@media` 1024/768/699 | replaced by region container queries |

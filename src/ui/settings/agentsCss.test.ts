@@ -34,15 +34,15 @@ describe('agents.webview.css — roles table', () => {
   });
   it('hides field labels on wide rows and shows them on cards', () => {
     expect(css).toMatch(/\.agents-field-label\s*\{[^}]*display:\s*none/);
-    expect(css).toMatch(/@media \(max-width: 999px\)[\s\S]*?#section-agents \.agents-field-label\s*\{[^}]*display:\s*block/);
+    expect(css).toMatch(/@container agents-roles \(max-width: 999px\)[\s\S]*?#section-agents \.agents-field-label\s*\{[^}]*display:\s*block/);
   });
   it('keeps the action slot the size of an icon button', () => {
     expect(css).toMatch(/\.agents-slot\s*\{[^}]*width:\s*var\(--k-hit-min\)/);
     expect(css).not.toContain('agents-pin-slot');
   });
   it('lays the mid tier out as a labelled card and stacks at the narrow tier', () => {
-    expect(css).toMatch(/@media \(max-width: 999px\)[\s\S]*grid-template-areas:\s*'sw role src act' 'f f f f'/);
-    expect(css).toMatch(/@media \(max-width: 699px\)[\s\S]*\.agents-cell-picker[\s\S]*grid-column:\s*1 \/ -1/);
+    expect(css).toMatch(/@container agents-roles \(max-width: 999px\)[\s\S]*grid-template-areas:\s*'sw role src act' 'f f f f'/);
+    expect(css).toMatch(/@container agents-roles \(max-width: 699px\)[\s\S]*\.agents-cell-picker[\s\S]*grid-column:\s*1 \/ -1/);
   });
   it('sizes the compare Actions track to a content-independent slot that fits its text button', () => {
     const tmpl = /\.agents-compare-row,[\s\S]*?grid-template-columns:\s*([^;]+);/.exec(css);

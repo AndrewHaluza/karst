@@ -91,6 +91,8 @@
    The picker is ONE column; its compact grid splits it into Core/Model/Effort and
    the header repeats that sub-template so the sub-columns line up (UI-R41). */
 #section-agents .agents-table {
+  /* The tiers below key on THIS region's width, not the window's (RESPONSIVE-DENSITY: regions, not windows). */
+  container: agents-roles / inline-size;
   /* Track sizes use tokens and fit their controls (UI-R39: the rule/design system
      wins on spacing): the switch slot is the switch's own width (--k-space-9), each
      fr track keeps header and rows aligned (UI-R41), and Actions fits two hit-min
@@ -310,8 +312,10 @@
 #section-agents .agents-cell-picker .agent-identity-model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #section-agents .agents-muted { min-width: 0; }
 
-/* Tiers: wide >= 1000, mid 700-999 (labelled cards), narrow <= 699 (src/ui/layout/layoutBreakpoints.ts). */
-@media (max-width: 999px) {
+/* Tiers, by the roles region width (container, not window): wide >= 1000, mid 700-999
+   (labelled cards), narrow <= 699 (summary row; the pickers open in place). */
+#section-agents .agents-cell-summary { display: none; }
+@container agents-roles (max-width: 999px) {
   #section-agents .agents-head { display: none; }
   /* Card: top line = switch | Role | Source | Actions, then Agent profile | Core | Model | Effort. */
   #section-agents .agents-row {
@@ -337,18 +341,29 @@
   }
   #section-agents .agents-compare-row .agents-cell-actions { grid-area: auto; grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; }
 }
-@media (max-width: 699px) {
+@container agents-roles (max-width: 699px) {
   #section-agents .agents-row {
     grid-template-columns: var(--k-space-9) minmax(0, 1fr) auto auto;
-    grid-template-areas: 'sw role src act';
+    grid-template-areas: 'sw role src act' 'sum sum sum sum';
+    row-gap: 0;
+    padding-block: var(--k-space-1);
   }
-  #section-agents .agents-cell-profile { grid-area: auto; grid-column: 1 / -1; grid-row: 2; }
-  #section-agents .agents-cell-picker  { grid-area: auto; grid-column: 1 / -1; grid-row: 3; }
+  /* Line 2: '<profile> · <core> · <model>' + the expand button. The pickers stay closed until it opens. */
+  #section-agents .agents-cell-summary { display: flex; grid-area: sum; justify-content: space-between; gap: var(--k-space-2); }
+  #section-agents .agents-summary-line { min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--k-text-dim); }
+  #section-agents .agents-cell-summary .k-iconbtn { flex: none; }
+  #section-agents .agents-cell-profile, #section-agents .agents-cell-picker { display: none; }
+  #section-agents .agents-row.is-open .agents-cell-summary .icon-island { transform: rotate(180deg); }
+  #section-agents .agents-row.is-open { row-gap: var(--k-space-2); }
+  #section-agents .agents-row.is-open .agents-cell-profile { display: flex; grid-area: auto; grid-column: 1 / -1; grid-row: 3; }
+  #section-agents .agents-row.is-open .agents-cell-picker  { display: flex; grid-area: auto; grid-column: 1 / -1; grid-row: 4; }
   #section-agents .agents-cell-picker .ap-compact { grid-template-columns: minmax(0, 1fr); }
   #section-agents .agents-compare-row > .agents-cell:not(.agents-cell-switch):not(.agents-cell-role):not(.agents-cell-actions) {
     grid-area: auto; grid-column: 1 / -1; grid-row: auto;
   }
   #section-agents .agents-compare-row .agents-cell-actions { grid-area: auto; grid-column: 1 / -1; grid-row: auto; }
+}
+@media (max-width: 699px) {
   #section-agents .agents-profiles { grid-template-columns: minmax(0, 1fr); }
   #section-agents .agents-profiles.has-selection .agents-list { display: none; }
   #section-agents .agents-profiles:not(.has-selection) .agents-detail { display: none; }

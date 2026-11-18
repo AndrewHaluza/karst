@@ -705,6 +705,25 @@ const navNarrowVariants = (): Variant[] =>
     }),
   );
 
+/** T1239: the roles summary rows below 700 px — all collapsed, one row opened by the route, and at 320 px (@ui:UI-R57). */
+const ROLES_NARROW = [
+  ['roles-narrow-collapsed', 630, { tab: 'roles' }],
+  ['roles-narrow-expanded', 630, { tab: 'roles', selected: 'uatTester' }],
+  ['roles-tight-collapsed', 320, { tab: 'roles' }],
+] as const;
+
+const rolesNarrowVariants = (): Variant[] =>
+  ROLES_NARROW.map(([id, width, route]) => ({
+    ...variant('settings', id, () => stateMessage(REALISTIC_SETTINGS), {
+      baseline: `settings--${id}`,
+      themes: DARK_ONLY,
+      // The route layout runs already cover the roles route at every width.
+      skipLayout: true,
+      width,
+    }),
+    route: { section: 'agents', hash: formatAgentsHash(route) },
+  }));
+
 const AUTOPILOT_FAULT = 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1';
 const AUTOPILOT_TIERS = [['mid', 800], ['narrow', 480]] as const;
 const MANY_CHECKS = ['lint', 'typecheck', 'test:unit', 'test:integration', 'test:e2e', 'build', 'docs-gate', 'docs-graph', 'mutation-score', 'visual-regression', 'layout-sanity', 'a-very-long-check-name-for-wrapping'];
@@ -803,6 +822,7 @@ const settingsVariants = (): Variant[] => [
   qualityKillVariant('quality-oom-disabled', { enabled: false }),
   ...autopilotVariants(),
   ...navNarrowVariants(),
+  ...rolesNarrowVariants(),
   qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 }),
   // T1091: the provider select near the bottom edge of a short window.
   {

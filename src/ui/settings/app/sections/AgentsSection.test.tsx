@@ -578,15 +578,15 @@ describe('Agents page — roles table layout markup', () => {
     expect(spans.map((s) => s.textContent)).toEqual(['Core', 'Model', 'Effort']);
   });
 
-  it('every normal row has the same six cells in the same order, all role=cell', () => {
+  it('every normal row has the same seven cells in the same order, all role=cell', () => {
     mount();
     for (const r of document.querySelectorAll('.agents-row[data-role]')) {
       expect(cells(r).map((c) => c.split(' ').find((n) => n.startsWith('agents-cell-')))).toEqual([
         'agents-cell-switch', 'agents-cell-role', 'agents-cell-profile',
-        'agents-cell-picker', 'agents-cell-source', 'agents-cell-actions',
+        'agents-cell-picker', 'agents-cell-source', 'agents-cell-actions', 'agents-cell-summary',
       ]);
       expect(Array.from(r.children).map((c) => c.getAttribute('role'))).toEqual([
-        'cell', 'cell', 'cell', 'cell', 'cell', 'cell',
+        'cell', 'cell', 'cell', 'cell', 'cell', 'cell', 'cell',
       ]);
     }
   });
