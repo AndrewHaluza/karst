@@ -88,7 +88,14 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
     // The keys of the earlier launches die now; a key the proxy would not revoke is kept for the next revoke.
     const left = old ? (await revokeAll(sandbox, old)).grant : undefined;
     const stale = left ? [...(left.revoked ? [] : [left.key]), ...(left.stale ?? [])] : [];
-    await save(sandbox, { key, account, port, ...(stale.length > 0 ? { stale } : {}) });
+    try {
+      await save(sandbox, { key, account, port, ...(stale.length > 0 ? { stale } : {}) });
+    } catch (e) {
+      // No record means no later path could revoke this key: revoke it now and refuse the launch.
+      log('save failed', sandbox, e);
+      await tryRevoke(sandbox, key);
+      return { ok: false, reason: 'the sandbox key could not be stored' };
+    }
     return { ok: true, key, port, ...(old ? { replacedPort: old.port } : {}) };
   }
 

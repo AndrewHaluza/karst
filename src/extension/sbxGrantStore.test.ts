@@ -115,6 +115,17 @@ describe('sbx grant store', () => {
     expect(client.revoke.mock.calls.map((c) => c[0]).sort()).toEqual([a.key, b.key].sort());
   });
 
+  it('issue revokes the new key and refuses the launch when the grant record cannot be saved', async () => {
+    const { store, secrets, client } = await setup();
+    const store0 = secrets.store.bind(secrets);
+    secrets.store = async (k: string, v: string) => { if (k.startsWith('karst.sbx.grant.')) throw new Error('keychain sk-ant-secret'); return store0(k, v); };
+    const out = await store.issue('sb', 'work');
+    expect(out.ok).toBe(false);
+    expect(out.ok === false && out.reason).not.toContain('secret');
+    const registered = client.register.mock.calls[0]![0];
+    expect(client.revoke).toHaveBeenCalledWith(registered);
+  });
+
   it('lists the live keys with their account tokens for a proxy restart', async () => {
     const { store } = await setup();
     const a = await store.issue('sb1', 'work');
