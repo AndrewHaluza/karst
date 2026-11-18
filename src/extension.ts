@@ -19,6 +19,7 @@ import { brandTabIcon, agentStarterTemplate } from './extension/brandTabIcon.js'
 import { worktreePathContext } from './extension/worktreePathContext.js';
 import { currentConflictDelivery } from './store/fixDeliveries.js';
 import { makeConflictDelivery } from './extension/ops/conflictDeliveryOps.js';
+import { ensureCliCopy, pruneCliCopies, setActiveCliCopy } from './extension/cliCopy.js';
 import { cliEntryAndManifest, cliLiteral, cliSessionInput, launchTokens, buildCliContextPrefix, buildCliStagePrefix, buildCliPhasePrefix, buildCliGuidePrefix, buildCliServersPrefix, buildCliTestPrefix, buildCliFixBriefPrefix, buildCliConflictBriefPrefix } from './extension/cliPrefixes.js';
 import { terminalEnv, makeTerminalIdentityRegistry, restoredSessionOf, wrapTerminal, graphTerminalCwd, wrapRevivedGraphTerminal, makeTerminalHost, makeGraphTerminalHost } from './extension/terminalHosts.js';
 import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions.js';
@@ -671,6 +672,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(channel);
   const diagnosticLogBuffer = makeBoundedLogBuffer();
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
+  // Each host gives its sessions a CLI copy of its own build (an in-place install must not swap the CLI under a live host). Failure falls back to the install path.
+  try {
+    const copy = ensureCliCopy({ installCliDir: join(context.extensionUri.fsPath, 'dist', 'cli'), storageDir, version: String(context.extension.packageJSON.version) });
+    setActiveCliCopy(copy.entry);
+    logger.debug(`karst: CLI copy ${copy.copied ? 'made' : 'reused'}: ${copy.entry}`);
+    pruneCliCopies({ storageDir, keep: [copy.entry], now: Date.now(), warn: (m) => logger.warn(m) });
+  } catch (e) {
+    logger.warn(`karst: CLI copy failed, sessions use the install path: ${String(e)}`);
+  }
   setShipCiDebug((m) => logger.debug(m));
   // @arch:AC-55: publish the machine-local agent accounts to every spawn path.
   // T1076: the accounts config changed (a switch here or in another window); QuotaOps exists later, so a holder.
