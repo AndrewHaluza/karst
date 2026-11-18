@@ -1,4 +1,4 @@
-import { sandboxAccountBlock } from './accounts/registry.js';
+import { sandboxAccountBlock, sbxTokenAccount } from './accounts/registry.js';
 import { ACCOUNT_CORES, type AccountCore } from './accounts/types.js';
 import { backendForCore, type AgentBackends } from './backendChoices.js';
 import { prepareSbxClone, sbxCloneDir } from './sbx/sbxClone.js';
@@ -10,6 +10,7 @@ import { availableParallelism, totalmem } from 'node:os';
 import { resolveSbxMemory } from './sbx/sbxMemory.js';
 import { resolveSbxLimits, type SandboxLimitsConfig } from './sbx/sbxLimits.js';
 import type { SandboxMemoryConfig } from './docker/dockerMemory.js';
+import type { SbxOauthGrants } from './sbx/sbxOauthGuest.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from './sbx/sbxRunner.js';
 import { resolveDocker, type DockerResolveDeps } from './docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SandboxTicketRef, type SessionRunner } from './sessionRunner.js';
@@ -40,6 +41,18 @@ export interface ResolveBackendInput {
   readonly log?: (line: string) => void;
   /** The agent account the launch runs under; absent = the active account (@arch:AC-55). */
   readonly account?: string;
+  /** The host OAuth proxy side of an sbx claude launch: the key store and the accounts that hold a stored token (@arch:AC-51). */
+  readonly oauth?: { readonly grants: SbxOauthGrants; readonly tokenAccounts: ReadonlySet<string> };
+}
+
+/** Why a launch's account cannot run in the sandbox, as data: callers never parse `line`. */
+export interface AccountBlock {
+  readonly kind: 'account';
+  readonly reason: string;
+  /** The blocked account; the one an 'Add a token' choice stores a token for. */
+  readonly account?: string;
+  /** The account can take an sbx token (a stored folder or managed claude account under sbx). */
+  readonly canAddToken: boolean;
 }
 
 export interface ResolvedBackend {
@@ -47,7 +60,7 @@ export interface ResolvedBackend {
   /** One diagnostics line: `sbx (<name>)`, `docker (<container>)` or `host (<reason>)`. */
   readonly line: string;
   /** Why a configured sandbox backend refused this launch's account; the launch asks instead of running on the host (@arch:AC-55). */
-  readonly blocked?: { readonly kind: 'account'; readonly reason: string };
+  readonly blocked?: AccountBlock;
 }
 
 /**
@@ -62,9 +75,12 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   if (backend === 'host') return onHost(`agentBackends.${input.core}: host`);
   // @arch:AC-55: a command account is a host binary; a sandbox cannot run it.
   const accountBlock = (ACCOUNT_CORES as readonly string[]).includes(input.core)
-    ? sandboxAccountBlock(input.core as AccountCore, input.account, backend === 'sbx' ? 'sbx' : 'docker')
+    ? sandboxAccountBlock(input.core as AccountCore, input.account, backend === 'sbx' ? 'sbx' : 'docker', input.oauth?.tokenAccounts)
     : undefined;
-  if (accountBlock) return { ...onHost(accountBlock), blocked: { kind: 'account', reason: accountBlock } };
+  if (accountBlock) {
+    const tokenAccount = backend === 'sbx' ? sbxTokenAccount(input.core as AccountCore, input.account) : undefined;
+    return { ...onHost(accountBlock), blocked: { kind: 'account', reason: accountBlock, ...(tokenAccount !== undefined ? { account: tokenAccount } : {}), canAddToken: tokenAccount !== undefined } };
+  }
   if (backend === 'docker') {
     const docker = await resolveDocker({
       core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId, worktree: input.worktree,
@@ -94,8 +110,12 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   }
   const memory = resolveSbxMemory(input.hostRamBytes ?? totalmem(), input.sandboxMemory?.sbxMemory);
   await noteSandboxWithoutLimit(check.existing.includes(name), `${cloneDir}.sbx-memory`, name, memory, input.log);
+  const tokenAccount = sbxTokenAccount('claude', input.account);
+  const oauth = input.core === 'claude' && input.oauth
+    ? { grants: input.oauth.grants, ...(tokenAccount !== undefined && input.oauth.tokenAccounts.has(tokenAccount) ? { account: tokenAccount } : {}) }
+    : undefined;
   return {
-    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir, memory, ...resolveSbxLimits(input.hostCpus ?? availableParallelism(), input.sandboxLimits), ...(input.log ? { log: input.log } : {}) }),
+    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir, memory, ...(oauth ? { oauth } : {}), ...resolveSbxLimits(input.hostCpus ?? availableParallelism(), input.sandboxLimits), ...(input.log ? { log: input.log } : {}) }),
     line: `sbx (${name})`,
   };
 }
