@@ -44,6 +44,13 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
     } catch { return []; }
   };
   const writeNames = (list: readonly string[]): Promise<void> => Promise.resolve(deps.secrets.store(INDEX_KEY, JSON.stringify(list)));
+  // One chain: the index is read, changed and written in order, so two overlapping launches keep both names.
+  let indexChain: Promise<void> = Promise.resolve();
+  const changeIndex = (change: (list: readonly string[]) => readonly string[]): Promise<void> => {
+    const next = indexChain.then(async () => writeNames(change(await names())));
+    indexChain = next.catch(() => undefined);
+    return next;
+  };
   const load = async (sandbox: string): Promise<Grant | undefined> => {
     try {
       const parsed: unknown = JSON.parse((await deps.secrets.get(GRANT_PREFIX + sandbox)) ?? 'null');
@@ -52,12 +59,12 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
   };
   const save = async (sandbox: string, grant: Grant): Promise<void> => {
     await deps.secrets.store(GRANT_PREFIX + sandbox, JSON.stringify(grant));
-    const list = await names();
-    if (!list.includes(sandbox)) await writeNames([...list, sandbox]);
+    await changeIndex((list) => (list.includes(sandbox) ? list : [...list, sandbox]));
   };
-  const revokeKey = async (sandbox: string, grant: Grant): Promise<void> => {
-    if (grant.revoked) return;
-    try { await deps.client.revoke(grant.key); } catch (e) { log('revoke failed', sandbox, e); }
+  /** `true` when the key is dead at the proxy (or was revoked before). */
+  const revokeKey = async (sandbox: string, grant: Grant): Promise<boolean> => {
+    if (grant.revoked) return true;
+    try { await deps.client.revoke(grant.key); return true; } catch (e) { log('revoke failed', sandbox, e); return false; }
   };
 
   async function issue(sandbox: string, account: string): Promise<OauthIssue> {
@@ -77,9 +84,10 @@ export function createSbxGrantStore(deps: SbxGrantStoreDeps) {
   async function release(sandbox: string): Promise<{ readonly port?: number }> {
     const grant = await load(sandbox);
     if (!grant) return {};
-    await revokeKey(sandbox, grant);
+    // A key that is still live keeps its record, so a later release or account change retries the revoke.
+    if (!(await revokeKey(sandbox, grant))) return { port: grant.port };
     await deps.secrets.delete(GRANT_PREFIX + sandbox);
-    await writeNames((await names()).filter((n) => n !== sandbox));
+    await changeIndex((list) => list.filter((n) => n !== sandbox));
     return { port: grant.port };
   }
 

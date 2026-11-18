@@ -67,11 +67,27 @@ describe('sbx grant store', () => {
     expect(await store.liveRegistrations()).toEqual([]);
   });
 
-  it('release still forgets the key when the proxy is down, and logs it', async () => {
-    const { store, debug } = await setup({ revoke: async () => { throw new Error('down'); } });
-    await store.issue('sb', 'work');
+  it('release keeps the record when the revoke fails, logs it, and a later release retries the revoke', async () => {
+    let down = true;
+    const { store, debug, client, secrets } = await setup({ revoke: async () => { if (down) throw new Error('down'); } });
+    const a = await store.issue('sb', 'work');
+    if (!a.ok) throw new Error('unreachable');
     expect(await store.release('sb')).toEqual({ port: 8787 });
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('revoke failed'));
+    expect(secrets.map.has('karst.sbx.grant.sb')).toBe(true);
+    down = false;
+    expect(await store.release('sb')).toEqual({ port: 8787 });
+    expect(client.revoke).toHaveBeenLastCalledWith(a.key);
+    expect(secrets.map.has('karst.sbx.grant.sb')).toBe(false);
+    expect(JSON.parse(secrets.map.get('karst.sbx.grants.index') ?? '[]')).toEqual([]);
+  });
+
+  it('keeps every sandbox in the index when launches and releases overlap', async () => {
+    const { store, secrets } = await setup();
+    await Promise.all(['s1', 's2', 's3', 's4'].map((n) => store.issue(n, 'work')));
+    expect(JSON.parse(secrets.map.get('karst.sbx.grants.index') ?? '[]').sort()).toEqual(['s1', 's2', 's3', 's4']);
+    await Promise.all([store.release('s1'), store.release('s2'), store.issue('s5', 'work')]);
+    expect(JSON.parse(secrets.map.get('karst.sbx.grants.index') ?? '[]').sort()).toEqual(['s3', 's4', 's5']);
   });
 
   it('lists the live keys with their account tokens for a proxy restart', async () => {
