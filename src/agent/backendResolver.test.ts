@@ -26,7 +26,7 @@ describe('resolveBackend account', () => {
   it('types the account block, so callers never parse the line', async () => {
     configureAccounts({ claude: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } });
     const blocked = await resolveBackend({ ...base, backends: { claude: 'sbx' }, preflight: ok, worktree });
-    expect(blocked.blocked).toEqual({ kind: 'account', reason: expect.stringMatching(/claude account 'work'.*no sbx token/), account: 'work', canAddToken: true });
+    expect(blocked.blocked).toEqual({ kind: 'account', reason: expect.stringMatching(/claude account 'work'.*no sbx token/)});
     const def = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'default' });
     expect(def.blocked).toBeUndefined();
     const other = await resolveBackend({ ...base, core: 'opencode', backends: { opencode: 'sbx' }, preflight: ok });

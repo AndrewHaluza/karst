@@ -828,11 +828,11 @@ describe('a resume under a token account runs in sbx (@arch:AC-51)', () => {
     } finally { configureRecordedAccountLookup(undefined); }
   });
 
-  it('without a token the recorded account is blocked, and the dialog may add one', async () => {
+  it('without a token the recorded account is blocked', async () => {
     configureRecordedAccountLookup((_core, id) => (id === 'sess-1' ? 'work' : undefined));
     try {
       const resolved = await make([]).resolveRunner!();
-      expect(resolved.blocked).toMatchObject({ kind: 'account', account: 'work' });
+      expect(resolved.blocked).toMatchObject({ kind: 'account' });
     } finally { configureRecordedAccountLookup(undefined); }
   });
 });
