@@ -28,6 +28,9 @@ export interface CliCopyInput {
   readonly storageDir: string;
   /** The extension version. */
   readonly version: string;
+  /** Test seams for the two file system calls that can fail. */
+  readonly rename?: (from: string, to: string) => void;
+  readonly utimes?: (dir: string, when: Date) => void;
 }
 
 export interface CliCopyResult {
@@ -61,7 +64,7 @@ export function ensureCliCopy(input: CliCopyInput): CliCopyResult {
   const finalDir = join(root, `${input.version}-${hash}`);
   const entry = join(finalDir, CLI_ENTRY_FILE);
   if (existsSync(entry)) {
-    touch(finalDir);
+    touch(finalDir, input.utimes ?? ((d, w) => utimesSync(d, w, w)));
     return { entry, copied: false };
   }
   mkdirSync(root, { recursive: true });
@@ -71,7 +74,7 @@ export function ensureCliCopy(input: CliCopyInput): CliCopyResult {
     // The bundle is ESM; the copy sits outside the extension package, so it needs its own marker.
     writeFileSync(join(tempDir, 'package.json'), '{"type":"module"}\n');
     try {
-      renameSync(tempDir, finalDir);
+      (input.rename ?? renameSync)(tempDir, finalDir);
     } catch (err) {
       if (!existsSync(entry)) throw err;
       return { entry, copied: false };
@@ -82,10 +85,9 @@ export function ensureCliCopy(input: CliCopyInput): CliCopyResult {
   return { entry, copied: true };
 }
 
-function touch(dir: string): void {
-  const now = new Date();
+function touch(dir: string, utimes: (dir: string, when: Date) => void): void {
   try {
-    utimesSync(dir, now, now);
+    utimes(dir, new Date());
   } catch {
     // A failed touch only makes the copy look older; the prune keeps referenced copies.
   }
@@ -106,7 +108,7 @@ export function pruneCliCopies(input: PruneInput): string[] {
   const root = join(input.storageDir, CLI_COPY_DIR);
   if (!existsSync(root)) return [];
   const maxAge = input.maxAgeMs ?? CLI_COPY_MAX_AGE_MS;
-  const remove = input.remove ?? ((dir: string) => rmSync(dir, { recursive: true, force: true }));
+  const remove = input.remove ?? ((dir: string) => rmSync(dir, { recursive: true }));
   const kept = new Set(input.keep.map((e) => dirname(e)));
   const removed: string[] = [];
   for (const name of readdirSync(root)) {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, utimesSync } from 'node:fs';
+import { statSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename, dirname } from 'node:path';
 import {
   ensureCliCopy,
   pruneCliCopies,
@@ -40,6 +40,49 @@ describe('ensureCliCopy', () => {
     expect(r.copied).toBe(true);
     expect(r.entry.startsWith(join(storage, CLI_COPY_DIR, '1.2.3-'))).toBe(true);
     expect(readFileSync(r.entry, 'utf8')).toBe('console.log("v1");');
+  });
+
+  it('names the directory with the version and a 12-character hex hash', () => {
+    const r = ensureCliCopy({ installCliDir: installCli, storageDir: storage, version: '1.2.3' });
+    expect(basename(dirname(r.entry))).toMatch(/^1\.2\.3-[0-9a-f]{12}$/);
+  });
+
+  it('refreshes the copy age when it reuses a copy', () => {
+    const first = ensureCliCopy({ installCliDir: installCli, storageDir: storage, version: '1' });
+    const old = new Date(Date.now() - CLI_COPY_MAX_AGE_MS * 2);
+    utimesSync(dirname(first.entry), old, old);
+    ensureCliCopy({ installCliDir: installCli, storageDir: storage, version: '1' });
+    expect(Date.now() - statSync(dirname(first.entry)).mtimeMs).toBeLessThan(60_000);
+  });
+
+  it('still reuses the copy when the age refresh fails', () => {
+    ensureCliCopy({ installCliDir: installCli, storageDir: storage, version: '1' });
+    const r = ensureCliCopy({
+      installCliDir: installCli, storageDir: storage, version: '1',
+      utimes: () => { throw new Error('read-only'); },
+    });
+    expect(r.copied).toBe(false);
+  });
+
+  it('accepts the copy of a concurrent host that wins the rename', () => {
+    const r = ensureCliCopy({
+      installCliDir: installCli, storageDir: storage, version: '1',
+      rename: (_from, to) => {
+        mkdirSync(to);
+        writeFileSync(join(to, 'main.js'), 'console.log("v1");');
+        throw new Error('ENOTEMPTY');
+      },
+    });
+    expect(r.copied).toBe(false);
+    expect(readdirSync(join(storage, CLI_COPY_DIR)).filter((n) => n.startsWith('.tmp'))).toEqual([]);
+  });
+
+  it('throws when the rename fails and no copy exists', () => {
+    expect(() => ensureCliCopy({
+      installCliDir: installCli, storageDir: storage, version: '1',
+      rename: () => { throw new Error('EXDEV'); },
+    })).toThrow('EXDEV');
+    expect(readdirSync(join(storage, CLI_COPY_DIR))).toEqual([]);
   });
 
   it('marks the copy as an ES module so node loads the bundle', () => {
@@ -127,6 +170,20 @@ describe('pruneCliCopies', () => {
     expect(existsSync(old)).toBe(true);
   });
 
+  it('keeps a copy whose age equals the maximum', () => {
+    const now = Date.now();
+    const edge = makeCopy('1-edge', 0, now);
+    const at = statSync(edge).mtimeMs + CLI_COPY_MAX_AGE_MS;
+    expect(pruneCliCopies({ storageDir: storage, keep: [], now: at })).toEqual([]);
+    expect(existsSync(edge)).toBe(true);
+  });
+
+  it('does not throw when a removal fails and no warn callback is given', () => {
+    const now = Date.now();
+    makeCopy('1-old', CLI_COPY_MAX_AGE_MS + 1000, now);
+    expect(pruneCliCopies({ storageDir: storage, keep: [], now, remove: () => { throw new Error('busy'); } })).toEqual([]);
+  });
+
   it('does nothing when the copy root is absent', () => {
     expect(pruneCliCopies({ storageDir: join(root, 'none'), keep: [], now: Date.now() })).toEqual([]);
   });
@@ -146,5 +203,6 @@ describe('pruneCliCopies', () => {
     });
     expect(removed).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('1-old');
   });
 });
