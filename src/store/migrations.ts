@@ -3087,5 +3087,12 @@ function migrateLocked(db: Database): void {
     if (cols130.size > 0 && !cols130.has('last_checks_at')) db.exec('ALTER TABLE prs ADD COLUMN last_checks_at INTEGER');
   }
 
+  if (current < 131) {
+    // v131: `fix_deliveries.kind` ('fix' | 'conflict') and `repo` — a conflict round shares the delivery table (@arch:AP-01). Additive; every existing row is a 'fix' row (no backfill).
+    const cols131 = tableColumns(db, 'fix_deliveries');
+    if (cols131.size > 0 && !cols131.has('kind')) db.exec("ALTER TABLE fix_deliveries ADD COLUMN kind TEXT NOT NULL DEFAULT 'fix' CHECK (kind IN ('fix', 'conflict'))");
+    if (cols131.size > 0 && !cols131.has('repo')) db.exec('ALTER TABLE fix_deliveries ADD COLUMN repo TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

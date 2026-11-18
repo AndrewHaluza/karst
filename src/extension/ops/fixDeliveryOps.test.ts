@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getFixDelivery, currentFixDelivery, claimArmed, claimRead, upsertFixDelivery } from '../../store/fixDeliveries.js';
+import { setStageCurrent } from '../../store/tickets.js';
+import { setMergeCheck } from '../../store/mergeChecks.js';
+import { getFixDelivery, currentConflictDelivery, currentFixDelivery, claimArmed, claimPointerFailed, claimRead, upsertFixDelivery } from '../../store/fixDeliveries.js';
 import { recordSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
-import { ackFixDeliveryRef, deliverLiveFix, eligibleFixDelivery, failPointer, sendTypedPointer } from './fixDeliveryOps.js';
+import { closeStaleDeliveries, ackFixDeliveryRef, deliverLiveFix, eligibleFixDelivery, failPointer, sendTypedPointer } from './fixDeliveryOps.js';
 import { makeHarness, type Harness } from '../../store/fixtures/fixDeliveryHarness.js';
 
 describe('fixDeliveryOps', () => {
@@ -19,7 +21,63 @@ describe('fixDeliveryOps', () => {
     ...over,
   });
 
+  describe('closeStaleDeliveries', () => {
+    it('a stale unread conflict row never holds the pointer of a later fix row', () => {
+      const conflict = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'C', at: h.host.now(), kind: 'conflict', repo: 'api' });
+      claimArmed(h.store, conflict, h.host.now());
+      setMergeCheck(h.store, { ticketId: h.ticketId, repo: 'api', state: 'clean', files: [], reason: null, headSha: 'h', baseSha: 'b', baseRef: 'main', checkedAt: 'x' });
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const fix = currentFixDelivery(h.store, h.ticketId)!;
+      expect(eligibleFixDelivery(h.host, h.ticketId)?.id).toBe(fix.id);
+      expect(getFixDelivery(h.store, conflict)?.supersededAt).not.toBeNull();
+    });
+  });
+
+  describe('closeStaleDeliveries (transient and failed rows)', () => {
+    const check = (state: 'unknown' | 'clean'): void =>
+      setMergeCheck(h.store, { ticketId: h.ticketId, repo: 'api', state, files: [], reason: null, headSha: 'h', baseSha: 'b', baseRef: 'main', checkedAt: 'x' });
+    it('a transient unknown or missing check keeps an unread conflict row; a clean check closes it', () => {
+      const id = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'C', at: h.host.now(), kind: 'conflict', repo: 'api' });
+      check('unknown');
+      closeStaleDeliveries(h.host, h.ticketId);
+      expect(getFixDelivery(h.store, id)?.supersededAt).toBeNull();
+      check('clean');
+      closeStaleDeliveries(h.host, h.ticketId);
+      expect(getFixDelivery(h.store, id)?.supersededAt).not.toBeNull();
+    });
+
+    it('a pointer-failed conflict row does not hold the hook pointer of a later fix row', () => {
+      const failed = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'C', at: h.host.now(), kind: 'conflict', repo: 'api' });
+      claimArmed(h.store, failed, h.host.now());
+      claimPointerFailed(h.store, failed, h.host.now());
+      check('unknown');
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const fix = currentFixDelivery(h.store, h.ticketId)!;
+      expect(eligibleFixDelivery(h.host, h.ticketId)?.id).toBe(fix.id);
+    });
+  });
+
+  describe('closeStaleDeliveries (fix row)', () => {
+    it('an old unread fix row from a finished round never holds the pointer of a later conflict row', () => {
+      const old = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'F', at: h.host.now() });
+      claimArmed(h.store, old, h.host.now());
+      setStageCurrent(h.store, h.ticketId, 'ship');
+      setMergeCheck(h.store, { ticketId: h.ticketId, repo: 'api', state: 'conflicted', files: ['a.ts'], reason: null, headSha: 'h', baseSha: 'b', baseRef: 'main', checkedAt: 'x' });
+      expect(deliverLiveFix(h.host, input({ kind: 'conflict', repo: 'api', body: 'C' }))).toBe(true);
+      const conflict = currentConflictDelivery(h.store, h.ticketId, 'api')!;
+      expect(eligibleFixDelivery(h.host, h.ticketId)?.id).toBe(conflict.id);
+      expect(getFixDelivery(h.store, old)?.supersededAt).not.toBeNull();
+    });
+  });
+
   describe('deliverLiveFix', () => {
+    it('a tracked round updated in place still delivers when a younger conflict row exists', () => {
+      const round = h.openRound();
+      expect(deliverLiveFix(h.host, input({ roundId: round }))).toBe(true);
+      upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'C', at: h.host.now(), kind: 'conflict', repo: 'api' });
+      expect(deliverLiveFix(h.host, input({ roundId: round, body: 'BRIEF 2' }))).toBe(true);
+    });
+
     it('push route: stores the snapshot against the live generation and arms it', () => {
       expect(deliverLiveFix(h.host, input())).toBe(true);
       const row = currentFixDelivery(h.store, h.ticketId)!;

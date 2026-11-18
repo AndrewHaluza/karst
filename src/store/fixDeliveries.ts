@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS fix_deliveries (
   pointer_failed_at TEXT,    -- the pointer could not be built (needs-you, once)
   read_at           TEXT,    -- the receipt
   delivered_via     TEXT CHECK (delivered_via IN ('seed', 'pointer')),
-  superseded_at     TEXT
+  superseded_at     TEXT,
+  kind              TEXT NOT NULL DEFAULT 'fix' CHECK (kind IN ('fix', 'conflict')), -- v131: a conflict round (@arch:AP-01) shares the table
+  repo              TEXT     -- v131: the conflicted repo of a 'conflict' row
 );
 CREATE INDEX IF NOT EXISTS idx_fix_deliveries_ticket
   ON fix_deliveries(ticket_id, superseded_at, read_at);
@@ -43,6 +45,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_deliveries_round
 export const MAX_FIX_BODY = 64 * 1024;
 
 export type FixDeliveredVia = 'seed' | 'pointer';
+
+/** `fix`: a gate-failure round. `conflict`: a merge-conflict round (v131, @arch:AP-01); it never supersedes or is superseded by a `fix` row. */
+export type FixDeliveryKind = 'fix' | 'conflict';
 
 export interface FixDelivery {
   id: number;
@@ -61,6 +66,9 @@ export interface FixDelivery {
   readAt: string | null;
   deliveredVia: FixDeliveredVia | null;
   supersededAt: string | null;
+  kind: FixDeliveryKind;
+  /** The conflicted repo of a `conflict` row, else null. */
+  repo: string | null;
 }
 
 interface FixDeliveryRow {
@@ -80,6 +88,8 @@ interface FixDeliveryRow {
   read_at: string | null;
   delivered_via: FixDeliveredVia | null;
   superseded_at: string | null;
+  kind: FixDeliveryKind;
+  repo: string | null;
 }
 
 function rowToDelivery(r: FixDeliveryRow): FixDelivery {
@@ -100,6 +110,8 @@ function rowToDelivery(r: FixDeliveryRow): FixDelivery {
     readAt: r.read_at,
     deliveredVia: r.delivered_via,
     supersededAt: r.superseded_at,
+    kind: r.kind,
+    repo: r.repo,
   };
 }
 
@@ -118,6 +130,9 @@ export interface UpsertFixDeliveryInput {
   /** Appended (with the cut) when the body exceeds `MAX_FIX_BODY`. */
   truncatedFooter?: string;
   at: string;
+  /** Default `fix`. A `conflict` row needs `repo` and supersedes only older conflict rows of the ticket. */
+  kind?: FixDeliveryKind;
+  repo?: string | null;
 }
 
 /**
@@ -130,6 +145,7 @@ export interface UpsertFixDeliveryInput {
  */
 export function upsertFixDelivery(store: Store, input: UpsertFixDeliveryInput): number {
   const { body, truncated } = capFixBody(input.body, input.truncatedFooter ?? '');
+  const kind = input.kind ?? 'fix';
   const write = store.db.transaction((): number => {
     let id: number | null = null;
     if (input.recoveryRoundId !== null) {
@@ -157,8 +173,8 @@ export function upsertFixDelivery(store: Store, input: UpsertFixDeliveryInput): 
       const info = store.db
         .prepare(
           `INSERT INTO fix_deliveries
-             (project_id, ticket_id, recovery_round_id, launch_id, body, truncated, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+             (project_id, ticket_id, recovery_round_id, launch_id, body, truncated, created_at, kind, repo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           project?.project_id ?? null,
@@ -168,15 +184,17 @@ export function upsertFixDelivery(store: Store, input: UpsertFixDeliveryInput): 
           body,
           truncated ? 1 : 0,
           input.at,
+          kind,
+          input.repo ?? null,
         );
       id = Number(info.lastInsertRowid);
     }
     store.db
       .prepare(
         `UPDATE fix_deliveries SET superseded_at = ?
-          WHERE ticket_id = ? AND id <> ? AND read_at IS NULL AND superseded_at IS NULL`,
+          WHERE ticket_id = ? AND id <> ? AND kind = ? AND read_at IS NULL AND superseded_at IS NULL`,
       )
-      .run(input.at, input.ticketId, id);
+      .run(input.at, input.ticketId, id, kind);
     return id;
   });
   return write();
@@ -189,7 +207,7 @@ export function getFixDelivery(store: Store, id: number): FixDelivery | null {
   return row === undefined ? null : rowToDelivery(row);
 }
 
-/** The latest (highest id) non-superseded row of a ticket, or null. */
+/** The latest (highest id) non-superseded row of a ticket, of any kind, or null. */
 export function currentFixDelivery(store: Store, ticketId: number): FixDelivery | null {
   const row = store.db
     .prepare(
@@ -198,6 +216,52 @@ export function currentFixDelivery(store: Store, ticketId: number): FixDelivery 
         ORDER BY id DESC LIMIT 1`,
     )
     .get(ticketId) as FixDeliveryRow | undefined;
+  return row === undefined ? null : rowToDelivery(row);
+}
+
+/**
+ * The oldest unread, non-superseded row of a ticket, of any kind, or null. The hook pointer and the `fix-brief --ack`
+ * read both use it, so each pointer line and each receipt name the same row: an unread fix row and an unread conflict
+ * row of one ticket are read one after the other, never in place of each other. `skipFailed` leaves out a pointer-failed
+ * row, so a row that can never be pointed at does not hold the hook pointer of a later row.
+ */
+export function nextUnreadDelivery(store: Store, ticketId: number, skipFailed = false): FixDelivery | null {
+  const row = store.db
+    .prepare(
+      `SELECT * FROM fix_deliveries
+        WHERE ticket_id = ? AND read_at IS NULL AND superseded_at IS NULL
+          AND (? = 0 OR pointer_failed_at IS NULL)
+        ORDER BY id ASC LIMIT 1`,
+    )
+    .get(ticketId, skipFailed ? 1 : 0) as FixDeliveryRow | undefined;
+  return row === undefined ? null : rowToDelivery(row);
+}
+
+/**
+ * The row an `--ack` read serves: the unread row pointed at most recently (the pointer line names that row), else the
+ * oldest unread row. A typed send can point at a younger row while an older unread row waits, so the oldest row alone
+ * could differ from the row the pointer named.
+ */
+export function ackTargetDelivery(store: Store, ticketId: number): FixDelivery | null {
+  const row = store.db
+    .prepare(
+      `SELECT * FROM fix_deliveries
+        WHERE ticket_id = ? AND read_at IS NULL AND superseded_at IS NULL
+        ORDER BY (pointed_at IS NULL), COALESCE(repointed_at, pointed_at) DESC, id ASC LIMIT 1`,
+    )
+    .get(ticketId) as FixDeliveryRow | undefined;
+  return row === undefined ? null : rowToDelivery(row);
+}
+
+/** The latest non-superseded `conflict` row of a ticket (of one repo when given), or null: its `readAt` is the round's receipt. */
+export function currentConflictDelivery(store: Store, ticketId: number, repo?: string): FixDelivery | null {
+  const row = store.db
+    .prepare(
+      `SELECT * FROM fix_deliveries
+        WHERE ticket_id = ? AND kind = 'conflict' AND superseded_at IS NULL AND (? IS NULL OR repo = ?)
+        ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId, repo ?? null, repo ?? null) as FixDeliveryRow | undefined;
   return row === undefined ? null : rowToDelivery(row);
 }
 
@@ -241,14 +305,14 @@ export function supersedeFixDelivery(store: Store, id: number, at: string): bool
   return Number(info.changes) > 0;
 }
 
-/** Stamp every unread, live row of a ticket superseded; returns rows changed. */
-export function supersedeFixDeliveries(store: Store, ticketId: number, at: string): number {
+/** Stamp every unread, live row of one kind of a ticket superseded (default `fix`); returns rows changed. */
+export function supersedeFixDeliveries(store: Store, ticketId: number, at: string, kind: FixDeliveryKind = 'fix'): number {
   const info = store.db
     .prepare(
       `UPDATE fix_deliveries SET superseded_at = ?
-        WHERE ticket_id = ? AND read_at IS NULL AND superseded_at IS NULL`,
+        WHERE ticket_id = ? AND kind = ? AND read_at IS NULL AND superseded_at IS NULL`,
     )
-    .run(at, ticketId);
+    .run(at, ticketId, kind);
   return Number(info.changes);
 }
 

@@ -13,6 +13,7 @@ import {
   claimRepointed,
   clearEnqueued,
   currentFixDelivery,
+  currentConflictDelivery,
   getFixDelivery,
   listFixDeliveriesByRound,
   listOpenFixDeliveries,
@@ -78,6 +79,21 @@ describe('fixDeliveries', () => {
     expect(getFixDelivery(store, a)!.supersededAt).toBe(T1);
     expect(getFixDelivery(store, other)!.supersededAt).toBeNull();
     expect(currentFixDelivery(store, ticketId)!.id).toBe(b);
+  });
+
+  it('a conflict row and a fix row never supersede each other (kind-scoped)', () => {
+    const fix = upsert();
+    const conflict = upsert({ kind: 'conflict', repo: 'api' });
+    expect(getFixDelivery(store, fix)!.supersededAt).toBeNull();
+    expect(getFixDelivery(store, conflict)).toMatchObject({ kind: 'conflict', repo: 'api', supersededAt: null });
+    const next = upsert({ kind: 'conflict', repo: 'api', at: T1 });
+    expect(getFixDelivery(store, conflict)!.supersededAt).toBe(T1);
+    expect(getFixDelivery(store, fix)!.supersededAt).toBeNull();
+    expect(currentConflictDelivery(store, ticketId, 'api')!.id).toBe(next);
+    expect(currentConflictDelivery(store, ticketId, 'web')).toBeNull();
+    expect(supersedeFixDeliveries(store, ticketId, T1)).toBe(1);
+    expect(getFixDelivery(store, next)!.supersededAt).toBeNull();
+    expect(getFixDelivery(store, fix)!.supersededAt).toBe(T1);
   });
 
   it('keeps a READ older row un-superseded', () => {

@@ -609,6 +609,29 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'auto_recovery_count')).toHaveLength(1);
   });
 
+  it('migrates a pre-v131 database by adding fix_deliveries.kind and repo, idempotently; old rows are fix rows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE fix_deliveries (id INTEGER PRIMARY KEY, ticket_id INTEGER, body TEXT)');
+    legacy.exec("INSERT INTO fix_deliveries (ticket_id, body) VALUES (1, 'b')");
+    legacy.pragma('user_version = 130');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('fix_deliveries')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toEqual(expect.arrayContaining(['kind', 'repo']));
+    expect(migrated.db.prepare('SELECT kind, repo FROM fix_deliveries').get()).toEqual({ kind: 'fix', repo: null });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'kind')).toHaveLength(1);
+  });
+
   it('migrates a pre-v130 database by adding the prs.last_checks snapshot columns, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
