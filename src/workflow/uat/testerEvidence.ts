@@ -6,6 +6,7 @@
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 import { globToRegExp } from '../../artifacts/globMatch.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { UatTesterRequireEvidence } from '../../manifest/types.js';
@@ -41,6 +42,8 @@ export interface EvidenceCheckInput {
   branch?: string | null;
   /** The Tester run's start, in epoch ms: evidence must be at or after it. */
   startedAtMs: number;
+  /** The id the host gave this Tester run; a direct-run summary counts only when it carries it. */
+  runId?: string;
   git: GitRunner;
   fs?: EvidenceFs;
 }
@@ -149,13 +152,20 @@ async function decide(input: EvidenceCheckInput): Promise<EvidenceCheck> {
   const fs = input.fs ?? defaultEvidenceFs;
   const pattern = globToRegExp(rule.file);
   const files = await fs.list(input.worktreePath, globStaticDir(rule.file), (rel) => pattern.test(rel));
-  const fresh = files.filter((f) => pattern.test(f.rel) && f.mtimeMs >= input.startedAtMs);
-  if (fresh.length === 0) {
-    return {
-      kind: 'missing',
-      detail: `no probe evidence: no file matching ${rule.file} is newer than the run start, and the diff touches ${trigger}`,
-    };
+  const isFresh = (f: EvidenceFile): boolean => f.mtimeMs >= input.startedAtMs;
+  const probes = files.filter((f) => pattern.test(f.rel) && !isDirectPath(f.rel) && isFresh(f));
+  if (probes.length > 0) return probeVerdict(input, fs, probes);
+  const direct = await findDirectRun(input, fs);
+  if (direct !== undefined) {
+    return { kind: 'present', detail: `recorded direct run found (${direct}); it counts as evidence` };
   }
+  return {
+    kind: 'missing',
+    detail: `no probe evidence: no probe summary matching ${rule.file} and no recorded direct run of this run is newer than the run start, and the diff touches ${trigger}`,
+  };
+}
+
+async function probeVerdict(input: EvidenceCheckInput, fs: EvidenceFs, fresh: EvidenceFile[]): Promise<EvidenceCheck> {
   const newest = fresh.reduce((a, b) => (b.mtimeMs > a.mtimeMs ? b : a));
   let state: FirstStep;
   try {
@@ -172,10 +182,63 @@ async function decide(input: EvidenceCheckInput): Promise<EvidenceCheck> {
   return { kind: 'present' };
 }
 
-/** The text prepended to the Tester prompt on the one re-ask after a missing-evidence skip. */
-export function evidenceReaskPrefix(detail: string): string {
+/** Where the direct-run recorder writes (`directRunRecorder.mjs`); always below the scratch out dir. */
+export const DIRECT_RUN_DIR = '.karst/uat-scratch/out/direct';
+const DIRECT_SUMMARY = /^\.karst\/uat-scratch\/out\/direct\/[^/]+\/summary\.json$/;
+const isDirectPath = (rel: string): boolean => rel.startsWith(`${DIRECT_RUN_DIR}/`);
+
+/** The recorder's shape: a summary of any other shape is not evidence. */
+function isDirectRunSummary(value: unknown, runId: string | undefined): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  const shaped =
+    v.kind === 'direct-run' &&
+    Array.isArray(v.command) &&
+    v.command.length > 0 &&
+    typeof v.exitCode === 'number' &&
+    typeof v.startedAt === 'string' &&
+    typeof v.finishedAt === 'string';
+  return shaped && (runId === undefined || v.runId === runId);
+}
+
+/** The first fresh, readable direct-run summary that this run wrote, or undefined. */
+async function findDirectRun(input: EvidenceCheckInput, fs: EvidenceFs): Promise<string | undefined> {
+  const listed = await fs.list(input.worktreePath, DIRECT_RUN_DIR, (rel) => DIRECT_SUMMARY.test(rel));
+  for (const file of listed) {
+    if (!DIRECT_SUMMARY.test(file.rel) || file.mtimeMs < input.startedAtMs) continue;
+    try {
+      const parsed: unknown = JSON.parse(await fs.read(join(input.worktreePath, file.rel)));
+      if (isDirectRunSummary(parsed, input.runId)) return file.rel;
+    } catch {
+      // An unreadable direct-run file is not evidence.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The direct-run recorder, as an absolute path inside karst's own install (see
+ * `harnessRunnerPath`: never `import.meta.url`, which is `dist/extension.js` once bundled).
+ */
+export function directRunRecorderPath(): string {
+  return join(RUNTIME_ASSETS_ROOT, 'workflow/uat/directRunRecorder.mjs');
+}
+
+/** The one paragraph that states the evidence rule; the first prompt and the re-ask share it. */
+export function evidenceRuleParagraph(runId: string): string {
+  const recorder = `node '${directRunRecorderPath().replace(/'/g, "'\\''")}' --name <name> --run ${runId} -- <command...>`;
   return (
-    `Your previous UAT run on this ticket left no probe evidence (${detail}).\n` +
-    'This run needs at least one probe run. Run the probe, then report what it showed.'
+    'This change touches code that needs evidence: show a probe run or a recorded direct run. ' +
+    `Record a direct run (for example npx tsx) with: ${recorder} ` +
+    'A direct run that the recorder did not write does not count. ' +
+    'A SKIPPED coverage entry without either kind of evidence is not an accepted outcome.'
+  );
+}
+
+/** The text prepended to the Tester prompt on the one re-ask after a missing-evidence skip. */
+export function evidenceReaskPrefix(detail: string, runId: string): string {
+  return (
+    `Your previous UAT run on this ticket left no evidence (${detail}).\n` +
+    evidenceRuleParagraph(runId)
   );
 }

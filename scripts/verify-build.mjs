@@ -27,6 +27,8 @@ const REQUIRED_ARTIFACTS = [
   // The UAT harness evidence runner: harnessRunnerPath() joins RUNTIME_ASSETS_ROOT with
   // this path (T1202: a wrong path gave MODULE_NOT_FOUND in the Tester run).
   'dist/workflow/uat/harnessRunner.mjs',
+  // The direct-run recorder: directRunRecorderPath() joins RUNTIME_ASSETS_ROOT with this path.
+  'dist/workflow/uat/directRunRecorder.mjs',
 ];
 
 // NDL-126 §7 budget: React 19 production + ReactDOM is ~190 KB min, so a

@@ -5,7 +5,7 @@ import { transition } from '../machine.js';
 import { runUatTester, type RunUatTesterOpts, type TesterTarget } from './tester.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
-import { checkProbeEvidence, firstTriggerPath, defaultEvidenceFs, globStaticDir, MAX_EVIDENCE_FILES, type EvidenceFs } from './testerEvidence.js';
+import { checkProbeEvidence, directRunRecorderPath, evidenceRuleParagraph, firstTriggerPath, defaultEvidenceFs, globStaticDir, MAX_EVIDENCE_FILES, type EvidenceFs } from './testerEvidence.js';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +13,7 @@ import { reaskPrefix } from './testerSkip.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { UatTesterRequireEvidence } from '../../manifest/types.js';
+import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 
 const START = Date.parse('2026-08-08T10:00:00.000Z');
 const now = () => '2026-08-08T10:00:00.000Z';
@@ -114,6 +115,67 @@ describe('checkProbeEvidence', () => {
   });
 });
 
+
+const DIRECT = '.karst/uat-scratch/out/direct/t1/summary.json';
+const directBody = (over: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    kind: 'direct-run', name: 't1', command: ['npx', 'tsx', 'x.ts'], exitCode: 0, runId: 'run-A',
+    startedAt: '2026-08-08T10:00:01.000Z', finishedAt: '2026-08-08T10:00:02.000Z', stdoutTail: 'ok', stderrTail: '', ...over,
+  });
+const directInput = (body: string, over: Partial<Parameters<typeof checkProbeEvidence>[0]> = {}) =>
+  input({ runId: 'run-A', fs: fakeFs({ [DIRECT]: { mtimeMs: START + 1000, body } }), ...over });
+
+describe('checkProbeEvidence — recorded direct run', () => {
+  it('a fresh direct-run summary of this run is present, and the detail names the direct run', async () => {
+    const res = await checkProbeEvidence(directInput(directBody()));
+    expect(res.kind).toBe('present');
+    expect((res as { detail: string }).detail).toContain('recorded direct run');
+  });
+  it('a direct run whose command failed still counts as evidence', async () => {
+    expect((await checkProbeEvidence(directInput(directBody({ exitCode: 3 })))).kind).toBe('present');
+  });
+  it('a direct-run summary of another run is missing', async () => {
+    const res = await checkProbeEvidence(directInput(directBody({ runId: 'run-OLD' })));
+    expect(res.kind).toBe('missing');
+    expect((res as { detail: string }).detail).toContain('direct');
+  });
+  it('a direct-run summary without a run id is missing', async () => {
+    expect((await checkProbeEvidence(directInput(directBody({ runId: undefined })))).kind).toBe('missing');
+  });
+  it('an unreadable direct-run summary is missing', async () => {
+    expect((await checkProbeEvidence(directInput('{not json'))).kind).toBe('missing');
+  });
+  it('a direct-run file with the wrong shape is missing', async () => {
+    expect((await checkProbeEvidence(directInput(directBody({ exitCode: 'zero' })))).kind).toBe('missing');
+    expect((await checkProbeEvidence(directInput(directBody({ kind: 'probe' })))).kind).toBe('missing');
+    expect((await checkProbeEvidence(directInput(directBody({ command: [] })))).kind).toBe('missing');
+  });
+  it('a direct-run summary older than the run start is missing', async () => {
+    const stale = input({ runId: 'run-A', fs: fakeFs({ [DIRECT]: { mtimeMs: START - 1, body: directBody() } }) });
+    expect((await checkProbeEvidence(stale)).kind).toBe('missing');
+  });
+  it('a fresh probe summary still counts beside an invalid direct-run file', async () => {
+    const fs = fakeFs({ [SUMMARY]: { mtimeMs: START + 1 }, [DIRECT]: { mtimeMs: START + 1, body: '{no' } });
+    expect(await checkProbeEvidence(input({ runId: 'run-A', fs }))).toEqual({ kind: 'present' });
+  });
+  it('a direct-run file is not read as a probe summary', async () => {
+    const res = await checkProbeEvidence(directInput('{no'));
+    expect(res.kind).toBe('missing');
+  });
+});
+
+describe('evidence rule text', () => {
+  it('names both kinds of evidence, the recorder command and the run id', () => {
+    const text = evidenceRuleParagraph('run-A');
+    expect(text).toContain('a probe run or a recorded direct run');
+    expect(text).toContain(`'${join(RUNTIME_ASSETS_ROOT, 'workflow/uat/directRunRecorder.mjs')}' --name <name> --run run-A -- <command...>`);
+    expect(text).toContain('SKIPPED');
+  });
+  it('directRunRecorderPath is under the runtime assets root', () => {
+    expect(directRunRecorderPath()).toBe(join(RUNTIME_ASSETS_ROOT, 'workflow/uat/directRunRecorder.mjs'));
+  });
+});
+
 const cov = (text: string) => [{ severity: 'info', title: `COVERAGE (reported): ${text}`, detail: '' }];
 function scripted(answers: unknown[][]): { adapter: AgentAdapter; calls: RunHeadlessOpts[] } {
   const calls: RunHeadlessOpts[] = [];
@@ -203,6 +265,50 @@ describe('runUatTester — requireEvidence', () => {
     expect((await runUatTester(store, o, { now, evidenceFs: fresh })).kind).toBe('observed');
   });
 
+  it('the first prompt states the evidence rule when the diff matches whenChanged', async () => {
+    const { adapter, calls } = scripted([pass]);
+    await runUatTester(store, opts(adapter), { now, ...none });
+    expect(calls[0]!.prompt).toContain('a probe run or a recorded direct run');
+    expect(calls[0]!.prompt).toContain('directRunRecorder.mjs');
+  });
+
+  it('a diff outside whenChanged gives the same prompt as no rule', async () => {
+    const a = scripted([pass]);
+    const b = scripted([pass]);
+    await runUatTester(store, opts(a.adapter, { git: gitDiff(['README.md']) }), { now, ...none });
+    await runUatTester(store, opts(b.adapter, { requireEvidence: undefined }), { now, ...none });
+    expect(a.calls[0]!.prompt).toBe(b.calls[0]!.prompt);
+  });
+
+  it('a recorded direct run of this run is evidence', async () => {
+    const { calls, adapter } = scripted([pass]);
+    let runId = '';
+    const evidenceFs: EvidenceFs = {
+      list: async () => [{ rel: DIRECT, mtimeMs: Date.now() }],
+      read: async () => directBody({ runId }),
+    };
+    const spy: AgentAdapter = {
+      ...adapter,
+      runHeadless: async (o) => {
+        runId = /--run (\S+)/.exec(o.prompt)?.[1] ?? '';
+        return adapter.runHeadless(o);
+      },
+    };
+    expect((await runUatTester(store, opts(spy), { now, evidenceFs })).kind).toBe('observed');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('the re-ask states the rule once, with a new run id', async () => {
+    const { adapter, calls } = scripted([pass]);
+    await runUatTester(store, opts(adapter, { onSkip: 'reask' }), { now, ...none });
+    const count = calls[1]!.prompt.split('needs evidence: show a probe run').length - 1;
+    expect(count).toBe(1);
+    const ids = calls.map((c) => /--run (\S+)/.exec(c.prompt)?.[1]);
+    expect(ids[0]).toBeDefined();
+    expect(ids[1]).toBeDefined();
+    expect(ids[0]).not.toBe(ids[1]);
+  });
+
   it('onSkip pass: one call, no re-ask', async () => {
     const { adapter, calls } = scripted([pass]);
     await runUatTester(store, opts(adapter, { onSkip: 'pass' }), { now, ...none });
@@ -214,7 +320,7 @@ describe('runUatTester — requireEvidence', () => {
     const res = await runUatTester(store, opts(adapter, { onSkip: 'reask' }), { now, ...none });
     expect(res.kind).toBe('skipped');
     expect(calls).toHaveLength(2);
-    expect(calls[1]!.prompt).toContain('This run needs at least one probe run.');
+    expect(calls[1]!.prompt).toContain('a probe run or a recorded direct run');
     expect(calls[0]!.prompt).not.toContain('Your previous UAT run');
     expect(kinds()).toEqual([
       ['passed', 'skipped'],
@@ -258,7 +364,7 @@ describe('runUatTester — requireEvidence', () => {
     const { adapter, calls } = scripted([cov('SKIPPED — x')]);
     await runUatTester(store, opts(adapter, { onSkip: 'reask' }), { now, ...none });
     expect(calls[1]!.prompt.startsWith(reaskPrefix('COVERAGE (reported): SKIPPED — x'))).toBe(true);
-    expect(calls[1]!.prompt).toContain('left no probe evidence');
+    expect(calls[1]!.prompt).toContain('left no evidence');
   });
 
   it('a harness-failure summary is evidence: no skip and no re-ask', async () => {
