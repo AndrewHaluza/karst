@@ -184,6 +184,12 @@ describe('makeGateRerun through runGateList', () => {
     expect(JSON.stringify(rows[0])).toContain('unit (web)');
   });
 
+  it('writes the slot wait of the re-run on the marked row (T1248)', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ({ ...ok(), waitMs: 640 }));
+    await make(run)(ticketId, [failed()], 'uat');
+    expect(listGateRuns(store, ticketId, { includeHostRerun: true })[0]?.waitMs).toBeGreaterThanOrEqual(640);
+  });
+
   it('writes each gate row when the gate completes, so a later throw keeps the earlier rows', async () => {
     const runGates = vi.fn(async (_g: readonly ResolvedGate[], _cwd: string, opts: { onGateComplete?: (...a: never[]) => void }) => {
       (opts.onGateComplete as (n: string, e: number, s: string, t: string, i: number, o: string) => void)('unit', 1, 'a', 'b', 0, 'boom');

@@ -609,6 +609,33 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'auto_recovery_count')).toHaveLength(1);
   });
 
+  it('migrates a pre-v132 database by adding wait_ms to gate_runs and deliver_gate_results, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE gate_runs (id INTEGER PRIMARY KEY, ticket_id INTEGER, gate_name TEXT)');
+    legacy.exec('CREATE TABLE deliver_gate_results (id INTEGER PRIMARY KEY, run_id INTEGER, gate_name TEXT)');
+    legacy.exec("INSERT INTO gate_runs (ticket_id, gate_name) VALUES (1, 'unit')");
+    legacy.exec("INSERT INTO deliver_gate_results (run_id, gate_name) VALUES (1, 'unit')");
+    legacy.pragma('user_version = 131');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>, table: string) =>
+      (s.db.prepare(`PRAGMA table_info('${table}')`).all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated, 'gate_runs')).toContain('wait_ms');
+    expect(colsOf(migrated, 'deliver_gate_results')).toContain('wait_ms');
+    expect(migrated.db.prepare('SELECT wait_ms FROM gate_runs').get()).toEqual({ wait_ms: null });
+    expect(migrated.db.prepare('SELECT wait_ms FROM deliver_gate_results').get()).toEqual({ wait_ms: null });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened, 'gate_runs').filter((c) => c === 'wait_ms')).toHaveLength(1);
+  });
+
   it('migrates a pre-v131 database by adding fix_deliveries.kind and repo, idempotently; old rows are fix rows', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

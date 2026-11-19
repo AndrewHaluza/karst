@@ -75,11 +75,15 @@ export interface GateOutputChunk {
  * a gate failure. A `failed` verdict says the code is wrong; an abort says karst
  * stopped asking.
  */
-export type ProcessOutcome =
+export type ProcessOutcome = (
   | { kind: 'completed'; exitCode: number; output: string; stdout?: string }
   | { kind: 'spawnFailed'; message: string; output: string; stdout?: string }
   | { kind: 'timedOut'; output: string; stdout?: string }
-  | { kind: 'aborted'; output: string; stdout?: string };
+  | { kind: 'aborted'; output: string; stdout?: string }
+) & {
+  /** Milliseconds a sandbox runner spent waiting for a gate slot before the spawn. Absent = it did not wait. */
+  waitMs?: number;
+};
 
 export interface RunProcessOptions extends RunCommandOptions {
   /**

@@ -1,6 +1,6 @@
 import type { Store } from '../../store/db.js';
 import { acquireGateSlot, countGateSlots, GATE_SLOT_HEARTBEAT_MS, reapStaleGateSlots, releaseGateSlot, STALE_GATE_SLOT_MS, touchGateSlot } from '../../store/gateSlots.js';
-import type { GateProcessRunner } from '../../workflow/gates/run.js';
+import type { GateProcessRunner, ProcessOutcome } from '../../workflow/gates/run.js';
 
 /** How often a waiting gate retries for a slot. */
 export const GATE_SLOT_POLL_MS = 2_000;
@@ -41,11 +41,18 @@ export function withGateSlot(deps: GateSlotDeps, ticketId: number, run: GateProc
     const staleMs = deps.staleMs ?? STALE_GATE_SLOT_MS;
     let slot: number | null = null;
     let noted = false;
+    const waitStart = Date.now();
+    // The wait travels on the outcome (T1248), so the gate's record states it apart from the run time. Absent = no wait.
+    let waitedMs: number | null = null; // frozen once the slot is held, so the run time never counts
+    const withWait = (outcome: ProcessOutcome): ProcessOutcome => {
+      if (!noted) return outcome;
+      return { ...outcome, waitMs: (outcome.waitMs ?? 0) + (waitedMs ?? Date.now() - waitStart) };
+    };
     for (;;) {
-      if (options?.signal?.aborted) return { kind: 'aborted', output: '' };
+      if (options?.signal?.aborted) return withWait({ kind: 'aborted', output: '' });
       reapStaleGateSlots(deps.store, staleMs, projectId);
       slot = acquireGateSlot(deps.store, { ticketId, projectId, owner: deps.owner, limit });
-      if (slot !== null) break;
+      if (slot !== null) { waitedMs = Date.now() - waitStart; break; }
       const note = waitingForSlotNote(countGateSlots(deps.store, projectId));
       if (!noted) {
         noted = true;
@@ -60,7 +67,7 @@ export function withGateSlot(deps: GateSlotDeps, ticketId: number, run: GateProc
     }, deps.heartbeatMs ?? GATE_SLOT_HEARTBEAT_MS);
     beat.unref?.();
     try {
-      return await run(command, args, cwd, options);
+      return withWait(await run(command, args, cwd, options));
     } finally {
       clearInterval(beat);
       releaseGateSlot(deps.store, held);

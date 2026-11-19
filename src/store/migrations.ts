@@ -3094,5 +3094,13 @@ function migrateLocked(db: Database): void {
     if (cols131.size > 0 && !cols131.has('repo')) db.exec('ALTER TABLE fix_deliveries ADD COLUMN repo TEXT');
   }
 
+  if (current < 132) {
+    // v132: `gate_runs.wait_ms` and `deliver_gate_results.wait_ms` — ms of a gate's recorded span spent waiting for slots (T1248, @arch:RESULTS). Additive; NULL = never ran or a pre-v132 row (no backfill).
+    const gateCols132 = tableColumns(db, 'gate_runs');
+    if (gateCols132.size > 0 && !gateCols132.has('wait_ms')) db.exec('ALTER TABLE gate_runs ADD COLUMN wait_ms INTEGER');
+    const deliverCols132 = tableColumns(db, 'deliver_gate_results');
+    if (deliverCols132.size > 0 && !deliverCols132.has('wait_ms')) db.exec('ALTER TABLE deliver_gate_results ADD COLUMN wait_ms INTEGER');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

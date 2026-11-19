@@ -912,7 +912,7 @@ describe('a sandbox gate takes a project-wide gate slot', () => {
       const waiting = b.gateProcessFor(id)!('npm', [], '/wt', { signal: ctl.signal });
       await vi.waitFor(() => expect(debug).toHaveBeenCalledWith(`[gate] ticket ${id}: Waiting for a gate slot (1 running)`));
       ctl.abort();
-      await expect(waiting).resolves.toEqual({ kind: 'aborted', output: '' });
+      await expect(waiting).resolves.toMatchObject({ kind: 'aborted', output: '' });
     });
   });
 });

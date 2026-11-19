@@ -62,6 +62,22 @@ describe('gate run evidence', () => {
     expect(new Set(runs.map((r) => r.runAt)).size).toBe(2);
   });
 
+  it('round-trips wait_ms, and reads null when none was recorded (T1248)', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-07-20T12:00:00.000Z',
+      gates: [
+        { gateName: 'visual', exitCode: 0, waitMs: 1234 },
+        { gateName: 'lint', exitCode: 0, waitMs: 0 },
+        { gateName: 'test', exitCode: null },
+      ],
+    });
+    expect(listGateRuns(store, t.id).map((r) => r.waitMs)).toEqual([1234, 0, null]);
+  });
+
   it('round-trips a gate that never ran as null, never as 0', () => {
     // exitCode null = the repo defines no such script. Coercing it to 0 would
     // claim a green suite karst never got to run.

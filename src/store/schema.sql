@@ -167,6 +167,9 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   source        TEXT                  -- v121: what wrote the row. 'host-rerun' = the host gate re-run of a
                                        -- refused fix marker (@arch:AC-45), never a UAT batch verdict. NULL =
                                        -- a UAT/review batch row (and every pre-v121 row).
+  ,wait_ms      INTEGER               -- v132: ms of ended_at - started_at spent waiting for slots (gate lease, port
+                                       -- slot, sandbox runner slot) before the spawn. NULL = a gate that never ran, or
+                                       -- a pre-v132 row (no backfill). 0 = it ran and waited for nothing (@arch:RESULTS).
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
 
@@ -1624,7 +1627,8 @@ CREATE TABLE IF NOT EXISTS deliver_gate_results (
   summary      TEXT,
   started_at   TEXT,
   ended_at     TEXT,
-  dismissed_at TEXT
+  dismissed_at TEXT,
+  wait_ms      INTEGER  -- v132: ms of ended_at - started_at spent waiting for slots; NULL = never ran or pre-v132 (@arch:RESULTS)
 );
 CREATE INDEX IF NOT EXISTS idx_deliver_results_ticket ON deliver_gate_results(ticket_id, id);
 

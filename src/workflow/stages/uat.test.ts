@@ -93,6 +93,19 @@ describe('runUat', () => {
     rmSync(artifactDir, { recursive: true, force: true });
   });
 
+  it('files the slot wait runGateList reports on the gate row (T1248)', async () => {
+    await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps({
+      runGates: async (gates, _cwd, opts) => {
+        const results = gates.map((g, i) => {
+          opts?.onGateComplete?.(g.name, 0, now(), now(), i, 'ok', 750);
+          return { name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() };
+        });
+        return { kind: 'ran', results };
+      },
+    }));
+    expect(listGateRuns(store, id).map((r) => r.waitMs)).toEqual([750, 750]);
+  });
+
   it('all gates green -> advances to review and records one row per gate', async () => {
     const res = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
     expect(res).toEqual({ kind: 'advanced', next: 'review' });

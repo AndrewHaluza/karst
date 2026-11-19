@@ -37,4 +37,9 @@ export interface GateResult {
    */
   startedAt?: string;
   endedAt?: string;
+  /**
+   * Milliseconds of `endedAt - startedAt` spent waiting for slots (gate lease, port slot, sandbox
+   * runner slot) before the process spawned. Absent for a gate that never ran.
+   */
+  waitMs?: number;
 }

@@ -129,6 +129,25 @@ describe('runReview', () => {
     rmSync(artifactDir, { recursive: true, force: true });
   });
 
+  it('files the slot wait runGateList reports on the gate row (T1248)', async () => {
+    await runReview(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({
+        runGates: async (gates, _cwd, opts) => {
+          const t = now();
+          const results = gates.map((g, i) => {
+            opts?.onGateComplete?.(g.name, 0, t, t, i, 'ok', 750);
+            return { name: g.name, exitCode: 0, output: 'ok', startedAt: t, endedAt: t };
+          });
+          return { kind: 'ran', results };
+        },
+      }),
+    );
+    expect(listGateRuns(store, id).map((r) => r.waitMs)).toEqual(listGateRuns(store, id).map(() => 750));
+    expect(listGateRuns(store, id).length).toBeGreaterThan(0);
+  });
+
   it('files the regenerate row with one repository suffix and keeps the suffix on an ordinary gate', async () => {
     await runReview(
       store,
