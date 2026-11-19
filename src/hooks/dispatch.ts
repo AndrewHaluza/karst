@@ -80,6 +80,12 @@ export interface HookPayload {
    */
   run_in_background?: boolean;
   /**
+   * True when a claude `PostToolUse` `tool_response` says the tool launched
+   * async (`isAsync === true` or `status === 'async_launched'`). The bridge
+   * derives it and never forwards the response. Forwarded only when boolean.
+   */
+  async_launched?: boolean;
+  /**
    * `tool_input.timeout_ms` of a Monitor `PostToolUse`, forwarded only when it
    * is a positive finite number. It is how long the monitor may run.
    */
@@ -186,6 +192,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
   if (o.task_notification !== undefined && typeof o.task_notification !== 'boolean') {
     return null;
   }
+  const asyncLaunched = typeof o.async_launched === 'boolean' ? o.async_launched : undefined;
   const rawTimeout =
     o.tool_name === 'Monitor' && typeof toolInput === 'object' && toolInput !== null
       ? (toolInput as Record<string, unknown>).timeout_ms
@@ -217,6 +224,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     ...(o.tool_name !== undefined ? { tool_name: o.tool_name as string } : {}),
     ...(filePath !== undefined ? { file_path: filePath } : {}),
     ...(runInBackground !== undefined ? { run_in_background: runInBackground } : {}),
+    ...(asyncLaunched !== undefined ? { async_launched: asyncLaunched } : {}),
     ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
     ...(o.task_notification !== undefined ? { task_notification: o.task_notification as boolean } : {}),
     ...(o.stop_hook_active !== undefined ? { stop_hook_active: o.stop_hook_active as boolean } : {}),
@@ -869,7 +877,7 @@ export function dispatchHook(
       if (lifecycleProvider !== null) {
         const alwaysBackground = ALWAYS_BACKGROUND_TOOL_NAMES[lifecycleProvider].has(payload.tool_name);
         const flagged =
-          payload.run_in_background === true &&
+          (payload.run_in_background === true || payload.async_launched === true) &&
           BACKGROUND_TOOL_NAMES[lifecycleProvider].has(payload.tool_name);
         if (alwaysBackground || flagged) {
           tracker.extendBackgroundWait(ticketId, payload.timeout_ms ?? BACKGROUND_WAIT_DEFAULT_MS);

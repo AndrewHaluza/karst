@@ -25,9 +25,10 @@ const DIAGNOSTICS = join(dir, 'codex', 'hook-failures.jsonl');
 function runBridge(
   endpointUrl: string,
   input: unknown,
+  providerArg = 'codex',
 ): Promise<{ exitCode: number; stdout: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(resolveNodeExecutable(), [BRIDGE, endpointUrl, DIAGNOSTICS, 'codex'], {
+    const child = spawn(resolveNodeExecutable(), [BRIDGE, endpointUrl, DIAGNOSTICS, providerArg], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -319,7 +320,7 @@ describe('HOOK_BRIDGE mail reply', () => {
     }
   });
 
-  async function posted(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async function posted(input: Record<string, unknown>, providerArg = 'codex'): Promise<Record<string, unknown>> {
     const bodies: Array<Record<string, unknown>> = [];
     const r = await receiverOn((body, res) => {
       bodies.push(body);
@@ -327,7 +328,7 @@ describe('HOOK_BRIDGE mail reply', () => {
       res.end();
     });
     try {
-      await runBridge(r.url, input);
+      await runBridge(r.url, input, providerArg);
     } finally {
       await r.close();
     }
@@ -342,6 +343,21 @@ describe('HOOK_BRIDGE mail reply', () => {
     expect(mon.tool_input).toEqual({ timeout_ms: 5000 });
     const plain = await posted({ ...base, tool_name: 'Read', tool_input: { file_path: '/x', timeout_ms: 5 } });
     expect(plain.tool_input).toBeUndefined();
+  });
+
+  it('forwards only an async_launched boolean derived from a claude tool_response, never the response', async () => {
+    const base = { hook_event_name: 'PostToolUse', cwd: dir, session_id: 'sess-1', tool_name: 'Agent' };
+    const a = await posted({ ...base, tool_response: { isAsync: true, status: 'async_launched', agentId: 'secret-id' } }, 'claude');
+    expect(a.async_launched).toBe(true);
+    expect(JSON.stringify(a)).not.toContain('secret-id');
+    const b = await posted({ ...base, tool_response: { status: 'async_launched' } }, 'claude');
+    expect(b.async_launched).toBe(true);
+    const c = await posted({ ...base, tool_response: { isAsync: 'true', status: 'done' } }, 'claude');
+    expect(c.async_launched).toBeUndefined();
+    const d = await posted({ ...base, tool_response: 'async_launched' }, 'claude');
+    expect(d.async_launched).toBeUndefined();
+    const other = await posted({ ...base, tool_response: { isAsync: true } });
+    expect(other.async_launched).toBeUndefined();
   });
 
   it('forwards only a task_notification boolean for a UserPromptSubmit, never the prompt (T993)', async () => {
