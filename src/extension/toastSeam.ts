@@ -25,16 +25,20 @@ const SHOW: Record<EventLevel, (message: string, ...rest: Rest) => Shown> = {
   error: (m, ...r) => (vscode.window.showErrorMessage as (m: string, ...r: Rest) => Shown)(m, ...r),
 };
 
+/** Write one row and show nothing (a routine event, @arch:NTF-00). A failed write never throws. */
+export function recordOnly(level: EventLevel, message: string, ticketId?: number): void {
+  const record = recorder;
+  if (!record) return;
+  try {
+    record(level, message, ticketId);
+  } catch {
+    // The recorder logs its own failures; the caller must continue whatever happens.
+  }
+}
+
 /** Record one row (a failed write never blocks the toast), then show the message. */
 export function showToast(level: EventLevel, message: string, items: readonly string[] = [], ticketId?: number): Shown {
-  const record = recorder;
-  if (record) {
-    try {
-      record(level, message, ticketId);
-    } catch {
-      // The recorder logs its own failures; a toast must show whatever happens.
-    }
-  }
+  recordOnly(level, message, ticketId);
   return SHOW[level](message, ...items);
 }
 

@@ -42,7 +42,7 @@ flowchart LR
 END_DOC_BLOCK: [@arch:IDS-00]
 
 ## [@arch:IDS-01] Every visible id goes through entityId.ts
-covers: src/model/entityId.ts#formatId, src/model/entityId.ts#parseId
+covers: src/model/entityId.ts#formatId, src/model/entityId.ts#parseId, src/model/notifyText.ts#ticketLabel
 
 Three numeric entities, one prefixed form, built only by `src/model/entityId.ts` (display-only: derived from the integer primary keys, no schema change).
 
@@ -67,5 +67,6 @@ Three numeric entities, one prefixed form, built only by `src/model/entityId.ts`
 - **Self-id in the context header.** The session's own id is one line, `You are working on T<n> (KEY).` (plus `This is a sub-task of T<m>.`), in the facts/instruction layer. When facts are delivered the narrative heading drops the id (`# Ticket: KEY — title`); a narrative render without a facts layer sets `headingId`, and the `all` render heads `# Ticket: T<n> · KEY — title`. One line, not a section: see `@arch:RESIDENT`.
 - **Planning texts.** The preamble opens `PLANNING session P<n>` and cites drafts as `D<n>`; binding a draft writes `Planned in P<session> as D<draft>.` into the brief. `draft propose` prints `ref`; `dependsOn` accepts `D<n>` and `T<n>`; `id` accepts `D<n>`.
 - **Ratchet.** `src/model/entityId.ratchet.test.ts` fails when non-test source (outside `src/ui`) builds `#${…}` from an entity id; allowed `#N` forms (PR numbers, revision counters, run rows, hashes) are listed in its `ALLOWED` pattern.
+- **Toasts.** A toast names a ticket with `ticketLabel(id, key, title)` (`src/model/notifyText.ts`), which builds on `formatTicketRef`; see `@arch:NTF-03`.
 - **Webview surfaces** (`src/ui`, excluded from the ratchet) follow in a follow-up ticket.
 END_DOC_BLOCK: [@arch:IDS-01]
