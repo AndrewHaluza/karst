@@ -35,6 +35,7 @@ const byCode = (items: readonly ChecklistItem[], code: string): ChecklistItem =>
 const statuses = (items: readonly ChecklistItem[]): Record<string, string> => Object.fromEntries(items.map((i) => [i.code, i.status]));
 
 const FULL = manifestOf({
+  agentProvider: 'claude',
   defaultModel: 'sonnet',
   repositories: { web: repo({ service: SERVICE }) },
   review: { gates: [{ name: 'lint', command: 'npm', args: ['run', '-s', 'gate:lint'] }], repositories: {} },
@@ -114,6 +115,27 @@ describe('computeChecklist: done means verified', () => {
     expect(byCode(items, 'repos.baseline').status).toBe('todo');
   });
 
+  it('repos.baseline stays todo while a registered repoPath is not a git repository', async () => {
+    const items = await run(FULL, discovery(found('web', '/w/web', true)), { probes: { isGitRepo: () => false } });
+    const item = byCode(items, 'repos.baseline');
+    expect(item.status).toBe('todo');
+    expect(item.detail).toContain('repo.git.web');
+  });
+
+  it('services.declared ignores a named services map, which setup verify does not run', async () => {
+    const svc = { start: 'npm run dev', ports: [3000], health: 'http://localhost:3000' };
+    const m = { ...FULL, repositories: { web: repo({ service: undefined, services: { app: svc } }) } } as unknown as Manifest;
+    const items = await run(m, discovery(found('web', '/w/web', true)));
+    expect(byCode(items, 'services.declared').status).toBe('todo');
+  });
+
+  it('agents.default is todo while agentProvider is unset', async () => {
+    const items = await run({ ...FULL, agentProvider: undefined } as Manifest, discovery(found('web', '/w/web', true)));
+    const item = byCode(items, 'agents.default');
+    expect(item.status).toBe('todo');
+    expect(item.detail).toContain('agentProvider');
+  });
+
   it('repos.baseline is todo with no registered repository', async () => {
     const items = await run(manifestOf(), discovery());
     expect(byCode(items, 'repos.baseline').status).toBe('todo');
@@ -179,12 +201,6 @@ describe('computeChecklist: done means verified', () => {
     const m = manifestOf({ repositories: { web: repo({ service: { ...SERVICE, ports: [] } }) } });
     const items = await run(m, discovery(found('web', '/w/web', true)));
     expect(byCode(items, 'services.declared').status).toBe('todo');
-  });
-
-  it('services.declared accepts a services map entry with ports and health', async () => {
-    const m = manifestOf({ repositories: { web: repo({ services: { app: SERVICE } }) } });
-    const items = await run(m, discovery(found('web', '/w/web', true)));
-    expect(byCode(items, 'services.declared').status).toBe('done');
   });
 
   it('services.declared is done when no discovered repository is runnable', async () => {

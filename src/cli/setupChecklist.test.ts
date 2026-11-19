@@ -5,7 +5,7 @@ import type { Manifest } from '../manifest/types.js';
 import type { DiscoveryResult } from '../setup/discover.js';
 
 const manifest = {
-  host: '127.0.0.1', portRange: [3000, 3999], baselineBranch: 'main', defaultModel: 'm',
+  host: '127.0.0.1', portRange: [3000, 3999], baselineBranch: 'main', agentProvider: 'claude', defaultModel: 'm',
   repositories: { web: { repoPath: '/w/web', hasMigrations: false } },
 } as unknown as Manifest;
 const discovery: DiscoveryResult = {

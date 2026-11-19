@@ -68,14 +68,15 @@ function reposRegistered(ctx: RuleContext): RuleResult {
 function reposBaseline(ctx: RuleContext): RuleResult {
   const repos = enabledRepos(ctx.manifest);
   if (repos.length === 0) return result(['no repository is registered']);
-  return result(failing(ctx, 'repo.baseline', 'repo.origin', 'repo.remote'));
+  return result(failing(ctx, 'repo.git', 'repo.baseline', 'repo.origin', 'repo.remote'));
 }
 
 const hasPorts = (s: { ports?: readonly unknown[]; health?: string }): boolean =>
   (s.ports?.length ?? 0) > 0 && (s.health ?? '').trim() !== '';
 
+/** Only `service` counts: `setup verify` and the readiness `services` item run that one, not a named `services` map. */
 function declaredServices(r: RepositoryDef): { ports?: readonly unknown[]; health?: string }[] {
-  return [...(r.service ? [r.service] : []), ...Object.values(r.services ?? {})];
+  return r.service ? [r.service] : [];
 }
 
 function servicesDeclared(ctx: RuleContext): RuleResult {
@@ -114,6 +115,7 @@ function qualityGates(ctx: RuleContext): RuleResult {
 function agentsDefault(ctx: RuleContext): RuleResult {
   const m = ctx.manifest;
   const problems: string[] = [];
+  if (m.agentProvider === undefined) problems.push('agentProvider is not set');
   if ((m.defaultModel ?? '').trim() === '') problems.push('defaultModel is not set');
   problems.push(...failing(ctx, `core.${m.agentProvider ?? 'claude'}`));
   return result(problems);
