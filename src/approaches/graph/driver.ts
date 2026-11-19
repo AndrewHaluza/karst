@@ -1322,7 +1322,14 @@ export function parkLaunchFailure(
  */
 function withModelDifference(deps: GraphDriverDeps, graphRunId: number, reason: string): string {
   if (!reason.startsWith('failed-to-launch')) return reason;
-  const difference = runModelDifference({ db: deps.db, manifest: deps.manifest, graphConfigOf: deps.graphConfigOf }, graphRunId);
+  let difference: string | undefined;
+  try {
+    difference = runModelDifference({ db: deps.db, manifest: deps.manifest, graphConfigOf: deps.graphConfigOf }, graphRunId);
+  } catch (err) {
+    // The note is optional: a lookup failure must never keep the park from blocking the run.
+    deps.debug(`[driver] model difference lookup failed for graph run ${graphRunId}: ${err instanceof Error ? err.message : String(err)}`);
+    return reason;
+  }
   return difference === undefined
     ? reason
     : `${reason} · the settings now give other models (${difference}); Switch models applies them`;

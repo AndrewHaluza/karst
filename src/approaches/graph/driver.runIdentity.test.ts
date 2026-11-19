@@ -5,7 +5,7 @@
  * snapshot; a run with no snapshot resolves live.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import type { Manifest } from '../../manifest/types.js';
@@ -257,5 +257,19 @@ describe('a failed-to-launch park names a model difference', () => {
     const graphRunId = readyWorkerNode(h, serializeRunIdentities(resolveRunIdentities(presetManifest('p1'), h.config)));
     const reason = parked({ ...h, deps: { ...h.deps, manifest: presetManifest('p1') } }, graphRunId);
     expect(reason).not.toContain('Switch models');
+  });
+
+  it('still parks and blocks the run with the plain reason when the difference lookup throws', () => {
+    const h = harness();
+    const graphRunId = readyWorkerNode(h, serializeRunIdentities(resolveRunIdentities(presetManifest('p1'), h.config)));
+    const debug = vi.fn();
+    const throwing = (): never => {
+      throw new Error('config read failed');
+    };
+    const reason = parked({ ...h, deps: { ...h.deps, debug, graphConfigOf: throwing } }, graphRunId);
+    expect(graphRunById(h.db, graphRunId)!.status).toBe('blocked');
+    expect(reason).toMatch(/^failed-to-launch: node run \d+/);
+    expect(reason).not.toContain('Switch models');
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('[driver] model difference lookup failed'));
   });
 });

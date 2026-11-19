@@ -50,7 +50,8 @@ describe('makeModelChangeSeams', () => {
     });
     expect(seams.switchRun(id)).toBe('switched');
     const at = (h.db.prepare('SELECT updated_at AS at FROM approach_graph_runs WHERE id = ?').get(id) as { at: string } | undefined)?.at;
-    expect(at === undefined || at !== NOW).toBe(true);
+    expect(at).toBeDefined();
+    expect(at).not.toBe(NOW);
   });
 
   it('differenceOf names the difference, then is undefined once switched or unloaded', () => {
