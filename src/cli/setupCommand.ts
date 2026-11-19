@@ -9,6 +9,8 @@ import { basename } from 'node:path';
 import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
 import { readLedger, withdrawProposal } from '../setup/ledger.js';
 import { readVerifyRecords } from '../setup/verify/record.js';
+import { listEdits, runEditTool, isEditTool, withdrawEditOp } from './setupEdit/command.js';
+import type { EditCommandDeps } from './setupEdit/command.js';
 
 /**
  * `karst setup discover [--root <path>] [--default-branch <branch>]` and
@@ -26,6 +28,8 @@ import { readVerifyRecords } from '../setup/verify/record.js';
 
 export interface SetupCommandDeps {
   outboxEnv?: string;
+  /** Extra deps for the typed edit tools (`KARST_SETUP_SESSION`, stdin, file reader). */
+  edit?: Omit<EditCommandDeps, 'outboxEnv' | 'manifestPath'>;
   /** The host-side verify record directory (`setupVerifyDir`); absent means no host record. */
   verifyDirEnv?: string;
   uuid?: () => string;
@@ -201,13 +205,16 @@ function runStatus(rest: readonly string[], deps: SetupCommandDeps): string {
       ...(rec !== undefined ? { verification: { status: rec.status, steps: rec.steps, changes: rec.changes } } : {}),
     };
   });
-  return JSON.stringify({ ok: true, proposals: shown }, null, 2);
+  return JSON.stringify({ ok: true, proposals: shown, edits: listEdits(deps.outboxEnv) }, null, 2);
 }
 
 function runWithdraw(rest: readonly string[], deps: SetupCommandDeps): string {
   const [id, ...extra] = rest;
   if (id === undefined || extra.length > 0) throw new Error('usage: karst setup withdraw <id>');
-  const result = withdrawProposal(resolveSetupOutboxDir(deps.outboxEnv), id);
+  const outbox = resolveSetupOutboxDir(deps.outboxEnv);
+  // An edit op id first: the host applies only the ops still in the list after its popup.
+  if (withdrawEditOp(outbox, id).ok) return JSON.stringify({ ok: true, id, status: 'withdrawn' });
+  const result = withdrawProposal(outbox, id);
   if (!result.ok) throw new Error(`karst setup withdraw: ${result.error}`);
   return JSON.stringify({ ok: true, id, status: 'withdrawn' });
 }
@@ -216,6 +223,7 @@ export function runSetupCommand(argv: readonly string[], deps: SetupCommandDeps 
   const [cmd, sub, ...rest] = argv;
   if (cmd !== 'setup') throw new Error(`karst setup: unknown command '${cmd ?? ''}'`);
   if (sub === 'discover') return runDiscover(rest, deps);
+  if (isEditTool(sub)) return runEditTool(sub!, rest, { ...deps, ...deps.edit });
   if (sub === 'propose-change') {
     if (rest.length > 0) throw new Error(`karst setup propose-change takes no arguments or flags (${PROPOSE_USAGE})`);
     return runProposeChange(deps);

@@ -8,6 +8,7 @@
  * `karst schema` prints them all.
  */
 
+import { SETUP_EDIT_TOOL_NAMES, findEditTool } from './setupEdit/tools.js';
 import { COMMAND_SPECS, commandNames, getCommandSpec, type CommandGlobals } from './registry.js';
 
 interface RenderedCommand {
@@ -53,8 +54,18 @@ export function parseSchemaArgs(argv: string[]): string | undefined {
   return target;
 }
 
+/** `karst schema setup <tool>`: the fields a typed setup tool takes (generated from the section schemas). */
+function runSetupToolSchema(tool: string): string {
+  const spec = findEditTool(tool);
+  if (spec === undefined) {
+    throw new Error(`unknown setup tool '${tool}' (want one of ${SETUP_EDIT_TOOL_NAMES.join(', ')})`);
+  }
+  return JSON.stringify({ command: `setup ${spec.name}`, summary: spec.summary, input: spec.inputSchema }, null, 2);
+}
+
 /** Validate argv and return the schema JSON (one command, or all). */
 export function runSchemaCommand(argv: string[]): string {
+  if (argv[1] === 'setup' && argv.length === 3) return runSetupToolSchema(argv[2]!);
   const target = parseSchemaArgs(argv);
   if (target !== undefined) return JSON.stringify(render(target), null, 2);
   return JSON.stringify({ commands: COMMAND_SPECS.map((s) => render(s.name)) }, null, 2);

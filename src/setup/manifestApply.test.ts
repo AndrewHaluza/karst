@@ -167,7 +167,7 @@ describe('diffManifest', () => {
       repositories: { web: repo('/w/web', { service: { ...service('npm run dev'), healthTimeoutSeconds: 300 } }) },
     });
     const diff = diffManifest(current, proposed);
-    expect(diff.entries[0]!.details.join()).toMatch(/healthTimeoutSeconds: \(default\) -> 300/);
+    expect(diff.entries[0]!.details.join()).toMatch(/service.healthTimeoutSeconds: \(absent\) -> 300/);
   });
 
   it('reports a service sandbox change', () => {
@@ -176,7 +176,7 @@ describe('diffManifest', () => {
       repositories: { web: repo('/w/web', { service: { ...service('npm run dev'), sandbox: 'host' } }) },
     });
     const diff = diffManifest(current, proposed);
-    expect(diff.entries[0]!.details.join()).toMatch(/sandbox: \(inside\) -> host/);
+    expect(diff.entries[0]!.details.join()).toMatch(/service.sandbox: \(absent\) -> "host"/);
   });
 
   it('reports added, changed and removed repositories and lists start commands', () => {
@@ -195,7 +195,7 @@ describe('diffManifest', () => {
     const diff = diffManifest(current, proposed);
     const byRepo = Object.fromEntries(diff.entries.map((e) => [e.repo, e]));
     expect(byRepo.web!.kind).toBe('changed');
-    expect(byRepo.web!.details.join()).toMatch(/start: npm run old -> npm run dev/);
+    expect(byRepo.web!.details.join()).toMatch(/service.start: "npm run old" -> "npm run dev"/);
     expect(byRepo.api!.kind).toBe('added');
     expect(byRepo.gone!.kind).toBe('removed');
     expect(diff.startCommands).toEqual([
@@ -218,9 +218,17 @@ describe('diffManifest', () => {
 
   it('treats a brand-new manifest as all-added', () => {
     const diff = diffManifest(undefined, manifest({ repositories: { web: repo('/w/web', { service: service('npm start') }) } }));
-    expect(diff.entries).toEqual([
-      { repo: 'web', kind: 'added', details: ['repoPath: /w/web', 'added a service'] },
-    ]);
+    expect(diff.entries).toHaveLength(1);
+    expect(diff.entries[0]).toMatchObject({ repo: 'web', kind: 'added' });
+    expect(diff.entries[0]!.details).toContain('repoPath: (absent) -> "/w/web"');
+    expect(diff.entries[0]!.details).toContain('service.start: (absent) -> "npm start"');
+  });
+
+  it('shows a field the diff has no code for (a generic field-path diff)', () => {
+    const current = manifest({ repositories: { web: repo('/w/web', { service: service('npm run dev') }) } });
+    const extra = { ...service('npm run dev'), brandNewField: 7 } as unknown as ServiceDef;
+    const proposed = manifest({ repositories: { web: repo('/w/web', { service: extra }) } });
+    expect(diffManifest(current, proposed).entries[0]!.details).toContain('service.brandNewField: (absent) -> 7');
   });
 });
 

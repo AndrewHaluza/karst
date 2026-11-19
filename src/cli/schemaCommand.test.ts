@@ -69,3 +69,19 @@ describe('karst schema — CLI routing', () => {
     expect(out.command).toBe('env');
   });
 });
+
+describe('karst schema setup <tool>', () => {
+  it('prints the fields of a generated tool', () => {
+    const out = JSON.parse(runSchemaCommand(['schema', 'setup', 'set-general']));
+    expect(out.command).toBe('setup set-general');
+    expect(Object.keys(out.input.properties)).toContain('baselineBranch');
+  });
+
+  it('rejects an unknown tool, naming the known ones', () => {
+    expect(() => runSchemaCommand(['schema', 'setup', 'set-nope'])).toThrow(/unknown setup tool 'set-nope'.*set-general/);
+  });
+
+  it('keeps the registry setup schema for a bare schema setup', () => {
+    expect(JSON.parse(runSchemaCommand(['schema', 'setup'])).command).toBe('setup');
+  });
+});

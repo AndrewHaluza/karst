@@ -207,6 +207,11 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     \`.env\` creation and the like all need that consent; you must NOT edit a
     tracked file yourself. A repo whose change is refused or skipped gets no
     service and the gap is recorded in your report.
+ - \`setup set-<section>\`, \`add-repo\`, \`set-repo\`, \`remove-repo\`, \`set-service\`, \`remove-service\`, \`fix <item code>\` — ONLY inside a
+    setup session (they refuse without \`KARST_SETUP_SESSION\`). Typed edit tools: give only values as JSON (\`--file\`, stdin or the
+    MCP tool \`setup-<tool>\`), never YAML or a proposal. An input is a sparse patch; null removes a key. \`karst schema setup <tool>\`
+    prints its fields. Each call adds one op; the host applies all ops to the latest karst.yml and shows ONE popup after about
+    4 seconds without a new op. Protected fields are settable and listed first in the popup. \`id\` is settable on first setup only.
  - \`setup status\` / \`setup withdraw <id>\` — ONLY inside a setup session.
     \`manifest propose\` and \`setup propose-change\` print the proposal \`id\`.
     \`status\` lists every proposal of the session with its status

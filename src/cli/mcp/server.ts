@@ -22,7 +22,8 @@ import type { CliIo } from '../main.js';
 import { validateCommandInput } from '../registry.js';
 import type { McpServerConfig } from './config.js';
 import { dispatchEnv } from './config.js';
-import { encodeToolArgv, exposedSpec, globalArgv, mcpTools } from './tools.js';
+import { encodeToolArgv, exposedSpec, globalArgv, inSetupSession, mcpTools, setupEditToolOf } from './tools.js';
+import { getCommandSpec } from '../registry.js';
 
 /** How the server reaches the CLI handlers. Injected so unit tests need no store. */
 export interface McpToolRunner {
@@ -41,6 +42,30 @@ function errorResult(message: string): CallToolResult {
 }
 
 /**
+ * A typed setup tool call: refused outside a setup session, otherwise the JSON
+ * input rides stdin to `karst setup <tool>` (the same handler the shell uses).
+ * The tool input is checked by that handler, which returns `{ok:false, field,
+ * reason}` for a schema error.
+ */
+async function callSetupEditTool(
+  tool: string,
+  args: Readonly<Record<string, unknown>>,
+  config: McpServerConfig,
+  env: Readonly<Record<string, string | undefined>>,
+  runner: McpToolRunner,
+): Promise<CallToolResult> {
+  if (!inSetupSession(env)) return errorResult(`unknown or unavailable tool 'setup-${tool}'`);
+  const spec = getCommandSpec('setup')!;
+  const argv = ['setup', tool, ...globalArgv(spec, config)];
+  try {
+    const text = await runner.run(argv, dispatchEnv(config, env), { readStdin: () => JSON.stringify(args) });
+    return { content: [{ type: 'text', text }] };
+  } catch (e) {
+    return errorResult((e as Error).message);
+  }
+}
+
+/**
  * Dispatch one tools/call. Validation happens against the registry schema BEFORE
  * encoding, so an off-shape input returns a clear tool error and no handler runs.
  */
@@ -51,6 +76,8 @@ export async function callTool(
   env: Readonly<Record<string, string | undefined>>,
   runner: McpToolRunner,
 ): Promise<CallToolResult> {
+  const editTool = setupEditToolOf(name);
+  if (editTool !== undefined) return callSetupEditTool(editTool, args, config, env, runner);
   const spec = exposedSpec(name);
   if (spec === undefined) return errorResult(`unknown or unavailable tool '${name}'`);
 
@@ -122,7 +149,7 @@ export function createKarstMcpServer(
 ): Server {
   const server = new Server(KARST_MCP_SERVER_INFO, { capabilities: { tools: {} } });
   const guarded = preservingProcessEnv(runner);
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcpTools() }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcpTools(env) }));
   server.setRequestHandler(CallToolRequestSchema, async (request) =>
     callTool(request.params.name, request.params.arguments ?? {}, config, env, guarded),
   );

@@ -17,47 +17,14 @@
  */
 
 import { isDeepStrictEqual } from 'node:util';
-import type { DockerDef, Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
+import { diffPaths, formatChange } from './pathDiff.js';
+import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
+import { protectedKeys } from '../manifest/sectionTable.js';
 
-/** Top-level fields a setup proposal may never change. */
-const PROTECTED_FIELDS = [
-  'id',
-  'host',
-  'portRange',
-  'baselineBranch',
-  'worktreePathDisplay',
-  'ticketLabelTemplate',
-  'terminalNameTemplate',
-  'conventions',
-  'ticketing',
-  'agentProvider',
-  'defaultModel',
-  'resilience',
-  'defaultEffort',
-  'agentPresets',
-  'activeAgentPreset',
-  'defaultAgentPreset',
-  'archiveDoneAfterDays',
-  'artifacts',
-  'subtasks',
-  'debug',
-  'agentSandbox',
-  'agentBackends',
-  'sandboxMemory',
-  'sandboxLimits',
-  'autopilot',
-  'closeDoneTerminalsWithTicket',
-  'diffsInSourceControl',
-  'stopServersOnDone',
-  'uat',
-  'analysis',
-  'review',
-  'processes',
-  'approaches',
-  'agents',
-] as const;
+/** Top-level fields a legacy setup proposal may never change: derived from the section table (@arch:FIELDCHK). */
+const PROTECTED_FIELDS = protectedKeys();
 
-export type ProtectedField = (typeof PROTECTED_FIELDS)[number];
+export type ProtectedField = keyof Manifest;
 
 /**
  * Required protected fields and their scaffold defaults, used when there is no
@@ -153,68 +120,30 @@ export interface ManifestDiff {
   startCommandsChanged: boolean;
 }
 
-/** Every service start command in a manifest, keyed by repository name. */
+/** The start command of one service, or undefined when it runs nothing. */
+function startOf(svc: ServiceDef): string | undefined {
+  if (svc.start !== undefined && svc.start !== '') return svc.start;
+  return svc.docker !== undefined ? `docker run ${svc.docker.image}` : undefined;
+}
+
+/** Every service start command in a manifest, keyed by repository name (a named service reads `repo/name`). */
 export function listStartCommands(manifest: Manifest | undefined): StartCommand[] {
   if (manifest === undefined) return [];
   const out: StartCommand[] = [];
   for (const [repo, def] of Object.entries(manifest.repositories)) {
-    const svc = def.service;
-    if (svc === undefined) continue;
-    if (svc.start !== undefined && svc.start !== '') out.push({ repo, command: svc.start });
-    else if (svc.docker !== undefined) out.push({ repo, command: `docker run ${svc.docker.image}` });
+    const single = def.service === undefined ? undefined : startOf(def.service);
+    if (single !== undefined) out.push({ repo, command: single });
+    for (const [name, svc] of Object.entries(def.services ?? {})) {
+      const command = startOf(svc);
+      if (command !== undefined) out.push({ repo: `${repo}/${name}`, command });
+    }
   }
   return out.sort((a, b) => a.repo.localeCompare(b.repo));
 }
 
-function dockerChanged(before: DockerDef | undefined, after: DockerDef | undefined): string[] {
-  const details: string[] = [];
-  if (before === undefined && after === undefined) return details;
-  if (before === undefined) return ['added a docker service'];
-  if (after === undefined) return ['removed the docker service'];
-  if (before.image !== after.image) details.push(`docker image: ${before.image} -> ${after.image}`);
-  if (before.containerPort !== after.containerPort) {
-    details.push(`docker containerPort: ${before.containerPort} -> ${after.containerPort}`);
-  }
-  const envKey = (e: Record<string, string>) => Object.keys(e).sort().map((k) => `${k}=${e[k]}`).join(', ');
-  if (envKey(before.env) !== envKey(after.env)) details.push('docker env changed');
-  const vols = (v: string[]) => [...v].sort().join(', ');
-  if (vols(before.volumes) !== vols(after.volumes)) details.push('docker volumes changed');
-  const args = (a: string[]) => [...a].sort().join(' ');
-  if (args(before.args) !== args(after.args)) details.push('docker args changed');
-  return details;
-}
-
-function serviceChanged(before: ServiceDef | undefined, after: ServiceDef | undefined): string[] {
-  const details: string[] = [];
-  if (before === undefined && after === undefined) return details;
-  if (before === undefined) return ['added a service'];
-  if (after === undefined) return ['removed the service'];
-  if (before.start !== after.start) details.push(`start: ${before.start || '(docker)'} -> ${after.start || '(docker)'}`);
-  if (before.health !== after.health) details.push(`health: ${before.health ?? '(default)'} -> ${after.health ?? '(default)'}`);
-  const beforePorts = before.ports.map((p) => `${p.env}=${p.default}`).join(', ');
-  const afterPorts = after.ports.map((p) => `${p.env}=${p.default}`).join(', ');
-  if (beforePorts !== afterPorts) details.push(`ports: ${beforePorts} -> ${afterPorts}`);
-  if (before.dependsOn.length !== after.dependsOn.length) details.push('dependsOn changed');
-  if (before.healthIdentity !== after.healthIdentity) details.push('healthIdentity changed');
-  if (before.healthTimeoutSeconds !== after.healthTimeoutSeconds) {
-    details.push(`healthTimeoutSeconds: ${before.healthTimeoutSeconds ?? '(default)'} -> ${after.healthTimeoutSeconds ?? '(default)'}`);
-  }
-  if (before.sandbox !== after.sandbox) {
-    details.push(`sandbox: ${before.sandbox ?? '(inside)'} -> ${after.sandbox ?? '(inside)'}`);
-  }
-  details.push(...dockerChanged(before.docker, after.docker));
-  return details;
-}
-
-function repoChanged(before: RepositoryDef | undefined, after: RepositoryDef | undefined): string[] {
-  if (before === undefined || after === undefined) return [];
-  const details: string[] = [];
-  if (before.repoPath !== after.repoPath) details.push(`repoPath: ${before.repoPath} -> ${after.repoPath}`);
-  if ((before.baselineBranch ?? '') !== (after.baselineBranch ?? '')) {
-    details.push(`baselineBranch: ${before.baselineBranch ?? '(default)'} -> ${after.baselineBranch ?? '(default)'}`);
-  }
-  details.push(...serviceChanged(before.service, after.service));
-  return details;
+/** The field-path changes of one repository, relative to it: a field added to the manifest later shows with no change here (@arch:CLI-21). */
+function repoDetails(before: RepositoryDef | undefined, after: RepositoryDef | undefined): string[] {
+  return diffPaths(before, after).map(formatChange);
 }
 
 export function diffManifest(current: Manifest | undefined, proposed: Manifest): ManifestDiff {
@@ -223,17 +152,10 @@ export function diffManifest(current: Manifest | undefined, proposed: Manifest):
   const proposedRepos = proposed.repositories;
 
   for (const repo of Object.keys(proposedRepos).sort()) {
-    const after = proposedRepos[repo]!;
     const before = currentRepos[repo];
-    if (before === undefined) {
-      const details = [`repoPath: ${after.repoPath}`];
-      if (after.baselineBranch) details.push(`baselineBranch: ${after.baselineBranch}`);
-      const svc = serviceChanged(undefined, after.service);
-      entries.push({ repo, kind: 'added', details: [...details, ...(svc.length ? svc : ['no service']) ] });
-      continue;
-    }
-    const details = repoChanged(before, after);
-    if (details.length > 0) entries.push({ repo, kind: 'changed', details });
+    const details = repoDetails(before, proposedRepos[repo]);
+    if (before === undefined) entries.push({ repo, kind: 'added', details });
+    else if (details.length > 0) entries.push({ repo, kind: 'changed', details });
   }
   for (const repo of Object.keys(currentRepos).sort()) {
     if (!(repo in proposedRepos)) entries.push({ repo, kind: 'removed', details: ['removed'] });

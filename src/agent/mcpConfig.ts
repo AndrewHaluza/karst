@@ -28,6 +28,8 @@ export interface McpConnection {
   readonly manifestPath?: string;
   readonly ticketKey?: string;
   readonly outboxPath?: string;
+  /** A setup session: the server lists the typed setup tools and writes the edit ops into `outbox`. */
+  readonly setupSession?: { readonly id: string; readonly outbox: string };
 }
 
 /** Agents `mcp install` knows how to shape a config for. */
@@ -51,8 +53,13 @@ export function karstMcpServerEntry(
   if (connection.dbPath) args.push('--db', connection.dbPath);
   if (connection.manifestPath) args.push('--manifest', connection.manifestPath);
   if (connection.ticketKey) args.push('--ticket', connection.ticketKey);
-  const env = connection.outboxPath ? { KARST_OUTBOX: connection.outboxPath } : undefined;
-  return { command: 'node', args, ...(env ? { env } : {}) };
+  const env: Record<string, string> = {
+    ...(connection.outboxPath ? { KARST_OUTBOX: connection.outboxPath } : {}),
+    ...(connection.setupSession
+      ? { KARST_SETUP_SESSION: connection.setupSession.id, KARST_SETUP_OUTBOX: connection.setupSession.outbox }
+      : {}),
+  };
+  return { command: 'node', args, ...(Object.keys(env).length > 0 ? { env } : {}) };
 }
 
 /** The standard `{ mcpServers: { karst: … } }` config claude/cursor/generic read. */
