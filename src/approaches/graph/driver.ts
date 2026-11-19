@@ -49,6 +49,7 @@ import {
   releaseGraphProcessSlot,
 } from '../../store/graph/graphRuns.js';
 import { graphRunAgentIdentity, graphRunById } from '../../store/graph/graphRuns.js';
+import { runModelDifference } from './modelChange.js';
 import {
   launchProfileFor,
   parseRunIdentities,
@@ -1307,10 +1308,24 @@ export function parkLaunchFailure(
       now: deps.now(),
     });
     if (casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')) {
-      markGraphRunBlocked(deps.db, graphRunId, runReason, deps.now());
+      markGraphRunBlocked(deps.db, graphRunId, withModelDifference(deps, graphRunId, runReason), deps.now());
     }
     releaseGraphProcessSlot(deps.db, graphRunId, deps.now());
   });
+}
+
+/**
+ * T1258: a launch failure under a run whose snapshot differs from the current
+ * settings names the difference and the action that applies the new models, so
+ * a quota or bad-model block can recover without Replan. The recovery category
+ * reads the reason's prefix, so the note goes after it.
+ */
+function withModelDifference(deps: GraphDriverDeps, graphRunId: number, reason: string): string {
+  if (!reason.startsWith('failed-to-launch')) return reason;
+  const difference = runModelDifference({ db: deps.db, manifest: deps.manifest, graphConfigOf: deps.graphConfigOf }, graphRunId);
+  return difference === undefined
+    ? reason
+    : `${reason} · the settings now give other models (${difference}); Switch models applies them`;
 }
 
 /** Cap for the captured provider line recorded as a launch-failure reason,

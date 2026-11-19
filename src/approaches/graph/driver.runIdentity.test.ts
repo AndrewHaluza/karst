@@ -12,12 +12,13 @@ import type { Manifest } from '../../manifest/types.js';
 import {
   bootstrapAndLaunchPlanner,
   driveReadyNodeRuns,
+  parkLaunchFailure,
   launchReplanPlanner,
   relaunchBootstrapPlanner,
   sha256Hex,
 } from './driver.js';
 import { NOW, gateGraphJson, harness, plannerRunIdFor, runningGraphRun, testManifest, type Harness } from './driverHarness.js';
-import { createGraphRun, graphRunAgentIdentity, setGraphRunAgentIdentity } from '../../store/graph/graphRuns.js';
+import { graphRunById, createGraphRun, graphRunAgentIdentity, setGraphRunAgentIdentity } from '../../store/graph/graphRuns.js';
 import { createRevision } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
 import {
@@ -234,3 +235,27 @@ describe('node launch identity', () => {
   });
 });
 
+
+describe('a failed-to-launch park names a model difference', () => {
+  const parked = (h: Harness, graphRunId: number): string => {
+    const nodeRunId = (h.db.prepare("SELECT id FROM approach_node_runs WHERE graph_run_id = ?").get(graphRunId) as { id: number }).id;
+    parkLaunchFailure(h.deps, graphRunId, nodeRunId, 'launch failed before the session started');
+    return graphRunById(h.db, graphRunId)!.blocked_reason ?? '';
+  };
+
+  it('appends the difference and the Switch models hint when the snapshot differs', () => {
+    const h = harness();
+    const graphRunId = readyWorkerNode(h, serializeRunIdentities(resolveRunIdentities(presetManifest('p1'), h.config)));
+    const reason = parked({ ...h, deps: { ...h.deps, manifest: presetManifest('p2') } }, graphRunId);
+    expect(reason).toMatch(/^failed-to-launch: node run \d+/);
+    expect(reason).toContain('worker: claude/claude-sonnet-5 (low) → codex/gpt-5.6-mini');
+    expect(reason).toContain('Switch models');
+  });
+
+  it('adds nothing when the snapshot matches the settings', () => {
+    const h = harness();
+    const graphRunId = readyWorkerNode(h, serializeRunIdentities(resolveRunIdentities(presetManifest('p1'), h.config)));
+    const reason = parked({ ...h, deps: { ...h.deps, manifest: presetManifest('p1') } }, graphRunId);
+    expect(reason).not.toContain('Switch models');
+  });
+});

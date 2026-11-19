@@ -9,6 +9,7 @@ import { createGraphRun, graphRunAgentIdentity, setGraphRunAgentIdentity } from 
 import { parseRunIdentities, resolveRunIdentities, serializeRunIdentities } from './runIdentity.js';
 import {
   agentSettingsChanged,
+  runModelDifference,
   askModelChange,
   findModelChanges,
   modelChangeMessage,
@@ -189,5 +190,25 @@ describe('agentSettingsChanged', () => {
     const base = manifestWith('p1');
     expect(agentSettingsChanged(base, { ...base, defaultModel: 'other' } as Manifest)).toBe(false);
     expect(agentSettingsChanged(base, { ...base })).toBe(false);
+  });
+});
+
+describe('runModelDifference', () => {
+  it('names the difference for a live run whose snapshot differs', () => {
+    const h = harness();
+    const id = runWith(h, 'p1', 'running');
+    expect(runModelDifference(depsOf(h, manifestWith('p2')), id)).toContain('→');
+  });
+
+  it('is undefined when equal, terminal, pre-migration or unknown', () => {
+    const h = harness();
+    const same = runWith(h, 'p1', 'running');
+    const closed = runWith(h, 'p1', 'closed');
+    const legacy = runWith(h, null, 'running');
+    const deps = depsOf(h, manifestWith('p2'));
+    expect(runModelDifference(depsOf(h, manifestWith('p1')), same)).toBeUndefined();
+    expect(runModelDifference(deps, closed)).toBeUndefined();
+    expect(runModelDifference(deps, legacy)).toBeUndefined();
+    expect(runModelDifference(deps, 9999)).toBeUndefined();
   });
 });

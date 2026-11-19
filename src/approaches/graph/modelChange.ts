@@ -168,3 +168,18 @@ function identityInputs(m: Manifest): string {
 export function agentSettingsChanged(prev: Manifest, next: Manifest): boolean {
   return identityInputs(prev) !== identityInputs(next);
 }
+
+/**
+ * The difference between a live run's snapshot and the identity the current
+ * settings give (`worker: claude/a → codex/b`), or undefined when they are
+ * equal, the run has no snapshot, is terminal, or is unknown.
+ */
+export function runModelDifference(deps: ModelChangeScanDeps, graphRunId: number): string | undefined {
+  const run = graphRunById(deps.db, graphRunId);
+  if (!run || !MODEL_CHANGE_STATUSES.includes(run.status)) return undefined;
+  const from = parseRunIdentities(run.agent_identity);
+  const config = deps.graphConfigOf(run.approach_id);
+  if (!from || !config) return undefined;
+  const to = resolveRunIdentities(deps.manifest, config);
+  return identitiesDiffer(from, to) ? identityDifference(from, to) : undefined;
+}
