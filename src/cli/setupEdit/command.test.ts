@@ -88,6 +88,12 @@ describe('setup edit tools (CLI)', () => {
     expect(out.reason).toMatch(/apii/);
   });
 
+  it('takes the item code of fix as a positional argument', () => {
+    const out = JSON.parse(runEditTool('fix', ['nope'], deps({})));
+    expect(out).toMatchObject({ ok: false, field: 'code' });
+    expect(() => runEditTool('fix', ['a', 'b'], deps({}))).toThrow(/one item code only/);
+  });
+
   it('reads the input from --file and refuses an unknown argument', () => {
     const out = JSON.parse(runEditTool('set-general', ['--file', 'in.json'], deps({}, { readFile: () => '{"debug":true}' })));
     expect(out.ok).toBe(true);

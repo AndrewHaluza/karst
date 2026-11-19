@@ -97,6 +97,8 @@ function toStep(op: EditOp, raw: Tree): Step | BuildFailure {
   const input = op.input;
   if (tool.section !== undefined) {
     if (!isTree(input)) return fail('the input must be an object', { opId: op.id, field: '$' });
+    const outside = Object.keys(input).find((k) => (SECTION_OF as Record<string, ManifestSection | undefined>)[k] !== tool.section);
+    if (outside !== undefined) return fail(`"${outside}" is not a field of the ${tool.section} section`, { opId: op.id, field: outside });
     return { patch: input };
   }
   return repoStep(op, tool.name, input, raw);

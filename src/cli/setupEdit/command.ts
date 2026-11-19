@@ -51,6 +51,11 @@ export function assertSetupSession(env: Readonly<Record<string, string | undefin
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function readInput(tool: string, rest: readonly string[], deps: EditCommandDeps): unknown {
+  // `karst setup fix <item code>`: the code is the whole input.
+  if (tool === 'fix' && rest[0] !== undefined && !rest[0].startsWith('--')) {
+    if (rest.length > 1) throw new Error(`karst setup fix: one item code only (got ${rest.length} arguments)`);
+    return { code: rest[0] };
+  }
   let file: string | undefined;
   for (let i = 0; i < rest.length; i += 1) {
     if (rest[i] !== '--file') throw new Error(`karst setup ${tool}: unknown argument '${rest[i]}' (usage: karst setup ${tool} [--file <json file>], or the JSON on stdin)`);

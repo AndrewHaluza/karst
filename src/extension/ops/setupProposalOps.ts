@@ -348,8 +348,11 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
   async function handleEdits(scratch: string, edits: SetupEditWiring): Promise<void> {
     const ops = edits.readOps(scratch);
     if (ops.length === 0) return;
-    const quiet = (deps.now ?? Date.now)() - Math.max(...ops.map((o) => Number(o.seq)));
-    if (Number.isFinite(quiet) && quiet < EDIT_QUIET_MS) {
+    const now = (deps.now ?? Date.now)();
+    // A seq in the future (a clock jump or a bad file) never holds the list: only a seq at or before now counts.
+    const stamps = ops.map((o) => Number(o.seq)).filter((n) => Number.isFinite(n) && n <= now);
+    const quiet = now - Math.max(...stamps); // no stamp: -Infinity, so quiet is Infinity
+    if (quiet < EDIT_QUIET_MS) {
       editWait = Math.min(editWait ?? EDIT_QUIET_MS, EDIT_QUIET_MS - quiet);
       return;
     }
@@ -388,6 +391,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     if (!sameIds(latest, ids)) {
       // An op was withdrawn or added while the popup was open: nothing applies; the next scan shows the new list.
       debug('the edit list changed while its consent was open');
+      deps.notify.warn('Karst: the setup edit list changed while the popup was open; nothing applied. The new list shows next.');
       return;
     }
     if (!approved) {

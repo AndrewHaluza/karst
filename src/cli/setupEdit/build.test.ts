@@ -135,6 +135,12 @@ describe('buildEdits', () => {
     expect(ok(buildEdits(BASE, [op('set-project', { id: 'other' })], FIRST, loadText)).manifest.id).toBe('other');
   });
 
+  it('refuses a set tool op that carries a key of another section', () => {
+    const r = failed(buildEdits(BASE, [op('set-general', { repositories: {} }, 'x')], LATER, loadText));
+    expect(r.field).toBe('repositories');
+    expect(r.reason).toContain('not a field of the general section');
+  });
+
   it('builds a fix from a known code and refuses an unknown code', () => {
     const legacy = BASE.replace('repositories:', 'services:');
     expect(ok(buildEdits(legacy, [op('fix', { code: 'manifest.legacy-services' })], LATER, loadText)).fixes).toEqual(['manifest.legacy-services']);

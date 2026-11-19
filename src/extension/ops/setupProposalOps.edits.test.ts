@@ -259,6 +259,7 @@ describe('the typed edit list', () => {
     await f.ctl.scan();
     expect(f.applyText).not.toHaveBeenCalled();
     expect(f.debug).toHaveBeenCalledWith('[setup] the edit list changed while its consent was open');
+    expect(f.warn).toHaveBeenCalledWith(expect.stringContaining('changed while the popup was open'));
   });
 
   it('records nothing for an empty list', async () => {
@@ -290,5 +291,18 @@ describe('the typed edit list', () => {
     await f.ctl.scan();
     expect(f.confirm).toHaveBeenCalledOnce();
     expect(f.applyText).toHaveBeenCalledOnce();
+  });
+
+  it('does not hold the list for an op with a seq in the future', async () => {
+    const f = setup([{ ...SET_GENERAL('a-1', { debug: true }), seq: String(9_000_000_000) }]);
+    await f.ctl.scan();
+    expect(f.confirm).toHaveBeenCalledOnce();
+  });
+
+  it('holds the list for an op written at this very moment', async () => {
+    const f = setup([{ ...SET_GENERAL('a-1', { debug: true }), seq: '1000000' }]);
+    await f.ctl.scan();
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.ctl.editWaitMs()).toBe(4000);
   });
 });
