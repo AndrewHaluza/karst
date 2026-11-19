@@ -34,30 +34,23 @@ describe('makeModelChangeSeams', () => {
     expect(refresh).toHaveBeenCalledWith(h.ticketId);
   });
 
-  it('switchRun runs the same switch', () => {
-    const { seams, id } = setup(manifestOf('claude-sonnet-5'));
-    expect(seams.switchRun(id)).toBe('switched');
-    expect(seams.switchRun(id)).toBe('unchanged');
-  });
-
-  it('stamps the switch with the real clock when no clock is injected', () => {
+  it('stamps the switch with the real clock when no clock is injected', async () => {
     const h = harness();
     const id = createGraphRun(h.db, { ticketId: h.ticketId, stageAttempt: 1, approachId: 'karst-graph-engineering', now: NOW });
     setGraphRunAgentIdentity(h.db, id, serializeRunIdentities(resolveRunIdentities(manifestOf('claude-opus-5'), h.config)), NOW);
     const seams = makeModelChangeSeams({
       db: () => h.db, transaction: (fn) => fn(), manifest: () => manifestOf('claude-sonnet-5'), graphConfigOf: () => h.config,
-      label: (t) => `T${t}`, warn: vi.fn(), refresh: vi.fn(), debug: vi.fn(),
+      label: (t) => `T${t}`, warn: vi.fn(async () => 'Switch to new models'), refresh: vi.fn(), debug: vi.fn(),
     });
-    expect(seams.switchRun(id)).toBe('switched');
+    expect(await seams.ask({})).toBe(1);
     const at = (h.db.prepare('SELECT updated_at AS at FROM approach_graph_runs WHERE id = ?').get(id) as { at: string } | undefined)?.at;
     expect(at).toBeDefined();
     expect(at).not.toBe(NOW);
   });
 
   it('does nothing before the manifest is loaded', async () => {
-    const { seams, id, warn } = setup(undefined);
+    const { seams, warn } = setup(undefined);
     expect(await seams.ask({})).toBe(0);
-    expect(seams.switchRun(id)).toBe('not-found');
     expect(warn).not.toHaveBeenCalled();
   });
 });

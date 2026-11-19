@@ -7,11 +7,7 @@
 
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
-import {
-  askModelChange,
-  switchGraphRunModels,
-  type SwitchModelsOutcome,
-} from '../../approaches/graph/modelChange.js';
+import { askModelChange } from '../../approaches/graph/modelChange.js';
 
 export interface ModelChangeSeamsDeps {
   readonly db: () => GraphDb | undefined;
@@ -27,7 +23,6 @@ export interface ModelChangeSeamsDeps {
 
 export interface ModelChangeSeams {
   readonly ask: (filter: { ticketId?: number }) => Promise<number>;
-  readonly switchRun: (graphRunId: number) => SwitchModelsOutcome;
 }
 
 export function makeModelChangeSeams(deps: ModelChangeSeamsDeps): ModelChangeSeams {
@@ -42,10 +37,6 @@ export function makeModelChangeSeams(deps: ModelChangeSeamsDeps): ModelChangeSea
     ask: async (filter) => {
       const base = scan();
       return base ? askModelChange({ ...base, label: deps.label, warn: deps.warn, refresh: deps.refresh }, filter) : 0;
-    },
-    switchRun: (graphRunId) => {
-      const base = scan();
-      return base ? switchGraphRunModels(base, graphRunId) : 'not-found';
     },
   };
 }

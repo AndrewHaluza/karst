@@ -2209,7 +2209,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       reloadManifest,
       warn: (msg: string) => logger.warn(msg),
       listInstalledIds: listInstalledApproachIds,
-      onAgentChoiceChanged: (id: number) => graphOwned.agentChoiceChanged(id),
+      onAgentChoiceChanged: (id: number) =>
+        graphOwned.agentChoiceChanged(id).catch((e) => logError('karst: model-change question failed', e)),
       openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
       openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
       storageDir: context.globalStorageUri.fsPath,
