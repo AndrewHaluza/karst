@@ -722,6 +722,30 @@ describe("uatProcesses", () => {
       expect(rowsOf(tester).map((r) => r.severity)).toEqual(["info"]);
     });
 
+    it("the Tester row names the criteria it did not test", () => {
+      const cov = (title: string) => uatFinding("info", { processRunId: 5, title: `COVERAGE (reported): ${title}` });
+      const tester = uatProcesses(
+        qualityInput({
+          processRuns: [processRun({ id: 5, status: "passed", resultKind: "observed" })],
+          uatFindings: [cov("PASS [C1] a — ran"), cov("SKIPPED [C2] b — no"), cov("PASS [C3] c — ran"), cov("NOT RUN [C5] d — no")],
+          testerBlockingSeverity: "none",
+        }),
+      ).find((p) => p.id === "tester")!;
+      expect(tester.detail).toContain("2 of 4 criteria tested; not tested: C2, C5");
+      expect(tester.status).toBe("pass");
+    });
+
+    it("a legacy single record keeps today's detail", () => {
+      const tester = uatProcesses(
+        qualityInput({
+          processRuns: [processRun({ id: 5, status: "passed", resultKind: "observed" })],
+          uatFindings: [uatFinding("info", { processRunId: 5, title: "COVERAGE (reported): PASS — checked x" })],
+          testerBlockingSeverity: "none",
+        }),
+      ).find((p) => p.id === "tester")!;
+      expect(tester.detail).toBe("1 observation — advisory");
+    });
+
     it("keeps the advisory wording under 'none'", () => {
       const tester = testerView({ testerBlockingSeverity: "none" });
       expect(tester.detail).toBe("3 observations — advisory");

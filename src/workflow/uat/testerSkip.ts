@@ -3,15 +3,14 @@
  * target whose coverage is SKIPPED / NOT RUN and that kept no observation. No
  * store, no adapter — `tester.ts` owns the run, this owns the words.
  */
-import { coverageStatus, skipReason, MAX_SKIP_DETAIL } from '../../model/coverageRecord.js';
+import { coverageStatus, isTestedStatus, skipReason, MAX_SKIP_DETAIL } from '../../model/coverageRecord.js';
 
 export type OnSkip = 'pass' | 'reask' | 'reask-then-park';
 
-/** SKIPPED / NOT RUN coverage and not one observation: the target checked nothing. */
-export function observedNothing(coverageTitle: string, observations: number): boolean {
+/** No observation and no PASS or FAIL record (a criterion record counts): the target checked nothing. */
+export function observedNothing(coverageTitles: readonly string[], observations: number): boolean {
   if (observations > 0) return false;
-  const status = coverageStatus(coverageTitle);
-  return status === 'SKIPPED' || status === 'NOT RUN';
+  return !coverageTitles.some((t) => isTestedStatus(coverageStatus(t)));
 }
 
 /** The skipped run's detail: the FIRST skipped target's reason, repo-prefixed when several were asked. */

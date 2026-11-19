@@ -137,6 +137,7 @@
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Severity } from '../../manifest/types.js';
 import type { FindingInput, FindingSource } from '../../store/reviewFindings.js';
+import { isCoverageOrLabelled, MAX_COVERAGE_RECORDS } from '../../model/coverageRecord.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 
 /** One finding as parsed — the exact shape `recordFindings`'s batch needs. */
@@ -983,11 +984,17 @@ function parseRawFindings(
 
   const max = Math.max(0, Math.floor(ctx.max));
   if (parsed.length > max) {
-    const dropped = parsed.length - max;
+    // Coverage records ride outside the cap (arch:UAT-OBS-RUNS): at `info` they
+    // sort last, so the severity cut would drop the per-criterion records first.
+    const isCov = isCoverageOrLabelled;
+    const coverage = parsed.filter(isCov).slice(0, MAX_COVERAGE_RECORDS);
+    const others = parsed.filter((f) => !isCov(f));
+    if (others.length <= max) return { findings: [...others, ...coverage], shape, tier };
+    const dropped = others.length - max;
     warn(
-      `review findings: ${ctx.repo} reported ${parsed.length} findings, above the max of ${max} — dropped ${dropped}, kept the first ${max} by severity.`,
+      `review findings: ${ctx.repo} reported ${others.length} findings, above the max of ${max} — dropped ${dropped}, kept the first ${max} by severity.`,
     );
-    return { findings: bySeverityStable(parsed).slice(0, max), shape, tier };
+    return { findings: [...bySeverityStable(others).slice(0, max), ...coverage], shape, tier };
   }
 
   return { findings: parsed, shape, tier };
