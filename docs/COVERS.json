@@ -1185,6 +1185,9 @@
   "src/workflow/gates/run.ts": [
     "arch:GATE-BASE-MOVED"
   ],
+  "src/workflow/gates/runList.ts": [
+    "arch:GATE-BASE-MOVED"
+  ],
   "src/workflow/gates/runList.ts#runGateList": [
     "arch:GATE-CONCURRENCY"
   ],
