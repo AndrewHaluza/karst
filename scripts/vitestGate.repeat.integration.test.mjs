@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { ALWAYS_RUN } from './gateAlways.mjs';
+import { mergeBase } from './gateScope.mjs';
 
 const GATE = resolve('scripts/vitestGate.mjs');
 const NODE_MODULES = (() => {
@@ -307,4 +308,57 @@ describe('vitestGate repeat pass in a sandbox clone and a host worktree', () => 
     expect(out(first)).toContain('full: no earlier run');
     expect(out(second)).toMatch(/: 1 files, delta since/);
   }, 240_000);
+});
+
+/**
+ * A base-moved check (@arch:GATE-BASE-MOVED): origin/develop is at S, the local develop is an ancestor behind S, and the
+ * worktree holds a merge commit (parents: ticket head, S). Returns S.
+ */
+function setupStaleBase() {
+  dir = mkdtempSync(join(tmpdir(), 'karst-vstale-'));
+  symlinkSync(NODE_MODULES, join(dir, 'node_modules'), 'dir');
+  put('.gitignore', 'node_modules\n');
+  put('package.json', '{"type":"module"}\n');
+  put('src/a.ts', 'export const a = 1;\n');
+  put('src/a.test.ts', "import {it,expect} from 'vitest';\nimport {a} from './a';\nit('a', () => expect(a).toBe(1));\n");
+  put('src/c.test.ts', PASS);
+  git('init', '-q', '-b', 'develop');
+  commit('base');
+  git('checkout', '-qb', 'ticket');
+  put('docs/ticket.md', 't\n');
+  commit('ticket work');
+  git('checkout', '-q', 'develop');
+  put('docs/new.md', 'n\n');
+  commit('base moves');
+  const s = git('rev-parse', 'HEAD').stdout.trim();
+  git('update-ref', 'refs/remotes/origin/develop', s);
+  git('reset', '-q', '--hard', 'HEAD~1'); // the local develop stays behind origin/develop
+  git('checkout', '-q', 'ticket');
+  expect(git(...IDS, 'merge', '-q', '--no-edit', s).status).toBe(0);
+  return s;
+}
+
+describe('vitestGate under a stale local develop', () => {
+  it('plans a delta when the gate gets the fetched base sha', async () => {
+    const s = setupStaleBase();
+    const env = { KARST_BASE_REF: s, KARST_MERGED_BASE_SHA: s };
+    expect(out(gate(env))).toContain('full: no earlier run');
+    put('src/a.ts', 'export const a = 1; // touched\n');
+    const second = out(gate(env));
+    expect(second).toMatch(/: \d+ files, delta since [0-9a-f]{12}/);
+    expect(second).not.toContain('full: the merge base moved');
+  }, 240_000);
+
+  it('runs in full when the gate gets the stale branch name (the bug the sha avoids)', () => {
+    const s = setupStaleBase();
+    expect(out(gate({ KARST_BASE_REF: s, KARST_MERGED_BASE_SHA: s }))).toContain('full: no earlier run');
+    put('src/a.ts', 'export const a = 1; // touched\n');
+    expect(out(gate({ KARST_BASE_REF: 'develop', KARST_MERGED_BASE_SHA: s }))).toContain('full: the merge base moved');
+  }, 240_000);
+
+  it('resolves the drift-check merge base to the fetched base sha', async () => {
+    const s = setupStaleBase();
+    expect((await mergeBase(dir, s)).sha).toBe(s);
+    expect((await mergeBase(dir, 'develop')).sha).not.toBe(s);
+  });
 });

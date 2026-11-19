@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { planRepeat, storeRun } from './dockerGate.mjs';
+import { mergeBaseSha, planRepeat, storeRun } from './dockerGate.mjs';
 
 const IDS = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const SCRIPT = 'test:visual:docker';
@@ -160,5 +160,57 @@ describe('planRepeat', () => {
     git('checkout', '-q', 'ticket');
     git(...IDS, 'rebase', 'develop');
     expect((await planRepeat(SCRIPT, ARGV, dir)).scope).toBeNull();
+  });
+});
+
+describe('planRepeat under a stale local develop (@arch:GATE-BASE-MOVED)', () => {
+  /** origin/develop at S, local develop behind it, the worktree a merge of the ticket head and S. */
+  const staleBase = () => {
+    git('checkout', '-q', 'develop');
+    put('docs/new.md', 'n');
+    commit('base moves');
+    const s = git('rev-parse', 'HEAD').stdout.trim();
+    git('update-ref', 'refs/remotes/origin/develop', s);
+    git('reset', '-q', '--hard', 'HEAD~1');
+    git('checkout', '-q', 'ticket');
+    put('docs/ticket.md', 't');
+    commit('ticket work');
+    expect(git(...IDS, 'merge', '-q', '--no-edit', s).status).toBe(0);
+    return s;
+  };
+
+  it('plans a delta, not a full sweep, when the base ref is the fetched base sha', async () => {
+    const s = staleBase();
+    process.env.KARST_BASE_REF = s;
+    process.env.KARST_MERGED_BASE_SHA = s;
+    await green();
+    put('src/ui/settings/a.tsx', 'changed');
+    const r = await planRepeat(SCRIPT, ARGV, dir);
+    expect(console.error).not.toHaveBeenCalledWith('full: the merge base moved');
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/^visual: 1 files, delta since [0-9a-f]{12}$/));
+    expect(r.scope).toEqual({ since: expect.stringMatching(/^[0-9a-f]{40}$/), paths: ['src/ui/settings/a.tsx'], failed: [] });
+  });
+
+  it('skips a green sweep when only a non-UI path changed', async () => {
+    const s = staleBase();
+    process.env.KARST_BASE_REF = s;
+    await green();
+    put('docs/x.md', 'changed');
+    expect((await planRepeat(SCRIPT, ARGV, dir)).skip).toMatch(/^skipped: no UI change since /);
+  });
+
+  it('runs in full when the base ref is the stale branch name', async () => {
+    const s = staleBase();
+    process.env.KARST_BASE_REF = s;
+    await green();
+    process.env.KARST_BASE_REF = 'develop';
+    expect((await planRepeat(SCRIPT, ARGV, dir)).skip).toBeNull();
+    expect(console.error).toHaveBeenCalledWith('full: the merge base moved');
+  });
+
+  it('resolves the drift-check merge base to the fetched base sha', () => {
+    const s = staleBase();
+    expect(mergeBaseSha(dir, s)).toBe(s);
+    expect(mergeBaseSha(dir, 'develop')).not.toBe(s);
   });
 });

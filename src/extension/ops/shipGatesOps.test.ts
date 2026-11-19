@@ -392,6 +392,15 @@ describe('runShipGates scope evidence on a base-moved merge (@arch:GATE-BASE-MOV
     expect(seen[0]?.some((a) => a.startsWith('KARST_MERGED_BASE_SHA'))).toBe(false);
     expect(rows[0]?.summary).toBeNull();
   });
+  it.each(['unit: 8 files, delta since abcdef123456', 'test:integration: 3 files, delta since abcdef123456', 'integration: 2 files, branch diff since abcdef123456'])(
+    'keeps the vitest delta line %s',
+    (line) => {
+      expect(scopeLinesOf(`ok\n${line}\n1 passed`)).toBe(line);
+    },
+  );
+  it('ignores a line that only looks like a vitest scope line', () => {
+    expect(scopeLinesOf('unit: 8 files\nunit tests: 8 files, delta since x\nfoo unit: 8 files, delta')).toBeNull();
+  });
   it('reads no scope line from plain output', () => {
     expect(scopeLinesOf('ok\n1 passed')).toBeNull();
   });
