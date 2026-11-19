@@ -164,6 +164,16 @@ describe('runUat', () => {
     expect(seen).toBe('@arch:UATHOST-00 — keeps the order');
   });
 
+  it('asks the gate run to narrow a stateless first pass to the branch diff', async () => {
+    let seen: string | undefined = 'unset';
+    await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      deps({ runGates: async (gates, _cwd, opts) => { seen = opts?.firstPass; return { kind: 'ran', results: gates.map((g) => ({ name: g.name, exitCode: 0, output: '', startedAt: now(), endedAt: now() })) }; } }),
+    );
+    expect(seen).toBe('branch-diff');
+  });
+
   it('hands the gate run an empty PR_BODY when nothing is cited', async () => {
     let seen: string | undefined = 'unset';
     await runUat(
