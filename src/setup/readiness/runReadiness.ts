@@ -1,5 +1,6 @@
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
+import { effectiveAgentPresetName, resolveAgentPreset } from '../../agent/agentPresets.js';
 import { agentDependency } from '../../runtime/deps.js';
 import { checkGates } from './gateChecks.js';
 import { checkRepo } from './repoChecks.js';
@@ -24,29 +25,53 @@ export interface ReadinessInput {
   verifyServices?: (repos: readonly string[]) => Promise<ServicesVerdict>;
 }
 
-/** Every agent core the manifest can launch: default, per-process, and preset slots (default claude). */
+/**
+ * The cores the manifest REQUIRES: the default (claude when unset), per-process
+ * pins, the slots of the effective (active) preset, and the profiles of every
+ * enabled approach that declares a graph. A slot of another preset is optional.
+ */
 export function coresUsed(m: Manifest): AgentProvider[] {
   const found = new Set<AgentProvider>([m.agentProvider ?? 'claude']);
   for (const p of Object.values(m.processes ?? {})) if (p?.provider) found.add(p.provider);
+  const active = resolveAgentPreset(m, effectiveAgentPresetName(m));
+  for (const slot of Object.values(active?.slots ?? {})) if (slot?.provider) found.add(slot.provider);
+  for (const approach of m.approaches ?? []) {
+    if (approach.enabled === false) continue;
+    for (const profile of Object.values(approach.graph?.profiles ?? {})) {
+      if (profile?.provider) found.add(profile.provider);
+    }
+  }
+  return [...found];
+}
+
+/** Cores that only a non-active preset slot can launch: reported, never a blocker. */
+export function coresOptional(m: Manifest): AgentProvider[] {
+  const required = new Set(coresUsed(m));
+  const found = new Set<AgentProvider>();
   for (const preset of Object.values(m.agentPresets ?? {})) {
-    for (const slot of Object.values(preset.slots)) if (slot?.provider) found.add(slot.provider);
+    for (const slot of Object.values(preset.slots)) {
+      if (slot?.provider && !required.has(slot.provider)) found.add(slot.provider);
+    }
   }
   return [...found];
 }
 
 function coreItems(m: Manifest, p: ReadinessProbes): ReadinessItem[] {
-  return coresUsed(m).map((provider): ReadinessItem => {
+  const item = (provider: AgentProvider, optional: boolean): ReadinessItem => {
     const id = `core.${provider}`;
     const state = p.coreState(provider);
     if (state === 'ok') return { id, status: 'ok', detail: `${provider} CLI is installed and ready` };
     const dep = agentDependency(provider);
     return {
       id,
-      status: 'fail',
-      detail: `${provider} CLI is ${state === 'missing' ? 'not installed' : 'installed but not ready'}`,
+      status: optional ? 'warn' : 'fail',
+      detail:
+        `${provider} CLI is ${state === 'missing' ? 'not installed' : 'installed but not ready'}` +
+        (optional ? ' (only a preset that is not active uses it)' : ''),
       fix: state === 'missing' ? dep.install : (dep.ready?.fix ?? dep.install),
     };
-  });
+  };
+  return [...coresUsed(m).map((c) => item(c, false)), ...coresOptional(m).map((c) => item(c, true))];
 }
 
 async function serviceItem(m: Manifest, names: readonly string[], i: ReadinessInput): Promise<ReadinessItem> {

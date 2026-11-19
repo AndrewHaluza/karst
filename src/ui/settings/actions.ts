@@ -1,3 +1,4 @@
+import { presetSlotCatalogWarnings, validatePresetSlotEfforts } from '../../agent/presetSlotEfforts.js';
 import type { BackendWant } from '../../agent/backendChoices.js';
 import type { ApproachDef, Manifest, OutputDef } from '../../manifest/types.js';
 import { withAcceptedOutputs } from '../../approaches/pendingOutputs.js';
@@ -174,6 +175,7 @@ function validateGraphEfforts(manifest: Manifest, catalog: ModelCatalog): void {
       assertProfileEffort(profile.provider, profile.model, profile.effort, catalog);
     }
   }
+  validatePresetSlotEfforts(manifest, catalog);
 }
 
 /**
@@ -434,7 +436,12 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           deps.onAgentSettingsSaved?.(loaded.manifest, next);
           deps.onChange();
           await pushStateWithInstalled();
-          ctx.post({ type: 'saved', ...(section ? { section } : {}) });
+          const warnings = presetSlotCatalogWarnings(delta, deps.modelCatalog());
+          ctx.post({
+            type: 'saved',
+            ...(section ? { section } : {}),
+            ...(warnings.length > 0 ? { warnings } : {}),
+          });
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

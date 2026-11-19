@@ -68,7 +68,8 @@ export type SettingsHostMessage =
   | { type: 'validation'; ok: boolean; error: string | null }
   | { type: 'error'; message: string }
   /** `section` echoes back which tab was committed, so the page can say so. */
-  | { type: 'saved'; section?: SettingsSection }
+  /** `warnings` lists non-blocking Save findings, such as a preset slot model the catalog does not list. */
+  | { type: 'saved'; section?: SettingsSection; warnings?: string[] }
   | { type: 'approach-command-body'; approachId: string; command: string; body: string }
   | { type: 'ticket-statuses'; statuses: string[] }
   | { type: 'ticket-statuses-error'; message: string }
