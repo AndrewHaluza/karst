@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { ALWAYS_RUN } from './gateAlways.mjs';
 
 const GATE = resolve('scripts/vitestGate.mjs');
 const NODE_MODULES = (() => {
@@ -213,7 +214,7 @@ describe('vitestGate first pass on the branch diff', () => {
     const base = git('merge-base', 'develop', 'HEAD').stdout.trim();
     const first = gate(OPT_IN);
     expect(first.status).toBe(0);
-    expect(out(first)).toContain(`: 1 files, branch diff since ${base.slice(0, 12)}`);
+    expect(out(first)).toContain(`: ${1 + ALWAYS_RUN.unit.any.length} files, branch diff since ${base.slice(0, 12)}`);
     expect(out(first)).toContain('a.test.ts');
     expect(out(first)).not.toContain('b.test.ts');
     const state = join(dir, '.git', 'karst-gate-state');

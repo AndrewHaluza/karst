@@ -90,14 +90,21 @@ describe('firstPassEnabled', () => {
 });
 
 describe('ALWAYS_RUN', () => {
-  it.each(Object.entries(ALWAYS_RUN).flatMap(([config, files]) => files.map((f) => [config, f])))('%s lists an existing file %s', (_c, file) => {
+  const entries = Object.entries(ALWAYS_RUN).flatMap(([config, sets]) => Object.values(sets).flatMap((files) => files.map((f) => [config, f])));
+  it.each(entries)('%s lists an existing file %s', (_c, file) => {
     expect(existsSync(file)).toBe(true);
   });
-  it('adds the files only when the diff holds src/ui', () => {
-    expect(alwaysFiles(['npx', 'vitest', 'run'], ['src/a.ts'])).toEqual([]);
-    expect(alwaysFiles(['npx', 'vitest', 'run'], ['src/ui/a.tsx'])).toEqual(ALWAYS_RUN.unit);
-    expect(alwaysFiles(['npx', 'vitest', 'run', '--config', 'vitest.integration.config.ts'], ['src/ui/a.tsx'])).toEqual(ALWAYS_RUN.integration);
+  const unit = ['npx', 'vitest', 'run'];
+  const integration = [...unit, '--config', 'vitest.integration.config.ts'];
+  it('adds the scanners for a code diff outside src/ui', () => {
+    expect(alwaysFiles(unit, ['src/a.ts'])).toEqual(ALWAYS_RUN.unit.any);
+    expect(alwaysFiles(integration, ['src/a.ts'])).toEqual(ALWAYS_RUN.integration.any);
   });
+  it('adds the bundle readers too when the diff holds src/ui', () => {
+    expect(alwaysFiles(unit, ['src/ui/a.tsx'])).toEqual([...ALWAYS_RUN.unit.any, ...ALWAYS_RUN.unit.ui]);
+    expect(alwaysFiles(integration, ['src/ui/a.tsx'])).toEqual(ALWAYS_RUN.integration.ui);
+  });
+  it('adds nothing for a docs-only diff', () => expect(alwaysFiles(unit, [])).toEqual([]));
 });
 
 describe('isCleanRun', () => {
