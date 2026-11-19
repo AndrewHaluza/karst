@@ -14,7 +14,10 @@ import type { ChangeDir } from '../../setup/changeTarget.js';
 import { describeChangeProposal, describeManifestProposal, type ProposalDescription } from '../../setup/review.js';
 import { restoreKarstFiles, snapshotKarstFiles } from '../../setup/karstGuard.js';
 import { withVerification } from '../../setup/review.js';
-import { firstFailure, sha256Of, verifyAfterApply, verifyBeforeConsent } from '../../setup/verify/verify.js';
+import { firstFailure, sha256Of, verifyAfterApply, verifyBeforeConsent, verifyEditsBeforeConsent } from '../../setup/verify/verify.js';
+import { buildEdits } from '../../cli/setupEdit/build.js';
+import { describeEdits } from '../../cli/setupEdit/describe.js';
+import type { EditOpFile } from '../../setup/editOps.js';
 import type { RecheckDeps, VerifyDeps, VerifyRecord, VerifyResult } from '../../setup/verify/types.js';
 import type { Notify } from './notify.js';
 
@@ -100,7 +103,26 @@ export interface SetupVerifyWiring extends RecheckDeps {
   writeRecord: (record: VerifyRecord) => void;
 }
 
+/** The typed edit list of a setup session (@arch:CLI-21): ops in, one popup, one write of the built text. */
+export interface SetupEditWiring {
+  /** The pending ops of one scratch, in order. */
+  readOps: (scratch: string) => EditOpFile[];
+  /** Remove the named op files (applied, declined or invalid). */
+  removeOps: (scratch: string, ids: readonly string[]) => void;
+  /** The stamped scaffold text the host writes first when karst.yml does not exist. */
+  scaffoldText?: () => string | undefined;
+  /** Write the built karst.yml text (with a backup); returns the sha256 of the file written. */
+  applyText: (text: string, scratch: string) => string;
+}
+
+/** The edit list waits this long after its newest op: the agent usually adds several ops, and one popup shows them all. */
+export const EDIT_QUIET_MS = 4000;
+
 export interface SetupProposalOpsDeps {
+  /** Clock for the edit quiet window; defaults to `Date.now`. */
+  now?: () => number;
+  /** Typed edit list support; absent, the outbox edit list is ignored. */
+  edits?: SetupEditWiring;
   /** The verify wiring for one setup scratch: each scratch targets its own karst.yml. */
   verify: (scratch: string) => SetupVerifyWiring;
   /** The setup scratch dirs to scan (already filtered to this window's own); each holds an `outbox/` subdir. */
@@ -131,6 +153,8 @@ export interface SetupProposalOpsDeps {
 
 export interface SetupProposalOps {
   scan(): Promise<void>;
+  /** After a scan: ms until a held edit list is due, or undefined when none waits. The caller scans again then. */
+  editWaitMs(): number | undefined;
 }
 
 export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposalOps {
@@ -315,6 +339,77 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     fs.remove(file);
   }
 
+  let editWait: number | undefined;
+
+  const sameIds = (a: readonly EditOpFile[], ids: readonly string[]): boolean =>
+    a.length === ids.length && a.every((op, i) => op.id === ids[i]);
+
+  /** One popup for the whole edit list; applies only the ops that the popup showed. */
+  async function handleEdits(scratch: string, edits: SetupEditWiring): Promise<void> {
+    const ops = edits.readOps(scratch);
+    if (ops.length === 0) return;
+    const quiet = (deps.now ?? Date.now)() - Math.max(...ops.map((o) => Number(o.seq)));
+    if (Number.isFinite(quiet) && quiet < EDIT_QUIET_MS) {
+      editWait = Math.min(editWait ?? EDIT_QUIET_MS, EDIT_QUIET_MS - quiet);
+      return;
+    }
+    const ids = ops.map((o) => o.id);
+    const first = `${ids[0]!}.json`;
+    const settle = (status: ProposalResult['status'], reason?: string): void => {
+      edits.removeOps(scratch, ids);
+      for (const id of ids) record(scratch, `${id}.json`, 'edit', status, reason === undefined ? {} : { reason });
+    };
+    const wiring = deps.verify(scratch);
+    const current = deps.readCurrentManifest();
+    const firstSetup = isFirstSetup(current);
+    const scaffoldText = edits.scaffoldText?.();
+    const built = buildEdits(
+      wiring.deps.readCurrentText(),
+      ops.map((o) => ({ id: o.id, tool: o.tool, input: o.input })),
+      { firstSetup, ...(scaffoldText !== undefined ? { scaffoldText } : {}) },
+      wiring.deps.loadText,
+    );
+    const input = built.ok ? { ok: true as const, text: built.text, fixes: built.fixes } : { ok: false as const, reason: built.reason };
+    const run = await verifyEditsBeforeConsent(ops.length, input, { firstSetup }, wiring.deps);
+    if (!built.ok || !run.result.ok) {
+      const reason = built.ok ? failureReason(run.result) : built.reason;
+      deps.notify.warn(`Karst: the setup edits failed the host checks (${reason}); ignored.`);
+      hostRecord(scratch, first, 'edit', 'refused', run.result);
+      settle('invalid', reason);
+      return;
+    }
+    if (built.changes.length === 0 && built.fixes.length === 0) {
+      deps.notify.warn('Karst: the setup edits change nothing.');
+      settle('no-change', 'no effective change');
+      return;
+    }
+    const approved = await deps.confirm(withVerification(describeEdits(built, ops.length), run.result));
+    const latest = edits.readOps(scratch);
+    if (!sameIds(latest, ids)) {
+      // An op was withdrawn or added while the popup was open: nothing applies; the next scan shows the new list.
+      debug('the edit list changed while its consent was open');
+      return;
+    }
+    if (!approved) {
+      settle('declined', 'declined by the user');
+      return;
+    }
+    try {
+      if (manifestMoved(scratch, run.result.pinnedSha256)) {
+        throw new Error('karst.yml changed after the host checks ran; edit again');
+      }
+      const sha256 = edits.applyText(built.text, scratch);
+      edits.removeOps(scratch, ids);
+      await finishVerify(first, scratch, 'edit', run.result, { applied: true, restored: [] }, { sha256 });
+      for (const id of ids.slice(1)) record(scratch, `${id}.json`, 'edit', 'applied', { sha256 });
+    } catch (e) {
+      const reason = (e as Error).message;
+      deps.notify.warn(`Karst: could not apply the setup edits (${reason}).`);
+      hostRecord(scratch, first, 'edit', 'refused', run.result);
+      settle('invalid', `apply failed: ${reason}`);
+    }
+  }
+
   async function handleChange(file: string, scratch: string, change: ChangeProposal): Promise<void> {
     const target = deps.resolveDir(change);
     if (!target.ok) {
@@ -427,7 +522,10 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
   }
 
   async function scanOnce(): Promise<void> {
+    editWait = undefined;
     for (const scratch of deps.outboxes()) {
+      // The edit list is never superseded: each op stays until it is applied, declined or withdrawn.
+      if (deps.edits !== undefined) await handleEdits(scratch, deps.edits);
       const pending = loadPending(scratch);
       // Only the newest manifest proposal of a session is live; older pending ones are superseded.
       const manifests = pending
@@ -478,5 +576,5 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     return running;
   };
 
-  return { scan };
+  return { scan, editWaitMs: () => editWait };
 }

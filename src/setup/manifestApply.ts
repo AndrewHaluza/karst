@@ -119,15 +119,23 @@ export interface ManifestDiff {
   startCommandsChanged: boolean;
 }
 
-/** Every service start command in a manifest, keyed by repository name. */
+/** The start command of one service, or undefined when it runs nothing. */
+function startOf(svc: ServiceDef): string | undefined {
+  if (svc.start !== undefined && svc.start !== '') return svc.start;
+  return svc.docker !== undefined ? `docker run ${svc.docker.image}` : undefined;
+}
+
+/** Every service start command in a manifest, keyed by repository name (a named service reads `repo/name`). */
 export function listStartCommands(manifest: Manifest | undefined): StartCommand[] {
   if (manifest === undefined) return [];
   const out: StartCommand[] = [];
   for (const [repo, def] of Object.entries(manifest.repositories)) {
-    const svc = def.service;
-    if (svc === undefined) continue;
-    if (svc.start !== undefined && svc.start !== '') out.push({ repo, command: svc.start });
-    else if (svc.docker !== undefined) out.push({ repo, command: `docker run ${svc.docker.image}` });
+    const single = def.service === undefined ? undefined : startOf(def.service);
+    if (single !== undefined) out.push({ repo, command: single });
+    for (const [name, svc] of Object.entries(def.services ?? {})) {
+      const command = startOf(svc);
+      if (command !== undefined) out.push({ repo: `${repo}/${name}`, command });
+    }
   }
   return out.sort((a, b) => a.repo.localeCompare(b.repo));
 }
