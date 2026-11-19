@@ -22,10 +22,10 @@ describe('sidebar render', () => {
         expect(h.handle.errors).toEqual([]);
       });
 
-      it('renders the three pane headers and the filter funnel, with no facet chips', async () => {
+      it('renders the four pane headers and the filter funnel, with no facet chips', async () => {
         const h = await renderSidebarApp();
         await h.receive({ type: 'state', state: fixture.state });
-        expect(h.queryAll('[data-pane] .pane-head').length).toBe(3);
+        expect(h.queryAll('[data-pane] .pane-head').length).toBe(4);
         expect(h.query('[data-pane="tickets"] [data-filter-menu]')).not.toBeNull();
         expect(h.query('[data-facet],.facets')).toBeNull();
       });

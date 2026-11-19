@@ -18,6 +18,7 @@ import { SidebarProvider } from './SidebarContext.js';
 import { PlanningPane } from './PlanningPane.js';
 import { QueuePane } from './QueuePane.js';
 import { TicketsPane } from './TicketsPane.js';
+import { ActivityPane } from './ActivityPane.js';
 import { Toolbar } from './Toolbar.js';
 
 const READY_ATTR = ['data', 'karst', 'ready'].join('-');
@@ -36,6 +37,7 @@ export function App({ bridge }: { readonly bridge?: SidebarHostBridge }) {
         <PlanningPane />
         <QueuePane />
         <TicketsPane />
+        <ActivityPane />
       </div>
       <ContextMenu />
     </SidebarProvider>

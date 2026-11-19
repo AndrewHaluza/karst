@@ -49,6 +49,7 @@ export const EMPTY_STATE: SidebarState = {
   rows: [],
   queue: { rows: [], drafts: 0, sessions: 0, tickets: 0 },
   planning: [],
+  activity: { rows: [], unread: 0, total: 0, hasMore: false },
   unlinkedCloudSessions: [],
 };
 
@@ -88,7 +89,13 @@ export function withStateDefaults(prev: SidebarState | undefined): SidebarState 
   const merged = { ...EMPTY_STATE, ...prev };
   const queue = { ...EMPTY_STATE.queue, ...merged.queue };
   const rows = Array.isArray(queue.rows) ? queue.rows : [];
-  return { ...merged, queue: { ...queue, rows: rows.map((r) => ({ ...QUEUE_ROW_DEFAULTS, ...r })) } };
+  // A snapshot saved before the Activity pane has no `activity`; a corrupt one has no row list.
+  const activity = { ...EMPTY_STATE.activity, ...merged.activity };
+  return {
+    ...merged,
+    queue: { ...queue, rows: rows.map((r) => ({ ...QUEUE_ROW_DEFAULTS, ...r })) },
+    activity: { ...activity, rows: Array.isArray(activity.rows) ? activity.rows : [] },
+  };
 }
 
 /**

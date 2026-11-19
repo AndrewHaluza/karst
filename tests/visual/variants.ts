@@ -873,6 +873,12 @@ const openQueue = (corpus: () => ViewCorpus): (() => ViewCorpus) => () => ({
   viewState: { view: { collapsed: { queue: false } } },
 });
 
+/** The Activity pane is collapsed by default; the shot needs it open (view state, never posted). */
+const openActivity = (corpus: () => ViewCorpus): (() => ViewCorpus) => () => ({
+  ...corpus(),
+  viewState: { view: { collapsed: { activity: false } } },
+});
+
 const sidebarVariants = (): Variant[] => {
   const s = fixtureCorpus.bind(null, 'sidebar', sidebarRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
   return [
@@ -889,6 +895,12 @@ const sidebarVariants = (): Variant[] => {
     // T1104: the Queue relation (verb + chip) on one line at 460px, on a second line at 300px (@ui:UI-R57).
     ...CHIP_TIERS.map(([tier, width]) =>
       variant('sidebar', `queue-chips-${tier}`, openQueue(s('queue')), { width, themes: CHIP_THEMES }),
+    ),
+    variant('sidebar', 'activity-empty', openActivity(s('empty'))),
+    variant('sidebar', 'activity-populated', openActivity(s('activity'))),
+    variant('sidebar', 'activity-long-content', openActivity(s('activity-long'))),
+    ...CHIP_TIERS.map(([tier, width]) =>
+      variant('sidebar', `activity-${tier}`, openActivity(s('activity')), { width, themes: CHIP_THEMES }),
     ),
     variant('sidebar', 'subtasks', s('subtasks')),
     ...CHIP_TIERS.map(([tier, width]) =>

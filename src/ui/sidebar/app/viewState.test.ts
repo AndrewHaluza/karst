@@ -8,9 +8,20 @@ describe('restoreView', () => {
     expect(restoreView({})).toEqual(DEFAULT_VIEW);
   });
   it('restores saved flags and ignores non-boolean junk', () => {
-    expect(restoreView({ collapsed: { planning: true, tickets: false }, showArchivedPlans: true })).toEqual({ ...DEFAULT_VIEW, collapsed: { planning: true, queue: true, tickets: false }, showArchivedPlans: true });
+    expect(restoreView({ collapsed: { planning: true, tickets: false }, showArchivedPlans: true })).toEqual({ ...DEFAULT_VIEW, collapsed: { planning: true, queue: true, tickets: false, activity: true }, showArchivedPlans: true });
     expect(restoreView({ collapsed: { queue: false } }).collapsed.queue).toBe(false);
-    expect(restoreView({ collapsed: { planning: 'yes', tickets: true }, showArchivedPlans: 1 })).toEqual({ ...DEFAULT_VIEW, collapsed: { planning: false, queue: true, tickets: true }, showArchivedPlans: false });
+    expect(restoreView({ collapsed: { planning: 'yes', tickets: true }, showArchivedPlans: 1 })).toEqual({ ...DEFAULT_VIEW, collapsed: { planning: false, queue: true, tickets: true, activity: true }, showArchivedPlans: false });
+  });
+});
+
+describe('restoreView activity pane', () => {
+  it('restores a snapshot saved before the Activity pane with the pane collapsed', () => {
+    const old = { collapsed: { planning: false, queue: false, tickets: false }, showArchivedPlans: false };
+    expect(restoreView(old).collapsed).toEqual({ planning: false, queue: false, tickets: false, activity: true });
+  });
+  it('restores an expanded Activity pane', () => {
+    expect(restoreView({ collapsed: { activity: false } }).collapsed.activity).toBe(false);
+    expect(restoreView({ collapsed: { activity: 'x' } }).collapsed.activity).toBe(true);
   });
 });
 

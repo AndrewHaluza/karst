@@ -1,4 +1,5 @@
 import { EMPTY_QUEUE } from './state.js';
+import { EMPTY_ACTIVITY, type ActivityRowView } from './activity.js';
 import type { QueueRowView } from './state.js';
 import type { SidebarState, SidebarSections, TicketRow, SidebarPr, PlanningRow, PlanningProposalRow, DepStatus } from './state.js';
 import type { SidebarWorktree } from './state.js';
@@ -31,12 +32,14 @@ export type SidebarScenario =
   | 'priority'
   | 'queue'
   | 'queue-long'
+  | 'activity'
+  | 'activity-long'
   | 'hostile'
   | 'cloud-sessions'
   | 'peek-states';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'planning-artifacts', 'priority', 'queue', 'queue-long', 'hostile', 'cloud-sessions', 'peek-states',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'planning-artifacts', 'priority', 'queue', 'queue-long', 'activity', 'activity-long', 'hostile', 'cloud-sessions', 'peek-states',
 ];
 
 export interface SidebarRenderFixture {
@@ -114,6 +117,7 @@ function emptyState(): SidebarState {
     done: [],
     rows: [],
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -189,6 +193,7 @@ function allSectionsState(): SidebarState {
     done: [],
     rows: [],
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [fixturePlanningRow(90, { live: true, ticketCount: 2, status: 'filed', proposals: [fixtureDraft({ id: 501, title: 'Add rate limit', status: 'pending', ticketId: null, dependsOn: [] }), fixtureDraft({ id: 503, title: 'Split auth module', status: 'accepted', ticketId: 3, dependsOn: [501] })] }), fixturePlanningRow(89)],
     unlinkedCloudSessions: [],
   };
@@ -207,6 +212,7 @@ function doneFacetState(): SidebarState {
     done: doneRows,
     rows: [],
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -225,6 +231,7 @@ function archivedFacetState(): SidebarState {
       fixtureRow(2, { label: 'DELETED-3', glyph: 'gray' }),
     ],
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [fixturePlanningRow(77, { title: 'Old plan', status: 'archived' })],
     unlinkedCloudSessions: [],
   };
@@ -244,6 +251,7 @@ function multiFacetState(): SidebarState {
       fixtureRow(3, { glyph: 'red' }),
     ],
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -263,6 +271,7 @@ function filteredState(): SidebarState {
     done: [],
     rows: [],
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -314,6 +323,7 @@ function subtasksState(): SidebarState {
     done: [],
     rows: [],
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [],
     unlinkedCloudSessions: [],
   };
@@ -335,6 +345,7 @@ function hostileState(): SidebarState {
     done: [],
     rows: [],
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, proposals: [fixtureDraft({ id: 502, title: HOSTILE_LABEL, status: 'pending', ticketId: null, dependsOn: [] })], agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
     unlinkedCloudSessions: [],
   };
@@ -365,6 +376,7 @@ function planningDepsState(): SidebarState {
     ...emptyState(),
     sections: { current: [fixtureRow(0, { glyph: 'blue' })], awaitingReview: [], recentlyDone: [], olderDone: [] },
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [fixturePlanningRow(17, {
       title: 'Sidebar drafts',
       proposals: [
@@ -406,6 +418,7 @@ function waitsOnState(): SidebarState {
       olderDone: [],
     },
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
   };
 }
 
@@ -434,6 +447,7 @@ function priorityState(): SidebarState {
       ],
       awaitingReview: [], recentlyDone: [], olderDone: [] },
     queue: EMPTY_QUEUE,
+    activity: EMPTY_ACTIVITY,
     planning: [fixturePlanningRow(17, {
       title: 'Prioritized drafts',
       proposals: [
@@ -520,6 +534,33 @@ function queueLongState(): SidebarState {
   return { ...allSectionsState(), queue: { rows, drafts: 40, sessions: 4, tickets: 0 } };
 }
 
+/** A fixed event time: `day` days after 2026-01-01, at `hour:minute` UTC. Far in the past, so the day label is a date at any clock. */
+const activityAt = (day: number, hour: number, minute: number): string => new Date(Date.UTC(2026, 0, 1 + day, hour, minute)).toISOString();
+
+function activityState(): SidebarState {
+  const rows: ActivityRowView[] = [
+    { id: 8, level: 'error', title: 'Autopilot: auto-fix stopped after 3 rounds', ticketId: 900001, ticketLabel: 'T900001', createdAt: activityAt(5, 14, 30), unread: true },
+    { id: 7, level: 'warn', title: 'Autopilot: auto-fix did not run', ticketId: 900002, ticketLabel: 'T900002', createdAt: activityAt(5, 11, 5), unread: true },
+    { id: 6, level: 'success', title: 'Merged 2 pull requests', ticketId: 900003, ticketLabel: 'T900003', createdAt: activityAt(4, 17, 45), unread: false },
+    { id: 5, level: 'info', title: 'Karst finished a background check', ticketId: null, ticketLabel: null, createdAt: activityAt(4, 9, 0), unread: false },
+  ];
+  return { ...allSectionsState(), activity: { rows, unread: 2, total: 4, hasMore: false } };
+}
+
+function activityLongState(): SidebarState {
+  const levels = ['info', 'success', 'warn', 'error'] as const;
+  const rows: ActivityRowView[] = Array.from({ length: 50 }, (_, i) => ({
+    id: 100 - i,
+    level: levels[i % 4]!,
+    title: i % 6 === 0 ? `A very long activity title ${i} that must end in an ellipsis and never wrap or scroll the pane sideways` : `Activity ${i}`,
+    ticketId: i % 3 === 0 ? null : 900001 + (i % 5),
+    ticketLabel: i % 3 === 0 ? null : `T${900001 + (i % 5)}`,
+    createdAt: activityAt(10 - Math.floor(i / 10), 20 - (i % 10), (i * 7) % 60),
+    unread: i < 12,
+  }));
+  return { ...allSectionsState(), activity: { rows, unread: 12, total: 120, hasMore: true } };
+}
+
 /** The ticket ids of the `peek-states` rows: the visual variants open each one by its chevron. */
 export const PEEK_STATE_IDS: readonly number[] = [900001, 900002, 900003, 900004, 900005, 900006, 900007];
 
@@ -555,6 +596,8 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   priority: priorityState,
   queue: queueState,
   'queue-long': queueLongState,
+  activity: activityState,
+  'activity-long': activityLongState,
   hostile: hostileState,
   'cloud-sessions': cloudSessionsState,
   'peek-states': peekStatesState,

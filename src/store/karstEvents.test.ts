@@ -7,6 +7,8 @@ import {
   EVENT_MAX_AGE_DAYS,
   EVENT_MAX_ROWS_PER_PROJECT,
   EVENT_TITLE_MAX,
+  countEvents,
+  getEvent,
   listEvents,
   markAllEventsRead,
   markEventRead,
@@ -131,5 +133,15 @@ describe('karstEvents', () => {
     recordEvent(store, { ...base(), ticketId: t.id }, debug);
     store.db.prepare('DELETE FROM tickets WHERE id = ?').run(t.id);
     expect(listEvents(store, { projectId, limit: 10 })).toEqual([]);
+  });
+
+  it('getEvent returns one row or null, and countEvents counts the project only', () => {
+    const other = upsertProject(store, { slug: 'p2' }).id;
+    const id = recordEvent(store, base(), debug)!;
+    recordEvent(store, base(), debug);
+    recordEvent(store, { ...base(), projectId: other }, debug);
+    expect(getEvent(store, id)).toMatchObject({ id, projectId, title: 't' });
+    expect(getEvent(store, 99999)).toBeNull();
+    expect(countEvents(store, projectId)).toBe(2);
   });
 });

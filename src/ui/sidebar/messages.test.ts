@@ -147,6 +147,35 @@ describe('parseSidebarMessage', () => {
   });
 });
 
+describe('activity messages', () => {
+  it('parses the four closed discriminants', () => {
+    expect(parseSidebarMessage({ type: 'activity-open', id: 4 })).toEqual({ type: 'activity-open', id: 4 });
+    expect(parseSidebarMessage({ type: 'activity-mark-read', id: 4 })).toEqual({ type: 'activity-mark-read', id: 4 });
+    expect(parseSidebarMessage({ type: 'activity-mark-all-read', junk: 1 })).toEqual({ type: 'activity-mark-all-read' });
+    expect(parseSidebarMessage({ type: 'activity-more', beforeId: 9 })).toEqual({ type: 'activity-more', beforeId: 9 });
+  });
+  it('drops a malformed id', () => {
+    for (const id of ['4', 1.5, NaN, undefined]) {
+      expect(parseSidebarMessage({ type: 'activity-open', id })).toBeNull();
+      expect(parseSidebarMessage({ type: 'activity-mark-read', id })).toBeNull();
+      expect(parseSidebarMessage({ type: 'activity-more', beforeId: id })).toBeNull();
+    }
+  });
+  it('routes each message to its action', () => {
+    const a = {
+      activityOpen: vi.fn(), activityMarkRead: vi.fn(), activityMarkAllRead: vi.fn(), activityMore: vi.fn(),
+    } as unknown as SidebarActions;
+    routeSidebarAction({ type: 'activity-open', id: 1 }, a);
+    routeSidebarAction({ type: 'activity-mark-read', id: 2 }, a);
+    routeSidebarAction({ type: 'activity-mark-all-read' }, a);
+    routeSidebarAction({ type: 'activity-more', beforeId: 3 }, a);
+    expect(a.activityOpen).toHaveBeenCalledWith(1);
+    expect(a.activityMarkRead).toHaveBeenCalledWith(2);
+    expect(a.activityMarkAllRead).toHaveBeenCalledWith();
+    expect(a.activityMore).toHaveBeenCalledWith(3);
+  });
+});
+
 describe('routeSidebarAction', () => {
   function makeActions(): SidebarActions {
     return {
@@ -190,6 +219,10 @@ describe('routeSidebarAction', () => {
       cloudSessionLink: vi.fn(),
       cloudSessionUnlink: vi.fn(),
       cloudSessionAdd: vi.fn(),
+    activityOpen: vi.fn(),
+    activityMarkRead: vi.fn(),
+    activityMarkAllRead: vi.fn(),
+    activityMore: vi.fn(),
     };
   }
 

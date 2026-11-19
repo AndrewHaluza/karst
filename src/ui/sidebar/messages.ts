@@ -58,7 +58,12 @@ export type SidebarWebviewMessage =
   | { type: 'cloud-session-link'; url: string; proposalId: number }
   // No url: the host asks for one (input box), then links it by hand.
   | { type: 'cloud-session-add'; ticketId: number }
-  | { type: 'cloud-session-add'; proposalId: number };
+  | { type: 'cloud-session-add'; proposalId: number }
+  // Activity pane (D641 events): rows are addressed by event id; the host re-validates each id against the bound project.
+  | { type: 'activity-open'; id: number }
+  | { type: 'activity-mark-read'; id: number }
+  | { type: 'activity-mark-all-read' }
+  | { type: 'activity-more'; beforeId: number };
 
 /**
  * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
@@ -75,6 +80,8 @@ export type SidebarWebviewMessage =
 export type SidebarHostMessage =
   | { type: 'state'; state: SidebarState }
   | { type: 'edge'; side: SidebarEdge }
+  // `karst.showActivity`: expand the Activity pane and scroll it into view.
+  | { type: 'reveal-activity' }
   | ActionResultMessage;
 
 /**
@@ -126,6 +133,12 @@ export interface SidebarActions {
   cloudSessionLink(url: string, target: { ticketId: number } | { proposalId: number }): void | Promise<void>;
   cloudSessionUnlink(url: string): void | Promise<void>;
   cloudSessionAdd(target: { ticketId: number } | { proposalId: number }): void | Promise<void>;
+  /** Open the dashboard of the event's ticket and mark the event read. */
+  activityOpen(id: number): void | Promise<void>;
+  activityMarkRead(id: number): void | Promise<void>;
+  activityMarkAllRead(): void | Promise<void>;
+  /** Load the next page: `beforeId` is the id of the oldest row the pane shows. */
+  activityMore(beforeId: number): void | Promise<void>;
 }
 
 const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
@@ -195,6 +208,13 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
         ? { type: 'cloud-session-add', ticketId: m.ticketId as number }
         : { type: 'cloud-session-add', proposalId: m.proposalId as number };
     }
+    case 'activity-mark-all-read':
+      return { type: 'activity-mark-all-read' };
+    case 'activity-open':
+    case 'activity-mark-read':
+      return typeof m.id === 'number' && Number.isInteger(m.id) ? { type: m.type, id: m.id } : null;
+    case 'activity-more':
+      return typeof m.beforeId === 'number' && Number.isInteger(m.beforeId) ? { type: 'activity-more', beforeId: m.beforeId } : null;
     case 'toggle-facet':
       return typeof m.facet === 'string' && FACET_KEYS.has(m.facet)
         ? { type: 'toggle-facet', facet: m.facet as FacetKey }
@@ -322,5 +342,13 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.cloudSessionAdd('ticketId' in msg ? { ticketId: msg.ticketId } : { proposalId: msg.proposalId });
     case 'cloud-session-link':
       return actions.cloudSessionLink(msg.url, 'ticketId' in msg ? { ticketId: msg.ticketId } : { proposalId: msg.proposalId });
+    case 'activity-open':
+      return actions.activityOpen(msg.id);
+    case 'activity-mark-read':
+      return actions.activityMarkRead(msg.id);
+    case 'activity-mark-all-read':
+      return actions.activityMarkAllRead();
+    case 'activity-more':
+      return actions.activityMore(msg.beforeId);
   }
 }

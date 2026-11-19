@@ -158,3 +158,15 @@ export function markEventRead(store: Store, id: number): void {
 export function markAllEventsRead(store: Store, projectId: number): void {
   store.db.prepare("UPDATE karst_events SET read_at = datetime('now') WHERE project_id = ? AND read_at IS NULL").run(projectId);
 }
+
+/** One event by id, or null when it does not exist. */
+export function getEvent(store: Store, id: number): KarstEvent | null {
+  const row = store.db.prepare('SELECT * FROM karst_events WHERE id = ?').get(id) as EventRow | undefined;
+  return row ? rowToEvent(row) : null;
+}
+
+/** How many events the project holds (read and unread). */
+export function countEvents(store: Store, projectId: number): number {
+  const row = store.db.prepare('SELECT COUNT(*) AS n FROM karst_events WHERE project_id = ?').get(projectId) as { n: number };
+  return row.n;
+}

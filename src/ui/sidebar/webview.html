@@ -71,6 +71,7 @@
   .panes:has(.pane[data-pane="tickets"][data-collapsed="true"]) .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:1 1 0;max-height:none}
   /* Queue pane: open it takes about 30% of the height and scrolls on its own; a collapsed pane hands its height to the others. */
   .pane[data-pane="queue"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:30%}
+  .pane[data-pane="activity"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:40%}
   .pane + .pane{border-top:var(--k-border-w) solid var(--k-border);margin-top:var(--k-space-4)}
   .pane-head{display:flex;align-items:center;gap:var(--k-space-1);padding:0 var(--k-space-2) 0 var(--k-space-2);flex:0 0 auto;
     min-height:calc(var(--k-space-8) + var(--k-space-2))}
@@ -434,6 +435,25 @@
   .q-menu{grid-area:menu;width:var(--k-space-8);height:var(--k-space-8);opacity:0}
   .q-row:hover .q-menu,.q-row:focus-within .q-menu,.q-menu[aria-expanded="true"]{opacity:1}
   @container queue (max-width: 20em){.q-sx{display:none}}
+  /* Activity rows: one line each (glyph, ticket chip, title, time). The region is the container; the title takes the rest and ellipsizes, nothing wraps (UI-R43, UI-R45). */
+  [data-region="activity"]{container-type:inline-size;container-name:activity}
+  .a-day{padding:var(--k-space-2) var(--k-space-4) var(--k-space-1);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.08em;text-transform:uppercase}
+  .a-row{display:grid;grid-template-columns:var(--k-space-8) auto minmax(0,1fr) auto;align-items:center;column-gap:var(--k-space-2);width:100%;min-height:var(--k-hit-min);padding:0 var(--k-space-4);background:none;border:0;border-radius:var(--k-radius-sm);color:var(--k-text);font:inherit;font-size:var(--k-text-sm);text-align:left}
+  .a-row:not(:has(.a-ref)){grid-template-columns:var(--k-space-8) minmax(0,1fr) auto}
+  .a-row--open{cursor:pointer}
+  .a-row--open:hover{background:var(--vscode-list-hoverBackground)}
+  .a-row--open:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
+  .a-row[data-unread="true"]{background:var(--k-surface-selected)}
+  .a-row[data-unread="true"] .a-title{font-weight:var(--k-weight-semibold)}
+  .a-lvl{display:inline-flex;align-items:center;justify-content:center}
+  .a-lvl--error{color:var(--k-danger)}
+  .a-lvl--warn{color:var(--k-warning)}
+  .a-lvl--success{color:var(--k-passed)}
+  .a-lvl--info{color:var(--k-text-dim)}
+  .a-ref{flex:none;white-space:nowrap}
+  .a-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .a-time{flex:none;font-family:var(--k-font-mono);font-variant-numeric:tabular-nums;font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .a-more{margin:var(--k-space-2) var(--k-space-4);min-height:var(--k-hit-min)}
   .ctxdivider{height:var(--k-border-w);margin:var(--k-space-2) 0;background:var(--k-border)}
   .ctxitem:hover{background:var(--k-surface-hover)}
   .ctxitem:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
