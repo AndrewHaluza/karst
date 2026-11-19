@@ -312,4 +312,12 @@ describe('the typed edit list', () => {
     expect(f.ops().map((o) => o.id)).toEqual(['a-1', 'a-3']);
     expect(f.results.map((r) => [r.id, r.status])).toEqual([['a-2', 'invalid']]);
   });
+
+  it('drops the whole list when the failure names no op (a loader error)', async () => {
+    const bad = op('a-2', 'set-service', { repo: 'web', patch: { start: 'x', ports: [{ name: 'http', env: 'PORT', default: 3000 }], dependsOn: [{ target: 'apii', port: 'http', bind: [{ env: 'API_URL', template: 'http://{host}:{port}' }] }] } });
+    const f = setup([SET_GENERAL('a-1', { debug: true }), bad]);
+    await f.ctl.scan();
+    expect(f.ops()).toEqual([]);
+    expect(f.results.map((r) => r.status)).toEqual(['invalid', 'invalid']);
+  });
 });

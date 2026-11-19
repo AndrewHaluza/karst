@@ -358,7 +358,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     }
     const ids = ops.map((o) => o.id);
     const first = `${ids[0]!}.json`;
-    const settle = (status: ProposalResult['status'], reason: string, only: readonly string[] = ids): void => {
+    const settle = (status: ProposalResult['status'], reason: string, only: readonly string[]): void => {
       edits.removeOps(scratch, only);
       for (const id of only) record(scratch, `${id}.json`, 'edit', status, { reason });
     };
@@ -379,13 +379,13 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       deps.notify.warn(`Karst: the setup edits failed the host checks (${reason}); ignored.`);
       hostRecord(scratch, first, 'edit', 'refused', run.result);
       // A failure that names one op drops only that op; the valid ops stay and show in the next popup.
-      const culprit = !built.ok && built.opId !== undefined && ids.length > 1 && ids.includes(built.opId) ? [built.opId] : undefined;
-      settle('invalid', reason, culprit);
+      const culprit = built.ok ? undefined : built.opId;
+      settle('invalid', reason, culprit === undefined ? ids : [culprit]);
       return;
     }
     if (built.changes.length === 0 && built.fixes.length === 0) {
       deps.notify.warn('Karst: the setup edits change nothing.');
-      settle('no-change', 'no effective change');
+      settle('no-change', 'no effective change', ids);
       return;
     }
     const approved = await deps.confirm(withVerification(describeEdits(built, ops.length), run.result));
@@ -397,7 +397,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       return;
     }
     if (!approved) {
-      settle('declined', 'declined by the user');
+      settle('declined', 'declined by the user', ids);
       return;
     }
     try {
@@ -412,7 +412,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       const reason = (e as Error).message;
       deps.notify.warn(`Karst: could not apply the setup edits (${reason}).`);
       hostRecord(scratch, first, 'edit', 'refused', run.result);
-      settle('invalid', `apply failed: ${reason}`);
+      settle('invalid', `apply failed: ${reason}`, ids);
     }
   }
 
