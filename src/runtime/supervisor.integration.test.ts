@@ -642,6 +642,37 @@ createServer((_req, res) => {
       expect(message).toMatch(/another instance/i);
     });
 
+    it('says the header was absent, not that the service never answered, on a header-less 200', async () => {
+      const port = nextPort();
+      writeFileSync(
+        join(dir, 'bare.mjs'),
+        `import { createServer } from 'node:http';
+         createServer((_q, res) => { res.writeHead(200); res.end('ok'); })
+           .listen(Number(process.env.PORT));`,
+      );
+      let message = '';
+      await startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: process.execPath,
+        args: [join(dir, 'bare.mjs')],
+        cwd: dir,
+        repoPath: dir,
+        env: { PORT: String(port) },
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+        requireIdentity: true,
+        healthTimeoutMs: 1_500,
+      }).catch((err: Error) => {
+        message = err.message;
+      });
+      expect(message).toContain('200 without x-karst-instance');
+      expect(message).toMatch(/something is listening on 127\.0\.0\.1:/i);
+      expect(message).not.toMatch(/never answered/i);
+    });
+
     it('does not set the token, or check identity, when the service did not ask for it', async () => {
       const port = nextPort();
       // Answers 200 only when the env var is ABSENT: proves karst mints no token

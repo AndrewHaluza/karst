@@ -1,10 +1,39 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, it, expect, vi } from 'vitest';
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
-import { waitForHealth, isServing, HealthTimeoutError, HealthAbortedError } from './health.js';
+import {
+  waitForHealth,
+  isServing,
+  HealthTimeoutError,
+  HealthAbortedError,
+  HealthPermanentError,
+} from './health.js';
 
-/** A port nothing listens on — every probe connection-refuses. */
-const DEAD_URL = 'http://127.0.0.1:1/health';
+/**
+ * A port that was just bound and closed: not blocked by Fetch (port 1 is, so
+ * it fails with `bad port` before any connection), so every probe really
+ * connection-refuses.
+ */
+let DEAD_URL = '';
+
+beforeAll(async () => {
+  const server = createServer();
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const { port } = server.address() as AddressInfo;
+  await new Promise<void>((r) => server.close(() => r()));
+  DEAD_URL = `http://127.0.0.1:${port}/health`;
+});
+
+afterAll(() => {
+  DEAD_URL = '';
+});
+
+/** A fetch failure as undici shapes it: `TypeError: fetch failed` with a cause. */
+function fetchFailed(cause: { message?: string; code?: string }): TypeError {
+  const err = new TypeError('fetch failed');
+  (err as { cause?: unknown }).cause = Object.assign(new Error(cause.message ?? 'x'), cause.code ? { code: cause.code } : {});
+  return err;
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -23,6 +52,7 @@ describe('waitForHealth', () => {
     const answering = (token: string | null) =>
       vi.fn(async () => ({
         ok: true,
+        status: 200,
         headers: new Headers(token === null ? {} : { 'x-karst-instance': token }),
       }));
 
@@ -49,9 +79,84 @@ describe('waitForHealth', () => {
       ).rejects.toBeInstanceOf(HealthTimeoutError);
     });
 
+    it('names the missing header in the timeout message and field', async () => {
+      vi.stubGlobal('fetch', answering(null));
+      const err = await waitForHealth(DEAD_URL, {
+        timeoutMs: 300,
+        intervalMs: 50,
+        requireInstance: 'tok-123',
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(HealthTimeoutError);
+      const timeout = err as HealthTimeoutError;
+      expect(timeout.message).toContain('200 without x-karst-instance');
+      expect(timeout.lastOutcome).toBe('200 without x-karst-instance');
+      expect(timeout.identityMissing).toBe(true);
+    });
+
     it('ignores identity entirely when no token is required', async () => {
       vi.stubGlobal('fetch', answering('whoever'));
       await expect(waitForHealth(DEAD_URL, { timeoutMs: 500 })).resolves.toBeUndefined();
+    });
+  });
+
+  describe('permanent and transient probe errors', () => {
+    it.each([
+      ['bad port', { message: 'bad port' }],
+      ['unknown scheme', { message: 'unknown scheme' }],
+      ['ERR_INVALID_URL', { message: 'Invalid URL', code: 'ERR_INVALID_URL' }],
+    ])('rejects at once with HealthPermanentError on %s', async (_label, cause) => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(fetchFailed(cause)));
+      const start = Date.now();
+      const err = await waitForHealth('http://127.0.0.1:4045/health', {
+        timeoutMs: 10_000,
+        intervalMs: 50,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(HealthPermanentError);
+      expect((err as Error).message).toContain('http://127.0.0.1:4045/health');
+      expect((err as Error).message).toContain(cause.message);
+      expect(Date.now() - start).toBeLessThan(2_000);
+    });
+
+    it('rejects at once when the URL cannot be parsed', async () => {
+      const err = await waitForHealth('not a url', { timeoutMs: 10_000 }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(HealthPermanentError);
+    });
+
+    it.each(['ECONNREFUSED', 'ECONNRESET', 'UND_ERR_SOCKET', 'ENOTFOUND', 'HPE_INVALID_CONSTANT', 'ETIMEDOUT', 'EAI_AGAIN'])(
+      'retries %s until a later 2xx',
+      async (code) => {
+        vi.stubGlobal(
+          'fetch',
+          vi
+            .fn()
+            .mockRejectedValueOnce(fetchFailed({ code, message: code }))
+            .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers() }),
+        );
+        await expect(
+          waitForHealth('http://eventually/health', { timeoutMs: 1_000, intervalMs: 1 }),
+        ).resolves.toBeUndefined();
+      },
+    );
+
+    it('reports the last probe outcome on a timeout', async () => {
+      const err = await waitForHealth(DEAD_URL, { timeoutMs: 300, intervalMs: 50 }).catch(
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(HealthTimeoutError);
+      expect((err as HealthTimeoutError).lastOutcome).toBe('refused (ECONNREFUSED)');
+      expect((err as Error).message).toContain('refused (ECONNREFUSED)');
+    });
+
+    it('reports an HTTP status as the last outcome', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, status: 503, headers: new Headers() })),
+      );
+      const err = await waitForHealth('http://x/health', { timeoutMs: 200, intervalMs: 20 }).catch(
+        (e: unknown) => e,
+      );
+      expect((err as HealthTimeoutError).lastOutcome).toBe('HTTP 503');
+      expect((err as HealthTimeoutError).identityMissing).toBe(false);
     });
   });
 
