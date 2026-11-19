@@ -119,7 +119,7 @@ export function AccountsTab({ route }: AccountsTabProps) {
   return (
     <div className="accounts-tab" data-region="accounts-tabs" ref={rootRef}>
       <p className="accounts-note">
-        The account list is machine-local and shared. The active account is per project. Add, set active and delete apply at once and are not part of Save.
+        The account list is shared. The active account is per project. Add, set active and delete apply at once, not on Save.
       </p>
       {activeError !== null ? <p className="accounts-error" role="alert">{activeError}</p> : null}
       {cores === null ? <p>Loading accounts…</p> : (

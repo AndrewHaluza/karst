@@ -53,7 +53,7 @@ describe('Accounts tab', () => {
   it('says accounts apply at once and are not part of Save', () => {
     mount();
     expect(screen.getByText(/apply at once/i)).toBeTruthy();
-    expect(screen.getByText(/not part of Save/i)).toBeTruthy();
+    expect(screen.getByText(/not on Save/i)).toBeTruthy();
   });
 
   it('shows a row per core, default first and without a delete button', () => {
@@ -310,7 +310,7 @@ describe('Accounts tab sbx token cell (D651)', () => {
 describe('Accounts tab: active account per project', () => {
   it('says the list is shared and the active account is per project', () => {
     mount();
-    expect(screen.getByText(/account list is machine-local and shared/i)).toBeTruthy();
+    expect(screen.getByText(/account list is shared/i)).toBeTruthy();
     expect(screen.getByText(/active account is per project/i)).toBeTruthy();
   });
   it('shows the machine default chip when the project has no choice', () => {
