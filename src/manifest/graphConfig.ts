@@ -196,6 +196,9 @@ function validateCommand(raw: unknown, where: string): GraphCommandConfig {
   return cmd;
 }
 
+/** Profile ids a preset slot (`graphExpert`/`graphWorker`/`graphFast`) can supply. */
+const GRAPH_PRESET_PROFILE_IDS: readonly string[] = ['expert', 'worker', 'fast'];
+
 function validatePlanner(raw: unknown, where: string): GraphPlannerConfig {
   if (raw === undefined) return { profile: 'expert' }; // packaged default
   if (!isObject(raw)) throw new ManifestError(`${where} must be a mapping`);
@@ -256,8 +259,10 @@ export function validateGraphConfig(raw: unknown, where: string): GraphApproachC
 
   const config: GraphApproachConfig = {
     planner: validatePlanner(raw.planner, `${where}.planner`),
-    profiles: {},
-    commands: {},
+    // Null-prototype maps: a profile/command id such as `toString` must never
+    // resolve to an inherited member.
+    profiles: Object.create(null) as GraphApproachConfig['profiles'],
+    commands: Object.create(null) as GraphApproachConfig['commands'],
     limits: validateLimits(raw.limits, `${where}.limits`),
   };
 
@@ -273,6 +278,19 @@ export function validateGraphConfig(raw: unknown, where: string): GraphApproachC
     for (const [key, value] of Object.entries(raw.commands)) {
       config.commands[key] = validateCommand(value, `${where}.commands.${key}`);
     }
+  }
+
+  // The planner profile must be declared, or be an id a preset slot can supply
+  // (`expert`/`worker`/`fast`, the packaged planner default needs no declaration).
+  const plannerProfile = config.planner.profile;
+  if (
+    !Object.prototype.hasOwnProperty.call(config.profiles, plannerProfile) &&
+    !GRAPH_PRESET_PROFILE_IDS.includes(plannerProfile)
+  ) {
+    throw new ManifestError(
+      `${where}.planner.profile "${plannerProfile}" is not a declared profile ` +
+        `(declare it under ${where}.profiles, or use expert, worker or fast)`,
+    );
   }
 
   return config;

@@ -54,6 +54,7 @@ const VALIDATOR_ONLY_MESSAGES: readonly RegExp[] = [
   /declares no service/,
   /has no such port slot/,
   /must be at least maxReplans \+ 1/,
+  /is not a declared profile/,
   /names no agent preset/,
   /no greater than review\.maxFixAttempts/,
   /evidence must start with/,

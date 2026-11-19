@@ -4793,6 +4793,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       debug: (message) => logger.debug(message),
       graphConfigOf: graphApproachConfigFor,
       manifest: currentManifest() ?? emptyManifest(),
+      ticketLaunchFieldsOf: (ticketId) => {
+        const t = getTicket(gs!, ticketId);
+        return { agentPreset: t.agentPreset, provider: t.agentProvider, model: t.model, effort: t.effort };
+      },
       artifactRootOf: graphArtifactRoot,
       graphEnvOf: (input) => {
         const route = graphRouteFor(input.graphRunId);
