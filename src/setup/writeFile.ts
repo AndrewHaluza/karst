@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { hasBodyControls, MAX_SETUP_WRITE_CONTENT, writeFilePathProblem } from './proposal.js';
 
@@ -64,18 +64,46 @@ function hunk(side: { lines: string[]; final: boolean }, mark: '-' | '+'): strin
   return side.final ? body : `${body}\\ No newline at end of file\n`;
 }
 
-function readText(path: string): string | undefined {
-  const bytes = readFileSync(path);
-  if (bytes.includes(0)) return undefined;
+/**
+ * Reads at most `MAX_SETUP_WRITE_CONTENT` bytes through one descriptor that does not follow a
+ * symlink, so a file swapped in after the checks cannot give an unbounded read.
+ */
+function readText(path: string): { text: string } | { problem: string } {
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch {
-    return undefined;
+    if (!fstatSync(fd).isFile()) return { problem: 'is not a regular file' };
+    const buf = Buffer.alloc(MAX_SETUP_WRITE_CONTENT + 1);
+    let length = 0;
+    while (length < buf.length) {
+      const n = readSync(fd, buf, length, buf.length - length, null);
+      if (n === 0) break;
+      length += n;
+    }
+    if (length > MAX_SETUP_WRITE_CONTENT) return { problem: `is larger than ${MAX_SETUP_WRITE_CONTENT} bytes; write-file replaces small text files only` };
+    const bytes = buf.subarray(0, length);
+    if (bytes.includes(0)) return { problem: 'is not a text file; write-file replaces text files only' };
+    try {
+      return { text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+    } catch {
+      return { problem: 'is not a text file; write-file replaces text files only' };
+    }
+  } finally {
+    closeSync(fd);
   }
 }
 
 /** Builds the patch that makes `path` (relative to `repoDir`) hold exactly `content`. */
 export function buildWriteFilePatch(repoDir: string, path: string, content: string): WriteFilePatch {
+  try {
+    return buildChecked(repoDir, path, content);
+  } catch (e) {
+    // A disk error must refuse this one proposal; a throw would stop the whole outbox scan.
+    const code = (e as NodeJS.ErrnoException).code;
+    return fail(`"${path}" cannot be checked on disk${code !== undefined ? ` (${code})` : ''}`);
+  }
+}
+
+function buildChecked(repoDir: string, path: string, content: string): WriteFilePatch {
   const problem = writeFilePathProblem(path);
   if (problem !== undefined) return fail(problem);
   if (hasBodyControls(content)) return fail('content holds control or bidi characters; write-file writes plain text only');
@@ -85,9 +113,11 @@ export function buildWriteFilePatch(repoDir: string, path: string, content: stri
   } catch {
     return fail(`the repo directory ${repoDir} does not exist`);
   }
-  // The repo directory itself must not be inside `.git` or `.karst`, whatever name led to it.
-  if (realRepo.split(sep).some((part) => /^\.(git|karst)$/i.test(part))) {
-    return fail(`the repo directory ${repoDir} is inside .git or .karst`);
+  // The repo directory must not be inside `.git`, nor be `.karst` itself. A ticket worktree
+  // lives below `.karst/worktrees/`, so a `.karst` further up is fine; the P2 guard covers karst.yml.
+  const parts = realRepo.split(sep);
+  if (parts.some((part) => part.toLowerCase() === '.git') || parts[parts.length - 1]?.toLowerCase() === '.karst') {
+    return fail(`the repo directory ${repoDir} is inside .git or is .karst`);
   }
   const segments = path.split('/');
   const bad = diskProblem(realRepo, segments);
@@ -103,11 +133,10 @@ export function buildWriteFilePatch(repoDir: string, path: string, content: stri
     return { ok: true, patch: `${header}new file mode 100644\n--- /dev/null\n+++ b/${path}\n${hunkHead}${hunk(added, '+')}` };
   }
   if (kindOf(target) !== 'file') return fail(`"${path}" is not a regular file`);
-  if (lstatSync(target).size > MAX_SETUP_WRITE_CONTENT) {
-    return fail(`"${path}" is larger than ${MAX_SETUP_WRITE_CONTENT} bytes; write-file replaces small text files only`);
-  }
-  const old = readText(target);
-  if (old === undefined) return fail(`"${path}" is not a text file; write-file replaces text files only`);
+  const read = readText(target);
+  if ('problem' in read) return fail(`"${path}" ${read.problem}`);
+  const old = read.text;
+  if (old.includes('\r')) return fail(`"${path}" uses CRLF line endings; write-file cannot replace it`);
   if (old === content) return fail(`"${path}" already has this content`);
   const before = linesOf(old);
   const after = linesOf(content);

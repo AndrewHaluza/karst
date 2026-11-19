@@ -134,7 +134,32 @@ describe('buildWriteFilePatch — repo directory and size', () => {
     mkdirSync(dir);
     const r = buildWriteFilePatch(dir, 'hooks/pre-commit', 'x\n');
     expect(r.ok).toBe(false);
-    expect(r.ok ? '' : r.reason).toContain('inside .git or .karst');
+    expect(r.ok ? '' : r.reason).toContain('inside .git or is .karst');
+  });
+
+  it('accepts a repo below a .karst directory, as a ticket worktree is', () => {
+    const dir = join(root, '.karst', 'worktrees', 'ticket');
+    mkdirSync(dir, { recursive: true });
+    expect(buildWriteFilePatch(dir, 'a.txt', 'x\n').ok).toBe(true);
+  });
+
+  it('refuses with a reason, and does not throw, when the target cannot be read', () => {
+    mkdirSync(join(repo, 'd.txt'));
+    mkdirSync(join(repo, 'e'));
+    writeFileSync(join(repo, 'e', 'f'), 'x');
+    expect(reasonOf('d.txt', 'x\n')).toContain('not a regular file');
+    expect(reasonOf('e/f/g', 'x\n')).toContain('is a file, not a directory');
+  });
+
+  it('turns an unexpected fs error (a name over the limit) into a refusal, not a throw', () => {
+    const r = buildWriteFilePatch(repo, `${'a'.repeat(300)}.txt`, 'x\n');
+    expect(r.ok).toBe(false);
+    expect(r.ok ? '' : r.reason).toMatch(/cannot be checked|too long|ENAMETOOLONG/i);
+  });
+
+  it('names the CRLF ending of an existing file as the reason', () => {
+    writeFileSync(join(repo, 'crlf.txt'), 'a\r\nb\r\n');
+    expect(reasonOf('crlf.txt', 'x\n')).toContain('CRLF');
   });
 
   it('refuses a repo directory below .git', () => {
