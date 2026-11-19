@@ -486,7 +486,7 @@ describe('ticket form — graph role preview (T1266)', () => {
     const preset = open(st());
     expect(preview(preset).querySelector('.graph-roles-hint')!.textContent).toContain('Core + model');
     const own = open(st({ selectedAgentProvider: 'claude' }));
-    expect(preview(own).querySelector('.graph-roles-hint')!.textContent).toContain('replace the preset');
+    expect(preview(own).querySelector('.graph-roles-hint')!.textContent).toContain('keeps its model');
   });
 
   it('is hidden for an approach with no graph', () => {

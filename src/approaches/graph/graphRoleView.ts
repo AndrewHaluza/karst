@@ -39,8 +39,12 @@ export function graphConfigOfApproach(
   manifest: Manifest,
   approachId?: string | null,
 ): GraphApproachConfig | undefined {
+  // Pure over the list it is given, so the Settings webview can bundle it. A host caller passes
+  // the manifest through `withBuiltInApproaches` first: the packaged Dynamic Graph approach is
+  // only in that overlay, never in the raw manifest.
   const approaches = manifest.approaches ?? [];
-  if (approachId === undefined) return approaches.find((a) => a.graph !== undefined)?.graph;
+  // No ticket yet: the first ENABLED approach that declares a graph (a disabled one never launches).
+  if (approachId === undefined) return approaches.find((a) => a.enabled !== false && a.graph !== undefined)?.graph;
   if (approachId === null) return undefined;
   return approaches.find((a) => a.id === approachId)?.graph;
 }

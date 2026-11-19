@@ -74,6 +74,23 @@ describe('graphConfigOfApproach', () => {
   });
 });
 
+describe('graphConfigOfApproach with no id (T1266 fix)', () => {
+  it('skips a disabled approach and takes the first enabled one that declares a graph', () => {
+    const other = { ...config, profiles: { ...config.profiles, expert: { provider: 'codex', model: 'gpt-x' } } };
+    const m = manifest({
+      approaches: [
+        { id: 'off', label: 'Off', enabled: false, graph: config },
+        { id: 'on', label: 'On', enabled: true, graph: other },
+      ],
+    } as unknown as Partial<Manifest>);
+    expect(graphConfigOfApproach(m)).toBe(other);
+  });
+  it('is undefined when every graph approach is disabled', () => {
+    const m = manifest({ approaches: [{ id: 'off', label: 'Off', enabled: false, graph: config }] } as unknown as Partial<Manifest>);
+    expect(graphConfigOfApproach(m)).toBeUndefined();
+  });
+});
+
 describe('describeGraphRoles', () => {
   it('lists expert, worker, fast with a text and the rung that supplied it', () => {
     expect(describeGraphRoles(graphRoleView(manifest(), config))).toEqual([

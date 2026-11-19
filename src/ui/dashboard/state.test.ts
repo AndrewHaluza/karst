@@ -829,6 +829,26 @@ describe('buildDashboardState', () => {
     expect(state.capabilityIdentity.graphFast).toEqual({ provider: 'claude', model: 'claude-sonnet-5', effort: 'low' });
   });
 
+  it('names no graph role for a classic ticket whose preset has graph slots (T1266 fix)', () => {
+    const m = manifest({ extention: repo() }, {
+      approaches: [graphApproach({ enabled: true })],
+      agentPresets: { lean: { slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol' } } } },
+      agentProvider: 'claude',
+      defaultModel: 'claude-sonnet-5',
+    });
+    const t = createTicket(store, { key: 'CLASSIC-VIEW', title: 'classic' });
+    updateTicketFields(store, t.id, { agentPreset: 'lean' });
+    const rec = getTicket(store, t.id)!;
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined,
+      agentContextFor({ defaultModel: null, defaultEffort: null }, m, rec.agentPreset, rec.agentProvider, {
+        approach: rec.approach,
+        fields: ticketLaunchFields(rec),
+      }),
+    );
+    for (const capability of GRAPH) expect(state.capabilityIdentity[capability]).toBeNull();
+  });
+
   it('states what launch opens when a preset owns implementation (NDL-116)', () => {
     const state = presetState('PRESET-SES', { agentPreset: 'turbo' });
 

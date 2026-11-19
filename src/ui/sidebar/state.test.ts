@@ -46,6 +46,16 @@ describe('buildSidebarState', () => {
     expect(byLabel['C-1 — classic']).toBeUndefined();
   });
 
+  it('gives the packaged Dynamic Graph approach its approach fallback although the raw manifest never names it (T1266)', () => {
+    const m = buildManifest({ extention: repoFixture() }, {});
+    const graph = createTicket(store, { key: 'G-2', title: 'packaged' });
+    updateTicketFields(store, graph.id, { approach: 'karst-graph-engineering' });
+    const rows = buildSidebarState(store, { facets: ['all'], filter: '', manifest: m }).sections.current;
+    const roles = rows.find((r) => r.label === 'G-2 — packaged')?.graphRoles;
+    expect(roles?.map((r) => r.role)).toEqual(['expert', 'worker', 'fast']);
+    expect(roles?.every((r) => r.source === 'approach')).toBe(true);
+  });
+
   it('default (all) facet excludes archived and returns active rows in Current', () => {
     createTicket(store, { key: 'A-1', title: 'active' });
     const gone = createTicket(store, { key: 'B-1', title: 'archived' });

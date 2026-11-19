@@ -1974,7 +1974,7 @@
     // would be stale: say so instead of showing models the launch will not use.
     const ticketCore = draft.selectedAgentProvider ?? lastSelectedAgentProvider ?? '';
     const hint = ticketCore
-      ? 'This ticket sets its own core and model above. They replace the preset for every graph role.'
+      ? 'This ticket sets its own core above. Every graph role runs on it; a preset slot for that same core keeps its model.'
       : 'The preset sets these models. To change them for this ticket only, choose Core + model above.';
     box.innerHTML = '<label>Graph roles</label>' +
       '<div class="graph-roles-grid" role="list">' + lines.map((l) =>

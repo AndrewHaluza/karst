@@ -2,6 +2,7 @@ import { memoryWaitNotes } from '../../store/memoryQueue.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
+import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
 import { describeGraphRoles, graphConfigOfApproach, graphRoleView, type GraphRoleLine } from '../../approaches/graph/graphRoleView.js';
 import { ticketLaunchFields } from '../../approaches/graph/profileResolver.js';
 import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubtasks, getTicket, findTicketById, type TicketWithStages } from '../../store/tickets.js';
@@ -103,9 +104,12 @@ function graphRolesOf(
   manifest: Manifest | undefined,
   t: Parameters<typeof ticketLaunchFields>[0] & { approach: string | null },
 ): { graphRoles?: readonly GraphRoleLine[] } {
-  const config = manifest ? graphConfigOfApproach(manifest, t.approach) : undefined;
-  if (!manifest || !config) return {};
-  const lines = describeGraphRoles(graphRoleView(manifest, config, ticketLaunchFields(t)));
+  if (!manifest) return {};
+  // The packaged Dynamic Graph approach is only in the built-in overlay, never in the raw manifest.
+  const effective = withBuiltInApproaches(manifest);
+  const config = graphConfigOfApproach(effective, t.approach);
+  if (!config) return {};
+  const lines = describeGraphRoles(graphRoleView(effective, config, ticketLaunchFields(t)));
   return lines.length > 0 ? { graphRoles: lines } : {};
 }
 

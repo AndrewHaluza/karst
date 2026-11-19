@@ -12,6 +12,7 @@ import { resolveModelForProvider } from '../../agent/models.js';
 import { resolvePresetDefaults, resolvePresetSlot } from '../../agent/agentPresets.js';
 import { resolvePlanningDefaults } from '../../agent/planningDefaults.js';
 import { unitsOf } from '../../manifest/runnable.js';
+import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
 import { graphConfigOfApproach, graphRoleView, type GraphRole } from '../../approaches/graph/graphRoleView.js';
 import type { GraphLaunchTicketFields } from '../../approaches/graph/profileResolver.js';
 import type { CapabilityIdentity, DashboardAgentContext } from './stateTypes.js';
@@ -117,11 +118,15 @@ export function agentContextFor(
     if (GRAPH_CAPABILITIES.has(capability)) {
       // A graph ticket shows what a graph launch resolves (AC-04): ticket
       // rungs → preset slot → approach profile, through the shared role view.
-      // A ticket with no graph approach has no profile to fall back to, so a
-      // preset slot is the only rung; an absent slot is Inherit (null).
-      const config = graphTicket ? graphConfigOfApproach(manifest, graphTicket.approach) : undefined;
-      const resolved = config
-        ? graphRoleView(manifest, config, graphTicket?.fields)[GRAPH_ROLE_OF[capability as keyof typeof GRAPH_ROLE_OF]]
+      // A classic ticket (one whose approach has no graph) launches no graph role, so
+      // its header names none (null). With no ticket at all, a preset slot is the only
+      // rung; an absent slot is Inherit (null).
+      const effective = withBuiltInApproaches(manifest); // the packaged Dynamic Graph approach lives only in the overlay
+      const config = graphTicket ? graphConfigOfApproach(effective, graphTicket.approach) : undefined;
+      const resolved = graphTicket
+        ? config
+          ? graphRoleView(effective, config, graphTicket.fields)[GRAPH_ROLE_OF[capability as keyof typeof GRAPH_ROLE_OF]]
+          : undefined
         : resolvePresetSlot(manifest, capability, opts.ticketPreset);
       capabilityIdentity[capability] = resolved
         ? { provider: resolved.provider as AgentProvider, model: resolved.model ?? null, effort: resolved.effort ?? null }
