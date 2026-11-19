@@ -482,6 +482,13 @@ describe('ticket form — graph role preview (T1266)', () => {
     expect(v.query('#graphRolesPreview [data-graph-role="expert"]')!.textContent).toContain('expert-deep');
   });
 
+  it('tells how to change the models for this ticket only, and says when the ticket core replaces them', () => {
+    const preset = open(st());
+    expect(preview(preset).querySelector('.graph-roles-hint')!.textContent).toContain('Core + model');
+    const own = open(st({ selectedAgentProvider: 'claude' }));
+    expect(preview(own).querySelector('.graph-roles-hint')!.textContent).toContain('replace the preset');
+  });
+
   it('is hidden for an approach with no graph', () => {
     const v = open(st({ selectedApproach: 'classic' }));
     expect(preview(v).classList.contains('hidden')).toBe(true);

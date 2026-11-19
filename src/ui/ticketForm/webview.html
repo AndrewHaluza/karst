@@ -68,6 +68,15 @@
   .titlerow h1{margin:var(--k-space-0)}
   .keychip{font-family:var(--k-font-mono)}
   .sub:empty{display:none}
+  /* Graph roles (T1266): a name | model | source grid; the model text wraps under the name at narrow widths. */
+  #graphRolesPreview{margin-top:var(--k-space-8)}
+  .graph-roles-grid{display:grid;gap:var(--k-space-2);margin:var(--k-space-3) 0}
+  .graph-role-row{display:grid;grid-template-columns:4.5em minmax(0,1fr);align-items:center;gap:var(--k-space-4);
+    padding:var(--k-space-3) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm)}
+  .graph-role-name{font-weight:600;text-transform:capitalize;grid-row:span 2}
+  .graph-role-row .k-chip{justify-self:start}
+  .graph-role-model{color:var(--k-text-dim);font-size:var(--k-text-md);min-width:0}
+  .graph-roles-hint{margin-bottom:0}
   .titlerow + .sub{margin-top:var(--k-space-2)}
   /* Required / optional markers inside a field label. */
   label .req,label .opt{font-weight:var(--k-weight-medium);color:var(--k-text-dim);margin-left:var(--k-space-1)}
@@ -1961,9 +1970,19 @@
     const lines = byPreset[preset] || byPreset[''] || [];
     if (!lines.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     const SOURCE = { ticket: 'ticket', preset: 'preset', approach: 'approach' };
-    box.innerHTML = '<label>Graph roles</label>' + lines.map((l) =>
-      '<div class="sub" data-graph-role="' + esc(l.role) + '"><strong>' + esc(l.role) + '</strong> ' + esc(l.text) +
-      ' <span class="k-chip">' + esc(SOURCE[l.source] || l.source) + '</span></div>').join('');
+    // An explicit core on this ticket wins over every role (AC-04 ticket rung), so the table
+    // would be stale: say so instead of showing models the launch will not use.
+    const ticketCore = draft.selectedAgentProvider ?? lastSelectedAgentProvider ?? '';
+    const hint = ticketCore
+      ? 'This ticket sets its own core and model above. They replace the preset for every graph role.'
+      : 'The preset sets these models. To change them for this ticket only, choose Core + model above.';
+    box.innerHTML = '<label>Graph roles</label>' +
+      '<div class="graph-roles-grid" role="list">' + lines.map((l) =>
+        '<div class="graph-role-row" role="listitem" data-graph-role="' + esc(l.role) + '">' +
+        '<span class="graph-role-name">' + esc(l.role) + '</span>' +
+        '<span class="graph-role-model">' + esc(l.text) + '</span>' +
+        '<span class="k-chip">' + esc(SOURCE[l.source] || l.source) + '</span></div>').join('') + '</div>' +
+      '<div class="sub graph-roles-hint">' + esc(hint) + '</div>';
     box.classList.remove('hidden');
   }
   function renderBackendPicker(mode, stateBackend, sessionOpen) {
