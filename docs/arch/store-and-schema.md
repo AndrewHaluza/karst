@@ -375,7 +375,7 @@ END_DOC_BLOCK: [@arch:V121]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
-**v132:** `gate_runs.wait_ms` and `deliver_gate_results.wait_ms` (INTEGER, ms of the recorded span spent waiting for slots; `@arch:RESULTS`). Additive, NULL = never ran or an older row, no backfill.
+**v132:** `gate_runs.wait_ms`, `deliver_gate_results.wait_ms` (ms in slot waits, `@arch:RESULTS`). Additive, NULL = no run or old row.
 
 **v131:** `fix_deliveries.kind` (`fix` | `conflict`, default `fix`) and `repo` — a conflict round shares the delivery table (`@arch:AP-01`, `@arch:AP-10`). Additive, existing rows are `fix`, no backfill. `upsertFixDelivery` and `supersedeFixDeliveries` supersede only rows of the same kind.
 
