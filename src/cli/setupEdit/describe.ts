@@ -7,7 +7,7 @@
 import { listStartCommands } from '../../setup/manifestApply.js';
 import type { ProposalDescription } from '../../setup/review.js';
 import type { BuildSuccess } from './build.js';
-import { formatChange } from './pathDiff.js';
+import { formatChange } from '../../setup/pathDiff.js';
 import { splitProtected } from './protection.js';
 
 const COMMENT_NOTE = 'The host writes karst.yml with js-yaml: it drops the comments of the file.';

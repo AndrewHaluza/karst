@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseManifestText } from '../../manifest/load.js';
 import { BASE_YAML, fakeEnvProbe } from '../../setup/verify/verify.testutil.js';
-import { diffPaths } from './pathDiff.js';
+import { diffPaths } from '../../setup/pathDiff.js';
 import type { BuildSuccess } from './build.js';
 import { describeEdits } from './describe.js';
 

@@ -20,8 +20,8 @@ import { renderManifestText } from '../../manifest/write.js';
 import { validateJson } from '../jsonSchema.js';
 import { MANIFEST_SECTION_SCHEMAS } from '../manifestSchemas/index.js';
 import type { ManifestSection } from '../manifestSchemas/index.js';
-import { diffPaths } from './pathDiff.js';
-import type { PathChange } from './pathDiff.js';
+import { diffPaths } from '../../setup/pathDiff.js';
+import type { PathChange } from '../../setup/pathDiff.js';
 import { findEditTool } from './tools.js';
 import type { EditOp } from './tools.js';
 

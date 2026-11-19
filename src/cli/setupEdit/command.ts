@@ -18,7 +18,7 @@ import { EXAMPLE_MANIFEST_PATH, isFirstSetup, readScaffoldManifest } from '../..
 import { validateJson } from '../jsonSchema.js';
 import { buildEdits, splitSchemaError } from './build.js';
 import type { BuildFailure, LoadText } from './build.js';
-import { formatChange } from './pathDiff.js';
+import { formatChange } from '../../setup/pathDiff.js';
 import { findEditTool, SETUP_EDIT_TOOL_NAMES } from './tools.js';
 
 export const SETUP_SESSION_ENV = 'KARST_SETUP_SESSION';

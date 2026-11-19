@@ -305,4 +305,11 @@ describe('the typed edit list', () => {
     expect(f.confirm).not.toHaveBeenCalled();
     expect(f.ctl.editWaitMs()).toBe(4000);
   });
+
+  it('drops only the op that fails the build and keeps the valid ops', async () => {
+    const f = setup([SET_GENERAL('a-1', { debug: true }), op('a-2', 'remove-repo', { name: 'nope' }), SET_GENERAL('a-3', { baselineBranch: 'dev' })]);
+    await f.ctl.scan();
+    expect(f.ops().map((o) => o.id)).toEqual(['a-1', 'a-3']);
+    expect(f.results.map((r) => [r.id, r.status])).toEqual([['a-2', 'invalid']]);
+  });
 });

@@ -28,6 +28,14 @@ describe('edit ops', () => {
     expect(readEditOps(outbox).map((o) => o.id)).toEqual(['id-1', 'id-2', 'id-3']);
   });
 
+  it('never gives one seq to two calls: a claimed seq is skipped', () => {
+    mkdirSync(editsDir(outbox), { recursive: true });
+    writeFileSync(join(editsDir(outbox), '.seq-000000000001000'), '');
+    const op = writeEditOp(outbox, 'set-general', { host: 'h' }, { uuid: () => 'a1', now: () => 1000 });
+    expect(op.seq).toBe('000000000001001');
+    expect(readdirSync(editsDir(outbox)).filter((n) => n.startsWith('.seq-'))).toEqual(['.seq-000000000001000']);
+  });
+
   it('writes the tool and the input into the op', () => {
     writeEditOp(outbox, 'set-general', { host: 'h' }, { uuid: () => 'a1', now: () => 7 });
     expect(readEditOps(outbox)).toEqual([{ id: 'a1', seq: '000000000000007', tool: 'set-general', input: { host: 'h' } }]);

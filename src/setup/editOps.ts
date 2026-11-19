@@ -27,13 +27,37 @@ export const editsDir = (outbox: string): string => join(outbox, 'edits');
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** The next op sequence key: the clock, padded, so file names sort in call order. */
-function nextSeq(outbox: string, now: () => number): string {
-  const last = readEditOps(outbox).reduce((max, op) => (op.seq > max ? op.seq : max), '');
-  const clock = String(now()).padStart(SEQ_WIDTH, '0');
-  if (last < clock) return clock;
-  // The clock did not move (or ran back): count on from the last op.
-  return String(Number(last) + 1).padStart(SEQ_WIDTH, '0');
+const padSeq = (n: number): string => String(n).padStart(SEQ_WIDTH, '0');
+const newestSeq = (outbox: string): string => readEditOps(outbox).reduce((max, op) => (op.seq > max ? op.seq : max), '');
+
+/**
+ * Claim the next op sequence key: the clock, padded, so file names sort in call
+ * order. The claim is a file created with `wx`, so two concurrent calls never
+ * get the same key; the later one counts on. Returns the key and the claim file.
+ */
+function claimSeq(outbox: string, now: () => number): { seq: string; release: () => void } {
+  const dir = editsDir(outbox);
+  mkdirSync(dir, { recursive: true });
+  let n = Math.max(now(), 0);
+  for (;;) {
+    const last = newestSeq(outbox);
+    if (last >= padSeq(n)) n = Number(last) + 1; // the clock did not move (or ran back)
+    const seq = padSeq(n);
+    const claim = join(dir, `.seq-${seq}`);
+    try {
+      writeFileSync(claim, '', { flag: 'wx', mode: 0o600 });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      n += 1;
+      continue;
+    }
+    // An op may have landed between the read and the claim: check again.
+    if (newestSeq(outbox) >= seq) {
+      unlinkSync(claim);
+      continue;
+    }
+    return { seq, release: () => unlinkSync(claim) };
+  }
 }
 
 /** Append one op. Returns the op written. Bounded: an oversize op is refused before it touches disk. */
@@ -44,20 +68,24 @@ export function writeEditOp(
   deps: { uuid?: () => string; now?: () => number } = {},
 ): EditOpFile {
   const id = (deps.uuid ?? randomUUID)();
-  const op: EditOpFile = { id, seq: nextSeq(outbox, deps.now ?? Date.now), tool, input };
-  const json = JSON.stringify(op);
-  if (Buffer.byteLength(json, 'utf8') > MAX_SETUP_PROPOSAL_BYTES) {
+  const body = JSON.stringify({ id, seq: '', tool, input });
+  if (Buffer.byteLength(body, 'utf8') > MAX_SETUP_PROPOSAL_BYTES - SEQ_WIDTH) {
     throw new Error(`edit is too large (max ${MAX_SETUP_PROPOSAL_BYTES} bytes)`);
   }
+  const claim = claimSeq(outbox, deps.now ?? Date.now);
+  const op: EditOpFile = { id, seq: claim.seq, tool, input };
   const dir = editsDir(outbox);
-  mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `.tmp-${id}`);
-  writeFileSync(tmp, json, { flag: 'wx', mode: 0o600 });
   try {
-    renameSync(tmp, join(dir, `${op.seq}-${id}.json`));
-  } catch (e) {
-    unlinkSync(tmp);
-    throw e;
+    writeFileSync(tmp, JSON.stringify(op), { flag: 'wx', mode: 0o600 });
+    try {
+      renameSync(tmp, join(dir, `${op.seq}-${id}.json`));
+    } catch (e) {
+      unlinkSync(tmp);
+      throw e;
+    }
+  } finally {
+    claim.release();
   }
   return op;
 }

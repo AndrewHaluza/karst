@@ -358,9 +358,9 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     }
     const ids = ops.map((o) => o.id);
     const first = `${ids[0]!}.json`;
-    const settle = (status: ProposalResult['status'], reason: string): void => {
-      edits.removeOps(scratch, ids);
-      for (const id of ids) record(scratch, `${id}.json`, 'edit', status, { reason });
+    const settle = (status: ProposalResult['status'], reason: string, only: readonly string[] = ids): void => {
+      edits.removeOps(scratch, only);
+      for (const id of only) record(scratch, `${id}.json`, 'edit', status, { reason });
     };
     const wiring = deps.verify(scratch);
     const current = deps.readCurrentManifest();
@@ -378,7 +378,9 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       const reason = built.ok ? failureReason(run.result) : built.reason;
       deps.notify.warn(`Karst: the setup edits failed the host checks (${reason}); ignored.`);
       hostRecord(scratch, first, 'edit', 'refused', run.result);
-      settle('invalid', reason);
+      // A failure that names one op drops only that op; the valid ops stay and show in the next popup.
+      const culprit = !built.ok && built.opId !== undefined && ids.length > 1 && ids.includes(built.opId) ? [built.opId] : undefined;
+      settle('invalid', reason, culprit);
       return;
     }
     if (built.changes.length === 0 && built.fixes.length === 0) {

@@ -2,8 +2,8 @@
 
 import { SECTION_OF, SECTION_PROTECTED } from '../../manifest/sectionTable.js';
 import type { Manifest } from '../../manifest/types.js';
-import { topKey } from './pathDiff.js';
-import type { PathChange } from './pathDiff.js';
+import { topKey } from '../../setup/pathDiff.js';
+import type { PathChange } from '../../setup/pathDiff.js';
 
 export function isProtectedPath(path: string): boolean {
   const section = SECTION_OF[topKey(path) as keyof Manifest];
