@@ -8,7 +8,7 @@ import {
   type SetupProposal,
 } from '../../setup/proposal.js';
 import { buildWriteFilePatch } from '../../setup/writeFile.js';
-import { writeProposalResult, type ProposalResult } from '../../setup/ledger.js';
+import { asKind, writeProposalResult, type ProposalResult } from '../../setup/ledger.js';
 import type { ChangeDir } from '../../setup/changeTarget.js';
 import { describeRunProposal, describeWriteFileProposal, type ProposalDescription } from '../../setup/review.js';
 import { restoreKarstFiles, snapshotKarstFiles } from '../../setup/karstGuard.js';
@@ -131,6 +131,9 @@ export interface SetupSkipWiring {
 
 /** The repo name that a path-only run carries in its host-built change. */
 const PATH_RUN_REPO = 'path-run';
+
+const kindOfRaw = (raw: unknown): ReturnType<typeof asKind> =>
+  asKind(typeof raw === 'object' && raw !== null ? (raw as { kind?: unknown }).kind : undefined);
 
 /** The edit list waits this long after its newest op: the agent usually adds several ops, and one popup shows them all. */
 export const EDIT_QUIET_MS = 4000;
@@ -485,7 +488,8 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
         deps.notify.warn(`Karst: ignored an invalid setup proposal (${checked.reason}).`);
         debug(`rejected proposal ${name}: ${checked.reason}`);
         fs.remove(file);
-        record(scratch, file, 'unknown', 'invalid', { reason: checked.reason });
+        // Keep the kind of a refused old-kind file so the ledger shows what the agent wrote.
+        record(scratch, file, kindOfRaw(raw), 'invalid', { reason: checked.reason });
         continue;
       }
       pending.push({ file, mtime: fs.mtime(file), value: checked.value });

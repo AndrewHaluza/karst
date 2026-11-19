@@ -25,7 +25,7 @@ export type ProposalStatus =
 
 const KINDS = ['manifest', 'change', 'run', 'write-file', 'edit', 'skip'] as const;
 export type ProposalKind = (typeof KINDS)[number] | 'unknown';
-const asKind = (v: unknown): ProposalKind => ((KINDS as readonly unknown[]).includes(v) ? (v as ProposalKind) : 'unknown');
+export const asKind = (v: unknown): ProposalKind => ((KINDS as readonly unknown[]).includes(v) ? (v as ProposalKind) : 'unknown');
 
 export interface ProposalResult {
   id: string;

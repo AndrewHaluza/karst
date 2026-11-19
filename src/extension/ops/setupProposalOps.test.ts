@@ -75,7 +75,7 @@ describe('the host refuses the old proposal kinds', () => {
   it.each([
     ['manifest', { kind: 'manifest', targetPath: '/w/.karst/karst.yml', yaml: 'host: x\n', summary: 's' }],
     ['change', { kind: 'change', repo: 'web', reason: 'deps', command: 'npm ci' }],
-  ])('records a hand-written %s outbox file as invalid and never asks', async (_kind, body) => {
+  ])('records a hand-written %s outbox file as invalid and never asks', async (kind, body) => {
     const f = deps({ [A]: JSON.stringify(body) });
     await createSetupProposalOps(f.deps).scan();
     expect(f.confirm).not.toHaveBeenCalled();
@@ -83,7 +83,7 @@ describe('the host refuses the old proposal kinds', () => {
     expect(f.applyPatch).not.toHaveBeenCalled();
     expect(f.fs.removed).toEqual([A]);
     expect(f.fs.results).toHaveLength(1);
-    expect(f.fs.results[0]).toMatchObject({ id: 'a', kind: 'unknown', status: 'invalid', reason: 'use the typed setup tools' });
+    expect(f.fs.results[0]).toMatchObject({ id: 'a', kind, status: 'invalid', reason: 'use the typed setup tools' });
     expect(f.warn).toHaveBeenCalledWith('Karst: ignored an invalid setup proposal (use the typed setup tools).');
   });
 
@@ -521,7 +521,7 @@ describe('createSetupProposalOps with the real fs', () => {
     const d = realDeps();
     await createSetupProposalOps(d).scan();
     const results = readdirSync(join(root, 'outbox', 'results')).map((n) => JSON.parse(readFileSync(join(root, 'outbox', 'results', n), 'utf8')));
-    expect(results.map((r) => r.kind)).toEqual(['unknown', 'unknown']);
+    expect(results.map((r) => r.kind)).toEqual(['unknown', 'change']);
     expect(results.find((r) => r.id === 'bad').reason).toMatch(/^unreadable: .+/);
     expect(d.debug.mock.calls.map((c) => String(c[0]))).toContain('[setup] rejected proposal old.json: use the typed setup tools');
   });

@@ -21,7 +21,7 @@ import { stampScaffold } from '../manifest/scaffoldStamp.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { opencode2ConfigEnv } from '../agent/opencode2Binary.js';
 import { spawnHeadlessCli } from '../agent/headlessSpawn.js';
-import { nodeRecheck, nodeVerifyDeps, type CliRunner } from '../setup/verify/node.js';
+import { gitApplyPrefixArgs, nodeRecheck, nodeVerifyDeps, type CliRunner } from '../setup/verify/node.js';
 import { writeVerifyRecord } from '../setup/verify/record.js';
 import { addSkip, readSkipRequests, skipStorePath } from '../setup/checklist/skips.js';
 
@@ -90,11 +90,12 @@ function runShellCommand(cwd: string, command: string): Promise<void> {
   });
 }
 
-/** Apply a user-approved unified-diff patch with `git apply` in `cwd`. */
-function applyPatch(cwd: string, patch: string): Promise<void> {
+/** Apply a user-approved unified-diff patch with `git apply` in `cwd`. A sub-directory of a repo needs `--directory`. */
+async function applyPatch(cwd: string, patch: string): Promise<void> {
+  mkdirSync(cwd, { recursive: true });
+  const prefix = await gitApplyPrefixArgs(cwd);
   return new Promise((resolve, reject) => {
-    mkdirSync(cwd, { recursive: true });
-    const child = spawn('git', ['apply', '--whitespace=nowarn', '-'], {
+    const child = spawn('git', ['apply', '--whitespace=nowarn', ...prefix, '-'], {
       cwd,
       stdio: ['pipe', 'ignore', 'ignore'],
     });
