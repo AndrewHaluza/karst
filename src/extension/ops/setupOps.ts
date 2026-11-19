@@ -78,12 +78,10 @@ function writeSetupMcpConfig(
   cwd: string,
   input: { cliEntry: string | undefined; dbPath: string | undefined; manifestPath: string | undefined; id: string; outbox: string },
 ): { mcpConfigPath?: string } {
-  if (!input.cliEntry || !input.dbPath || !launchHasMcp({ adapter, hookChannel: true, cliEntry: input.cliEntry, dbPath: input.dbPath })) {
-    return {};
-  }
+  if (!launchHasMcp({ adapter, hookChannel: true, cliEntry: input.cliEntry, dbPath: input.dbPath })) return {};
   const connection: McpConnection = {
-    cliEntry: input.cliEntry,
-    dbPath: input.dbPath,
+    cliEntry: input.cliEntry!,
+    dbPath: input.dbPath!,
     ...(input.manifestPath ? { manifestPath: input.manifestPath } : {}),
     setupSession: { id: input.id, outbox: input.outbox },
   };

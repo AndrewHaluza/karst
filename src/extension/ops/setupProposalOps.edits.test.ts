@@ -38,6 +38,7 @@ function setup(
   };
   const confirm = vi.fn(async (_d: { message: string; detail: string }) => true);
   const warn = vi.fn();
+  const debug = vi.fn();
   const manifest = () => (current === undefined ? undefined : parseManifestText(current, '/w/karst.yml', fakeEnvProbe()).manifest);
   const ctl = createSetupProposalOps({
     verify: () => verify,
@@ -54,9 +55,10 @@ function setup(
       writeResult: (_d, r) => void results.push(r),
     },
     edits,
+    debug,
     now: () => clock,
   });
-  return { ctl, confirm, applyText, results, records, warn, ops: () => ops, setOps: (o: EditOpFile[]) => void (ops = o), setText: (t: string) => void (current = t) };
+  return { ctl, debug, confirm, applyText, results, records, warn, ops: () => ops, setOps: (o: EditOpFile[]) => void (ops = o), setText: (t: string) => void (current = t) };
 }
 
 describe('the typed edit list', () => {
@@ -246,5 +248,40 @@ describe('the typed edit list', () => {
     await f.ctl.scan();
     expect(f.results.map((r) => r.sha256)).toEqual(['sha-edit', 'sha-edit']);
     expect(f.records.at(-1)!.steps.find((i) => i.id === 'A1')).toMatchObject({ status: 'ok' });
+  });
+
+  it('applies nothing and logs when the last op is withdrawn during the popup', async () => {
+    const f = setup([SET_GENERAL('a-1', { debug: true }), SET_GENERAL('a-2', { baselineBranch: 'dev' })]);
+    f.confirm.mockImplementation(async () => {
+      f.setOps(f.ops().slice(0, 1));
+      return true;
+    });
+    await f.ctl.scan();
+    expect(f.applyText).not.toHaveBeenCalled();
+    expect(f.debug).toHaveBeenCalledWith('[setup] the edit list changed while its consent was open');
+  });
+
+  it('records nothing for an empty list', async () => {
+    const f = setup([]);
+    await f.ctl.scan();
+    expect(f.results).toEqual([]);
+    expect(f.records).toEqual([]);
+    expect(f.warn).not.toHaveBeenCalled();
+  });
+
+  it('keeps the build reason in the refusal record of a failed build', async () => {
+    const f = setup([op('a-1', 'remove-repo', { name: 'nope' })]);
+    await f.ctl.scan();
+    expect(f.records.at(-1)).toMatchObject({ kind: 'edit', status: 'refused' });
+    expect(f.records.at(-1)!.steps.find((s) => s.id === 'P3')!.detail).toContain('does not exist');
+  });
+
+  it('records a refusal when the apply write fails', async () => {
+    const f = setup([SET_GENERAL('a-1', { debug: true })]);
+    f.applyText.mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    await f.ctl.scan();
+    expect(f.records.at(-1)).toMatchObject({ id: 'a-1', kind: 'edit', status: 'refused' });
   });
 });

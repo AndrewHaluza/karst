@@ -110,7 +110,7 @@ export interface SetupEditWiring {
   /** Remove the named op files (applied, declined or invalid). */
   removeOps: (scratch: string, ids: readonly string[]) => void;
   /** The stamped scaffold text the host writes first when karst.yml does not exist. */
-  scaffoldText?: () => string | undefined;
+  scaffoldText: () => string | undefined;
   /** Write the built karst.yml text (with a backup); returns the sha256 of the file written. */
   applyText: (text: string, scratch: string) => string;
 }
@@ -355,18 +355,18 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     }
     const ids = ops.map((o) => o.id);
     const first = `${ids[0]!}.json`;
-    const settle = (status: ProposalResult['status'], reason?: string): void => {
+    const settle = (status: ProposalResult['status'], reason: string): void => {
       edits.removeOps(scratch, ids);
-      for (const id of ids) record(scratch, `${id}.json`, 'edit', status, reason === undefined ? {} : { reason });
+      for (const id of ids) record(scratch, `${id}.json`, 'edit', status, { reason });
     };
     const wiring = deps.verify(scratch);
     const current = deps.readCurrentManifest();
     const firstSetup = isFirstSetup(current);
-    const scaffoldText = edits.scaffoldText?.();
+    const scaffoldText = edits.scaffoldText();
     const built = buildEdits(
       wiring.deps.readCurrentText(),
       ops.map((o) => ({ id: o.id, tool: o.tool, input: o.input })),
-      { firstSetup, ...(scaffoldText !== undefined ? { scaffoldText } : {}) },
+      { firstSetup, scaffoldText },
       wiring.deps.loadText,
     );
     const input = built.ok ? { ok: true as const, text: built.text, fixes: built.fixes } : { ok: false as const, reason: built.reason };
@@ -378,7 +378,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       settle('invalid', reason);
       return;
     }
-    if (built.changes.length === 0 && built.fixes.length === 0) {
+    if (built.changes.length === 0) {
       deps.notify.warn('Karst: the setup edits change nothing.');
       settle('no-change', 'no effective change');
       return;

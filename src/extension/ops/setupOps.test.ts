@@ -85,7 +85,7 @@ describe('setup ops', () => {
 
   it('writes no MCP config without a CLI entry or a database path', async () => {
     await createSetupOps({ ...deps, nextId: () => 'nc1', cliEntry: () => undefined }).create();
-    await createSetupOps({ ...deps, nextId: () => 'nd1', dbPath: undefined }).create();
+    await createSetupOps({ ...deps, nextId: () => 'nd1', dbPath: '' }).create();
     expect(existsSync(join(scratch, 'nc1', 'mcp-config.json'))).toBe(false);
     expect(existsSync(join(scratch, 'nd1', 'mcp-config.json'))).toBe(false);
   });
