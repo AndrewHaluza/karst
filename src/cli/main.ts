@@ -53,7 +53,11 @@ import { getCommandSpec } from './registry.js';
 import { resolveStructuredInput } from './commandInput.js';
 import { runSchemaCommand } from './schemaCommand.js';
 import { runManifestCommand } from './manifestCommand.js';
-import { runSetupCommand, toChangeProposalInput } from './setupCommand.js';
+import { realDiscoveryProbe, runSetupCommand, toChangeProposalInput } from './setupCommand.js';
+import { parseSetupChecklistArgs, runSetupChecklistCommand } from './setupChecklist.js';
+import { discoverWorkspace } from '../setup/discover.js';
+import { readSkips, skipStorePath } from '../setup/checklist/skips.js';
+import { assertSetupSession } from './setupEdit/command.js';
 import { isEditTool } from './setupEdit/command.js';
 import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
@@ -368,7 +372,7 @@ export function runCli(
     }
     return runDraftCommand(structured ? structured.argv : argv, {
       outboxEnv: env.KARST_OUTBOX,
-      readStdin: structured ? () => JSON.stringify(structured.value) : io.readStdin,
+      readStdin: structured && effectiveRest[1] !== 'skip' ? () => JSON.stringify(structured.value) : io.readStdin,
       now: io.now,
       sleep: io.sleep,
       timeoutMs: io.timeoutMs,
@@ -846,6 +850,32 @@ export async function runCliAsync(
   if (rest[0] === 'mcp') {
     return runMcpCommand(rest, { db, manifest: manifestPath, ticket }, env);
   }
+  // `setup checklist` computes the first-setup checklist from discovery, the
+  // manifest and the readiness result. Setup sessions only; async like `setup check`.
+  if (rest[0] === 'setup' && rest[1] === 'checklist') {
+    assertSetupSession(env, 'karst setup checklist');
+    configureOpencode2FromEnv(env);
+    if (!manifestPath) throw new Error('missing --manifest <path>');
+    parseSetupChecklistArgs(rest);
+    let loaded: ReturnType<typeof loadManifestWithDiagnostics> | undefined;
+    let loadError: string | undefined;
+    try {
+      loaded = loadManifestWithDiagnostics(manifestPath);
+    } catch (e) {
+      loadError = (e as Error).message;
+    }
+    const root = dirname(resolve(manifestPath));
+    const { nodeReadinessProbes } = await import('../setup/readiness/nodeProbes.js');
+    return runSetupChecklistCommand({
+      manifest: loaded?.manifest,
+      loadError,
+      warnings: loaded?.codedWarnings ?? [],
+      repos: [],
+      probes: nodeReadinessProbes(root),
+      discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
+      skips: readSkips(skipStorePath(db, manifestPath)),
+    });
+  }
   // `setup check` dry-runs everything a first ticket needs. Ticketless; it
   // opens a store only to run `setup verify` on declared services (needs --db).
   if (rest[0] === 'setup' && rest[1] === 'check') {
@@ -1013,7 +1043,7 @@ function fail(message: string): never {
  * in the process-exit block, which vitest never takes.
  */
 export function exitsAfterFlush(rest: readonly string[]): boolean {
-  return rest[0] === 'servers' || (rest[0] === 'setup' && (rest[1] === 'verify' || rest[1] === 'check'));
+  return rest[0] === 'servers' || (rest[0] === 'setup' && (rest[1] === 'verify' || rest[1] === 'check' || rest[1] === 'checklist'));
 }
 
 // Only run when invoked directly (`node main.js …`), not when imported by a test.

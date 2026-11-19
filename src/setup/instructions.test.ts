@@ -29,6 +29,16 @@ describe('setupInstructions', () => {
     expect(text).toMatch(/"fits", propose nothing/);
   });
 
+  it('replaces the free steps with the checklist loop and gives the skip to the user', () => {
+    expect(text).toContain('setup checklist');
+    expect(text).toMatch(/Take each `todo` item in order/);
+    expect(text).toMatch(/confirm it with `[^`]*setup status`/);
+    expect(text).toMatch(/End the session ONLY when no required item is `todo`/);
+    expect(text).toContain('setup skip');
+    expect(text).toMatch(/Only the user skips an item/);
+    expect(text).toMatch(/same list/);
+  });
+
   it('names the session and the no-edit rule', () => {
     expect(text).toContain('karst SETUP session: "Onboard"');
     expect(text).toMatch(/CANNOT edit repository files/);

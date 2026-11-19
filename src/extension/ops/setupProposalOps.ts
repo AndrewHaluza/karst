@@ -18,6 +18,8 @@ import { firstFailure, sha256Of, verifyAfterApply, verifyBeforeConsent, verifyEd
 import { buildEdits } from '../../cli/setupEdit/build.js';
 import { describeEdits } from '../../cli/setupEdit/describe.js';
 import type { EditOpFile } from '../../setup/editOps.js';
+import type { PendingSkipRequest } from '../../setup/checklist/skips.js';
+import type { SkipRecord } from '../../setup/checklist/types.js';
 import type { RecheckDeps, VerifyDeps, VerifyRecord, VerifyResult } from '../../setup/verify/types.js';
 import type { Notify } from './notify.js';
 
@@ -115,6 +117,19 @@ export interface SetupEditWiring {
   applyText: (text: string, scratch: string) => string;
 }
 
+/**
+ * Skip requests of a setup session (@arch:CLI-21). The agent only files a request;
+ * the user's approval in the popup is what the host records, in extension storage.
+ */
+export interface SetupSkipWiring {
+  /** The valid pending requests of one scratch. */
+  read: (scratch: string) => PendingSkipRequest[];
+  /** Remove one request file (answered). */
+  remove: (file: string) => void;
+  /** Persist an approved skip host-side. */
+  record: (scratch: string, skip: SkipRecord) => void;
+}
+
 /** The edit list waits this long after its newest op: the agent usually adds several ops, and one popup shows them all. */
 export const EDIT_QUIET_MS = 4000;
 
@@ -123,6 +138,8 @@ export interface SetupProposalOpsDeps {
   now?: () => number;
   /** Typed edit list support; absent, the outbox edit list is ignored. */
   edits?: SetupEditWiring;
+  /** Skip request support; absent, skip requests are ignored. */
+  skips?: SetupSkipWiring;
   /** The verify wiring for one setup scratch: each scratch targets its own karst.yml. */
   verify: (scratch: string) => SetupVerifyWiring;
   /** The setup scratch dirs to scan (already filtered to this window's own); each holds an `outbox/` subdir. */
@@ -527,11 +544,35 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     return pending;
   }
 
+  async function handleSkips(scratch: string, skips: SetupSkipWiring): Promise<void> {
+    for (const req of skips.read(scratch)) {
+      const { code, target, reason } = req.value;
+      const file = req.file;
+      const approved = await deps.confirm({
+        message: `Skip the setup item ${code}${target !== undefined ? ` for ${target}` : ''}?`,
+        detail: `The agent proposes to skip this item.\nReason: ${reason}`,
+        startCommandsChanged: false,
+      });
+      if (!skips.read(scratch).some((p) => p.id === req.id)) {
+        record(scratch, file, 'skip', 'withdrawn', { reason: 'withdrawn while awaiting consent' });
+        continue;
+      }
+      skips.remove(file);
+      if (!approved) {
+        record(scratch, file, 'skip', 'declined', { reason: 'declined by the user' });
+        continue;
+      }
+      skips.record(scratch, { code, ...(target !== undefined ? { target } : {}), reason, at: new Date().toISOString() });
+      record(scratch, file, 'skip', 'applied');
+    }
+  }
+
   async function scanOnce(): Promise<void> {
     editWait = undefined;
     for (const scratch of deps.outboxes()) {
       // The edit list is never superseded: each op stays until it is applied, declined or withdrawn.
       if (deps.edits !== undefined) await handleEdits(scratch, deps.edits);
+      if (deps.skips !== undefined) await handleSkips(scratch, deps.skips);
       const pending = loadPending(scratch);
       // Only the newest manifest proposal of a session is live; older pending ones are superseded.
       const manifests = pending

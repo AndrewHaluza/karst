@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, watch as fsWatch, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, watch as fsWatch, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import { isScaffoldManifest } from '../setup/manifestApply.js';
@@ -24,6 +24,7 @@ import { opencode2ConfigEnv } from '../agent/opencode2Binary.js';
 import { spawnHeadlessCli } from '../agent/headlessSpawn.js';
 import { nodeRecheck, nodeVerifyDeps, type CliRunner } from '../setup/verify/node.js';
 import { writeVerifyRecord } from '../setup/verify/record.js';
+import { addSkip, readSkipRequests, skipStorePath } from '../setup/checklist/skips.js';
 
 /** The A2 re-check runs the services item, which starts and health-gates a service. */
 const SETUP_RECHECK_TIMEOUT_MS = 5 * 60 * 1_000;
@@ -201,6 +202,21 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
         writeFileSync(tmp, text);
         renameSync(tmp, path);
         return createHash('sha256').update(text).digest('hex');
+      },
+    },
+    skips: {
+      read: (scratch) => readSkipRequests(join(scratch, 'outbox')),
+      remove: (file) => {
+        try {
+          unlinkSync(file);
+        } catch {
+          /* best-effort: an answered request that vanished is already gone */
+        }
+      },
+      record: (scratch, skip) => {
+        const path = skipStorePath(deps.dbPath, targetManifestPath(scratch));
+        if (path === undefined) throw new Error('no store path to record the skip in');
+        addSkip(path, skip);
       },
     },
     verify: (scratch) => {
