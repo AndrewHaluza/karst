@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest, Severity } from '../manifest/types.js';
+import type { ReadinessInput } from '../setup/readiness/runReadiness.js';
 import { openReadonlyStore } from './readonlyStore.js';
 import { openGraphWritableStore, openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
@@ -53,7 +54,11 @@ import { getCommandSpec } from './registry.js';
 import { resolveStructuredInput } from './commandInput.js';
 import { runSchemaCommand } from './schemaCommand.js';
 import { runManifestCommand } from './manifestCommand.js';
-import { runSetupCommand, toChangeProposalInput } from './setupCommand.js';
+import { realDiscoveryProbe, runSetupCommand, toChangeProposalInput } from './setupCommand.js';
+import { parseSetupChecklistArgs, runSetupChecklistCommand } from './setupChecklist.js';
+import { discoverWorkspace } from '../setup/discover.js';
+import { readSkips, skipStorePath } from '../setup/checklist/skips.js';
+import { assertSetupSession } from './setupEdit/command.js';
 import { isEditTool } from './setupEdit/command.js';
 import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
@@ -774,13 +779,37 @@ export function runCli(
       // `{subcommand, repo, reason, command?}`; the handler wants the change
       // proposal itself, so `kind` is added and `subcommand` dropped. The
       // shell path (plain stdin) already supplies the full proposal.
-      readStdin: structured ? () => JSON.stringify(toChangeProposalInput(structured.value)) : io.readStdin,
+      readStdin: structured
+        ? () =>
+            JSON.stringify(
+              effectiveRest[1] === 'propose-change' ? toChangeProposalInput(structured.value) : structured.value,
+            )
+        : io.readStdin,
     });
   }
 
   throw new Error(
     `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'queue', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'arch', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
+}
+
+/** `setup verify` for the selected repos, as the readiness `services` item runs it. Shared by `setup check` and `setup checklist`. */
+function setupVerifyServices(db: string, manifest: Manifest): NonNullable<ReadinessInput['verifyServices']> {
+  return async (repos) => {
+    const store = openWritableStore(db);
+    try {
+      const { ensureBaseline } = await import('../runtime/baseline.js');
+      const out = JSON.parse(
+        await runSetupVerifyCommand(store, manifest, { repos: [...repos] }, (s, m, service) =>
+          ensureBaseline(s, m, service),
+        ),
+      ) as { ok: boolean; error?: string; services?: { service?: string; ok: boolean }[] };
+      const failed = (out.services ?? []).filter((r) => !r.ok).map((r) => r.service ?? '?');
+      return { ok: out.ok, error: out.error, failed };
+    } finally {
+      store.close();
+    }
+  };
 }
 
 async function assertMarkerHasWork(
@@ -846,6 +875,36 @@ export async function runCliAsync(
   if (rest[0] === 'mcp') {
     return runMcpCommand(rest, { db, manifest: manifestPath, ticket }, env);
   }
+  // `setup checklist` computes the first-setup checklist from discovery, the
+  // manifest and the readiness result. Setup sessions only; async like `setup check`.
+  if (rest[0] === 'setup' && rest[1] === 'checklist') {
+    assertSetupSession(env, 'karst setup checklist');
+    configureOpencode2FromEnv(env);
+    if (!manifestPath) throw new Error('missing --manifest <path>');
+    // The user's approved skips live next to the store file: without --db the checklist would ignore them.
+    if (!db) throw new Error('missing --db <path>');
+    parseSetupChecklistArgs(rest);
+    let loaded: ReturnType<typeof loadManifestWithDiagnostics> | undefined;
+    let loadError: string | undefined;
+    try {
+      loaded = loadManifestWithDiagnostics(manifestPath);
+    } catch (e) {
+      loadError = (e as Error).message;
+    }
+    const root = dirname(resolve(manifestPath));
+    const { nodeReadinessProbes } = await import('../setup/readiness/nodeProbes.js');
+    return runSetupChecklistCommand({
+      manifest: loaded?.manifest,
+      loadError,
+      warnings: loaded?.codedWarnings ?? [],
+      repos: [],
+      probes: nodeReadinessProbes(root),
+      manifestDir: root,
+      discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
+      verifyServices: loaded?.manifest ? setupVerifyServices(db, loaded.manifest) : undefined,
+      skips: readSkips(skipStorePath(db, manifestPath)),
+    });
+  }
   // `setup check` dry-runs everything a first ticket needs. Ticketless; it
   // opens a store only to run `setup verify` on declared services (needs --db).
   if (rest[0] === 'setup' && rest[1] === 'check') {
@@ -869,24 +928,7 @@ export async function runCliAsync(
       warnings: loaded?.codedWarnings ?? [],
       repos: parsed.repos,
       probes: nodeReadinessProbes(dirname(resolve(manifestPath))),
-      verifyServices:
-        db && manifest
-          ? async (repos) => {
-              const store = openWritableStore(db);
-              try {
-                const { ensureBaseline } = await import('../runtime/baseline.js');
-                const out = JSON.parse(
-                  await runSetupVerifyCommand(store, manifest, { repos: [...repos] }, (s, m, service) =>
-                    ensureBaseline(s, m, service),
-                  ),
-                ) as { ok: boolean; error?: string; services?: { service?: string; ok: boolean }[] };
-                const failed = (out.services ?? []).filter((r) => !r.ok).map((r) => r.service ?? '?');
-                return { ok: out.ok, error: out.error, failed };
-              } finally {
-                store.close();
-              }
-            }
-          : undefined,
+      verifyServices: db && manifest ? setupVerifyServices(db, manifest) : undefined,
     });
   }
   // `setup verify` spins the proposed manifest's baseline services with health
@@ -1013,7 +1055,7 @@ function fail(message: string): never {
  * in the process-exit block, which vitest never takes.
  */
 export function exitsAfterFlush(rest: readonly string[]): boolean {
-  return rest[0] === 'servers' || (rest[0] === 'setup' && (rest[1] === 'verify' || rest[1] === 'check'));
+  return rest[0] === 'servers' || (rest[0] === 'setup' && (rest[1] === 'verify' || rest[1] === 'check' || rest[1] === 'checklist'));
 }
 
 // Only run when invoked directly (`node main.js …`), not when imported by a test.

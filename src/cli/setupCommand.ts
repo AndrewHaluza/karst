@@ -11,6 +11,7 @@ import { readLedger, withdrawProposal } from '../setup/ledger.js';
 import { readVerifyRecords } from '../setup/verify/record.js';
 import { listEdits, runEditTool, isEditTool, withdrawEditOp } from './setupEdit/command.js';
 import type { EditCommandDeps } from './setupEdit/command.js';
+import { validateSkipRequest, writeSkipRequest } from '../setup/checklist/skips.js';
 
 /**
  * `karst setup discover [--root <path>] [--default-branch <branch>]` and
@@ -154,16 +155,16 @@ function normalizeChangeInput(raw: unknown): unknown {
   return raw;
 }
 
-function readChange(deps: SetupCommandDeps): unknown {
+function readChange(deps: SetupCommandDeps, label = 'propose-change'): unknown {
   const read = deps.readStdin ?? ((max: number) => readFileSync(0, { encoding: 'utf8' }).slice(0, max));
   const raw = read(MAX_SETUP_PROPOSAL_BYTES);
   if (Buffer.byteLength(raw, 'utf8') > MAX_SETUP_PROPOSAL_BYTES) {
-    throw new Error(`karst setup propose-change: input is too large (max ${MAX_SETUP_PROPOSAL_BYTES} bytes)`);
+    throw new Error(`karst setup ${label}: input is too large (max ${MAX_SETUP_PROPOSAL_BYTES} bytes)`);
   }
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error('karst setup propose-change: stdin is not one JSON object');
+    throw new Error(`karst setup ${label}: stdin is not one JSON object`);
   }
 }
 
@@ -190,6 +191,21 @@ export function toChangeProposalInput(value: Readonly<Record<string, unknown>>):
     if (value[key] !== undefined) out[key] = value[key];
   }
   return out;
+}
+
+/**
+ * `setup skip`: the agent files a skip REQUEST. Nothing here marks an item
+ * skipped. The host asks the user, and only an approval is recorded, in
+ * extension storage (`setup/checklist/skips.ts`).
+ */
+function runSkip(rest: readonly string[], deps: SetupCommandDeps): string {
+  if (rest.length > 0) throw new Error('karst setup skip takes no arguments or flags (the request is one JSON object on stdin)');
+  const raw = readChange(deps, 'skip');
+  const { subcommand: _subcommand, ...request } = isRecord(raw) ? raw : ({} as Record<string, unknown>);
+  const checked = validateSkipRequest(isRecord(raw) ? request : raw);
+  if (!checked.ok) throw new Error(`karst setup skip: ${checked.reason}`);
+  const file = writeSkipRequest(resolveSetupOutboxDir(deps.outboxEnv), checked.value, deps.uuid);
+  return JSON.stringify({ ok: true, kind: 'skip', id: basename(file, '.json'), status: 'requested', file });
 }
 
 function runStatus(rest: readonly string[], deps: SetupCommandDeps): string {
@@ -228,9 +244,10 @@ export function runSetupCommand(argv: readonly string[], deps: SetupCommandDeps 
     if (rest.length > 0) throw new Error(`karst setup propose-change takes no arguments or flags (${PROPOSE_USAGE})`);
     return runProposeChange(deps);
   }
+  if (sub === 'skip') return runSkip(rest, deps);
   if (sub === 'status') return runStatus(rest, deps);
   if (sub === 'withdraw') return runWithdraw(rest, deps);
   throw new Error(
-    `karst setup: unknown subcommand '${sub ?? ''}' (want 'discover', 'propose-change', 'status' or 'withdraw')`,
+    `karst setup: unknown subcommand '${sub ?? ''}' (want 'discover', 'propose-change', 'skip', 'checklist', 'status' or 'withdraw')`,
   );
 }

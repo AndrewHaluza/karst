@@ -228,3 +228,38 @@ describe('runSetupCommand typed edit tools', () => {
     expect(() => runSetupCommand(['setup', 'set-general'], { outboxEnv: outbox(), readStdin: () => '{}' })).toThrow(/setup session/);
   });
 });
+
+describe('runSetupCommand skip', () => {
+  const outboxOf = (): string => {
+    const outbox = join(dir, 'outbox');
+    mkdirSync(outbox, { recursive: true });
+    return outbox;
+  };
+
+  it('files a skip REQUEST in the outbox and records nothing as skipped', () => {
+    const outbox = outboxOf();
+    const out = JSON.parse(
+      runSetupCommand(['setup', 'skip'], {
+        outboxEnv: outbox,
+        uuid: () => 'skip-1',
+        readStdin: () => JSON.stringify({ subcommand: 'skip', code: 'git.conventions', reason: 'none yet' }),
+      }),
+    );
+    expect(out).toMatchObject({ ok: true, kind: 'skip', id: 'skip-1', status: 'requested' });
+    expect(JSON.parse(readFileSync(join(outbox, 'skips', 'skip-1.json'), 'utf8'))).toEqual({ code: 'git.conventions', reason: 'none yet' });
+  });
+
+  it('refuses an unknown code, a missing reason and extra arguments', () => {
+    const outbox = outboxOf();
+    const run = (body: unknown, args: string[] = []) =>
+      runSetupCommand(['setup', 'skip', ...args], { outboxEnv: outbox, readStdin: () => JSON.stringify(body) });
+    expect(() => run({ code: 'nope', reason: 'x' })).toThrow(/code must be one of/);
+    expect(() => run({ code: 'git.conventions' })).toThrow(/reason/);
+    expect(() => run({ code: 'git.conventions', reason: 'x' }, ['--force'])).toThrow(/takes no arguments/);
+  });
+
+  it('has no flag or path that records a skip: the host alone does', () => {
+    const outbox = outboxOf();
+    expect(() => runSetupCommand(['setup', 'skip', '--approved'], { outboxEnv: outbox, readStdin: () => '{}' })).toThrow();
+  });
+});
