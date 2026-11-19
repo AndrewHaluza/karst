@@ -37,7 +37,7 @@ const BASE: Manifest = buildManifest(
     baselineBranch: 'main',
     agentProvider: 'codex',
     defaultModel: 'gpt-5.6-sol',
-    approaches: [graphApproach()],
+    approaches: [graphApproach({ enabled: true })],
     processes: processes(),
     agents: {},
     worktreePathDisplay: 'relative',
@@ -141,6 +141,14 @@ describe('preset matrix — Inherit preview', () => {
     // …and `implementation`, which no process and no profile owns, is the
     // manifest default — the same rung a slot composes over.
     expect(views.implementation.provider).toBe('codex');
+  });
+
+  it('previews the graph role from the first ENABLED graph approach, as the Roles rows do (T1266 fix)', () => {
+    const off = graphApproach({ id: 'off', enabled: false });
+    const on = graphApproach({ id: 'on', enabled: true });
+    const onProfiles = { ...on.graph!.profiles, expert: { provider: 'codex' as const, model: 'gpt-5.6-sol' } };
+    const m: Manifest = { ...BASE, approaches: [off, { ...on, graph: { ...on.graph!, profiles: onProfiles } }] };
+    expect(buildPresetInheritanceViews(m, CATALOG).graphExpert).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol' });
   });
 
   it('carries an effort only when the model advertises it', () => {

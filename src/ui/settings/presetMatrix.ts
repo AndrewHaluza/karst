@@ -31,6 +31,7 @@ import type {
   Manifest,
   PresetCapability,
 } from '../../manifest/types.js';
+import { graphConfigOfApproach } from '../../approaches/graph/graphRoleView.js';
 import { PRESET_CAPABILITIES } from '../../manifest/types.js';
 import {
   PROCESS_KEYS,
@@ -196,17 +197,15 @@ function graphProfileFor(
   manifest: Manifest,
   role: string,
 ): { provider: AgentProvider; model?: string; effort?: string } | undefined {
-  for (const approach of manifest.approaches ?? []) {
-    const profile = approach.graph?.profiles?.[role];
-    if (profile !== undefined) {
-      return {
-        provider: profile.provider,
-        ...(profile.model === undefined ? {} : { model: profile.model }),
-        ...(profile.effort === undefined ? {} : { effort: profile.effort }),
-      };
-    }
-  }
-  return undefined;
+  // The same approach the Roles rows fall back to (first enabled graph approach), so the
+  // "Inherited" line and the role row never name different approaches.
+  const profile = graphConfigOfApproach(manifest)?.profiles?.[role];
+  if (profile === undefined) return undefined;
+  return {
+    provider: profile.provider,
+    ...(profile.model === undefined ? {} : { model: profile.model }),
+    ...(profile.effort === undefined ? {} : { effort: profile.effort }),
+  };
 }
 
 /**

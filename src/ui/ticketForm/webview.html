@@ -1967,7 +1967,8 @@
     const byPreset = lastGraphRoles[currentApproach() || ''];
     if (!byPreset) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     const preset = draft.agentPreset ?? lastSelectedAgentPreset ?? '';
-    const lines = byPreset[preset] || byPreset[''] || [];
+    // A named preset the manifest lacks launches on the approach profile, not the active preset.
+    const lines = byPreset[preset] || (preset ? byPreset['\u0000dangling'] : byPreset['']) || [];
     if (!lines.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     const SOURCE = { ticket: 'ticket', preset: 'preset', approach: 'approach' };
     // An explicit core on this ticket wins over every role (AC-04 ticket rung), so the table

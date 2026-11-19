@@ -467,6 +467,16 @@ describe('ticket form — graph role preview (T1266)', () => {
     });
   const preview = (v: RenderHandle) => v.query<HTMLElement>('#graphRolesPreview')!;
 
+  it('shows the approach-profile lines for a ticket preset the manifest lacks, not the active preset (T1266 fix)', () => {
+    const dangling = [{ role: 'expert', text: 'claude · dangling-profile', source: 'approach' }];
+    const v = open(st({
+      selectedAgentPreset: 'gone',
+      graphRoles: { dyn: { '': lines('inherit'), deep: lines('deep'), '\u0000dangling': dangling } },
+    }));
+    expect(preview(v).textContent).toContain('dangling-profile');
+    expect(preview(v).textContent).not.toContain('expert-inherit');
+  });
+
   it('shows expert, worker and fast with their source when the approach has a graph', () => {
     const v = open(st());
     expect(preview(v).classList.contains('hidden')).toBe(false);

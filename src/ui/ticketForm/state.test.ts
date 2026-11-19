@@ -627,6 +627,17 @@ describe('buildTicketFormState — sandbox backend override', () => {
     expect(dyn?.['plain']?.find((l) => l.role === 'worker')?.source).toBe('approach');
   });
 
+  it('previews a dangling ticket preset as the approach profile, not the active preset (T1266 fix)', () => {
+    const m = {
+      ...MANIFEST,
+      activeAgentPreset: 'deep',
+      agentPresets: { deep: { slots: { graphExpert: { provider: 'claude', model: 'claude-sonnet-5' } } } },
+    } as unknown as Manifest;
+    const state = buildTicketFormState(store, m, () => [], () => []);
+    const dyn = state.graphRoles['karst-dynamic-graph'] ?? state.graphRoles[Object.keys(state.graphRoles)[0] ?? ''];
+    expect(dyn?.['\u0000dangling']?.find((l) => l.role === 'expert')?.source).toBe('approach');
+  });
+
   it('has no graph preview for a manifest whose approaches declare no graph', () => {
     const state = buildTicketFormState(store, MANIFEST, () => [], () => []);
     for (const id of Object.keys(state.graphRoles)) expect(state.approaches.some((a) => a.id === id)).toBe(true);

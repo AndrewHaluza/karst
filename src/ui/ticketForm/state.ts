@@ -326,6 +326,9 @@ function defaultApproach(approaches: ApproachDef[]): string | null {
  * enabled built-ins.
  */
 /** The graph role preview for every enabled approach that declares a graph. */
+/** The `graphRoles` key for a ticket preset name that is not in the manifest (the webview mirrors it). */
+const DANGLING_PRESET_KEY = '\u0000dangling';
+
 function buildGraphRoles(
   manifest: Manifest,
   presetNames: readonly string[],
@@ -334,7 +337,9 @@ function buildGraphRoles(
   for (const approach of manifest.approaches ?? []) {
     if (approach.graph === undefined || approach.enabled === false) continue;
     const byPreset: Record<string, readonly GraphRoleLine[]> = {};
-    for (const key of ['', ...presetNames]) {
+    // A ticket preset the manifest no longer has launches on the approach profile (AC-04:
+    // the name still wins over the active preset, then resolves to no slot), so it gets its own entry.
+    for (const key of ['', DANGLING_PRESET_KEY, ...presetNames]) {
       const ticket = { ...NO_TICKET_FIELDS, agentPreset: key === '' ? null : key };
       byPreset[key] = describeGraphRoles(graphRoleView(manifest, approach.graph, ticket));
     }
