@@ -75,6 +75,7 @@ describe('bindAccountsHost', () => {
         { name: 'has', active: false, account: { source: 'managed', dir: '/h/a' } },
         { name: 'none', active: false, account: { source: 'folder', dir: '/h/b' } },
       ],
+      activeInfo: async () => ({ active: 'default', machineDefault: 'default', source: 'machine' }),
       accountStatus: async () => 'unknown',
     } as never;
     await bindAccountsHost(accountOps, (m) => posted.push(m as never), { secrets }).handle({ type: 'accounts-load' });
