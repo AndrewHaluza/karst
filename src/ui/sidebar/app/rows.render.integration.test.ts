@@ -289,6 +289,19 @@ describe('expanded mini-dashboard', () => {
     expect(text(h.query('.peek-paused'))).toBe('No stage starts until you resume');
   });
 
+  it('draws the graph role line for a graph ticket, with the rung that supplied each role (T1266)', async () => {
+    const h = await mount(stateWith({ current: [peeked({}, {
+      graphRoles: [
+        { role: 'expert', text: 'codex · gpt-5.6-sol', source: 'preset' },
+        { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+      ],
+    })] }));
+    const rows = h.queryAll('.peek-graph-role');
+    expect(rows.map(text)).toEqual(['expert codex · gpt-5.6-sol (preset)', 'worker claude · claude-sonnet-5 · low (approach)']);
+    const none = await mount(stateWith({ current: [peeked({})] }));
+    expect(none.queryAll('.peek-graph-role')).toHaveLength(0);
+  });
+
   it('draws no agent line without a provider and no fact lines for an old-shape peek', async () => {
     const h = await mount(stateWith({ current: [peeked({ agent: { provider: '', model: null } })] }));
     expect(h.queryAll('.peek-agentline')).toHaveLength(0);

@@ -443,3 +443,47 @@ describe('ticket form — sandbox backend opt-out', () => {
     expect(v.posted).toContainEqual(expect.objectContaining({ type: 'set-backend', id: 'host' }));
   });
 });
+
+describe('ticket form — graph role preview (T1266)', () => {
+  const lines = (preset: string) => [
+    { role: 'expert', text: `claude · expert-${preset}`, source: 'preset' },
+    { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+    { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+  ];
+  const approach = (id: string) => ({ id, label: id, description: '', recommended: false, installed: true, enabled: true });
+  const st = (over: Record<string, unknown> = {}) =>
+    baseState({
+      approaches: [approach('dyn'), approach('classic')],
+      selectedApproach: 'dyn',
+      agentPresetNames: ['deep'],
+      defaultAgentPreset: 'deep',
+      selectedAgentPreset: null,
+      defaultAgentProvider: 'claude',
+      agentProviders: ['claude'],
+      agentBackends: {},
+      presetCores: {},
+      graphRoles: { dyn: { '': lines('inherit'), deep: lines('deep') } },
+      ...over,
+    });
+  const preview = (v: RenderHandle) => v.query<HTMLElement>('#graphRolesPreview')!;
+
+  it('shows expert, worker and fast with their source when the approach has a graph', () => {
+    const v = open(st());
+    expect(preview(v).classList.contains('hidden')).toBe(false);
+    const rows = v.queryAll('#graphRolesPreview [data-graph-role]');
+    expect(rows.map((r) => r.getAttribute('data-graph-role'))).toEqual(['expert', 'worker', 'fast']);
+    expect(rows[0]!.textContent).toContain('claude · expert-inherit');
+    expect(rows[0]!.textContent).toContain('preset');
+    expect(rows[1]!.textContent).toContain('approach');
+  });
+
+  it('follows the selected preset', () => {
+    const v = open(st({ selectedAgentPreset: 'deep' }));
+    expect(v.query('#graphRolesPreview [data-graph-role="expert"]')!.textContent).toContain('expert-deep');
+  });
+
+  it('is hidden for an approach with no graph', () => {
+    const v = open(st({ selectedApproach: 'classic' }));
+    expect(preview(v).classList.contains('hidden')).toBe(true);
+  });
+});

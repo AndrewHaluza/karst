@@ -11,12 +11,12 @@ import { Field } from '../primitives/Field.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
 import { PresetToolbar } from './PresetToolbar.js';
 import { PresetMatrix } from './PresetMatrix.js';
-import { CompareRow, RoleRow, SOURCE_TEXT } from './RoleRows.js';
+import { CompareRow, RoleRow, sourceWhy } from './RoleRows.js';
 import { NO_INHERIT, usePickerInputs } from './usePickerInputs.js';
-import { activePresetName, presetNames } from './presetDraft.js';
+import { activePresetName, inheritedText, presetNames, seedPresetSlot } from './presetDraft.js';
 import type { AgentsRoute } from './agentsRoute.js';
 import {
-  clearRole, copyRoleFrom, defaultRow, differingRoles, effectiveRole, pinKeyOf, pinRole, rolesUsingProfile,
+  seedRoleValue, clearRole, copyRoleFrom, defaultRow, differingRoles, effectiveRole, pinKeyOf, pinRole, rolesUsingProfile,
   setDefaultRow, setRoleEnabled, setRoleProfile, unpinRole, writeRole,
 } from './rolesModel.js';
 
@@ -26,6 +26,14 @@ const FLASH_MS = 1000;
 export interface RolesTabProps {
   readonly route: AgentsRoute;
   readonly navigate: (route: AgentsRoute) => void;
+}
+
+const GRAPH_PROFILE_NAME: Readonly<Record<string, string>> = { graphExpert: 'expert', graphWorker: 'worker', graphFast: 'fast' };
+
+/** What a role falls back to once its slot is cleared. A graph role falls to its approach profile. */
+function clearedFallback(capability: string): string {
+  const profile = Object.prototype.hasOwnProperty.call(GRAPH_PROFILE_NAME, capability) ? GRAPH_PROFILE_NAME[capability] : undefined;
+  return profile === undefined ? "uses Karst's default." : `uses the approach's ${profile} profile.`;
 }
 
 export function RolesTab({ route, navigate }: RolesTabProps) {
@@ -71,6 +79,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
     return () => window.clearTimeout(timer);
   }, [route.selected]);
 
+  const inheritance = state.host?.presetInheritance;
   const roleLabelOf = (key: string): string | undefined => state.processAssignments?.find((v) => v.key === key)?.roleLabel;
   const profileOf = (cap: string): string => {
     const key = pinKeyOf(cap);
@@ -93,7 +102,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
   const selectedWhy =
     selectedRole === undefined || preset === null
       ? null
-      : `${selectedRole.label}: ${SOURCE_TEXT[effectiveRole(draft, preset, selectedRole.capability).source].why}`;
+      : `${selectedRole.label}: ${sourceWhy(effectiveRole(draft, preset, selectedRole.capability).source, selectedRole.capability)}`;
   const statusText = announcement ?? selectedWhy ?? '';
 
   const setCompare = (name: string | null): void =>
@@ -223,7 +232,11 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
               selected={route.selected === cap}
               flash={flash === cap}
               sharesProfile={sharing.includes(cap)}
-              onChange={(value) => edit((d) => writeRole(d, preset, cap, value))}
+              hint={role.hint}
+              inherited={inheritedText(cap, inheritance)}
+              onChange={(value) =>
+                edit((d) => writeRole(d, preset, cap, seedRoleValue(value, seedPresetSlot(cap, inheritance, d))))
+              }
               onPin={() => {
                 edit((d) => pinRole(d, preset, cap));
                 setAnnounced({
@@ -241,7 +254,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
               onClear={() => {
                 edit((d) => clearRole(d, preset, cap));
                 setAnnounced({
-                  text: `${role.label} cleared: uses Karst's default.`,
+                  text: `${role.label} cleared: ${clearedFallback(cap)}`,
                   forSelection: route.selected,
                 });
               }}

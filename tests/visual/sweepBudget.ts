@@ -29,7 +29,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1190 pr-disabled-merge-hover, @ui:UI-R57: 3 width tiers x 1 theme (dark) (+3 screenshots); skipLayout, so no layout runs.
   // T1193 auto-ci-uat / auto-ci-review / auto-ci-review-confirm, @ui:UI-R57: 3 new Auto-fix step states x 4 width tiers x 1 theme (dark) (+12 screenshots) and their layout runs (+24).
   // T1217 pr-stale-checks, @ui:UI-R57: the stale CI chip, 3 width tiers x 1 theme (dark) (+3 screenshots); layout runs unchanged.
-  dashboard: { screenshots: 606, layout: 714 },
+  // T1266 graph-header (a graph ticket's expert / worker / fast chips), @ui:UI-R57: 2 themes (+2 screenshots); skipLayout, so no layout runs.
+  dashboard: { screenshots: 608, layout: 714 },
   diffs: { screenshots: 7, layout: 25 },
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },
@@ -39,14 +40,16 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1236 nav-narrow variants (the nav chip row on general, agents roles and autopilot at 630 and 320 px), @ui:UI-R57: 6 variants x 1 theme (+6 screenshots); skipLayout, because the route layout runs already cover these routes.
   // T1239 roles-narrow-collapsed / roles-narrow-expanded / roles-tight-collapsed (the summary row, one row open, and 320 px), @ui:UI-R57: 3 variants x 1 theme (dark) (+3 screenshots); skipLayout, because the roles route layout runs already cover every width.
   // T1241 accounts-quota (the Subscription quota card with saved values), @ui:UI-R57: 3 themes (+3 screenshots); skipLayout, because accounts-several already runs the same route.
-  settings: { screenshots: 81, layout: 124 },
+  // T1266 roles-graph / roles-graph-narrow / roles-graph-tight (the graph role rows with hint and inherited text, wide, 630 and 320 px), @ui:UI-R57: 3 variants x 1 theme (dark) (+3 screenshots); skipLayout, because the roles route layout runs already cover every width.
+  settings: { screenshots: 84, layout: 124 },
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
   // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1171 peek-460 / peek-300 variants (every state family's open row), @ui:RD-TIERS: 2 widths x 2 themes (+2 screenshots as counted) and their layout runs (+5).
   // T1213 planning-artifacts variants (Open artifacts icon on a planning row), @ui:RD-TIERS: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   sidebar: { screenshots: 34, layout: 80 },
-  ticketForm: { screenshots: 30, layout: 90 },
+  // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
+  ticketForm: { screenshots: 31, layout: 95 },
   usage: { screenshots: 10, layout: 40 },
 };
 

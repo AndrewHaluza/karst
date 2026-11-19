@@ -596,6 +596,9 @@
       <label for="backendSelect">Sandbox backend</label>
       <select class="k-input" id="backendSelect" aria-label="Sandbox backend" title="Opt out to the host only (prompted, no sandbox); project picks the backend"></select>
     </div>
+    <!-- Graph roles: shown only when the selected approach has a graph. Host-resolved
+         (state.graphRoles), so it names what a graph launch runs, never a webview copy. -->
+    <div id="graphRolesPreview" class="hidden" aria-live="polite"></div>
   </div>
 
   <!-- The worktree is cut from each repository's baseline branch, so an
@@ -1082,6 +1085,8 @@
     lastDefaultModel = state.defaultModel ?? null;
     lastDefaultEffort = state.defaultEffort ?? null;
     lastSelectedAgentPreset = state.selectedAgentPreset ?? null;
+    lastEffectivePreset = state.defaultAgentPreset ?? null;
+    lastGraphRoles = state.graphRoles || {};
     lastAgentPresetNames = state.agentPresetNames || [];
     lastSessionOpen = state.sessionOpen === true;
     renderAgentIdentityPicker(state.agentProviders, state.selectedAgentProvider, state.defaultAgentProvider, state.selectedModel, state.defaultModel, state.selectedEffort, state.defaultEffort, state.sessionOpen);
@@ -1092,6 +1097,7 @@
     lastPresetCores = state.presetCores || {};
     lastBackendSelection = state.selectedBackend ?? null;
     renderBackendPicker(state.mode, state.selectedBackend, state.sessionOpen === true);
+    renderGraphRoles();
     syncSubmitGate();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
     // edit-mode reopen — analysis rewrites the prompt, so it only auto-runs
@@ -1843,7 +1849,7 @@
     const presetSel = draft.agentPreset ?? lastSelectedAgentPreset ?? '';
     const picker = mountAgentPicker(root, {
       // Preset XOR core + model (+ effort): the picker owns the switch.
-      presetMode: { names: lastAgentPresetNames, selected: presetSel || null, inheritLabel: 'Inherit (active preset)' },
+      presetMode: { names: lastAgentPresetNames, selected: presetSel || null, inheritLabel: inheritPresetLabel() },
       cores: apCores,
       catalog: lastModelCatalog,
       routes: AP_ROUTES,
@@ -1937,6 +1943,28 @@
   // The core or preset pick changes the label; create mode gets no state push.
   function rerenderBackendPicker() {
     renderBackendPicker(draft.mode, lastBackendSelection, lastSessionOpen);
+    renderGraphRoles();
+  }
+  // The Inherit row of the preset picker names the preset it would apply.
+  function inheritPresetLabel() {
+    return lastEffectivePreset ? 'Inherit (active preset: ' + lastEffectivePreset + ')' : 'Inherit (active preset)';
+  }
+  // Expert / worker / fast for the selected preset when the approach has a graph.
+  // The lines come from the host (state.graphRoles); '' is the Inherit row.
+  let lastGraphRoles = {};
+  let lastEffectivePreset = null;
+  function renderGraphRoles() {
+    const box = el('graphRolesPreview');
+    const byPreset = lastGraphRoles[currentApproach() || ''];
+    if (!byPreset) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    const preset = draft.agentPreset ?? lastSelectedAgentPreset ?? '';
+    const lines = byPreset[preset] || byPreset[''] || [];
+    if (!lines.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    const SOURCE = { ticket: 'ticket', preset: 'preset', approach: 'approach' };
+    box.innerHTML = '<label>Graph roles</label>' + lines.map((l) =>
+      '<div class="sub" data-graph-role="' + esc(l.role) + '"><strong>' + esc(l.role) + '</strong> ' + esc(l.text) +
+      ' <span class="k-chip">' + esc(SOURCE[l.source] || l.source) + '</span></div>').join('');
+    box.classList.remove('hidden');
   }
   function renderBackendPicker(mode, stateBackend, sessionOpen) {
     const selectedBackend = mode === 'create' && draft.agentBackend !== undefined ? draft.agentBackend : stateBackend;
@@ -2715,6 +2743,7 @@
   // the radiogroup container for the same reason as toggleRepo above.
   function pickApproach(id) {
     draft.approach = id;
+    renderGraphRoles();
     approachOpen = false;
     const list = el('approachList');
     const requestId = karstRequestId();

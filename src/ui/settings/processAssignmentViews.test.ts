@@ -42,7 +42,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'PR description',
       'Ticket Analysis Agent',
       'Stall Suggestion Agent',
-      'Planner',
+      'Planning sessions',
     ]);
     expect(all.map((v) => v.description)).toEqual([
       'Runs after required UAT gates pass',
@@ -59,7 +59,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
   it('renders the Planner row, whose default core/model is the implementation resolution', () => {
     const m: Manifest = { ...BASE, agentProvider: 'codex', defaultModel: 'gpt-5.6-sol' };
     const v = row(m, 'planning');
-    expect(v.roleLabel).toBe('Planner');
+    expect(v.roleLabel).toBe('Planning sessions');
     expect(v.state).toBe('omitted');
     expect(v.effectiveProvider).toBe('codex');
     expect(v.effectiveModel).toBe('gpt-5.6-sol');

@@ -5,7 +5,7 @@ import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge } from '../testBridge.js';
 import { buildSettingsState } from '../../state.js';
 import { FIXTURE_MANIFEST } from '../testFixtures.js';
-import { CompareRow, RoleRow } from './RoleRows.js';
+import { CompareRow, RoleRow, sourceWhy } from './RoleRows.js';
 
 beforeEach(() => {
   (globalThis as unknown as Record<string, unknown>).mountAgentPicker = () => {};
@@ -293,5 +293,55 @@ describe('RoleRows — narrow summary row (T1239)', () => {
     expect(container.querySelector('.agents-cell-switch')!.children).toHaveLength(0);
     expect(container.querySelector('.agents-cell-actions .agents-slot')).not.toBeNull();
     expect(container.querySelector('.agents-cell-switch .k-switch')).toBeNull();
+  });
+});
+
+describe('RoleRows — graph roles (T1266)', () => {
+  const props = (over: Record<string, unknown> = {}) => ({
+    capability: 'graphExpert',
+    label: 'Graph expert',
+    effective: { source: 'approach' as const, core: 'claude', model: 'claude-opus-5', effort: 'high' },
+    view: undefined,
+    profile: '',
+    enabled: true,
+    selected: false,
+    flash: false,
+    sharesProfile: false,
+    onChange: vi.fn(),
+    onPin: vi.fn(),
+    onUnpin: vi.fn(),
+    onClear: vi.fn(),
+    onProfile: vi.fn(),
+    onEnabled: vi.fn(),
+    onOpenProfile: vi.fn(),
+    onToggle: vi.fn(),
+    ...over,
+  });
+
+  it('says the approach profile supplies the value, not Karst built-in default', () => {
+    wrap(<RoleRow {...props()} />);
+    const source = screen.getByTitle(/approach's expert profile/);
+    expect(source.getAttribute('data-source')).toBe('approach');
+    expect(source.textContent).not.toContain('built-in default');
+  });
+
+  it('renders the row hint and the inherited text', () => {
+    wrap(<RoleRow {...props({ hint: 'Graph expert: graph planner and expert nodes', inherited: 'Inherited: claude · claude-opus-5 · high' })} />);
+    expect(screen.getByText('Graph expert: graph planner and expert nodes')).toBeTruthy();
+    expect(screen.getByText('Inherited: claude · claude-opus-5 · high')).toBeTruthy();
+  });
+
+  it('renders no inherited text for a preset-sourced row', () => {
+    wrap(<RoleRow {...props({ effective: { source: 'preset', core: 'claude', model: 'm', effort: '' }, inherited: 'Inherited: x' })} />);
+    expect(screen.queryByText('Inherited: x')).toBeNull();
+  });
+});
+
+describe('sourceWhy', () => {
+  it('names the profile for a graph role and keeps Karst default wording for a process role', () => {
+    expect(sourceWhy('approach', 'graphWorker')).toBe("No preset value: uses the approach's worker profile.");
+    expect(sourceWhy('default', 'graphFast')).toBe("No preset value and no approach profile: uses Karst's built-in default.");
+    expect(sourceWhy('default', 'review')).toBe("No preset value and no pin: uses Karst's built-in default.");
+    expect(sourceWhy('pin', 'review')).toContain('Pinned');
   });
 });

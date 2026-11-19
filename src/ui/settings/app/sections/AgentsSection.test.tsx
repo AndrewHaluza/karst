@@ -299,7 +299,7 @@ describe('Agents page — agent profiles', () => {
     openProfiles();
     fireEvent.click(screen.getByText('UAT Agent'));
     expect(screen.getByLabelText(/built-in prompt$/).textContent).toMatch(/UAT tester/i);
-    fireEvent.click(screen.getByText('Planner'));
+    fireEvent.click(screen.getByText('Planning sessions'));
     expect(screen.getByText(/keeps its built-in prompt; an agent profile changes identity only/)).not.toBeNull();
     expect((screen.getByText('Customize…') as HTMLButtonElement).disabled).toBe(true);
   });
@@ -446,7 +446,7 @@ describe('Agents page — Source reasons without a tooltip (UI-R19, R22)', () =>
     mount();
     const status = document.querySelector('.agents-status') as HTMLElement;
     expect(status.getAttribute('role')).toBe('status');
-    expect(status.textContent).toBe('Planner: From the selected preset.');
+    expect(status.textContent).toBe('Planning sessions: From the selected preset.');
   });
 });
 
@@ -455,11 +455,11 @@ describe('Agents page — draft pin actions are announced (UI-R27, R28)', () => 
     mount();
     const status = (): string => (document.querySelector('.agents-status') as HTMLElement).textContent ?? '';
     fireEvent.click(within(row('planning')).getByRole('button', { name: 'Pin' }));
-    expect(status()).toBe('Planner pinned: same agent in every preset.');
+    expect(status()).toBe('Planning sessions pinned: same agent in every preset.');
     fireEvent.click(within(row('planning')).getByRole('button', { name: 'Unpin' }));
-    expect(status()).toBe('Planner unpinned: uses the preset value.');
+    expect(status()).toBe('Planning sessions unpinned: uses the preset value.');
     fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear override' }));
-    expect(status()).toBe("Planner cleared: uses Karst's default.");
+    expect(status()).toBe("Planning sessions cleared: uses Karst's default.");
   });
 });
 

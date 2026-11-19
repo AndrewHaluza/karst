@@ -68,6 +68,14 @@ const CAP_ROLES = [
   ['review', 'Review'],
 ] as const;
 
+// A graph ticket runs its nodes on these roles, not on the implementation core:
+// they are always listed (no "same as implementation" omission).
+const GRAPH_CAP_ROLES = [
+  ['graphExpert', 'Expert'],
+  ['graphWorker', 'Worker'],
+  ['graphFast', 'Fast'],
+] as const;
+
 interface CapGroup {
   readonly full: string;
   readonly provider: string;
@@ -78,15 +86,19 @@ interface CapGroup {
 function capabilityGroups(meta: MetaSlice): CapGroup[] {
   const impl = meta.capabilities.implementation;
   const groups = new Map<string, CapGroup>();
-  for (const [key, roleLabel] of CAP_ROLES) {
-    const id = meta.capabilities[key];
-    if (!id || !id.provider || !id.model) continue;
-    if (impl && impl.provider === id.provider && impl.model === id.model) continue;
+  const add = (id: MetaSlice['capabilities'][keyof MetaSlice['capabilities']], roleLabel: string): void => {
+    if (!id || !id.provider || !id.model) return;
     const full = `${id.provider}/${id.model}`;
     const group = groups.get(full) ?? { full, provider: id.provider, model: id.model, roles: [] };
     group.roles.push(roleLabel);
     groups.set(full, group);
+  };
+  for (const [key, roleLabel] of CAP_ROLES) {
+    const id = meta.capabilities[key];
+    if (impl && id && impl.provider === id.provider && impl.model === id.model) continue;
+    add(id, roleLabel);
   }
+  for (const [key, roleLabel] of GRAPH_CAP_ROLES) add(meta.capabilities[key], roleLabel);
   return [...groups.values()];
 }
 

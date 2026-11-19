@@ -136,7 +136,7 @@
 #section-agents .agents-row > [role="columnheader"] { display: flex; align-items: center; }
 
 /* The picker cell stays ONE cell; its compact grid holds Core | Model | Effort. */
-#section-agents .agents-cell-picker { display: flex; align-items: center; }
+#section-agents .agents-cell-picker { display: flex; align-items: center; flex-wrap: wrap; }
 #section-agents .agents-cell-picker > .agent-picker-island { flex: 1 1 auto; min-width: 0; }
 #section-agents .agents-cell-picker .ap-compact { grid-template-columns: var(--agents-picker-cols); }
 #section-agents .agents-cell-picker .ap-shell { width: 100%; }
@@ -212,7 +212,10 @@
   margin-right: var(--k-space-2);
 }
 
-#section-agents .agents-cell-role { display: flex; align-items: center; gap: var(--k-space-2); }
+#section-agents .agents-cell-role { display: flex; align-items: center; gap: var(--k-space-2); flex-wrap: wrap; }
+/* The graph role hint (T1266) wraps under the name; it is a second line, never a new row. */
+#section-agents .agents-role-hint { flex-basis: 100%; font-size: var(--k-text-xs); color: var(--k-text-dim); }
+#section-agents .agents-inherited { font-size: var(--k-text-xs); }
 
 /* The status line under the table (UI-R27): announcements and the selected
    row's Source reason. Kept mounted so a later message is announced; it takes

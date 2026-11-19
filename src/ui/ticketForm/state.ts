@@ -12,7 +12,9 @@ import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import { modelsForProvider, type ModelOption } from '../../agent/models.js';
 import { IMPLEMENTED_PROVIDERS, resolveProvider } from '../../agent/registry.js';
-import { resolvePresetDefaults } from '../../agent/agentPresets.js';
+import { effectiveAgentPresetName, resolvePresetDefaults } from '../../agent/agentPresets.js';
+import { describeGraphRoles, graphRoleView, type GraphRoleLine } from '../../approaches/graph/graphRoleView.js';
+import { NO_TICKET_FIELDS } from '../../approaches/graph/profileResolver.js';
 import { TICKET_TYPES } from '../../store/ticketTypes.js';
 import { resolveTicketType } from '../../workflow/conventionContext.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
@@ -257,7 +259,7 @@ export interface TicketFormState {
   defaultAgentProvider: AgentProvider;
   /** Agent preset names defined in the manifest, sorted; offered by the preset select. */
   agentPresetNames: string[];
-  /** Manifest default preset name, for the "Inherit (settings: …)" label; null = none. */
+  /** The preset a ticket with no pick uses (active preset, else the deprecated default), for the Inherit label; null = none. */
   defaultAgentPreset: string | null;
   /** Per-ticket preset override; null = inherit `manifest.defaultAgentPreset`. */
   selectedAgentPreset: string | null;
@@ -265,6 +267,14 @@ export interface TicketFormState {
   agentBackends: Record<string, AgentBackend>;
   /** Core each manifest preset resolves to for the implementation capability, by preset name. */
   presetCores: Record<string, AgentProvider>;
+  /**
+   * For each approach that declares a graph: the expert/worker/fast identities a
+   * launch resolves, by preset name. The '' key is the Inherit row (the active
+   * preset applies). Built by the shared graph role view, so the form shows
+   * what a graph launch runs (AC-04). It previews the preset rungs only; a core
+   * or model typed on the ticket is not folded in.
+   */
+  graphRoles: Record<string, Record<string, readonly GraphRoleLine[]>>;
   /** Per-ticket opt-out; `'host'` = run on host, null = follow the project. */
   selectedBackend: 'host' | null;
   /** Conventional-commit types offered by the type picker. */
@@ -315,6 +325,24 @@ function defaultApproach(approaches: ApproachDef[]): string | null {
  * things that will actually launch, while never hiding the always-available
  * enabled built-ins.
  */
+/** The graph role preview for every enabled approach that declares a graph. */
+function buildGraphRoles(
+  manifest: Manifest,
+  presetNames: readonly string[],
+): Record<string, Record<string, readonly GraphRoleLine[]>> {
+  const out: Record<string, Record<string, readonly GraphRoleLine[]>> = {};
+  for (const approach of manifest.approaches ?? []) {
+    if (approach.graph === undefined || approach.enabled === false) continue;
+    const byPreset: Record<string, readonly GraphRoleLine[]> = {};
+    for (const key of ['', ...presetNames]) {
+      const ticket = { ...NO_TICKET_FIELDS, agentPreset: key === '' ? null : key };
+      byPreset[key] = describeGraphRoles(graphRoleView(manifest, approach.graph, ticket));
+    }
+    out[approach.id] = byPreset;
+  }
+  return out;
+}
+
 function toApproachRows(approaches: ApproachDef[], listInstalledIds: () => string[]): ApproachRow[] {
   const installedIds = new Set(listInstalledIds());
   return approaches
@@ -388,6 +416,7 @@ export function buildTicketFormState(
   const presetCores = Object.fromEntries(
     agentPresetNames.map((name) => [name, resolvePresetDefaults(manifest, 'implementation', { ticketPreset: name }).provider]),
   ) as Record<string, AgentProvider>;
+  const graphRoles = buildGraphRoles(manifest, agentPresetNames);
   // Search needs a provider that can search AND a list to search: the manifest
   // toggle defaults ON, but a clickup provider with no listId configured has
   // nothing to list. `manual` never qualifies.
@@ -495,7 +524,8 @@ export function buildTicketFormState(
       selectedAgentProvider: null,
       defaultAgentProvider: createDefaults.provider,
       agentPresetNames,
-      defaultAgentPreset: manifest.defaultAgentPreset ?? null,
+      defaultAgentPreset: effectiveAgentPresetName(manifest) ?? null,
+      graphRoles,
       selectedAgentPreset: null,
       agentBackends: { ...manifest.agentBackends },
       presetCores,
@@ -566,7 +596,8 @@ export function buildTicketFormState(
     selectedAgentProvider: ticket.agentProvider ?? null,
     defaultAgentProvider: editDefaults.provider,
     agentPresetNames,
-    defaultAgentPreset: manifest.defaultAgentPreset ?? null,
+    defaultAgentPreset: effectiveAgentPresetName(manifest) ?? null,
+    graphRoles,
     selectedAgentPreset: ticket.agentPreset ?? null,
     agentBackends: { ...manifest.agentBackends },
     presetCores,

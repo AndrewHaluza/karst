@@ -57,6 +57,15 @@ describe('preset matrix — group shape', () => {
     for (const row of flat) expect(row.label).not.toBe(row.capability);
   });
 
+  it('names the planning row for what it is and hints which row the graph planner uses', () => {
+    const rows = Object.fromEntries(buildPresetCapabilityGroups().flatMap((g) => g.rows).map((r) => [r.capability, r]));
+    expect(rows.planning?.label).toBe('Planning sessions');
+    expect(rows.graphExpert?.hint).toBe('Graph expert: graph planner and expert nodes');
+    expect(rows.graphWorker?.hint).toBe('Graph worker / Graph fast: worker / fast nodes');
+    expect(rows.graphFast?.hint).toBe('Graph worker / Graph fast: worker / fast nodes');
+    expect(rows.review?.hint).toBeUndefined();
+  });
+
   it('is the §5 Quality / Ticket / Graph-role split, in render order', () => {
     const groups = buildPresetCapabilityGroups();
     expect(groups.map((g) => g.id)).toEqual(['quality', 'ticket', 'graph']);

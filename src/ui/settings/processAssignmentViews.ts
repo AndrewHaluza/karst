@@ -111,7 +111,7 @@ const ROLE_LABELS: Record<ProcessKey, string> = {
   prDescription: 'PR description',
   ticketAnalysis: 'Ticket Analysis Agent',
   stallSuggestion: 'Stall Suggestion Agent',
-  planning: 'Planner',
+  planning: 'Planning sessions',
 };
 
 /** Handoff §7 per-row descriptions (what each process does, when it runs). */
