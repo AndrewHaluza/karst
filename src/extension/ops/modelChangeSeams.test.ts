@@ -54,14 +54,6 @@ describe('makeModelChangeSeams', () => {
     expect(at).not.toBe(NOW);
   });
 
-  it('differenceOf names the difference, then is undefined once switched or unloaded', () => {
-    const { seams, id } = setup(manifestOf('claude-sonnet-5'));
-    expect(seams.differenceOf(id)).toContain('→');
-    seams.switchRun(id);
-    expect(seams.differenceOf(id)).toBeUndefined();
-    expect(setup(undefined).seams.differenceOf(1)).toBeUndefined();
-  });
-
   it('does nothing before the manifest is loaded', async () => {
     const { seams, id, warn } = setup(undefined);
     expect(await seams.ask({})).toBe(0);

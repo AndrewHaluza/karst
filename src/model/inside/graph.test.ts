@@ -1392,42 +1392,4 @@ describe('run header detail', () => {
     if (two.evidence?.kind !== 'rows') return;
     expect(two.evidence.rows[0]!.detail).toContain('1 of 2 nodes running');
   });
-
-  describe('switch models (T1258)', () => {
-    const withRun = (status: string, modelDifference?: string): GraphInsideInput => {
-      const base = input();
-      return {
-        ...base,
-        graphRun: { ...base.graphRun!, status, ...(modelDifference === undefined ? {} : { modelDifference }) },
-      };
-    };
-    const attachAll = (targets: GraphActionTarget[]) => (target: GraphActionTarget) => {
-      targets.push(target);
-      return { actionId: `a-${targets.length}`, kind: target.kind };
-    };
-    const rowsOf = (view: ReturnType<typeof graphInsideProcess>) =>
-      view?.evidence?.kind === 'rows' ? view.evidence.rows : [];
-
-    it('adds a Switch models row naming the difference on a live run that differs', () => {
-      const targets: GraphActionTarget[] = [];
-      const view = graphInsideProcess({ ...withRun('running', 'worker: claude/a → codex/b'), attach: attachAll(targets) });
-      const row = rowsOf(view).find((r) => r.label === 'models');
-      expect(row?.detail).toContain('worker: claude/a → codex/b');
-      expect(row?.action).toMatchObject({ kind: 'graph-switch-models' });
-      expect(targets).toContainEqual({ kind: 'graph-switch-models', graphRunId: 7 });
-    });
-
-    it('adds the row to a blocked run too', () => {
-      const view = graphInsideProcess({ ...withRun('blocked', 'x → y'), attach: attachAll([]) });
-      expect(rowsOf(view).some((r) => r.label === 'models')).toBe(true);
-    });
-
-    it('adds no row when the models match, the run is terminal, or nothing can attach', () => {
-      const targets: GraphActionTarget[] = [];
-      expect(rowsOf(graphInsideProcess({ ...withRun('running'), attach: attachAll(targets) })).some((r) => r.label === 'models')).toBe(false);
-      expect(rowsOf(graphInsideProcess({ ...withRun('closed', 'x → y'), attach: attachAll(targets) })).some((r) => r.label === 'models')).toBe(false);
-      expect(rowsOf(graphInsideProcess({ ...withRun('running', 'x → y'), attach: undefined })).some((r) => r.label === 'models')).toBe(false);
-      expect(targets.some((t) => t.kind === 'graph-switch-models')).toBe(false);
-    });
-  });
 });

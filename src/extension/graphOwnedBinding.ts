@@ -6,7 +6,6 @@
 import type { GraphDb } from '../store/graph/transitions.js';
 import type { ProcessFactsSource } from '../runtime/serverIdentity.js';
 import type { KillOutcome } from '../runtime/processTree.js';
-import type { SwitchModelsOutcome } from '../approaches/graph/modelChange.js';
 import { cancelGraphRun } from '../approaches/graph/cancel.js';
 import {
   graphOwnedChangeMessage,
@@ -32,8 +31,6 @@ export interface GraphOwnedBindingDeps {
   readonly modelChange?: {
     /** Asks for the matching live runs; resolves with how many the question covered (0 = none shown). */
     readonly ask: (filter: { ticketId?: number }) => Promise<number>;
-    readonly switchRun: (graphRunId: number) => SwitchModelsOutcome;
-    readonly differenceOf?: (graphRunId: number) => string | undefined;
   };
 }
 
@@ -82,16 +79,6 @@ export function makeGraphOwnedBinding(deps: GraphOwnedBindingDeps) {
     async agentSettingsSaved(identityChanged: boolean): Promise<void> {
       if (!identityChanged || !deps.modelChange) return;
       await deps.modelChange.ask({});
-    },
-    /** The later Switch (dashboard action, blocked banner): the same function the question runs. */
-    switchModels(ticketId: number, graphRunId: number): SwitchModelsOutcome {
-      const outcome = deps.modelChange?.switchRun(graphRunId) ?? 'not-found';
-      if (outcome === 'switched') deps.refresh(ticketId);
-      return outcome;
-    },
-    /** How the live run's snapshot differs from the current settings; undefined when equal. */
-    modelDifference(graphRunId: number): string | undefined {
-      return deps.modelChange?.differenceOf?.(graphRunId);
     },
   };
 }

@@ -243,20 +243,20 @@ describe('a failed-to-launch park names a model difference', () => {
     return graphRunById(h.db, graphRunId)!.blocked_reason ?? '';
   };
 
-  it('appends the difference and the Switch models hint when the snapshot differs', () => {
+  it('appends the difference when the snapshot differs', () => {
     const h = harness();
     const graphRunId = readyWorkerNode(h, serializeRunIdentities(resolveRunIdentities(presetManifest('p1'), h.config)));
     const reason = parked({ ...h, deps: { ...h.deps, manifest: presetManifest('p2') } }, graphRunId);
     expect(reason).toMatch(/^failed-to-launch: node run \d+/);
     expect(reason).toContain('worker: claude/claude-sonnet-5 (low) → codex/gpt-5.6-mini');
-    expect(reason).toContain('Switch models');
+    expect(reason).toContain('the run keeps its start models');
   });
 
   it('adds nothing when the snapshot matches the settings', () => {
     const h = harness();
     const graphRunId = readyWorkerNode(h, serializeRunIdentities(resolveRunIdentities(presetManifest('p1'), h.config)));
     const reason = parked({ ...h, deps: { ...h.deps, manifest: presetManifest('p1') } }, graphRunId);
-    expect(reason).not.toContain('Switch models');
+    expect(reason).not.toContain('the run keeps its start models');
   });
 
   it('still parks and blocks the run with the plain reason when the difference lookup throws', () => {
@@ -269,7 +269,7 @@ describe('a failed-to-launch park names a model difference', () => {
     const reason = parked({ ...h, deps: { ...h.deps, debug, graphConfigOf: throwing } }, graphRunId);
     expect(graphRunById(h.db, graphRunId)!.status).toBe('blocked');
     expect(reason).toMatch(/^failed-to-launch: node run \d+/);
-    expect(reason).not.toContain('Switch models');
+    expect(reason).not.toContain('the run keeps its start models');
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('[driver] model difference lookup failed'));
   });
 });

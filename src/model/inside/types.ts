@@ -273,8 +273,7 @@ export type InsideActionKind =
   | 'graph-mark-impl'
   | 'graph-discard-node'
   | 'graph-edit-override'
-  | 'graph-edit-workspace-deps'
-  | 'graph-switch-models';
+  | 'graph-edit-workspace-deps';
 
 /**
  * A navigation/continuation control on a process row.
@@ -344,9 +343,7 @@ export type InsideEvidenceTarget =
   // claimed node never carries can never be minted in the first place.
   | { kind: 'graph-edit-override'; nodeRunId: number }
   // D647: open karst.yml at the repository a workspace-dependency block names.
-  | { kind: 'graph-edit-workspace-deps'; graphRunId: number }
-  // T1258: apply the current settings' models to a live graph run's snapshot.
-  | { kind: 'graph-switch-models'; graphRunId: number };
+  | { kind: 'graph-edit-workspace-deps'; graphRunId: number };
 
 /**
  * The inside process's token claim, as ONE of three states (decision 8).

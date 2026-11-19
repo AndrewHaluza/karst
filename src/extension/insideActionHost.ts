@@ -38,7 +38,6 @@ export function makeInsideActionHost(
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditWorkspaceDeps: (ticketId: number, graphRunId: number) => void | Promise<void>;
-    graphSwitchModels: (ticketId: number, graphRunId: number) => void | Promise<void>;
   },
   // The impl stage's Session row: reveal (never launch) the ticket's own
   // interactive session terminal. The dispatch already proved a live
@@ -224,7 +223,6 @@ export function makeInsideActionHost(
     graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
     graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
     graphEditWorkspaceDeps: (ticketId, graphRunId) => graphHost.graphEditWorkspaceDeps(ticketId, graphRunId),
-    graphSwitchModels: (ticketId, graphRunId) => graphHost.graphSwitchModels(ticketId, graphRunId),
     retryShipRepo: (ticketId, repo) => retryShipRepo(ticketId, repo),
   };
 }

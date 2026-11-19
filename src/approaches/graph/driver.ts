@@ -1316,8 +1316,8 @@ export function parkLaunchFailure(
 
 /**
  * T1258: a launch failure under a run whose snapshot differs from the current
- * settings names the difference and the action that applies the new models, so
- * a quota or bad-model block can recover without Replan. The recovery category
+ * settings names the difference, so a quota or bad-model block shows why the
+ * run still uses its start models. The recovery category
  * reads the reason's prefix, so the note goes after it.
  */
 function withModelDifference(deps: GraphDriverDeps, graphRunId: number, reason: string): string {
@@ -1327,12 +1327,12 @@ function withModelDifference(deps: GraphDriverDeps, graphRunId: number, reason: 
     difference = runModelDifference({ db: deps.db, manifest: deps.manifest, graphConfigOf: deps.graphConfigOf }, graphRunId);
   } catch (err) {
     // The note is optional: a lookup failure must never keep the park from blocking the run.
-    deps.debug(`[driver] model difference lookup failed for graph run ${graphRunId}: ${err instanceof Error ? err.message : String(err)}`);
+    deps.debug?.(`[driver] model difference lookup failed for graph run ${graphRunId}: ${err instanceof Error ? err.message : String(err)}`);
     return reason;
   }
   return difference === undefined
     ? reason
-    : `${reason} · the settings now give other models (${difference}); Switch models applies them`;
+    : `${reason} · the settings now give other models (${difference}); the run keeps its start models`;
 }
 
 /** Cap for the captured provider line recorded as a launch-failure reason,

@@ -36,8 +36,6 @@ export interface GraphInsideDeps {
   liveSessions: () => SupervisedAgentSession[];
   /** The run's dependency preflight warning (e.g. `deps: web not provided`), when it has one. */
   depsWarningOf?: (graphRunId: number) => string | undefined;
-  /** T1258: how the run's model snapshot differs from the current settings; undefined when equal or not live. */
-  modelDifferenceOf?: (graphRunId: number) => string | undefined;
   now: () => string;
   /** Injected debug sink (CLAUDE.md debug rules); absent → silent. */
   debug?: (message: string) => void;
@@ -251,7 +249,6 @@ export function buildGraphInsideInput(
     });
 
   const depsWarning = deps.depsWarningOf?.(run.id);
-  const modelDifference = deps.modelDifferenceOf?.(run.id);
   return {
     enabled: true,
     graphRun: {
@@ -263,7 +260,6 @@ export function buildGraphInsideInput(
       createdAt: run.created_at,
       blockedReason: run.blocked_reason,
       ...(depsWarning === undefined ? {} : { depsWarning }),
-      ...(modelDifference === undefined ? {} : { modelDifference }),
     },
     plannerRuns: plannerRuns.map((p) => ({
       plannerRunNumber: p.planner_run_number,

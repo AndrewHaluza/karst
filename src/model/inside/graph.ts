@@ -183,8 +183,7 @@ export type GraphActionTarget =
   | { kind: 'graph-discard-node'; nodeRunId: number }
   | { kind: 'graph-edit-override'; nodeRunId: number }
   // D647: open karst.yml at the repository entry a `graph-workspace-deps:` block names.
-  | { kind: 'graph-edit-workspace-deps'; graphRunId: number }
-  | { kind: 'graph-switch-models'; graphRunId: number };
+  | { kind: 'graph-edit-workspace-deps'; graphRunId: number };
 
 /** The block-reason prefix a node workspace dependency failure records (`driver.ts`). */
 export const GRAPH_WORKSPACE_DEPS_REASON_PREFIX = 'graph-workspace-deps';
@@ -207,8 +206,6 @@ export interface GraphInsideInput {
     blockedReason?: string | null;
     /** The dependency preflight warning of the run start, shown as a header suffix. */
     depsWarning?: string;
-    /** T1258: how the run's snapshotted models differ from the current settings; set only for a live run that differs. */
-    modelDifference?: string;
   } | null;
   /**
    * The graph run's spend — its planner runs and node runs, which the ledger
@@ -268,9 +265,6 @@ const GRAPH_RUN_STATUSES = [
   'stale',
   'cancelled',
 ] as const;
-
-/** Statuses a run never leaves; no model switch applies to them. */
-const GRAPH_RUN_REST_STATUSES: readonly string[] = ['completed-awaiting-impl-marker', 'closed', 'stale', 'cancelled'];
 
 export type GraphRunStatus = (typeof GRAPH_RUN_STATUSES)[number];
 
@@ -426,15 +420,6 @@ export function graphInsideProcess(
             ? { action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }) }
             : {}),
   });
-
-  if (input.attach && input.graphRun.modelDifference && !GRAPH_RUN_REST_STATUSES.includes(input.graphRun.status)) {
-    rows.push({
-      label: 'models',
-      detail: sanitizeGraphText(`The settings now give other models: ${input.graphRun.modelDifference}`),
-      status: 'wait',
-      action: input.attach({ kind: 'graph-switch-models', graphRunId: input.graphRun.id }),
-    });
-  }
 
   if (input.attach && input.graphRun.status === 'blocked') {
     rows.push({
