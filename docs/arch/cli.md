@@ -261,6 +261,8 @@ Split out of `arch:CLI-14`.
 - **Greenfield empty folder.** The agent proposes `git init` (plus a baseline branch and an initial commit) for the folder/subfolders the user names, one consented change each; it writes no application code, so those repos get no service and the report says to run setup again later. A change's target directory is resolved by `setup/changeTarget.ts`: a registered repository uses its `repoPath`, and a not-yet-registered one runs in the named folder UNDER the workspace root (created if absent) — never the root itself, so the applied change matches the folder the consent modal named.
 - **Monorepo interim.** Until one-service-per-app lands, the manifest allows one service per repository with no `cwd`. The agent declares one main service (the entry app, or the app the others depend on) and starts it from the right folder through its start command; the other apps are listed in the report as not run yet.
 `setup fix <item code>` is a host-built fix for a known failed readiness item. P6 requires that each fix code clears. A graph node dependency change (D647) uses `set-approaches`.
+The edit-list popup uses the generic field-path diff (`diffPaths`). The legacy `setup propose` popup keeps the hand-listed `diffManifest` entries. Layering blocks `src/setup` from `src/cli`, and `propose` is the retired path. Do not add a new field to `diffManifest`; use the typed tools.
+
 END_DOC_BLOCK: [@arch:CLI-21]
 
 ## [@arch:CLI-15] Blocker results: delivered on landing

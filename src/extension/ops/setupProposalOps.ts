@@ -378,7 +378,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       settle('invalid', reason);
       return;
     }
-    if (built.changes.length === 0) {
+    if (built.changes.length === 0 && built.fixes.length === 0) {
       deps.notify.warn('Karst: the setup edits change nothing.');
       settle('no-change', 'no effective change');
       return;

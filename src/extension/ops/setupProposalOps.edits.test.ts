@@ -284,4 +284,11 @@ describe('the typed edit list', () => {
     await f.ctl.scan();
     expect(f.records.at(-1)).toMatchObject({ id: 'a-1', kind: 'edit', status: 'refused' });
   });
+
+  it('applies a fix that clears an item even when it changes no field path', async () => {
+    const f = setup([op('a-1', 'fix', { code: 'manifest.legacy-services' })], BASE_YAML.replace('repositories:', 'services:'));
+    await f.ctl.scan();
+    expect(f.confirm).toHaveBeenCalledOnce();
+    expect(f.applyText).toHaveBeenCalledOnce();
+  });
 });
