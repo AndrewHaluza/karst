@@ -133,7 +133,7 @@ function ActivityRow({ row }: { readonly row: ActivityRowView }) {
       {row.ticketId !== null ? (
         <span className="a-ref"><TicketRefChip refView={ticketRefView({ ticketId: row.ticketId })} link={false} showKey={false} /></span>
       ) : null}
-      <span className="a-title">{row.title}</span>
+      <span className="a-title" title={row.title} aria-label={row.title}>{row.title}</span>
       <span className="a-time">{time}</span>
     </>
   );
