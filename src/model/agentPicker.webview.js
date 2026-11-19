@@ -156,6 +156,11 @@ function apEffortMode(efforts, saved, compact) {
   return compact ? 'placeholder' : 'hidden';
 }
 
+/** The disabled Effort field text: why no effort can be chosen. */
+function apEffortNaText(model) {
+  return model ? 'Not offered by this model' : 'Set a model first';
+}
+
 /** Accessible name / tooltip of the model trigger: label plus the full id. */
 function apModelTriggerName(label, id, fallback) {
   if (!label && !id) return fallback;
@@ -1197,12 +1202,12 @@ function mountAgentPicker(root, opts) {
     var effortMode = apEffortMode(efforts, state.effort, compact);
     if (effortMode === 'placeholder') {
       // Compact only: the model advertises no efforts and none is saved. Keep the
-      // field in the grid with a disabled, dashed "—" so Core/Model/Effort stay aligned.
+      // field in the grid with a disabled, dashed reason so Core/Model/Effort stay aligned.
       field.hidden = false;
       sel.disabled = true;
       sel.classList.add('ap-effort--na');
-      sel.innerHTML = '<option value="" selected>\u2014</option>';
-      sel.setAttribute('aria-label', apEsc(labelEffort) + ': not available for this model');
+      sel.innerHTML = '<option value="" selected>' + apEsc(apEffortNaText(state.model)) + '</option>';
+      sel.setAttribute('aria-label', apEsc(labelEffort) + ': ' + apEffortNaText(state.model).toLowerCase());
       state.effort = '';
       return;
     }

@@ -114,3 +114,20 @@ describe('RolesTab — route identity reaches every picker', () => {
     expect(seen[0]).toEqual(routes);
   });
 });
+
+describe('RolesTab — summary row keeps the opened role in the route (T1239)', () => {
+  it('writes the opened role to the route and drops it when its row closes', () => {
+    const first = mount({ tab: 'roles' });
+    const [btn] = screen.getAllByRole('button', { name: /^Settings for / });
+    const role = btn!.closest('[data-role]')!.getAttribute('data-role')!;
+    fireEvent.click(btn!);
+    expect(first.navigate).toHaveBeenLastCalledWith({ tab: 'roles', selected: role });
+    first.unmount();
+    const second = mount({ tab: 'roles', selected: role });
+    const open = screen
+      .getAllByRole('button', { name: /^Settings for / })
+      .find((b) => b.closest('[data-role]')!.getAttribute('data-role') === role)!;
+    fireEvent.click(open);
+    expect(second.navigate).toHaveBeenLastCalledWith({ tab: 'roles' });
+  });
+});

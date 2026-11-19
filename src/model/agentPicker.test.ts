@@ -28,6 +28,7 @@ function load(): Record<string, unknown> {
     apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
     apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
     apTags, apModelTagsHtml, apInheritLabels, apEffortMode, apModelTriggerName,
+    apEffortNaText: typeof apEffortNaText === 'function' ? apEffortNaText : undefined,
     apParseModelId: typeof apParseModelId === 'function' ? apParseModelId : undefined,
     apRouteIconHtml: typeof apRouteIconHtml === 'function' ? apRouteIconHtml : undefined,
     apRouteName: typeof apRouteName === 'function' ? apRouteName : undefined,
@@ -916,7 +917,12 @@ describe('compact effort placeholder', () => {
   const fns = load() as {
     apEffortMode: (e: string[] | undefined, saved: string, compact: boolean) => string;
     apModelTriggerName: (label: string, id: string, fallback: string) => string;
+    apEffortNaText: (model: string) => string;
   };
+  it('says why Effort is unavailable: no model, or a model without efforts', () => {
+    expect(fns.apEffortNaText('')).toBe('Set a model first');
+    expect(fns.apEffortNaText('some-model')).toBe('Not offered by this model');
+  });
   it('offers a select when the model advertises efforts', () => {
     expect(fns.apEffortMode(['low', 'high'], '', true)).toBe('select');
     expect(fns.apEffortMode(['low', 'high'], '', false)).toBe('select');
@@ -939,8 +945,7 @@ describe('compact effort placeholder', () => {
   });
   it('ships the disabled select placeholder and its CSS', () => {
     expect(js).toContain('ap-effort--na');
-    expect(js).toContain('\\u2014');
-    expect(js).toContain(': not available for this model');
+    expect(js).toContain('apEffortNaText(state.model).toLowerCase()');
     expect(js).not.toContain('data-ap-effort-placeholder');
     expect(agentPickerCss()).toContain('.ap-effort--na');
     expect(agentPickerCss()).toMatch(/\.ap-effort--na\{[^}]*color:var\(--k-text-dim\)[^}]*dashed/);

@@ -4,7 +4,7 @@
  * move the value between layers. A compare row is read-only: A and B EFFECTIVE
  * values side by side with the differences marked and "← Copy from B".
  */
-import { useMemo } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { PROMPT_BEARING_PROCESS_KEYS, type ProcessKey } from '../../../../manifest/validate/processAssignments.js';
 import type { SettingsProcessAssignmentView } from '../../processAssignmentViews.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
@@ -53,6 +53,11 @@ function SourceCell({ source }: { readonly source: EffectiveRole['source'] }) {
   );
 }
 
+/** Shown in place of a profile for a role that cannot take one. */
+export const NO_PROFILE_TEXT = 'No profile';
+const DEFAULT_PROFILE_TEXT = 'default';
+const NO_MODEL_TEXT = 'No model';
+
 export const roleText = (v: RoleValue): string =>
   [v.core, v.model, v.effort].filter((part) => part !== '').join(' · ') || '—';
 
@@ -73,6 +78,8 @@ export interface RoleRowProps {
   readonly onProfile: (name: string) => void;
   readonly onEnabled: (enabled: boolean) => void;
   readonly onOpenProfile: (name: string | null) => void;
+  /** The summary row opened (true) or closed (false); the route keeps the opened role. */
+  readonly onToggle: (open: boolean) => void;
 }
 
 /** The Agent profile cell: select + link into the Agent profiles tab. */
@@ -93,7 +100,7 @@ function ProfileCell({
     ];
   }, [view?.profileOptions, profile]);
   const key = pinKeyOf(capability);
-  if (key === undefined) return <span className="agents-muted">—</span>;
+  if (key === undefined) return <span className="agents-muted">{NO_PROFILE_TEXT}</span>;
   const builtIn = profile === '';
   const promptBearing = PROMPT_BEARING_PROCESS_KEYS.includes(key as ProcessKey);
   return (
@@ -133,8 +140,21 @@ export function RoleRow(props: RoleRowProps) {
   const { capability, label, effective, selected, flash, sharesProfile } = props;
   const { catalog, recent, cores, routes } = usePickerInputs();
   const pinnable = pinKeyOf(capability) !== undefined;
+  const panelId = useId();
+  // Narrow tiers collapse the pickers behind the summary row. The route selecting a
+  // row opens it, on mount and when a later route change selects it.
+  const [open, setOpen] = useState(selected);
+  const [wasSelected, setWasSelected] = useState(selected);
+  if (selected !== wasSelected) {
+    setWasSelected(selected);
+    if (selected) setOpen(true);
+  }
+  const coreName = cores.find((c) => c.id === effective.core)?.label ?? effective.core;
+  const profileText = !pinnable ? NO_PROFILE_TEXT : props.profile === '' ? DEFAULT_PROFILE_TEXT : props.profile;
+  const summary = [profileText, coreName || 'No core', effective.model || NO_MODEL_TEXT].join(' · ');
   const classes = [
     'agents-row',
+    open ? 'is-open' : '',
     selected ? 'is-selected' : '',
     flash ? 'is-flash' : '',
     sharesProfile ? 'is-shared' : '',
@@ -158,10 +178,10 @@ export function RoleRow(props: RoleRowProps) {
       <div className="agents-cell agents-cell-role" role="cell">
         <span className="agents-role-name">{label}</span>
       </div>
-      <div className="agents-cell agents-cell-profile" role="cell">
+      <div className="agents-cell agents-cell-profile" id={`${panelId}-profile`} role="cell">
         <ProfileCell {...props} />
       </div>
-      <div className="agents-cell agents-cell-picker" role="cell">
+      <div className="agents-cell agents-cell-picker" id={`${panelId}-picker`} role="cell">
         <AgentPickerIsland
           cores={cores}
           catalog={catalog}
@@ -195,6 +215,24 @@ export function RoleRow(props: RoleRowProps) {
         )}
         <IconButton label="Clear override" disabled={effective.source === 'default'} onClick={props.onClear}>
           <TablerIcon name="eraser" />
+        </IconButton>
+      </div>
+      <div className="agents-cell agents-cell-summary" role="cell">
+        {/* The line clips with an ellipsis, so the full text is a title and a screen-reader copy (UI-R44). */}
+        <span className="agents-summary-line" title={summary} aria-hidden="true" aria-describedby={`${panelId}-summary`}>
+          {summary}
+        </span>
+        <span className="sr-only" id={`${panelId}-summary`}>{summary}</span>
+        <IconButton
+          label={`Settings for ${label}`}
+          aria-expanded={open}
+          aria-controls={`${panelId}-profile ${panelId}-picker`}
+          onClick={() => {
+            setOpen(!open);
+            props.onToggle(!open);
+          }}
+        >
+          <TablerIcon name="chevron-down" />
         </IconButton>
       </div>
     </div>
