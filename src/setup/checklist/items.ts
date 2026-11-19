@@ -7,6 +7,8 @@ import type { DiscoveredRepo, DiscoveryResult } from '../discover.js';
 /** What one item rule sees. `manifest` is always defined here. */
 export interface RuleContext {
   manifest: Manifest;
+  /** The manifest's directory: a relative `repoPath` resolves against it, as the loader and the readiness probes do. */
+  manifestDir: string;
   discovered: readonly DiscoveredRepo[];
   readiness: readonly ReadinessItem[];
   /** True when the user skipped `code` for this target (or for the whole item). */
@@ -35,10 +37,10 @@ function enabledRepos(m: Manifest): [string, RepositoryDef][] {
   return Object.entries(m.repositories).filter(([, r]) => r.enabled !== false);
 }
 
-const samePath = (a: string, b: string): boolean => resolve(a) === resolve(b);
+const samePath = (dir: string, a: string, b: string): boolean => resolve(dir, a) === resolve(dir, b);
 
-function matched(m: Manifest, d: DiscoveredRepo): [string, RepositoryDef][] {
-  return enabledRepos(m).filter(([, r]) => samePath(r.repoPath, d.path));
+function matched(ctx: RuleContext, d: DiscoveredRepo): [string, RepositoryDef][] {
+  return enabledRepos(ctx.manifest).filter(([, r]) => samePath(ctx.manifestDir, r.repoPath, d.path));
 }
 
 /** The readiness items that start with `prefix`, failing only. */
@@ -52,7 +54,7 @@ function reposRegistered(ctx: RuleContext): RuleResult {
   const missing: string[] = [];
   let skippedAny = false;
   for (const d of ctx.discovered) {
-    if (matched(ctx.manifest, d).length > 0) continue;
+    if (matched(ctx, d).length > 0) continue;
     if (ctx.skipped(d.name)) skippedAny = true;
     else missing.push(d.name);
   }
@@ -81,7 +83,7 @@ function servicesDeclared(ctx: RuleContext): RuleResult {
   let skippedAny = false;
   for (const d of ctx.discovered) {
     if (d.service === null) continue;
-    const repos = matched(ctx.manifest, d);
+    const repos = matched(ctx, d);
     if (repos.some(([, r]) => declaredServices(r).some(hasPorts))) continue;
     if (ctx.skipped(d.name)) skippedAny = true;
     else if (repos.length > 0) problems.push(`${d.name} is runnable but has no service with ports and health`);

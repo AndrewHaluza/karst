@@ -26,10 +26,10 @@ const discovery = (...repos: DiscoveredRepo[]): DiscoveryResult => ({ repos, emp
 async function run(
   manifest: Manifest | undefined,
   found_: DiscoveryResult | undefined,
-  opts: { probes?: Partial<ReadinessProbes>; skips?: SkipRecord[]; verify?: ReadinessInput['verifyServices'] } = {},
+  opts: { probes?: Partial<ReadinessProbes>; skips?: SkipRecord[]; verify?: ReadinessInput['verifyServices']; dir?: string } = {},
 ): Promise<ChecklistItem[]> {
   const report = await runReadiness({ manifest, warnings: [], repos: [], probes: fakeProbes(opts.probes), verifyServices: 'verify' in opts ? opts.verify : async () => ({ ok: true, failed: [] }) });
-  return computeChecklist({ manifest, discovery: found_, readiness: report.items, skips: opts.skips ?? [] });
+  return computeChecklist({ manifest, manifestDir: opts.dir ?? '/w', discovery: found_, readiness: report.items, skips: opts.skips ?? [] });
 }
 const byCode = (items: readonly ChecklistItem[], code: string): ChecklistItem => items.find((i) => i.code === code)!;
 const statuses = (items: readonly ChecklistItem[]): Record<string, string> => Object.fromEntries(items.map((i) => [i.code, i.status]));
@@ -151,6 +151,13 @@ describe('computeChecklist: done means verified', () => {
     expect(item.detail).toContain('defaultModel');
   });
 
+  it('matches a relative repoPath against the manifest directory, not the process cwd', async () => {
+    const m = manifestOf({ defaultModel: 'm', repositories: { web: repo({ repoPath: './web' }) } });
+    const d = discovery(found('web', '/w/web', false));
+    expect(byCode(await run(m, d, { dir: '/w' }), 'repos.registered').status).toBe('done');
+    expect(byCode(await run(m, d, { dir: '/elsewhere' }), 'repos.registered').status).toBe('todo');
+  });
+
   it('services.declared is todo until setup verify ran and passed', async () => {
     const m = manifestOf({ defaultModel: 'm', repositories: { web: repo({ service: SERVICE }) } });
     const d = discovery(found('web', '/w/web', true));
@@ -190,7 +197,7 @@ describe('computeChecklist: done means verified', () => {
       manifest: FULL, warnings: [], repos: [], probes: fakeProbes(),
       verifyServices: async () => ({ ok: false, failed: ['web'] }),
     });
-    const items = computeChecklist({ manifest: FULL, discovery: discovery(found('web', '/w/web', true)), readiness: report.items, skips: [] });
+    const items = computeChecklist({ manifest: FULL, manifestDir: '/w', discovery: discovery(found('web', '/w/web', true)), readiness: report.items, skips: [] });
     expect(byCode(items, 'services.declared').status).toBe('todo');
   });
 

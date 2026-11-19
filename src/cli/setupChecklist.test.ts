@@ -12,7 +12,7 @@ const discovery: DiscoveryResult = {
   empty: false,
   repos: [{ name: 'web', path: '/w/web', baselineBranch: 'main', baselineBranchSource: 'origin-head', service: null, serviceReason: 'none' }],
 };
-const base = { manifest, warnings: [], repos: [], probes: fakeProbes(), discovery, skips: [] };
+const base = { manifest, warnings: [], repos: [], probes: fakeProbes(), discovery, skips: [], manifestDir: '/w' };
 
 describe('setup checklist command', () => {
   it('prints the items, the counts and the next todo', async () => {

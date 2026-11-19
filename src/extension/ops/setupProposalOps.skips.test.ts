@@ -10,7 +10,7 @@ const request = (id: string, over: Partial<SkipRequest> = {}): PendingSkipReques
   value: { code: 'git.conventions', reason: 'the team has no convention yet', ...over },
 });
 
-function setup(initial: PendingSkipRequest[], approve = true, opt: { throwOnRecord?: boolean; warn?: (m: string) => void } = {}) {
+function setup(initial: PendingSkipRequest[], approve = true, opt: { throwOnRecord?: boolean; keepFile?: boolean; warn?: (m: string) => void } = {}) {
   let pending = [...initial];
   const recorded: { scratch: string; skip: SkipRecord }[] = [];
   const results: ProposalResult[] = [];
@@ -19,6 +19,7 @@ function setup(initial: PendingSkipRequest[], approve = true, opt: { throwOnReco
     read: () => [...pending],
     remove: (file) => {
       removed.push(file);
+      if (opt.keepFile) return;
       pending = pending.filter((p) => p.file !== file);
     },
     record: (scratch, skip) => {
@@ -118,6 +119,14 @@ describe('skip requests', () => {
     await f.ctl.scan();
     expect(f.results).toMatchObject([{ id: 's-1', kind: 'skip', status: 'invalid', reason: 'the host could not save the skip: disk full' }]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('disk full'));
+  });
+
+  it('does not ask again when an answered request file cannot be removed', async () => {
+    const f = setup([request('s-1')], true, { keepFile: true });
+    await f.ctl.scan();
+    await f.ctl.scan();
+    expect(f.confirm).toHaveBeenCalledOnce();
+    expect(f.recorded).toHaveLength(1);
   });
 
   it('ignores skip requests when no skip wiring exists', async () => {

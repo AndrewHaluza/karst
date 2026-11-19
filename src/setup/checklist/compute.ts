@@ -6,6 +6,8 @@ import type { ChecklistItem, SkipRecord } from './types.js';
 
 export interface ChecklistInput {
   manifest: Manifest | undefined;
+  /** The directory of karst.yml; a relative `repoPath` resolves against it. */
+  manifestDir: string;
   discovery: DiscoveryResult | undefined;
   readiness: readonly ReadinessItem[];
   /** Host-recorded user skips; never read from the agent's outbox. */
@@ -28,6 +30,7 @@ export function computeChecklist(input: ChecklistInput): ChecklistItem[] {
       input.skips.some((s) => s.code === def.code && (s.target === undefined || s.target === target));
     const { problems, skippedAny } = def.rule({
       manifest,
+      manifestDir: input.manifestDir,
       discovered: input.discovery?.repos ?? [],
       readiness: input.readiness,
       skipped,

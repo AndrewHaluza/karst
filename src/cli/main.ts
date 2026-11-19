@@ -899,6 +899,7 @@ export async function runCliAsync(
       warnings: loaded?.codedWarnings ?? [],
       repos: [],
       probes: nodeReadinessProbes(root),
+      manifestDir: root,
       discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
       verifyServices: loaded?.manifest ? setupVerifyServices(db, loaded.manifest) : undefined,
       skips: readSkips(skipStorePath(db, manifestPath)),

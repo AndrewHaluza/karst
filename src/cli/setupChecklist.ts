@@ -11,6 +11,8 @@ import type { SkipRecord } from '../setup/checklist/types.js';
 
 export interface ChecklistCommandInput extends ReadinessInput {
   discovery: DiscoveryResult | undefined;
+  /** The directory of karst.yml. */
+  manifestDir: string;
   /** Host-recorded skips, read from extension storage. */
   skips: readonly SkipRecord[];
 }
@@ -28,6 +30,7 @@ export async function runSetupChecklistCommand(input: ChecklistCommandInput): Pr
   const report = await runReadiness(input);
   const items = computeChecklist({
     manifest: input.manifest,
+    manifestDir: input.manifestDir,
     discovery: input.discovery,
     readiness: report.items,
     skips: input.skips,

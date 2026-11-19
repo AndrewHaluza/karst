@@ -54,7 +54,7 @@ describe('setupInstructions', () => {
     expect(text).toMatch(/spins the baseline services/);
     expect(text).toContain('setup verify');
     expect(text).toContain('setup check');
-    expect(text).toMatch(/End the session ONLY when it reports ok/);
+    expect(text).toMatch(/End the session ONLY when no required item is `todo` and it reports ok/);
   });
 
   it('tells the agent to give values to typed tools, never a proposal format', () => {

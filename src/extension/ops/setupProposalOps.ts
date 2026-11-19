@@ -544,9 +544,14 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     return pending;
   }
 
+  // A request file that could not be removed must not show its popup again on the next scan.
+  const answeredSkips = new Set<string>();
+
   async function handleSkips(scratch: string, skips: SetupSkipWiring): Promise<void> {
     for (const req of skips.read(scratch)) {
       const file = req.file;
+      if (answeredSkips.has(file)) continue;
+      answeredSkips.add(file);
       if ('error' in req) {
         skips.remove(file);
         record(scratch, file, 'skip', 'invalid', { reason: req.error });
