@@ -77,8 +77,6 @@ function harness(transport: FakeTransport): {
   const prompts: string[] = [];
   const deps: RunAgentNodeDeps = {
     transport,
-    resolveProfile: (profile) =>
-      profile === 'expert' ? { provider: 'claude', model: 'opus', effort: 'high' } : { provider: 'codex', effort: 'low' },
     readInstructions: () => '# instructions',
     readInputs: () => [{ path: 'in.md', mediaType: 'text/markdown', bytes: 12, body: '# input task' }],
     ticketContext: '# ticket',
@@ -100,6 +98,7 @@ function harness(transport: FakeTransport): {
         exactModel: SUPPORTED,
       },
     } as never,
+    resolved: { provider: 'claude', model: 'opus', effort: 'high' },
     repo: 'api',
     cwd: '/wt/n1',
     node: agentNode(),
@@ -141,16 +140,17 @@ describe('runAgentNode', () => {
     expect(h.prompts).toHaveLength(1);
     expect(h.prompts[0]).toBe(launch.interactive.initialPrompt);
     expect(result.identity).toMatchObject({
-      provider: 'codex',
-      effort: 'low',
+      provider: 'claude',
+      effort: 'high',
       promptHash: `hash:${h.prompts[0]!.length}`,
     });
   });
 
-  it('freezes provider/model/effort from the profile resolution', async () => {
+  it('freezes provider/model/effort from the resolution the driver passed in', async () => {
     const transport = fakeTransport(true);
     const h = harness(transport);
     h.input.node = agentNode({ profile: 'expert' });
+    h.input.resolved = { provider: 'claude', model: 'opus', effort: 'high' };
     const result = await runAgentNode(h.deps, h.input);
     expect(result.kind).toBe('launched');
     if (result.kind !== 'launched') return;

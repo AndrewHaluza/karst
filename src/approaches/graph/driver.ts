@@ -95,6 +95,8 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessOutcome } from '../../workflow/gates/run.js';
 import type { GraphApproachConfig, GraphCommandConfig, Manifest } from '../../manifest/types.js';
 import { resolvePresetSlot } from '../../agent/agentPresets.js';
+import { isKnownProvider } from '../../agent/provider.js';
+import { isModelCompatibleWithProvider, resolveEffortForProvider } from '../../agent/models.js';
 import type { GraphPromptIdentity } from '../../agent/graphPrompts.js';
 import type { TerminalNamingBag } from '../../ui/terminalNaming.js';
 import { uuidv7 } from './coordinator/lineage.js';
@@ -153,6 +155,8 @@ export interface GraphDriverDeps {
   graphConfigOf: (approachId: string) => GraphApproachConfig | undefined;
   /** The host's manifest (preset slot resolution for graph nodes). */
   manifest: Manifest;
+  /** The ticket's launch fields (preset, core, model, effort) — the AC-04 ticket rungs. */
+  ticketLaunchFieldsOf: (ticketId: number) => GraphLaunchTicketFields;
   /** The graph run's artifact root (global storage; staging + snapshots). */
   artifactRootOf: (graphRunId: number) => string;
   /** Compose the graph session environment (KARST_GRAPH_*). */
@@ -260,50 +264,138 @@ export interface BootstrapPlannerInput {
   projectSlug: string;
 }
 
-/** Resolve a graph config profile name to provider/model/effort. */
+const hasOwn = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key);
+
+/** Resolve a graph config profile name to provider/model/effort (own keys only). */
 export function resolveProfileFor(
   config: GraphApproachConfig,
   profile: string,
 ): { provider: string; model?: string; effort?: string } | undefined {
+  if (!hasOwn(config.profiles, profile)) return undefined;
   const p = config.profiles[profile];
   if (!p) return undefined;
   return { provider: p.provider, model: p.model, effort: p.effort };
 }
 
+/** The ticket fields a graph launch reads (AC-04 ticket rungs). */
+export interface GraphLaunchTicketFields {
+  agentPreset: string | null;
+  provider: string | null;
+  model: string | null;
+  effort: string | null;
+}
+
+/** The rung that supplied a graph launch's identity. */
+export type GraphProfileSource = 'ticket' | 'preset' | 'approach';
+
+export interface ResolvedGraphProfile {
+  provider: string;
+  model?: string;
+  effort?: string;
+  source: GraphProfileSource;
+}
+
+const NO_TICKET_FIELDS: GraphLaunchTicketFields = { agentPreset: null, provider: null, model: null, effort: null };
+
+const GRAPH_CAPABILITY_BY_PROFILE: Readonly<Record<string, 'graphExpert' | 'graphWorker' | 'graphFast'>> = {
+  expert: 'graphExpert',
+  worker: 'graphWorker',
+  fast: 'graphFast',
+};
+
+const nonBlank = (v: string | null | undefined): string | undefined =>
+  v !== null && v !== undefined && v.trim() !== '' ? v : undefined;
+
+/** True when `model` may launch on `provider` (undefined model → true; unknown core → true, the adapter lookup refuses it). */
+function modelFits(provider: string, model: string | undefined): boolean {
+  if (model === undefined || !isKnownProvider(provider)) return true;
+  return isModelCompatibleWithProvider(provider, model);
+}
+
 /**
- * Resolve graph node profile: preset-aware for graphExpert/graphWorker/graphFast,
- * otherwise fall back to config profiles. Presets enable per-approach capability
- * overrides; a profile not in {expert, worker, fast} or with no preset slot
- * resolves from config alone.
+ * The ONE resolver of a graph agent launch (planner and node), AC-04 order:
+ * the ticket's own core/model/effort → the preset slot (ticket `agentPreset` →
+ * active preset) for `expert`/`worker`/`fast` → the approach profile. A slot
+ * is an atomic triple: a model the slot's core cannot run drops the WHOLE slot,
+ * and a ticket core that differs from the slot's drops it too. The catalog gate
+ * and the effort gate then run on the result, so nothing unchecked reaches an
+ * adapter. `source` names the rung for logs. Own-property lookups only.
  */
 export function resolveGraphNodeProfile(
   manifest: Manifest,
   config: GraphApproachConfig,
   profile: string,
+  ticket: GraphLaunchTicketFields = NO_TICKET_FIELDS,
   onDebug?: (message: string) => void,
-): { provider: string; model?: string; effort?: string } | undefined {
-  const graphCapabilityMap: Record<string, 'graphExpert' | 'graphWorker' | 'graphFast'> = {
-    expert: 'graphExpert',
-    worker: 'graphWorker',
-    fast: 'graphFast',
-  };
-
-  const capability = graphCapabilityMap[profile];
-  if (capability) {
-    const slot = resolvePresetSlot(manifest, capability);
-    if (slot) {
-      onDebug?.(`[process] graph node profile "${profile}" → preset slot (${slot.provider})`);
-      return { provider: slot.provider, model: slot.model, effort: slot.effort };
+): ResolvedGraphProfile | undefined {
+  const capability = hasOwn(GRAPH_CAPABILITY_BY_PROFILE, profile)
+    ? GRAPH_CAPABILITY_BY_PROFILE[profile]
+    : undefined;
+  const slot = capability ? resolvePresetSlot(manifest, capability, ticket.agentPreset) : undefined;
+  let base: ResolvedGraphProfile | undefined;
+  if (slot && modelFits(slot.provider, slot.model)) {
+    base = { provider: slot.provider, model: slot.model, effort: slot.effort, source: 'preset' };
+  } else if (slot) {
+    onDebug?.(
+      `[process] graph node profile "${profile}": preset slot (${slot.provider}/${slot.model}) dropped — model not compatible with ${slot.provider}`,
+    );
+  }
+  if (!base) {
+    const approach = resolveProfileFor(config, profile);
+    if (approach) {
+      base = { ...approach, source: 'approach' };
+      if (!modelFits(approach.provider, approach.model)) {
+        onDebug?.(
+          `[process] graph node profile "${profile}": approach model ${approach.model} dropped — not compatible with ${approach.provider}`,
+        );
+        base = { provider: approach.provider, source: 'approach' };
+      }
     }
   }
 
-  const configProfile = resolveProfileFor(config, profile);
-  if (configProfile) {
-    onDebug?.(
-      `[process] graph node profile "${profile}" → config (${configProfile.provider}${configProfile.model ? `/${configProfile.model}` : ''})`,
-    );
+  const ticketProvider = nonBlank(ticket.provider);
+  if (ticketProvider && base?.provider !== ticketProvider) {
+    base = { provider: ticketProvider, source: 'ticket' };
+  } else if (ticketProvider && base) {
+    base = { ...base, source: 'ticket' };
   }
-  return configProfile;
+  if (!base) return undefined;
+  const ticketModel = nonBlank(ticket.model);
+  const ticketEffort = nonBlank(ticket.effort);
+  if (ticketModel && modelFits(base.provider, ticketModel)) {
+    base = { ...base, model: ticketModel, source: 'ticket' };
+  }
+  if (ticketEffort) base = { ...base, effort: ticketEffort, source: 'ticket' };
+
+  const effort = isKnownProvider(base.provider)
+    ? resolveEffortForProvider(base.provider, base.effort, undefined, base.model)
+    : base.effort;
+  if (base.effort !== undefined && effort === undefined) {
+    onDebug?.(`[process] graph node profile "${profile}": effort ${base.effort} dropped — not supported by the model`);
+  }
+  const resolved: ResolvedGraphProfile = {
+    provider: base.provider,
+    ...(base.model !== undefined ? { model: base.model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+    source: base.source,
+  };
+  const label = { ticket: 'ticket', preset: 'preset slot', approach: 'config' }[resolved.source];
+  onDebug?.(
+    resolved.source === 'preset'
+      ? `[process] graph node profile "${profile}" → preset slot (${resolved.provider})`
+      : `[process] graph node profile "${profile}" → ${label} (${resolved.provider}${resolved.model ? `/${resolved.model}` : ''})`,
+  );
+  return resolved;
+}
+
+/** Read the launching ticket's fields through the narrow dep, then resolve once. */
+function resolveLaunchProfile(
+  deps: GraphDriverDeps,
+  config: GraphApproachConfig,
+  profile: string,
+  ticketId: number,
+): ResolvedGraphProfile | undefined {
+  return resolveGraphNodeProfile(deps.manifest, config, profile, deps.ticketLaunchFieldsOf(ticketId), deps.debug);
 }
 
 /**
@@ -434,7 +526,7 @@ export async function bootstrapAndLaunchPlanner(
   // never leaves `ready` needs no recovery, while one parked at `launching`
   // invites the reconcile sweep to relaunch a planner whose profile or
   // worktree will refuse it again on every pass.
-  const resolved = resolveProfileFor(config, config.planner.profile);
+  const resolved = resolveLaunchProfile(deps, config, config.planner.profile, input.ticketId);
   if (!resolved) {
     return {
       kind: 'failed',
@@ -514,7 +606,7 @@ export async function bootstrapAndLaunchPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   deps.debug?.(
-    `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'})`,
+    `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`,
   );
   return { kind: 'launched', graphRunId, plannerRunId, generation, capability, session };
 }
@@ -578,7 +670,7 @@ export async function relaunchBootstrapPlanner(
   const { plannerRunId } = begun;
   // Refuse before the claim, exactly as the bootstrap path does: a planner
   // left at `ready` is not a launch the sweep will keep retrying.
-  const resolved = resolveProfileFor(config, config.planner.profile);
+  const resolved = resolveLaunchProfile(deps, config, config.planner.profile, runTicketId(deps, input.graphRunId));
   if (!resolved) {
     return {
       kind: 'failed',
@@ -660,7 +752,7 @@ export async function relaunchBootstrapPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   deps.debug?.(
-    `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} relaunched (${resolved.provider}/${resolved.model ?? 'default'})`,
+    `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} relaunched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`,
   );
   return {
     kind: 'launched',
@@ -783,7 +875,9 @@ async function executeReadyNode(
   // Agent node: workspace + supervised session, capability-authenticated.
   const approachId = runApproachId(deps, graphRunId);
   const config = deps.graphConfigOf(approachId);
-  const resolved = config ? resolveGraphNodeProfile(deps.manifest, config, node.profile, deps.debug) : undefined;
+  const resolved = config
+    ? resolveLaunchProfile(deps, config, node.profile, runTicketId(deps, graphRunId))
+    : undefined;
   if (!resolved) {
     completeDeterministic(deps, row.id, 'blocked');
     deps.debug?.(
@@ -792,7 +886,7 @@ async function executeReadyNode(
     return 'completed';
   }
   deps.debug?.(
-    `[driver] graph run ${graphRunId}: agent node ${row.node_id} profile "${node.profile}" → ${resolved.provider}${resolved.model ? `/${resolved.model}` : ''}`,
+    `[driver] graph run ${graphRunId}: agent node ${row.node_id} profile "${node.profile}" → ${resolved.provider}${resolved.model ? `/${resolved.model}` : ''} (${resolved.source})`,
   );
   const nodeCapability = randomBytes(32).toString('hex');
   // The generation is a UUIDv7 of the injected clock: its prefix is the claim
@@ -849,7 +943,7 @@ async function launchClaimedAgentNode(
   row: RunnableNodeRow,
   node: AgentNode,
   document: GraphDocument,
-  resolved: NonNullable<ReturnType<typeof resolveGraphNodeProfile>>,
+  resolved: ResolvedGraphProfile,
   config: NonNullable<ReturnType<GraphDriverDeps['graphConfigOf']>>,
   claim: { capability: string; generation: string; ownerNonce: string },
 ): Promise<ReadyNodeOutcome> {
@@ -903,8 +997,6 @@ async function launchClaimedAgentNode(
   const runResult = await runAgentNode(
     {
       transport: deps.transport,
-      resolveProfile: (profile) =>
-        resolveGraphNodeProfile(deps.manifest, config, profile) ?? { provider: 'opencode' },
       readInstructions: (path) => {
         const bytes = path ? deps.readBytes(graphRunId, path) : undefined;
         return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
@@ -948,6 +1040,7 @@ async function launchClaimedAgentNode(
       graphRunId,
       revisionId: row.revision_id,
       adapter: deps.adapterFor(resolved.provider),
+      resolved,
       repo,
       cwd,
       node,
@@ -1364,7 +1457,9 @@ export async function launchReplanPlanner(
   const run = graphRunById(deps.db, launch.graphRunId);
   if (!run) return { kind: 'no-op' };
   const config = deps.graphConfigOf(run.approach_id);
-  const resolved = config ? resolveProfileFor(config, config.planner.profile) : undefined;
+  const resolved = config
+    ? resolveLaunchProfile(deps, config, config.planner.profile, runTicketId(deps, launch.graphRunId))
+    : undefined;
   if (!resolved) {
     return { kind: 'failed', reason: `planner profile of approach "${run.approach_id}" is unresolved` };
   }
@@ -1426,6 +1521,6 @@ export async function launchReplanPlanner(
   if (!markPlannerRunning(deps, launch.plannerRunId)) {
     return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
   }
-  deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched`);
+  deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`);
   return { kind: 'launched', session, generation, capability };
 }
