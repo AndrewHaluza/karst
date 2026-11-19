@@ -18,46 +18,12 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import type { DockerDef, Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
+import { protectedKeys } from '../manifest/sectionTable.js';
 
-/** Top-level fields a setup proposal may never change. */
-const PROTECTED_FIELDS = [
-  'id',
-  'host',
-  'portRange',
-  'baselineBranch',
-  'worktreePathDisplay',
-  'ticketLabelTemplate',
-  'terminalNameTemplate',
-  'conventions',
-  'ticketing',
-  'agentProvider',
-  'defaultModel',
-  'resilience',
-  'defaultEffort',
-  'agentPresets',
-  'activeAgentPreset',
-  'defaultAgentPreset',
-  'archiveDoneAfterDays',
-  'artifacts',
-  'subtasks',
-  'debug',
-  'agentSandbox',
-  'agentBackends',
-  'sandboxMemory',
-  'sandboxLimits',
-  'autopilot',
-  'closeDoneTerminalsWithTicket',
-  'diffsInSourceControl',
-  'stopServersOnDone',
-  'uat',
-  'analysis',
-  'review',
-  'processes',
-  'approaches',
-  'agents',
-] as const;
+/** Top-level fields a legacy setup proposal may never change: derived from the section table (@arch:FIELDCHK). */
+const PROTECTED_FIELDS = protectedKeys();
 
-export type ProtectedField = (typeof PROTECTED_FIELDS)[number];
+export type ProtectedField = keyof Manifest;
 
 /**
  * Required protected fields and their scaffold defaults, used when there is no
