@@ -59,6 +59,20 @@ describe('splitSchemaError', () => {
     expect(splitSchemaError('$: expected object')).toEqual({ field: '$', reason: 'expected object' });
     expect(splitSchemaError('no path')).toEqual({ field: '$', reason: 'no path' });
   });
+
+  it('names the deepest field of a oneOf failure, not the tree', () => {
+    const none = (inner: string, at = '$.service'): string => `${at}: matches none of the alternatives (${inner})`;
+    expect(splitSchemaError(none('$.service: expected object, got string; $.service.healthTimeoutSeconds: expected integer, got string'))).toEqual({
+      field: 'service.healthTimeoutSeconds',
+      reason: 'expected integer, got string',
+    });
+    // Nested: the chosen alternative is itself a oneOf failure.
+    const inner = none('$.service.docker: expected object; $.service.docker.image: expected string, got number', '$.service.docker');
+    expect(splitSchemaError(none(`$.service: expected object; ${inner}`))).toEqual({
+      field: 'service.docker.image',
+      reason: 'expected string, got number',
+    });
+  });
 });
 
 describe('buildEdits', () => {

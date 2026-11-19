@@ -142,9 +142,29 @@ function serviceEntry(input: Tree): { ok: true; wrap: (value: unknown) => Tree }
   return { ok: true, wrap: (value) => ({ services: { [name.value]: value } }) };
 }
 
+const NONE_OF = /^\$[^:]*: matches none of the alternatives \((.*)\)$/s;
+const pathOf = (e: string): string => /^\$([^:]*):/.exec(e)?.[1] ?? '';
+
+/** The most specific alternative error (the deepest path) of a oneOf or anyOf failure: it names the field, not the tree. */
+function deepestAlternative(error: string): string {
+  const inner = NONE_OF.exec(error)?.[1];
+  if (inner === undefined) return error;
+  const alternatives = inner.split('; $').map((e, i) => (i === 0 ? e : `$${e}`));
+  const best = alternatives.reduce((a, b) => (pathOf(b).length > pathOf(a).length ? b : a));
+  return deepestAlternative(trimClosers(best));
+}
+
+/** Drop the closing parentheses of enclosing alternative lists that the split left on a segment. */
+function trimClosers(segment: string): string {
+  let out = segment;
+  while (out.endsWith(')') && out.split(')').length > out.split('(').length) out = out.slice(0, -1);
+  return out;
+}
+
 /** `$.a.b: message` -> the field `a.b` and the reason. */
-export function splitSchemaError(error: string): { field: string; reason: string } {
-  const at = /^\$([^:]*): (.*)$/s.exec(error);
+export function splitSchemaError(raw: string): { field: string; reason: string } {
+  const error = deepestAlternative(raw);
+  const at =/^\$([^:]*): (.*)$/s.exec(error);
   if (at === null) return { field: '$', reason: error };
   const path = at[1]!.replace(/^\./, '');
   return { field: path === '' ? '$' : path, reason: at[2]! };
