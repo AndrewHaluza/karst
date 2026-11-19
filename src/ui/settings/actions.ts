@@ -1,3 +1,4 @@
+import { presetSlotCatalogWarnings, validatePresetSlotEfforts } from '../../agent/presetSlotEfforts.js';
 import type { BackendWant } from '../../agent/backendChoices.js';
 import type { ApproachDef, Manifest, OutputDef } from '../../manifest/types.js';
 import { withAcceptedOutputs } from '../../approaches/pendingOutputs.js';
@@ -44,6 +45,8 @@ export interface SettingsActionsDeps {
    * when the agent presets or approach profiles changed.
    */
   onAgentSettingsSaved?(prev: Manifest, next: Manifest): void;
+  /** Shows a non-blocking Save finding, such as a preset slot model the catalog does not list. */
+  warn?(message: string): void;
   /**
    * Re-read the manifest FILE for a state push — the same source `open` uses,
    * so `request-state` (the webview's recovery for the dropped initial push)
@@ -174,6 +177,7 @@ function validateGraphEfforts(manifest: Manifest, catalog: ModelCatalog): void {
       assertProfileEffort(profile.provider, profile.model, profile.effort, catalog);
     }
   }
+  validatePresetSlotEfforts(manifest, catalog);
 }
 
 /**
@@ -435,6 +439,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           deps.onChange();
           await pushStateWithInstalled();
           ctx.post({ type: 'saved', ...(section ? { section } : {}) });
+          for (const warning of presetSlotCatalogWarnings(delta, deps.modelCatalog())) deps.warn?.(warning);
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

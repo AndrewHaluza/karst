@@ -33,7 +33,6 @@ function setup(initial: PendingSkipRequest[], approve = true, opt: { throwOnReco
     outboxes: () => ['/s/1'],
     readCurrentManifest: () => undefined,
     confirm,
-    applyManifest: vi.fn(() => 'x'),
     runCommand: vi.fn(),
     applyPatch: vi.fn(),
     resolveDir: () => ({ ok: true as const, dir: '/w' }),
@@ -134,7 +133,7 @@ describe('skip requests', () => {
     const ctl = createSetupProposalOps({
       verify: () => { throw new Error('unused'); },
       outboxes: () => ['/s/1'], readCurrentManifest: () => undefined, confirm,
-      applyManifest: vi.fn(() => 'x'), runCommand: vi.fn(), applyPatch: vi.fn(),
+      runCommand: vi.fn(), applyPatch: vi.fn(),
       resolveDir: () => ({ ok: true as const, dir: '/w' }), notify: { info: vi.fn(), warn: vi.fn() } as never,
       fs: { readdir: () => [], readFile: () => '', remove: () => undefined, exists: () => false, mtime: () => 0, writeResult: () => undefined },
     });

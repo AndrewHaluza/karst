@@ -73,7 +73,7 @@ import {
 import { checkHarnessEvidence, harnessPromptLines, harnessReaskPrefix, type StartedHarness } from './harness.js';
 import type { UatTesterRequireEvidence } from '../../manifest/types.js';
 import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/surfaces.js';
-import { COVERAGE_RULE_UAT, coverageOrFallback, isCoverageRecord, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
+import { COVERAGE_RULE_UAT, coverageAllOrFallback, isCoverageRecord, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
 
 /**
  * Ceiling on the injected done-when criteria block (Prompt 17). The source is
@@ -101,6 +101,8 @@ function buildCriteriaBlock(criteria: string | null | undefined, ticketKey: stri
   return [
     `Done-when criteria for this ticket (authoritative — exercise each one against the running code):`,
     text,
+    // arch:UAT-OBS-RUNS: one coverage record for each criterion; a harness never narrows scope.
+    `First list the criteria you read above as C1..Cn, then test each one. A harness description names a tool to use; it does not limit which criteria to test.`,
     ``,
   ];
 }
@@ -1321,16 +1323,14 @@ async function runTesterBody(
         );
       }
       const { coverage: targetCoverage, rest: keptRest } = splitCoverage(stripCoverageLabel(kept));
-      coverageRecords.push({
-        ...coverageOrFallback(
-          targetCoverage.map((f) => ({ severity: f.severity, repo: f.repo, file: null, line: null, title: f.title })),
-          (title) => ({ severity: 'info' as Severity, repo: target.repo, title }),
-        ),
-        repo: target.repo,
-      });
-      const keptCoverage = coverageRecords[coverageRecords.length - 1];
-      if (keptCoverage && observedNothing(keptCoverage.title, keptRest.length) && !stopped) {
-        skippedTitles[target.repo] = keptCoverage.title;
+      // One record for each criterion (arch:UAT-OBS-RUNS); the cap keeps the list bounded.
+      const keptRecords = coverageAllOrFallback(
+        targetCoverage.map((f) => ({ severity: f.severity, repo: f.repo, file: null, line: null, title: f.title })),
+        (title) => ({ severity: 'info' as Severity, repo: target.repo, title }),
+      ).map((r) => ({ ...r, repo: target.repo }));
+      coverageRecords.push(...keptRecords);
+      if (observedNothing(keptRecords.map((r) => r.title), keptRest.length) && !stopped) {
+        skippedTitles[target.repo] = keptRecords[0]!.title;
       }
       // Evidence is a property of the worktree: targets that share one (monorepo
       // `repoPath`) share the verdict, so one probe run covers them all.

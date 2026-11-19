@@ -10,7 +10,7 @@
  * An edit always lands in the layer that wins: the pin when the role is
  * pinned, otherwise the selected preset — so an edit can never be dead.
  *
- * Only the seven process roles can carry a pin: a pin lives on a
+ * Only the eight process roles can carry a pin: a pin lives on a
  * `processes.<key>` row and there is no such row for implementation or the
  * graph roles.
  *

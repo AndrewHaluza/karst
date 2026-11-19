@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createSetupProposalOps } from '../extension/ops/setupProposalOps.js';
 import { ownedScratches, readSetupOwner, writeSetupOwner } from './owner.js';
 
-const PROPOSAL = JSON.stringify({ kind: 'change', repo: 'web', command: 'echo hi', reason: 'r' });
+const PROPOSAL = JSON.stringify({ kind: 'run', repo: 'web', purpose: 'other', command: 'echo hi' });
 
 describe('setup scratch ownership', () => {
   let root: string;
@@ -29,7 +29,6 @@ describe('setup scratch ownership', () => {
       outboxes: () => ownedScratches(root, ws, debug),
       readCurrentManifest: () => undefined,
       confirm,
-      applyManifest: vi.fn(),
       runCommand: vi.fn(),
       applyPatch: vi.fn(),
       notify: { warn: vi.fn(), info: vi.fn() } as never,

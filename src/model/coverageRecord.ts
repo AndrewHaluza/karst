@@ -9,16 +9,22 @@
  */
 export const COVERAGE_PREFIX = 'COVERAGE (reported): ';
 
-export type CoverageStatus = 'PASS' | 'SKIPPED' | 'NOT RUN';
+export type CoverageStatus = 'PASS' | 'FAIL' | 'SKIPPED' | 'NOT RUN';
 
-const STATUSES: readonly CoverageStatus[] = ['PASS', 'SKIPPED', 'NOT RUN'];
+const STATUSES: readonly CoverageStatus[] = ['PASS', 'FAIL', 'SKIPPED', 'NOT RUN'];
 
 const SHAPE =
   `ONE entry with severity "info" and a title starting "${COVERAGE_PREFIX}" followed by PASS (checked, nothing found), ` +
   `SKIPPED (name what and why) or NOT RUN, then " — " and what you covered. `;
 
+/** UAT shape (arch:UAT-OBS-RUNS): ONE record for EACH done-when criterion, tagged `[C<n>]`. */
+const SHAPE_UAT =
+  `ONE entry with severity "info" for EACH done-when criterion, each with a title like ` +
+  `"${COVERAGE_PREFIX}PASS|FAIL|SKIPPED|NOT RUN [C<n>] <criterion in 12 words or less> — what was run, or why not" ` +
+  `(PASS: checked, nothing found; FAIL: checked, it did not hold; SKIPPED: name what and why). `;
+
 export const COVERAGE_RULE_UAT =
-  `Always finish by recording ${SHAPE}` +
+  `Always finish by recording ${SHAPE_UAT}` +
   `If the changed code is not reachable by the harness (for example webview DOM the uat:host probe cannot see, or code behind the faked agent core), ` +
   `say so inside that same entry as SKIPPED with the reason and what else covers it. ` +
   `When the prompt states an evidence rule, run a direct run (for example npx tsx) through the recorder it names, and SKIPPED without a probe run or a recorded direct run is not an accepted outcome.`;
@@ -49,6 +55,11 @@ export function stripCoverageLabel<T extends { title: string }>(items: readonly 
   return items.map((i) => (LABELLED_COVERAGE.test(i.title) ? { ...i, title: i.title.replace(LABELLED_COVERAGE, '') } : i));
 }
 
+/** A coverage record, also when the model put a label before the prefix. */
+export function isCoverageOrLabelled(f: { title: string }): boolean {
+  return isCoverageRecord(f) || LABELLED_COVERAGE.test(f.title);
+}
+
 export function splitCoverage<T extends { title: string }>(items: readonly T[]): { coverage: T[]; rest: T[] } {
   const coverage: T[] = [];
   const rest: T[] = [];
@@ -70,6 +81,55 @@ export function coverageOrFallback<T extends { severity: string; title: string }
   const first = coverage[0];
   if (first) return { ...first, severity: 'info' };
   return fallback ? fallback(COVERAGE_FALLBACK_TITLE) : ({ severity: 'info', title: COVERAGE_FALLBACK_TITLE } as T);
+}
+
+/** Most coverage records kept for one target (a record for each criterion). */
+export const MAX_COVERAGE_RECORDS = 20;
+
+/** Every record the agent gave (forced to info, capped), else the one NOT RUN fallback. */
+export function coverageAllOrFallback<T extends { severity: string; title: string }>(
+  coverage: readonly T[],
+  fallback?: (title: string) => T,
+  cap: number = MAX_COVERAGE_RECORDS,
+): T[] {
+  if (coverage.length === 0) return [coverageOrFallback(coverage, fallback)];
+  return coverage.slice(0, cap).map((c) => ({ ...c, severity: 'info' }));
+}
+
+const CRITERION_TAG = /^\s*\[C(\d+)\]/;
+
+/** The `C<n>` tag right after the status word, or null for a legacy record. */
+export function coverageCriterion(title: string): string | null {
+  if (!isCoverageRecord({ title })) return null;
+  let rest = title.slice(COVERAGE_PREFIX.length);
+  const status = coverageStatus(title);
+  if (rest.startsWith(status)) rest = rest.slice(status.length);
+  const m = CRITERION_TAG.exec(rest);
+  return m ? `C${m[1]}` : null;
+}
+
+/** A criterion counts as tested when its record is PASS or FAIL. */
+export function isTestedStatus(status: CoverageStatus): boolean {
+  return status === 'PASS' || status === 'FAIL';
+}
+
+/**
+ * `N of M criteria tested; not tested: C2, C5` from the criterion-tagged
+ * records; null when no record carries a tag (legacy run). A criterion is
+ * tested if ANY of its records is PASS or FAIL. Bounded by MAX_SKIP_DETAIL.
+ */
+export function criteriaSummary(titles: readonly string[]): string | null {
+  const byCriterion = new Map<string, boolean>();
+  for (const t of titles) {
+    const c = coverageCriterion(t);
+    if (c === null) continue;
+    byCriterion.set(c, (byCriterion.get(c) ?? false) || isTestedStatus(coverageStatus(t)));
+  }
+  if (byCriterion.size === 0) return null;
+  const untested = [...byCriterion].filter(([, ok]) => !ok).map(([c]) => c);
+  const tested = byCriterion.size - untested.length;
+  const text = `${tested} of ${byCriterion.size} criteria tested` + (untested.length ? `; not tested: ${untested.join(', ')}` : '');
+  return text.length > MAX_SKIP_DETAIL ? `${text.slice(0, MAX_SKIP_DETAIL - 1)}…` : text;
 }
 
 /** Longest one-line skip reason shown anywhere (Inside row, banner). */

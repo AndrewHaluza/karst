@@ -45,12 +45,15 @@ describe('setupInstructions', () => {
     expect(text).toMatch(/CANNOT edit repository files/);
   });
 
-  it('documents discovery, validate, propose, propose-change and the verify loop', () => {
+  it('documents discovery, the typed tools and the verify loop', () => {
     expect(text).toContain('setup discover');
     expect(text).toContain('setup set-<section>');
     expect(text).toContain('add-repo');
     expect(text).toContain('setup fix <item code>');
-    expect(text).toContain('setup propose-change');
+    expect(text).toContain('setup run --file');
+    expect(text).toContain('setup write-file --file');
+    expect(text).not.toContain('propose-change');
+    expect(text).not.toContain('manifest propose');
     expect(text).toMatch(/spins the baseline services/);
     expect(text).toContain('setup verify');
     expect(text).toContain('setup check');
@@ -71,9 +74,9 @@ describe('setupInstructions', () => {
     expect(text).toMatch(/protected field is settable through the typed tools/);
   });
 
-  it('routes a retired or legacy key warning to setup fix and forbids propose-change on .karst/', () => {
+  it('routes a retired or legacy key warning to setup fix and forbids writes under .karst/', () => {
     expect(text).toMatch(/retired or legacy key[^.]*setup fix/);
-    expect(text).toMatch(/Never use propose-change on \.karst\//);
+    expect(text).toMatch(/Never write under \.karst\//);
   });
 
   it('prints setup verify and setup check with their required flags', () => {
@@ -107,9 +110,9 @@ describe('setupInstructions', () => {
     expect(text).toContain('setup status');
     expect(text).toContain('`applied`');
     expect(text).toMatch(/at most ONE retry/);
-    expect(text).toContain('propose-change --file');
+    expect(text).toContain('purpose');
     expect(text).not.toContain("printf '%s'");
-    expect(text).toContain('`path` overrides `repo`');
+    expect(text).toContain('`path` of `run` replaces `repo`');
     expect(text).toContain('path: "."');
     expect(text).toContain('manifest show --active');
     expect(text).toContain('cookbook');

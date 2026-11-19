@@ -211,6 +211,26 @@ describe('settings actions — save', () => {
   });
 });
 
+describe('settings actions — preset slot checks at Save', () => {
+  const withSlot = (slot: { provider: 'claude'; model: string; effort?: string }): Manifest =>
+    ({ ...VALID, agentPresets: { p: { slots: { graphExpert: slot } } } }) as Manifest;
+
+  it('refuses a graph slot with an effort its model lacks', async () => {
+    const { actions, posted, order } = harness();
+    await actions.save(withSlot({ provider: 'claude', model: 'claude-remote', effort: 'max' }));
+    expect(order).toEqual([]);
+    expect((posted.find((m) => m.type === 'error') as any).message).toMatch(/graphExpert/);
+  });
+
+  it('saves and warns for a slot model the catalog does not list', async () => {
+    const warn = vi.fn();
+    const { actions, posted } = harness({ warn });
+    await actions.save(withSlot({ provider: 'claude', model: 'claude-future-9' }));
+    expect(posted.some((m) => m.type === 'saved')).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('claude-future-9'));
+  });
+});
+
 describe('settings actions — save notifies the agent-settings listener (T1258)', () => {
   it('passes the file manifest and the saved manifest after the reload', async () => {
     const calls: Array<[Manifest, Manifest]> = [];

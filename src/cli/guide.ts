@@ -181,49 +181,29 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     \`null\` with a reason. It never writes anything and opens no store.
  - \`manifest validate --file <path>\` — ONLY inside a setup session. Validates a
     draft \`karst.yml\` with the SAME loader + schema the extension uses and
-    prints \`{ok,id,repositories,warnings,notices}\`. Use it before proposing.
- - \`manifest propose --file <path> [--summary <text>]\` — ONLY inside a setup
-    session. Validates the draft, then writes a \`kind:'manifest'\` proposal
-    (the raw YAML plus its target path) into the session's
-    \`$KARST_SETUP_OUTBOX\`. The extension diffs it against the current
-    \`karst.yml\`, lists every start command it would run, and applies it only
-    after the user approves — you NEVER write the manifest yourself. When an
-    existing manifest is present, propose a MINIMAL edit: keep \`id\`, presets,
-    agent settings, processes and every field you did not infer; only add or
-    correct repositories and services. The host re-enforces that on apply.
+    prints \`{ok,id,repositories,warnings,notices}\`. It is read-only: change the manifest with the typed setup tools.
  - \`manifest show --active\` — ONLY inside a setup session. Prints the active
     \`karst.yml\` re-dumped WITHOUT comments (pass \`--manifest "$KARST_MANIFEST"\`).
     Read this instead of the annotated file, which is a long cookbook.
- - \`setup propose-change\` — ONLY inside a setup session. Reads ONE JSON object
-    (\`--file <path>\` is preferred: build the payload in a file, shell echo
-    corrupts quoting), \`{"subcommand":"propose-change","repo":…,"reason":…,"command":…,"path":…}\`
-    (or \`"patch"\` instead of \`"command"\`). \`repo\` is a manifest repository
-    name or a folder name; \`path\` (optional, absolute or relative to the
-    workspace root, must stay inside it, \`.\` = the root) overrides \`repo\` for
-    where the change runs — use \`path: "."\` to git init the root. The consent
-    dialog shows the resolved directory. It writes the proposal into
-    \`$KARST_SETUP_OUTBOX\`. The extension shows the exact command or patch and
-    applies it only after the user agrees — git init, dependency installs,
-    \`.env\` creation and the like all need that consent; you must NOT edit a
-    tracked file yourself. A repo whose change is refused or skipped gets no
-    service and the gap is recorded in your report.
+ - \`setup run\` and \`setup write-file\` — ONLY inside a setup session. The typed tools for any change outside \`karst.yml\`.
+    Input is one JSON object (\`--file <path>\` is preferred, or the MCP tool \`setup-run\` / \`setup-write-file\`).
+    \`run\`: \`{repo | path, purpose: git-init|install-deps|create-baseline|other, command}\`. The host shows the purpose and
+    the exact command, runs it only after the user agrees (it is NOT dry-run), keeps a byte copy of \`.karst/\` files and
+    restores them, then runs the checklist checks. \`path\` (absolute or relative to the workspace root, inside it, \`.\` = the
+    root) replaces \`repo\` for where the command runs. \`write-file\`: \`{repo, path, content}\`. The path is relative, never
+    under \`.karst/\`, never through a symlink. The host builds the patch, checks it with \`git apply --check\`, shows the diff
+    and applies it after consent. The old \`kind: manifest\` and \`kind: change\` outbox files are refused as invalid
+    (use the typed setup tools). A repo whose change is refused or skipped gets no service and the gap is recorded in your report.
  - \`setup set-<section>\`, \`add-repo\`, \`set-repo\`, \`remove-repo\`, \`set-service\`, \`remove-service\`, \`fix <item code>\` — ONLY inside a
     setup session (they refuse without \`KARST_SETUP_SESSION\`). Typed edit tools: give only values as JSON (\`--file\`, stdin or the
     MCP tool \`setup-<tool>\`), never YAML or a proposal. An input is a sparse patch; null removes a key. \`karst schema setup <tool>\`
     prints its fields. Each call adds one op; the host applies all ops to the latest karst.yml and shows ONE popup after about
     4 seconds without a new op. Protected fields are settable and listed first in the popup. \`id\` is settable on first setup only.
  - \`setup checklist\` — ONLY inside a setup session. Prints the first-setup checklist {code, section, title, required, status todo|done|skipped, tool, detail}. An item is done only when its readiness check passes. Take each todo item in order, call its tool, repeat.\n - \`setup skip --file <json>\` — ONLY inside a setup session. Proposes a skip {subcommand:"skip", code, target?, reason}. Only the user skips an item: the host asks in a popup and records the answer.\n - \`setup status\` / \`setup withdraw <id>\` — ONLY inside a setup session.
-    \`manifest propose\` and \`setup propose-change\` print the proposal \`id\`.
+    \`setup run\` and \`setup write-file\` print the proposal \`id\`.
     \`status\` lists every proposal of the session with its status
-    (pending|applied|declined|invalid|superseded|withdrawn), a reason, the
-    protected fields the host dropped, and the sha256 of karst.yml after an
-    apply. A new manifest proposal supersedes an older pending one. Protected
-    fields (gates, conventions, processes, …) are taken from your proposal only
-    on first setup (no manifest, or an unedited scaffold); afterwards they are
-    kept and each dropped field is named in the result. A user changes them in
-    Settings (review gates: Settings > Quality), not through a proposal. \`withdraw\` removes a
-    pending proposal. After each proposal, confirm it shows \`applied\` (plus the
-    sha256 for a manifest): the propose command's ok only means queued. Retry at
+    (pending|applied|declined|invalid|superseded|withdrawn), a reason, and the
+    host check steps. \`withdraw\` removes a pending proposal. After each proposal, confirm it shows \`applied\`: the tool's ok only means queued. Retry at
     most once, then report.
  - \`setup verify --db "$KARST_DB" --manifest "$KARST_MANIFEST" [--repos a,b]\` — ONLY inside a setup session, AFTER the user
     accepted the manifest. Starts the proposed manifest's baseline services with
@@ -363,6 +343,14 @@ only \`pass\`. A gate stage (\`uat\`/\`review\`/\`ship\`) is decided by exit
 codes — never by an agent self-report. \`stage ship pass\` is REFUSED, and a
 conflict must never be marked failed: \`ship\` has no failed edge, so the
 ticket would park with no way out.
+
+## Agent presets and graph slots
+
+\`agentPresets\` maps a preset name to \`slots\`, one slot per capability, and
+\`activeAgentPreset\` picks the preset in use. A slot sets provider, model and
+effort together. The graph planner and the \`expert\` nodes use \`graphExpert\`.
+The \`worker\` and \`fast\` nodes use \`graphWorker\` and \`graphFast\`. Run
+\`schema\` for the description of each capability.
 
 ## Editing files
 

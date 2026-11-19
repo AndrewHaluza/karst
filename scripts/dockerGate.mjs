@@ -21,7 +21,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import { basename } from 'node:path';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { baseRerunArgv, classifyFailures, classifyHeadRerun, failedTests, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
@@ -356,7 +356,7 @@ async function main(argv) {
         'baselines were recorded in — running the sweep locally.',
     );
     const results = join(process.cwd(), RESULTS_REL);
-    rmSync(results, { force: true });
+    bestEffort(results, () => rmSync(results, { force: true }));
     const result = spawnSync(plan.command, {
       shell: true,
       stdio: 'inherit',
@@ -456,7 +456,8 @@ async function runContainer(rawArgv, memo = null, clock = phaseClock()) {
   if (!holding) process.exit(130);
   clock.lap('wait');
   const results = join(process.cwd(), RESULTS_REL);
-  rmSync(results, { force: true });
+  bestEffort(results, () => rmSync(results, { force: true }));
+  bestEffort(tmpdir(), () => sweepStaleBaseDirs());
   // Async spawn: spawnSync would block the signal handlers above until docker exits.
   const run = async (dockerArgs, env = process.env) => {
     const nameAt = dockerArgs.indexOf('--name');
@@ -507,6 +508,68 @@ async function runContainer(rawArgv, memo = null, clock = phaseClock()) {
   process.exit(status);
 }
 
+/** The prefix of the base worktree directories in the temp dir. */
+export const BASE_DIR_PREFIX = 'karst-base-';
+/** A base worktree directory older than this is a leak (a run holds its directory for minutes). */
+export const BASE_DIR_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Run one cleanup step. A failure is one NOTICE line and never changes the gate verdict (@arch:GATE-OUTPUT).
+ * Returns true when the step ran clean.
+ */
+export function bestEffort(target, step, log = console.error) {
+  try {
+    step();
+    return true;
+  } catch (error) {
+    log(`NOTICE: base check cleanup failed: ${target}: ${error?.code ?? error?.message ?? 'unknown'}`);
+    return false;
+  }
+}
+
+/** Remove a container by name and wait for docker to finish. Never rejects. */
+export function removeContainer(name) {
+  return new Promise((resolve) => {
+    const child = spawn('docker', ['rm', '-f', name], { stdio: 'ignore', timeout: RM_TIMEOUT_MS });
+    child.on('error', () => resolve());
+    child.on('close', () => resolve());
+  });
+}
+
+const gitSpawn = (args, options) => spawnSync('git', args, options);
+
+/** The default seams of the base check; tests inject fakes. */
+const REAL_SEAMS = { rmSync, mkdtempSync, git: gitSpawn, removeContainer };
+
+/**
+ * Remove karst-base-* directories in `dir` older than a day (left by a run that crashed or lost the rm race),
+ * then prune the worktree list. Best effort: it never throws.
+ */
+export function sweepStaleBaseDirs({ dir = tmpdir(), cwd = process.cwd(), now = Date.now(), seams = {}, log = console.error } = {}) {
+  const { rmSync: rm, git } = { ...REAL_SEAMS, ...seams };
+  const list = seams.readdirSync ?? readdirSync;
+  const stat = seams.statSync ?? statSync;
+  let names = [];
+  try {
+    names = list(dir).filter((n) => n.startsWith(BASE_DIR_PREFIX));
+  } catch (error) {
+    log(`NOTICE: base check cleanup failed: ${dir}: ${error?.code ?? 'unknown'}`);
+    return;
+  }
+  let removed = 0;
+  for (const n of names) {
+    const path = join(dir, n);
+    let old = false;
+    try {
+      old = now - stat(path).mtimeMs > BASE_DIR_MAX_AGE_MS;
+    } catch {
+      // Gone already, or unreadable: leave it.
+    }
+    if (old && bestEffort(path, () => rm(path, { recursive: true, force: true }), log)) removed += 1;
+  }
+  if (removed > 0) bestEffort(cwd, () => git(['worktree', 'prune'], { cwd, stdio: 'ignore' }), log);
+}
+
 const RESULTS_REL = join('tests', 'visual', '.results.json');
 const BASELINES_REL = 'tests/visual/__baselines__';
 
@@ -531,7 +594,7 @@ function ownBaselines(cwd, sha) {
  * Ones that pass are flaky (noticed, not failed); a ticket-recorded baseline that passes stays failed.
  * Returns { done: true, status } when the gate is decided, else { done: false, failing } for the base check.
  */
-async function judgeAtHead({ status, rawArgv, name, volume, run, results, failing, own }) {
+export async function judgeAtHead({ status, rawArgv, name, volume, run, results, failing, own, seams = REAL_SEAMS }) {
   const plan = planHeadRerun(failing);
   if (plan.kind === 'skip') {
     if (plan.reason) console.error(plan.reason);
@@ -539,8 +602,9 @@ async function judgeAtHead({ status, rawArgv, name, volume, run, results, failin
   }
   console.error(`re-running ${failing.screenshots.length} failing screenshot(s) at the ticket head`);
   const cwd = process.cwd();
-  rmSync(results, { force: true });
+  bestEffort(results, () => seams.rmSync(results, { force: true }));
   const headStatus = await run(baseRunArgv(rawArgv, cwd, failing.screenshots, `${name}-head`, volume), rerunEnv(process.env));
+  await seams.removeContainer(`${name}-head`);
   const headReport = readReport(results);
   if (headReport === null) {
     console.error(`flake re-run skipped: the re-run left no report (exit ${headStatus})`);
@@ -560,14 +624,15 @@ async function judgeAtHead({ status, rawArgv, name, volume, run, results, failin
  * exit status: 0 when only drift remains, else the original one. The worktree
  * is always removed.
  */
-async function judgeAgainstBase({ status, rawArgv, name, volume, run, results }) {
+export async function judgeAgainstBase({ status, rawArgv, name, volume, run, results, seams: given = {} }) {
+  const seams = { ...REAL_SEAMS, ...given };
   const cwd = process.cwd();
   const report = readReport(results);
   if (report === null) return status;
   const sha = mergeBaseSha(cwd);
   if (sha === null) return status;
   const own = ownBaselines(cwd, sha);
-  const head = await judgeAtHead({ status, rawArgv, name, volume, run, results, failing: failingScreenshots(report, cwd), own });
+  const head = await judgeAtHead({ status, rawArgv, name, volume, run, results, failing: failingScreenshots(report, cwd), own, seams });
   if (head.done) return head.status;
   const failing = head.failing;
   const plan = planBaseCheck(failing, own);
@@ -576,9 +641,9 @@ async function judgeAgainstBase({ status, rawArgv, name, volume, run, results })
     console.error(`base check skipped: ${plan.reason}`);
     return status;
   }
-  const baseDir = mkdtempSync(join(tmpdir(), 'karst-base-'));
+  const baseDir = seams.mkdtempSync(join(tmpdir(), BASE_DIR_PREFIX));
   try {
-    const add = spawnSync('git', ['worktree', 'add', '--detach', baseDir, sha], { cwd, encoding: 'utf8' });
+    const add = seams.git(['worktree', 'add', '--detach', baseDir, sha], { cwd, encoding: 'utf8' });
     if (add.status !== 0) {
       console.error(`base check skipped: cannot create the base worktree: ${add.stderr?.trim()}`);
       return status;
@@ -594,9 +659,11 @@ async function judgeAgainstBase({ status, rawArgv, name, volume, run, results })
     for (const line of reportLines(verdict)) console.error(line);
     return verdict.breaks.length === 0 ? 0 : status;
   } finally {
-    spawnSync('git', ['worktree', 'remove', '--force', baseDir], { cwd, stdio: 'ignore' });
-    rmSync(baseDir, { recursive: true, force: true });
-    spawnSync('git', ['worktree', 'prune'], { cwd, stdio: 'ignore' });
+    // The container holds the node_modules volume mount: remove it before the worktree (@arch:GATE-OUTPUT).
+    await seams.removeContainer(`${name}-base`);
+    bestEffort(baseDir, () => seams.git(['worktree', 'remove', '--force', baseDir], { cwd, stdio: 'ignore' }));
+    bestEffort(baseDir, () => seams.rmSync(baseDir, { recursive: true, force: true }));
+    bestEffort(baseDir, () => seams.git(['worktree', 'prune'], { cwd, stdio: 'ignore' }));
   }
 }
 

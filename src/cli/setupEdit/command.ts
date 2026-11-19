@@ -13,7 +13,9 @@ import type { Manifest } from '../../manifest/types.js';
 import { editsDir, readEditOps, writeEditOp, withdrawEditOp } from '../../setup/editOps.js';
 import type { EditOpFile } from '../../setup/editOps.js';
 import { resolveSetupOutboxDir } from '../../setup/outbox.js';
-import { MAX_SETUP_PROPOSAL_BYTES } from '../../setup/proposal.js';
+import { MAX_SETUP_PROPOSAL_BYTES, validateSetupProposal } from '../../setup/proposal.js';
+import { basename } from 'node:path';
+import { writeSetupProposal } from '../../setup/outbox.js';
 import { EXAMPLE_MANIFEST_PATH, isFirstSetup, readScaffoldManifest } from '../../setup/scaffoldManifest.js';
 import { validateJson } from '../jsonSchema.js';
 import { buildEdits, splitSchemaError } from './build.js';
@@ -124,12 +126,28 @@ export function previewEdits(ops: readonly EditOpFile[], deps: EditCommandDeps) 
   return buildEdits(baseText, ops, { firstSetup, ...(templateText(deps) !== undefined ? { scaffoldText: templateText(deps)! } : {}) }, load);
 }
 
+/** `run` and `write-file`: the host's own check, then one outbox file. The host checks it again and asks the user. */
+function fileProposal(kind: 'run' | 'write-file', input: Record<string, unknown>, outbox: string, deps: EditCommandDeps): string {
+  const checked = validateSetupProposal({ kind, ...input });
+  if (!checked.ok) return rejected({ reason: checked.reason });
+  const file = writeSetupProposal(outbox, checked.value, deps.uuid);
+  return JSON.stringify({
+    ok: true,
+    kind,
+    id: basename(file, '.json'),
+    status: 'pending',
+    note: 'the host shows this to the user; it acts only after the user approves. Check `karst setup status`.',
+  });
+}
+
 export function runEditTool(tool: string, rest: readonly string[], deps: EditCommandDeps): string {
   assertSetupSession({ [SETUP_SESSION_ENV]: deps.sessionEnv }, `karst setup ${tool}`);
   const outbox = resolveSetupOutboxDir(deps.outboxEnv);
   const input = readInput(tool, rest, deps);
   const bad = checkInput(tool, input);
   if (bad !== undefined) return rejected(bad);
+  const spec = findEditTool(tool)!;
+  if (spec.proposal !== undefined) return fileProposal(spec.proposal, input as Record<string, unknown>, outbox, deps);
   const pending = readEditOps(outbox);
   const probe: EditOpFile = { id: 'new', seq: '~', tool, input: input as Record<string, unknown> };
   const built = previewEdits([...pending, probe], deps);

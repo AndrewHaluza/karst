@@ -1,25 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dump, load } from 'js-yaml';
-import { basename, resolve } from 'node:path';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
-import { manifestRemovedKeys } from '../manifest/write.js';
 import type { Manifest } from '../manifest/types.js';
-import { applyManifestProposal, droppedProtectedFields, sameManifest } from '../setup/manifestApply.js';
+import { droppedProtectedFields } from '../setup/manifestApply.js';
 import { isFirstSetup, readScaffoldManifest } from '../setup/scaffoldManifest.js';
-import { validateSetupProposal, type ManifestProposal } from '../setup/proposal.js';
-import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
 
 /**
- * `karst manifest validate --file <path>` and `karst manifest propose --file <path>`.
+ * `karst manifest validate --file <path>` and `karst manifest show --active`.
  *
  * `validate` runs the SAME loader + schema the extension uses, so a draft the
  * agent believes is valid cannot fail later at the host boundary; it prints the
- * parsed identity and repository count as JSON.
- *
- * `propose` validates first, then writes a `kind: 'manifest'` proposal into
- * `$KARST_SETUP_OUTBOX` — the raw YAML plus its target path. The extension
- * ingests it, diffs it against the current file, and applies it only after the
- * user approves. The agent NEVER writes `karst.yml` itself.
+ * parsed identity and repository count as JSON. Both commands are read-only.
+ * The setup agent changes the manifest only through the typed `setup` tools.
  *
  * Its own parse path (handled before structured input in `main.ts`) because
  * `--file` here names a YAML file, not a JSON structured-input payload.
@@ -30,49 +22,35 @@ export interface ManifestCommandDeps {
   outboxEnv?: string;
   /** The `--manifest` global; `show` reads it. */
   manifestPath?: string;
-  /** Injectable uuid for deterministic tests. */
-  uuid?: () => string;
   /** The bundled template, for the first-setup test. Defaults to the shipped `karst.example.yml`. */
   scaffold?: () => Manifest | undefined;
 }
 
-const USAGE =
-  'usage: karst manifest <validate|propose> --file <path> [--summary <text>] [--clears <id,id>] | karst manifest show --active';
+const USAGE = 'usage: karst manifest validate --file <path> | karst manifest show --active';
 
 interface Parsed {
-  sub: 'validate' | 'propose';
+  sub: 'validate';
   file: string;
-  summary?: string;
-  clears?: string[];
 }
 
 export function parseManifestArgs(argv: readonly string[]): Parsed {
   const [cmd, sub, ...rest] = argv;
   if (cmd !== 'manifest') throw new Error(`karst manifest: unknown command '${cmd ?? ''}'`);
-  if (sub !== 'validate' && sub !== 'propose') {
-    throw new Error(`karst manifest: unknown subcommand '${sub ?? ''}' (want 'validate', 'propose' or 'show')`);
+  if (sub !== 'validate') {
+    throw new Error(`karst manifest: unknown subcommand '${sub ?? ''}' (want 'validate' or 'show')`);
   }
   let file: string | undefined;
-  let summary: string | undefined;
-  let clears: string[] | undefined;
   for (let i = 0; i < rest.length; i++) {
     const token = rest[i];
     if (token === '--file') {
       file = rest[++i];
       if (file === undefined) throw new Error(`karst manifest ${sub}: --file needs a path (${USAGE})`);
-    } else if (token === '--summary') {
-      summary = rest[++i];
-      if (summary === undefined) throw new Error(`karst manifest ${sub}: --summary needs a value (${USAGE})`);
-    } else if (token === '--clears') {
-      const value = rest[++i];
-      if (value === undefined) throw new Error(`karst manifest ${sub}: --clears needs a value (${USAGE})`);
-      clears = value.split(',').filter((id) => id !== '');
     } else {
       throw new Error(`karst manifest ${sub}: unknown argument '${token}' (${USAGE})`);
     }
   }
   if (file === undefined) throw new Error(`karst manifest ${sub}: missing --file <path> (${USAGE})`);
-  return { sub, file, summary, ...(clears !== undefined ? { clears } : {}) };
+  return { sub, file };
 }
 
 function validateFile(file: string) {
@@ -81,50 +59,22 @@ function validateFile(file: string) {
   return loadManifestWithDiagnostics(file);
 }
 
-interface Comparison {
-  /** Protected fields of the draft that the host would discard. */
-  wouldDrop: string[];
-  /** True when the host would apply a manifest equal to the current one. */
-  noEffect: boolean;
-}
-
 /**
- * Compare a draft with the file at `--manifest` the way the host does, with
- * the same first-setup rule. With no readable current manifest nothing is
- * compared: the host then treats the proposal as a first setup too.
+ * The protected fields of a draft that the host would discard, compared with
+ * the file at `--manifest` under the same first-setup rule. With no readable
+ * current manifest nothing is compared.
  */
-function compareWithCurrent(draft: Manifest, deps: ManifestCommandDeps): Comparison {
-  const none: Comparison = { wouldDrop: [], noEffect: false };
-  if (deps.manifestPath === undefined || !existsSync(deps.manifestPath)) return none;
+function wouldDrop(draft: Manifest, deps: ManifestCommandDeps): string[] {
+  if (deps.manifestPath === undefined || !existsSync(deps.manifestPath)) return [];
   let current: Manifest;
   try {
     current = loadManifestWithDiagnostics(deps.manifestPath).manifest;
   } catch {
     // Same as the host: an unreadable current manifest counts as absent (first setup).
-    return none;
+    return [];
   }
   const template = (deps.scaffold ?? readScaffoldManifest)();
-  const firstSetup = isFirstSetup(current, template);
-  const effective = applyManifestProposal(current, draft, firstSetup);
-  return {
-    wouldDrop: droppedProtectedFields(current, draft, firstSetup),
-    // A raw delta counts: the write drops a retired key that the loader already drops in memory.
-    noEffect: sameManifest(effective, current) && !writeChangesFile(deps.manifestPath, effective),
-  };
-}
-
-/**
- * True when writing `effective` over the file at `path` removes a key (a retired or legacy key).
- * Defaults the writer adds are not a delta: they would make every proposal look like a change.
- */
-function writeChangesFile(path: string | undefined, effective: Manifest): boolean {
-  if (path === undefined) return false;
-  try {
-    return manifestRemovedKeys(path, effective).length > 0;
-  } catch {
-    // The host treats an unpreviewable write as no raw delta too.
-    return false;
-  }
+  return droppedProtectedFields(current, draft, isFirstSetup(current, template));
 }
 
 function runValidate(file: string, deps: ManifestCommandDeps): string {
@@ -133,40 +83,10 @@ function runValidate(file: string, deps: ManifestCommandDeps): string {
     ok: true,
     id: manifest.id ?? null,
     repositories: Object.keys(manifest.repositories),
-    wouldDrop: compareWithCurrent(manifest, deps).wouldDrop,
+    wouldDrop: wouldDrop(manifest, deps),
     warnings,
     notices,
   });
-}
-
-function runPropose(file: string, summary: string | undefined, clears: string[] | undefined, deps: ManifestCommandDeps): string {
-  const { manifest } = validateFile(file);
-  const { wouldDrop, noEffect } = compareWithCurrent(manifest, deps);
-  if (noEffect) {
-    const dropped =
-      wouldDrop.length > 0
-        ? `The host would discard these protected fields: ${wouldDrop.join(', ')}. The user changes them in Settings.`
-        : 'The draft has no difference from the current manifest.';
-    throw new Error(`karst manifest propose: nothing to apply, so no proposal is queued. ${dropped}`);
-  }
-  const targetPath = resolve(file);
-  const yaml = readFileSync(file, 'utf8');
-  const serviceCount = Object.values(manifest.repositories).filter((r) => r.service !== undefined).length;
-  const proposal: ManifestProposal = {
-    kind: 'manifest',
-    targetPath,
-    yaml,
-    summary:
-      summary ??
-      `Proposed manifest: ${Object.keys(manifest.repositories).length} repositories, ${serviceCount} with a service.`,
-    ...(clears !== undefined ? { clears } : {}),
-  };
-  const checked = validateSetupProposal(proposal);
-  if (!checked.ok) throw new Error(`karst manifest propose: ${checked.reason}`);
-
-  const dir = resolveSetupOutboxDir(deps.outboxEnv);
-  const out = writeSetupProposal(dir, checked.value, deps.uuid);
-  return JSON.stringify({ ok: true, kind: 'manifest', id: basename(out, '.json'), file: out, wouldDrop });
 }
 
 /**
@@ -189,6 +109,6 @@ function runShow(rest: readonly string[], deps: ManifestCommandDeps): string {
 
 export function runManifestCommand(argv: readonly string[], deps: ManifestCommandDeps = {}): string {
   if (argv[1] === 'show') return runShow(argv.slice(2), deps);
-  const { sub, file, summary, clears } = parseManifestArgs(argv);
-  return sub === 'validate' ? runValidate(file, deps) : runPropose(file, summary, clears, deps);
+  const { file } = parseManifestArgs(argv);
+  return runValidate(file, deps);
 }

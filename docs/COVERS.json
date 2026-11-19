@@ -785,6 +785,9 @@
   "src/runtime/health.ts#HealthForeignInstanceError": [
     "arch:PORTS"
   ],
+  "src/runtime/health.ts#HealthPermanentError": [
+    "arch:PORTS"
+  ],
   "src/runtime/health.ts#waitForHealth": [
     "arch:PORTS"
   ],

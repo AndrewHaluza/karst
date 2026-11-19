@@ -45,11 +45,26 @@ export function readManifestText(manifestPath: string): string | undefined {
   }
 }
 
-export function gitApplyCheck(cwd: string, patch: string): Promise<GitApplyOutcome> {
+/**
+ * `git apply` run in a sub-directory of a repo skips every path outside that directory
+ * and exits 0, so a monorepo patch would apply nothing. `--directory=<prefix>` puts the
+ * patch paths under the sub-directory. At the repo root, or outside a repo, no argument is needed.
+ */
+export function gitApplyPrefixArgs(cwd: string): Promise<string[]> {
+  return new Promise((done) => {
+    execFile('git', ['rev-parse', '--show-prefix'], { cwd, timeout: GIT_APPLY_TIMEOUT_MS }, (error, stdout) => {
+      const prefix = error === null ? stdout.trim() : '';
+      done(prefix === '' ? [] : [`--directory=${prefix}`]);
+    });
+  });
+}
+
+export async function gitApplyCheck(cwd: string, patch: string): Promise<GitApplyOutcome> {
+  const prefix = await gitApplyPrefixArgs(cwd);
   return new Promise((done) => {
     const child = execFile(
       'git',
-      ['apply', '--check', '--whitespace=nowarn', '-'],
+      ['apply', '--check', '--whitespace=nowarn', ...prefix, '-'],
       { cwd, timeout: GIT_APPLY_TIMEOUT_MS },
       (error, _stdout, stderr) => {
         if (error === null) return done({ ok: true });

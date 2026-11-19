@@ -670,25 +670,23 @@ describe('runCli — manifest / setup (setup sessions)', () => {
     writeFileSync(file, `${validYaml}archiveDoneAfterDays: 9\n`);
     const out = JSON.parse(runCli(['manifest', 'validate', '--file', file], { KARST_MANIFEST: current }));
     expect(out.wouldDrop).toEqual(['archiveDoneAfterDays']);
-    expect(() => runCli(['manifest', 'propose', '--file', file], { KARST_MANIFEST: current, KARST_SETUP_OUTBOX: dir })).toThrow(
-      /Settings/,
-    );
   });
 
-  it('routes `manifest propose --file` into KARST_SETUP_OUTBOX', () => {
+  it('has no `manifest propose` and no `setup propose-change`', () => {
     const file = join(dir, 'draft.yml');
     writeFileSync(file, validYaml);
-    const out = JSON.parse(runCli(['manifest', 'propose', '--file', file], { KARST_SETUP_OUTBOX: dir }));
-    expect(out).toMatchObject({ ok: true, kind: 'manifest' });
-    expect(readdirSync(dir).some((f) => f.endsWith('.json'))).toBe(true);
+    expect(() => runCli(['manifest', 'propose', '--file', file], { KARST_SETUP_OUTBOX: dir })).toThrow(/unknown subcommand/);
+    const change = JSON.stringify({ subcommand: 'propose-change', repo: 'web', reason: 'r', command: 'npm ci' });
+    expect(() => runCli(['setup', 'propose-change', '--stdin'], { KARST_SETUP_OUTBOX: dir }, { readStdin: () => change })).toThrow();
+    expect(readdirSync(dir).some((f) => f.endsWith('.json'))).toBe(false);
   });
 
-  it('routes `setup propose-change` from structured --stdin input', () => {
-    const change = JSON.stringify({ subcommand: 'propose-change', repo: 'web', reason: 'r', command: 'npm ci' });
-    const out = JSON.parse(
-      runCli(['setup', 'propose-change', '--stdin'], { KARST_SETUP_OUTBOX: dir }, { readStdin: () => change }),
-    );
-    expect(out).toMatchObject({ ok: true, kind: 'change' });
+  it('routes `setup run --file` into the outbox as a run proposal, in a setup session only', () => {
+    const file = join(dir, 'run.json');
+    writeFileSync(file, JSON.stringify({ repo: 'web', purpose: 'install-deps', command: 'npm ci' }));
+    expect(() => runCli(['setup', 'run', '--file', file], { KARST_SETUP_OUTBOX: dir })).toThrow(/setup session/);
+    const out = JSON.parse(runCli(['setup', 'run', '--file', file], { KARST_SETUP_OUTBOX: dir, KARST_SETUP_SESSION: 's1' }));
+    expect(out).toMatchObject({ ok: true, kind: 'run' });
   });
 
   it('routes `setup skip --file` and the flat MCP object into a skip request', () => {
@@ -702,20 +700,6 @@ describe('runCli — manifest / setup (setup sessions)', () => {
       runCli(['setup', 'skip', '--db', join(dir, 'x.db')], { KARST_SETUP_OUTBOX: dir }, { readStdin: () => flat }),
     );
     expect(viaMcp).toMatchObject({ ok: true, kind: 'skip', status: 'requested' });
-  });
-
-  it('accepts the flat MCP tool object (globals + stdin, no --stdin token)', () => {
-    // The MCP runner emits `setup propose-change` plus the global --db/--manifest
-    // and feeds the validated tool object on stdin; the handler must normalize it.
-    const change = JSON.stringify({ subcommand: 'propose-change', repo: 'web', reason: 'r', command: 'npm ci' });
-    const out = JSON.parse(
-      runCli(
-        ['setup', 'propose-change', '--db', join(dir, 'x.db'), '--manifest', join(dir, 'k.yml')],
-        { KARST_SETUP_OUTBOX: dir },
-        { readStdin: () => change },
-      ),
-    );
-    expect(out).toMatchObject({ ok: true, kind: 'change' });
   });
 
   it('routes `setup discover` with structured input', () => {
@@ -739,7 +723,7 @@ describe('exitsAfterFlush', () => {
 
   it('leaves the ordinary synchronous verbs writing and returning normally', () => {
     expect(exitsAfterFlush(['setup', 'discover'])).toBe(false);
-    expect(exitsAfterFlush(['setup', 'propose-change'])).toBe(false);
+    expect(exitsAfterFlush(['setup', 'run'])).toBe(false);
     expect(exitsAfterFlush(['context', 'PROJ-9'])).toBe(false);
     expect(exitsAfterFlush([])).toBe(false);
   });

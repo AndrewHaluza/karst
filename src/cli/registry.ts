@@ -514,12 +514,11 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   {
     name: 'manifest',
-    summary: 'Setup session: validate or propose a draft karst.yml file, or show the active manifest without comments.',
+    summary: 'Setup session: validate a draft karst.yml file, or show the active manifest without comments (read-only; change the manifest with the typed setup tools).',
     input: obj(
       {
-        subcommand: { type: 'string', enum: ['validate', 'propose', 'show'] },
+        subcommand: { type: 'string', enum: ['validate', 'show'] },
         file: str,
-        summary: str,
       },
       ['subcommand'],
     ),
@@ -530,26 +529,20 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     toArgv: (input) => {
       const sub = requireString(input, 'subcommand');
       if (sub === 'show') return ['manifest', 'show', '--active'];
-      const argv = ['manifest', sub, '--file', requireString(input, 'file')];
-      pushFlag(argv, '--summary', input.summary);
-      return argv;
+      return ['manifest', sub, '--file', requireString(input, 'file')];
     },
   },
   {
     name: 'setup',
-    summary: 'Setup session: discover repos, show the first-setup checklist, request a skip, propose a consented repo change, list proposal status, withdraw one.',
+    summary: 'Setup session: discover repos, show the first-setup checklist, request a skip, list proposal status, withdraw one.',
     input: obj(
       {
-        subcommand: { type: 'string', enum: ['discover', 'propose-change', 'skip', 'verify', 'check', 'checklist', 'status', 'withdraw'] },
+        subcommand: { type: 'string', enum: ['discover', 'skip', 'verify', 'check', 'checklist', 'status', 'withdraw'] },
         id: str,
         root: str,
         defaultBranch: str,
         repos: csvArray,
-        repo: str,
-        path: str,
         reason: str,
-        command: str,
-        patch: str,
         code: str,
         target: str,
       },
@@ -573,10 +566,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       if (sub === 'checklist') return ['setup', 'checklist'];
       if (sub === 'skip') return ['setup', 'skip'];
       if (sub === 'status') return ['setup', 'status'];
-      if (sub === 'withdraw') return ['setup', 'withdraw', requireString(input, 'id')];
-      // propose-change reads the change object on stdin; the caller feeds the
-      // validated object back, exactly like `draft propose`.
-      return ['setup', 'propose-change'];
+      return ['setup', 'withdraw', requireString(input, 'id')];
     },
   },
 ];
