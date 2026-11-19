@@ -25,7 +25,7 @@ export type ProposalStatus =
 
 export interface ProposalResult {
   id: string;
-  kind: 'manifest' | 'change' | 'unknown';
+  kind: 'manifest' | 'change' | 'edit' | 'unknown';
   status: ProposalStatus;
   reason?: string;
   /** Protected fields the apply discarded (manifest proposals). */
@@ -56,7 +56,7 @@ function readResult(file: string): ProposalResult | undefined {
     if (typeof raw.status !== 'string' || !STATUSES.includes(raw.status)) return undefined;
     return {
       id: basename(file, '.json'),
-      kind: raw.kind === 'manifest' || raw.kind === 'change' ? raw.kind : 'unknown',
+      kind: raw.kind === 'manifest' || raw.kind === 'change' || raw.kind === 'edit' ? raw.kind : 'unknown',
       status: raw.status as ProposalStatus,
       ...(typeof raw.reason === 'string' ? { reason: raw.reason } : {}),
       dropped: Array.isArray(raw.dropped) ? raw.dropped.filter((d): d is string => typeof d === 'string') : [],
