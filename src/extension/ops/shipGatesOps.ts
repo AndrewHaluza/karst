@@ -187,10 +187,10 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
 }
 
 /**
- * The scope and selection lines a sweep gate prints (`full: ...`, `visual: 12 files, delta since ...`, `visual: running ...`,
+ * The scope and selection lines a sweep gate prints (`full: ...`, `visual: 12 files, delta since ...`, `unit: 8 files, delta since ...`, `visual: running ...`,
  * `layout: skipped, ...`), or null. A base-moved row keeps them: the deliver output is not stored (@arch:GATE-BASE-MOVED).
  */
-const SCOPE_LINE = /^(?:full: .+|skipped: no UI change .+|(?:visual|layout): (?:running|skipped|\d+ files).+)$/;
+const SCOPE_LINE = /^(?:full: .+|skipped: no UI change .+|(?:visual|layout): (?:running|skipped|\d+ files).+|(?:test:)?(?:unit|integration): \d+ files.+)$/;
 export function scopeLinesOf(output: string): string | null {
   const lines = output.split('\n').map((l) => l.trim()).filter((l) => SCOPE_LINE.test(l));
   return lines.length === 0 ? null : lines.join('\n');
