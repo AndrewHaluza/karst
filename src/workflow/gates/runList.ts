@@ -243,7 +243,8 @@ export async function runGateList(
     const baseEnv = [
       // The gate script (dockerGate.mjs) skips its own lease: this run already holds the slot.
       ...(gateLease ? [`${GATE_LEASE_HELD_ENV}=1`] : []),
-      ...(opts.baseRef ? [`KARST_BASE_REF=${opts.baseRef}`] : []),
+      // A base-moved run scopes against the fetched base sha: a local branch behind origin would move the merge base (@arch:GATE-BASE-MOVED).
+      ...((opts.mergedBaseSha ?? opts.baseRef) ? [`KARST_BASE_REF=${opts.mergedBaseSha ?? opts.baseRef}`] : []),
       ...(opts.mergedBaseSha ? [`KARST_MERGED_BASE_SHA=${opts.mergedBaseSha}`] : []),
       ...(opts.prBody !== undefined ? [`PR_BODY=${opts.prBody}`, ...(opts.baseRef ? [`BASE_REF=${opts.baseRef}`] : [])] : []),
     ];

@@ -431,6 +431,11 @@ describe('runGateList port slot', () => {
 describe('runGateList base ref env', () => {
   const now = () => '2026-07-30T10:00:00.000Z';
   const gates = [{ name: 'lint', command: 'npm', args: ['run', 'lint'], script: null, required: true }];
+  it('a base-moved run resolves its merge base to the fetched base sha, not the local branch (a stale local develop)', async () => {
+    const seen: Array<readonly string[]> = [];
+    await runGateList(gates, process.cwd(), { now, baseRef: 'develop', mergedBaseSha: 'abc123', runProcess: async (_c, args) => (seen.push(args), { kind: 'completed', exitCode: 0, output: '' }) });
+    expect(seen[0]).toEqual(['KARST_BASE_REF=abc123', 'KARST_MERGED_BASE_SHA=abc123', 'npm', 'run', 'lint']);
+  });
   it('exports KARST_BASE_REF to the gate process', async () => {
     const seen: Array<{ cmd: string; args: readonly string[] }> = [];
     await runGateList(gates, process.cwd(), { now, baseRef: 'develop', runProcess: async (cmd, args) => (seen.push({ cmd, args }), { kind: 'completed', exitCode: 0, output: '' }) });
