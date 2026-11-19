@@ -951,6 +951,7 @@
   ],
   "src/store/migrations.ts#migrate": [
     "arch:SCHEMA-CHECK",
+    "arch:SCHEMA-STEPS",
     "arch:V127"
   ],
   "src/store/planningProposals.ts": [
