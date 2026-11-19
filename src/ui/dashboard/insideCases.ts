@@ -329,7 +329,8 @@ const switchModelsPatch = (status: 'running' | 'blocked') => (s: DashboardState)
     id: 'graph',
     kind: 'graph',
     label: 'Implementation graph',
-    status: status === 'blocked' ? 'fail' : 'run',
+    // 'run' keeps the graph process open by default (InsideLedger): another node can run while one node parks.
+    status: 'run',
     evidence: { kind: 'rows', rows, leadRows: rows.length, nodes: [] },
   } as unknown as InsideProcessView;
   return { ...s, insideViews: { ...s.insideViews, impl: { ...view, processes: [...view.processes, graph] } } };

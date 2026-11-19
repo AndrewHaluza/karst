@@ -143,7 +143,26 @@ describe('switchModels', () => {
   });
 });
 
+describe('switchModels outcomes', () => {
+  it('answers not-found and does not refresh without the seam', () => {
+    const { deps, binding } = make({});
+    expect(binding.switchModels(5, 17)).toBe('not-found');
+    expect(deps.refresh).not.toHaveBeenCalled();
+  });
+
+  it('does not refresh when the run was unchanged', () => {
+    const { deps, binding } = make({ modelChange: { ask: vi.fn(), switchRun: vi.fn(() => 'unchanged' as const) } });
+    expect(binding.switchModels(5, 17)).toBe('unchanged');
+    expect(deps.refresh).not.toHaveBeenCalled();
+  });
+});
+
 describe('modelDifference', () => {
+  it('is undefined when the seam has no differenceOf', () => {
+    const { binding } = make({ modelChange: { ask: vi.fn(), switchRun: vi.fn() } });
+    expect(binding.modelDifference(17)).toBeUndefined();
+  });
+
   it('reports the seam difference, or undefined without the seam', () => {
     const differenceOf = vi.fn(() => 'worker: a → b');
     const { binding } = make({ modelChange: { ask: vi.fn(), switchRun: vi.fn(), differenceOf } });

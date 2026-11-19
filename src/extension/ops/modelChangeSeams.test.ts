@@ -40,6 +40,19 @@ describe('makeModelChangeSeams', () => {
     expect(seams.switchRun(id)).toBe('unchanged');
   });
 
+  it('stamps the switch with the real clock when no clock is injected', () => {
+    const h = harness();
+    const id = createGraphRun(h.db, { ticketId: h.ticketId, stageAttempt: 1, approachId: 'karst-graph-engineering', now: NOW });
+    setGraphRunAgentIdentity(h.db, id, serializeRunIdentities(resolveRunIdentities(manifestOf('claude-opus-5'), h.config)), NOW);
+    const seams = makeModelChangeSeams({
+      db: () => h.db, transaction: (fn) => fn(), manifest: () => manifestOf('claude-sonnet-5'), graphConfigOf: () => h.config,
+      label: (t) => `T${t}`, warn: vi.fn(), refresh: vi.fn(), debug: vi.fn(),
+    });
+    expect(seams.switchRun(id)).toBe('switched');
+    const at = (h.db.prepare('SELECT updated_at AS at FROM approach_graph_runs WHERE id = ?').get(id) as { at: string } | undefined)?.at;
+    expect(at === undefined || at !== NOW).toBe(true);
+  });
+
   it('differenceOf names the difference, then is undefined once switched or unloaded', () => {
     const { seams, id } = setup(manifestOf('claude-sonnet-5'));
     expect(seams.differenceOf(id)).toContain('→');
