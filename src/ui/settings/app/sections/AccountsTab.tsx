@@ -13,11 +13,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
+import { Chip } from '../primitives/Chip.js';
 import { Field } from '../primitives/Field.js';
+import { AGENT_PROVIDER_LABELS } from '../../../../model/agentProviders.js';
 import type { AccountCore } from '../../../../agent/accounts/types.js';
 import type { AccountRowView, AccountsCoreView, AccountStatusView } from '../../accountsMessages.js';
 import type { AgentsRoute } from './agentsRoute.js';
 import { AddAccountWizard } from './AddAccountWizard.js';
+import { QuotaCard } from './QuotaCard.js';
 
 const SOURCE_TEXT = { managed: 'Managed', folder: 'Folder', command: 'Command' } as const;
 const STATUS_TEXT: Readonly<Record<AccountStatusView, string>> = {
@@ -151,6 +154,7 @@ export function AccountsTab({ route }: AccountsTabProps) {
           ))}
         </div>
       )}
+      <QuotaCard />
     </div>
   );
 }
@@ -180,13 +184,14 @@ interface CoreRowProps {
 function CoreRow(p: CoreRowProps) {
   const { send } = useSettingsApp();
   const { view } = p;
+  const coreName = AGENT_PROVIDER_LABELS[view.core as keyof typeof AGENT_PROVIDER_LABELS] ?? view.core;
   const options = view.rows.map((r) => ({ value: r.name, label: r.label }));
   return (
     <section className={`accounts-core${p.selected ? ' is-selected' : ''}`} data-region="accounts-core-row" aria-label={`${view.core} accounts`}>
       <div className="accounts-core-head">
-        <h3>{view.core}</h3>
+        <h3>{coreName}</h3>
         <Field
-          label={`Active account for ${view.core}`}
+          label="Active account"
           control={{ kind: 'select', value: view.active, onChange: p.onSetActive, options }}
         />
         <Button variant="secondary" size="sm" onClick={p.onAdd}>Add account</Button>
@@ -212,14 +217,14 @@ function CoreRow(p: CoreRowProps) {
         <tbody>
           {view.rows.map((row) => (
             <tr key={row.name} className={row.active ? 'is-active' : undefined}>
-              <td data-col="name" data-label="Name"><span>{row.label}</span>{row.active ? <span className="accounts-active-mark"> (active)</span> : null}</td>
-              <td data-col="source" data-label="Source">{row.source ? SOURCE_TEXT[row.source] : '—'}</td>
-              <td data-col="dir" data-label="Folder">{row.dir ?? '—'}</td>
-              <td data-col="command" data-label="Command">{row.command ?? '—'}</td>
+              <td data-col="name" data-label="Name"><span>{row.label}</span>{row.active ? <> <Chip tone="success">Active</Chip></> : null}</td>
+              <td data-col="source" data-label="Source"><Cell value={row.source ? SOURCE_TEXT[row.source] : undefined} /></td>
+              <td data-col="dir" data-label="Folder"><Cell value={row.dir} /></td>
+              <td data-col="command" data-label="Command"><Cell value={row.command} /></td>
               <td data-col="status" data-label="Status">{STATUS_TEXT[row.status]}</td>
               <td data-col="sbx-token" data-label="sbx token" data-sbx-token-row={`${view.core}/${row.name}`}><SbxTokenCell row={row} {...p} /></td>
               <td data-col="actions" data-label="Actions" className="accounts-row-actions">
-                <Button variant="ghost" size="sm" aria-label={`Log in ${row.name}`} onClick={() => send.accounts({ type: 'accounts-login', core: view.core, name: row.name })}>Log in</Button>
+                <Button variant="secondary" size="sm" aria-label={`Log in ${row.name}`} onClick={() => send.accounts({ type: 'accounts-login', core: view.core, name: row.name })}>Log in</Button>
                 {!row.active ? (
                   <Button variant="ghost" size="sm" aria-label={`Set ${row.name} active`} onClick={() => p.onSetActive(row.name)}>Set active</Button>
                 ) : null}
@@ -257,6 +262,11 @@ function CoreRow(p: CoreRowProps) {
       {p.adding ? <AddAccountWizard core={view.core} onClose={p.onCloseAdd} /> : null}
     </section>
   );
+}
+
+/** An empty cell shows nothing visible; a screen reader hears 'none'. */
+function Cell({ value }: { readonly value: string | undefined }) {
+  return value === undefined ? <span className="accounts-empty sr-only">none</span> : <>{value}</>;
 }
 
 type SbxTokenCellProps = Pick<CoreRowProps, 'tokenOp' | 'removing' | 'onSetToken' | 'onAskRemoveToken' | 'onCancelRemoveToken' | 'onRemoveToken'> & {

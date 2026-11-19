@@ -476,89 +476,11 @@ describe('Agents page — the all-presets matrix is not colour-only (UI-R28)', (
   });
 });
 
-describe('Agents page — subscription quota', () => {
-  it('renders the warn threshold with the loader default as its placeholder', () => {
+describe('Agents page — Roles tab no longer holds the subscription quota', () => {
+  it('renders no quota card or field on Roles', () => {
     mount();
-    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
-    expect(field.getAttribute('type')).toBe('number');
-    expect(field.getAttribute('min')).toBe('1');
-    expect(field.getAttribute('max')).toBe('100');
-    expect(field.value).toBe('');
-    expect(field.placeholder).toBe('80');
-  });
-
-  it('writes the threshold as a whole number from 1 to 100', () => {
-    const { probe } = mount();
-    fireEvent.change(screen.getByLabelText('Warn at used %'), { target: { value: '95' } });
-    expect(draftOf(probe)).toMatchObject({ quota: { warnThresholdPct: 95 } });
-  });
-
-  it('snaps an out-of-range threshold back to blank and flags it inline', () => {
-    const { probe } = mount();
-    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
-    for (const bad of ['0', '101', '2.5']) {
-      fireEvent.change(field, { target: { value: '90' } });
-      fireEvent.change(field, { target: { value: bad } });
-      expect(field.getAttribute('aria-invalid')).toBe('true');
-      expect(probe().draft).not.toHaveProperty('quota');
-    }
-    fireEvent.change(field, { target: { value: '80' } });
-    expect(field.getAttribute('aria-invalid')).toBeNull();
-  });
-
-  it('renders the global Claude statusline install OFF by default', () => {
-    mount();
-    const toggle = screen.getByLabelText('Install for all Claude sessions') as HTMLInputElement;
-    expect(toggle.getAttribute('type')).toBe('checkbox');
-    expect(toggle.checked).toBe(false);
-  });
-
-  it('writes the opt-in flag while preserving the warn threshold', () => {
-    const { probe } = mount({ ...BASE, quota: { warnThresholdPct: 95 } } as unknown as Manifest);
-    fireEvent.click(screen.getByLabelText('Install for all Claude sessions'));
-    expect(draftOf(probe).quota).toEqual({ warnThresholdPct: 95, claudeGlobalStatusline: true });
-  });
-
-  it('writes OFF when the installed toggle is turned off', () => {
-    const { probe } = mount({
-      ...BASE,
-      quota: { warnThresholdPct: 95, claudeGlobalStatusline: true },
-    } as unknown as Manifest);
-    const toggle = screen.getByLabelText('Install for all Claude sessions') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
-    fireEvent.click(toggle);
-    expect(draftOf(probe).quota).toEqual({ warnThresholdPct: 95, claudeGlobalStatusline: false });
-  });
-
-  it('renders the Claude usage API fallback OFF by default', () => {
-    mount();
-    const toggle = screen.getByLabelText('Use the Claude usage API') as HTMLInputElement;
-    expect(toggle.getAttribute('type')).toBe('checkbox');
-    expect(toggle.checked).toBe(false);
-  });
-
-  it('writes the usage API opt-in while preserving the other quota settings', () => {
-    const { probe } = mount({
-      ...BASE,
-      quota: { warnThresholdPct: 95, claudeGlobalStatusline: true },
-    } as unknown as Manifest);
-    fireEvent.click(screen.getByLabelText('Use the Claude usage API'));
-    expect(draftOf(probe).quota).toEqual({
-      warnThresholdPct: 95,
-      claudeGlobalStatusline: true,
-      claudeOauthUsageApi: true,
-    });
-  });
-
-  it('writes OFF when the usage API toggle is turned off', () => {
-    const { probe } = mount({
-      ...BASE,
-      quota: { warnThresholdPct: 95, claudeOauthUsageApi: true },
-    } as unknown as Manifest);
-    const toggle = screen.getByLabelText('Use the Claude usage API') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
-    fireEvent.click(toggle);
-    expect(draftOf(probe).quota).toEqual({ warnThresholdPct: 95, claudeOauthUsageApi: false });
+    expect(screen.queryByText('Subscription quota')).toBeNull();
+    expect(screen.queryByLabelText('Warn at used %')).toBeNull();
   });
 });
 

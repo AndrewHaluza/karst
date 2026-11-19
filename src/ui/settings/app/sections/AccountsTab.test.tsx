@@ -304,3 +304,46 @@ describe('Accounts tab sbx token cell (D651)', () => {
     expect(document.querySelector('[data-hint="sbx-token"]')).toBeNull();
   });
 });
+
+describe('Accounts table readability (D707)', () => {
+  it('names the core canonically, not by id', () => {
+    mount();
+    const heads = Array.from(document.querySelectorAll('.accounts-core-head h3')).map((h) => h.textContent);
+    expect(heads).toEqual(['Claude Code', 'Codex', 'OpenCode']);
+  });
+
+  it('labels the select Active account', () => {
+    mount();
+    expect(screen.getAllByLabelText('Active account').length).toBe(3);
+  });
+
+  it('shows an Active chip, not (active) text', () => {
+    mount();
+    const row = document.querySelector('tr.is-active') as HTMLElement;
+    expect(row.querySelector('.k-chip')!.textContent).toBe('Active');
+    expect(row.textContent).not.toContain('(active)');
+  });
+
+  it("empty Source, Folder and Command cells hold only 'none' for screen readers", () => {
+    mount();
+    const row = document.querySelector('tr.is-active') as HTMLElement;
+    for (const col of ['source', 'dir', 'command']) {
+      const cell = row.querySelector(`[data-col="${col}"]`)!;
+      expect(cell.textContent).toBe('none');
+      expect(cell.querySelector('.sr-only')).not.toBeNull();
+    }
+  });
+
+  it('keeps real values in filled cells', () => {
+    mount();
+    const row = Array.from(document.querySelectorAll('tbody tr')).find((r) => r.textContent?.includes('/a/work')) as HTMLElement;
+    expect(row.querySelector('[data-col="source"]')!.textContent).toBe('Managed');
+  });
+
+  it('renders Log in as a secondary button', () => {
+    mount();
+    const btn = screen.getAllByRole('button', { name: /log in/i })[0]!;
+    expect(btn.className).toContain('secondary');
+  });
+});
+
