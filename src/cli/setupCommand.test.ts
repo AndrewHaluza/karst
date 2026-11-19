@@ -202,3 +202,29 @@ describe('runSetupCommand status and withdraw', () => {
     }
   });
 });
+
+describe('runSetupCommand typed edit tools', () => {
+  const manifestText = 'id: demo\nhost: 127.0.0.1\nportRange: [4000, 4100]\nbaselineBranch: develop\nrepositories:\n  web:\n    repoPath: .\n    enabled: true\n';
+  const outbox = (): string => {
+    const o = join(dir, 'outbox');
+    mkdirSync(o, { recursive: true });
+    return realpathSync(o);
+  };
+
+  it('routes a set tool, lists the op in status and withdraws it by id', () => {
+    const manifestPath = join(dir, 'karst.yml');
+    writeFileSync(manifestPath, manifestText);
+    const o = outbox();
+    const deps = { outboxEnv: o, manifestPath, readStdin: () => '{"baselineBranch":"main"}', edit: { sessionEnv: 's', scaffold: () => undefined } };
+    const added = JSON.parse(runSetupCommand(['setup', 'set-general'], deps));
+    expect(added.ok).toBe(true);
+    const status = JSON.parse(runSetupCommand(['setup', 'status'], { outboxEnv: o }));
+    expect(status.edits.map((e: { id: string }) => e.id)).toEqual([added.id]);
+    expect(JSON.parse(runSetupCommand(['setup', 'withdraw', added.id], { outboxEnv: o }))).toMatchObject({ ok: true, status: 'withdrawn' });
+    expect(JSON.parse(runSetupCommand(['setup', 'status'], { outboxEnv: o })).edits).toEqual([]);
+  });
+
+  it('refuses an edit tool outside a setup session', () => {
+    expect(() => runSetupCommand(['setup', 'set-general'], { outboxEnv: outbox(), readStdin: () => '{}' })).toThrow(/setup session/);
+  });
+});
