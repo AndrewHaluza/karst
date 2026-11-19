@@ -34,7 +34,18 @@ export interface CoreAccounts {
   readonly list: Readonly<Record<string, Account>>;
 }
 
-export type AccountsConfig = Readonly<Partial<Record<AccountCore, CoreAccounts>>>;
+/** The active account each core has in ONE project (`projects.slug` -> core -> account name). */
+export type ProjectChoices = Readonly<Partial<Record<AccountCore, string>>>;
+
+/**
+ * `accounts[core].active` is the MACHINE DEFAULT. `projects[slug][core]` is the
+ * choice of one project; it wins over the machine default. The list stays shared.
+ */
+export type AccountsConfig = Readonly<
+  Partial<Record<AccountCore, CoreAccounts>> & { projects?: Readonly<Record<string, ProjectChoices>> }
+>;
+
+export const PROJECTS_KEY = 'projects';
 
 export function isAccountCore(value: unknown): value is AccountCore {
   return typeof value === 'string' && (ACCOUNT_CORES as readonly string[]).includes(value);
@@ -118,6 +129,10 @@ export function validateAccountsConfig(value: unknown): string[] {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return ['accounts config is not an object'];
   const problems: string[] = [];
   for (const [core, entry] of Object.entries(value)) {
+    if (core === PROJECTS_KEY) {
+      problems.push(...validateProjects(entry));
+      continue;
+    }
     if (!isAccountCore(core)) {
       problems.push(`unknown core '${core}'`);
       continue;
@@ -135,6 +150,27 @@ export function validateAccountsConfig(value: unknown): string[] {
     }
     if (e.active !== DEFAULT_ACCOUNT && !(e.active in (e.list as object))) {
       problems.push(`${core}: active account '${e.active}' is not in the list`);
+    }
+  }
+  return problems;
+}
+
+/** Validate the `projects` map: a choice names a core and a stored-style account name (or `default`). */
+function validateProjects(value: unknown): string[] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return [`${PROJECTS_KEY}: must be an object`];
+  const problems: string[] = [];
+  for (const [slug, choices] of Object.entries(value)) {
+    if (typeof choices !== 'object' || choices === null || Array.isArray(choices)) {
+      problems.push(`${PROJECTS_KEY}/${slug}: must be an object of core -> account`);
+      continue;
+    }
+    for (const [core, name] of Object.entries(choices)) {
+      if (!isAccountCore(core)) {
+        problems.push(`${PROJECTS_KEY}/${slug}: unknown core '${core}'`);
+        continue;
+      }
+      const problem = name === DEFAULT_ACCOUNT ? null : validateAccountName(name);
+      if (problem) problems.push(`${PROJECTS_KEY}/${slug}: ${core}: ${problem}`);
     }
   }
   return problems;

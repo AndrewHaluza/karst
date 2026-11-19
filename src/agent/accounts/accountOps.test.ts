@@ -9,8 +9,8 @@ let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'acct-ops-')); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-function setup(over: { live?: string[]; resolves?: boolean; signed?: boolean | undefined; removeSbxToken?: (core: string, name: string) => Promise<void> } = {}) {
-  const store = memoryAccountStore();
+function setup(over: { slug?: string; store?: ReturnType<typeof memoryAccountStore>; live?: string[]; resolves?: boolean; signed?: boolean | undefined; removeSbxToken?: (core: string, name: string) => Promise<void> } = {}) {
+  const store = over.store ?? memoryAccountStore();
   const debug: string[] = [];
   const ops = createAccountOps({
     store, managedRoot: join(root, 'accounts'), home: '/home/u',
@@ -20,6 +20,7 @@ function setup(over: { live?: string[]; resolves?: boolean; signed?: boolean | u
     lookupAlias: async () => '',
     signedIn: async () => over.signed,
     debug: (m) => debug.push(m),
+    ...(over.slug !== undefined ? { projectSlug: () => over.slug } : {}),
     ...(over.removeSbxToken ? { removeSbxToken: over.removeSbxToken } : {}),
   });
   return { store, ops, debug };
@@ -177,5 +178,64 @@ describe('alias import keeps the arguments', () => {
     await expect(ops.deleteAccount('claude', 'work')).rejects.toThrow(/live session/);
     await expect(ops.deleteAccount('claude', 'default')).rejects.toThrow(/built-in/);
     expect(removed).toEqual([]);
+  });
+});
+
+describe('per-project active account ops (@arch:AC-55)', () => {
+  async function twoProjects() {
+    const store = memoryAccountStore();
+    const a = setup({ store, slug: 'alpha' });
+    const b = setup({ store, slug: 'beta' });
+    await a.ops.createAccount('claude', 'one', { source: 'managed' });
+    await a.ops.createAccount('claude', 'two', { source: 'managed' });
+    return { store, a: a.ops, b: b.ops };
+  }
+  it('setActive writes the choice of this project only', async () => {
+    const { store, a, b } = await twoProjects();
+    await a.setActive('claude', 'one');
+    expect(store.current().projects).toEqual({ alpha: { claude: 'one' } });
+    expect(store.current().claude?.active).toBe('default');
+    expect((await b.listAccounts('claude')).find((r) => r.active)?.name).toBe('default');
+    expect((await a.listAccounts('claude')).find((r) => r.active)?.name).toBe('one');
+  });
+  it('setMachineDefault writes the machine default; a project choice still wins', async () => {
+    const { store, a, b } = await twoProjects();
+    await a.setActive('claude', 'one');
+    await a.setMachineDefault('claude', 'two');
+    expect(store.current().claude?.active).toBe('two');
+    expect((await b.listAccounts('claude')).find((r) => r.active)?.name).toBe('two');
+    expect((await a.listAccounts('claude')).find((r) => r.active)?.name).toBe('one');
+    await expect(a.setMachineDefault('claude', 'nope')).rejects.toThrow();
+  });
+  it('clearProjectChoice returns the project to the machine default and drops empty entries', async () => {
+    const { store, a } = await twoProjects();
+    await a.setMachineDefault('claude', 'two');
+    await a.setActive('claude', 'one');
+    await a.clearProjectChoice('claude');
+    expect(store.current().projects).toBeUndefined();
+    expect((await a.listAccounts('claude')).find((r) => r.active)?.name).toBe('two');
+  });
+  it('without a project slug setActive writes the machine default', async () => {
+    const { ops, store } = setup();
+    await ops.createAccount('claude', 'one', { source: 'managed' });
+    await ops.setActive('claude', 'one');
+    expect(store.current().claude?.active).toBe('one');
+  });
+  it('deleteAccount clears the machine default and the choice of every project', async () => {
+    const { store, a, b } = await twoProjects();
+    await a.setActive('claude', 'one');
+    await b.setActive('claude', 'one');
+    await b.setActive('claude', 'two').then(() => b.setActive('claude', 'one'));
+    await a.setMachineDefault('claude', 'one');
+    await a.deleteAccount('claude', 'one');
+    expect(store.current().claude?.active).toBe('default');
+    expect(JSON.stringify(store.current().projects ?? {})).not.toContain('one');
+  });
+  it('deleteAccount keeps a project choice that names another account or core', async () => {
+    const { store, a, b } = await twoProjects();
+    await a.setActive('claude', 'one');
+    await b.setActive('claude', 'two');
+    await a.deleteAccount('claude', 'one');
+    expect(store.current().projects).toEqual({ beta: { claude: 'two' } });
   });
 });

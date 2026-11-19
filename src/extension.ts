@@ -679,7 +679,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // @arch:AC-55: publish the machine-local agent accounts to every spawn path.
   // T1076: the accounts config changed (a switch here or in another window); QuotaOps exists later, so a holder.
   let onAccountsChanged: () => void = () => {};
-  const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, secrets: context.secrets, revokeSbxKeys: async (account) => { await sbxOauth?.grants.revokeAccount(account); }, store: localStore, debug: (m) => logger.debug(m), onChange: () => onAccountsChanged() }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
+  let accountsProjectSlug: () => string | undefined = () => undefined; // T1244: set once `currentProject` exists
+  const accountsWiring = await wireAccounts({ globalStorageRoot: storageDir, secrets: context.secrets, revokeSbxKeys: async (account) => { await sbxOauth?.grants.revokeAccount(account); }, store: localStore, debug: (m) => logger.debug(m), onChange: () => onAccountsChanged(), projectSlug: () => accountsProjectSlug() }).catch((e) => logger.warn(`karst: accounts.json not loaded: ${String(e)}`));
   if (accountsWiring) context.subscriptions.push({ dispose: () => accountsWiring.dispose() });
   const sbxOauth = accountsWiring ? registerSbxOauth({ vscode, secrets: context.secrets, accounts: accountsWiring.ops, notify: vscodeNotify, globalStorageRoot: storageDir, extensionPath: context.extensionPath, subscriptions: context.subscriptions, debug: (m) => logger.debug(m) }) : undefined; // AC-51: the proxy, the token commands and the per-sandbox grants
   const logError: LogError = (m, e) => logger.error(m, e);
@@ -1532,6 +1533,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return undefined;
     }
   };
+  accountsProjectSlug = () => currentProject()?.slug;
   artifactCapture.start(); // after `currentProject` exists: wiring-time sync hit its TDZ
   const eventDeps = { store: localStore, projectId: () => currentProject()?.id, debug: (m: string) => logger.debug(m) };
   bindToastRecorder(makeToastRecorder(eventDeps)); // D641: every toast and every panel action result is one karst_events row

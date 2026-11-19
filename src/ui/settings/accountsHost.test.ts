@@ -11,7 +11,7 @@ let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'acct-host-')); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-function setup(over: { live?: string[]; signed?: boolean | undefined; alias?: string; tokens?: Partial<SbxTokenDeps> & { stored?: Map<string, string> } } = {}) {
+function setup(over: { slug?: string; live?: string[]; signed?: boolean | undefined; alias?: string; tokens?: Partial<SbxTokenDeps> & { stored?: Map<string, string> } } = {}) {
   const stored = over.tokens?.stored ?? new Map<string, string>();
   const changed: string[] = [];
   const ops = createAccountOps({
@@ -21,6 +21,7 @@ function setup(over: { live?: string[]; signed?: boolean | undefined; alias?: st
     binaryResolves: async () => true,
     lookupAlias: async () => over.alias ?? '',
     signedIn: async () => over.signed,
+    ...(over.slug !== undefined ? { projectSlug: () => over.slug } : {}),
   });
   const posted: AccountsHostMessage[] = [];
   const logins: Array<{ binary: string; args: string[] }> = [];
@@ -253,5 +254,32 @@ describe('accounts host', () => {
       await host.handle({ type: 'accounts-set-sbx-token', core: 'claude', name: 'w' });
       expect(posted[0]).toMatchObject({ type: 'accounts-error', message: 'The sbx token store is not available.' });
     });
+  });
+});
+
+describe('accounts host: per-project active account', () => {
+  async function stateOf(h: ReturnType<typeof setup>) {
+    h.posted.length = 0;
+    await h.host.handle({ type: 'accounts-load' });
+    const msg = h.posted[0];
+    if (msg?.type !== 'accounts-state') throw new Error('no state');
+    return msg.cores[0]!;
+  }
+  it('sends active, machineDefault and source per core', async () => {
+    const h = setup({ slug: 'alpha' });
+    await h.ops.createAccount('claude', 'work', { source: 'managed' });
+    expect(await stateOf(h)).toMatchObject({ active: 'default', machineDefault: 'default', source: 'machine' });
+    await h.host.handle({ type: 'accounts-set-machine-default', core: 'claude', name: 'work' });
+    expect(await stateOf(h)).toMatchObject({ active: 'work', machineDefault: 'work', source: 'machine' });
+    await h.host.handle({ type: 'accounts-set-active', core: 'claude', name: 'default' });
+    expect(await stateOf(h)).toMatchObject({ active: 'default', machineDefault: 'work', source: 'project' });
+    await h.host.handle({ type: 'accounts-clear-project-choice', core: 'claude' });
+    expect(await stateOf(h)).toMatchObject({ active: 'work', machineDefault: 'work', source: 'machine' });
+  });
+  it('replies with an error for a refused machine default', async () => {
+    const h = setup({ slug: 'alpha' });
+    h.posted.length = 0;
+    await h.host.handle({ type: 'accounts-set-machine-default', core: 'claude', name: 'nope' });
+    expect(h.posted[0]).toMatchObject({ type: 'accounts-error', op: 'accounts-set-machine-default', core: 'claude' });
   });
 });

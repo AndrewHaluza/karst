@@ -13,7 +13,7 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import { createAccountOps, type AccountOps } from '../../agent/accounts/accountOps.js';
 import { ACCOUNTS_FILE, fileAccountStore, type AccountStore } from '../../agent/accounts/accountStore.js';
-import { configureAccounts, configureRecordedAccountLookup, configureSessionLedgerSink, liveHeadlessAccounts, mergeSessionLedger, seedSessionLedger } from '../../agent/accounts/registry.js';
+import { configureAccounts, configureAccountsProject, configureRecordedAccountLookup, configureSessionLedgerSink, liveHeadlessAccounts, mergeSessionLedger, seedSessionLedger } from '../../agent/accounts/registry.js';
 import { appendSessionLedger, loadSessionLedger, SESSION_LEDGER_FILE } from '../../agent/accounts/sessionLedgerStore.js';
 import { opencode2Config } from '../../agent/opencode2Binary.js';
 import { recordedAccountForSession } from '../../store/sessionLaunchIntents.js';
@@ -114,9 +114,12 @@ export async function wireAccounts(input: {
   readonly revokeSbxKeys?: (account: string) => Promise<void>;
   /** Called after the registry took a new accounts config (a write here, a reload, another window's edit). Not called for the first load. */
   readonly onChange?: () => void;
+  /** The slug of the project of this window (a getter: it binds later). The project choice picks the active account. */
+  readonly projectSlug?: () => string | undefined;
 }): Promise<AccountsWiring> {
   const accountStore = input.accountStore ?? fileAccountStore(input.globalStorageRoot);
   const home = homedir();
+  configureAccountsProject(input.projectSlug);
   const publish = async (notify = true): Promise<void> => {
     configureAccounts(await accountStore.load());
     if (notify) input.onChange?.();
@@ -157,6 +160,7 @@ export async function wireAccounts(input: {
     binaryResolves,
     lookupAlias,
     signedIn: createFileSignedInProbe(home, (core) => DEFAULT_DIRS[core](home)),
+    ...(input.projectSlug ? { projectSlug: input.projectSlug } : {}),
     ...(input.secrets ? { removeSbxToken } : {}),
     ...(input.debug ? { debug: input.debug } : {}),
   });
