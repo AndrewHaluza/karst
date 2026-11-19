@@ -31,6 +31,13 @@ describe('deliver runs', () => {
     expect(listDeliverResults(store, ticketId)).toMatchObject([{ gateName: 'unit', exitCode: 0, headSha: 'a'.repeat(40) }]);
   });
 
+  it('records wait_ms on a result, null when none was given (T1248)', () => {
+    const id = open();
+    recordDeliverGate(store, id, { gateName: 'visual', repo: 'r', exitCode: 0, summary: null, startedAt: 's', endedAt: 'e', waitMs: 900 });
+    recordDeliverGate(store, id, { gateName: 'unit', repo: 'r', exitCode: 0, summary: null, startedAt: 's', endedAt: 'e' });
+    expect(listDeliverResults(store, ticketId).map((r) => r.waitMs)).toEqual([900, null]);
+  });
+
   it('closes an earlier running run as stopped when a new one opens', () => {
     const first = open('1'.repeat(40));
     open('2'.repeat(40));

@@ -769,7 +769,7 @@ export async function runUat(
       // rows away with it. Zipped by POSITION like the aggregation below: two
       // manifest entries sharing a worktree can declare the same gate name, so
       // a name lookup would attach the wrong identity to the row.
-      onGateComplete: (name, exitCode, startedAt, endedAt, index, output) => {
+      onGateComplete: (name, exitCode, startedAt, endedAt, index, output, waitMs) => {
         const gate = resolution.gates[index];
         evidence.append([{
           // Index -1 is the regenerate row: its name already carries the repository.
@@ -777,6 +777,7 @@ export async function runUat(
           exitCode,
           startedAt,
           endedAt,
+          waitMs: waitMs ?? null,
           repo: target.repo,
           command: gate?.command ?? name,
           args: gate?.args ?? [],

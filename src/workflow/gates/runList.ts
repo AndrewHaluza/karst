@@ -46,7 +46,9 @@ export interface RunGatesOptions {
    * a host death between two gates must not take the finished gate's record
    * with it. `output` is the bounded captured stdout+stderr, so a caller that
    * records a failure summary (v46) can derive it HERE, at the same instant
-   * the row is appended, instead of re-reading the artifact later.
+   * the row is appended, instead of re-reading the artifact later. `waitMs` is the part of
+   * `endedAt - startedAt` spent waiting for slots (gate lease, port slot, sandbox runner slot);
+   * null for a gate that never ran (@arch:RESULTS).
    */
   onGateComplete?: (
     gateName: string,
@@ -55,6 +57,7 @@ export interface RunGatesOptions {
     endedAt: string | null,
     index: number,
     output?: string,
+    waitMs?: number | null,
   ) => void;
   /**
    * Called BEFORE each gate's work begins, with the gate's name — the live
@@ -149,7 +152,7 @@ export async function runGateList(
     // Index -1: the evidence row is not one of the resolved gates. Written on EVERY run
     // (ok too), so a regenerate that changed nothing or never committed is still visible.
     const r = regen.result;
-    opts.onGateComplete?.(r.name, r.exitCode, r.startedAt ?? null, r.endedAt ?? null, -1, r.output);
+    opts.onGateComplete?.(r.name, r.exitCode, r.startedAt ?? null, r.endedAt ?? null, -1, r.output, null);
     if (regen.kind === 'failed') return { kind: 'ran', results: [r], regenerateFailed: true };
   }
   for (const [index, gate] of gates.entries()) {
@@ -175,7 +178,7 @@ export async function runGateList(
           `rebase onto ${base} ("Rebase on base")`;
         onDebug?.(`[gate] ${gate.name}: ${reason}`);
         results.push({ name: gate.name, exitCode: 1, output: reason, staleBranch: reason, startedAt, endedAt });
-        opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, reason);
+        opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, reason, null);
         continue;
       }
       onDebug?.(
@@ -188,7 +191,7 @@ export async function runGateList(
         startedAt,
         endedAt,
       });
-      opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, results[results.length - 1]!.output);
+      opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, results[results.length - 1]!.output, null);
       continue;
     }
 
@@ -202,8 +205,10 @@ export async function runGateList(
     };
     const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
     // A gate with `maxConcurrent` waits here for a host-wide slot, before any spawn (arch:GATE-CONCURRENCY).
+    let slotWaitMs = 0;
     let gateLease: { release: () => Promise<void> } | undefined;
     if (gate.maxConcurrent !== undefined) {
+      const leaseFrom = Date.now();
       try {
         gateLease = await leaseGateSlot(gate.name, gate.maxConcurrent, {
           dir: opts.gateSlotsDir,
@@ -219,13 +224,16 @@ export async function runGateList(
         if (opts.signal?.aborted) return { kind: 'stopped', results };
         throw err;
       }
+      slotWaitMs += Date.now() - leaseFrom;
     }
     // Integration suites own fixed port bands; concurrent gates (other tickets'
     // worktrees) must not share one, so each leases a slot and runs shifted.
     let lease: PortSlotLease | undefined;
     if (isIntegrationGate(gate)) {
+      const portFrom = Date.now();
       try {
         lease = await leasePortSlot({ signal: opts.signal, onDebug });
+        slotWaitMs += Date.now() - portFrom;
       } catch (err) {
         // Only a Stop is a stop; any other lease failure is an environment fault
         // and must surface, not masquerade as the user cancelling.
@@ -248,10 +256,16 @@ export async function runGateList(
       ...(opts.mergedBaseSha ? [`KARST_MERGED_BASE_SHA=${opts.mergedBaseSha}`] : []),
       ...(opts.prBody !== undefined ? [`PR_BODY=${opts.prBody}`, ...(opts.baseRef ? [`BASE_REF=${opts.baseRef}`] : [])] : []),
     ];
-    const launch = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
+    const launchOnce = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
       extraEnv.length + offsetEnv.length + baseEnv.length > 0
         ? run('env', [...baseEnv, ...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)
         : run(gate.command, gate.args, cwd, runOpts);
+    // A sandbox runner reports its own slot wait on the outcome; every spawn of the gate adds its share.
+    const launch = async (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> => {
+      const launched = await launchOnce(run, extraEnv);
+      slotWaitMs += launched.waitMs ?? 0;
+      return launched;
+    };
     outcome = await launch(onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess));
     if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {
       // SIGKILL with no failing test: memory pressure, an environment fault (arch:GATE-CAPABILITY).
@@ -284,7 +298,7 @@ export async function runGateList(
         exitCode: null,
         output: `no "${gate.script}" script available — nothing to run`,
       });
-      opts.onGateComplete?.(gate.name, null, null, null, index, results[results.length - 1]!.output);
+      opts.onGateComplete?.(gate.name, null, null, null, index, results[results.length - 1]!.output, null);
       continue;
     }
     if (outcome.kind === 'spawnFailed' && gate.sandbox === 'host' && opts.hostProcess) {
@@ -292,7 +306,7 @@ export async function runGateList(
       // it has no verdict. Null + `hostRefused`, for required and optional gates alike.
       onDebug?.(`[gate] ${gate.name}: host gate refused — recorded as capability-missing: ${outcome.message}`);
       results.push({ name: gate.name, exitCode: null, output: outcome.output, hostRefused: true });
-      opts.onGateComplete?.(gate.name, null, null, null, index, outcome.output);
+      opts.onGateComplete?.(gate.name, null, null, null, index, outcome.output, null);
       continue;
     }
     const endedAt = now();
@@ -310,9 +324,10 @@ export async function runGateList(
       output,
       startedAt,
       endedAt,
+      waitMs: slotWaitMs,
       ...(resourceKilled !== undefined ? { resourceKilled } : {}),
     });
-    opts.onGateComplete?.(gate.name, exitCode, startedAt, endedAt, index, output);
+    opts.onGateComplete?.(gate.name, exitCode, startedAt, endedAt, index, output, slotWaitMs);
   }
   return { kind: 'ran', results };
 }

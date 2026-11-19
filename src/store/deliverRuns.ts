@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS deliver_gate_results (
   summary      TEXT,
   started_at   TEXT,
   ended_at     TEXT,
-  dismissed_at TEXT
+  dismissed_at TEXT,
+  wait_ms      INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_deliver_results_ticket ON deliver_gate_results(ticket_id, id);
 `;
@@ -74,6 +75,8 @@ export interface DeliverGateResult {
   readonly startedAt: string | null;
   readonly endedAt: string | null;
   readonly dismissedAt: string | null;
+  /** v132: ms of the run spent waiting for slots; null = the gate never ran, or a pre-v132 row. */
+  readonly waitMs: number | null;
 }
 
 export interface DeliverGateInput {
@@ -85,6 +88,8 @@ export interface DeliverGateInput {
   readonly endedAt: string | null;
   /** The head of this gate's own worktree; absent → the run's head. */
   readonly headSha?: string | null;
+  /** ms spent waiting for slots (@arch:RESULTS); absent/null = not stated. */
+  readonly waitMs?: number | null;
 }
 
 interface RunRow {
@@ -93,7 +98,7 @@ interface RunRow {
 }
 interface ResultRow {
   id: number; run_id: number; gate_name: string; repo: string; exit_code: number | null; head_sha: string | null;
-  summary: string | null; started_at: string | null; ended_at: string | null; dismissed_at: string | null;
+  summary: string | null; started_at: string | null; ended_at: string | null; dismissed_at: string | null; wait_ms: number | null;
 }
 
 const STATES: readonly string[] = ['running', 'passed', 'failed', 'taken-over', 'stopped'];
@@ -122,7 +127,7 @@ const rowToRun = (r: RunRow): DeliverRun => ({
 
 const rowToResult = (r: ResultRow): DeliverGateResult => ({
   id: r.id, runId: r.run_id, gateName: r.gate_name, repo: r.repo, exitCode: r.exit_code, headSha: r.head_sha,
-  summary: r.summary, startedAt: r.started_at, endedAt: r.ended_at, dismissedAt: r.dismissed_at,
+  summary: r.summary, startedAt: r.started_at, endedAt: r.ended_at, dismissedAt: r.dismissed_at, waitMs: r.wait_ms,
 });
 
 const RUN_SELECT = `SELECT r.id, r.ticket_id, r.head_sha, r.gates, r.current_gate, r.state, r.kind, r.started_at, r.ended_at,
@@ -155,10 +160,10 @@ export function setDeliverProgress(store: Store, runId: number, currentGate: str
 export function recordDeliverGate(store: Store, runId: number, g: DeliverGateInput): void {
   store.db
     .prepare(
-      `INSERT INTO deliver_gate_results (run_id, ticket_id, gate_name, repo, exit_code, head_sha, summary, started_at, ended_at)
-       SELECT id, ticket_id, ?, ?, ?, COALESCE(?, head_sha), ?, ?, ? FROM deliver_runs WHERE id = ?`,
+      `INSERT INTO deliver_gate_results (run_id, ticket_id, gate_name, repo, exit_code, head_sha, summary, started_at, ended_at, wait_ms)
+       SELECT id, ticket_id, ?, ?, ?, COALESCE(?, head_sha), ?, ?, ?, ? FROM deliver_runs WHERE id = ?`,
     )
-    .run(g.gateName, g.repo, g.exitCode, g.headSha ?? null, g.summary, g.startedAt, g.endedAt, runId);
+    .run(g.gateName, g.repo, g.exitCode, g.headSha ?? null, g.summary, g.startedAt, g.endedAt, g.waitMs ?? null, runId);
 }
 
 /** Close a run. A run that is no longer `running` (a takeover closed it) keeps its state. */

@@ -166,12 +166,12 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
       if (store && runId !== null) setDeliverProgress(store, runId, name);
       d.onProgress?.();
     },
-    onGateComplete: (name, exitCode, startedAt, endedAt, _index, output) => {
+    onGateComplete: (name, exitCode, startedAt, endedAt, _index, output, waitMs) => {
       if (store && runId !== null) {
         const failed = exitCode !== null && exitCode !== 0;
         recordDeliverGate(store, runId, {
           gateName: name, repo: pr.repo, exitCode, headSha: head,
-          summary: gateSummary(failed ? summarizeGateFailure(output ?? '') ?? null : null, d.mergedBaseSha ? scopeLinesOf(output ?? '') : null), startedAt, endedAt,
+          summary: gateSummary(failed ? summarizeGateFailure(output ?? '') ?? null : null, d.mergedBaseSha ? scopeLinesOf(output ?? '') : null), startedAt, endedAt, waitMs: waitMs ?? null,
         });
       }
       d.onProgress?.();

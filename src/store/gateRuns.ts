@@ -57,6 +57,12 @@ export interface GateRun {
    * UAT/review batch row and every pre-v121 row.
    */
   source?: string | null;
+  /**
+   * v132: ms of `endedAt - startedAt` spent waiting for slots (gate lease, port slot, sandbox runner
+   * slot) before the spawn; the run time is the rest (@arch:RESULTS). NULL for a gate that never ran
+   * and every pre-v132 row.
+   */
+  waitMs?: number | null;
 }
 
 export { HOST_RERUN_SOURCE };
@@ -84,6 +90,8 @@ export interface GateRunInput {
    * skipped — only a failure has a summary to read.
    */
   summary?: string | null;
+  /** v132: ms spent waiting for slots before the spawn. Absent for a gate that never ran. */
+  waitMs?: number | null;
 }
 
 export interface GateRunBatch {
@@ -116,6 +124,7 @@ interface GateRunRow {
   stage_run_id: number | null;
   summary: string | null;
   source: string | null;
+  wait_ms: number | null;
 }
 
 /**
@@ -174,6 +183,7 @@ function rowToGateRun(r: GateRunRow): GateRun {
     stageRunId: r.stage_run_id,
     summary: r.summary,
     source: r.source,
+    waitMs: r.wait_ms,
   };
 }
 
@@ -197,8 +207,8 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
   const insert = store.db.prepare(
     `INSERT INTO gate_runs
        (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, started_at, ended_at,
-        repo, command, args, skipped, stage_run_id, summary, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        repo, command, args, skipped, stage_run_id, summary, source, wait_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const g of batch.gates) {
     insert.run(
@@ -217,6 +227,7 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
       batch.stageRunId ?? null,
       g.summary ?? null,
       batch.source ?? null,
+      g.waitMs ?? null,
     );
   }
 }
@@ -236,7 +247,7 @@ export function listGateRuns(store: Store, ticketId: number, opts: { includeHost
   return store.db
     .prepare(
       `SELECT id, ticket_id, stage_key, attempt, run_at, gate_name, exit_code,
-              started_at, ended_at, repo, command, args, skipped, stage_run_id, summary, source
+              started_at, ended_at, repo, command, args, skipped, stage_run_id, summary, source, wait_ms
          FROM gate_runs
         WHERE ticket_id = ? ${filter}
         ORDER BY id`,

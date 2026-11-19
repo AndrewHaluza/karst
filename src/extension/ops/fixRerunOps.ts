@@ -77,7 +77,7 @@ export interface GateRerunDeps {
   readonly runGates?: typeof runGateList;
 }
 
-type RerunDone = { name: string; exitCode: number | null; startedAt: string | null; endedAt: string | null; output: string; row: number };
+type RerunDone = { name: string; exitCode: number | null; startedAt: string | null; endedAt: string | null; output: string; waitMs: number | null; row: number };
 type RerunGroup = { readonly path: string; readonly repo: string; readonly entries: { readonly gate: FailedGate; readonly index: number }[] };
 
 const rerunError = (message: string): GateRerunResult => ({ exitCode: null, summary: `re-run error: ${message}` });
@@ -184,10 +184,10 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
     onGateStart: (name) => deps.onGateStart?.(ticketId, stage, name),
     onGateOutput: (name, chunk) => deps.onGateOutput?.(ticketId, stage, name, chunk),
     onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(ticketId, name, pid, cwd),
-    onGateComplete: (name, exitCode, startedAt, endedAt, index, rawOutput) => {
+    onGateComplete: (name, exitCode, startedAt, endedAt, index, rawOutput, waitMs) => {
       const output = rawOutput ?? '';
       const rows = index < 0 ? (regenIdx >= 0 ? [regenIdx] : []) : (rowsOfGate.get(index) ?? []);
-      recordRerunRow(deps, ticketId, stage, attempt, now(), group, { name, exitCode, startedAt, endedAt, output, row: rows[0] ?? -1 });
+      recordRerunRow(deps, ticketId, stage, attempt, now(), group, { name, exitCode, startedAt, endedAt, output, waitMs: waitMs ?? null, row: rows[0] ?? -1 });
       for (const row of rows) results[row] = resultOf(exitCode, output);
     },
   });
@@ -222,6 +222,7 @@ function recordRerunRow(
         exitCode: d.exitCode,
         startedAt: d.startedAt ?? undefined,
         endedAt: d.endedAt ?? undefined,
+        waitMs: d.waitMs,
         repo: group.repo,
         command: entry?.command ?? d.name,
         args: entry?.args ?? [],

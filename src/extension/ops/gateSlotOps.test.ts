@@ -46,6 +46,42 @@ describe('withGateSlot', () => {
     expect(countGateSlots(store, 1)).toBe(0);
   });
 
+  it('reports on the outcome how long the gate waited for its slot (T1248)', async () => {
+    const g = gate();
+    const d = deps(1);
+    const a = withGateSlot(d, 1, g.run)('npm', [], '/wt');
+    await tick();
+    const b = withGateSlot(d, 2, g.run)('npm', [], '/wt');
+    await tick(80);
+    g.release();
+    const [first, second] = await Promise.all([a, b]);
+    expect(first.waitMs).toBeUndefined();
+    expect(second.waitMs).toBeGreaterThanOrEqual(70);
+    expect(second.waitMs).toBeLessThan(5_000);
+  });
+
+  it('reports the wait on an outcome aborted while waiting (T1248)', async () => {
+    const g = gate();
+    const d = deps(1);
+    const holder = withGateSlot(d, 1, g.run)('npm', [], '/wt');
+    await tick();
+    const ctl = new AbortController();
+    const waiting = withGateSlot(d, 2, g.run)('npm', [], '/wt', { signal: ctl.signal });
+    await tick(60);
+    ctl.abort();
+    const out = await waiting;
+    expect(out.kind).toBe('aborted');
+    expect(out.waitMs).toBeGreaterThanOrEqual(50);
+    expect(out.waitMs).toBeLessThan(5_000);
+    g.release();
+    await holder;
+  });
+
+  it('leaves an unlimited gate without a wait (T1248)', async () => {
+    const out = await withGateSlot(deps(0), 1, () => Promise.resolve(OK))('npm', [], '/wt');
+    expect(out.waitMs).toBeUndefined();
+  });
+
   it('releases the slot when the gate throws', async () => {
     const run: GateProcessRunner = () => Promise.reject(new Error('crash'));
     await expect(withGateSlot(deps(1), 1, run)('npm', [], '/wt')).rejects.toThrow('crash');
@@ -134,7 +170,7 @@ describe('withGateSlot', () => {
     await tick();
     ctl.abort();
     const first = await Promise.race([waiting, tick(200).then(() => 'still waiting')]);
-    expect(first).toEqual({ kind: 'aborted', output: '' });
+    expect(first).toMatchObject({ kind: 'aborted', output: '' });
     g.release();
     await holder;
   });

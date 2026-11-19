@@ -94,6 +94,13 @@ describe('runShipGates evidence (T1018)', () => {
     expect(currentDeliverRun(store, ticketId)).toMatchObject({ state: 'passed', gates: ['unit', 'docs'], finished: 2 });
   });
 
+  it('records the slot wait of a gate apart from its run time (T1248)', async () => {
+    const { store, ticketId, pr } = setup();
+    const waiting: GateProcessRunner = async (cmd) => ({ kind: 'completed', exitCode: 0, output: 'ok', ...(cmd === 'u' ? { waitMs: 400 } : {}) });
+    await runShipGates([pr], { uat: twoGates, runProcess: waiting, evidence: { store, ticketId }, headSha: async () => 'f'.repeat(40) });
+    expect(listDeliverResults(store, ticketId).map((r) => [r.gateName, r.waitMs])).toEqual([['unit', 400], ['docs', 0]]);
+  });
+
   it('records every gate also when the first gate fails, and keeps the failure summary', async () => {
     const { store, ticketId, pr } = setup();
     const out = await runShipGates([pr], { uat: twoGates, runProcess: byCommand({ u: 3 }), evidence: { store, ticketId }, headSha: async () => 'a'.repeat(40) });
