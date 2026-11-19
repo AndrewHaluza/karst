@@ -2315,7 +2315,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildSettingsActions({
       writeManifest,
       reloadManifest,
-      onAgentSettingsSaved: (prev, next) => void graphOwned.agentSettingsSaved(agentSettingsChanged(prev, next)).catch((e) => logError('karst: model-change question failed', e)),
+      onAgentSettingsSaved: (prev, next) => void graphOwned.agentSettingsSaved(agentSettingsChanged(prev, next), currentProject()?.id).catch((e) => logError('karst: model-change question failed', e)),
       onChange: () => {
         provider.refresh();
         // Re-push any open dashboards so worktree-path display etc. reflect edits.

@@ -30,7 +30,7 @@ export interface GraphOwnedBindingDeps {
   /** T1258: the model-change question and the switch, bound to the live manifest in `extension.ts`. */
   readonly modelChange?: {
     /** Asks for the matching live runs; resolves with how many the question covered (0 = none shown). */
-    readonly ask: (filter: { ticketId?: number }) => Promise<number>;
+    readonly ask: (filter: { ticketId?: number; projectId?: number }) => Promise<number>;
   };
 }
 
@@ -75,10 +75,14 @@ export function makeGraphOwnedBinding(deps: GraphOwnedBindingDeps) {
       const asked = deps.modelChange ? await deps.modelChange.ask({ ticketId }) : 0;
       if (asked === 0) deps.inform(graphOwnedChangeMessage(deps.label(ticketId), run));
     },
-    /** A Settings Save: ask once for every live run when it changed what a graph role resolves to. */
-    async agentSettingsSaved(identityChanged: boolean): Promise<void> {
+    /** A Settings Save: ask once for every live run of the window's project when it changed what a graph role resolves to. */
+    async agentSettingsSaved(identityChanged: boolean, projectId: number | undefined): Promise<void> {
       if (!identityChanged || !deps.modelChange) return;
-      await deps.modelChange.ask({});
+      if (projectId === undefined) {
+        deps.debug('[process] model-change question skipped: no project in this window');
+        return;
+      }
+      await deps.modelChange.ask({ projectId });
     },
   };
 }

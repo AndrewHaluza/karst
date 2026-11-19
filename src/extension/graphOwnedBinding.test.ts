@@ -118,17 +118,25 @@ describe('agentChoiceChanged', () => {
 });
 
 describe('agentSettingsSaved', () => {
-  it('asks for every ticket when the identity inputs changed', async () => {
+  it('asks for the runs of the window project when the identity inputs changed', async () => {
     const ask = vi.fn(async () => 2);
     const { binding } = make({ modelChange: { ask } });
-    await binding.agentSettingsSaved(true);
-    expect(ask).toHaveBeenCalledWith({});
+    await binding.agentSettingsSaved(true, 4);
+    expect(ask).toHaveBeenCalledWith({ projectId: 4 });
+  });
+
+  it('asks nothing and logs when the window has no project', async () => {
+    const ask = vi.fn(async () => 2);
+    const { deps, binding } = make({ modelChange: { ask } });
+    await binding.agentSettingsSaved(true, undefined);
+    expect(ask).not.toHaveBeenCalled();
+    expect(deps.debug).toHaveBeenCalledWith(expect.stringContaining('no project'));
   });
 
   it('asks nothing when the identity inputs did not change', async () => {
     const ask = vi.fn(async () => 2);
     const { binding } = make({ modelChange: { ask } });
-    await binding.agentSettingsSaved(false);
+    await binding.agentSettingsSaved(false, 4);
     expect(ask).not.toHaveBeenCalled();
   });
 });

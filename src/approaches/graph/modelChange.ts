@@ -22,6 +22,7 @@ import {
 } from '../../store/graph/graphRuns.js';
 import { NON_TERMINAL_GRAPH_RUN_STATUSES } from './coordinator/reconcileScope.js';
 import {
+  type GraphRunIdentities,
   identitiesDiffer,
   identityDifference,
   parseRunIdentities,
@@ -55,16 +56,18 @@ export interface ModelChange {
   readonly ticketId: number;
   readonly approachId: string;
   readonly status: string;
+  /** The identity the question showed; a Switch applies exactly this. */
+  readonly to: GraphRunIdentities;
   readonly summary: { readonly from: string; readonly to: string; readonly difference: string };
 }
 
 /** The non-terminal runs whose snapshot differs from the identity the current settings give. */
 export function findModelChanges(
   deps: ModelChangeScanDeps,
-  filter: { ticketId?: number } = {},
+  filter: { ticketId?: number; projectId?: number } = {},
 ): ModelChange[] {
   const changes: ModelChange[] = [];
-  for (const run of graphRunsInStatuses(deps.db, MODEL_CHANGE_STATUSES, filter.ticketId)) {
+  for (const run of graphRunsInStatuses(deps.db, MODEL_CHANGE_STATUSES, filter)) {
     const from = parseRunIdentities(run.agent_identity);
     const config = deps.graphConfigOf(run.approach_id);
     if (!from || !config) continue;
@@ -75,6 +78,7 @@ export function findModelChanges(
       ticketId: run.ticket_id,
       approachId: run.approach_id,
       status: run.status,
+      to,
       summary: {
         from: summarizeRunIdentities(from),
         to: summarizeRunIdentities(to),
@@ -91,7 +95,11 @@ export type SwitchModelsOutcome = 'switched' | 'unchanged' | 'terminal' | 'not-f
  * Replace the run's snapshot with the identity the current settings give, in
  * one transaction. A run with no snapshot gets one. No session stops.
  */
-export function switchGraphRunModels(deps: ModelChangeSwitchDeps, graphRunId: number): SwitchModelsOutcome {
+export function switchGraphRunModels(
+  deps: ModelChangeSwitchDeps,
+  graphRunId: number,
+  target?: GraphRunIdentities,
+): SwitchModelsOutcome {
   return deps.transaction(() => {
     const run = graphRunById(deps.db, graphRunId);
     if (!run) return 'not-found';
@@ -99,7 +107,7 @@ export function switchGraphRunModels(deps: ModelChangeSwitchDeps, graphRunId: nu
     const config = deps.graphConfigOf(run.approach_id);
     if (!config) return 'not-found';
     const before = parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId));
-    const next = resolveRunIdentities(deps.manifest, config);
+    const next = target ?? resolveRunIdentities(deps.manifest, config);
     if (before && !identitiesDiffer(before, next)) return 'unchanged';
     setGraphRunAgentIdentity(deps.db, graphRunId, serializeRunIdentities(next), deps.now());
     deps.debug(
@@ -142,7 +150,7 @@ export interface AskModelChangeDeps extends ModelChangeSwitchDeps {
  */
 export async function askModelChange(
   deps: AskModelChangeDeps,
-  filter: { ticketId?: number } = {},
+  filter: { ticketId?: number; projectId?: number } = {},
 ): Promise<number> {
   const changes = findModelChanges(deps, filter);
   if (changes.length === 0) return 0;
@@ -150,7 +158,7 @@ export async function askModelChange(
   const answer = await deps.warn(message, actions.switch, actions.keep);
   if (answer !== actions.switch) return changes.length;
   for (const change of changes) {
-    if (switchGraphRunModels(deps, change.graphRunId) === 'switched') deps.refresh(change.ticketId);
+    if (switchGraphRunModels(deps, change.graphRunId, change.to) === 'switched') deps.refresh(change.ticketId);
   }
   return changes.length;
 }

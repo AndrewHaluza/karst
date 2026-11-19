@@ -22,7 +22,7 @@ export interface ModelChangeSeamsDeps {
 }
 
 export interface ModelChangeSeams {
-  readonly ask: (filter: { ticketId?: number }) => Promise<number>;
+  readonly ask: (filter: { ticketId?: number; projectId?: number }) => Promise<number>;
 }
 
 export function makeModelChangeSeams(deps: ModelChangeSeamsDeps): ModelChangeSeams {

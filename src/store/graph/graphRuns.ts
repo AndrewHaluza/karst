@@ -820,20 +820,31 @@ export function releaseGraphProcessSlot(db: GraphDb, id: number, now: string): b
   return res.changes === 1;
 }
 
-/** The id, ticket and approach of every run in `statuses`, optionally of one ticket (T1258 model-change scan). */
+/** The id, ticket and approach of every run in `statuses`, optionally of one ticket or one project (T1258 model-change scan;
+ *  `approach_graph_runs` has no project_id, so the project scope joins `tickets`). */
 export function graphRunsInStatuses(
   db: GraphDb,
   statuses: readonly string[],
-  ticketId?: number,
+  scope: { ticketId?: number; projectId?: number } = {},
 ): Array<Pick<GraphRunRow, 'id' | 'ticket_id' | 'approach_id' | 'status' | 'agent_identity'>> {
   const placeholders = statuses.map(() => '?').join(', ');
-  const ticketClause = ticketId === undefined ? '' : ' AND ticket_id = ?';
+  const params: number[] = [];
+  let clause = '';
+  if (scope.ticketId !== undefined) {
+    clause += ' AND r.ticket_id = ?';
+    params.push(scope.ticketId);
+  }
+  if (scope.projectId !== undefined) {
+    clause += ' AND t.project_id = ?';
+    params.push(scope.projectId);
+  }
   return db
     .prepare(
-      `SELECT id, ticket_id, approach_id, status, agent_identity FROM approach_graph_runs
-        WHERE status IN (${placeholders})${ticketClause} ORDER BY id`,
+      `SELECT r.id, r.ticket_id, r.approach_id, r.status, r.agent_identity FROM approach_graph_runs r
+        JOIN tickets t ON t.id = r.ticket_id
+        WHERE r.status IN (${placeholders})${clause} ORDER BY r.id`,
     )
-    .all(...statuses, ...(ticketId === undefined ? [] : [ticketId])) as Array<
+    .all(...statuses, ...params) as Array<
     Pick<GraphRunRow, 'id' | 'ticket_id' | 'approach_id' | 'status' | 'agent_identity'>
   >;
 }

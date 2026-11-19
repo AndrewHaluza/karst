@@ -74,6 +74,16 @@ describe('findModelChanges', () => {
   });
 });
 
+describe('findModelChanges project scope', () => {
+  it('reports only the runs of the given project (a Save in one window never reaches another project)', () => {
+    const h = harness();
+    runWith(h, 'p1', 'running');
+    h.db.prepare('UPDATE tickets SET project_id = 7 WHERE id = ?').run(h.ticketId);
+    expect(findModelChanges(depsOf(h, manifestWith('p2')), { projectId: 8 })).toEqual([]);
+    expect(findModelChanges(depsOf(h, manifestWith('p2')), { projectId: 7 })).toHaveLength(1);
+  });
+});
+
 describe('switchGraphRunModels', () => {
   it('replaces the snapshot with the live identity and logs it', () => {
     const h = harness();
@@ -151,6 +161,23 @@ describe('askModelChange', () => {
     await askModelChange(deps);
     expect(parseRunIdentities(graphRunAgentIdentity(h.db, id))?.roles.expert?.provider).toBe('codex');
     expect(deps.refresh).toHaveBeenCalledWith(h.ticketId);
+  });
+
+  it('Switch applies the identity the warning showed, not a later live one', async () => {
+    const h = harness();
+    const id = runWith(h, 'p1', 'running');
+    let reads = 0;
+    const deps = {
+      ...depsOf(h, manifestWith('p2')),
+      get manifest() {
+        return reads++ === 0 ? manifestWith('p2') : manifestWith('p1');
+      },
+      label: (t: number) => `T${t}`,
+      warn: vi.fn(async () => 'Switch to new models' as string | undefined),
+      refresh: vi.fn(),
+    };
+    await askModelChange(deps);
+    expect(parseRunIdentities(graphRunAgentIdentity(h.db, id))?.roles.expert?.provider).toBe('codex');
   });
 
   it.each([['Keep current models'], [undefined]])('Keep or dismiss (%s) changes nothing', async (answer) => {
