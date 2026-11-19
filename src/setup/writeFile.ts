@@ -1,6 +1,6 @@
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
-import { MAX_SETUP_WRITE_CONTENT, writeFilePathProblem } from './proposal.js';
+import { hasBodyControls, MAX_SETUP_WRITE_CONTENT, writeFilePathProblem } from './proposal.js';
 
 /**
  * The host's own patch for a `setup write-file` request. The agent gives a
@@ -78,6 +78,7 @@ function readText(path: string): string | undefined {
 export function buildWriteFilePatch(repoDir: string, path: string, content: string): WriteFilePatch {
   const problem = writeFilePathProblem(path);
   if (problem !== undefined) return fail(problem);
+  if (hasBodyControls(content)) return fail('content holds control or bidi characters; write-file writes plain text only');
   let realRepo: string;
   try {
     realRepo = realpathSync(repoDir);
@@ -111,5 +112,8 @@ export function buildWriteFilePatch(repoDir: string, path: string, content: stri
   const before = linesOf(old);
   const after = linesOf(content);
   const hunkHead = `@@ -${range(1, before.lines.length)} +${range(1, after.lines.length)} @@\n`;
-  return { ok: true, patch: `${header}--- a/${path}\n+++ b/${path}\n${hunkHead}${hunk(before, '-')}${hunk(after, '+')}` };
+  const patch = `${header}--- a/${path}\n+++ b/${path}\n${hunkHead}${hunk(before, '-')}${hunk(after, '+')}`;
+  // The host strips controls from a patch before it checks it; a patch with one would check one text and apply another.
+  if (hasBodyControls(patch)) return fail(`"${path}" holds control or bidi characters; write-file replaces plain text files only`);
+  return { ok: true, patch };
 }

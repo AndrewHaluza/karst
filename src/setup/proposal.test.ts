@@ -83,7 +83,7 @@ describe('write-file proposal', () => {
 
   it('accepts a relative path and keeps the content byte for byte', () => {
     expect(ok(base)).toEqual(base);
-    expect(ok({ ...base, content: 'a\r\n\tb' })).toMatchObject({ content: 'a\r\n\tb' });
+    expect(ok({ ...base, content: 'a\n\tb' })).toMatchObject({ content: 'a\n\tb' });
   });
 
   it.each([
@@ -107,6 +107,13 @@ describe('write-file proposal', () => {
     expect(reasonOf({ ...base, content: 'a\u0000b' })).toContain('content');
     expect(reasonOf({ ...base, content: 'x'.repeat(MAX_SETUP_WRITE_CONTENT + 1) })).toContain('content');
     expect(reasonOf({ ...base, content: 5 })).toContain('content');
+  });
+
+  it.each(['a\u202Eb', 'a\u0007b', 'a\rb', 'a\u0085b'])('refuses content with the control character %j', (content) => {
+    expect(reasonOf({ ...base, content })).toContain('control');
+  });
+  it('keeps tab and newline in content', () => {
+    expect(validateSetupProposal({ ...base, content: 'a\tb\n' }).ok).toBe(true);
   });
 
   it.each(['.git', '.GIT', '.karst', '.Karst'])('refuses the reserved repo name %s', (repo) => {

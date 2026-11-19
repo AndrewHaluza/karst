@@ -32,8 +32,8 @@ export const MAX_SETUP_REASON = 2 * 1024;
 export const MAX_SETUP_COMMAND = 4 * 1024;
 export const MAX_SETUP_PATCH = 256 * 1024;
 export const MAX_SETUP_PATH = 1024;
-/** The text of a file the host writes; a patch of it stays under `MAX_SETUP_PATCH`. */
-export const MAX_SETUP_WRITE_CONTENT = 128 * 1024;
+/** The text of a file the host writes. The worst patch holds the old and the new text, each with one added prefix per byte: 4 times this value plus the headers stays under `MAX_SETUP_PATCH`. */
+export const MAX_SETUP_WRITE_CONTENT = 48 * 1024;
 /** `clears`: at most this many readiness item ids, each matching `SETUP_ITEM_ID`. */
 export const MAX_SETUP_CLEARS = 64;
 export const SETUP_ITEM_ID = /^[A-Za-z0-9._:#-]{1,200}$/;
@@ -94,6 +94,9 @@ export type SetupProposalResult =
 // C0 (minus \t \n), DEL, C1, and bidi embedding/override/isolate/mark controls.
 const BODY_CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 const ALL_CONTROLS = /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+/** True when `text` holds a control character that `cleanBody` would strip (tab and newline are allowed). */
+export const hasBodyControls = (text: string): boolean => text.replace(BODY_CONTROLS, '') !== text;
 
 const fail = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
 
@@ -185,8 +188,8 @@ function validateWriteFile(rec: Record<string, unknown>): SetupProposalResult {
   const problem = writeFilePathProblem(rec.path);
   if (problem !== undefined) return fail(problem);
   const content = rec.content;
-  if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > MAX_SETUP_WRITE_CONTENT || content.includes('\u0000')) {
-    return fail(`content must be text (no NUL) of at most ${MAX_SETUP_WRITE_CONTENT} bytes`);
+  if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > MAX_SETUP_WRITE_CONTENT || hasBodyControls(content)) {
+    return fail(`content must be text of at most ${MAX_SETUP_WRITE_CONTENT} bytes, with no control or bidi characters (tab and newline are allowed)`);
   }
   return { ok: true, value: { kind: 'write-file', repo: rec.repo, path: rec.path as string, content } };
 }

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MAX_SETUP_WRITE_CONTENT } from './proposal.js';
+import { MAX_SETUP_PATCH, MAX_SETUP_WRITE_CONTENT } from './proposal.js';
 import { buildWriteFilePatch } from './writeFile.js';
 
 let root: string;
@@ -59,8 +59,8 @@ describe('buildWriteFilePatch — build', () => {
     );
   });
 
-  it('keeps a carriage return as content', () => {
-    expect(patchOf('a.txt', 'a\r\n')).toContain('+a\r\n');
+  it('refuses a carriage return, which the host strips from a patch', () => {
+    expect(reasonOf('a.txt', 'a\r\n')).toContain('control');
   });
 
   it('refuses a write that changes nothing', () => {
@@ -151,5 +151,24 @@ describe('buildWriteFilePatch — repo directory and size', () => {
   it('replaces an existing file at the size cap', () => {
     writeFileSync(join(repo, 'edge.txt'), 'a'.repeat(MAX_SETUP_WRITE_CONTENT));
     expect(built('edge.txt', 'b\n').ok).toBe(true);
+  });
+
+  it('refuses content with a bidi control, new or existing file', () => {
+    expect(reasonOf('n.txt', 'a\u202Eb\n')).toContain('control');
+    writeFileSync(join(repo, 'o.txt'), 'old\n');
+    expect(reasonOf('o.txt', 'a\u0007b\n')).toContain('control');
+  });
+
+  it('refuses an existing file that holds a control character', () => {
+    writeFileSync(join(repo, 'c.txt'), 'a\u202Eb\n');
+    expect(reasonOf('c.txt', 'plain\n')).toContain('control');
+  });
+
+  it('builds a patch under MAX_SETUP_PATCH for the largest legal replace', () => {
+    const newlines = '\n'.repeat(MAX_SETUP_WRITE_CONTENT);
+    writeFileSync(join(repo, 'w.txt'), newlines.replace(/\n$/, 'x'));
+    const r = built('w.txt', newlines);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.patch.length).toBeLessThan(MAX_SETUP_PATCH);
   });
 });

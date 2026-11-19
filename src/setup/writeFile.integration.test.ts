@@ -25,7 +25,7 @@ describe('write-file patch applies with git', () => {
   it.each([
     ['a new file', 'one\ntwo\n'],
     ['a new file with no final newline', 'one\ntwo'],
-    ['CRLF content', 'a\r\nb\r\n'],
+    ['tab content', 'a\tb\n\tc\n'],
     ['a line that starts with + and -', '+x\n-y\n@@ z\n'],
   ])('creates %s', (_name, content) => {
     expect(applyAndRead('dir/f.txt', content)).toBe(content);

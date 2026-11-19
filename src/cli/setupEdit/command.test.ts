@@ -133,7 +133,7 @@ describe('setup run and write-file tools (host proposals)', () => {
   });
 
   it('writes a write-file proposal with the content byte for byte', () => {
-    const input = { repo: 'web', path: 'a/.env.example', content: 'A=1\r\n' };
+    const input = { repo: 'web', path: 'a/.env.example', content: 'A=1\n\tB=2\n' };
     expect(JSON.parse(runEditTool('write-file', [], deps(input)))).toMatchObject({ ok: true, kind: 'write-file' });
     expect(written()).toEqual({ kind: 'write-file', ...input });
   });
