@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import { launchHasMcp } from '../../agent/karstCommandText.js';
 import { mcpServersConfig, type McpConnection } from '../../agent/mcpConfig.js';
 import { KARST_INSTRUCTIONS_ENV, sessionCliEnv } from '../../agent/cliEnv.js';
 import { opencode2ConfigEnv } from '../../agent/opencode2Binary.js';
@@ -76,8 +77,10 @@ function writeSetupMcpConfig(
   adapter: AgentAdapter,
   cwd: string,
   input: { cliEntry: string | undefined; dbPath: string | undefined; manifestPath: string | undefined; id: string; outbox: string },
-): string | undefined {
-  if (adapter.surfaces?.mcpConfigInteractive?.supported !== true || !input.cliEntry || !input.dbPath) return undefined;
+): { mcpConfigPath?: string } {
+  if (!input.cliEntry || !input.dbPath || !launchHasMcp({ adapter, hookChannel: true, cliEntry: input.cliEntry, dbPath: input.dbPath })) {
+    return {};
+  }
   const connection: McpConnection = {
     cliEntry: input.cliEntry,
     dbPath: input.dbPath,
@@ -86,7 +89,7 @@ function writeSetupMcpConfig(
   };
   const path = join(cwd, 'mcp-config.json');
   writeFileSync(path, JSON.stringify(mcpServersConfig(connection)));
-  return path;
+  return { mcpConfigPath: path };
 }
 
 export function createSetupOps(deps: SetupOpsDeps): SetupOps {
@@ -125,7 +128,7 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
         // the wait is async, never a block.
         await adapter.ensureWorkspaceTrusted?.(cwd, { debug });
         const cliEntryForMcp = deps.cliEntry();
-        const mcpConfigPath = writeSetupMcpConfig(adapter, cwd, {
+        const mcp = writeSetupMcpConfig(adapter, cwd, {
           cliEntry: cliEntryForMcp,
           dbPath: deps.dbPath,
           manifestPath: deps.manifestPath(),
@@ -133,7 +136,7 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
           outbox,
         });
         const cmd = adapter.buildInteractiveCommand({
-          ...(mcpConfigPath !== undefined ? { mcpConfigPath } : {}),
+          ...mcp,
           cwd,
           readOnly: true,
           policy: 'attended',

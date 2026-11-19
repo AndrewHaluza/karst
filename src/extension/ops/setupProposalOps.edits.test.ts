@@ -9,12 +9,18 @@ import type { VerifyRecord } from '../../setup/verify/types.js';
 const op = (id: string, tool: string, input: Record<string, unknown>, seq = '000000000000001'): EditOpFile => ({ id, seq, tool, input });
 const SET_GENERAL = (id: string, patch: Record<string, unknown>): EditOpFile => op(id, 'set-general', patch);
 
-function setup(initial: EditOpFile[], text: string | undefined = BASE_YAML, clock = 1_000_000) {
+function setup(
+  initial: EditOpFile[],
+  text: string | undefined = BASE_YAML,
+  clock = 1_000_000,
+  opts: { scaffold?: string; manifestPath?: string; noFile?: boolean } = {},
+) {
+  if (opts.noFile) text = undefined;
   let ops = [...initial];
   const results: ProposalResult[] = [];
   const records: VerifyRecord[] = [];
   let current = text;
-  const base = fakeVerifyDeps({ text });
+  const base = fakeVerifyDeps({ text, ...(opts.manifestPath !== undefined ? { manifestPath: opts.manifestPath } : {}) });
   const verify: SetupVerifyWiring = {
     deps: { ...base, readCurrentText: () => current },
     recheck: vi.fn(async (ids: readonly string[]) => ids.map((id) => ({ id, status: 'ok' as const, detail: '' }))),
@@ -27,7 +33,7 @@ function setup(initial: EditOpFile[], text: string | undefined = BASE_YAML, cloc
   const edits: SetupEditWiring = {
     readOps: () => ops,
     removeOps: (_s, ids) => void (ops = ops.filter((o) => !ids.includes(o.id))),
-    scaffoldText: () => undefined,
+    scaffoldText: () => opts.scaffold,
     applyText,
   };
   const confirm = vi.fn(async (_d: { message: string; detail: string }) => true);
@@ -154,5 +160,91 @@ describe('the typed edit list', () => {
     await f.ctl.scan();
     expect(f.results).toMatchObject([{ id: 'a-1', status: 'invalid' }]);
     expect(f.results[0]!.reason).toContain('disk full');
+  });
+
+  it('names each outcome with an exact reason and message', async () => {
+    const declined = setup([SET_GENERAL('a-1', { debug: true })]);
+    declined.confirm.mockResolvedValue(false);
+    await declined.ctl.scan();
+    expect(declined.results[0]!.reason).toBe('declined by the user');
+
+    const same = setup([SET_GENERAL('a-1', { baselineBranch: 'main' })]);
+    await same.ctl.scan();
+    expect(same.results[0]!.reason).toBe('no effective change');
+    expect(same.warn).toHaveBeenCalledWith('Karst: the setup edits change nothing.');
+
+    const failed = setup([SET_GENERAL('a-1', { debug: true })]);
+    failed.applyText.mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    await failed.ctl.scan();
+    expect(failed.results[0]!.reason).toBe('apply failed: disk full');
+    expect(failed.warn).toHaveBeenCalledWith('Karst: could not apply the setup edits (disk full).');
+  });
+
+  it('refuses a list that fails a host check and records the refusal', async () => {
+    const f = setup([SET_GENERAL('a-1', { debug: true })], BASE_YAML, 1_000_000, { manifestPath: '/w/other.yml' });
+    await f.ctl.scan();
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.applyText).not.toHaveBeenCalled();
+    expect(f.results).toMatchObject([{ id: 'a-1', kind: 'edit', status: 'invalid' }]);
+    expect(f.results[0]!.reason).toMatch(/^P2 /);
+    expect(f.warn).toHaveBeenCalledWith(expect.stringMatching(/^Karst: the setup edits failed the host checks \(P2 .*\); ignored\.$/));
+    expect(f.records.at(-1)).toMatchObject({ id: 'a-1', kind: 'edit', status: 'refused' });
+  });
+
+  it('applies nothing when the list is the same length but holds another op', async () => {
+    const f = setup([SET_GENERAL('a-1', { debug: true }), SET_GENERAL('a-2', { baselineBranch: 'dev' })]);
+    f.confirm.mockImplementation(async () => {
+      f.setOps([SET_GENERAL('a-1', { debug: true }), SET_GENERAL('a-3', { baselineBranch: 'dev' })]);
+      return true;
+    });
+    await f.ctl.scan();
+    expect(f.applyText).not.toHaveBeenCalled();
+    expect(f.ops().map((o) => o.id)).toEqual(['a-1', 'a-3']);
+  });
+
+  it('applies nothing when the same ops come back in another order', async () => {
+    const f = setup([SET_GENERAL('a-1', { debug: true }), SET_GENERAL('a-2', { baselineBranch: 'dev' })]);
+    f.confirm.mockImplementation(async () => {
+      f.setOps([...f.ops()].reverse());
+      return true;
+    });
+    await f.ctl.scan();
+    expect(f.applyText).not.toHaveBeenCalled();
+  });
+
+  it('holds the list by its newest op and shows it once the window ends', async () => {
+    const fresh = [op('a-1', 'set-general', { debug: true }, '000000000000001'), op('a-2', 'set-general', { baselineBranch: 'dev' }, '000000000999000')];
+    const held = setup(fresh, BASE_YAML, 1_000_000);
+    await held.ctl.scan();
+    expect(held.confirm).not.toHaveBeenCalled();
+    expect(held.ctl.editWaitMs()).toBe(3000);
+
+    const near = setup([op('a-1', 'set-general', { debug: true }, '000000000997000')], BASE_YAML, 1_000_000);
+    await near.ctl.scan();
+    expect(near.confirm).not.toHaveBeenCalled();
+    expect(near.ctl.editWaitMs()).toBe(1000);
+  });
+
+  it('shows the list when its newest op is exactly one quiet window old', async () => {
+    const f = setup([op('a-1', 'set-general', { debug: true }, '000000000996000')], BASE_YAML, 1_000_000);
+    await f.ctl.scan();
+    expect(f.confirm).toHaveBeenCalledOnce();
+  });
+
+  it('builds from the scaffold on first setup and tells the checklist it is a first setup', async () => {
+    const f = setup([SET_GENERAL('a-1', { baselineBranch: 'dev' })], BASE_YAML, 1_000_000, { scaffold: BASE_YAML, noFile: true });
+    await f.ctl.scan();
+    expect(f.confirm).toHaveBeenCalledOnce();
+    expect(f.applyText.mock.calls[0]![0]).toContain('baselineBranch: dev');
+    expect(f.records.at(-1)!.steps.find((i) => i.id === 'P5')?.status).toBe('info');
+  });
+
+  it('records the sha256 on every applied op and the apply on the verify record', async () => {
+    const f = setup([SET_GENERAL('a-1', { baselineBranch: 'dev' }), SET_GENERAL('a-2', { debug: true })]);
+    await f.ctl.scan();
+    expect(f.results.map((r) => r.sha256)).toEqual(['sha-edit', 'sha-edit']);
+    expect(f.records.at(-1)!.steps.find((i) => i.id === 'A1')).toMatchObject({ status: 'ok' });
   });
 });
