@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import type { AccountStore } from './accountStore.js';
 import { parseShellAlias, type AliasImport } from './aliasImport.js';
 import { copyAccountSeed, SEED_ITEMS, type CopySeedResult, type SeedItem } from './copySeed.js';
-import { activeAccountName, findAccount, resolveAccountLaunch } from './resolve.js';
+import { activeAccountName, activeAccountSource, findAccount, resolveAccountLaunch, type ActiveSource } from './resolve.js';
 import {
   DEFAULT_ACCOUNT, validateAccount, validateAccountName,
   type Account, type AccountCore, type AccountsConfig, type AccountSource, type SubscriptionAccount,
@@ -36,6 +36,8 @@ export interface AccountOpsDeps {
   readonly signedIn: (core: AccountCore, dir: string | undefined) => Promise<boolean | undefined>;
   /** Remove the sbx token of a deleted account (SecretStorage). Called for every deleted account. */
   readonly removeSbxToken?: (core: AccountCore, name: string) => Promise<void>;
+  /** The slug of the project of this window: `setActive` writes its choice. Absent = no project. */
+  readonly projectSlug?: () => string | undefined;
   readonly debug?: (message: string) => void;
 }
 
@@ -52,6 +54,30 @@ export type AccountSpec =
 
 export type AccountStatus = 'signed-in' | 'not-signed-in' | 'unknown';
 
+export interface ActiveInfo {
+  /** The account a new launch of this project uses. */
+  readonly active: string;
+  /** `accounts[core].active`, shared by every project without a choice. */
+  readonly machineDefault: string;
+  readonly source: ActiveSource;
+}
+
+/** Remove one name from every project entry of a core; empty entries and an empty map go away. */
+function withoutProjectName(config: AccountsConfig, core: AccountCore, keep: (slug: string, name: string) => boolean): AccountsConfig['projects'] {
+  const next: Record<string, Partial<Record<AccountCore, string>>> = {};
+  for (const [slug, choices] of Object.entries(config.projects ?? {})) {
+    const { [core]: choice, ...others } = choices;
+    const kept = choice !== undefined && keep(slug, choice) ? { ...others, [core]: choice } : others;
+    if (Object.keys(kept).length > 0) next[slug] = kept;
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function withProjects(config: AccountsConfig, projects: AccountsConfig['projects']): AccountsConfig {
+  const { projects: _old, ...rest } = config;
+  return projects ? { ...rest, projects } : rest;
+}
+
 function withCore(config: AccountsConfig, core: AccountCore, next: { active: string; list: Record<string, Account> }): AccountsConfig {
   return { ...config, [core]: next };
 }
@@ -61,7 +87,7 @@ export function createAccountOps(deps: AccountOpsDeps) {
 
   async function listAccounts(core: AccountCore): Promise<AccountRow[]> {
     const config = await deps.store.load();
-    const active = activeAccountName(config, core);
+    const active = activeAccountName(config, core, deps.projectSlug?.(), deps.debug);
     const rows: AccountRow[] = [{ name: DEFAULT_ACCOUNT, active: active === DEFAULT_ACCOUNT }];
     for (const [name, account] of Object.entries(config[core]?.list ?? {})) rows.push({ name, active: active === name, account });
     return rows;
@@ -91,7 +117,36 @@ export function createAccountOps(deps: AccountOpsDeps) {
     return parsed;
   }
 
+  async function activeInfo(core: AccountCore): Promise<ActiveInfo> {
+    const config = await deps.store.load();
+    const slug = deps.projectSlug?.();
+    return {
+      active: activeAccountName(config, core, slug),
+      machineDefault: config[core]?.active ?? DEFAULT_ACCOUNT,
+      source: activeAccountSource(config, core, slug),
+    };
+  }
+
+  /** The choice of THIS project; with no project it is the machine default. */
   async function setActive(core: AccountCore, name: string): Promise<void> {
+    const slug = deps.projectSlug?.();
+    if (slug === undefined) return setMachineDefault(core, name);
+    const config = await deps.store.load();
+    if (name !== DEFAULT_ACCOUNT) findAccount(config, core, name);
+    const own = config.projects?.[slug] ?? {};
+    await deps.store.save({ ...config, projects: { ...(config.projects ?? {}), [slug]: { ...own, [core]: name } } });
+  }
+
+  /** The project returns to the machine default. */
+  async function clearProjectChoice(core: AccountCore): Promise<void> {
+    const slug = deps.projectSlug?.();
+    if (slug === undefined) return;
+    const config = await deps.store.load();
+    if (config.projects?.[slug]?.[core] === undefined) return;
+    await deps.store.save(withProjects(config, withoutProjectName(config, core, (s) => s !== slug)));
+  }
+
+  async function setMachineDefault(core: AccountCore, name: string): Promise<void> {
     const config = await deps.store.load();
     if (name !== DEFAULT_ACCOUNT) findAccount(config, core, name);
     const prev = config[core];
@@ -106,7 +161,9 @@ export function createAccountOps(deps: AccountOpsDeps) {
     if ((await deps.liveAccounts(core)).includes(name)) throw new Error(`The ${core} account '${name}' is used by a live session. Stop the session first.`);
     const prev = config[core] as { active: string; list: Record<string, Account> };
     const { [name]: _removed, ...rest } = prev.list;
-    await deps.store.save(withCore(config, core, { active: prev.active === name ? DEFAULT_ACCOUNT : prev.active, list: rest }));
+    const cleaned = withCore(config, core, { active: prev.active === name ? DEFAULT_ACCOUNT : prev.active, list: rest });
+    // The shared list lost the name: every project that chose it returns to the machine default.
+    await deps.store.save(withProjects(cleaned, withoutProjectName(config, core, (_slug, choice) => choice !== name)));
     await deps.removeSbxToken?.(core, name);
     // Only a managed folder is removed; a folder or command account keeps the user's files.
     if (account.source !== 'managed' || options.removeFolder === false) return;
@@ -165,7 +222,7 @@ export function createAccountOps(deps: AccountOpsDeps) {
     return copyAccountSeed({ core, fromDir: deps.defaultDir(core), toDir: target.dir, items, overwrite, home: deps.home });
   }
 
-  return { listAccounts, createAccount, importShellAlias, setActive, deleteAccount, loginCommand, accountStatus, validateAccount: validate, seedItems, copyAccountSeed: copySeed };
+  return { listAccounts, createAccount, importShellAlias, setActive, setMachineDefault, clearProjectChoice, activeInfo, deleteAccount, loginCommand, accountStatus, validateAccount: validate, seedItems, copyAccountSeed: copySeed };
 }
 
 function buildAccount(core: AccountCore, name: string, spec: AccountSpec, managedDir: (c: AccountCore, n: string) => string): SubscriptionAccount {

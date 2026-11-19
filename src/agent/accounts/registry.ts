@@ -9,6 +9,26 @@ import { AccountNotFoundError, activeAccountName, resolveAccountLaunch, type Acc
 import { DEFAULT_ACCOUNT, isAccountCore, type AccountCore, type AccountsConfig } from './types.js';
 
 let config: AccountsConfig = {};
+let projectSlugOf: () => string | undefined = () => undefined;
+
+/**
+ * The host gives the slug of the project this window hosts (a getter: the project
+ * binds after the accounts wiring). The project choice then picks the active account
+ * for every reader below, so no call site changes (@arch:AC-55).
+ */
+export function configureAccountsProject(fn: (() => string | undefined) | undefined): void {
+  projectSlugOf = fn ?? (() => undefined);
+}
+
+/** The slug of the project of this window, when known. */
+export function accountsProjectSlug(): string | undefined {
+  return projectSlugOf();
+}
+
+/** The active account of a core for the project of this window. */
+function activeName(core: AccountCore): string {
+  return activeAccountName(config, core, projectSlugOf());
+}
 
 export function configureAccounts(next: AccountsConfig): void {
   config = next;
@@ -28,7 +48,7 @@ export function accountsConfig(): AccountsConfig {
  * `AccountNotFoundError` for a deleted recorded account — no fallback.
  */
 export function accountLaunchFor(core: AccountCore, defaultBinary: string, account?: string): AccountLaunch {
-  return resolveAccountLaunch({ config, core, defaultBinary, ...(account !== undefined ? { account } : {}) });
+  return resolveAccountLaunch({ config, core, defaultBinary, ...(projectSlugOf() !== undefined ? { projectSlug: projectSlugOf() as string } : {}), ...(account !== undefined ? { account } : {}) });
 }
 
 /** Headless spawn options for an account launch: empty for the default account (byte-for-byte unchanged). */
@@ -39,7 +59,7 @@ export function accountSpawnEnv(launch: AccountLaunch): { isolationEnv?: Record<
 /** The active account of a core when it is not 'default' (shown in the quota views); otherwise undefined. */
 export function activeAccountLabel(core: string): string | undefined {
   if (!isAccountCore(core)) return undefined;
-  const name = activeAccountName(config, core);
+  const name = activeName(core);
   return name === DEFAULT_ACCOUNT ? undefined : name;
 }
 
@@ -197,7 +217,7 @@ export function liveHeadlessAccounts(core: AccountCore): string[] {
 
 /** The account name a launch runs under: the explicit or recorded one, else the active one. */
 export function launchAccountName(core: AccountCore, account: string | undefined): string {
-  return account ?? activeAccountName(config, core);
+  return account ?? activeName(core);
 }
 
 /**
@@ -207,7 +227,7 @@ export function launchAccountName(core: AccountCore, account: string | undefined
  */
 export function sbxTokenAccount(core: AccountCore, account?: string): string | undefined {
   if (core !== 'claude') return undefined;
-  const name = account ?? config[core]?.active ?? DEFAULT_ACCOUNT;
+  const name = account ?? activeName(core);
   const found = name === DEFAULT_ACCOUNT ? undefined : config[core]?.list?.[name];
   return found && found.source !== 'command' ? name : undefined;
 }
@@ -221,7 +241,7 @@ export function sbxTokenAccount(core: AccountCore, account?: string): string | u
  */
 export function sandboxAccountBlock(core: AccountCore, account?: string, backend: 'docker' | 'sbx' = 'docker', tokenAccounts: ReadonlySet<string> = new Set()): string | undefined {
   const list = config[core]?.list ?? {};
-  const name = account ?? config[core]?.active ?? DEFAULT_ACCOUNT;
+  const name = account ?? activeName(core);
   const found = name === DEFAULT_ACCOUNT ? undefined : list[name];
   if (found?.source === 'command') return `${core} account '${name}' runs the host command '${found.command}', which is not in the container`;
   if (found && backend === 'sbx') {

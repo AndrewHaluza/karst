@@ -121,6 +121,7 @@ export function createAccountsHost(deps: AccountsHostDeps) {
 
   async function coreView(core: AccountCore): Promise<AccountsCoreView> {
     const list = await ops.listAccounts(core);
+    const info = await ops.activeInfo(core);
     const rows: AccountRowView[] = await Promise.all(
       list.map(async (row): Promise<AccountRowView> => {
         const status = await statusOf(core, row.name);
@@ -137,7 +138,7 @@ export function createAccountsHost(deps: AccountsHostDeps) {
         };
       }),
     );
-    return { core, active: rows.find((r) => r.active)?.name ?? DEFAULT_ACCOUNT, rows };
+    return { core, active: rows.find((r) => r.active)?.name ?? DEFAULT_ACCOUNT, machineDefault: info.machineDefault, source: info.source, rows };
   }
 
   async function pushState(): Promise<void> {
@@ -174,6 +175,12 @@ export function createAccountsHost(deps: AccountsHostDeps) {
       }
       case 'accounts-set-active':
         await ops.setActive(message.core, message.name);
+        return pushState();
+      case 'accounts-set-machine-default':
+        await ops.setMachineDefault(message.core, message.name);
+        return pushState();
+      case 'accounts-clear-project-choice':
+        await ops.clearProjectChoice(message.core);
         return pushState();
       case 'accounts-delete':
         await ops.deleteAccount(message.core, message.name, { removeFolder: message.removeFolder });
