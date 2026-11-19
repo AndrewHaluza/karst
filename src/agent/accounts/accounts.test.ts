@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseShellAlias } from './aliasImport.js';
 import { isDeniedSeedPath } from './copySeed.js';
-import { AccountNotFoundError, mergeAccountEnv, resolveAccountLaunch } from './resolve.js';
+import { AccountNotFoundError, activeAccountName, activeAccountSource, mergeAccountEnv, resolveAccountLaunch } from './resolve.js';
 import { ACCOUNT_CORES, validateAccount, validateAccountName, validateAccountsConfig, type AccountsConfig } from './types.js';
 
 const sub = (dir: string, extra: object = {}) => ({ kind: 'subscription', source: 'folder', dir, ...extra });
@@ -90,5 +90,45 @@ describe('copy deny list', () => {
       expect(isDeniedSeedPath(p)).toBe(true);
     }
     for (const p of ['settings.json', 'CLAUDE.md', 'skills/a/SKILL.md']) expect(isDeniedSeedPath(p)).toBe(false);
+  });
+});
+
+describe('per-project active account (@arch:AC-55)', () => {
+  const list = { w: sub('/h/w'), p: sub('/h/p') } as never;
+  const config: AccountsConfig = {
+    claude: { active: 'w', list },
+    projects: { alpha: { claude: 'p' }, beta: { claude: 'default' } },
+  };
+  it('the project choice wins over the machine default', () => {
+    expect(activeAccountName(config, 'claude', 'alpha')).toBe('p');
+    expect(activeAccountSource(config, 'claude', 'alpha')).toBe('project');
+  });
+  it('a project with no choice uses the machine default, then default', () => {
+    expect(activeAccountName(config, 'claude', 'other')).toBe('w');
+    expect(activeAccountSource(config, 'claude', 'other')).toBe('machine');
+    expect(activeAccountName(config, 'claude')).toBe('w');
+    expect(activeAccountName({}, 'codex', 'alpha')).toBe('default');
+  });
+  it('an explicit default choice overrides a machine default', () => {
+    expect(activeAccountName(config, 'claude', 'beta')).toBe('default');
+  });
+  it('a choice naming a deleted account resolves to the machine default and logs one debug line', () => {
+    const stale: AccountsConfig = { claude: { active: 'w', list }, projects: { alpha: { claude: 'gone' } } };
+    const lines: string[] = [];
+    expect(activeAccountName(stale, 'claude', 'alpha', (m) => lines.push(m))).toBe('w');
+    expect(activeAccountSource(stale, 'claude', 'alpha')).toBe('machine');
+    expect(lines).toHaveLength(1);
+  });
+  it('resolveAccountLaunch uses the project choice for a new launch only', () => {
+    expect(resolveAccountLaunch({ config, core: 'claude', defaultBinary: 'c', projectSlug: 'alpha' }).account).toBe('p');
+    expect(resolveAccountLaunch({ config, core: 'claude', defaultBinary: 'c', projectSlug: 'alpha', account: 'w' }).account).toBe('w');
+  });
+  it('validates the projects map and accepts an old file without it', () => {
+    expect(validateAccountsConfig({ claude: { active: 'default', list: {} } })).toEqual([]);
+    expect(validateAccountsConfig(config)).toEqual([]);
+    expect(validateAccountsConfig({ projects: { a: { nope: 'x' } } })).toEqual([expect.stringMatching(/unknown core 'nope'/)]);
+    expect(validateAccountsConfig({ projects: { a: { claude: '../x' } } })).toEqual([expect.stringMatching(/projects\/a: claude:/)]);
+    expect(validateAccountsConfig({ projects: [] })).toEqual([expect.stringMatching(/projects/)]);
+    expect(validateAccountsConfig({ projects: { a: 'x' } })).toEqual([expect.stringMatching(/projects\/a/)]);
   });
 });

@@ -1,7 +1,11 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
+import type { AgentAdapter } from '../../agent/adapter.js';
+import { launchHasMcp } from '../../agent/karstCommandText.js';
+import { mcpServersConfig, type McpConnection } from '../../agent/mcpConfig.js';
 import { KARST_INSTRUCTIONS_ENV, sessionCliEnv } from '../../agent/cliEnv.js';
 import { opencode2ConfigEnv } from '../../agent/opencode2Binary.js';
 import { writeSessionInstructions } from '../../agent/instructions.js';
@@ -64,6 +68,28 @@ export interface SetupOps {
   isLive(id: string): boolean;
 }
 
+/**
+ * The launch-time MCP config of a setup session: the typed setup tools reach the
+ * agent as tools, with the session id and outbox in the server env. A core with
+ * no per-launch MCP (antigravity) gets none and uses the CLI with `--file`.
+ */
+function writeSetupMcpConfig(
+  adapter: AgentAdapter,
+  cwd: string,
+  input: { cliEntry: string | undefined; dbPath: string | undefined; manifestPath: string | undefined; id: string; outbox: string },
+): { mcpConfigPath?: string } {
+  if (!launchHasMcp({ adapter, hookChannel: true, cliEntry: input.cliEntry, dbPath: input.dbPath })) return {};
+  const connection: McpConnection = {
+    cliEntry: input.cliEntry!,
+    dbPath: input.dbPath!,
+    ...(input.manifestPath ? { manifestPath: input.manifestPath } : {}),
+    setupSession: { id: input.id, outbox: input.outbox },
+  };
+  const path = join(cwd, 'mcp-config.json');
+  writeFileSync(path, JSON.stringify(mcpServersConfig(connection)));
+  return { mcpConfigPath: path };
+}
+
 export function createSetupOps(deps: SetupOpsDeps): SetupOps {
   const live = new Map<string, SessionTerminal>();
   const debug = (m: string): void => deps.debug?.(`[setup] ${m}`);
@@ -99,7 +125,16 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
         // Trust the setup scratch dir before the core starts (T661). Awaited:
         // the wait is async, never a block.
         await adapter.ensureWorkspaceTrusted?.(cwd, { debug });
+        const cliEntryForMcp = deps.cliEntry();
+        const mcp = writeSetupMcpConfig(adapter, cwd, {
+          cliEntry: cliEntryForMcp,
+          dbPath: deps.dbPath,
+          manifestPath: deps.manifestPath(),
+          id,
+          outbox,
+        });
         const cmd = adapter.buildInteractiveCommand({
+          ...mcp,
           cwd,
           readOnly: true,
           policy: 'attended',

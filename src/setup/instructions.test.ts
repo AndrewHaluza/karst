@@ -36,8 +36,9 @@ describe('setupInstructions', () => {
 
   it('documents discovery, validate, propose, propose-change and the verify loop', () => {
     expect(text).toContain('setup discover');
-    expect(text).toContain('manifest validate --file');
-    expect(text).toContain('manifest propose --file');
+    expect(text).toContain('setup set-<section>');
+    expect(text).toContain('add-repo');
+    expect(text).toContain('setup fix <item code>');
     expect(text).toContain('setup propose-change');
     expect(text).toMatch(/spins the baseline services/);
     expect(text).toContain('setup verify');
@@ -45,20 +46,22 @@ describe('setupInstructions', () => {
     expect(text).toMatch(/End the session ONLY when it reports ok/);
   });
 
-  it('names gates as a field a re-run does not change and routes the user to Settings', () => {
-    expect(text).toMatch(/re-run changes only `repositories` and their services/);
-    expect(text).toMatch(/restores all other\s+fields[^.]*gates/);
-    expect(text).toContain('Settings > Quality');
-    expect(text).toMatch(/before you write a draft/);
+  it('tells the agent to give values to typed tools, never a proposal format', () => {
+    expect(text).toMatch(/do NOT write YAML, a patch or a proposal file/);
+    expect(text).toMatch(/a key set to null removes that key/);
+    expect(text).toContain('karst schema setup <tool>');
+    expect(text).toMatch(/ONE popup/);
+    expect(text).toContain('setup withdraw <op id>');
+    expect(text).toMatch(/NEVER change `id` unless this is the first setup/);
   });
 
-  it('limits the fix loop to fails the commands can fix and reports protected-field fails', () => {
+  it('limits the fix loop to fails the commands can fix and says a protected field is settable', () => {
     expect(text).toMatch(/Fix each fail that these commands can fix/);
-    expect(text).toMatch(/fail in a protected field[^.]*Settings/);
+    expect(text).toMatch(/protected field is settable through the typed tools/);
   });
 
-  it('routes a retired or legacy key warning to a manifest proposal and forbids propose-change on .karst/', () => {
-    expect(text).toMatch(/retired or legacy key[^.]*manifest propose/);
+  it('routes a retired or legacy key warning to setup fix and forbids propose-change on .karst/', () => {
+    expect(text).toMatch(/retired or legacy key[^.]*setup fix/);
     expect(text).toMatch(/Never use propose-change on \.karst\//);
   });
 

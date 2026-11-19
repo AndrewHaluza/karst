@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, watch as fsWatch } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, watch as fsWatch, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import { isScaffoldManifest } from '../setup/manifestApply.js';
@@ -16,6 +16,10 @@ import { manifestPathOrThrow, readScaffoldManifest } from './manifestResolve.js'
 import { manifestRemovedKeys, manifestWriteSections, writeManifestWithBackup } from '../manifest/write.js';
 import { ownedScratches, readSetupOwner } from '../setup/owner.js';
 import { ask } from './toastSeam.js';
+import { readEditOps, withdrawEditOp } from '../setup/editOps.js';
+import { EXAMPLE_MANIFEST_PATH } from '../setup/scaffoldManifest.js';
+import { stampScaffold } from '../manifest/scaffoldStamp.js';
+import { generateProjectSlug } from '../project/slug.js';
 import { opencode2ConfigEnv } from '../agent/opencode2Binary.js';
 import { spawnHeadlessCli } from '../agent/headlessSpawn.js';
 import { nodeRecheck, nodeVerifyDeps, type CliRunner } from '../setup/verify/node.js';
@@ -175,6 +179,30 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
       writeManifestWithBackup(path, applied);
       return createHash('sha256').update(readFileSync(path)).digest('hex');
     },
+    edits: {
+      readOps: (scratch) => readEditOps(join(scratch, 'outbox')),
+      removeOps: (scratch, ids) => {
+        for (const id of ids) withdrawEditOp(join(scratch, 'outbox'), id);
+      },
+      scaffoldText: () => {
+        const root = workspaceRoot();
+        if (root === undefined) return undefined;
+        try {
+          return stampScaffold(readFileSync(EXAMPLE_MANIFEST_PATH, 'utf8'), generateProjectSlug(root), root);
+        } catch {
+          return undefined;
+        }
+      },
+      applyText: (text, scratch) => {
+        const path = targetManifestPath(scratch);
+        mkdirSync(dirname(path), { recursive: true });
+        if (existsSync(path)) copyFileSync(path, `${path}.bak`);
+        const tmp = `${path}.${process.pid}.tmp`;
+        writeFileSync(tmp, text);
+        renameSync(tmp, path);
+        return createHash('sha256').update(text).digest('hex');
+      },
+    },
     verify: (scratch) => {
       const manifestPath = targetManifestPath(scratch);
       const dir = verifyDir(basename(scratch));
@@ -193,8 +221,17 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
 
   let scanTimer: NodeJS.Timeout | undefined;
   let watcher: { close(): void } | undefined;
+  let editTimer: NodeJS.Timeout | undefined;
   const scan = async (): Promise<void> => {
     await proposals.scan();
+    // A held edit list is shown once its quiet window ends; no fs event marks that moment.
+    clearTimeout(editTimer);
+    const wait = proposals.editWaitMs();
+    if (wait !== undefined) {
+      editTimer = setTimeout(() => {
+        void scan().catch((e) => deps.logError('setup: edit scan failed', e));
+      }, wait + 50);
+    }
   };
   const scheduleScan = (): void => {
     clearTimeout(scanTimer);
@@ -227,11 +264,13 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
         dispose: () => {
           watcher?.close();
           clearTimeout(scanTimer);
+          clearTimeout(editTimer);
         },
       });
       scheduleScan();
     },
     dispose() {
+      clearTimeout(editTimer);
       watcher?.close();
       clearTimeout(scanTimer);
     },

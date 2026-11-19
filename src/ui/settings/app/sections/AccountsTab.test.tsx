@@ -15,9 +15,11 @@ import type { AgentsRoute } from './agentsRoute.js';
 
 afterEach(cleanup);
 
-const CORE = (core: AccountsCoreView['core'], extra: AccountsCoreView['rows'] = [], active = 'default'): AccountsCoreView => ({
+const CORE = (core: AccountsCoreView['core'], extra: AccountsCoreView['rows'] = [], active = 'default', source: AccountsCoreView['source'] = 'machine', machineDefault = 'default'): AccountsCoreView => ({
   core,
   active,
+  machineDefault,
+  source,
   rows: [
     { name: 'default', label: 'Default (CLI home)', active: active === 'default', builtIn: true, status: 'signed-in' },
     ...extra,
@@ -51,7 +53,7 @@ describe('Accounts tab', () => {
   it('says accounts apply at once and are not part of Save', () => {
     mount();
     expect(screen.getByText(/apply at once/i)).toBeTruthy();
-    expect(screen.getByText(/not part of Save/i)).toBeTruthy();
+    expect(screen.getByText(/not on Save/i)).toBeTruthy();
   });
 
   it('shows a row per core, default first and without a delete button', () => {
@@ -347,3 +349,33 @@ describe('Accounts table readability (D707)', () => {
   });
 });
 
+describe('Accounts tab: active account per project', () => {
+  it('says the list is shared and the active account is per project', () => {
+    mount();
+    expect(screen.getByText(/account list is shared/i)).toBeTruthy();
+    expect(screen.getByText(/active account is per project/i)).toBeTruthy();
+  });
+  it('shows the machine default chip when the project has no choice', () => {
+    mount();
+    const row = document.querySelector('[data-region="accounts-core-row"]') as HTMLElement;
+    expect(within(row).getByText('machine default', { selector: '[data-source]' })).toBeTruthy();
+    expect(within(row).queryByRole('button', { name: /use the machine default/i })).toBeNull();
+  });
+  it('shows the project chip and a control that clears the choice', () => {
+    const { bridge } = mount([CORE('claude', [{ ...WORK, active: true }], 'work', 'project')]);
+    const row = document.querySelector('[data-region="accounts-core-row"]') as HTMLElement;
+    expect(within(row).getByText('this project', { selector: '[data-source]' })).toBeTruthy();
+    fireEvent.click(within(row).getByRole('button', { name: /use the machine default for claude/i }));
+    expect(bridge.last('accounts-clear-project-choice')).toMatchObject({ core: 'claude' });
+  });
+  it('a row control makes that account the machine default', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getByRole('button', { name: /make work the machine default/i }));
+    expect(bridge.last('accounts-set-machine-default')).toMatchObject({ core: 'claude', name: 'work' });
+  });
+  it('the set-active control still sets the choice of this project', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getByRole('button', { name: /set work active/i }));
+    expect(bridge.last('accounts-set-active')).toMatchObject({ core: 'claude', name: 'work' });
+  });
+});

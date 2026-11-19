@@ -254,6 +254,60 @@ async function verifyChange(
   return finish(list, changes, pinned);
 }
 
+/** The host's build of an edit list, injected: the build code lives in the CLI layer. */
+export type EditBuildInput =
+  | { ok: true; text: string; fixes: readonly string[] }
+  | { ok: false; reason: string };
+
+/**
+ * Steps P1-P6 for an edit list. The host built `build` from the ops on the latest
+ * karst.yml. P5 holds the `id` rule (the build refuses an `id` change outside the
+ * first setup); a protected change is allowed and the popup lists it. P6 reports
+ * the item changes and needs none, except that each `fix` code must clear.
+ */
+export async function verifyEditsBeforeConsent(
+  opCount: number,
+  build: EditBuildInput,
+  ctx: VerifyContext,
+  deps: VerifyDeps,
+): Promise<VerifyRun> {
+  const list = new Checklist();
+  const currentText = deps.readCurrentText();
+  const pinned = sha256Of(currentText);
+  let current: LoadOutcome | undefined;
+  let after: LoadOutcome | undefined;
+  await list.run('P1', () => (opCount > 0 ? ok(`${opCount} edit(s) in the list`) : failed('the edit list is empty')));
+  await list.run('P2', () =>
+    basename(deps.manifestPath) === 'karst.yml'
+      ? ok(`the host writes ${deps.manifestPath} and nothing else`)
+      : failed(`the host manifest path ${deps.manifestPath} is not a karst.yml`),
+  );
+  await list.run('P3', () => {
+    if (!build.ok) return failed(build.reason);
+    if (currentText !== undefined) current = deps.loadText(currentText);
+    return ok(`built ${build.text.length} characters of karst.yml from the edits`);
+  });
+  await list.run('P4', () => {
+    if (!build.ok) return failed(build.reason);
+    after = deps.loadText(build.text);
+    return after.ok ? ok('the result loads, validates and resolves its references') : failed(after.error);
+  });
+  await list.run('P5', () =>
+    ctx.firstSetup
+      ? info('first setup: id and protected fields are settable')
+      : ok('id is unchanged; each protected change is listed for your consent'),
+  );
+  let changes: ItemChange[] = [];
+  await list.run('P6', async () => {
+    changes = diffItems(await snapshotOf(current), await snapshotOf(after));
+    const cleared = new Set(changes.filter((c) => c.kind === 'cleared').map((c) => c.id));
+    const open = build.ok ? build.fixes.filter((code) => !cleared.has(code)) : [];
+    if (open.length > 0) return failed(`the fix does not clear: ${open.join(', ')}`);
+    return changes.length === 0 ? info('no readiness item changes') : ok(changes.map((c) => `${c.kind} ${c.id}`).join('; '));
+  });
+  return finish(list, changes, pinned);
+}
+
 export interface ApplyOutcome {
   /** The apply ran and exited 0. */
   applied: boolean;
@@ -272,7 +326,7 @@ export interface AfterApplyDeps extends RecheckDeps {
 /** Steps A1-A3 on the real files. `before` is the result of `verifyBeforeConsent`; its steps stay. */
 export async function verifyAfterApply(
   before: VerifyResult,
-  kind: 'manifest' | 'change',
+  kind: 'manifest' | 'change' | 'edit',
   outcome: ApplyOutcome,
   deps: AfterApplyDeps,
 ): Promise<VerifyResult> {
@@ -283,7 +337,7 @@ export async function verifyAfterApply(
     if (kind === 'change' && sha256Of(deps.readCurrentText()) !== before.pinnedSha256) {
       return failed('a change proposal changed karst.yml');
     }
-    return ok(kind === 'manifest' ? 'karst.yml written' : 'the change ran and karst.yml is unchanged');
+    return ok(kind === 'change' ? 'the change ran and karst.yml is unchanged' : 'karst.yml written');
   });
   const namedChanges = before.changes.filter((c) => c.kind === 'cleared' || c.kind === 'added');
   const named = namedChanges.map((c) => c.id);

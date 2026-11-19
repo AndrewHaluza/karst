@@ -13,6 +13,8 @@
 import { COMMAND_SPECS, getCommandSpec, type CommandSpec } from '../registry.js';
 import type { JsonSchema } from '../jsonSchema.js';
 import type { McpServerConfig } from './config.js';
+import { SETUP_SESSION_ENV } from '../setupEdit/command.js';
+import { SETUP_EDIT_TOOLS, findEditTool } from '../setupEdit/tools.js';
 
 /**
  * Verbs that are in the registry but must NOT be exposed as MCP tools:
@@ -42,13 +44,41 @@ function requireToolString(input: Readonly<Record<string, unknown>>, key: string
   return value;
 }
 
-/** Every command exposed as an MCP tool, in registry order. */
-export function mcpTools(): McpTool[] {
-  return COMMAND_SPECS.filter((spec) => !MCP_EXCLUDED_COMMANDS.includes(spec.name)).map((spec) => ({
+/** The MCP name of a typed setup tool: `setup-set-general`, `setup-add-repo`. */
+export const SETUP_TOOL_PREFIX = 'setup-';
+
+/** True inside a setup session: the only place the typed setup tools exist. */
+export const inSetupSession = (env: Readonly<Record<string, string | undefined>>): boolean =>
+  env[SETUP_SESSION_ENV] !== undefined && env[SETUP_SESSION_ENV] !== '';
+
+/** The typed setup tools as MCP tools, generated from the same list the CLI verbs use. */
+export function setupEditMcpTools(): McpTool[] {
+  return SETUP_EDIT_TOOLS.map((tool) => ({
+    name: `${SETUP_TOOL_PREFIX}${tool.name}`,
+    description: tool.summary,
+    inputSchema: tool.inputSchema,
+  }));
+}
+
+/** The CLI sub-command of a `setup-<tool>` MCP name, or `undefined` when it is not a typed setup tool. */
+export function setupEditToolOf(name: string): string | undefined {
+  if (!name.startsWith(SETUP_TOOL_PREFIX)) return undefined;
+  const tool = name.slice(SETUP_TOOL_PREFIX.length);
+  return findEditTool(tool) === undefined ? undefined : tool;
+}
+
+/**
+ * Every command exposed as an MCP tool, in registry order. The typed setup
+ * tools follow only inside a setup session (`KARST_SETUP_SESSION`): a ticket
+ * agent never sees them.
+ */
+export function mcpTools(env: Readonly<Record<string, string | undefined>> = {}): McpTool[] {
+  const tools = COMMAND_SPECS.filter((spec) => !MCP_EXCLUDED_COMMANDS.includes(spec.name)).map((spec) => ({
     name: spec.name,
     description: spec.summary,
     inputSchema: spec.input,
   }));
+  return inSetupSession(env) ? [...tools, ...setupEditMcpTools()] : tools;
 }
 
 /** The exposed tool names, for the "tool list matches the registry" check. */

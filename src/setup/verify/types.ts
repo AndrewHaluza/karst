@@ -70,7 +70,7 @@ export interface RecheckDeps {
 /** The host-side record of one proposal: authoritative, unlike the outbox ledger that the agent can write. */
 export interface VerifyRecord {
   id: string;
-  kind: 'manifest' | 'change';
+  kind: 'manifest' | 'change' | 'edit';
   status: 'verified' | 'unverified' | 'refused';
   steps: VerifyStep[];
   changes: ItemChange[];

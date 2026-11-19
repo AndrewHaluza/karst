@@ -28,7 +28,12 @@ export interface AccountRowView {
 
 export interface AccountsCoreView {
   readonly core: AccountCore;
+  /** The account a new launch of THIS project uses (@arch:AC-55). */
   readonly active: string;
+  /** The shared default of every project without a choice. */
+  readonly machineDefault: string;
+  /** `project`: this project chose `active`; `machine`: `active` is the machine default. */
+  readonly source: 'project' | 'machine';
   readonly rows: readonly AccountRowView[];
 }
 
@@ -42,6 +47,8 @@ export type AccountsWebviewMessage =
   | { type: 'accounts-add'; core: AccountCore; name: string; spec: AccountSpecInput }
   | { type: 'accounts-import-alias'; core: AccountCore; alias: string; text?: string }
   | { type: 'accounts-set-active'; core: AccountCore; name: string }
+  | { type: 'accounts-set-machine-default'; core: AccountCore; name: string }
+  | { type: 'accounts-clear-project-choice'; core: AccountCore }
   | { type: 'accounts-delete'; core: AccountCore; name: string; removeFolder: boolean }
   | { type: 'accounts-seed-items'; core: AccountCore; name: string }
   | { type: 'accounts-copy-seed'; core: AccountCore; name: string; items: string[] }

@@ -43,6 +43,8 @@ interface TokenOp {
   readonly error: string | null;
 }
 
+const ACTIVE_OPS: ReadonlySet<string> = new Set(['accounts-set-active', 'accounts-set-machine-default', 'accounts-clear-project-choice']);
+const SOURCE_CHIP = { project: 'this project', machine: 'machine default' } as const;
 const TOKEN_OPS: ReadonlySet<string> = new Set(['accounts-set-sbx-token', 'accounts-remove-sbx-token']);
 
 export interface AccountsTabProps {
@@ -77,7 +79,7 @@ export function AccountsTab({ route }: AccountsTabProps) {
     && last.message.type === 'accounts-error' && last.message.op === 'accounts-delete'
     ? last.message.message
     : null;
-  const activeError = last?.message.type === 'accounts-error' && last.message.op === 'accounts-set-active'
+  const activeError = last?.message.type === 'accounts-error' && ACTIVE_OPS.has(last.message.op)
     ? last.message.message
     : null;
 
@@ -120,7 +122,7 @@ export function AccountsTab({ route }: AccountsTabProps) {
   return (
     <div className="accounts-tab" data-region="accounts-tabs" ref={rootRef}>
       <p className="accounts-note">
-        Accounts are machine-local. Add, set active and delete apply at once and are not part of Save.
+        The account list is shared. The active account is per project. Add, set active and delete apply at once, not on Save.
       </p>
       {activeError !== null ? <p className="accounts-error" role="alert">{activeError}</p> : null}
       {cores === null ? <p>Loading accounts…</p> : (
@@ -194,6 +196,10 @@ function CoreRow(p: CoreRowProps) {
           label="Active account"
           control={{ kind: 'select', value: view.active, onChange: p.onSetActive, options }}
         />
+        <span className="accounts-source-chip" data-source={view.source}>{SOURCE_CHIP[view.source]}</span>
+        {view.source === 'project' ? (
+          <Button variant="ghost" size="sm" aria-label={`Use the machine default for ${view.core}`} onClick={() => send.accounts({ type: 'accounts-clear-project-choice', core: view.core })}>Use machine default</Button>
+        ) : null}
         <Button variant="secondary" size="sm" onClick={p.onAdd}>Add account</Button>
       </div>
       {p.switched ? (
@@ -217,7 +223,7 @@ function CoreRow(p: CoreRowProps) {
         <tbody>
           {view.rows.map((row) => (
             <tr key={row.name} className={row.active ? 'is-active' : undefined}>
-              <td data-col="name" data-label="Name"><span>{row.label}</span>{row.active ? <> <Chip tone="success">Active</Chip></> : null}</td>
+              <td data-col="name" data-label="Name"><span>{row.label}</span>{row.active ? <> <Chip tone="success">Active</Chip></> : null}{row.name === view.machineDefault ? <span className="accounts-default-mark"> (machine default)</span> : null}</td>
               <td data-col="source" data-label="Source"><Cell value={row.source ? SOURCE_TEXT[row.source] : undefined} /></td>
               <td data-col="dir" data-label="Folder"><Cell value={row.dir} /></td>
               <td data-col="command" data-label="Command"><Cell value={row.command} /></td>
@@ -227,6 +233,9 @@ function CoreRow(p: CoreRowProps) {
                 <Button variant="secondary" size="sm" aria-label={`Log in ${row.name}`} onClick={() => send.accounts({ type: 'accounts-login', core: view.core, name: row.name })}>Log in</Button>
                 {!row.active ? (
                   <Button variant="ghost" size="sm" aria-label={`Set ${row.name} active`} onClick={() => p.onSetActive(row.name)}>Set active</Button>
+                ) : null}
+                {row.name !== view.machineDefault ? (
+                  <Button variant="ghost" size="sm" aria-label={`Make ${row.name} the machine default`} onClick={() => send.accounts({ type: 'accounts-set-machine-default', core: view.core, name: row.name })}>Make machine default</Button>
                 ) : null}
                 {!row.builtIn ? (
                   <Button variant="danger" size="sm" aria-label={`Delete ${row.name}`} onClick={() => p.onAskDelete(row)}>Delete</Button>

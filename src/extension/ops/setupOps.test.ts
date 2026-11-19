@@ -70,6 +70,32 @@ describe('setup ops', () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  it('writes an MCP config that carries the setup session and outbox, and passes it to the core', async () => {
+    const ops = createSetupOps({ ...deps, nextId: () => 'mcp1' });
+    await ops.create();
+    const path = join(scratch, 'mcp1', 'mcp-config.json');
+    const cfg = JSON.parse(readFileSync(path, 'utf8')) as { mcpServers: { karst: { args: string[]; env: Record<string, string> } } };
+    expect(cfg.mcpServers.karst.args).toEqual(['/dist/cli/main.js', 'mcp', 'serve', '--db', '/db/karst.db', '--manifest', '/ws/.karst/karst.yml']);
+    expect(cfg.mcpServers.karst.env).toEqual({
+      KARST_SETUP_SESSION: 'mcp1',
+      KARST_SETUP_OUTBOX: join(scratch, 'mcp1', 'outbox'),
+    });
+    expect(created[0]!.opts.shellArgs).toContain(path);
+  });
+
+  it('writes no MCP config without a CLI entry or a database path', async () => {
+    await createSetupOps({ ...deps, nextId: () => 'nc1', cliEntry: () => undefined }).create();
+    await createSetupOps({ ...deps, nextId: () => 'nd1', dbPath: '' }).create();
+    expect(existsSync(join(scratch, 'nc1', 'mcp-config.json'))).toBe(false);
+    expect(existsSync(join(scratch, 'nd1', 'mcp-config.json'))).toBe(false);
+  });
+
+  it('writes no MCP config for a core without per-launch MCP', async () => {
+    const ops = createSetupOps({ ...deps, nextId: () => 'agy1', defaultAgent: () => ({ provider: 'antigravity', model: null }), confirmUnsafeCore: async () => true });
+    await ops.create();
+    expect(existsSync(join(scratch, 'agy1', 'mcp-config.json'))).toBe(false);
+  });
+
   it('writes the owner marker into the scratch before the terminal starts', async () => {
     const ops = createSetupOps({ ...deps, nextId: () => 'own1' });
     await ops.create();

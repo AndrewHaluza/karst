@@ -35,7 +35,7 @@ function readRecord(file: string): VerifyRecord | undefined {
     if (!Array.isArray(raw.steps) || !Array.isArray(raw.changes)) return undefined;
     return {
       id: basename(file, '.json'),
-      kind: raw.kind === 'change' ? 'change' : 'manifest',
+      kind: raw.kind === 'change' || raw.kind === 'edit' ? raw.kind : 'manifest',
       status: raw.status as VerifyRecord['status'],
       steps: raw.steps,
       changes: raw.changes,

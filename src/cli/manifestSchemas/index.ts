@@ -12,7 +12,7 @@
 import type { JsonSchema } from '../jsonSchema.js';
 import { validateJson } from '../jsonSchema.js';
 import { SECTION_FIELDS, SETTINGS_SECTIONS } from '../../ui/settings/sections.js';
-import type { SettingsSection } from '../../ui/settings/sections.js';
+import type { ManifestSection } from '../../manifest/sectionTable.js';
 import { AGENTS_SCHEMA } from './agents.js';
 import { APPROACHES_SCHEMA } from './approaches.js';
 import { AUTOPILOT_SCHEMA } from './autopilot.js';
@@ -23,7 +23,7 @@ import { QUALITY_SCHEMA } from './quality.js';
 import { REPOSITORIES_SCHEMA } from './repositories.js';
 import { TICKETING_SCHEMA } from './ticketing.js';
 
-export type ManifestSection = SettingsSection | 'project';
+export type { ManifestSection };
 
 export const MANIFEST_SECTIONS: readonly ManifestSection[] = [...SETTINGS_SECTIONS, 'project'];
 
@@ -68,6 +68,7 @@ export const VALIDATOR_ONLY_RULES: readonly string[] = [
   'activeAgentPreset and defaultAgentPreset are not both set; every preset reference names a defined preset.',
   'review.repositories keys and uat.repositories keys name declared repositories; review.stallDetection.repeatedFindingRounds <= review.maxFixAttempts.',
   'uat.origins entries parse as absolute URLs with an origin.',
+  'A uat harness evidence path sits under .karst/uat-scratch/out/<harness name>/.',
   'The legacy services map, process rows and old keys are migrated before validation (migrateLegacyManifest, foldProcessRows).',
 ];
 

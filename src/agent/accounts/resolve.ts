@@ -23,9 +23,33 @@ export class AccountNotFoundError extends Error {
   }
 }
 
-/** The name of the active account of a core (`default` when none is configured). */
-export function activeAccountName(config: AccountsConfig, core: AccountCore): string {
+export type ActiveSource = 'project' | 'machine';
+
+/** The stored choice of a project, when it still names an account that exists (or `default`). */
+function projectChoice(config: AccountsConfig, core: AccountCore, projectSlug: string | undefined): string | undefined {
+  if (projectSlug === undefined) return undefined;
+  const choice = config.projects?.[projectSlug]?.[core];
+  if (choice === undefined) return undefined;
+  return choice === DEFAULT_ACCOUNT || config[core]?.list[choice] ? choice : undefined;
+}
+
+/**
+ * The name of the active account of a core (@arch:AC-55): the project choice, then
+ * the machine default (`accounts[core].active`), then `default`. A choice that names
+ * a deleted account is skipped (one debug line): it is not an error for a NEW launch.
+ */
+export function activeAccountName(config: AccountsConfig, core: AccountCore, projectSlug?: string, debug?: (message: string) => void): string {
+  const choice = projectChoice(config, core, projectSlug);
+  if (choice !== undefined) return choice;
+  if (projectSlug !== undefined && config.projects?.[projectSlug]?.[core] !== undefined) {
+    debug?.(`[accounts] ${core}: the choice of this project names an account that no longer exists; using the machine default`);
+  }
   return config[core]?.active ?? DEFAULT_ACCOUNT;
+}
+
+/** Where the active account of a core comes from: this project's choice or the machine default. */
+export function activeAccountSource(config: AccountsConfig, core: AccountCore, projectSlug?: string): ActiveSource {
+  return projectChoice(config, core, projectSlug) !== undefined ? 'project' : 'machine';
 }
 
 /** Look up a named account; `undefined` for `default`. Throws for a missing one. */
@@ -55,8 +79,10 @@ export function resolveAccountLaunch(input: {
   readonly core: AccountCore;
   readonly defaultBinary: string;
   readonly account?: string;
+  /** The project whose choice picks the active account (new launches only). */
+  readonly projectSlug?: string;
 }): AccountLaunch {
-  const name = input.account ?? activeAccountName(input.config, input.core);
+  const name = input.account ?? activeAccountName(input.config, input.core, input.projectSlug);
   const stored = findAccount(input.config, input.core, name);
   if (!stored) return { account: DEFAULT_ACCOUNT, binary: input.defaultBinary, args: [], env: {} };
   return {

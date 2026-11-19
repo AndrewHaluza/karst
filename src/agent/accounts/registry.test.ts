@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  accountForLaunch, accountReaderEnv, configureAccounts, configureRecordedAccountLookup,
+  accountForLaunch, accountLaunchFor, accountReaderEnv, activeAccountLabel, configureAccounts, configureAccountsProject, launchAccountName, configureRecordedAccountLookup,
   resetAccounts, sandboxAccountBlock, sbxTokenAccount, sessionReaderEnv,
 } from './registry.js';
 import type { AccountsConfig } from './types.js';
@@ -18,6 +18,7 @@ const config: AccountsConfig = {
 
 afterEach(() => {
   resetAccounts();
+  configureAccountsProject(undefined);
   configureRecordedAccountLookup(undefined);
 });
 
@@ -105,5 +106,35 @@ describe('activeAccountLabel (D505)', () => {
     expect(activeAccountLabel('codex')).toBeUndefined();
     expect(activeAccountLabel('gemini')).toBeUndefined();
     resetAccounts();
+  });
+});
+
+describe('per-project active account', () => {
+  const projectConfig: AccountsConfig = {
+    ...config,
+    claude: { ...config.claude!, list: { ...config.claude!.list, other: { kind: 'subscription', source: 'folder', dir: '/h/other' } } },
+    projects: { alpha: { claude: 'other' } },
+  };
+  it('every reader follows the slug of this window', () => {
+    configureAccounts(projectConfig);
+    configureAccountsProject(() => 'alpha');
+    expect(accountLaunchFor('claude', 'claude').account).toBe('other');
+    expect(launchAccountName('claude', undefined)).toBe('other');
+    expect(activeAccountLabel('claude')).toBe('other');
+    expect(accountReaderEnv({} as NodeJS.ProcessEnv).CLAUDE_CONFIG_DIR).toBe('/h/other');
+    expect(sbxTokenAccount('claude')).toBe('other');
+    expect(sandboxAccountBlock('claude', undefined, 'sbx')).toMatch(/other/);
+  });
+  it('another project keeps the machine default', () => {
+    configureAccounts(projectConfig);
+    configureAccountsProject(() => 'beta');
+    expect(accountLaunchFor('claude', 'claude').account).toBe('work');
+    expect(launchAccountName('claude', undefined)).toBe('work');
+  });
+  it('a recorded account still wins over the project choice', () => {
+    configureAccounts(projectConfig);
+    configureAccountsProject(() => 'alpha');
+    expect(accountLaunchFor('claude', 'claude', 'work').account).toBe('work');
+    expect(launchAccountName('claude', 'work')).toBe('work');
   });
 });

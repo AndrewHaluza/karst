@@ -96,6 +96,7 @@ Every verb has ONE entry in `cli/registry.ts`: a JSON Schema for its input, the 
 The schema subset is small on purpose. It supports `type`, `anyOf`, `oneOf` (exactly one alternative must match, used for "start XOR docker"), `const`, `enum`, `properties`, `required`, `additionalProperties`, `propertyNames`, `minProperties`, `maxProperties`, `items`, `minItems`, `maxItems`, `minLength`, `maxLength`, `pattern`, `minimum` and `maximum`. A reusable definition is a root `$defs` entry used through a LOCAL `$ref: '#/$defs/<name>'`; no other reference form exists. The subset has no `not` and no boolean schema, so a forbidden property is written as an enum with no value (`NEVER` in `cli/manifestSchemas/shared.ts`). `unsupportedKeywords` lists every keyword the validator does not understand. The schema tests assert that list is empty, so a typo is an authoring error and is never ignored.
 
 The manifest has one schema per Settings section (`cli/manifestSchemas/`: general, git, services, approaches, agents, ticketing, quality, autopilot), plus a `project` schema for the keys no tab claims (`id`, `resilience`, `artifacts`, `agentSandbox`, `sandboxMemory`, `sandboxLimits`, `analysis`). Each schema validates a whole manifest object and ignores the keys of other sections. The hand-written validator (`validateManifest`) stays the authority. `conformance.test.ts` proves that the schemas and the validator agree: `karst.example.yml`, the cookbook and the fixtures pass both, and a mutation suite changes every field of a rich manifest and requires that both refuse or both accept. The validator may refuse more only for a rule in `VALIDATOR_ONLY_RULES` (references between repositories, `dependsOn` targets and port slots, case-insensitive repository keys, the loopback rule for `sandbox: host`, cross-field bounds). `coverage.test.ts` and `bounds.test.ts` complete the proof. The setup tools name these rules to the agent.
+The setup session adds typed edit tools (`setup set-<section>`, `add-repo`, `set-repo`, `remove-repo`, `set-service`, `remove-service`, `fix <item code>`). They are generated from the section table and the section schemas (`cli/setupEdit/tools.ts`), take JSON only (`--file`, stdin or MCP) and are dispatched by `main.ts` before structured-input resolution. `karst schema setup <tool>` prints the fields of one tool.
 END_DOC_BLOCK: [@arch:CLI-03]
 
 ## [@arch:CLI-04] `karst mcp serve` / `karst mcp install`: the MCP server on top of the CLI
@@ -108,6 +109,7 @@ Registration never dirties git — no `.mcp.json` in a repo or worktree. A launc
 The per-launch command files (`start-task`, `resume`, `fix`, `resolve-conflict`, the approach orchestrator) follow the same rule: when the launch has MCP (`MaterializeOpts.mcp` = `launchHasMcp`) they name the tool first (`context`, `fix-brief`, `conflict-brief`, `guide`, `phase`, `stage`) and keep the `"$KARST_*"` line as fallback; the done-marker wording is `renderDoneMarkerInstruction`, shared with the seed. A core without MCP gets the CLI-only text, byte-identical. The `test` skill is CLI-only in every form. Files are written per launch (no install-time generation exists).
 
 The server is long-lived, so it snapshots `process.env` when it starts and restores it after every tool call (`cli/mcp/server.ts`, `preservingProcessEnv`). `servers spin` scrubs every `KARST_*` key from the ambient env (`serversCommand.ts` → `scrubKarstSessionEnv`) so a spawned service cannot inherit the session's graph capability; correct for a short-lived CLI, but in the server process that wipe would otherwise persist and break `graph`/`node` and guide-pull attribution on every later call.
+In a setup session the MCP server also lists the typed setup tools as `setup-<tool>`. It reads `KARST_SETUP_SESSION` and `KARST_SETUP_OUTBOX` from the server env, which the setup launch writes into its MCP config (`mcpConfig.ts`, `setupSession`). Outside a setup session the server does not list them and refuses them.
 END_DOC_BLOCK: [@arch:CLI-04]
 
 ## [@arch:CLI-05] The `karst` CLI uses Node's built-in `node:sqlite`, NOT better-sqlite3
@@ -246,6 +248,7 @@ A SETUP session (launched from Getting Started's "Set up with agent" action, `ex
 - **`setup propose-change`** reads one JSON object on stdin (`{kind:'change',repo,reason,command|patch}`) and writes it into the outbox. Every project change (git init, deps install, `.env` creation) needs consent; the agent must not edit a tracked file itself.
 
 Continued in `arch:CLI-21` (verify, host scan and consent, greenfield and monorepo cases).
+- **Typed setup tools.** The agent does not write a proposal format. Each tool call appends one edit op to `<outbox>/edits/` (`setup/editOps.ts`). The CLI and the MCP server refuse these tools when `KARST_SETUP_SESSION` is not set. A schema error returns `{ok:false, field, reason}` at once. The host applies the ops in order to the latest `karst.yml` (`cli/setupEdit/build.ts`: a sparse patch, null removes a key, then `manifest/write.ts`), reports a loader error with the real loader message, and runs P1-P6. One popup shows all ops after a quiet window (`EDIT_QUIET_MS`). Protected sections are settable: the popup lists each protected change first, with old and new values. `id` is settable on first setup only. When `karst.yml` is absent, the host writes the scaffold first, and the popup says that js-yaml drops comments. Antigravity has no per-launch MCP and uses the CLI with `--file`.
 END_DOC_BLOCK: [@arch:CLI-14]
 
 ## [@arch:CLI-21] `setup verify`, host scan, greenfield and monorepo setup
@@ -257,6 +260,9 @@ Split out of `arch:CLI-14`.
 - **Proposal ledger**: see `arch:CLI-19`.
 - **Greenfield empty folder.** The agent proposes `git init` (plus a baseline branch and an initial commit) for the folder/subfolders the user names, one consented change each; it writes no application code, so those repos get no service and the report says to run setup again later. A change's target directory is resolved by `setup/changeTarget.ts`: a registered repository uses its `repoPath`, and a not-yet-registered one runs in the named folder UNDER the workspace root (created if absent) — never the root itself, so the applied change matches the folder the consent modal named.
 - **Monorepo interim.** Until one-service-per-app lands, the manifest allows one service per repository with no `cwd`. The agent declares one main service (the entry app, or the app the others depend on) and starts it from the right folder through its start command; the other apps are listed in the report as not run yet.
+`setup fix <item code>` is a host-built fix for a known failed readiness item. P6 requires that each fix code clears. A graph node dependency change (D647) uses `set-approaches`.
+Both popups use the generic field-path diff (`diffPaths` in `src/setup/pathDiff.ts`): the edit-list popup and the `diffManifest` entries of `setup propose`. A field added to the manifest later shows in both with no code. `diffManifest` keeps only the start-command list as hand code. Concurrent tool calls get distinct op sequence keys through a claim file.
+
 END_DOC_BLOCK: [@arch:CLI-21]
 
 ## [@arch:CLI-15] Blocker results: delivered on landing
@@ -295,6 +301,7 @@ END_DOC_BLOCK: [@arch:CLI-18]
 covers: src/setup/ledger.ts#readLedger, src/setup/ledger.ts#withdrawProposal
 
 The host writes `<outbox>/results/<id>.json` per proposal (`pending|applied|declined|invalid|superseded|withdrawn|no-change`; `no-change` = the effective manifest equalled the current one, so nothing was written, a reason, `dropped` protected fields, the sha256 of karst.yml after an apply). The newest manifest proposal of a session supersedes older pending ones. `setup status` prints the ledger; `setup withdraw <id>` removes a pending file and leaves a `withdrawn/<id>` marker, and the host skips the apply if the file vanished during consent. `manifest propose` / `setup propose-change` print the `id`. The ledger is display only: the host never reads it to decide anything, so an agent forging a result changes nothing but its own `status` output.
+Edit ops are not proposals: the host never supersedes them. `setup status` lists the ops with their ids, and `setup withdraw <op id>` removes one op. After consent the host settles the first op as `verified` or `unverified` and the others as `applied`.
 END_DOC_BLOCK: [@arch:CLI-19]
 
 ## [@arch:CLI-20] `propose-change` path, `manifest show --active`, and the cookbook scaffold
@@ -303,6 +310,7 @@ covers: src/setup/changeTarget.ts#resolveChangeDir, src/cli/manifestCommand.ts#r
 `setup propose-change` takes an optional `path` (absolute, or relative to the workspace root, inside it; `.` = the root) that overrides `repo` for where the change runs. `resolveChangeDir` resolves it; the consent modal's first line is `Directory: <resolved>`; an escaping path is recorded `invalid` without prompting. Containment is lexical. Build the payload in a file and pass `--file`: it is schema-validated before anything is queued.
 
 `manifest show --active` prints the active manifest (`--manifest`) re-dumped without comments, because a fresh scaffold is a long annotated template that truncates an agent's first read. The annotated file is a cookbook, not a read-whole document. The scaffold declares one live repository (`app`, `repoPath` stamped by `stampScaffold`); the backend/frontend/db/tooling shapes and the Playwright/verify-uat gates sit in a commented cookbook that `example.test.ts` uncomments and loads.
+The popup field diff is generic: `cli/setupEdit/pathDiff.ts` lists each changed field path (`repositories.web.service.healthTimeoutSeconds: 30 -> 60`). The start-command list stays.
 END_DOC_BLOCK: [@arch:CLI-20]
 
 ## [@arch:CLI-22] `arch cite`: the agent records why a covered @arch block still holds

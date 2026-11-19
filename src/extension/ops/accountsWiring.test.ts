@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fileAccountStore, memoryAccountStore } from '../../agent/accounts/accountStore.js';
-import { accountForLaunch, accountsConfig, recordHeadlessSession, resetSessionLedger, trackHeadlessRun, resetAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
+import { accountForLaunch, accountLaunchFor, accountsConfig, configureAccountsProject, recordHeadlessSession, resetSessionLedger, trackHeadlessRun, resetAccounts, configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
 import { configureOpencode2, resetOpencode2Config } from '../../agent/opencode2Binary.js';
 import { loadSessionLedger } from '../../agent/accounts/sessionLedgerStore.js';
 import { openStore } from '../../store/db.js';
@@ -17,6 +17,7 @@ let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'acct-wire-')); });
 afterEach(async () => {
   resetAccounts();
+  configureAccountsProject(undefined);
   configureRecordedAccountLookup(undefined);
   await rm(root, { recursive: true, force: true });
 });
@@ -375,5 +376,20 @@ it('logs a failed key revoke of a deleted account without the error text, and do
   await w.ops.createAccount('codex', 'c', { source: 'folder', dir: '/h/c' });
   await w.ops.deleteAccount('codex', 'c');
   expect(revokeSbxKeys).not.toHaveBeenCalled();
+  store.close();
+});
+
+it('gives the project slug to the registry and to setActive', async () => {
+  const store = openStore(':memory:');
+  let slug: string | undefined = 'alpha';
+  const w = await wireAccounts({ globalStorageRoot: root, store, projectSlug: () => slug });
+  await w.ops.createAccount('claude', 'one', { source: 'folder', dir: '/h/one' });
+  await w.ops.setActive('claude', 'one');
+  expect(accountsConfig().projects).toEqual({ alpha: { claude: 'one' } });
+  expect(accountsConfig().claude?.active).toBe('default');
+  expect(accountLaunchFor('claude', 'claude').account).toBe('one');
+  slug = 'beta';
+  expect(accountLaunchFor('claude', 'claude').account).toBe('default');
+  w.dispose();
   store.close();
 });

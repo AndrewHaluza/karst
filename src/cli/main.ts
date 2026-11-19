@@ -54,6 +54,7 @@ import { resolveStructuredInput } from './commandInput.js';
 import { runSchemaCommand } from './schemaCommand.js';
 import { runManifestCommand } from './manifestCommand.js';
 import { runSetupCommand, toChangeProposalInput } from './setupCommand.js';
+import { isEditTool } from './setupEdit/command.js';
 import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
 import { runMcpCommand } from './mcp/command.js';
@@ -321,6 +322,19 @@ export function runCli(
     return runManifestCommand(rest, {
       outboxEnv: env.KARST_SETUP_OUTBOX,
       manifestPath: manifestPath ?? env[KARST_MANIFEST_ENV],
+    });
+  }
+
+  // `karst setup set-<section>|add-repo|...|fix` — the typed setup tools. Their
+  // input is one JSON object (`--file <path>` or stdin), read by the handler
+  // itself: `--file` here names a JSON file, so this path is taken before the
+  // registry's structured-input resolution (same reason as `manifest`).
+  if (subcommand === 'setup' && isEditTool(rest[1])) {
+    return runSetupCommand(rest, {
+      outboxEnv: env.KARST_SETUP_OUTBOX,
+      manifestPath: manifestPath ?? env[KARST_MANIFEST_ENV],
+      readStdin: io.readStdin,
+      edit: { sessionEnv: env.KARST_SETUP_SESSION },
     });
   }
 

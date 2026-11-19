@@ -759,12 +759,12 @@ function accountsVariant(id: string, cores: unknown[], opts: { skipLayout?: bool
 }
 
 const DEFAULT_ONLY_CORES = ['claude', 'codex', 'opencode', 'opencode2', 'antigravity'].map((core) => ({
-  core, active: 'default',
+  core, active: 'default', machineDefault: 'default', source: 'machine',
   rows: [{ name: 'default', label: 'Default (CLI home)', active: true, builtIn: true, status: 'signed-in' }],
 }));
 
 const SEVERAL_CORES = DEFAULT_ONLY_CORES.map((c) => c.core !== 'claude' ? c : {
-  core: 'claude', active: 'work',
+  core: 'claude', active: 'work', machineDefault: 'default', source: 'project', // T1244: this project chose `work`
   rows: [
     { name: 'default', label: 'Default (CLI home)', active: false, builtIn: true, status: 'signed-in' },
     { name: 'work', label: 'work', active: true, builtIn: false, source: 'managed', dir: '/Users/dev/Library/Application Support/Code/User/globalStorage/karst.karst/accounts/claude/work', status: 'signed-in' },
