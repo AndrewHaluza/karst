@@ -11,7 +11,6 @@ import {
   createGraphRun,
   graphRunAgentIdentity,
   setGraphRunAgentIdentity,
-  graphRunIdsByStatusForTicket,
 } from './graphRuns.js';
 
 const NOW = '2026-11-19T00:00:00.000Z';
@@ -47,9 +46,4 @@ describe('graph-run agent identity column', () => {
     expect(graphRunAgentIdentity(db, 999)).toBeNull();
   });
 
-  it('lists the run ids of a ticket in the given statuses, oldest first', () => {
-    const { db, runId, ticketId } = openRun();
-    expect(graphRunIdsByStatusForTicket(db, ticketId, ['planning'])).toEqual([runId]);
-    expect(graphRunIdsByStatusForTicket(db, ticketId, ['running'])).toEqual([]);
-  });
 });

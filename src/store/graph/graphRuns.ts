@@ -318,23 +318,6 @@ export function latestNonTerminalGraphRunForTicket(
     .get(ticketId, ...terminalStatuses) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
 }
 
-/** The run ids of one ticket whose status is in `statuses`, oldest first. */
-export function graphRunIdsByStatusForTicket(
-  db: GraphDb,
-  ticketId: number,
-  statuses: readonly string[],
-): number[] {
-  const placeholders = statuses.map(() => '?').join(', ');
-  const rows = db
-    .prepare(
-      `SELECT id FROM approach_graph_runs
-        WHERE ticket_id = ? AND status IN (${placeholders})
-        ORDER BY id`,
-    )
-    .all(ticketId, ...statuses) as Array<{ id: number }>;
-  return rows.map((r) => r.id);
-}
-
 /** The stored agent identity snapshot text of a run; NULL = none (pre-v133 run or unknown id). */
 export function graphRunAgentIdentity(db: GraphDb, id: number): string | null {
   const row = db
