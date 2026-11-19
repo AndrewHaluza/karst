@@ -39,6 +39,12 @@ export interface SettingsActionsDeps {
   /** Refresh sidebar + open dashboard/ticket form after a save. */
   onChange(): void;
   /**
+   * T1258: a Settings Save wrote `next` over the file's `prev`, after the host
+   * reloaded its live manifest. The host asks Keep or Switch for live graph runs
+   * when the agent presets or approach profiles changed.
+   */
+  onAgentSettingsSaved?(prev: Manifest, next: Manifest): void;
+  /**
    * Re-read the manifest FILE for a state push — the same source `open` uses,
    * so `request-state` (the webview's recovery for the dropped initial push)
    * and the post-save push carry the file's typed values AND any validation
@@ -425,6 +431,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         try {
           writeManifestDelta(next, section);
           deps.reloadManifest(); // refresh host's live copy BEFORE state push
+          deps.onAgentSettingsSaved?.(loaded.manifest, next);
           deps.onChange();
           await pushStateWithInstalled();
           ctx.post({ type: 'saved', ...(section ? { section } : {}) });

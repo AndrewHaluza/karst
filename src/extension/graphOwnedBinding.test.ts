@@ -86,23 +86,59 @@ describe('launchBlocked', () => {
 });
 
 describe('agentChoiceChanged', () => {
-  it('informs when a graph run is active', () => {
+  it('asks the model-change question for the ticket and stays quiet when it was shown', async () => {
+    const ask = vi.fn(async () => 1);
+    const { deps, binding } = make({ modelChange: { ask, switchRun: vi.fn() } });
+    await binding.agentChoiceChanged(5);
+    expect(ask).toHaveBeenCalledWith({ ticketId: 5 });
+    expect(deps.inform).not.toHaveBeenCalled();
+  });
+
+  it('informs when a graph run is active and no identity differs', async () => {
     const { deps, binding } = make();
-    binding.agentChoiceChanged(5);
+    await binding.agentChoiceChanged(5);
     expect(deps.inform).toHaveBeenCalledWith(graphOwnedChangeMessage('T5', RUN));
   });
 
-  it('stays silent without a run', () => {
-    const { deps, binding } = make({ activeRun: () => undefined });
-    binding.agentChoiceChanged(5);
+  it('stays silent without a run', async () => {
+    const ask = vi.fn(async () => 0);
+    const { deps, binding } = make({ activeRun: () => undefined, modelChange: { ask, switchRun: vi.fn() } });
+    await binding.agentChoiceChanged(5);
     expect(deps.inform).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
   });
 
-  it('stays silent and skips the lookup without a db', () => {
+  it('stays silent and skips the lookup without a db', async () => {
     const activeRun = vi.fn(() => RUN);
     const { deps, binding } = make({ db: () => undefined, activeRun });
-    binding.agentChoiceChanged(5);
+    await binding.agentChoiceChanged(5);
     expect(activeRun).not.toHaveBeenCalled();
     expect(deps.inform).not.toHaveBeenCalled();
+  });
+});
+
+describe('agentSettingsSaved', () => {
+  it('asks for every ticket when the identity inputs changed', async () => {
+    const ask = vi.fn(async () => 2);
+    const { binding } = make({ modelChange: { ask, switchRun: vi.fn() } });
+    await binding.agentSettingsSaved(true);
+    expect(ask).toHaveBeenCalledWith({});
+  });
+
+  it('asks nothing when the identity inputs did not change', async () => {
+    const ask = vi.fn(async () => 2);
+    const { binding } = make({ modelChange: { ask, switchRun: vi.fn() } });
+    await binding.agentSettingsSaved(false);
+    expect(ask).not.toHaveBeenCalled();
+  });
+});
+
+describe('switchModels', () => {
+  it('runs the same switch function and refreshes the ticket', () => {
+    const switchRun = vi.fn(() => 'switched' as const);
+    const { deps, binding } = make({ modelChange: { ask: vi.fn(), switchRun } });
+    expect(binding.switchModels(5, 17)).toBe('switched');
+    expect(switchRun).toHaveBeenCalledWith(17);
+    expect(deps.refresh).toHaveBeenCalledWith(5);
   });
 });

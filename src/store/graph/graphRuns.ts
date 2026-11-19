@@ -819,3 +819,21 @@ export function releaseGraphProcessSlot(db: GraphDb, id: number, now: string): b
     .run(now, id);
   return res.changes === 1;
 }
+
+/** The id, ticket and approach of every run in `statuses`, optionally of one ticket (T1258 model-change scan). */
+export function graphRunsInStatuses(
+  db: GraphDb,
+  statuses: readonly string[],
+  ticketId?: number,
+): Array<Pick<GraphRunRow, 'id' | 'ticket_id' | 'approach_id' | 'status' | 'agent_identity'>> {
+  const placeholders = statuses.map(() => '?').join(', ');
+  const ticketClause = ticketId === undefined ? '' : ' AND ticket_id = ?';
+  return db
+    .prepare(
+      `SELECT id, ticket_id, approach_id, status, agent_identity FROM approach_graph_runs
+        WHERE status IN (${placeholders})${ticketClause} ORDER BY id`,
+    )
+    .all(...statuses, ...(ticketId === undefined ? [] : [ticketId])) as Array<
+    Pick<GraphRunRow, 'id' | 'ticket_id' | 'approach_id' | 'status' | 'agent_identity'>
+  >;
+}
