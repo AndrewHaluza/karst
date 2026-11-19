@@ -103,6 +103,20 @@ describe('buildGraphInsideInput', () => {
     expect(buildGraphInsideInput(deps(), 2)).toBeNull();
   });
 
+  it('carries the model difference the host reports for the run', () => {
+    const { graphRunId } = seedGraph();
+    const seen: number[] = [];
+    const differs = buildGraphInsideInput(
+      deps({ modelDifferenceOf: (id) => (seen.push(id), 'worker: claude/a → codex/b') }),
+      1,
+    );
+    expect(differs?.graphRun?.modelDifference).toBe('worker: claude/a → codex/b');
+    expect(seen).toEqual([graphRunId]);
+    const equal = buildGraphInsideInput(deps({ modelDifferenceOf: () => undefined }), 1);
+    expect(equal?.graphRun).not.toHaveProperty('modelDifference');
+    expect(buildGraphInsideInput(deps(), 1)?.graphRun).not.toHaveProperty('modelDifference');
+  });
+
   it('maps artifact producers to node run ids and planner run numbers', () => {
     const { graphRunId, revisionId } = seedGraph({});
     const ins = (sql: string, ...a: unknown[]) => store.db.prepare(sql).run(...a);

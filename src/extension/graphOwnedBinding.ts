@@ -33,6 +33,7 @@ export interface GraphOwnedBindingDeps {
     /** Asks for the matching live runs; resolves with how many the question covered (0 = none shown). */
     readonly ask: (filter: { ticketId?: number }) => Promise<number>;
     readonly switchRun: (graphRunId: number) => SwitchModelsOutcome;
+    readonly differenceOf?: (graphRunId: number) => string | undefined;
   };
 }
 
@@ -87,6 +88,10 @@ export function makeGraphOwnedBinding(deps: GraphOwnedBindingDeps) {
       const outcome = deps.modelChange?.switchRun(graphRunId) ?? 'not-found';
       if (outcome === 'switched') deps.refresh(ticketId);
       return outcome;
+    },
+    /** How the live run's snapshot differs from the current settings; undefined when equal. */
+    modelDifference(graphRunId: number): string | undefined {
+      return deps.modelChange?.differenceOf?.(graphRunId);
     },
   };
 }

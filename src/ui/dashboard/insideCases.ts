@@ -314,6 +314,27 @@ const longGraphNodePatch = (s: DashboardState): DashboardState => {
   return { ...s, insideViews: { ...s.insideViews, impl: { ...view, processes } } };
 };
 
+/**
+ * T1258, HAND-WRITTEN: a graph run whose snapshotted models differ from the current settings. The `models` row names the
+ * difference and carries the Switch models action; a blocked run (failed-to-launch) also shows its Resume row above it.
+ */
+const switchModelsPatch = (status: 'running' | 'blocked') => (s: DashboardState): DashboardState => {
+  const view = s.insideViews.impl;
+  const header = status === 'blocked' ? 'Blocked' : 'Running';
+  const rows = [
+    { label: 'run 1', detail: `${header} · karst-graph-engineering · rev 1 (aa5fe61e0657) · started 22m ago · 1 of 3 nodes running`, status: status === 'blocked' ? 'fail' : 'run', action: { actionId: `fixture:${status === 'blocked' ? 'graph-resume' : 'graph-stop'}:1`, kind: status === 'blocked' ? 'graph-resume' : 'graph-stop' } },
+    { label: 'models', detail: 'The settings now give other models: expert: claude/claude-opus-5 (high) → codex/gpt-5.6 (medium); worker: claude/claude-sonnet-5 (low) → codex/gpt-5.6-mini', status: 'wait', action: { actionId: 'fixture:graph-switch-models:2', kind: 'graph-switch-models' } },
+  ];
+  const graph: InsideProcessView = {
+    id: 'graph',
+    kind: 'graph',
+    label: 'Implementation graph',
+    status: status === 'blocked' ? 'fail' : 'run',
+    evidence: { kind: 'rows', rows, leadRows: rows.length, nodes: [] },
+  } as unknown as InsideProcessView;
+  return { ...s, insideViews: { ...s.insideViews, impl: { ...view, processes: [...view.processes, graph] } } };
+};
+
 // ------------------------------------------------------------------- registry
 
 export const INSIDE_CASES: readonly InsideCase[] = [
@@ -347,6 +368,8 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     })),
   },
   { stage: 'impl', id: 'graph-long-reason', state: legacy('impl', (s) => longGraphNodePatch(s)) },
+  { stage: 'impl', id: 'graph-models-differ', state: legacy('impl', (s) => switchModelsPatch('running')(s)) },
+  { stage: 'impl', id: 'graph-blocked-models-differ', state: legacy('impl', (s) => switchModelsPatch('blocked')(s)) },
   { stage: 'impl', id: 'passed', state: fromFacts('impl', { cells: { impl: { status: 'passed' } } }) },
   {
     // A session with more rows than the timeline limit: the host ships the production '+N more' row (`role: 'event'` + action).

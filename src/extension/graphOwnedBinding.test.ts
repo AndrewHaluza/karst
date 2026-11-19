@@ -142,3 +142,13 @@ describe('switchModels', () => {
     expect(deps.refresh).toHaveBeenCalledWith(5);
   });
 });
+
+describe('modelDifference', () => {
+  it('reports the seam difference, or undefined without the seam', () => {
+    const differenceOf = vi.fn(() => 'worker: a → b');
+    const { binding } = make({ modelChange: { ask: vi.fn(), switchRun: vi.fn(), differenceOf } });
+    expect(binding.modelDifference(17)).toBe('worker: a → b');
+    expect(differenceOf).toHaveBeenCalledWith(17);
+    expect(make({}).binding.modelDifference(17)).toBeUndefined();
+  });
+});

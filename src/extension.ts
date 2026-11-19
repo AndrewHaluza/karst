@@ -3331,6 +3331,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           `Ticket ${formatId('ticket', ticketId)}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
         );
       },
+      graphSwitchModels: (t, r) => void graphOwned.switchModels(t, r),
       graphEditWorkspaceDeps: (_ticketId, graphRunId) =>
         void openWorkspaceDepsEditor(
           {
@@ -3382,6 +3383,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           manifest: () => currentManifest(),
           liveSessions: () => graphTransport?.sessions() ?? [],
           depsWarningOf: (graphRunId) => graphDeps.warningOf(graphRunId),
+          modelDifferenceOf: (graphRunId) => graphOwned.modelDifference(graphRunId),
           now: () => new Date().toISOString(),
           debug: (m) => logger.debug(m),
         },

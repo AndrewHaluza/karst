@@ -175,6 +175,8 @@ function host(calls: string[]): InsideActionHost {
       void calls.push(`graph-edit-override:${ticketId}:${nodeRunId}`),
     graphEditWorkspaceDeps: (ticketId, graphRunId) =>
       void calls.push(`graph-edit-workspace-deps:${ticketId}:${graphRunId}`),
+    graphSwitchModels: (ticketId, graphRunId) =>
+      void calls.push(`graph-switch-models:${ticketId}:${graphRunId}`),
     retryShipRepo: (ticketId, repo) =>
       void calls.push(`retry-ship-repo:${ticketId}:${repo}`),
   };
@@ -753,6 +755,22 @@ describe('dispatchInsideAction', () => {
     reasonOf('graph-workspace-deps: node run 3 (web: x)');
     store.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = 1").run();
     expect(attempt(9)).toEqual({ outcome: 'rejected', reason: 'graph is not blocked on workspace dependencies' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('dispatches graph-switch-models only for a live run of the ticket', () => {
+    seedGraph({ ticketId: 1, runId: 1, status: 'running' });
+    const calls: string[] = [];
+    const attempt = (snapshot: number, ticketId = 1): ReturnType<typeof dispatchInsideAction> => {
+      const actions = registry(snapshot, ticketId);
+      actions.register({ kind: 'graph-switch-models', ticketId, graphRunId: 1 });
+      return dispatchInsideAction(store, actions, `snapshot-${snapshot}:action-0`, deps(calls));
+    };
+    expect(attempt(7)).toEqual({ outcome: 'dispatched' });
+    expect(calls).toEqual(['graph-switch-models:1:1']);
+    expect(attempt(8, 2)).toEqual({ outcome: 'rejected', reason: 'graph run is not live for this ticket' });
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'closed' WHERE id = 1").run();
+    expect(attempt(9)).toEqual({ outcome: 'rejected', reason: 'graph run is not live for this ticket' });
     expect(calls).toHaveLength(1);
   });
 

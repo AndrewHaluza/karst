@@ -172,6 +172,7 @@ export const NOOP_INSIDE_HOST: InsideActionHost = {
   graphDiscardNode: () => undefined,
   graphEditOverride: () => undefined,
   graphEditWorkspaceDeps: () => undefined,
+  graphSwitchModels: () => undefined,
   retryShipRepo: () => undefined,
 };
 
@@ -201,5 +202,7 @@ export function toRegisteredGraphTarget(
       return { kind: 'graph-edit-override', ticketId, nodeRunId: target.nodeRunId };
     case 'graph-edit-workspace-deps':
       return { kind: 'graph-edit-workspace-deps', ticketId, graphRunId: target.graphRunId };
+    case 'graph-switch-models':
+      return { kind: 'graph-switch-models', ticketId, graphRunId: target.graphRunId };
   }
 }

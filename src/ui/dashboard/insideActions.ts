@@ -12,6 +12,7 @@ import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
 import { nodeRunTicketId } from '../../store/graph/nodeRuns.js';
 import { graphRunById, graphRunStatusForTicket } from '../../store/graph/graphRuns.js';
 import { GRAPH_WORKSPACE_DEPS_REASON_PREFIX } from '../../model/inside/graph.js';
+import { MODEL_CHANGE_STATUSES as MODEL_SWITCH_STATUSES } from '../../approaches/graph/modelChange.js';
 import { activeRevision } from '../../store/graph/revisions.js';
 import { hasLiveReplanPlanner, plannerRunTicketId } from '../../store/graph/plannerRuns.js';
 import type { StageKey } from '../../model/types.js';
@@ -101,7 +102,8 @@ export type InsideActionTarget =
   | { kind: 'graph-edit-override'; ticketId: number; nodeRunId: number }
   // D647: open karst.yml at the repository a `graph-workspace-deps:` block names.
   // Offered only on a blocked run with that reason; the dispatch re-checks both.
-  | { kind: 'graph-edit-workspace-deps'; ticketId: number; graphRunId: number };
+  | { kind: 'graph-edit-workspace-deps'; ticketId: number; graphRunId: number }
+  | { kind: 'graph-switch-models'; ticketId: number; graphRunId: number };
 
 /** Longest accepted action id. Ids are `snapshot-<n>:action-<n>`; this is slack. */
 export const MAX_ACTION_ID_CHARS = 96;
@@ -247,6 +249,8 @@ export interface InsideActionHost {
    * silent file write). The user saves, then the existing Resume relaunches.
    */
   graphEditWorkspaceDeps(ticketId: number, graphRunId: number): void | Promise<void>;
+  /** T1258: replace the live run's model snapshot with the identity the current settings give. */
+  graphSwitchModels(ticketId: number, graphRunId: number): void | Promise<void>;
   /**
    * Re-run ship for a single repository whose recorded step failed. The host
    * re-loads the step row, proves ownership via the ticket-scoped join, and
@@ -582,6 +586,16 @@ export function dispatchInsideAction(
         return { outcome: 'rejected', reason: 'graph is not blocked on workspace dependencies' };
       }
       void deps.host.graphEditWorkspaceDeps(target.ticketId, target.graphRunId);
+      return { outcome: 'dispatched' };
+    }
+    case 'graph-switch-models': {
+      // Bound the click to a live run of this ticket; the host switch itself
+      // answers 'unchanged' when the snapshot already matches the settings.
+      const status = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId);
+      if (status === undefined || !MODEL_SWITCH_STATUSES.includes(status)) {
+        return { outcome: 'rejected', reason: 'graph run is not live for this ticket' };
+      }
+      void deps.host.graphSwitchModels(target.ticketId, target.graphRunId);
       return { outcome: 'dispatched' };
     }
   }
