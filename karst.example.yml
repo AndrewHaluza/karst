@@ -246,6 +246,10 @@ repositories:
 #     service:
 #       start: node server.mjs
 #       health: http://{host}:{port}/health
+#       # Optional: the command that compiles the ticket's code for this service.
+#       # UAT runs it before the spin; a non-zero exit fails UAT and opens a fix
+#       # round, so a build the ticket broke is not parked as a boot failure.
+#       # build: npm run -s build
 #       # Sandboxed tickets only: run this service on the HOST from the ticket's
 #       # host worktree instead of inside the sandbox (needed for a docker:
 #       # service). Keep `host: 127.0.0.1`. Absent = inside.

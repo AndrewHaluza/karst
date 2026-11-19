@@ -61,6 +61,7 @@ export function richManifest(): Raw {
           server: {
             start: 'node server.mjs',
             health: 'http://{host}:{port}/health',
+            build: 'npm run -s build',
             reset: 'node reset.mjs',
             cwd: 'apps/api',
             healthIdentity: true,

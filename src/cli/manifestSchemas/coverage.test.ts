@@ -73,7 +73,7 @@ const REPOSITORY: Keys<RepositoryDef> = {
   service: true, services: true, sandbox: true, graphWorkspace: true, ship: true, enabled: true,
 };
 const SERVICE: Keys<ServiceDef> = {
-  start: true, docker: true, health: true, reset: true, cwd: true, healthIdentity: true,
+  start: true, docker: true, health: true, build: true, reset: true, cwd: true, healthIdentity: true,
   healthTimeoutSeconds: true, sandbox: true, ports: true, portRange: true, dependsOn: true,
 };
 const DOCKER: Keys<DockerDef> = { image: true, containerPort: true, env: true, volumes: true, args: true };

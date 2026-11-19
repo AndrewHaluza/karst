@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { addHostGates } from '../../store/ticketGates.js';
 import { setStage } from '../../store/stages.js';
 import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
-import { uat } from '../../manifest/fixtures.js';
+import { uat, manifest as manifestOf, runnableRepo } from '../../manifest/fixtures.js';
 import type { FailedGate } from '../../workflow/fixHostRerun.js';
 
 const failed = (over: Partial<FailedGate> = {}): FailedGate => ({
@@ -121,6 +121,104 @@ describe('makeGateRerun through runGateList', () => {
     const [res] = await make(run, { gatesFor: () => [resolved({ args: ['run', 'other'] })] })(ticketId, [failed()], 'uat');
     expect(res).toMatchObject({ exitCode: null, cannotRerun: true });
     expect(run).not.toHaveBeenCalled();
+  });
+
+  describe('service-build rows (@arch:UAT-SVC-BUILD)', () => {
+    const build = (over: Partial<FailedGate> = {}): FailedGate => ({
+      gateName: 'service-build (web)', repo: '/work/web', command: 'sh', args: ['-c', 'npm run -s build'], kind: 'command', ...over,
+    });
+    const withManifest = (buildCommand: string | undefined) =>
+      manifestOf({ web: runnableRepo({ cwd: 'apps/web', ...(buildCommand ? { build: buildCommand } : {}) }, { repoPath: '/work/web' }) });
+    beforeEach(() => {
+      store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(ticketId, '/work/web', '/wt/web-main', 'b');
+    });
+
+    it('re-runs the build in the service cwd of the worktree and maps exit 0', async () => {
+      const run = vi.fn<GateProcessRunner>(async () => ok());
+      const rerun = make(run, { gatesFor: () => [], manifest: () => withManifest('npm run -s build') });
+      expect(await rerun(ticketId, [build()], 'uat')).toEqual([{ exitCode: 0, summary: null }]);
+      expect(run.mock.calls[0]?.[2]).toBe('/wt/web-main/apps/web');
+    });
+
+    it('summarises a build that still fails', async () => {
+      const run: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 1, output: 'FAIL budget exceeded' });
+      const [res] = await make(run, { gatesFor: () => [], manifest: () => withManifest('npm run -s build') })(ticketId, [build()], 'uat');
+      expect(res?.exitCode).toBe(1);
+      expect(res?.summary).toContain('budget exceeded');
+    });
+
+    const buildRunGates = () => vi.fn(async (_g: readonly ResolvedGate[], _c: string, _o?: unknown) => ({ kind: 'ran' as const, results: [] }));
+    const staleSummary = { exitCode: null, cannotRerun: true, summary: 'service-build (web) is no longer a manifest gate' };
+
+    it('runs only the build, once, as a required sh -c gate with the service name', async () => {
+      const runGates = buildRunGates();
+      await make(vi.fn(), { runGates, gatesFor: () => [], manifest: () => withManifest('npm run -s build') })(ticketId, [build()], 'uat');
+      expect(runGates).toHaveBeenCalledTimes(1);
+      expect(runGates.mock.calls[0]?.[0]).toEqual([{ name: 'service-build (web)', command: 'sh', args: ['-c', 'npm run -s build'], script: null, required: true }]);
+    });
+
+    it('runs the build in the worktree root when the service sets no cwd', async () => {
+      const runGates = buildRunGates();
+      const m = manifestOf({ web: runnableRepo({ build: 'npm run -s build' }, { repoPath: '/work/web' }) });
+      await make(vi.fn(), { runGates, gatesFor: () => [], manifest: () => m })(ticketId, [build()], 'uat');
+      expect(runGates.mock.calls[0]?.[1]).toBe('/wt/web-main');
+    });
+
+    it('records the build as a host re-run row and gives it the result', async () => {
+      const run: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 3, output: 'FAIL nope' });
+      const [res] = await make(run, { gatesFor: () => [], manifest: () => withManifest('npm run -s build') })(ticketId, [build()], 'uat');
+      expect(res?.exitCode).toBe(3);
+      const rows = listGateRuns(store, ticketId, { includeHostRerun: true }).filter((r) => r.gateName === 'service-build (web)');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ exitCode: 3, source: HOST_RERUN_SOURCE });
+    });
+
+    it('says aborted when a Stop ends the build re-run', async () => {
+      const runGates = vi.fn(async () => ({ kind: 'stopped' as const, results: [] }));
+      const [res] = await make(vi.fn(), { runGates, gatesFor: () => [], manifest: () => withManifest('npm run -s build') })(ticketId, [build()], 'uat');
+      expect(res).toEqual({ exitCode: null, summary: 'aborted' });
+    });
+
+    it('keeps a not-run reason when the build re-run never reports a result', async () => {
+      const [res] = await make(vi.fn(), { runGates: buildRunGates(), gatesFor: () => [], manifest: () => withManifest('npm run -s build') })(ticketId, [build()], 'uat');
+      expect(res).toEqual({ exitCode: null, summary: 'not run: regenerate failed' });
+    });
+
+    it('says cannotRerun without a manifest, for another service, for another repo path and for another command', async () => {
+      const run = vi.fn<GateProcessRunner>();
+      const other = manifestOf({ web: runnableRepo({ build: 'npm run -s build' }, { repoPath: '/elsewhere' }) });
+      const api = manifestOf({ api: runnableRepo({ build: 'npm run -s build' }, { repoPath: '/work/web' }) });
+      const noBuild = withManifest(undefined);
+      for (const m of [undefined, other, api, noBuild]) {
+        const [res] = await make(run, { gatesFor: () => [], ...(m ? { manifest: () => m } : {}) })(ticketId, [build()], 'uat');
+        expect(res).toEqual(staleSummary);
+      }
+      const [differs] = await make(run, { gatesFor: () => [], manifest: () => withManifest('npm run -s build') })(ticketId, [build({ command: 'bash' })], 'uat');
+      expect(differs).toEqual(staleSummary);
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it('does not treat an ordinary gate as a service build', async () => {
+      const run = vi.fn<GateProcessRunner>(async () => ok());
+      const [res] = await make(run, { manifest: () => withManifest('npm run -s build') })(ticketId, [failed()], 'uat');
+      expect(res).toEqual({ exitCode: 0, summary: null });
+      expect(run.mock.calls[0]?.[2]).toBe('/wt/web');
+    });
+
+    it('says cannotRerun when the manifest no longer declares that build command', async () => {
+      const run = vi.fn<GateProcessRunner>();
+      const [res] = await make(run, { gatesFor: () => [], manifest: () => withManifest('npm run other') })(ticketId, [build()], 'uat');
+      expect(res).toMatchObject({ exitCode: null, cannotRerun: true });
+      expect(run).not.toHaveBeenCalled();
+    });
+  });
+
+  it('records each failed row under the name of that failed gate, not the manifest name', async () => {
+    const run = vi.fn<GateProcessRunner>(async () => ok());
+    const gatesFor = () => [resolved({ name: 'unit' }), resolved({ name: 'lint', args: ['run', 'lint'] })];
+    await make(run, { gatesFor })(ticketId, [failed(), failed({ gateName: 'lint (web)', args: ['run', 'lint'] })], 'uat');
+    const names = listGateRuns(store, ticketId, { includeHostRerun: true }).map((r) => r.gateName).sort();
+    expect(names).toEqual(['lint (web)', 'unit (web)']);
   });
 
   it('fails a gate whose repo has no worktree without running anything', async () => {

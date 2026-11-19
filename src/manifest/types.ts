@@ -78,6 +78,14 @@ export interface ServiceDef {
   docker?: DockerDef;
   health?: string;
   /**
+   * Optional command that compiles the ticket's code for this service (`sh -c`, in
+   * the service's worktree and `cwd`). UAT runs it before the spin as the gate
+   * `service-build (<repo>)`: a non-zero exit judges the ticket's code (a failed
+   * verdict and a fix round), while a failed start or health check stays an
+   * environment fault (`boot-failed`). Manifest-only: Settings keeps the key.
+   */
+  build?: string;
+  /**
    * Optional command that resets the service's state between agent UAT and
    * user UAT (arch:AC-32 decision 8), on the SAME running instance (`sh -c`, in
    * the service's directory). A sandboxed stack runs it inside the sandbox; a

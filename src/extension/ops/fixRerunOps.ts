@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { summarizeGateFailure } from '../../model/gateSummary.js';
@@ -15,6 +16,7 @@ import { probeScripts } from '../../workflow/gates/probe.js';
 import { baseDefinesScript } from '../../workflow/gates/npmScript.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { resolveTargetGates } from '../../workflow/stages/uat.js';
+import { unitsOfRepos } from '../../manifest/runnable.js';
 import { withHostOverride } from '../../workflow/gates/resourceKill.js';
 import { getHostGates } from '../../store/ticketGates.js';
 import type { Manifest, ReviewConfig, UatConfig } from '../../manifest/types.js';
@@ -130,6 +132,30 @@ function resultOf(exitCode: number | null, output: string): GateRerunResult {
   return { exitCode, summary: exitCode === null ? output || 'the gate could not run' : summarizeGateFailure(output) };
 }
 
+const SERVICE_BUILD_PREFIX = 'service-build (';
+
+interface ServiceBuildRun {
+  readonly gate: ResolvedGate;
+  readonly cwd: string;
+  readonly row: number;
+}
+
+/**
+ * A failed `service-build (<repo>)` row is not a manifest gate: UAT runs it from `service.build`
+ * (@arch:UAT-SVC-BUILD). Rebuild it from the manifest, in the service cwd of the worktree. The row
+ * is stale when the manifest no longer declares the same build command for that service.
+ */
+function serviceBuildRunOf(deps: GateRerunDeps, group: RerunGroup, gate: FailedGate, row: number): ServiceBuildRun | undefined {
+  const manifest = deps.manifest?.();
+  if (!manifest) return undefined;
+  const repoNames = Object.entries(manifest.repositories).filter(([, r]) => r.repoPath === group.repo).map(([n]) => n);
+  const unit = unitsOfRepos(manifest, repoNames).find((u) => `${SERVICE_BUILD_PREFIX}${u.key})` === gate.gateName);
+  if (!unit?.def.build) return undefined;
+  const resolved: ResolvedGate = { name: gate.gateName, command: 'sh', args: ['-c', unit.def.build], script: null, required: true };
+  if (gate.command !== resolved.command || gate.args.join('\u0000') !== resolved.args.join('\u0000')) return undefined;
+  return { gate: resolved, cwd: unit.def.cwd ? join(group.path, unit.def.cwd) : group.path, row };
+}
+
 /** One repo worktree: resolve its failed rows to manifest gates, then one `runGateList` call. */
 async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey, group: RerunGroup): Promise<GateRerunResult[]> {
   const results: (GateRerunResult | undefined)[] = group.entries.map(() => undefined);
@@ -146,8 +172,15 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
   const toRun: ResolvedGate[] = [];
   // Keyed by the gate's position in `toRun`, not by its name: two manifest gates may share a name.
   const rowsOfGate = new Map<number, number[]>();
+  const buildRuns: ServiceBuildRun[] = [];
   group.entries.forEach((e, i) => {
     if (e.gate.kind === 'regenerate') return;
+    if (e.gate.gateName.startsWith(SERVICE_BUILD_PREFIX)) {
+      const buildRun = serviceBuildRunOf(deps, group, e.gate, i);
+      if (buildRun) buildRuns.push(buildRun);
+      else results[i] = { exitCode: null, cannotRerun: true, summary: `${e.gate.gateName} is no longer a manifest gate` };
+      return;
+    }
     const match = manifestGates.find((g) => g.command === e.gate.command && g.args.join('\u0000') === e.gate.args.join('\u0000'));
     if (!match) {
       results[i] = { exitCode: null, cannotRerun: true, summary: `${e.gate.gateName} is no longer a manifest gate` };
@@ -161,14 +194,14 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
       rowsOfGate.set(toRun.length - 1, [i]);
     }
   });
-  if (toRun.length === 0 && regenerate === undefined) return fill(results, 'not run');
+  if (toRun.length === 0 && regenerate === undefined && buildRuns.length === 0) return fill(results, 'not run');
   const now = deps.now ?? nowIso;
   const attempt = stageAttempt(deps.store, ticketId, stage);
   const baseRef = deps.baseRefFor?.(ticketId, group.repo);
   const run = deps.runGates ?? runGateList;
   const scriptProbe = (deps.probe ?? probeScripts)(group.path, deps.debug);
   const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
-  const res = await run(toRun, group.path, {
+  const baseOpts: Omit<NonNullable<Parameters<typeof runGateList>[2]>, 'onGateComplete'> = {
     now,
     scriptsAvailable: (script, derived) => (scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived),
     ...(deps.git && baseRef ? { baseDefinesScript: (script: string) => baseDefinesScript(deps.git as GitRunner, group.path, baseRef, script) } : {}),
@@ -184,14 +217,28 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
     onGateStart: (name) => deps.onGateStart?.(ticketId, stage, name),
     onGateOutput: (name, chunk) => deps.onGateOutput?.(ticketId, stage, name, chunk),
     onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(ticketId, name, pid, cwd),
-    onGateComplete: (name, exitCode, startedAt, endedAt, index, rawOutput, waitMs) => {
-      const output = rawOutput ?? '';
-      const rows = index < 0 ? (regenIdx >= 0 ? [regenIdx] : []) : (rowsOfGate.get(index) ?? []);
-      recordRerunRow(deps, ticketId, stage, attempt, now(), group, { name, exitCode, startedAt, endedAt, output, waitMs: waitMs ?? null, row: rows[0] ?? -1 });
-      for (const row of rows) results[row] = resultOf(exitCode, output);
-    },
-  });
-  const reason = res.kind === 'stopped' ? 'aborted' : 'not run: regenerate failed';
+  };
+  const record = (rows: readonly number[], name: string, exitCode: number | null, startedAt: string | null, endedAt: string | null, rawOutput: string | undefined, waitMs: number | null | undefined): void => {
+    const output = rawOutput ?? '';
+    recordRerunRow(deps, ticketId, stage, attempt, now(), group, { name, exitCode, startedAt, endedAt, output, waitMs: waitMs ?? null, row: rows[0] ?? -1 });
+    for (const row of rows) results[row] = resultOf(exitCode, output);
+  };
+  let reason = 'not run: regenerate failed';
+  if (toRun.length > 0 || regenerate !== undefined) {
+    const res = await run(toRun, group.path, {
+      ...baseOpts,
+      onGateComplete: (name, exitCode, startedAt, endedAt, index, rawOutput, waitMs) =>
+        record(index < 0 ? (regenIdx >= 0 ? [regenIdx] : []) : (rowsOfGate.get(index) ?? []), name, exitCode, startedAt, endedAt, rawOutput, waitMs),
+    });
+    if (res.kind === 'stopped') reason = 'aborted';
+  }
+  for (const build of buildRuns) {
+    const res = await run([build.gate], build.cwd, {
+      ...baseOpts,
+      onGateComplete: (name, exitCode, startedAt, endedAt, _index, rawOutput, waitMs) => record([build.row], name, exitCode, startedAt, endedAt, rawOutput, waitMs),
+    });
+    if (res.kind === 'stopped') reason = 'aborted';
+  }
   return fill(results, reason);
 }
 
