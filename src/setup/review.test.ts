@@ -1,47 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
-import { describeChangeProposal, describeManifestProposal, describeVerification, withVerification } from './review.js';
+import { describeChangeProposal, describeRunProposal, describeVerification, describeWriteFileProposal, withVerification } from './review.js';
 import type { VerifyResult } from './verify/types.js';
-
-function service(start: string): ServiceDef {
-  return { start, ports: [{ name: 'port', env: 'PORT', default: 3000 }], dependsOn: [] };
-}
-function repo(repoPath: string, svc?: ServiceDef): RepositoryDef {
-  return { repoPath, hasMigrations: false, ...(svc ? { service: svc } : {}) };
-}
-function manifest(repos: Record<string, RepositoryDef>): Manifest {
-  return { host: '127.0.0.1', portRange: [3000, 3999], baselineBranch: 'main', repositories: repos };
-}
-
-describe('describeManifestProposal', () => {
-  it('shows the values of adopted protected fields on first setup', () => {
-    const proposed = { ...manifest({ web: repo('/w/web') }), processes: { build: { command: 'rm -rf /tmp/x' } } } as unknown as Manifest;
-    const d = describeManifestProposal(undefined, { kind: 'manifest', targetPath: '/w/karst.yml', yaml: '', summary: '' }, proposed, { adopted: ['processes'] });
-    expect(d.detail).toContain('processes: {"build":{"command":"rm -rf /tmp/x"}}');
-  });
-
-  it('lists the diff and every start command', () => {
-    const current = manifest({ web: repo('/w/web', service('npm run old')) });
-    const proposed = manifest({ web: repo('/w/web', service('npm run dev')), api: repo('/w/api', service('node .')) });
-    const d = describeManifestProposal(current, { kind: 'manifest', targetPath: '/w/karst.yml', yaml: '', summary: 'found 2 repos' }, proposed);
-    expect(d.message).toBe('Apply the proposed karst.yml? 2 repositories, 2 with a service.');
-    expect(d.detail).toContain('found 2 repos');
-    expect(d.detail).toContain('CHANGED web');
-    expect(d.detail).toContain('ADDED api');
-    expect(d.detail).toContain('api: node .');
-    expect(d.detail).toContain('web: npm run dev');
-    expect(d.startCommandsChanged).toBe(true);
-  });
-
-  it('says (none) when there are no start commands and flags no change for an identical start set', () => {
-    const current = manifest({ docs: repo('/w/docs') });
-    const proposed = manifest({ docs: repo('/w/docs') });
-    const d = describeManifestProposal(current, { kind: 'manifest', targetPath: '/w/karst.yml', yaml: '', summary: '' }, proposed);
-    expect(d.detail).toContain('No repository changes.');
-    expect(d.detail).toContain('(none)');
-    expect(d.startCommandsChanged).toBe(false);
-  });
-});
 
 describe('describeChangeProposal', () => {
   it('shows the reason and the exact command', () => {
@@ -64,26 +23,32 @@ describe('describeChangeProposal', () => {
   });
 });
 
-describe('describeManifestProposal protected-field order', () => {
-  it('puts the dropped line before the agent summary', () => {
-    const proposed = manifest({ web: repo('../web') });
-    const d = describeManifestProposal(undefined, { kind: 'manifest', targetPath: '/k.yml', yaml: '', summary: 'AGENT SUMMARY' }, proposed, {
-      dropped: ['review'],
-    });
-    expect(d.detail.startsWith('Protected fields NOT applied')).toBe(true);
-    expect(d.detail.indexOf('NOT applied')).toBeLessThan(d.detail.indexOf('AGENT SUMMARY'));
+describe('describeRunProposal', () => {
+  const run = { kind: 'run' as const, repo: 'web', purpose: 'install-deps' as const, command: 'npm ci' };
+
+  it('shows the purpose, the exact command and the not-dry-run warning', () => {
+    const d = describeRunProposal(run, '/ws/web');
+    expect(d.message).toBe('Run this command for "web"?');
+    expect(d.detail.split('\n')[0]).toBe('Directory: /ws/web');
+    expect(d.detail).toContain('Purpose: install-deps');
+    expect(d.detail).toContain('Command: npm ci');
+    expect(d.detail).toContain('not dry-run');
+    expect(d.startCommandsChanged).toBe(false);
+  });
+
+  it('names a path-only run by its path', () => {
+    const d = describeRunProposal({ kind: 'run', path: '.', purpose: 'git-init', command: 'git init' }, '/ws');
+    expect(d.message).toBe('Run this command in "."?');
   });
 });
 
-describe('describeManifestProposal written sections and no dropped line', () => {
-  it('names the written sections and omits the dropped line when none dropped', () => {
-    const proposed = manifest({ web: repo('../web') });
-    const d = describeManifestProposal(undefined, { kind: 'manifest', targetPath: '/k.yml', yaml: '', summary: 's' }, proposed, {
-      dropped: [],
-      writtenSections: ['approaches', 'review'],
-    });
-    expect(d.detail).toContain('this write changes: approaches, review.');
-    expect(d.detail).not.toContain('NOT applied');
+describe('describeWriteFileProposal', () => {
+  it('shows the path and the host-built diff', () => {
+    const d = describeWriteFileProposal({ kind: 'write-file', repo: 'web', path: 'a/b.txt', content: 'x\n' }, '/ws/web', 'diff --git a/a/b.txt b/a/b.txt\n+x\n');
+    expect(d.message).toBe('Write "a/b.txt" in "web"?');
+    expect(d.detail.split('\n')[0]).toBe('Directory: /ws/web');
+    expect(d.detail).toContain('Diff built by the host:');
+    expect(d.detail).toContain('+x');
   });
 });
 

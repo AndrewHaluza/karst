@@ -45,7 +45,6 @@ function setup(
     outboxes: () => ['/s/1'],
     readCurrentManifest: manifest,
     confirm,
-    applyManifest: vi.fn(() => 'x'),
     runCommand: vi.fn(),
     applyPatch: vi.fn(),
     resolveDir: () => ({ ok: true as const, dir: '/w' }),

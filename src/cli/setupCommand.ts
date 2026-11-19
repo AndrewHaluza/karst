@@ -4,9 +4,9 @@ import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import { canonicalRepoId } from '../runtime/repoId.js';
 import { describeGraphDeps, type GraphDepsFit } from '../setup/graphDeps.js';
 import { discoverWorkspace, type DiscoveryProbe } from '../setup/discover.js';
-import { MAX_SETUP_PROPOSAL_BYTES, validateSetupProposal, type ChangeProposal } from '../setup/proposal.js';
+import { MAX_SETUP_PROPOSAL_BYTES } from '../setup/proposal.js';
 import { basename } from 'node:path';
-import { resolveSetupOutboxDir, writeSetupProposal } from '../setup/outbox.js';
+import { resolveSetupOutboxDir } from '../setup/outbox.js';
 import { readLedger, withdrawProposal } from '../setup/ledger.js';
 import { readVerifyRecords } from '../setup/verify/record.js';
 import { listEdits, runEditTool, isEditTool, withdrawEditOp } from './setupEdit/command.js';
@@ -15,16 +15,16 @@ import { validateSkipRequest, writeSkipRequest } from '../setup/checklist/skips.
 
 /**
  * `karst setup discover [--root <path>] [--default-branch <branch>]` and
- * `karst setup propose-change` (one JSON object on stdin).
+ * the typed setup tools (`set-*`, `run`, `write-file`, ...).
  *
  * `discover` runs the deterministic engine (`setup/discover.ts`) over a real
  * filesystem + git probe and prints the facts the agent reasons over: the
  * repositories, each one's DETECTED baseline branch, and its service candidate
  * (or null plus a reason). It never writes anything.
  *
- * `propose-change` validates a `kind: 'change'` object and writes it into
- * `$KARST_SETUP_OUTBOX`. The extension shows the exact command/patch and applies
- * it only after the user agrees — the agent cannot edit a tracked file itself.
+ * The typed tools write into `$KARST_SETUP_OUTBOX`. The extension shows the exact
+ * command or diff and acts only after the user agrees. The agent cannot edit a
+ * tracked file itself, and the old free `change` proposal does not exist.
  */
 
 export interface SetupCommandDeps {
@@ -48,7 +48,6 @@ export interface SetupCommandDeps {
 }
 
 const DISCOVER_USAGE = 'usage: karst setup discover [--root <path>] [--default-branch <branch>]';
-const PROPOSE_USAGE = "usage: printf '%s' '<json>' | karst setup propose-change";
 
 /** The real probe: fs reads + `git -C <dir> …` (this runs in the CLI process). */
 export function realDiscoveryProbe(): DiscoveryProbe {
@@ -142,20 +141,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/**
- * A change object arrives in one of two shapes: the full proposal the shell
- * path pipes in (`{kind:'change',…}`), or the flat MCP tool object
- * (`{subcommand:'propose-change', repo, reason, command?}`). Normalize the
- * latter so an MCP call is not rejected for a missing `kind`.
- */
-function normalizeChangeInput(raw: unknown): unknown {
-  if (isRecord(raw) && raw.kind === undefined && typeof raw.subcommand === 'string') {
-    return toChangeProposalInput(raw);
-  }
-  return raw;
-}
-
-function readChange(deps: SetupCommandDeps, label = 'propose-change'): unknown {
+function readChange(deps: SetupCommandDeps, label: string): unknown {
   const read = deps.readStdin ?? ((max: number) => readFileSync(0, { encoding: 'utf8' }).slice(0, max));
   const raw = read(MAX_SETUP_PROPOSAL_BYTES);
   if (Buffer.byteLength(raw, 'utf8') > MAX_SETUP_PROPOSAL_BYTES) {
@@ -166,31 +152,6 @@ function readChange(deps: SetupCommandDeps, label = 'propose-change'): unknown {
   } catch {
     throw new Error(`karst setup ${label}: stdin is not one JSON object`);
   }
-}
-
-function runProposeChange(deps: SetupCommandDeps): string {
-  const checked = validateSetupProposal(normalizeChangeInput(readChange(deps)));
-  if (!checked.ok) throw new Error(`karst setup propose-change: ${checked.reason}`);
-  if (checked.value.kind !== 'change') {
-    throw new Error("karst setup propose-change: kind must be 'change' (use `karst manifest propose` for a manifest)");
-  }
-  const dir = resolveSetupOutboxDir(deps.outboxEnv);
-  const out = writeSetupProposal(dir, checked.value as ChangeProposal, deps.uuid);
-  return JSON.stringify({ ok: true, kind: 'change', id: basename(out, '.json'), file: out });
-}
-
-/**
- * Turn a structured `setup` tool object (`{subcommand, repo, reason, command?}`)
- * into the change-proposal payload the handler validates: `kind:'change'` plus
- * the change fields. Used only for the `--file`/`--stdin` path; the shell path
- * already supplies the full proposal on stdin.
- */
-export function toChangeProposalInput(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  const out: Record<string, unknown> = { kind: 'change' };
-  for (const key of ['repo', 'reason', 'command', 'patch', 'path', 'clears']) {
-    if (value[key] !== undefined) out[key] = value[key];
-  }
-  return out;
 }
 
 /**
@@ -240,14 +201,10 @@ export function runSetupCommand(argv: readonly string[], deps: SetupCommandDeps 
   if (cmd !== 'setup') throw new Error(`karst setup: unknown command '${cmd ?? ''}'`);
   if (sub === 'discover') return runDiscover(rest, deps);
   if (isEditTool(sub)) return runEditTool(sub!, rest, { ...deps, ...deps.edit });
-  if (sub === 'propose-change') {
-    if (rest.length > 0) throw new Error(`karst setup propose-change takes no arguments or flags (${PROPOSE_USAGE})`);
-    return runProposeChange(deps);
-  }
   if (sub === 'skip') return runSkip(rest, deps);
   if (sub === 'status') return runStatus(rest, deps);
   if (sub === 'withdraw') return runWithdraw(rest, deps);
   throw new Error(
-    `karst setup: unknown subcommand '${sub ?? ''}' (want 'discover', 'propose-change', 'skip', 'checklist', 'status' or 'withdraw')`,
+    `karst setup: unknown subcommand '${sub ?? ''}' (want 'discover', a typed tool, 'skip', 'checklist', 'status' or 'withdraw')`,
   );
 }

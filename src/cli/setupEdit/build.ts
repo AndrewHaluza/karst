@@ -94,6 +94,7 @@ function field(tree: unknown, key: string): { ok: true; value: string } | { ok: 
 function toStep(op: EditOp, raw: Tree): Step | BuildFailure {
   const tool = findEditTool(op.tool);
   if (tool === undefined) return fail(`unknown setup tool "${op.tool}"`, { opId: op.id });
+  if (tool.proposal !== undefined) return fail(`"${op.tool}" is a host proposal, not an edit`, { opId: op.id });
   const input = op.input;
   if (tool.section !== undefined) {
     if (!isTree(input)) return fail('the input must be an object', { opId: op.id, field: '$' });

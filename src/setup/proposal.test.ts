@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MAX_SETUP_REASON,
-  MAX_SETUP_YAML_BYTES,
+  MAX_SETUP_COMMAND,
+  MAX_SETUP_WRITE_CONTENT,
+  OLD_PROPOSAL_REFUSAL,
+  validateChangeProposal,
   validateSetupProposal,
 } from './proposal.js';
 
@@ -11,129 +13,127 @@ function ok(raw: unknown) {
   return r.value;
 }
 
-describe('validateSetupProposal', () => {
-  it('accepts a manifest proposal and strips control characters from the summary', () => {
-    const v = ok({
-      kind: 'manifest',
-      targetPath: '/ws/.karst/karst.yml',
-      yaml: 'id: x\nrepositories: {}\n',
-      summary: 'detected\u0000 2 repos',
-    });
-    expect(v).toEqual({
-      kind: 'manifest',
-      targetPath: '/ws/.karst/karst.yml',
-      yaml: 'id: x\nrepositories: {}\n',
-      summary: 'detected 2 repos',
-    });
+const reasonOf = (raw: unknown): string => {
+  const r = validateSetupProposal(raw);
+  if (r.ok) throw new Error('expected a refusal');
+  return r.reason;
+};
+
+describe('the old proposal kinds', () => {
+  it.each([
+    [{ kind: 'manifest', targetPath: '/ws/karst.yml', yaml: 'id: x\n', summary: 's' }],
+    [{ kind: 'change', repo: 'web', reason: 'deps', command: 'npm ci' }],
+  ])('refuses %j with the typed-tools reason', (raw) => {
+    expect(reasonOf(raw)).toBe(OLD_PROPOSAL_REFUSAL);
+    expect(OLD_PROPOSAL_REFUSAL).toBe('use the typed setup tools');
   });
 
-  it('rejects an unknown kind', () => {
-    expect(validateSetupProposal({ kind: 'nope' })).toEqual({
-      ok: false,
-      reason: "kind must be 'manifest' or 'change'",
-    });
-  });
-
-  it('rejects a non-object', () => {
-    expect(validateSetupProposal('x').ok).toBe(false);
-    expect(validateSetupProposal(null).ok).toBe(false);
-    expect(validateSetupProposal([]).ok).toBe(false);
-  });
-
-  it('rejects a manifest proposal with a missing or extra key', () => {
-    expect(
-      validateSetupProposal({ kind: 'manifest', targetPath: '/a', yaml: 'x' }).ok,
-    ).toBe(false);
-    expect(
-      validateSetupProposal({ kind: 'manifest', targetPath: '/a', yaml: 'x', summary: 's', extra: 1 }).ok,
-    ).toBe(false);
-  });
-
-  it('rejects a control character in targetPath and an empty path', () => {
-    expect(
-      validateSetupProposal({ kind: 'manifest', targetPath: '/a\u0000b', yaml: 'x', summary: 's' }).ok,
-    ).toBe(false);
-    expect(
-      validateSetupProposal({ kind: 'manifest', targetPath: '  ', yaml: 'x', summary: 's' }).ok,
-    ).toBe(false);
-  });
-
-  it('rejects an oversize yaml', () => {
-    const big = 'x'.repeat(MAX_SETUP_YAML_BYTES + 1);
-    expect(validateSetupProposal({ kind: 'manifest', targetPath: '/a', yaml: big, summary: 's' }).ok).toBe(false);
-  });
-
-  it('accepts a command change and a patch change', () => {
-    expect(
-      ok({ kind: 'change', repo: 'web', reason: 'deps missing', command: 'npm ci' }),
-    ).toEqual({ kind: 'change', repo: 'web', reason: 'deps missing', command: 'npm ci' });
-    expect(
-      ok({ kind: 'change', repo: 'web', reason: 'env', patch: '--- /dev/null\n+++ b/.env\n' }),
-    ).toEqual({ kind: 'change', repo: 'web', reason: 'env', patch: '--- /dev/null\n+++ b/.env\n' });
-  });
-
-  it('rejects a change with neither command nor patch', () => {
-    expect(validateSetupProposal({ kind: 'change', repo: 'web', reason: 'x' }).ok).toBe(false);
-  });
-
-  it('rejects a change carrying BOTH a command and a patch (never silently drops one)', () => {
-    expect(
-      validateSetupProposal({ kind: 'change', repo: 'web', reason: 'x', command: 'npm ci', patch: 'p' }).ok,
-    ).toBe(false);
-  });
-
-  it('rejects a change with an empty reason, a bad repo name, or an oversize reason', () => {
-    expect(validateSetupProposal({ kind: 'change', repo: 'web', reason: '   ', command: 'x' }).ok).toBe(false);
-    expect(validateSetupProposal({ kind: 'change', repo: 'a b', reason: 'x', command: 'y' }).ok).toBe(false);
-    expect(
-      validateSetupProposal({ kind: 'change', repo: 'web', reason: 'x'.repeat(MAX_SETUP_REASON + 1), command: 'y' }).ok,
-    ).toBe(false);
-  });
-
-  it('rejects . and .. as repo names (they resolve outside the workspace root)', () => {
-    expect(validateSetupProposal({ kind: 'change', repo: '.', reason: 'x', command: 'y' }).ok).toBe(false);
-    expect(validateSetupProposal({ kind: 'change', repo: '..', reason: 'x', command: 'y' }).ok).toBe(false);
-  });
-
-  it('rejects an extra key on a change proposal', () => {
-    expect(
-      validateSetupProposal({ kind: 'change', repo: 'web', reason: 'x', command: 'y', extra: 1 }).ok,
-    ).toBe(false);
+  it('rejects an unknown kind and a non-object', () => {
+    expect(reasonOf({ kind: 'other' })).toContain("'run' or 'write-file'");
+    expect(reasonOf([])).toContain('JSON object');
+    expect(reasonOf('x')).toContain('JSON object');
   });
 });
 
-describe('change proposal path', () => {
-  const base = { kind: 'change', repo: 'web', reason: 'init', command: 'git init' };
+describe('run proposal', () => {
+  const base = { kind: 'run', repo: 'web', purpose: 'install-deps', command: 'npm ci' };
 
-  it('accepts an optional path and keeps it', () => {
-    expect(ok({ ...base, path: '.' })).toEqual({ ...base, path: '.' });
+  it('accepts a repo run and a path run, and keeps the fields', () => {
+    expect(ok(base)).toEqual(base);
+    expect(ok({ kind: 'run', path: '.', purpose: 'git-init', command: 'git init' })).toEqual({
+      kind: 'run', path: '.', purpose: 'git-init', command: 'git init',
+    });
+  });
+
+  it.each(['git-init', 'install-deps', 'create-baseline', 'other'])('accepts the purpose %s', (purpose) => {
+    expect(ok({ ...base, purpose })).toMatchObject({ purpose });
+  });
+
+  it('refuses a purpose outside the list', () => {
+    expect(reasonOf({ ...base, purpose: 'deploy' })).toContain('purpose');
+  });
+
+  it('needs a repo or a path', () => {
+    const { repo: _repo, ...none } = base;
+    expect(reasonOf(none)).toContain('repo or a path');
+  });
+
+  it('refuses a bad repo name, . and .., an empty or oversize command, and an extra key', () => {
+    expect(reasonOf({ ...base, repo: 'a b' })).toContain('repo');
+    expect(reasonOf({ ...base, repo: '..' })).toContain('repo');
+    expect(reasonOf({ ...base, command: '   ' })).toContain('command');
+    expect(reasonOf({ ...base, command: 'x'.repeat(MAX_SETUP_COMMAND + 1) })).toContain('command');
+    expect(reasonOf({ ...base, extra: 1 })).toContain('keys');
   });
 
   it.each([['', 'empty'], [42, 'not a string'], ['a\u0000b', 'control char'], ['x'.repeat(1025), 'too long']])(
-    'rejects path %j (%s)',
+    'refuses path %j (%s)',
     (path, _why) => {
-      const r = validateSetupProposal({ ...base, path });
-      expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.reason).toContain('path');
+      expect(reasonOf({ ...base, path })).toContain('path');
     },
   );
+
+  it('strips control characters from the command body', () => {
+    expect(ok({ ...base, command: 'npm\u0000 ci' })).toMatchObject({ command: 'npm ci' });
+  });
 });
 
-describe('proposal clears', () => {
-  const manifest = { kind: 'manifest', targetPath: '/w/karst.yml', yaml: 'a: 1', summary: 's' };
-  const change = { kind: 'change', repo: 'web', reason: 'r', command: 'git init' };
+describe('write-file proposal', () => {
+  const base = { kind: 'write-file', repo: 'web', path: 'src/.env.example', content: 'A=1\n' };
 
-  it('accepts a clears list on both kinds and keeps it', () => {
-    const ids = ['manifest.review-signal', 'repo.git.web'];
-    for (const base of [manifest, change]) {
-      const r = validateSetupProposal({ ...base, clears: ids });
-      expect(r.ok && (r.value as { clears?: string[] }).clears).toEqual(ids);
-    }
+  it('accepts a relative path and keeps the content byte for byte', () => {
+    expect(ok(base)).toEqual(base);
+    expect(ok({ ...base, content: 'a\n\tb' })).toMatchObject({ content: 'a\n\tb' });
   });
 
-  it('refuses a clears value that is not a bounded list of item ids', () => {
-    for (const clears of ['x', [1], ['bad id'], [''], Array.from({ length: 65 }, (_, i) => `a${i}`)]) {
-      expect(validateSetupProposal({ ...manifest, clears }).ok).toBe(false);
-    }
+  it.each([
+    ['/etc/passwd', 'absolute'],
+    ['C:/x', 'drive'],
+    ['../x', 'parent'],
+    ['a/../../x', 'nested parent'],
+    ['.karst/karst.yml', 'under .karst'],
+    ['a/.KARST/x', 'under .karst, any case'],
+    ['.git/hooks/pre-commit', 'under .git'],
+    ['', 'empty'],
+    ['a\u0000b', 'control char'],
+    ['a\\b', 'backslash'],
+    ['a b', 'space'],
+    ['é.txt', 'non-ascii'],
+  ])('refuses the path %j (%s)', (path) => {
+    expect(reasonOf({ ...base, path })).toContain('path');
+  });
+
+  it('refuses a content that is not text, oversize, or not a string', () => {
+    expect(reasonOf({ ...base, content: 'a\u0000b' })).toContain('content');
+    expect(reasonOf({ ...base, content: 'x'.repeat(MAX_SETUP_WRITE_CONTENT + 1) })).toContain('content');
+    expect(reasonOf({ ...base, content: 5 })).toContain('content');
+  });
+
+  it.each(['a\u202Eb', 'a\u0007b', 'a\rb', 'a\u0085b'])('refuses content with the control character %j', (content) => {
+    expect(reasonOf({ ...base, content })).toContain('control');
+  });
+  it('keeps tab and newline in content', () => {
+    expect(validateSetupProposal({ ...base, content: 'a\tb\n' }).ok).toBe(true);
+  });
+
+  it.each(['.git', '.GIT', '.karst', '.Karst'])('refuses the reserved repo name %s', (repo) => {
+    expect(reasonOf({ ...base, repo })).toContain('repo');
+    expect(reasonOf({ kind: 'run', repo, purpose: 'other', command: 'ls' })).toContain('repo');
+  });
+
+  it('refuses a bad repo and an extra key; the repo is required', () => {
+    expect(reasonOf({ ...base, repo: '.' })).toContain('repo');
+    expect(reasonOf({ ...base, extra: 1 })).toContain('keys');
+    const { repo: _repo, ...none } = base;
+    expect(reasonOf(none)).toContain('keys');
+  });
+});
+
+describe('validateChangeProposal (the host-built form)', () => {
+  it('keeps the exact command OR patch rule', () => {
+    const ok1 = validateChangeProposal({ kind: 'change', repo: 'web', reason: 'r', command: 'npm ci' });
+    expect(ok1.ok).toBe(true);
+    expect(validateChangeProposal({ kind: 'change', repo: 'web', reason: 'r' }).ok).toBe(false);
+    expect(validateChangeProposal({ kind: 'change', repo: 'web', reason: 'r', command: 'a', patch: 'b' }).ok).toBe(false);
   });
 });

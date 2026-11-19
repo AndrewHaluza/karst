@@ -88,7 +88,7 @@ describe('checkManifest: manifest.repo-path', () => {
     expect(c.fix).toEqual({
       tier: 'consented',
       summary: expect.any(String),
-      command: 'Fix repoPath in karst.yml (use `karst manifest propose`)',
+      command: 'Fix repoPath in karst.yml (use the typed setup tools)',
     });
   });
 

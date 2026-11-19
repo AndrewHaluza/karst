@@ -3,9 +3,6 @@ import { BASE_YAML, fakeVerifyDeps, MANIFEST_PATH, RETIRED_YAML } from './verify
 import { createdPaths, firstFailure, sha256Of, verifyAfterApply, verifyBeforeConsent } from './verify.js';
 import type { ItemChange, VerifyResult } from './types.js';
 
-const manifestProposal = (yaml: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
-  kind: 'manifest', targetPath: '/draft/karst.yml', yaml, summary: 's', ...extra,
-});
 const command = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
   kind: 'change', repo: 'web', reason: 'r', command: 'git remote add origin x', ...extra,
 });
@@ -14,109 +11,6 @@ const NEW_FILE_PATCH =
 const GATE_YAML = BASE_YAML + 'review:\n  gates:\n    - { name: lint, kind: command, command: scripts/x.sh }\n';
 const ctx = { firstSetup: false, dir: '/w/web', karstRoots: ['/w', '/w/web'] };
 const step = (r: VerifyResult, id: string) => r.steps.find((s) => s.id === id)!;
-
-describe('verifyBeforeConsent — manifest', () => {
-  const retiredFix = manifestProposal(BASE_YAML);
-  const deps = () => fakeVerifyDeps({ text: RETIRED_YAML });
-
-  it('P6 on the retired-key case computes exactly the retired-key item', async () => {
-    const { result } = await verifyBeforeConsent(retiredFix, ctx, deps());
-    expect(result.ok).toBe(true);
-    expect(result.changes).toEqual([{ id: 'manifest.retired-key.confirmGeneratedGraph', kind: 'cleared' }]);
-    expect(result.clears).toEqual(['manifest.retired-key.confirmGeneratedGraph']);
-    expect(result.pinnedSha256).toBe(sha256Of(RETIRED_YAML));
-  });
-  it('P1 passes a valid proposal and fails a bad shape', async () => {
-    const good = await verifyBeforeConsent(retiredFix, ctx, deps());
-    expect(step(good.result, 'P1').status).toBe('ok');
-    const bad = await verifyBeforeConsent({ kind: 'manifest' }, ctx, deps());
-    expect(step(bad.result, 'P1').status).toBe('fail');
-    expect(bad.result.steps.slice(1).every((s) => s.status === 'skipped')).toBe(true);
-    expect(bad.result.ok).toBe(false);
-  });
-  it('P2 passes for karst.yml and fails for another host manifest path', async () => {
-    expect(step((await verifyBeforeConsent(retiredFix, ctx, deps())).result, 'P2').status).toBe('ok');
-    const other = await verifyBeforeConsent(retiredFix, ctx, { ...deps(), manifestPath: '/w/other.yml' });
-    expect(step(other.result, 'P2').status).toBe('fail');
-  });
-  it('P2 ignores the agent-chosen targetPath', async () => {
-    const r = await verifyBeforeConsent(manifestProposal(BASE_YAML, { targetPath: '/etc/passwd' }), ctx, deps());
-    expect(step(r.result, 'P2').status).toBe('ok');
-  });
-  it('P3 passes a render and fails a yaml that does not load', async () => {
-    expect(step((await verifyBeforeConsent(retiredFix, ctx, deps())).result, 'P3').status).toBe('ok');
-    const bad = await verifyBeforeConsent(manifestProposal('repositories: 3'), ctx, deps());
-    expect(step(bad.result, 'P3')).toMatchObject({ status: 'fail' });
-    expect(step(bad.result, 'P4').status).toBe('skipped');
-  });
-  it('P4 fails when the rendered result does not resolve its references', async () => {
-    let calls = 0;
-    const flaky = fakeVerifyDeps({ text: RETIRED_YAML });
-    const real = flaky.loadText;
-    flaky.loadText = (t, o) => (++calls === 3 ? { ok: false, error: 'dangling reference' } : real(t, o));
-    const r = await verifyBeforeConsent(retiredFix, ctx, flaky);
-    expect(step(r.result, 'P4')).toMatchObject({ status: 'fail', detail: 'dangling reference' });
-  });
-  it('P4 passes when the result loads', async () => {
-    expect(step((await verifyBeforeConsent(retiredFix, ctx, deps())).result, 'P4').status).toBe('ok');
-  });
-  it('P5 passes when protected fields are kept, as the host restores them', async () => {
-    const edited = manifestProposal(BASE_YAML.replace('main', 'dev'));
-    const r = await verifyBeforeConsent(edited, ctx, fakeVerifyDeps());
-    expect(step(r.result, 'P5').status).toBe('ok');
-  });
-  it('P5 fails when the rendered result changes a protected field', async () => {
-    const d = fakeVerifyDeps({ text: RETIRED_YAML });
-    const real = d.loadText;
-    let calls = 0;
-    d.loadText = (t, o) => {
-      const out = real(t, o);
-      return ++calls === 3 && out.ok ? { ...out, manifest: { ...out.manifest, baselineBranch: 'evil' } } : out;
-    };
-    const r = await verifyBeforeConsent(retiredFix, ctx, d);
-    expect(step(r.result, 'P5')).toMatchObject({ status: 'fail' });
-    expect(step(r.result, 'P5').detail).toContain('baselineBranch');
-  });
-  it('P5 is info on first setup', async () => {
-    const r = await verifyBeforeConsent(manifestProposal(BASE_YAML), { ...ctx, firstSetup: true }, fakeVerifyDeps({ text: undefined }));
-    expect(step(r.result, 'P5').status).toBe('info');
-  });
-  it('P6 refuses a proposal that changes no item', async () => {
-    const same = await verifyBeforeConsent(manifestProposal(BASE_YAML), ctx, fakeVerifyDeps());
-    expect(step(same.result, 'P6').status).toBe('fail');
-    expect(same.result.ok).toBe(false);
-  });
-  it('P6 passes a proposal that adds a repository (a pending item)', async () => {
-    const yaml = BASE_YAML + '  api:\n    repoPath: /w/api\n    hasMigrations: false\n';
-    const r = await verifyBeforeConsent(manifestProposal(yaml), ctx, fakeVerifyDeps());
-    expect(step(r.result, 'P6').status).toBe('ok');
-    expect(r.result.changes.every((c: ItemChange) => c.kind === 'added')).toBe(true);
-  });
-  it('P6 refuses a clears list that differs from the computed list', async () => {
-    const wrong = await verifyBeforeConsent(manifestProposal(BASE_YAML, { clears: ['manifest.legacy-services'] }), ctx, deps());
-    expect(step(wrong.result, 'P6').status).toBe('fail');
-    expect(step(wrong.result, 'P6').detail).toContain('manifest.legacy-services');
-    const empty = await verifyBeforeConsent(manifestProposal(BASE_YAML, { clears: [] }), ctx, deps());
-    expect(step(empty.result, 'P6').status).toBe('fail');
-  });
-  it('P6 accepts a clears list that equals the computed list', async () => {
-    const r = await verifyBeforeConsent(manifestProposal(BASE_YAML, { clears: ['manifest.retired-key.confirmGeneratedGraph'] }), ctx, deps());
-    expect(step(r.result, 'P6').status).toBe('ok');
-  });
-  it('a forged raw object gets the same checks (extra key refused at P1)', async () => {
-    const r = await verifyBeforeConsent({ ...retiredFix, admin: true }, ctx, deps());
-    expect(step(r.result, 'P1').status).toBe('fail');
-  });
-  it('returns the manifest to apply when every step passes', async () => {
-    const run = await verifyBeforeConsent(retiredFix, ctx, deps());
-    expect(run.manifest?.effective.repositories).toHaveProperty('web');
-    expect((await verifyBeforeConsent(manifestProposal(BASE_YAML), ctx, fakeVerifyDeps())).manifest).toBeDefined();
-  });
-  it('pins null when no karst.yml exists', async () => {
-    const r = await verifyBeforeConsent(manifestProposal(BASE_YAML), { ...ctx, firstSetup: true }, fakeVerifyDeps({ text: undefined }));
-    expect(r.result.pinnedSha256).toBeNull();
-  });
-});
 
 describe('verifyBeforeConsent — change', () => {
   it('a command is info at P2, P3 and P6 ("not dry-run") and passes', async () => {
@@ -134,7 +28,7 @@ describe('verifyBeforeConsent — change', () => {
     const patch = 'diff --git a/karst.yml b/karst.yml\n--- a/karst.yml\n+++ b/karst.yml\n@@ -1 +1 @@\n-a\n+b\n';
     const r = await verifyBeforeConsent(command({ command: undefined, patch }), { ...ctx, dir: '/w' }, fakeVerifyDeps());
     expect(step(r.result, 'P2').status).toBe('fail');
-    expect(step(r.result, 'P2').detail).toContain('manifest propose');
+    expect(step(r.result, 'P2').detail).toContain('typed setup tools');
   });
   it('P3 fails when git apply --check fails', async () => {
     const d = fakeVerifyDeps({ gitApplyCheck: async () => ({ ok: false, error: 'does not apply' }) });
@@ -153,8 +47,14 @@ describe('verifyBeforeConsent — change', () => {
     const r = await verifyBeforeConsent(command({ command: undefined, patch: NEW_FILE_PATCH }), ctx, fakeVerifyDeps({ text: 'repositories: 3' }));
     expect(step(r.result, 'P4').status).toBe('fail');
   });
-  it('P6 refuses a patch that changes no item', async () => {
+  it('P6 is info for a host-built file write that changes no item', async () => {
     const r = await verifyBeforeConsent(command({ command: undefined, patch: NEW_FILE_PATCH }), ctx, fakeVerifyDeps());
+    expect(step(r.result, 'P6').status).toBe('info');
+    expect(step(r.result, 'P6').detail).toContain('no readiness item');
+    expect(r.result.ok).toBe(true);
+  });
+  it('P6 still fails a patch that claims a clear the host does not compute', async () => {
+    const r = await verifyBeforeConsent(command({ command: undefined, patch: NEW_FILE_PATCH, clears: ['x'] }), ctx, fakeVerifyDeps());
     expect(step(r.result, 'P6').status).toBe('fail');
   });
   it('P6 refuses a patch whose clears list differs', async () => {

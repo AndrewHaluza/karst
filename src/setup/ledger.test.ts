@@ -36,6 +36,18 @@ describe('ledger', () => {
     expect(byId.r1).toMatchObject({ status: 'applied', dropped: ['gates'], sha256: 'abc' });
   });
 
+  it('reads the typed kinds from a pending file and from a result', () => {
+    writeFileSync(join(outbox, 'p1.json'), JSON.stringify({ kind: 'run' }));
+    writeFileSync(join(outbox, 'p2.json'), JSON.stringify({ kind: 'write-file' }));
+    writeProposalResult(outbox, { ...result('r1'), kind: 'run' });
+    writeProposalResult(outbox, { ...result('r2'), kind: 'write-file' });
+    const byId = Object.fromEntries(readLedger(outbox).map((r) => [r.id, r]));
+    expect(byId.p1).toMatchObject({ kind: 'run' });
+    expect(byId.p2).toMatchObject({ kind: 'write-file' });
+    expect(byId.r1).toMatchObject({ kind: 'run' });
+    expect(byId.r2).toMatchObject({ kind: 'write-file' });
+  });
+
   it('a result wins over a leftover pending file; malformed results are ignored', () => {
     writeFileSync(join(outbox, 'r1.json'), '{}');
     writeProposalResult(outbox, result('r1', 'declined'));

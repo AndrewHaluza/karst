@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { gitApplyCheck, nodeVerifyDeps, readManifestText } from './node.js';
+import { gitApplyCheck, gitApplyPrefixArgs, nodeVerifyDeps, readManifestText } from './node.js';
 
 const YAML =
   'id: demo\nhost: 127.0.0.1\nportRange: [3000, 3999]\nbaselineBranch: main\n' +
@@ -63,5 +63,30 @@ describe('node verify binding', () => {
     expect(deps.readCurrentText()).toBeUndefined();
     writeFileSync(join(dir, 'karst.yml'), YAML);
     expect(deps.readCurrentText()).toBe(YAML);
+  });
+});
+
+describe('git apply in a sub-directory of a repo', () => {
+  const NEW_FILE = 'diff --git a/x.txt b/x.txt\nnew file mode 100644\n--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1 @@\n+hi\n';
+
+  it('gives no extra argument at the repo root and a --directory prefix below it', async () => {
+    initRepo(dir);
+    mkdirSync(join(dir, 'pkg', 'web'), { recursive: true });
+    expect(await gitApplyPrefixArgs(dir)).toEqual([]);
+    expect(await gitApplyPrefixArgs(join(dir, 'pkg', 'web'))).toEqual(['--directory=pkg/web/']);
+  });
+
+  it('checks and applies a patch for the sub-directory, not for nothing', async () => {
+    initRepo(dir);
+    const sub = join(dir, 'pkg', 'web');
+    mkdirSync(sub, { recursive: true });
+    expect(await gitApplyCheck(sub, NEW_FILE)).toEqual({ ok: true });
+    const args = ['apply', ...(await gitApplyPrefixArgs(sub)), '-'];
+    execFileSync('git', args, { cwd: sub, input: NEW_FILE });
+    expect(existsSync(join(sub, 'x.txt'))).toBe(true);
+  });
+
+  it('gives no extra argument outside a git repo', async () => {
+    expect(await gitApplyPrefixArgs(dir)).toEqual([]);
   });
 });
