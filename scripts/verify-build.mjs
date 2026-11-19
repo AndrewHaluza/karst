@@ -86,7 +86,10 @@ const REQUIRED_ARTIFACTS = [
 // Raised 402 → 406 KB for the sbx token cell on the Accounts tab (T1228: SbxTokenCell
 // with its saving, confirm and error states, the token op effects and the hint; ~3.5 KB
 // minified): bundle is 413148 bytes (~2.7 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 406 * 1024;
+// Raised 406 → 408 KB when T1241 (the QuotaCard on the Accounts tab, the Active chip and the Cell
+// component) merged with the per-project active account (#1208), each of which fit alone: the
+// merged bundle is 416258 bytes (~1.5 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 408 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
