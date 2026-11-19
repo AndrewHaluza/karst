@@ -395,7 +395,7 @@
 #section-agents .accounts-quota .k-field:last-child { margin-block-end: 0; }
 #section-agents .accounts-quota .k-field .k-field-help { display: block; margin-block-start: var(--k-space-1, 2px); }
 #section-agents .accounts-quota .field-label, #section-agents .accounts-quota .k-switch label { color: var(--vscode-foreground); }
-#section-agents .accounts-quota-threshold input { width: 6ch; min-width: 0; }
+#section-agents .accounts-quota-threshold input { width: 10ch; min-width: 0; box-sizing: border-box; } /* 6 digits of text plus the padding and the number spinner */
 #section-agents .accounts-actions { display: flex; gap: var(--k-space-3, 8px); }
 @media (max-width: 699px) {
   #section-agents .accounts-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

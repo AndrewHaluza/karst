@@ -746,9 +746,9 @@ const autopilotVariants = (): Variant[] => {
 };
 
 /** Accounts tab (T1015) with the host's accounts-state pushed after the settings state. */
-function accountsVariant(id: string, cores: unknown[], opts: { skipLayout?: boolean } = {}): Variant {
+function accountsVariant(id: string, cores: unknown[], opts: { skipLayout?: boolean; settings?: typeof REALISTIC_SETTINGS } = {}): Variant {
   return {
-    ...variant('settings', id, () => ({ messages: [...stateMessage(REALISTIC_SETTINGS).messages, { type: 'accounts-state', cores }] as never }), {
+    ...variant('settings', id, () => ({ messages: [...stateMessage(opts.settings ?? REALISTIC_SETTINGS).messages, { type: 'accounts-state', cores }] as never }), {
       baseline: `settings--${id}`,
       themes: ALL_THEMES,
       ...(opts.skipLayout ? { skipLayout: true } : {}),
@@ -816,6 +816,11 @@ const settingsVariants = (): Variant[] => [
   accountsVariant('accounts-default-only', DEFAULT_ONLY_CORES, { skipLayout: true }),
   accountsVariant('accounts-several', SEVERAL_CORES),
   accountsVariant('accounts-sbx-token', TOKEN_CORES, { skipLayout: true }),
+  // D707: the Subscription quota card with a saved threshold and both opt-ins on; one core, so the card is inside the 720 px viewport.
+  accountsVariant('accounts-quota', DEFAULT_ONLY_CORES.slice(0, 1), {
+    skipLayout: true,
+    settings: { ...REALISTIC_SETTINGS, manifest: { ...REALISTIC_SETTINGS.manifest, quota: { warnThresholdPct: 90, claudeGlobalStatusline: true, claudeOauthUsageApi: true } } } as typeof REALISTIC_SETTINGS,
+  }),
   qualityStallVariant('quality-stall-disabled', { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null }),
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),

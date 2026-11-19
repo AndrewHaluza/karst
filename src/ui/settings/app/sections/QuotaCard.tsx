@@ -34,16 +34,21 @@ export function QuotaCard() {
   // The error belongs to the draft value the snap-back produced (always blank).
   // Once the draft threshold differs (a Discard restored the saved value, or the
   // user typed again) the error no longer applies and is not shown.
-  const [flagged, setFlagged] = useState(false);
+  // The error is pinned to the draft object that the snap-back produced. Any later
+  // draft (a Discard restoring the saved value, even a blank one, or another edit)
+  // is a different object, so the error then stops showing. `pinned: null` means
+  // "flagged, waiting for the draft that the edit is about to produce".
+  const [flag, setFlag] = useState<{ readonly pinned: Manifest | null } | null>(null);
+  if (flag !== null && flag.pinned === null) setFlag({ pinned: state.draft });
   const setThreshold = (raw: string): void => {
     const blank = raw.trim() === '';
     const parsed = Number(raw);
     const valid = !blank && Number.isInteger(parsed) && parsed >= 1 && parsed <= 100;
-    setFlagged(!blank && !valid);
+    setFlag(!blank && !valid ? { pinned: null } : null);
     edit(setQuota({ warnThresholdPct: valid ? parsed : undefined }));
   };
   const text = quota?.warnThresholdPct === undefined ? '' : String(quota.warnThresholdPct);
-  const quotaError = flagged && text === '' ? QUOTA_THRESHOLD_ERROR : undefined;
+  const quotaError = flag !== null && flag.pinned === state.draft ? QUOTA_THRESHOLD_ERROR : undefined;
 
   return (
     <section className="accounts-quota" data-region="accounts-quota" aria-labelledby="accounts-quota-title">

@@ -144,22 +144,17 @@ describe('Subscription quota card — placement', () => {
 });
 
 describe('Subscription quota card — Discard', () => {
+  it('clears the threshold error when the saved threshold is blank and Discard runs', () => {
+    mountDiscard(FIXTURE_MANIFEST as unknown as Manifest);
+    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: '101' } });
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'test-discard' }));
+    expect(field.getAttribute('aria-invalid')).toBeNull();
+  });
+
   it('clears the threshold error when Discard restores the saved value', () => {
-    const bridge = createTestBridge();
-    render(
-      <AnnouncerProvider>
-        <SettingsAppProvider bridge={bridge} initialSection="agents">
-          <AccountsTab route={{ tab: 'accounts' }} navigate={() => {}} />
-          <DiscardButton />
-        </SettingsAppProvider>
-      </AnnouncerProvider>,
-    );
-    act(() =>
-      bridge.push({
-        type: 'state',
-        state: buildSettingsState({ ...FIXTURE_MANIFEST, quota: { warnThresholdPct: 95 } } as unknown as Manifest, null, [], true, ['claude'], [], {}, undefined, '/repo/karst.yml'),
-      }),
-    );
+    mountDiscard({ ...FIXTURE_MANIFEST, quota: { warnThresholdPct: 95 } } as unknown as Manifest);
     const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
     fireEvent.change(field, { target: { value: '101' } });
     expect(field.getAttribute('aria-invalid')).toBe('true');
@@ -172,4 +167,22 @@ describe('Subscription quota card — Discard', () => {
 function DiscardButton() {
   const { discard } = useSettingsApp();
   return <button type="button" onClick={() => discard('agents')}>test-discard</button>;
+}
+
+function mountDiscard(manifest: Manifest): void {
+  const bridge = createTestBridge();
+  render(
+    <AnnouncerProvider>
+      <SettingsAppProvider bridge={bridge} initialSection="agents">
+        <AccountsTab route={{ tab: 'accounts' }} navigate={() => {}} />
+        <DiscardButton />
+      </SettingsAppProvider>
+    </AnnouncerProvider>,
+  );
+  act(() =>
+    bridge.push({
+      type: 'state',
+      state: buildSettingsState(manifest, null, [], true, ['claude'], [], {}, undefined, '/repo/karst.yml'),
+    }),
+  );
 }
