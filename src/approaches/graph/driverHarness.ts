@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../store/db.js';
+import { latestPlannerRunForGraphRunKind } from '../../store/graph/plannerRuns.js';
 import { graphApproachConfig, manifest, repo } from '../../manifest/fixtures.js';
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
 import { SUPPORTED } from '../../agent/surfaces.js';
@@ -190,11 +191,8 @@ export function harness(config: GraphApproachConfig = graphApproachConfig()): Ha
 }
 
 export function plannerRunIdFor(db: Harness['db'], graphRunId: number): number {
-  return (
-    db
-      .prepare('SELECT id FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id LIMIT 1')
-      .get(graphRunId) as { id: number }
-  ).id;
+  const row = latestPlannerRunForGraphRunKind(db, graphRunId, 'bootstrap') ?? latestPlannerRunForGraphRunKind(db, graphRunId, 'replan');
+  return row!.id;
 }
 
 /** A graph run in `running` (the state the coordinator + driver execute on). */
