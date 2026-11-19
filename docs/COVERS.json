@@ -1268,6 +1268,9 @@
   "src/workflow/stages/subtask.ts#createSubtask": [
     "arch:CLI-09"
   ],
+  "src/workflow/stages/uat.ts": [
+    "arch:UAT-SVC-BUILD"
+  ],
   "src/workflow/staleGeneratedCi.ts": [
     "arch:AP-05"
   ],
