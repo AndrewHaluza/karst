@@ -372,7 +372,7 @@ export function runCli(
     }
     return runDraftCommand(structured ? structured.argv : argv, {
       outboxEnv: env.KARST_OUTBOX,
-      readStdin: structured && effectiveRest[1] !== 'skip' ? () => JSON.stringify(structured.value) : io.readStdin,
+      readStdin: structured ? () => JSON.stringify(structured.value) : io.readStdin,
       now: io.now,
       sleep: io.sleep,
       timeoutMs: io.timeoutMs,
@@ -778,7 +778,12 @@ export function runCli(
       // `{subcommand, repo, reason, command?}`; the handler wants the change
       // proposal itself, so `kind` is added and `subcommand` dropped. The
       // shell path (plain stdin) already supplies the full proposal.
-      readStdin: structured ? () => JSON.stringify(toChangeProposalInput(structured.value)) : io.readStdin,
+      readStdin: structured
+        ? () =>
+            JSON.stringify(
+              effectiveRest[1] === 'propose-change' ? toChangeProposalInput(structured.value) : structured.value,
+            )
+        : io.readStdin,
     });
   }
 
@@ -856,6 +861,8 @@ export async function runCliAsync(
     assertSetupSession(env, 'karst setup checklist');
     configureOpencode2FromEnv(env);
     if (!manifestPath) throw new Error('missing --manifest <path>');
+    // The user's approved skips live next to the store file: without --db the checklist would ignore them.
+    if (!db) throw new Error('missing --db <path>');
     parseSetupChecklistArgs(rest);
     let loaded: ReturnType<typeof loadManifestWithDiagnostics> | undefined;
     let loadError: string | undefined;

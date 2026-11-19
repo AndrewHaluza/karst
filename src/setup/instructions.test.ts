@@ -30,6 +30,7 @@ describe('setupInstructions', () => {
   });
 
   it('replaces the free steps with the checklist loop and gives the skip to the user', () => {
+    expect(text).toContain('setup checklist --db "$KARST_DB" --manifest "$KARST_MANIFEST"');
     expect(text).toContain('setup checklist');
     expect(text).toMatch(/Take each `todo` item in order/);
     expect(text).toMatch(/confirm it with `[^`]*setup status`/);
@@ -79,6 +80,7 @@ describe('setupInstructions', () => {
     const flags = '--db "$KARST_DB" --manifest "$KARST_MANIFEST"';
     expect(text).toContain(`setup verify ${flags}`);
     expect(text).toContain(`setup check ${flags}`);
+    expect(text).toContain(`setup checklist ${flags}`);
   });
 
   it.each([
