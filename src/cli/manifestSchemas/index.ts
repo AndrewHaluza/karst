@@ -63,7 +63,7 @@ export const VALIDATOR_ONLY_RULES: readonly string[] = [
   'sandbox.setupHosts entries are valid host names (setupHostError).',
   'Label, terminal-name, commit, pull-request and branch templates use known placeholders (validateLabelTemplate, validateArtifactTemplate, validateBranchTemplate).',
   'Approach ids are unique and at most one approach is recommended.',
-  'An approach graph block has no hoisted planner, profiles, commands or limits key beside it; maxExpertRuns >= maxReplans + 1.',
+  'An approach graph block has no hoisted planner, profiles, commands or limits key beside it; maxExpertRuns >= maxReplans + 1; planner.profile is a declared profile or expert, worker or fast.',
   'Output globs are safe repo-relative paths (globFault).',
   'activeAgentPreset and defaultAgentPreset are not both set; every preset reference names a defined preset.',
   'review.repositories keys and uat.repositories keys name declared repositories; review.stallDetection.repeatedFindingRounds <= review.maxFixAttempts.',
