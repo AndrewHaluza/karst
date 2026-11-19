@@ -189,6 +189,12 @@ export async function runAgentNode(
       revisionId: input.revisionId,
       generation: input.generation,
     }),
+    identity: {
+      profile: input.node.profile,
+      provider: resolved.provider,
+      ...(resolved.model !== undefined ? { model: resolved.model } : {}),
+      ...(resolved.effort !== undefined ? { effort: resolved.effort } : {}),
+    },
     adapter: input.adapter,
     interactive: {
       cwd: input.cwd,

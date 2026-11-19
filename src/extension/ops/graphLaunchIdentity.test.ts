@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openStore } from '../../store/db.js';
-import { graphLaunchIdentity } from './graphLaunchIdentity.js';
+import { graphLaunchIdentity, processRunAttribution } from './graphLaunchIdentity.js';
 
 /**
  * The high review finding (T693): `openProcessRun` resolved the launch identity
@@ -69,5 +69,28 @@ describe('graphLaunchIdentity', () => {
     expect(graphLaunchIdentity(store.db, { nodeRunId: 99, runKind: 'node' })).toBeUndefined();
     expect(graphLaunchIdentity(store.db, { nodeRunId: 99, runKind: 'planner' })).toBeUndefined();
     store.close();
+  });
+});
+
+describe('processRunAttribution', () => {
+  const blankRow = { id: 1, profile: null, provider: null, model: null };
+
+  it('records the resolved provider id, not the adapter binary (agy → antigravity)', () => {
+    expect(
+      processRunAttribution({ identity: { profile: 'worker', provider: 'antigravity', model: 'm' } }, blankRow),
+    ).toEqual({ agentName: 'worker', provider: 'antigravity', model: 'm' });
+  });
+
+  it('records the core id for opencode2', () => {
+    expect(
+      processRunAttribution({ identity: { profile: 'fast', provider: 'opencode2' } }, blankRow).provider,
+    ).toBe('opencode2');
+  });
+
+  it('falls back to the row, and to null — never to a binary name', () => {
+    expect(
+      processRunAttribution({}, { id: 1, profile: 'p', provider: 'codex', model: 'x' }),
+    ).toEqual({ agentName: 'p', provider: 'codex', model: 'x' });
+    expect(processRunAttribution({}, blankRow).provider).toBeNull();
   });
 });

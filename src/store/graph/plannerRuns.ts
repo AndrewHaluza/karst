@@ -585,6 +585,19 @@ export function setPlannerRunProcessRunId(db: GraphDb, id: number, processRunId:
 
 /** Stamp `started_at` only when the planner run still has none: a re-prompted
  *  planner keeps the wall-clock its FIRST session began at. */
+/** Write the identity a planner run launched with. Call it in the transaction
+ *  that moves the row `launching → running`. */
+export function setPlannerRunIdentity(
+  db: GraphDb,
+  id: number,
+  identity: { profile: string; provider: string; model?: string; effort?: string },
+): boolean {
+  const res = db
+    .prepare('UPDATE approach_planner_runs SET profile = ?, provider = ?, model = ?, effort = ? WHERE id = ?')
+    .run(identity.profile, identity.provider, identity.model ?? null, identity.effort ?? null, id);
+  return res.changes === 1;
+}
+
 export function markPlannerRunStarted(db: GraphDb, id: number, now: string): boolean {
   const res = db
     .prepare('UPDATE approach_planner_runs SET started_at = ? WHERE id = ? AND started_at IS NULL')

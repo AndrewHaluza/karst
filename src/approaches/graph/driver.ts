@@ -54,6 +54,7 @@ import { emitGraphDiagnostic } from './diagnostics.js';
 import {
   markPlannerRunStarted,
   plannerRunById,
+  setPlannerRunIdentity,
   setPlannerRunLaunchIdentity,
   transitionPlannerRun,
 } from '../../store/graph/plannerRuns.js';
@@ -67,6 +68,7 @@ import {
   setNodeRunFailure,
   markNodeRunStarted,
   claimRearmedNodeRunLaunch,
+  setNodeRunIdentity,
   setNodeRunLaunchIdentity,
   setNodeRunOutcome,
   type NodeRunRow,
@@ -87,6 +89,7 @@ import {
 import { domainKeyOf } from './integration/domains.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import type {
+  LaunchIdentity,
   SupervisedAgentSession,
   SupervisedCliTransport,
   SupervisedLaunchRequest,
@@ -389,6 +392,17 @@ export function resolveGraphNodeProfile(
 }
 
 /** Read the launching ticket's fields through the narrow dep, then resolve once. */
+/** The identity a launch records and hands the transport: the profile id plus
+ *  the resolver's provider, model and effort. */
+function launchIdentityOf(profile: string, resolved: ResolvedGraphProfile): LaunchIdentity {
+  return {
+    profile,
+    provider: resolved.provider,
+    ...(resolved.model !== undefined ? { model: resolved.model } : {}),
+    ...(resolved.effort !== undefined ? { effort: resolved.effort } : {}),
+  };
+}
+
 function resolveLaunchProfile(
   deps: GraphDriverDeps,
   config: GraphApproachConfig,
@@ -444,10 +458,11 @@ function claimPlannerLaunch(
  *  the run's open question", not "how long since its latest re-prompt". Without
  *  this column every planner row read as timeless and a session dead for a day
  *  was indistinguishable from one launched a second ago. */
-function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number): boolean {
+function markPlannerRunning(deps: GraphDriverDeps, plannerRunId: number, identity: LaunchIdentity): boolean {
   return deps.transaction(() => {
     const moved = transitionPlannerRun(deps.db, plannerRunId, 'launching', 'running');
     if (moved) {
+      setPlannerRunIdentity(deps.db, plannerRunId, identity);
       markPlannerRunStarted(deps.db, plannerRunId, deps.now());
     }
     return moved;
@@ -585,6 +600,7 @@ export async function bootstrapAndLaunchPlanner(
       sessionName: naming.name,
       ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
       graphEnv: env,
+      identity: launchIdentityOf(config.planner.profile, resolved),
       adapter: deps.adapterFor(resolved.provider),
       interactive: {
         cwd: workspace.cwd,
@@ -602,7 +618,7 @@ export async function bootstrapAndLaunchPlanner(
     );
     return { kind: 'failed', reason: `planner run ${plannerRunId} failed to spawn: ${String(err)}` };
   }
-  if (!markPlannerRunning(deps, plannerRunId)) {
+  if (!markPlannerRunning(deps, plannerRunId, launchIdentityOf(config.planner.profile, resolved))) {
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   deps.debug?.(
@@ -733,6 +749,7 @@ export async function relaunchBootstrapPlanner(
       sessionName: naming.name,
       ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
       graphEnv: env,
+      identity: launchIdentityOf(config.planner.profile, resolved),
       adapter: deps.adapterFor(resolved.provider),
       interactive: {
         cwd: workspace.cwd,
@@ -748,7 +765,7 @@ export async function relaunchBootstrapPlanner(
     );
     return { kind: 'failed', reason: `planner run ${plannerRunId} failed to spawn: ${String(err)}` };
   }
-  if (!markPlannerRunning(deps, plannerRunId)) {
+  if (!markPlannerRunning(deps, plannerRunId, launchIdentityOf(config.planner.profile, resolved))) {
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   deps.debug?.(
@@ -1068,7 +1085,11 @@ async function launchClaimedAgentNode(
   // cleared instead by the parkers that prove it is not a launch exit (a
   // non-provider `parkLaunchFailure`, a reconcile post-start death).
   const launched = deps.transaction(() =>
-    casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'launching', 'running'),
+    {
+      const moved = casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'launching', 'running');
+      if (moved) setNodeRunIdentity(deps.db, row.id, launchIdentityOf(node.profile, resolved));
+      return moved;
+    },
   );
   if (!launched) {
     deps.debug?.(
@@ -1500,6 +1521,7 @@ export async function launchReplanPlanner(
         capability,
         artifactRoot: deps.artifactRootOf(launch.graphRunId),
       }),
+      identity: launchIdentityOf(config!.planner.profile, resolved),
       adapter: deps.adapterFor(resolved.provider),
       interactive: {
         cwd: launch.cwd,
@@ -1518,7 +1540,7 @@ export async function launchReplanPlanner(
       reason: `planner run ${launch.plannerRunId} failed to spawn: ${String(err)}`,
     };
   }
-  if (!markPlannerRunning(deps, launch.plannerRunId)) {
+  if (!markPlannerRunning(deps, launch.plannerRunId, launchIdentityOf(config!.planner.profile, resolved))) {
     return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
   }
   deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`);

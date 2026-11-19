@@ -58,6 +58,7 @@ export type {
 export type {
   AgentTransport,
   AgentNodeLaunch,
+  LaunchIdentity,
   SupervisedAgentSession,
   TerminationProof,
   TransportTerminal,

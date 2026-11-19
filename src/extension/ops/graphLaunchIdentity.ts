@@ -36,3 +36,19 @@ export function graphLaunchIdentity(
   const node = nodeRunModelIdentity(db, request.nodeRunId);
   return node === undefined ? undefined : { kind: 'node', identity: node };
 }
+
+/** The `process_runs` attribution of a graph launch: the identity the resolver
+ *  froze on the request wins over the row (the row is written only after the
+ *  launch). The adapter binary is never a provider id (`agy` is not
+ *  `antigravity`; opencode2 can be a path), so a launch with no identity is
+ *  recorded without a provider. */
+export function processRunAttribution(
+  request: Pick<AgentNodeLaunch, 'identity'>,
+  row: GraphLaunchIdentity['identity'],
+): { agentName: string | null; provider: string | null; model: string | null } {
+  return {
+    agentName: request.identity?.profile ?? row.profile,
+    provider: request.identity?.provider ?? row.provider,
+    model: request.identity?.model ?? row.model,
+  };
+}

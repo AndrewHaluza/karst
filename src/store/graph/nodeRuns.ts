@@ -858,6 +858,19 @@ export function markNodeRunStarted(db: GraphDb, id: number, now: string): boolea
   return res.changes === 1;
 }
 
+/** Write the identity a node run launched with. Call it in the transaction
+ *  that moves the row `launching → running`. */
+export function setNodeRunIdentity(
+  db: GraphDb,
+  id: number,
+  identity: { profile: string; provider: string; model?: string; effort?: string },
+): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET profile = ?, provider = ?, model = ?, effort = ? WHERE id = ?')
+    .run(identity.profile, identity.provider, identity.model ?? null, identity.effort ?? null, id);
+  return res.changes === 1;
+}
+
 /** Record the durable process run a launched node run is bound to. */
 export function setNodeRunProcessRunId(db: GraphDb, id: number, processRunId: number): boolean {
   const res = db
