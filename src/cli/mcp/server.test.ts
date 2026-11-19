@@ -11,6 +11,7 @@ import {
 import { MCP_EXCLUDED_COMMANDS, encodeToolArgv, globalArgv, mcpToolNames, mcpTools } from './tools.js';
 import type { CliIo } from '../main.js';
 import type { McpServerConfig } from './config.js';
+import { SETUP_EDIT_TOOLS, SETUP_EDIT_TOOL_NAMES } from '../setupEdit/tools.js';
 
 interface Recorded {
   argv: string[];
@@ -245,6 +246,45 @@ describe('preservingProcessEnv', () => {
       await client.close();
       await server.close();
       delete process.env[key];
+    }
+  });
+});
+
+describe('typed setup tools over MCP', () => {
+  const SESSION = { KARST_SETUP_SESSION: 's1' };
+
+  it('lists the typed setup tools only inside a setup session, one per CLI tool', () => {
+    expect(mcpTools().some((t) => t.name.startsWith('setup-'))).toBe(false);
+    const names = mcpTools(SESSION).map((t) => t.name).filter((n) => n.startsWith('setup-'));
+    expect(names).toEqual(SETUP_EDIT_TOOL_NAMES.map((n) => `setup-${n}`));
+  });
+
+  it('refuses a typed setup tool outside a setup session and runs no handler', async () => {
+    const { runner, calls } = recorder();
+    const result = await callTool('setup-set-general', {}, NO_CONFIG, {}, runner);
+    expect(result.isError).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  it('runs the CLI sub-command with the JSON input on stdin', async () => {
+    const { runner, calls } = recorder('{"ok":true}');
+    const result = await callTool('setup-set-general', { debug: true }, { manifest: '/m.yml' }, SESSION, runner);
+    expect(result.isError).toBeUndefined();
+    expect(calls[0]!.argv).toEqual(['setup', 'set-general', '--manifest', '/m.yml']);
+    expect(calls[0]!.io.readStdin(100)).toBe('{"debug":true}');
+    expect(calls[0]!.env.KARST_SETUP_SESSION).toBe('s1');
+  });
+
+  it('turns a handler error into a tool error', async () => {
+    const runner: McpToolRunner = { run: async () => { throw new Error('boom'); } };
+    const result = await callTool('setup-fix', { code: 'x' }, NO_CONFIG, SESSION, runner);
+    expect(result).toMatchObject({ isError: true });
+  });
+
+  it('keeps one MCP tool for each CLI tool (parity)', () => {
+    for (const tool of SETUP_EDIT_TOOLS) {
+      const mcp = mcpTools(SESSION).find((t) => t.name === `setup-${tool.name}`);
+      expect(mcp?.inputSchema).toEqual(tool.inputSchema);
     }
   });
 });
