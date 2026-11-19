@@ -41,6 +41,7 @@ const WORKTREE_PATH: JsonSchema = {
 
 const SERVICE_COMMON: Record<string, JsonSchema> = {
   health: STRING,
+  build: STRING,
   reset: STRING,
   cwd: WORKTREE_PATH,
   healthIdentity: BOOLEAN,

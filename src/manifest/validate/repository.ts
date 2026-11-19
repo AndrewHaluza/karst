@@ -342,6 +342,8 @@ function validateService(
   const sandbox = validateServiceSandbox(raw.sandbox, `${where}.sandbox`);
   // Optional like `health`: blank means "no reset" (arch:AC-32 decision 8).
   const reset = optionalString(raw.reset, `${where}.reset`);
+  // Optional like `reset`: blank means "no build step".
+  const build = optionalString(raw.build, `${where}.build`);
 
   const portsRaw = strictArray(raw.ports, `${where}.ports`, strict);
   if (strict && portsRaw.length === 0) {
@@ -372,6 +374,7 @@ function validateService(
     healthIdentity,
     ...(healthTimeoutSeconds !== undefined ? { healthTimeoutSeconds } : {}),
     ...(sandbox !== undefined ? { sandbox } : {}),
+    ...(build ? { build } : {}),
     ...(reset ? { reset } : {}),
     ports,
     portRange,

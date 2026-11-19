@@ -355,6 +355,8 @@ function overlayService(rawService: Record<string, unknown>, svc: ServiceDef): R
     healthTimeoutSeconds: svc.healthTimeoutSeconds,
     // Written when set, dropped when cleared → inside the sandbox.
     sandbox: svc.sandbox,
+    // Written when set, dropped when cleared → UAT runs no build step. Manifest-only: Settings keeps it.
+    build: svc.build,
     // Written when set, dropped when cleared → no reset between UATs.
     reset: svc.reset,
     ports: svc.ports,

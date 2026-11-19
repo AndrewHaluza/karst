@@ -787,6 +787,24 @@ repositories:
     }
   });
 
+  it('reads an optional service build; blank is unset; a non-string is rejected', () => {
+    const at = (v: string) => `${DOCS}    service:\n      start: npm run dev\n      build: ${v}\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
+    for (const [v, want] of [['npm run -s build', 'npm run -s build'], ['""', undefined]] as const) {
+      const { path, cleanup } = fixture(at(v));
+      try {
+        expect(loadManifest(path).repositories.docs!.service!.build).toBe(want);
+      } finally {
+        cleanup();
+      }
+    }
+    const { path, cleanup } = fixture(at('42'));
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.build/);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('reads an optional service reset; blank is unset; a non-string is rejected (arch:AC-32 decision 8)', () => {
     const at = (v: string) => `${DOCS}    service:\n      start: npm run dev\n      reset: ${v}\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
     for (const [v, want] of [['npm run db:reset', 'npm run db:reset'], ['""', undefined]] as const) {

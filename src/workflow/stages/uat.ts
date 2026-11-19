@@ -941,6 +941,54 @@ export async function runUat(
     }
   }
 
+  // ---- Service build step (@arch:UAT-SERVICES) ----
+  // A service's `build` compiles the ticket's code, so a failure of it judges
+  // that code: it is a gate result (`service-build (<repo>)`) and a non-zero
+  // exit is a failed verdict, never a `boot-failed` park. It runs before the
+  // spin, so a broken build never reaches the start and health steps.
+  if (ownsStack && spinManifest !== undefined) {
+    const buildEntries: AggregateEntry[] = [];
+    for (const unit of unitsOfRepos(spinManifest, spinHot)) {
+      const buildCommand = unit.def.build;
+      if (buildCommand === undefined) continue;
+      const tree = worktrees.find((w) => w.repo === unit.repoDef.repoPath);
+      if (tree === undefined) continue;
+      const gateName = `service-build (${unit.key})`;
+      const gate: ResolvedGate = { name: gateName, command: 'sh', args: ['-c', buildCommand], script: null, required: true };
+      opts.debug?.(`[gate] uat ticket ${opts.ticketId}: ${gateName} — running \`${buildCommand}\` before the spin`);
+      const built = await runGates([gate], unit.def.cwd ? join(tree.path, unit.def.cwd) : tree.path, {
+        signal: opts.signal,
+        now,
+        onGateStart: opts.onGateStart,
+        onGateOutput: opts.onGateOutput,
+        onGateSpawned: opts.onGateSpawned,
+        onDebug: opts.debug,
+      });
+      const produced: AggregateEntry[] = built.results.map((result) => ({
+        result,
+        identity: { repo: unit.repoDef.repoPath, command: gate.command, args: gate.args },
+      }));
+      recordEntries(produced);
+      for (const { result } of produced) {
+        sections.push(`# ${result.name} (exit ${result.exitCode})\n${result.output}`);
+      }
+      entries.push(...produced);
+      buildEntries.push(...produced);
+      if (built.kind === 'stopped') {
+        return finish({ kind: 'stopped' }, ['stopped before the service build finished']);
+      }
+    }
+    if (buildEntries.some((e) => e.result.exitCode !== 0)) {
+      const built = aggregateUat(buildEntries, []);
+      if (built.kind === 'blocked') {
+        return finish({ kind: 'blocked', blocker: built.blocker, reason: built.reason }, [built.reason]);
+      }
+      const failed = finish({ kind: 'verdict', verdict: built.verdict }, built.warnings);
+      await runPreBriefRerun(deps.preBriefRerun, opts.ticketId, opts.debug);
+      return failed;
+    }
+  }
+
   // Harnesses (@arch:UAT-HARNESS) this run started, or tried to start: the `finally`
   // below stops every one, also a start that failed partway. Never kept for user UAT.
   const startedHarnesses: StartedHarness[] = [];

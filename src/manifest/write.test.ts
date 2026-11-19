@@ -208,6 +208,27 @@ repositories:
     }
   });
 
+  it('keeps a service build command across a save', () => {
+    const { path, cleanup } = manifestFixture();
+    try {
+      const loaded = loadManifest(path);
+      const backend = loaded.repositories.backend!;
+      const withBuild: Manifest = {
+        ...loaded,
+        repositories: {
+          ...loaded.repositories,
+          backend: { ...backend, service: { ...backend.service!, build: 'npm run -s build' } },
+        },
+      };
+      writeManifest(path, withBuild);
+      expect(loadManifest(path).repositories.backend!.service!.build).toBe('npm run -s build');
+      writeManifest(path, loadManifest(path));
+      expect(loadManifest(path).repositories.backend!.service!.build).toBe('npm run -s build');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('emits per-capability preset slots shape and round-trips', () => {
     const { path, cleanup } = manifestFixture();
     try {

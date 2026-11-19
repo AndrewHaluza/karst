@@ -2611,6 +2611,134 @@ describe('runUat — service spin/stop lifecycle (D155)', () => {
     expect(stopped).toBe(1);
   });
 
+  describe('service build step', () => {
+    const buildProject: Manifest = manifest({
+      web: repo({ repoPath: '/repo/web', service: svc({ start: 'npm run dev', build: 'npm run -s build', cwd: 'app' }) }),
+      api: repo({ repoPath: '/repo/api', service: svc({ start: 'go run .' }) }),
+    });
+
+    function seedWorktree(repoPath: string, path: string): void {
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, ?, ?, 'b', 'develop', 'inherited')",
+        )
+        .run(id, repoPath, path);
+    }
+
+    function runBuild(over: Partial<UatDeps>, selected: string[] = ['web']) {
+      updateTicketFields(store, id, { selectedRepos: selected });
+      return runUat(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: buildProject },
+        deps({
+          tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter: testerAgent },
+          stopServers: async () => {},
+          ...over,
+        }),
+      );
+    }
+
+    /** A runGates fake that fails only the service-build gate and records every gate call. */
+    function buildRunner(buildExit: number, calls: { names: string[]; cwds: string[]; argv: string[][] }) {
+      return async (gates: readonly { name: string; command: string; args: readonly string[] }[], cwd: string, opts?: { onGateComplete?: (...a: never[]) => void }) => {
+        const results = gates.map((g, i) => {
+          calls.names.push(g.name);
+          calls.cwds.push(cwd);
+          calls.argv.push([g.command, ...g.args]);
+          const isBuild = g.name.startsWith('service-build');
+          const exitCode = isBuild ? buildExit : 0;
+          const output = isBuild ? 'verify-build: dist/ui/settings/app.webview.js is 9 bytes, over the 5 byte budget' : 'ok';
+          (opts?.onGateComplete as ((...a: unknown[]) => void) | undefined)?.(g.name, exitCode, now(), now(), i, output);
+          return { name: g.name, exitCode, output, startedAt: now(), endedAt: now() };
+        });
+        return { kind: 'ran' as const, results };
+      };
+    }
+
+    it('fails uat with a service-build gate failure and opens a fix round when the service build exits non-zero, and does not spin', async () => {
+      seedWorktree('/repo/web', '/wt/web');
+      const calls = { names: [] as string[], cwds: [] as string[], argv: [] as string[][] };
+      let spun = 0;
+      const res = await runBuild({
+        runGates: buildRunner(2, calls) as UatDeps['runGates'],
+        spin: async () => {
+          spun += 1;
+          return spinOk();
+        },
+      });
+      expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+      expect(spun).toBe(0);
+      expect(calls.names).toContain('service-build (web)');
+      expect(calls.cwds[calls.names.indexOf('service-build (web)')]).toBe('/wt/web/app');
+      expect(calls.argv[calls.names.indexOf('service-build (web)')]).toEqual(['sh', '-c', 'npm run -s build']);
+      const row = listGateRuns(store, id).find((g) => g.gateName === 'service-build (web)');
+      expect(row?.exitCode).toBe(2);
+      expect(row?.summary).toContain('over the 5 byte budget');
+      expect(listProcessRuns(store, id).some((r) => r.processId === 'tester')).toBe(false);
+      expect(stageBlock(store, id, 'uat')).toBeNull();
+    });
+
+    it('parks boot-failed when the build passes and the spin fails', async () => {
+      seedWorktree('/repo/web', '/wt/web');
+      const calls = { names: [] as string[], cwds: [] as string[], argv: [] as string[][] };
+      const res = await runBuild({
+        runGates: buildRunner(0, calls) as UatDeps['runGates'],
+        spin: async () => {
+          throw new Error("could not start 'web': nothing is listening");
+        },
+      });
+      expect(res).toMatchObject({ kind: 'blocked', blocker: 'boot-failed' });
+      expect(calls.names).toContain('service-build (web)');
+      expect(listGateRuns(store, id).find((g) => g.gateName === 'service-build (web)')?.exitCode).toBe(0);
+    });
+
+    it('runs no build step for a service with no build field', async () => {
+      seedWorktree('/repo/api', '/wt/api');
+      const calls = { names: [] as string[], cwds: [] as string[], argv: [] as string[][] };
+      const res = await runBuild(
+        { runGates: buildRunner(0, calls) as UatDeps['runGates'], spin: spinOk },
+        ['api'],
+      );
+      expect(res).toEqual({ kind: 'advanced', next: 'review' });
+      expect(calls.names.some((n) => n.startsWith('service-build'))).toBe(false);
+    });
+
+    it('runs the build before the spin and the Tester when it passes', async () => {
+      seedWorktree('/repo/web', '/wt/web');
+      const order: string[] = [];
+      const calls = { names: [] as string[], cwds: [] as string[], argv: [] as string[][] };
+      const inner = buildRunner(0, calls) as NonNullable<UatDeps['runGates']>;
+      await runBuild({
+        runGates: (async (gates, cwd, opts) => {
+          if (gates.some((g) => g.name.startsWith('service-build'))) order.push('build');
+          return inner(gates, cwd, opts);
+        }) as UatDeps['runGates'],
+        spin: async () => {
+          order.push('spin');
+          return spinOk();
+        },
+      });
+      expect(order).toEqual(['build', 'spin']);
+    });
+
+    it('returns stopped, without a spin, when a Stop ends the build', async () => {
+      seedWorktree('/repo/web', '/wt/web');
+      let spun = 0;
+      const res = await runBuild({
+        runGates: (async (gates) =>
+          gates.some((g) => g.name.startsWith('service-build'))
+            ? { kind: 'stopped', results: [] }
+            : { kind: 'ran', results: gates.map((g) => ({ name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() })) }) as UatDeps['runGates'],
+        spin: async () => {
+          spun += 1;
+          return spinOk();
+        },
+      });
+      expect(res).toEqual({ kind: 'stopped' });
+      expect(spun).toBe(0);
+    });
+  });
+
   it('treats a cancelled spin as a Stop, never boot-failed', async () => {
     let stopped = 0;
     const res = await run({
