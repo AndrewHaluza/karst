@@ -23,7 +23,8 @@
 // generated files are gitignored build products and are rebuilt by the vitest
 // globalSetup so unit tests can hydrate the webviews too.
 import { build } from 'esbuild';
-import { dirname, join } from 'node:path';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -90,6 +91,23 @@ const BASE_OPTIONS = {
 };
 
 /**
+ * Write `text` to `path` through a temp file in the same directory, then rename it over `path`.
+ * The vitest global setup and `tests/visual/serve.mjs` (a gate in the docker container, through
+ * the `{repo}:/work` mount) build the same bundles while two gates run side by side, so a reader
+ * must see the old file or the new one, never a half-written one.
+ */
+export function writeFileAtomic(path, text) {
+  const temp = join(dirname(path), `.${basename(path)}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    writeFileSync(temp, text);
+    renameSync(temp, path);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
+}
+
+/**
  * Bundle every webview TypeScript entry. Throws (never swallows) on a build
  * error. `prod` only affects entries that opt in via `minifyFromProd` — the
  * message-sender bundles have always shipped unminified and stay that way.
@@ -98,13 +116,16 @@ const BASE_OPTIONS = {
 export async function buildWebviewBundles({ prod = false, quiet = false } = {}) {
   for (const entry of WEBVIEW_BUNDLE_ENTRIES) {
     const { input, output, minifyFromProd, ...overrides } = entry;
-    await build({
+    const outfile = join(root, output);
+    const built = await build({
       ...BASE_OPTIONS,
       entryPoints: [join(root, input)],
-      outfile: join(root, output),
+      outfile,
+      write: false,
       ...(minifyFromProd ? { minify: prod } : null),
       ...overrides,
     });
+    for (const file of built.outputFiles) writeFileAtomic(file.path, file.text);
     if (!quiet) console.log(`built ${input} → ${output}`);
   }
 }

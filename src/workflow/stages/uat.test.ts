@@ -106,6 +106,38 @@ describe('runUat', () => {
     expect(listGateRuns(store, id).map((r) => r.waitMs)).toEqual([750, 750]);
   });
 
+  it('keeps each row on its own gate command and args after a two-lane run that ends with the visual gate (T1251)', async () => {
+    const { runGateList } = await import('../gates/runList.js');
+    const runProcess = async (_cmd: string, args: readonly string[]): Promise<ProcessOutcome> => {
+      if (args.includes('test:visual:docker')) await new Promise((r) => setTimeout(r, 30));
+      return { kind: 'completed', exitCode: 0, output: 'ok' };
+    };
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ gates: [
+          { name: 'visual', kind: 'script', script: 'test:visual:docker' },
+          { name: 'unit', kind: 'script', script: 'test' },
+        ] }) }),
+      },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { test: 'vitest', 'test:visual:docker': 'node x' } }),
+        runGates: (gates, cwd, opts) => runGateList(gates, cwd, { ...opts, runProcess }),
+      }),
+    );
+    const rows = listGateRuns(store, id).map((r) => [r.gateName.replace(/ \(.*$/, ''), r.command, r.args]);
+    // Rows land as the gates end (unit first); each keeps its own identity.
+    expect(rows).toEqual(expect.arrayContaining([
+      ['visual', 'npm', ['run', 'test:visual:docker']],
+      ['unit', 'npm', ['test']],
+    ]));
+    const sections = readFileSync(uatStage(store, id).artifactPath!, 'utf8');
+    expect(sections.indexOf('# visual')).toBeLessThan(sections.indexOf('# unit'));
+  });
+
   it('all gates green -> advances to review and records one row per gate', async () => {
     const res = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
     expect(res).toEqual({ kind: 'advanced', next: 'review' });

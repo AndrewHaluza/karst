@@ -17,8 +17,12 @@ import type { GateOutputChunk } from './run.js';
  * post-run console keeps reading it — this sink only mirrors the same bytes
  * while they are still arriving.
  *
- * Output is batched per (ticket, stage): chunks accumulate and post as ONE live
- * append (and one debug line) per flush, so a chatty gate does not flood the
+ * Output is batched per (ticket, stage) and buffered per gate: two gates of one run (the UI lane
+ * and the main lane, @arch:GATE-CONCURRENCY) can speak in turn, so a flush posts only WHOLE lines of
+ * each gate under its own header. A partial last line waits for its newline; it is posted at the run
+ * end (`flush`/`reset`), at the size cap, or once its gate has been quiet for
+ * `GATE_CONSOLE_PARTIAL_QUIET_MS` (a prompt, or a gate that ended without a newline). One live append
+ * (and one debug line for each gate) is posted per flush, so a chatty gate does not flood the
  * webview or the diagnostic buffer.
  *
  * Host-agnostic: the posting side effect arrives injected, so the whole module
@@ -37,22 +41,32 @@ export interface GateConsoleOptions {
 
 export const GATE_CONSOLE_FLUSH_MS = 150;
 export const GATE_CONSOLE_MAX_BUFFER = 16_384;
+/** A partial line of a gate that wrote nothing for this long is posted as it is. */
+export const GATE_CONSOLE_PARTIAL_QUIET_MS = 2_000;
 
+interface GateBuffer {
+  /** Sanitized text not posted yet: whole lines, then at most one partial line. */
+  text: string;
+  /** Chunks received since this gate last posted. */
+  chunks: number;
+  quiet: ReturnType<typeof setTimeout> | undefined;
+}
 
-interface Pending {
+interface ConsoleState {
   readonly ticketId: number;
   readonly stage: ConsoleStage;
-  readonly gateName: string;
-  text: string;
-  chars: number;
-  chunks: number;
+  readonly buffers: Map<string, GateBuffer>;
+  /** The gate whose text was posted last: the next text of another gate starts with a header. */
+  last: string | undefined;
+  /** True when the last posted text did not end with a newline. */
+  open: boolean;
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
+type Force = 'none' | 'all' | { readonly gate: string };
+
 export class GateConsole {
-  /** The gate whose output was last buffered, per (ticketId, stage). */
-  private readonly currentGate = new Map<string, string>();
-  private readonly pending = new Map<string, Pending>();
+  private readonly states = new Map<string, ConsoleState>();
 
   constructor(private readonly options: GateConsoleOptions) {}
 
@@ -61,39 +75,42 @@ export class GateConsole {
   }
 
   /**
-   * Receive one raw chunk of a running gate's output: sanitize it, prefix a
-   * header the first time a given gate speaks, and buffer it. The buffer is
-   * posted as ONE live append per flush (timer, size cap, gate change, reset,
-   * or `flush` at run end). Never throws.
+   * Receive one raw chunk of a running gate's output: sanitize it and buffer it for that gate.
+   * Whole lines are posted by the next flush (timer, size cap, `flush`), under a header
+   * the first time a gate speaks and whenever the gate before it was another one. Never throws.
    */
   append(ticketId: number, stage: ConsoleStage, gateName: string, chunk: GateOutputChunk): void {
     const clean = sanitizeAgentOutput(chunk.text);
     if (clean.length === 0) return;
     const key = this.key(ticketId, stage);
-    if (this.pending.get(key)?.gateName !== gateName) this.flushKey(key);
-    const header = this.currentGate.get(key) === gateName ? '' : `\n$ ${gateName}\n`;
-    this.currentGate.set(key, gateName);
-    const entry = this.pending.get(key) ?? { ticketId, stage, gateName, text: '', chars: 0, chunks: 0, timer: undefined };
-    entry.text += `${header}${clean}`;
-    entry.chars += clean.length;
-    entry.chunks += 1;
-    this.pending.set(key, entry);
-    if (entry.text.length >= GATE_CONSOLE_MAX_BUFFER) {
-      this.flushKey(key);
-    } else if (entry.timer === undefined) {
-      entry.timer = setTimeout(() => this.flushKey(key), GATE_CONSOLE_FLUSH_MS);
+    const state = this.states.get(key) ?? { ticketId, stage, buffers: new Map(), last: undefined, open: false, timer: undefined };
+    this.states.set(key, state);
+    const buffer = state.buffers.get(gateName) ?? { text: '', chunks: 0, quiet: undefined };
+    state.buffers.set(gateName, buffer);
+    buffer.text += clean;
+    buffer.chunks += 1;
+    if (buffer.text.length >= GATE_CONSOLE_MAX_BUFFER) {
+      this.drain(key, { gate: gateName });
+      return;
     }
+    if (state.timer === undefined) state.timer = setTimeout(() => this.drain(key, 'none'), GATE_CONSOLE_FLUSH_MS);
+    clearTimeout(buffer.quiet);
+    buffer.quiet = setTimeout(() => this.drain(key, { gate: gateName }), GATE_CONSOLE_PARTIAL_QUIET_MS);
   }
 
-  /** Post any buffered output now (call when a gate run ends). */
+  /** Post any buffered output now, partial lines too (call when a gate run ends). */
   flush(ticketId: number, stage: ConsoleStage): void {
-    this.flushKey(this.key(ticketId, stage));
+    this.drain(this.key(ticketId, stage), 'all');
   }
 
   /** Flush, then forget which gate is current, so the next chunk re-headers. */
   reset(ticketId: number, stage: ConsoleStage): void {
     this.flush(ticketId, stage);
-    this.currentGate.delete(this.key(ticketId, stage));
+    const state = this.states.get(this.key(ticketId, stage));
+    if (state) {
+      state.last = undefined;
+      state.open = false;
+    }
   }
 
   /** `flush` both gate-running stages of a ticket (the driver's run end). */
@@ -108,21 +125,45 @@ export class GateConsole {
 
   /** Cancel every pending timer; buffered output is discarded. */
   dispose(): void {
-    for (const entry of this.pending.values()) clearTimeout(entry.timer);
-    this.pending.clear();
+    for (const state of this.states.values()) {
+      clearTimeout(state.timer);
+      for (const buffer of state.buffers.values()) clearTimeout(buffer.quiet);
+    }
+    this.states.clear();
   }
 
-  private flushKey(key: string): void {
-    const entry = this.pending.get(key);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    this.pending.delete(key);
-    const { ticketId, stage, gateName } = entry;
-    this.options.debug?.(
-      `[gate] console ${stage} ticket ${ticketId}: ${gateName} +${entry.chars} chars in ${entry.chunks} chunks`,
-    );
+  /** Post the whole lines of every gate (all text of a forced gate) as one live append. */
+  private drain(key: string, force: Force): void {
+    const state = this.states.get(key);
+    if (!state) return;
+    clearTimeout(state.timer);
+    state.timer = undefined;
+    let out = '';
+    const debugLines: string[] = [];
+    for (const [gateName, buffer] of state.buffers) {
+      const forced = force === 'all' || (typeof force === 'object' && force.gate === gateName);
+      const cut = forced ? buffer.text.length : buffer.text.lastIndexOf('\n') + 1;
+      if (cut === 0) continue;
+      const text = buffer.text.slice(0, cut);
+      buffer.text = buffer.text.slice(cut);
+      // A line left open by another gate is closed first, so no header lands inside a line.
+      const header = state.last === gateName ? '' : `${state.open ? '\n' : ''}\n$ ${gateName}\n`;
+      out += `${header}${text}`;
+      state.last = gateName;
+      state.open = !text.endsWith('\n');
+      debugLines.push(`[gate] console ${state.stage} ticket ${state.ticketId}: ${gateName} +${text.length} chars in ${buffer.chunks} chunks`);
+      buffer.chunks = 0;
+    }
+    for (const [gateName, buffer] of state.buffers) {
+      if (buffer.text !== '') continue;
+      clearTimeout(buffer.quiet);
+      state.buffers.delete(gateName);
+    }
+    if (out === '') return;
+    for (const line of debugLines) this.options.debug?.(line);
+    const { ticketId, stage } = state;
     try {
-      this.options.onOutput?.(ticketId, stage, entry.text);
+      this.options.onOutput?.(ticketId, stage, out);
     } catch (error) {
       this.options.debug?.(
         `[gate] console ${stage} ticket ${ticketId}: live post failed (${error instanceof Error ? error.message : String(error)})`,

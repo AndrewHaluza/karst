@@ -632,9 +632,10 @@ export async function runReview(
 
     const produced: AggregateEntry[] = [];
     const regenFailed = 'regenerateFailed' in run;
-    for (const [index, result] of run.results.entries()) {
+    for (const [position, result] of run.results.entries()) {
       // A failed regenerate is the pass's only result; it is not one of the resolved gates.
-      const gate = regenFailed ? undefined : resolution.gates[index];
+      // The two lanes can leave a gap after a Stop, so the identity comes from the result's own index.
+      const gate = regenFailed ? undefined : resolution.gates[result.index ?? position];
       produced.push({
         result: regenFailed ? result : { ...result, name: `${result.name} (${label})` },
         identity: {
