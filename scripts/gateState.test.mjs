@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
-import { classifyPath, firstPassEnabled, isCleanRun, planScope, planSkip, scopeLine, stateKey, touchesUi } from './gateState.mjs';
+import { BASELINE_READERS, classifyPath, firstPassEnabled, isCleanRun, planScope, planSkip, scopeLine, stateKey, touchesUi } from './gateState.mjs';
 import { ALWAYS_RUN, alwaysFiles } from './gateAlways.mjs';
 import { scopedArgs } from './vitestGate.mjs';
 
@@ -32,6 +32,33 @@ describe('classifyPath', () => {
     'src/ui/x.css',
     'README.md',
   ])('%s forces a full run', (path) => expect(classifyPath(path).kind).toBe('full'));
+});
+
+const PNG = 'tests/visual/__baselines__/dark/usage--loading.png';
+
+describe('baseline PNG', () => {
+  it('classifies a baseline PNG as the readers', () => expect(classifyPath(PNG)).toEqual({ kind: 'readers', files: BASELINE_READERS }));
+  it('keeps a non-PNG under the baseline directory full', () => expect(classifyPath('tests/visual/__baselines__/x.json').kind).toBe('full'));
+  it('scopes a PNG-only delta to the two readers', () => {
+    expect(plan({ delta: [{ status: 'M', path: PNG }] })).toMatchObject({ kind: 'scoped', paths: BASELINE_READERS });
+  });
+  it('scopes a deleted or renamed PNG to the readers', () => {
+    expect(plan({ delta: [{ status: 'D', path: PNG }] })).toMatchObject({ kind: 'scoped', paths: BASELINE_READERS });
+  });
+  it('adds the readers to the code files, once', () => {
+    const r = plan({ delta: [{ status: 'A', path: PNG }, { status: 'M', path: 'src/a.ts' }, { status: 'A', path: 'tests/visual/__baselines__/light/b.png' }] });
+    expect(r.paths).toEqual([...BASELINE_READERS, 'src/a.ts']);
+  });
+  it('stays full for a PNG plus package.json', () => {
+    expect(plan({ delta: [{ status: 'M', path: PNG }, { status: 'M', path: 'package.json' }] }).kind).toBe('full');
+  });
+  it('stays full for a PNG plus tests/visual/foo.ts', () => {
+    expect(plan({ delta: [{ status: 'M', path: PNG }, { status: 'M', path: 'tests/visual/foo.ts' }] }).reason).toContain('outside src and docs');
+  });
+  it('stays full when a non-baseline file is deleted next to a PNG', () => {
+    expect(plan({ delta: [{ status: 'M', path: PNG }, { status: 'D', path: 'src/a.ts' }] }).reason).toContain('deleted or renamed');
+  });
+  it.each(BASELINE_READERS)('reader %s exists', (file) => expect(existsSync(file)).toBe(true));
 });
 
 describe('planScope', () => {
