@@ -9,7 +9,7 @@ import { REVIEW_FINDINGS_DEFAULTS, UAT_TESTER_BLOCKING_SEVERITY } from '../../ma
 import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
 import { stallView } from './stall.js';
 import { isBlockingSeverity, sortBySeverityDesc } from '../severityOrder.js';
-import { isCoverageRecord, skipReason } from '../coverageRecord.js';
+import { criteriaSummary, isCoverageRecord, skipReason } from '../coverageRecord.js';
 
 /** The advisory coverage record is `info` and never blocks, even at the lowest threshold. */
 const isBlockingFinding = (f: { severity: string; title: string }, threshold: Parameters<typeof isBlockingSeverity>[1]) =>
@@ -909,6 +909,12 @@ function skippedDetailOf(observations: readonly { title: string; repo?: string |
   return first ? skipReason(first.title) : 'no coverage reported';
 }
 
+/** `detail` plus the criteria summary when the run has criterion records (a legacy run keeps `detail`). */
+function withCriteria(detail: string, observations: readonly { title: string }[]): string {
+  const summary = criteriaSummary(observations.filter((f) => isCoverageRecord(f)).map((f) => f.title));
+  return summary ? `${detail} · ${summary}` : detail;
+}
+
 function testerObservedDetail(total: number, blocking: number, threshold: Severity | 'none'): string {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   if (threshold === 'none') return `${plural(total, 'observation')} — advisory`;
@@ -998,9 +1004,9 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
       ? {
           detail:
             run.resultKind === 'skipped'
-              ? `Tester skipped — ${skippedDetailOf(observations)}`
+              ? withCriteria(`Tester skipped — ${skippedDetailOf(observations)}`, observations)
               : run.resultKind === 'observed'
-              ? testerObservedDetail(observations.length, blocking, threshold)
+              ? withCriteria(testerObservedDetail(observations.length, blocking, threshold), observations)
               : run.resultKind === 'partial'
                 ? // T663: the run was stopped by a budget or the deadline. The
                   // stored sentence names the cause ("tester exceeded budget
