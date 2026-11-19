@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codexMcpConfigArgs } from './mcpConfig.js';
+import { codexMcpConfigArgs, karstMcpServerEntry } from './mcpConfig.js';
 
 describe('codexMcpConfigArgs', () => {
   it('renders one --config pair per key, TOML-quoted', () => {
