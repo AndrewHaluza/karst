@@ -31,15 +31,19 @@ const setQuota = (patch: Partial<QuotaConfig>) => (d: Manifest): Manifest => {
 export function QuotaCard() {
   const { state, edit } = useSettingsApp();
   const quota = readField<Partial<QuotaConfig> | undefined>(state.draft, 'quota', undefined);
-  const [quotaError, setQuotaError] = useState<string | undefined>(undefined);
+  // The error belongs to the draft value the snap-back produced (always blank).
+  // Once the draft threshold differs (a Discard restored the saved value, or the
+  // user typed again) the error no longer applies and is not shown.
+  const [flagged, setFlagged] = useState(false);
   const setThreshold = (raw: string): void => {
     const blank = raw.trim() === '';
     const parsed = Number(raw);
     const valid = !blank && Number.isInteger(parsed) && parsed >= 1 && parsed <= 100;
-    setQuotaError(blank || valid ? undefined : QUOTA_THRESHOLD_ERROR);
+    setFlagged(!blank && !valid);
     edit(setQuota({ warnThresholdPct: valid ? parsed : undefined }));
   };
   const text = quota?.warnThresholdPct === undefined ? '' : String(quota.warnThresholdPct);
+  const quotaError = flagged && text === '' ? QUOTA_THRESHOLD_ERROR : undefined;
 
   return (
     <section className="accounts-quota" data-region="accounts-quota" aria-labelledby="accounts-quota-title">

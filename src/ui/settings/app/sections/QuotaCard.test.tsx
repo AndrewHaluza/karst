@@ -8,7 +8,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Manifest } from '../../../../manifest/types.js';
 import { AnnouncerProvider } from '../primitives/LiveRegion.js';
-import { SettingsAppProvider } from '../SettingsAppContext.js';
+import { SettingsAppProvider, useSettingsApp } from '../SettingsAppContext.js';
 import { createTestBridge } from '../testBridge.js';
 import { FIXTURE_MANIFEST } from '../testFixtures.js';
 import { buildSettingsState } from '../../state.js';
@@ -142,3 +142,34 @@ describe('Subscription quota card — placement', () => {
     expect(draftOf(probe).quota).toEqual({ warnThresholdPct: 90 });
   });
 });
+
+describe('Subscription quota card — Discard', () => {
+  it('clears the threshold error when Discard restores the saved value', () => {
+    const bridge = createTestBridge();
+    render(
+      <AnnouncerProvider>
+        <SettingsAppProvider bridge={bridge} initialSection="agents">
+          <AccountsTab route={{ tab: 'accounts' }} navigate={() => {}} />
+          <DiscardButton />
+        </SettingsAppProvider>
+      </AnnouncerProvider>,
+    );
+    act(() =>
+      bridge.push({
+        type: 'state',
+        state: buildSettingsState({ ...FIXTURE_MANIFEST, quota: { warnThresholdPct: 95 } } as unknown as Manifest, null, [], true, ['claude'], [], {}, undefined, '/repo/karst.yml'),
+      }),
+    );
+    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: '101' } });
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'test-discard' }));
+    expect(field.value).toBe('95');
+    expect(field.getAttribute('aria-invalid')).toBeNull();
+  });
+});
+
+function DiscardButton() {
+  const { discard } = useSettingsApp();
+  return <button type="button" onClick={() => discard('agents')}>test-discard</button>;
+}
