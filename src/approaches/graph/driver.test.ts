@@ -1252,6 +1252,15 @@ describe('driveReadyNodeRuns', () => {
     const launch = h.starts[0] as { nodeRunId: number; graphEnv: Record<string, string> };
     expect(launch.nodeRunId).toBe(nodeRunId);
     expect(launch.graphEnv.KARST_GRAPH_CAPABILITY).toBeTruthy();
+    // The identity is on the request AND on the row, written with the CAS.
+    const identity = (h.starts[0] as { identity?: { profile: string; provider: string } }).identity;
+    expect(identity).toMatchObject({ profile: 'worker' });
+    const recorded = h.db
+      .prepare('SELECT profile, provider, model, effort FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { profile: string; provider: string };
+    expect(recorded.profile).toBe('worker');
+    expect(recorded.provider).toBe(identity?.provider);
+    expect(recorded.provider).toBeTruthy();
   });
 
   it('names the isolated workspace in the node prompt so the agent never edits the canonical checkout', async () => {
@@ -3273,6 +3282,47 @@ describe('planner launches resolve through the preset-aware resolver', () => {
     expect(result.kind).toBe('launched');
     expect(providers).toContain('codex');
     expect(interactiveOf(h)).toMatchObject({ model: 'gpt-5.5', effort: 'high' });
+  });
+
+  const plannerRow = (h: Harness) =>
+    h.db
+      .prepare('SELECT profile, provider, model, effort, status FROM approach_planner_runs ORDER BY id DESC LIMIT 1')
+      .get() as { profile: string; provider: string; model: string; effort: string; status: string };
+
+  it('records the resolved identity on the bootstrap planner row', async () => {
+    const h = harness();
+    h.deps.manifest = slotManifest();
+    await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', projectSlug: 'acme',
+    });
+    expect(plannerRow(h)).toMatchObject({
+      status: 'running', profile: 'expert', provider: 'codex', model: 'gpt-5.5', effort: 'high',
+    });
+    expect((h.starts[0] as { identity?: unknown }).identity).toMatchObject({ provider: 'codex', profile: 'expert' });
+  });
+
+  it('records the resolved identity on a relaunched and a replan planner row', async () => {
+    const h = harness();
+    h.deps.manifest = slotManifest();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', now: NOW,
+    });
+    h.db
+      .prepare(`INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status) VALUES (?, 1, 'bootstrap', 'stale')`)
+      .run(graphRunId);
+    await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(plannerRow(h)).toMatchObject({ provider: 'codex', model: 'gpt-5.5', effort: 'high', profile: 'expert' });
+    h.db
+      .prepare(`INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status) VALUES (?, 9, 'replan', 'ready')`)
+      .run(graphRunId);
+    const plannerRunId = Number(
+      (h.db.prepare('SELECT MAX(id) AS id FROM approach_planner_runs').get() as { id: number }).id,
+    );
+    await launchReplanPlanner(h.deps, {
+      graphRunId, plannerRunId, generation: '', capability: '', prompt: '# replan',
+      cwd: join(h.root, 'wt'), repo: 'api',
+    });
+    expect(plannerRow(h)).toMatchObject({ status: 'running', provider: 'codex', model: 'gpt-5.5', profile: 'expert' });
   });
 
   it('uses the approach profile when no slot is present', async () => {

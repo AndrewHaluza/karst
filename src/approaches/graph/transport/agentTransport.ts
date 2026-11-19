@@ -67,6 +67,15 @@ export interface CreateTransportTerminalOpts {
   iconPath?: string;
 }
 
+/** The identity a graph launch resolved to: the profile id and the provider,
+ *  model and effort it runs with. Recorded on the run row at `launching → running`. */
+export interface LaunchIdentity {
+  profile: string;
+  provider: string;
+  model?: string;
+  effort?: string;
+}
+
 /** One node activation's launch request. */
 export interface AgentNodeLaunch {
   nodeRunId: number;
@@ -101,6 +110,9 @@ export interface AgentNodeLaunch {
   /** Graph-environment additions (KARST_GRAPH_*) composed by the launcher;
    *  merged over the adapter-built environment. */
   graphEnv: Record<string, string>;
+  /** The resolved launch identity. `process_runs` takes its provider from here,
+   *  never from the adapter binary name. */
+  identity?: LaunchIdentity;
 }
 
 /** A supervised, running (or failed-to-start) graph session. */

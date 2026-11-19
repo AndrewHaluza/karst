@@ -48,7 +48,7 @@ import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { resolveConflictClick } from './extension/ops/conflictResolveOps.js';
 import { ticketHandOff } from './extension/ops/guardedHandOff.js';
 import { compileExpertSpend, compileSpentNodeRuns, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
-import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
+import { graphLaunchIdentity, processRunAttribution } from './extension/ops/graphLaunchIdentity.js';
 import { createGraphDepsPreflight, openWorkspaceDepsEditor } from './extension/graphDepsBinding.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
@@ -4703,9 +4703,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           stageKey: 'impl',
           processId: plannerLaunch ? 'graph-planner' : 'graph-node',
           attempt: run.stage_attempt,
-          agentName: resolved.identity.profile,
-          provider: resolved.identity.provider ?? request.adapter.requiredBinary,
-          model: request.interactive.model ?? resolved.identity.model,
+          ...processRunAttribution(request, resolved.identity),
           pid,
           startedAt: new Date().toISOString(),
         });
