@@ -529,6 +529,9 @@
   "src/extension/ops/conflictResumeOps.ts": [
     "arch:AP-01"
   ],
+  "src/extension/ops/fixRerunOps.ts": [
+    "arch:UAT-SVC-BUILD"
+  ],
   "src/extension/ops/graphAutoRecoverySweep.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],

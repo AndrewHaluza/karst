@@ -310,9 +310,11 @@ Guards: `stages/uat.test.ts` "spins the ticket runnable services before the Test
 END_DOC_BLOCK: [@arch:UAT-SERVICES]
 
 ## [@arch:UAT-SVC-BUILD] A service build that the ticket's code breaks fails UAT, not the spin
-covers: src/workflow/stages/uat.ts
+covers: src/workflow/stages/uat.ts, src/extension/ops/fixRerunOps.ts
 
 An optional `service.build` command compiles the ticket's code for that service (manifest only; Settings keeps the key). After the gates and the baseline-review check, and before the spin, UAT runs it with `sh -c` in each to-be-spun service's worktree and `cwd`, as the gate `service-build (<repo>)` (`gate_runs`, live output, artifact). A non-zero exit is a `failed` verdict with trigger `gate-failure`: the normal fix brief, host re-run and dashboard gate row apply, and the spin does not run. A service with no `build` runs no step. A stack the user already runs, or a ticket with no Tester, runs no build step. A Stop ends the build as `{ kind: 'stopped' }`.
+
+**Host re-run.** The failed row is not a manifest gate, so the host re-run (`fixRerunOps.ts`) rebuilds it from `service.build`: the same `sh -c` command, in the service cwd of the worktree. A row whose command the manifest no longer declares is `cannotRerun`.
 
 Guards: `stages/uat.test.ts` "service build step" ("fails uat with a service-build gate failure and opens a fix round when the service build exits non-zero, and does not spin" / "parks boot-failed when the build passes and the spin fails" / "runs no build step for a service with no build field"); `manifest/load.test.ts` "reads an optional service build".
 END_DOC_BLOCK: [@arch:UAT-SVC-BUILD]
