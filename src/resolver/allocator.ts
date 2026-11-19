@@ -1,4 +1,5 @@
 import type { Store } from '../store/db.js';
+import { isBlockedPort } from './blockedPorts.js';
 
 /**
  * Hands out contiguous alt ports from the manifest's portRange, persisted and
@@ -27,7 +28,11 @@ export class PortRangeExhaustedError extends Error {
   }
 }
 
-/** Lowest start of a free contiguous run of length `need`, or null if none. */
+/**
+ * Lowest start of a free contiguous run of length `need`, or null if none. A
+ * port that fetch and Chrome refuse (`isBlockedPort`) counts as used, so it is
+ * never handed out.
+ */
 function findContiguous(
   used: Set<number>,
   [min, max]: [number, number],
@@ -36,7 +41,7 @@ function findContiguous(
   for (let start = min; start + need - 1 <= max; start++) {
     let ok = true;
     for (let off = 0; off < need; off++) {
-      if (used.has(start + off)) {
+      if (used.has(start + off) || isBlockedPort(start + off)) {
         ok = false;
         // jump past the occupied port — nothing before it+1 can start a run
         start += off;

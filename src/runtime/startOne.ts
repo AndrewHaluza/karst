@@ -14,6 +14,7 @@ import { getEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { stopServer, type ServerRecord } from './supervisor.js';
 import { allocationRanges, hotRepoPaths } from './spin.js';
 import { portsToAvoid } from './portProbe.js';
+import { isBlockedPort } from '../resolver/blockedPorts.js';
 
 /**
  * Start exactly one already-spun service of a ticket — the host-agnostic
@@ -193,6 +194,25 @@ export async function startTicketService(
   if (!hot.includes(unit.repo)) hot.push(unit.repo);
 
   const targetSlots = unit.def.ports.map((p) => p.name);
+  // A TARGET slot recorded on a port that fetch and Chrome refuse (4045, ...)
+  // can never pass an HTTP health check, so it must be re-drawn: drop it from
+  // the in-memory map so the start takes the recovery path, and delete the stale
+  // row inside the recovery transaction (not here) so a failed start keeps the
+  // 'drawn rows are dropped on failure' behaviour. Only the TARGET's slots move.
+  // A PEER with a recorded blocked port is played back unchanged: a running
+  // service with `tcp://` health can work on such a port, and moving it would
+  // break the 'peers keep the old URL' rule.
+  const staleBlocked: { key: string; slot: string }[] = [];
+  const targetRecorded = recorded.get(unit.key);
+  if (targetRecorded) {
+    for (const slot of targetSlots) {
+      const port = targetRecorded.get(slot);
+      if (port !== undefined && isBlockedPort(port)) {
+        targetRecorded.delete(slot);
+        staleBlocked.push({ key: unit.key, slot });
+      }
+    }
+  }
   const recordedForTarget = recorded.get(unit.key);
   const targetFullyAllocated = targetSlots.every((s) => recordedForTarget?.has(s) ?? false);
 
@@ -387,7 +407,13 @@ export async function startTicketService(
   const insertLive = store.db.prepare(
     'INSERT OR IGNORE INTO port_allocations (ticket_id, repo, port_name, port) VALUES (?, ?, ?, ?)',
   );
+  const dropStale = store.db.prepare(
+    'DELETE FROM port_allocations WHERE ticket_id = ? AND repo = ? AND port_name = ?',
+  );
   store.db.transaction(() => {
+    // The target's blocked recorded ports (see `staleBlocked`) are replaced by
+    // the fresh draw below, in the same transaction as the draw.
+    for (const { key, slot } of staleBlocked) dropStale.run(ticketId, key, slot);
     // Steps 1+2: record every live port recovered from a running unit.
     // `INSERT OR IGNORE` guards the GLOBAL uniqueness of the port: if another
     // row already holds it, the running unit still owns it, so `known` keeps the

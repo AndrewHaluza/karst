@@ -253,10 +253,10 @@ describe('resolve', () => {
   it('two services with distinct ranges allocate from their own windows', () => {
     const m = manifest();
     m.repositories.backend!.service!.portRange = [5000, 5100];
-    m.repositories.frontend!.service!.portRange = [6000, 6100];
+    m.repositories.frontend!.service!.portRange = [6100, 6200];
     const r = resolve(m, ['backend', 'frontend'], alloc(), TID);
     expect(r.services.backend!.ports.http).toBe(5000);
-    expect(r.services.frontend!.ports.http).toBe(6000);
+    expect(r.services.frontend!.ports.http).toBe(6100);
     // effectivePort is untouched: the dependent still repoints at the hot
     // target's ALLOCATED port, which now lives in the target's own window.
     expect(r.services.frontend!.env.VITE_API_URL).toBe('http://localhost:5000');

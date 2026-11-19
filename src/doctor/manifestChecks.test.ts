@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { manifest, repo, runnableRepo, dependsOn, slot, svc, uat } from '../manifest/fixtures.js';
-import type { Manifest } from '../manifest/types.js';
+import type { DockerDef, Manifest } from '../manifest/types.js';
 import { checkManifest, type ManifestProbes } from './manifestChecks.js';
 import type { DoctorCheck } from './types.js';
 
@@ -414,5 +414,53 @@ describe('checkManifest: env warnings (macos_iot retro)', () => {
   it('adds no env check when the environment is sound', () => {
     const ids = checkManifest(probes({ manifest: manifest({ backend: repo() }) })).map((c) => c.id);
     expect(ids.some((id) => id.startsWith('manifest.env.'))).toBe(false);
+  });
+});
+
+describe('checkManifest: manifest.blocked-ports', () => {
+  function checksFor(
+    def: { health?: string; docker?: DockerDef; slots?: ReturnType<typeof slot>[] },
+    port: number,
+  ) {
+    const m = manifest({
+      web: runnableRepo(
+        {
+          ports: def.slots ?? [slot('http', 'PORT', port)],
+          ...(def.health === undefined ? {} : { health: def.health }),
+          ...(def.docker === undefined ? {} : { docker: def.docker }),
+        },
+        { repoPath: '/r/web' },
+      ),
+    });
+    return checkManifest(probes({ manifest: m }));
+  }
+  const ID = 'manifest.blocked-ports.web';
+
+  it('warns for an HTTP health service whose default port is blocked', () => {
+    const c = byId(checksFor({ health: 'http://localhost:{port}/health' }, 4045), ID);
+    expect(c.status).toBe('warn');
+    expect(c.detail).toContain('4045');
+    expect(c.detail).toContain('http');
+  });
+
+  it('warns for a command service with no health, which defaults to HTTP', () => {
+    expect(byId(checksFor({}, 4045), ID).status).toBe('warn');
+  });
+
+  it('does not warn for tcp:// health, a container default, an unblocked port', () => {
+    for (const checks of [
+      checksFor({ health: 'tcp://localhost:{port}' }, 4045),
+      checksFor({ docker: { image: 'postgres', containerPort: 5432, env: {}, volumes: [], args: [] } }, 4045),
+      checksFor({ health: 'http://localhost:{port}/health' }, 4046),
+    ]) {
+      expect(checks.map((c) => c.id)).not.toContain(ID);
+    }
+  });
+
+  it('checks only the primary slot, not a secondary one', () => {
+    const slots = [slot('http', 'PORT', 4046), slot('debug', 'DBG', 4045)];
+    expect(checksFor({ slots }, 4046).map((c) => c.id)).not.toContain(ID);
+    const first = [slot('web', 'PORT', 4045), slot('debug', 'DBG', 4046)];
+    expect(byId(checksFor({ slots: first }, 4045), ID).detail).toContain('(web)');
   });
 });

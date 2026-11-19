@@ -7,6 +7,7 @@
 
 import { resolveTarget, unitsOf } from '../manifest/runnable.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
+import { isBlockedPort } from '../resolver/blockedPorts.js';
 import { envWarnings } from '../manifest/validate/envWarnings.js';
 import type { DoctorCheck, DoctorFix, DoctorStatus } from './types.js';
 
@@ -129,6 +130,32 @@ function checkPorts(name: string, service: ServiceDef, p: ManifestProbes): Docto
   );
 }
 
+/**
+ * A service whose HEALTH check is HTTP and whose PRIMARY port default is on the
+ * Fetch blocked-port list can never pass: Node's `fetch` throws `bad port` and
+ * Chrome refuses the port. No `health` means HTTP for a command service
+ * (`runtime/serviceLaunch.ts#defaultHealthUrl`) and `tcp://` for a container.
+ * A `tcp://` health works on these ports, and a hard manifest error would stop
+ * the whole manifest, so this is a warning only. The primary slot is the one the
+ * health check probes: `http`, else the first declared (`startOne.ts#primaryPortSlot`).
+ * Returns nothing when the service is fine.
+ */
+function checkBlockedDefaults(name: string, service: ServiceDef): DoctorCheck | undefined {
+  const tcp = service.health === undefined ? service.docker !== undefined : service.health.startsWith('tcp://');
+  if (tcp) return undefined;
+  const primary = service.ports.find((slot) => slot.name === 'http') ?? service.ports[0];
+  if (primary === undefined || !isBlockedPort(primary.default)) return undefined;
+  return check(
+    `manifest.blocked-ports.${name}`,
+    'warn',
+    `default port is blocked by fetch and Chrome, so the HTTP health check cannot pass: ${primary.default} (${primary.name})`,
+    consented(
+      'Use a default port that is not on the Fetch blocked-port list, or use a tcp:// health',
+      `Change the default port or the health URL for "${name}" in karst.yml`,
+    ),
+  );
+}
+
 function resolvesDependency(m: Manifest, target: string, port: string): boolean {
   const resolved = resolveTarget(m.repositories, target);
   return 'unit' in resolved && resolved.unit.def.ports.some((slot) => slot.name === port);
@@ -160,6 +187,8 @@ function checksForRepo(name: string, repo: RepositoryDef, m: Manifest, p: Manife
     const start = checkStart(unit.key, unit.def, p);
     if (start) out.push(start);
     out.push(checkPorts(unit.key, unit.def, p));
+    const blocked = checkBlockedDefaults(unit.key, unit.def);
+    if (blocked) out.push(blocked);
     out.push(checkDependsOn(unit.key, unit.def, m));
   }
   return out;

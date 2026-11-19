@@ -146,6 +146,7 @@ flowchart LR
   doctor --> agent
   doctor --> manifest
   doctor --> model
+  doctor --> resolver
   doctor --> runtime
   doctor --> workflow
   extension --> agent

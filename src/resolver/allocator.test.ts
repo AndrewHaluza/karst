@@ -160,3 +160,32 @@ describe('makePortAllocator', () => {
     });
   });
 });
+
+describe('blocked ports', () => {
+  it('dry-run allocator skips 4045 for a single slot', () => {
+    const alloc = makeDryRunAllocator([4044, 4050]);
+    expect(alloc.allocate(1, 'a', ['http']).http).toBe(4044);
+    expect(alloc.allocate(1, 'b', ['http']).http).toBe(4046);
+  });
+
+  it('a contiguous block never straddles a blocked port', () => {
+    const alloc = makeDryRunAllocator([4044, 4050]);
+    const got = alloc.allocate(1, 'a', ['http', 'debug']);
+    expect([got.http, got.debug]).toEqual([4046, 4047]);
+  });
+
+  it('persisting allocator skips 4045 and records the next port', () => {
+    const store = openStore(':memory:');
+    try {
+      const alloc = makePortAllocator(store, [4045, 4046]);
+      expect(alloc.allocate(1, 'a', ['http']).http).toBe(4046);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('throws when the range holds only blocked ports', () => {
+    const alloc = makeDryRunAllocator([4045, 4045]);
+    expect(() => alloc.allocate(1, 'a', ['http'])).toThrow(/no free contiguous block/);
+  });
+});

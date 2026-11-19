@@ -695,4 +695,56 @@ describe('startTicketService', () => {
     const args = startResolvedMock.mock.calls[0]![0];
     expect(args.resolved.services['backend']!.mode).toBe('baseline');
   });
+  it('re-draws a target whose recorded port is blocked, and keeps the peer on its recorded port', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'backend', 'http', 4100);
+    addAllocation(1, 'frontend', 'http', 4045);
+
+    const { record, newPorts } = await startTicketService(store, m, 1, 'frontend', {
+      probeBusyPorts: noBusy,
+    });
+
+    expect(record.port).not.toBe(4045);
+    expect(newPorts['http']).toBe(record.port);
+    expect(allocationOf('frontend', 'http')).toBe(record.port);
+    expect(allocationOf('backend', 'http')).toBe(4100);
+    const rows = store.db.prepare('SELECT port FROM port_allocations WHERE port = 4045').all();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('plays back a PEER recorded on a blocked port unchanged', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'backend', 'http', 4045);
+    addAllocation(1, 'frontend', 'http', 4200);
+
+    const { record, newPorts } = await startTicketService(store, m, 1, 'frontend', {
+      probeBusyPorts: noBusy,
+    });
+
+    expect(record.port).toBe(4200);
+    expect(newPorts).toEqual({});
+    expect(allocationOf('backend', 'http')).toBe(4045);
+    const args = startResolvedMock.mock.calls[0]![0];
+    expect(args.resolved.services['frontend']!.env['VITE_API_URL']).toBe('http://localhost:4045');
+  });
+
+  it('leaves no row for the target when the re-drawn start fails', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'backend', 'http', 4100);
+    addAllocation(1, 'frontend', 'http', 4045);
+    startResolvedMock.mockRejectedValueOnce(new Error('boot failed'));
+
+    await expect(
+      startTicketService(store, m, 1, 'frontend', { probeBusyPorts: noBusy }),
+    ).rejects.toThrow('boot failed');
+
+    // The drawn row is dropped; the stale blocked row was replaced in the transaction.
+    expect(allocationOf('frontend', 'http')).toBeUndefined();
+  });
 });
