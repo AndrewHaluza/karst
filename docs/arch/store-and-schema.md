@@ -117,6 +117,8 @@ The host names a graph terminal tab from two narrow reads: `nodeRunNamingFacts` 
 
 The host closes a graph terminal tab only after a proven success (`approaches/graph/closeOnSuccess.ts`): a node that `runCompletionPipeline` integrated, or a planner whose plan `acceptSubmittedPlan` or `acceptSubmittedReplan` accepted and whose process the transport proved ended. It finds the accepted planner run through `acceptedBootstrapPlannerRunId` and `acceptedReplanPlannerRunId`. The transport method `disposeOnSuccess` marks the session first, so the close is no launch failure and the `process_runs` row closes `passed` only if it is still `running`. Every failure, block, crash or Stop keeps the tab open. A node that reported `block` or `replan` also has its process tree stopped, and its tab stays open: the host stops it through the transport (`stopNodeProcessOnBlocked`), reconcile stops a live attributable process of a `blocked` row, and a Resume stops it before the row re-arms.
 
+The agent identity snapshot is part of the same boundary: `approach_graph_runs.agent_identity` changes only through `setGraphRunAgentIdentity` and is read through `graphRunAgentIdentity`. The bootstrap writes it; a user switch (`approaches/graph/modelChange.ts`) replaces it in one transaction. Every planner, replan, node, retry and autorecovery launch of the run reads it, and a NULL snapshot (a pre-v133 run) resolves live. A switch never stops a running session.
+
 The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
 
 A compiled bootstrap plan runs at once: plan acceptance moves the run `planning → running` and the coordinator tick starts it, with no human confirm gate (T1174). The status `awaiting-confirmation` is legacy. It stays in the CHECK on `approach_graph_runs.status`, and the v127 migration moves any such row to `running`. The manifest key `limits.confirmGeneratedGraph` is retired: the loader drops it in memory with one deprecation warning and never rewrites the file on load. An explicit, consented setup manifest proposal does write it: the host write removes the key, and the proposal counts as a change when the write removes a key (`manifestRemovedKeys`), even when the loaded manifest is the same. A setup `change` proposal never writes `.karst/` (`setup/karstGuard.ts`).
@@ -374,6 +376,8 @@ END_DOC_BLOCK: [@arch:V121]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
+
+**v133:** `approach_graph_runs.agent_identity` (JSON: the resolved provider, model, effort and source per graph role, snapshotted at bootstrap and replaced by a switch, `@arch:GRAPHRUN`). Additive, NULL = a pre-v133 run that resolves live, no backfill.
 
 **v132:** `gate_runs.wait_ms`, `deliver_gate_results.wait_ms` (ms in slot waits, `@arch:RESULTS`). Additive, NULL = no run or old row.
 

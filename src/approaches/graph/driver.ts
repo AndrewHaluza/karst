@@ -48,7 +48,15 @@ import {
   releaseCommandProcessSlot,
   releaseGraphProcessSlot,
 } from '../../store/graph/graphRuns.js';
-import { graphRunById } from '../../store/graph/graphRuns.js';
+import { graphRunAgentIdentity, graphRunById } from '../../store/graph/graphRuns.js';
+import {
+  launchProfileFor,
+  parseRunIdentities,
+  resolveLiveGraphProfile,
+  resolveRunIdentities,
+  serializeRunIdentities,
+  type GraphRole,
+} from './runIdentity.js';
 import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun } from './coordinator/plannerRun.js';
 import { emitGraphDiagnostic } from './diagnostics.js';
 import {
@@ -282,28 +290,36 @@ export function resolveGraphNodeProfile(
   profile: string,
   onDebug?: (message: string) => void,
 ): { provider: string; model?: string; effort?: string } | undefined {
-  const graphCapabilityMap: Record<string, 'graphExpert' | 'graphWorker' | 'graphFast'> = {
-    expert: 'graphExpert',
-    worker: 'graphWorker',
-    fast: 'graphFast',
-  };
+  const identity = resolveLiveGraphProfile(manifest, config, profile);
+  if (!identity) return undefined;
+  onDebug?.(
+    identity.source === 'preset'
+      ? `[process] graph node profile "${profile}" → preset slot (${identity.provider})`
+      : `[process] graph node profile "${profile}" → config (${identity.provider}${identity.model ? `/${identity.model}` : ''})`,
+  );
+  return { provider: identity.provider, model: identity.model, effort: identity.effort };
+}
 
-  const capability = graphCapabilityMap[profile];
-  if (capability) {
-    const slot = resolvePresetSlot(manifest, capability);
-    if (slot) {
-      onDebug?.(`[process] graph node profile "${profile}" → preset slot (${slot.provider})`);
-      return { provider: slot.provider, model: slot.model, effort: slot.effort };
-    }
-  }
-
-  const configProfile = resolveProfileFor(config, profile);
-  if (configProfile) {
+/**
+ * The identity a launch of this graph run uses for `profile` (T1258): the run's
+ * snapshot for a graph role, else the live resolution — a pre-v133 run has no
+ * snapshot. Planner, replan, node, retry and autorecovery launches all read it.
+ */
+function launchProfileOfRun(
+  deps: Pick<GraphDriverDeps, 'db' | 'manifest'>,
+  graphRunId: number,
+  config: GraphApproachConfig,
+  profile: string,
+  onDebug?: (message: string) => void,
+): { provider: string; model?: string; effort?: string } | undefined {
+  const snapshot = parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId));
+  const resolved = launchProfileFor(snapshot, deps.manifest, config, profile);
+  if (resolved) {
     onDebug?.(
-      `[process] graph node profile "${profile}" → config (${configProfile.provider}${configProfile.model ? `/${configProfile.model}` : ''})`,
+      `[process] graph run ${graphRunId} profile "${profile}" → ${resolved.provider}${resolved.model ? `/${resolved.model}` : ''} (${snapshot?.roles[profile as GraphRole] ? 'run snapshot' : 'live'})`,
     );
   }
-  return configProfile;
+  return resolved;
 }
 
 /**
@@ -424,7 +440,12 @@ export async function bootstrapAndLaunchPlanner(
       projectSlug: input.projectSlug,
       now: deps.now,
     },
-    { ticketId: input.ticketId, stageAttempt: input.stageAttempt, approachId: input.approachId },
+    {
+      ticketId: input.ticketId,
+      stageAttempt: input.stageAttempt,
+      approachId: input.approachId,
+      agentIdentity: serializeRunIdentities(resolveRunIdentities(deps.manifest, config)),
+    },
   );
   if (!begun.ok) {
     return { kind: 'instructions-missing', reason: begun.reason };
@@ -434,7 +455,7 @@ export async function bootstrapAndLaunchPlanner(
   // never leaves `ready` needs no recovery, while one parked at `launching`
   // invites the reconcile sweep to relaunch a planner whose profile or
   // worktree will refuse it again on every pass.
-  const resolved = resolveProfileFor(config, config.planner.profile);
+  const resolved = launchProfileOfRun(deps, graphRunId, config, config.planner.profile, deps.debug);
   if (!resolved) {
     return {
       kind: 'failed',
@@ -578,7 +599,7 @@ export async function relaunchBootstrapPlanner(
   const { plannerRunId } = begun;
   // Refuse before the claim, exactly as the bootstrap path does: a planner
   // left at `ready` is not a launch the sweep will keep retrying.
-  const resolved = resolveProfileFor(config, config.planner.profile);
+  const resolved = launchProfileOfRun(deps, input.graphRunId, config, config.planner.profile, deps.debug);
   if (!resolved) {
     return {
       kind: 'failed',
@@ -783,7 +804,7 @@ async function executeReadyNode(
   // Agent node: workspace + supervised session, capability-authenticated.
   const approachId = runApproachId(deps, graphRunId);
   const config = deps.graphConfigOf(approachId);
-  const resolved = config ? resolveGraphNodeProfile(deps.manifest, config, node.profile, deps.debug) : undefined;
+  const resolved = config ? launchProfileOfRun(deps, graphRunId, config, node.profile, deps.debug) : undefined;
   if (!resolved) {
     completeDeterministic(deps, row.id, 'blocked');
     deps.debug?.(
@@ -904,7 +925,7 @@ async function launchClaimedAgentNode(
     {
       transport: deps.transport,
       resolveProfile: (profile) =>
-        resolveGraphNodeProfile(deps.manifest, config, profile) ?? { provider: 'opencode' },
+        launchProfileOfRun(deps, graphRunId, config, profile) ?? { provider: 'opencode' },
       readInstructions: (path) => {
         const bytes = path ? deps.readBytes(graphRunId, path) : undefined;
         return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
@@ -1364,7 +1385,9 @@ export async function launchReplanPlanner(
   const run = graphRunById(deps.db, launch.graphRunId);
   if (!run) return { kind: 'no-op' };
   const config = deps.graphConfigOf(run.approach_id);
-  const resolved = config ? resolveProfileFor(config, config.planner.profile) : undefined;
+  const resolved = config
+    ? launchProfileOfRun(deps, launch.graphRunId, config, config.planner.profile, deps.debug)
+    : undefined;
   if (!resolved) {
     return { kind: 'failed', reason: `planner profile of approach "${run.approach_id}" is unresolved` };
   }

@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS approach_graph_runs (
   active_processes  INTEGER NOT NULL DEFAULT 0,
   auto_recovery_count   INTEGER NOT NULL DEFAULT 0,
   auto_recovery_reasons TEXT,
+  agent_identity        TEXT,
   UNIQUE (ticket_id, stage_attempt)
 );
 CREATE INDEX IF NOT EXISTS idx_graph_runs_ticket ON approach_graph_runs(ticket_id, id);
@@ -3100,6 +3101,12 @@ function migrateLocked(db: Database): void {
     if (gateCols132.size > 0 && !gateCols132.has('wait_ms')) db.exec('ALTER TABLE gate_runs ADD COLUMN wait_ms INTEGER');
     const deliverCols132 = tableColumns(db, 'deliver_gate_results');
     if (deliverCols132.size > 0 && !deliverCols132.has('wait_ms')) db.exec('ALTER TABLE deliver_gate_results ADD COLUMN wait_ms INTEGER');
+  }
+
+  if (current < 133) {
+    // v133: `approach_graph_runs.agent_identity` — the JSON identity snapshot per graph role (provider, model, effort, source) that every launch of the run reads (T1258, @arch:GRAPHRUN). Additive; NULL = a pre-v133 run, resolved live (no backfill).
+    const runCols133 = tableColumns(db, 'approach_graph_runs');
+    if (runCols133.size > 0 && !runCols133.has('agent_identity')) db.exec('ALTER TABLE approach_graph_runs ADD COLUMN agent_identity TEXT');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

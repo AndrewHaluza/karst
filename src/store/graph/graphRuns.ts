@@ -31,6 +31,8 @@ export interface GraphRunRow {
   active_processes: number;
   auto_recovery_count: number;
   auto_recovery_reasons: string | null;
+  /** JSON identity snapshot per graph role (v133); NULL = a pre-v133 run, resolved live. */
+  agent_identity: string | null;
 }
 
 export interface CreateGraphRun {
@@ -38,16 +40,18 @@ export interface CreateGraphRun {
   stageAttempt: number;
   approachId: string;
   now: string;
+  /** The serialized agent identity snapshot; omitted = NULL (resolved live). */
+  agentIdentity?: string;
 }
 
 export function createGraphRun(db: GraphDb, input: CreateGraphRun): number {
   const res = db
     .prepare(
       `INSERT INTO approach_graph_runs
-        (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
-       VALUES (?, 'impl', ?, ?, 'planning', ?)`,
+        (ticket_id, stage_key, stage_attempt, approach_id, status, created_at, agent_identity)
+       VALUES (?, 'impl', ?, ?, 'planning', ?, ?)`,
     )
-    .run(input.ticketId, input.stageAttempt, input.approachId, input.now);
+    .run(input.ticketId, input.stageAttempt, input.approachId, input.now, input.agentIdentity ?? null);
   return Number(res.lastInsertRowid);
 }
 
@@ -312,6 +316,45 @@ export function latestNonTerminalGraphRunForTicket(
        ORDER BY id DESC LIMIT 1`,
     )
     .get(ticketId, ...terminalStatuses) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
+}
+
+/** The run ids of one ticket whose status is in `statuses`, oldest first. */
+export function graphRunIdsByStatusForTicket(
+  db: GraphDb,
+  ticketId: number,
+  statuses: readonly string[],
+): number[] {
+  const placeholders = statuses.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT id FROM approach_graph_runs
+        WHERE ticket_id = ? AND status IN (${placeholders})
+        ORDER BY id`,
+    )
+    .all(ticketId, ...statuses) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
+/** The stored agent identity snapshot text of a run; NULL = none (pre-v133 run or unknown id). */
+export function graphRunAgentIdentity(db: GraphDb, id: number): string | null {
+  const row = db
+    .prepare('SELECT agent_identity FROM approach_graph_runs WHERE id = ?')
+    .get(id) as Pick<GraphRunRow, 'agent_identity'> | undefined;
+  return row?.agent_identity ?? null;
+}
+
+/** Replace the agent identity snapshot of a run. One statement, so a caller's
+ *  transaction makes a switch atomic. Returns false for an unknown run. */
+export function setGraphRunAgentIdentity(
+  db: GraphDb,
+  id: number,
+  snapshot: string,
+  now: string,
+): boolean {
+  const res = db
+    .prepare('UPDATE approach_graph_runs SET agent_identity = ?, updated_at = ? WHERE id = ?')
+    .run(snapshot, now, id);
+  return res.changes === 1;
 }
 
 /** The run for a ticket/stage attempt, or undefined. */
