@@ -750,6 +750,8 @@ export async function runUat(
       scriptsAvailable: (script, derived) =>
         scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived,
       baseRef: stageBaseRef,
+      // A stateless first pass narrows to the branch diff; CI, ship and base-moved runs never set this (@arch:GATE-REPEAT).
+      firstPass: 'branch-diff',
       // The ticket's arch citations are the docs gate's PR body (@arch:CLI-22).
       prBody: renderCitationText(listArchCitations(store, opts.ticketId)),
       ...regenerateOption(opts.manifest, target, opts.debug),

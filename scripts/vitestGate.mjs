@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { changedSince, git as gitFn, mergeBase } from './gateScope.mjs';
-import { isCleanRun, loadPassInput, planScope, gitDirOf, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
+import { alwaysFiles } from './gateAlways.mjs';
+import { firstPassEnabled, isCleanRun, loadPassInput, planScope, gitDirOf, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
 import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyRerun, failingTestIds, flakeNotice, planFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines, slowestLines } from './vitestDrift.mjs';
 
 const git = gitFn;
@@ -206,13 +207,15 @@ async function planPass(cwd, args, key) {
     console.error('full: no merge base or tree snapshot, so the run cannot be stored');
     return { store, runArgs: args, files: null };
   }
-  const input = await loadPassInput(cwd, dir, key, base, tree);
-  const plan = planScope({ ...input, force: process.env.KARST_GATE_FULL === '1' });
+  const firstPass = firstPassEnabled(process.env);
+  const input = await loadPassInput(cwd, dir, key, base, tree, { firstPass });
+  const plan = planScope({ ...input, force: process.env.KARST_GATE_FULL === '1', firstPass });
   if (plan.kind === 'full') {
     console.error(scopeLine('', plan));
     return { store, runArgs: args, files: null };
   }
-  const files = [...new Set([...plan.paths, ...plan.failed])];
+  const extra = plan.branchDiff ? alwaysFiles(args, plan.paths) : [];
+  const files = [...new Set([...plan.paths, ...plan.failed, ...extra])];
   const runArgs = files.length === 0 ? args : scopedArgs(args, files);
   if (runArgs === null) {
     console.error('full: the vitest args have no run command to narrow');

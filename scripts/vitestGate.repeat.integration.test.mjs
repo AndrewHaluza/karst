@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { ALWAYS_RUN } from './gateAlways.mjs';
 
 const GATE = resolve('scripts/vitestGate.mjs');
 const NODE_MODULES = (() => {
@@ -23,8 +24,9 @@ const put = (name, body) => {
   writeFileSync(join(dir, name), body);
 };
 const gate = (env = {}) => {
-  const e = { ...process.env, KARST_BASE_REF: 'develop', ...env };
-  for (const k of ['AI_AGENT', 'CLAUDECODE', 'CI', 'GITHUB_ACTIONS']) delete e[k];
+  const e = { ...process.env, KARST_BASE_REF: 'develop' };
+  for (const k of ['AI_AGENT', 'CLAUDECODE', 'CI', 'GITHUB_ACTIONS', 'KARST_GATE_FIRST_PASS', 'KARST_MERGED_BASE_SHA']) delete e[k];
+  Object.assign(e, env);
   return spawnSync('node', [GATE, ...VITEST], { cwd: dir, encoding: 'utf8', env: e });
 };
 const out = (r) => r.stdout + r.stderr;
@@ -141,7 +143,7 @@ describe('vitestGate repeat pass', () => {
     const file = join(state, readdirSync(state)[0]);
     const saved = JSON.parse(readFileSync(file, 'utf8'));
     writeFileSync(file, '{broken');
-    expect(out(gate())).toContain('full: no earlier run');
+    expect(out(gate())).toContain('full: earlier run state is unreadable');
     writeFileSync(file, JSON.stringify({ ...saved, tree: 'd'.repeat(40) }));
     expect(out(gate())).toContain('full: earlier run state is unreadable');
     writeFileSync(file, JSON.stringify({ ...saved, clean: false }));
@@ -184,6 +186,85 @@ describe('vitestGate repeat pass', () => {
     expect(out(run)).toContain('delta since');
     expect({ index: sha(), status: git('status', '--porcelain').stdout, a: readFileSync(join(dir, 'src/a.ts'), 'utf8') }).toEqual(before);
     expect(readdirSync(join(dir, '.git')).filter((f) => f.startsWith('karst-gate-index'))).toEqual([]);
+  }, 180_000);
+});
+
+/** A develop base and a ticket branch with committed changes; no gate has run. */
+function setupBranch(change) {
+  dir = mkdtempSync(join(tmpdir(), 'karst-vfirst-'));
+  symlinkSync(NODE_MODULES, join(dir, 'node_modules'), 'dir');
+  put('.gitignore', 'node_modules\n');
+  put('package.json', '{"type":"module"}\n');
+  put('src/a.ts', 'export const a = 1;\n');
+  put('src/a.test.ts', "import {it,expect} from 'vitest';\nimport {a} from './a';\nit('a', () => expect(a).toBe(1));\n");
+  put('src/b.test.ts', PASS);
+  put('docs/x.md', 'x\n');
+  git('init', '-q', '-b', 'develop');
+  commit('base');
+  git('checkout', '-qb', 'ticket');
+  change();
+  commit('ticket');
+}
+const OPT_IN = { KARST_GATE_FIRST_PASS: 'branch-diff' };
+const touchA = () => put('src/a.ts', 'export const a = 1; // touched\n');
+
+describe('vitestGate first pass on the branch diff', () => {
+  it('narrows a stateless pass to the tests related to the branch diff and stores the state', () => {
+    setupBranch(touchA);
+    const base = git('merge-base', 'develop', 'HEAD').stdout.trim();
+    const first = gate(OPT_IN);
+    expect(first.status).toBe(0);
+    expect(out(first)).toContain(`: ${1 + ALWAYS_RUN.unit.any.length} files, branch diff since ${base.slice(0, 12)}`);
+    expect(out(first)).toContain('a.test.ts');
+    expect(out(first)).not.toContain('b.test.ts');
+    const state = join(dir, '.git', 'karst-gate-state');
+    const saved = JSON.parse(readFileSync(join(state, readdirSync(state)[0]), 'utf8'));
+    expect(saved).toMatchObject({ base, clean: true, failed: [] });
+    expect(saved.tree).toBe(git('rev-parse', 'HEAD^{tree}').stdout.trim());
+  }, 180_000);
+
+  it('makes the next pass a delta pass on the stored state', () => {
+    setupBranch(touchA);
+    gate(OPT_IN);
+    put('src/a.ts', 'export const a = 1; // again\n');
+    expect(out(gate(OPT_IN))).toMatch(/: 1 files, delta since/);
+  }, 180_000);
+
+  it('runs full without the opt-in', () => {
+    setupBranch(touchA);
+    const r = gate();
+    expect(out(r)).toContain('full: no earlier run');
+    expect(out(r)).toContain('b.test.ts');
+  }, 180_000);
+
+  it('runs full on GitHub Actions even with the opt-in', () => {
+    setupBranch(touchA);
+    const r = gate({ ...OPT_IN, GITHUB_ACTIONS: 'true' });
+    expect(out(r)).toContain('full: no earlier run');
+    expect(out(r)).toContain('b.test.ts');
+  }, 180_000);
+
+  it('runs full on a base-moved merged tree', () => {
+    setupBranch(touchA);
+    const r = gate({ ...OPT_IN, KARST_MERGED_BASE_SHA: git('rev-parse', 'develop').stdout.trim() });
+    expect(out(r)).toContain('full: no earlier run');
+    expect(out(r)).toContain('b.test.ts');
+  }, 180_000);
+
+  it('runs full when the branch diff deletes a file', () => {
+    setupBranch(() => rmSync(join(dir, 'src/b.test.ts')));
+    const r = gate(OPT_IN);
+    expect(out(r)).toContain('full: src/b.test.ts was deleted or renamed');
+    expect(out(r)).toContain('Test Files');
+  }, 180_000);
+
+  it('selects no test for a docs-only branch diff, exits 0 and stores the state', () => {
+    setupBranch(() => put('docs/x.md', 'changed\n'));
+    const r = gate(OPT_IN);
+    expect(r.status).toBe(0);
+    expect(out(r)).toMatch(/: 0 files, branch diff since/);
+    expect(out(r)).not.toContain('Test Files');
+    expect(readdirSync(join(dir, '.git', 'karst-gate-state'))).toHaveLength(1);
   }, 180_000);
 });
 

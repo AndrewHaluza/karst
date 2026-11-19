@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPath, isCleanRun, planScope, planSkip, scopeLine, stateKey, touchesUi } from './gateState.mjs';
+import { existsSync } from 'node:fs';
+import { classifyPath, firstPassEnabled, isCleanRun, planScope, planSkip, scopeLine, stateKey, touchesUi } from './gateState.mjs';
+import { ALWAYS_RUN, alwaysFiles } from './gateAlways.mjs';
 import { scopedArgs } from './vitestGate.mjs';
 
 const GOOD = { version: 1, tree: 'a'.repeat(40), base: 'b1', clean: true, failed: [] };
@@ -42,7 +44,7 @@ describe('planScope', () => {
   });
   it('runs full with KARST_GATE_FULL=1', () => expect(plan({ force: true })).toEqual({ kind: 'full', reason: 'KARST_GATE_FULL=1' }));
   it('runs full without state', () => expect(plan({ state: null }).reason).toContain('no earlier run'));
-  it('runs full when the state is unreadable', () => expect(plan({ state: null, readable: false }).reason).toContain('no earlier run'));
+  it('runs full when the state is unreadable', () => expect(plan({ state: null, readable: false }).reason).toBe('earlier run state is unreadable'));
   it('runs full when the state is flagged unreadable with a state value', () => expect(plan({ readable: false }).reason).toContain('unreadable'));
   it('runs full when the earlier run was not clean', () => expect(plan({ state: { ...GOOD, clean: false } }).reason).toContain('killed, hung'));
   it('runs full when the merge base moved', () => expect(plan({ base: 'b2' }).reason).toContain('merge base moved'));
@@ -58,6 +60,51 @@ describe('planScope', () => {
   it('keeps a full verdict even when other paths are code', () => {
     expect(plan({ delta: [{ status: 'M', path: 'src/a.ts' }, { status: 'M', path: 'package.json' }] }).kind).toBe('full');
   });
+});
+
+describe('planScope first pass', () => {
+  const first = (over = {}) => planScope({ state: null, readable: true, base: 'm'.repeat(40), delta: [{ status: 'M', path: 'src/a.ts' }], firstPass: true, ...over });
+  it('scopes a code-only branch diff since the merge base', () =>
+    expect(first()).toEqual({ kind: 'scoped', paths: ['src/a.ts'], failed: [], since: 'm'.repeat(40), branchDiff: true }));
+  it('selects no test for a docs-only branch diff', () => expect(first({ delta: [{ status: 'M', path: 'docs/x.md' }] })).toMatchObject({ kind: 'scoped', paths: [], branchDiff: true }));
+  it('runs full without the opt-in', () => expect(first({ firstPass: false }).reason).toBe('no earlier run'));
+  it('runs full when a file was deleted', () => expect(first({ delta: [{ status: 'D', path: 'src/a.ts' }] }).reason).toBe('src/a.ts was deleted or renamed'));
+  it('runs full for a full trigger', () => expect(first({ delta: [{ status: 'M', path: 'package.json' }] }).reason).toContain('package.json changed'));
+  it('runs full on an empty branch diff', () => expect(first({ delta: [] }).reason).toBe('the branch diff is empty'));
+  it('runs full without a merge base', () => expect(first({ base: null }).reason).toBe('no merge base for the branch diff'));
+  it('runs full when the comparison failed', () => expect(first({ delta: null }).reason).toContain('could not compare'));
+  it('runs full when the state is unreadable, even with the opt-in', () => expect(first({ readable: false }).reason).toBe('earlier run state is unreadable'));
+  it('KARST_GATE_FULL=1 beats the opt-in', () => expect(first({ force: true }).reason).toBe('KARST_GATE_FULL=1'));
+  it('prints the branch diff scope line', () =>
+    expect(scopeLine('test:unit', { kind: 'scoped', count: 2, since: 'a'.repeat(40), branchDiff: true })).toBe(`test:unit: 2 files, branch diff since ${'a'.repeat(12)}`));
+});
+
+describe('firstPassEnabled', () => {
+  it('is on only for the branch-diff value', () => {
+    expect(firstPassEnabled({ KARST_GATE_FIRST_PASS: 'branch-diff' })).toBe(true);
+    expect(firstPassEnabled({})).toBe(false);
+    expect(firstPassEnabled({ KARST_GATE_FIRST_PASS: '1' })).toBe(false);
+  });
+  it('is off on GitHub Actions', () => expect(firstPassEnabled({ KARST_GATE_FIRST_PASS: 'branch-diff', GITHUB_ACTIONS: 'true' })).toBe(false));
+  it('is off on a base-moved merged tree', () => expect(firstPassEnabled({ KARST_GATE_FIRST_PASS: 'branch-diff', KARST_MERGED_BASE_SHA: 'abc' })).toBe(false));
+});
+
+describe('ALWAYS_RUN', () => {
+  const entries = Object.entries(ALWAYS_RUN).flatMap(([config, sets]) => Object.values(sets).flatMap((files) => files.map((f) => [config, f])));
+  it.each(entries)('%s lists an existing file %s', (_c, file) => {
+    expect(existsSync(file)).toBe(true);
+  });
+  const unit = ['npx', 'vitest', 'run'];
+  const integration = [...unit, '--config', 'vitest.integration.config.ts'];
+  it('adds the scanners for a code diff outside src/ui', () => {
+    expect(alwaysFiles(unit, ['src/a.ts'])).toEqual(ALWAYS_RUN.unit.any);
+    expect(alwaysFiles(integration, ['src/a.ts'])).toEqual(ALWAYS_RUN.integration.any);
+  });
+  it('adds the bundle readers too when the diff holds src/ui', () => {
+    expect(alwaysFiles(unit, ['src/ui/a.tsx'])).toEqual([...ALWAYS_RUN.unit.any, ...ALWAYS_RUN.unit.ui]);
+    expect(alwaysFiles(integration, ['src/ui/a.tsx'])).toEqual(ALWAYS_RUN.integration.ui);
+  });
+  it('adds nothing for a docs-only diff', () => expect(alwaysFiles(unit, [])).toEqual([]));
 });
 
 describe('isCleanRun', () => {

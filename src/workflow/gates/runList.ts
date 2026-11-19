@@ -98,6 +98,11 @@ export interface RunGatesOptions {
    */
   mergedBaseSha?: string;
   /**
+   * `'branch-diff'`: a vitest gate with no earlier state narrows its first pass to the tests related to the
+   * branch diff (@arch:GATE-REPEAT). Only the UAT stage sets it; ship, base-moved and auto-deliver runs stay full.
+   */
+  firstPass?: 'branch-diff';
+  /**
    * The ticket's rendered arch citations (@arch:CLI-22). When set (an empty string is a value:
    * "nothing cited"), every gate process gets `PR_BODY=<text>` and `BASE_REF=<baseRef>`, which is
    * what `scripts/docsGate.mjs` reads. The text is passed as one argv element of `env`, never
@@ -254,6 +259,7 @@ export async function runGateList(
       // A base-moved run scopes against the fetched base sha: a local branch behind origin would move the merge base (@arch:GATE-BASE-MOVED).
       ...((opts.mergedBaseSha ?? opts.baseRef) ? [`KARST_BASE_REF=${opts.mergedBaseSha ?? opts.baseRef}`] : []),
       ...(opts.mergedBaseSha ? [`KARST_MERGED_BASE_SHA=${opts.mergedBaseSha}`] : []),
+      ...(opts.firstPass ? [`KARST_GATE_FIRST_PASS=${opts.firstPass}`] : []),
       ...(opts.prBody !== undefined ? [`PR_BODY=${opts.prBody}`, ...(opts.baseRef ? [`BASE_REF=${opts.baseRef}`] : [])] : []),
     ];
     const launchOnce = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>

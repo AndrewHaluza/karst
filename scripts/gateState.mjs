@@ -44,11 +44,16 @@ export function classifyPath(path) {
  * snapshot is gone, `delta` the `{status, path}` list between the snapshot and now (null when git failed).
  * A scoped plan carries `paths` (code files to relate) and `failed` (stored failing files).
  */
-export function planScope({ state, readable = true, base, delta, force = false }) {
+export function planScope({ state: stored, readable = true, base, delta, force = false, firstPass = false }) {
   const full = (reason) => ({ kind: 'full', reason });
   if (force) return full('KARST_GATE_FULL=1');
-  if (state === null || state === undefined) return full('no earlier run');
   if (!readable) return full('earlier run state is unreadable');
+  const stateless = stored === null || stored === undefined;
+  if (stateless && !firstPass) return full('no earlier run');
+  if (stateless && (base === null || base === undefined)) return full('no merge base for the branch diff');
+  if (stateless && delta !== null && delta.length === 0) return full('the branch diff is empty');
+  // First pass: the branch diff since the merge base stands for the delta since an earlier clean run.
+  const state = stateless ? { clean: true, base, tree: base, failed: [] } : stored;
   if (!state.clean) return full('earlier run was killed, hung or had failures that could not be parsed');
   if (base === null || base === undefined || state.base !== base) return full('the merge base moved');
   if (delta === null) return full('could not compare with the earlier run');
@@ -60,7 +65,7 @@ export function planScope({ state, readable = true, base, delta, force = false }
     if (where.kind === 'full') return full(where.reason);
     if (where.kind === 'code') paths.push(path);
   }
-  return { kind: 'scoped', paths, failed: [...state.failed], since: state.tree };
+  return { kind: 'scoped', paths, failed: [...state.failed], since: state.tree, ...(stateless ? { branchDiff: true } : {}) };
 }
 
 /** A failed test that a sweep gate stored: `{ project, title }`, both non-empty strings. */
@@ -94,8 +99,15 @@ export const touchesUi = (delta, isUiPath) => delta.some(({ path }) => isUiPath(
 export function scopeLine(gate, plan) {
   if (plan.kind === 'full') return `full: ${plan.reason}`;
   if (plan.kind === 'skipped') return `skipped: no UI change since ${plan.since.slice(0, 12)}`;
-  return `${gate}: ${plan.count} files, delta since ${plan.since.slice(0, 12)}`;
+  return `${gate}: ${plan.count} files, ${plan.branchDiff ? 'branch diff' : 'delta'} since ${plan.since.slice(0, 12)}`;
 }
+
+/**
+ * Whether a stateless pass may narrow to the branch diff: only the karst UAT stage asks (`KARST_GATE_FIRST_PASS=branch-diff`).
+ * CI, a base-moved merged tree (`KARST_MERGED_BASE_SHA`) and a plain local run stay full.
+ */
+export const firstPassEnabled = (env) =>
+  env.KARST_GATE_FIRST_PASS === 'branch-diff' && env.GITHUB_ACTIONS !== 'true' && !env.KARST_MERGED_BASE_SHA;
 
 /**
  * Whether a finished run may seed the next narrowed pass. A run that was killed, hung, could not start,
@@ -180,8 +192,9 @@ export function writeState(dir, key, state) {
  * Read the stored state and compare it with `now`: the plan input for a pass.
  * Returns the `planScope` inputs minus `force`. A missing snapshot object makes the state unreadable.
  */
-export async function loadPassInput(cwd, dir, key, base, now) {
+export async function loadPassInput(cwd, dir, key, base, now, { firstPass = false } = {}) {
   const { state, readable } = readState(dir, key);
+  if (state === null && readable && firstPass && base !== null) return { state, readable, base, delta: await diffTrees(cwd, base, now) };
   if (state === null || !readable) return { state, readable, base, delta: null };
   if (!(await treeExists(cwd, state.tree))) return { state, readable: false, base, delta: null };
   return { state, readable, base, delta: await diffTrees(cwd, state.tree, now) };

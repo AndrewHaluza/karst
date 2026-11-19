@@ -443,6 +443,22 @@ describe('runGateList base ref env', () => {
   });
 });
 
+describe('runGateList first-pass env (branch-diff narrowing)', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const gates = [{ name: 'test:unit', command: 'npm', args: ['run', 'test:unit'], script: null, required: true }];
+  const run = async (opts: Record<string, unknown>) => {
+    const seen: Array<readonly string[]> = [];
+    await runGateList(gates, process.cwd(), { now, ...opts, runProcess: async (_c, args) => (seen.push(args), { kind: 'completed', exitCode: 0, output: '' }) });
+    return seen[0];
+  };
+  it('exports KARST_GATE_FIRST_PASS=branch-diff when the caller asks', async () => {
+    expect(await run({ baseRef: 'develop', firstPass: 'branch-diff' })).toEqual(['KARST_BASE_REF=develop', 'KARST_GATE_FIRST_PASS=branch-diff', 'npm', 'run', 'test:unit']);
+  });
+  it('exports nothing by default', async () => {
+    expect(await run({ baseRef: 'develop' })).toEqual(['KARST_BASE_REF=develop', 'npm', 'run', 'test:unit']);
+  });
+});
+
 describe('runGateList PR_BODY env (docs gate citations)', () => {
   const now = () => '2026-07-30T10:00:00.000Z';
   const gates = [{ name: 'docs:gate', command: 'npm', args: ['run', '-s', 'docs:gate'], script: null, required: true }];
