@@ -56,6 +56,7 @@ const VALIDATOR_ONLY_MESSAGES: readonly RegExp[] = [
   /must be at least maxReplans \+ 1/,
   /names no agent preset/,
   /no greater than review\.maxFixAttempts/,
+  /evidence must start with/,
 ];
 
 /**

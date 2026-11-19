@@ -68,6 +68,7 @@ export const VALIDATOR_ONLY_RULES: readonly string[] = [
   'activeAgentPreset and defaultAgentPreset are not both set; every preset reference names a defined preset.',
   'review.repositories keys and uat.repositories keys name declared repositories; review.stallDetection.repeatedFindingRounds <= review.maxFixAttempts.',
   'uat.origins entries parse as absolute URLs with an origin.',
+  'A uat harness evidence path sits under .karst/uat-scratch/out/<harness name>/.',
   'The legacy services map, process rows and old keys are migrated before validation (migrateLegacyManifest, foldProcessRows).',
 ];
 
