@@ -20,6 +20,7 @@ import {
   graphRunsInStatuses,
   setGraphRunAgentIdentity,
 } from '../../store/graph/graphRuns.js';
+import type { GraphLaunchTicketFields } from './profileResolver.js';
 import { NON_TERMINAL_GRAPH_RUN_STATUSES } from './coordinator/reconcileScope.js';
 import {
   type GraphRunIdentities,
@@ -43,6 +44,8 @@ export interface ModelChangeScanDeps {
   readonly db: GraphDb;
   readonly manifest: Manifest;
   readonly graphConfigOf: (approachId: string) => GraphApproachConfig | undefined;
+  /** The ticket's own core, model, effort and preset: part of the identity a launch resolves. */
+  readonly ticketLaunchFieldsOf: (ticketId: number) => GraphLaunchTicketFields;
 }
 
 export interface ModelChangeSwitchDeps extends ModelChangeScanDeps {
@@ -71,7 +74,7 @@ export function findModelChanges(
     const from = parseRunIdentities(run.agent_identity);
     const config = deps.graphConfigOf(run.approach_id);
     if (!from || !config) continue;
-    const to = resolveRunIdentities(deps.manifest, config);
+    const to = resolveRunIdentities(deps.manifest, config, deps.ticketLaunchFieldsOf(run.ticket_id));
     if (!identitiesDiffer(from, to)) continue;
     changes.push({
       graphRunId: run.id,
@@ -107,7 +110,7 @@ export function switchGraphRunModels(
     const config = deps.graphConfigOf(run.approach_id);
     if (!config) return 'not-found';
     const before = parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId));
-    const next = target ?? resolveRunIdentities(deps.manifest, config);
+    const next = target ?? resolveRunIdentities(deps.manifest, config, deps.ticketLaunchFieldsOf(run.ticket_id));
     if (before && !identitiesDiffer(before, next)) return 'unchanged';
     setGraphRunAgentIdentity(deps.db, graphRunId, serializeRunIdentities(next), deps.now());
     deps.debug(
@@ -188,6 +191,6 @@ export function runModelDifference(deps: ModelChangeScanDeps, graphRunId: number
   const from = parseRunIdentities(run.agent_identity);
   const config = deps.graphConfigOf(run.approach_id);
   if (!from || !config) return undefined;
-  const to = resolveRunIdentities(deps.manifest, config);
+  const to = resolveRunIdentities(deps.manifest, config, deps.ticketLaunchFieldsOf(run.ticket_id));
   return identitiesDiffer(from, to) ? identityDifference(from, to) : undefined;
 }

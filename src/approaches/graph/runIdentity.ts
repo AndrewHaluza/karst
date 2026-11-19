@@ -8,21 +8,21 @@
  * A user "switch" replaces the snapshot; a run with no snapshot (a pre-v133
  * row) resolves live, as before.
  *
- * Pure and host-agnostic: it takes the manifest and the approach config and
- * reads `manifest.agentPresets` only through `resolvePresetSlot`.
+ * Pure and host-agnostic: it resolves each role through the one live resolver
+ * (`resolveGraphNodeProfile`), so the ticket's own core, model and effort are
+ * part of the snapshot and a ticket change is detected like a Settings change.
  */
 
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
-import { resolvePresetSlot } from '../../agent/agentPresets.js';
+import {
+  NO_TICKET_FIELDS,
+  resolveGraphNodeProfile,
+  type GraphLaunchTicketFields,
+  type GraphProfileSource,
+} from './profileResolver.js';
 
 export const GRAPH_ROLES = ['expert', 'worker', 'fast'] as const;
 export type GraphRole = (typeof GRAPH_ROLES)[number];
-
-const ROLE_CAPABILITY = {
-  expert: 'graphExpert',
-  worker: 'graphWorker',
-  fast: 'graphFast',
-} as const;
 
 /** The version stamp of the stored JSON; a different value is read as "no snapshot". */
 const SNAPSHOT_VERSION = 1;
@@ -32,8 +32,8 @@ export interface RoleIdentity {
   provider: string;
   model?: string;
   effort?: string;
-  /** `preset` = a preset slot, `config` = the approach's graph profile. */
-  source: string;
+  /** The rung that supplied it: the ticket, a preset slot or the approach's graph profile. */
+  source: GraphProfileSource;
 }
 
 export interface GraphRunIdentities {
@@ -41,48 +41,25 @@ export interface GraphRunIdentities {
   roles: Partial<Record<GraphRole, RoleIdentity>>;
 }
 
-/** What a launch needs: the identity without its source. */
-export interface LaunchProfile {
-  provider: string;
-  model?: string;
-  effort?: string;
+const PROFILE_SOURCES: readonly string[] = ['ticket', 'preset', 'approach'];
+
+function isProfileSource(value: unknown): value is GraphProfileSource {
+  return typeof value === 'string' && PROFILE_SOURCES.includes(value);
 }
 
 function isGraphRole(name: string): name is GraphRole {
   return (GRAPH_ROLES as readonly string[]).includes(name);
 }
 
-/**
- * Resolve ONE profile name the live way: the active preset's slot for a graph
- * role, else the approach config's profile. This is the one live resolution of
- * a graph profile; `resolveGraphNodeProfile` wraps it with debug output.
- */
-export function resolveLiveGraphProfile(
+/** The identity of every graph role under the given manifest and config. */
+export function resolveRunIdentities(
   manifest: Manifest,
   config: GraphApproachConfig,
-  profile: string,
-): RoleIdentity | undefined {
-  if (isGraphRole(profile)) {
-    const slot = resolvePresetSlot(manifest, ROLE_CAPABILITY[profile]);
-    if (slot) return withoutUndefined({ provider: slot.provider, model: slot.model, effort: slot.effort, source: 'preset' });
-  }
-  const p = config.profiles[profile];
-  if (!p) return undefined;
-  return withoutUndefined({ provider: p.provider, model: p.model, effort: p.effort, source: 'config' });
-}
-
-function withoutUndefined(identity: RoleIdentity): RoleIdentity {
-  const out: RoleIdentity = { provider: identity.provider, source: identity.source };
-  if (identity.model !== undefined) out.model = identity.model;
-  if (identity.effort !== undefined) out.effort = identity.effort;
-  return out;
-}
-
-/** The identity of every graph role under the given manifest and config. */
-export function resolveRunIdentities(manifest: Manifest, config: GraphApproachConfig): GraphRunIdentities {
+  ticket: GraphLaunchTicketFields = NO_TICKET_FIELDS,
+): GraphRunIdentities {
   const roles: GraphRunIdentities['roles'] = {};
   for (const role of GRAPH_ROLES) {
-    const identity = resolveLiveGraphProfile(manifest, config, role);
+    const identity = resolveGraphNodeProfile(manifest, config, role, ticket);
     if (identity) roles[role] = identity;
   }
   return { v: SNAPSHOT_VERSION, roles };
@@ -95,7 +72,7 @@ export function serializeRunIdentities(identities: GraphRunIdentities): string {
 function parseRole(raw: unknown): RoleIdentity | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const r = raw as Record<string, unknown>;
-  if (typeof r.provider !== 'string' || typeof r.source !== 'string') return undefined;
+  if (typeof r.provider !== 'string' || !isProfileSource(r.source)) return undefined;
   const out: RoleIdentity = { provider: r.provider, source: r.source };
   if (typeof r.model === 'string') out.model = r.model;
   if (typeof r.effort === 'string') out.effort = r.effort;
@@ -159,19 +136,7 @@ export function identityDifference(from: GraphRunIdentities, to: GraphRunIdentit
     .join('; ');
 }
 
-/**
- * The identity a launch of this run uses for `profile`: the run's snapshot for a
- * graph role the snapshot holds, else the live resolution (a pre-v133 run, a
- * role the snapshot lacks, or a profile that is not a graph role).
- */
-export function launchProfileFor(
-  snapshot: GraphRunIdentities | undefined,
-  manifest: Manifest,
-  config: GraphApproachConfig,
-  profile: string,
-): LaunchProfile | undefined {
-  const pinned = isGraphRole(profile) ? snapshot?.roles[profile] : undefined;
-  const identity = pinned ?? resolveLiveGraphProfile(manifest, config, profile);
-  if (!identity) return undefined;
-  return { provider: identity.provider, model: identity.model, effort: identity.effort };
+/** The snapshot's identity for `profile` when it is a graph role the snapshot holds; else undefined (resolve live). */
+export function pinnedProfile(snapshot: GraphRunIdentities | undefined, profile: string): RoleIdentity | undefined {
+  return isGraphRole(profile) ? snapshot?.roles[profile] : undefined;
 }

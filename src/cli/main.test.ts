@@ -691,6 +691,19 @@ describe('runCli — manifest / setup (setup sessions)', () => {
     expect(out).toMatchObject({ ok: true, kind: 'change' });
   });
 
+  it('routes `setup skip --file` and the flat MCP object into a skip request', () => {
+    const file = join(dir, 'skip.json');
+    const body = JSON.stringify({ subcommand: 'skip', code: 'git.conventions', reason: 'none yet' });
+    writeFileSync(file, body);
+    const viaFile = JSON.parse(runCli(['setup', 'skip', '--file', file], { KARST_SETUP_OUTBOX: dir }));
+    expect(viaFile).toMatchObject({ ok: true, kind: 'skip', status: 'requested' });
+    const flat = JSON.stringify({ subcommand: 'skip', code: 'git.conventions', reason: 'none yet' });
+    const viaMcp = JSON.parse(
+      runCli(['setup', 'skip', '--db', join(dir, 'x.db')], { KARST_SETUP_OUTBOX: dir }, { readStdin: () => flat }),
+    );
+    expect(viaMcp).toMatchObject({ ok: true, kind: 'skip', status: 'requested' });
+  });
+
   it('accepts the flat MCP tool object (globals + stdin, no --stdin token)', () => {
     // The MCP runner emits `setup propose-change` plus the global --db/--manifest
     // and feeds the validated tool object on stdin; the handler must normalize it.

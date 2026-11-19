@@ -50,14 +50,7 @@ import {
 } from '../../store/graph/graphRuns.js';
 import { graphRunAgentIdentity, graphRunById } from '../../store/graph/graphRuns.js';
 import { runModelDifference } from './modelChange.js';
-import {
-  launchProfileFor,
-  parseRunIdentities,
-  resolveLiveGraphProfile,
-  resolveRunIdentities,
-  serializeRunIdentities,
-  type GraphRole,
-} from './runIdentity.js';
+import { parseRunIdentities, pinnedProfile, resolveRunIdentities, serializeRunIdentities } from './runIdentity.js';
 import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun } from './coordinator/plannerRun.js';
 import { emitGraphDiagnostic } from './diagnostics.js';
 import {
@@ -103,7 +96,11 @@ import type {
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessOutcome } from '../../workflow/gates/run.js';
 import type { GraphApproachConfig, GraphCommandConfig, Manifest } from '../../manifest/types.js';
-import { resolvePresetSlot } from '../../agent/agentPresets.js';
+import {
+  resolveGraphNodeProfile,
+  type GraphLaunchTicketFields,
+  type ResolvedGraphProfile,
+} from './profileResolver.js';
 import type { GraphPromptIdentity } from '../../agent/graphPrompts.js';
 import type { TerminalNamingBag } from '../../ui/terminalNaming.js';
 import { uuidv7 } from './coordinator/lineage.js';
@@ -162,6 +159,8 @@ export interface GraphDriverDeps {
   graphConfigOf: (approachId: string) => GraphApproachConfig | undefined;
   /** The host's manifest (preset slot resolution for graph nodes). */
   manifest: Manifest;
+  /** The ticket's launch fields (preset, core, model, effort) — the AC-04 ticket rungs. */
+  ticketLaunchFieldsOf: (ticketId: number) => GraphLaunchTicketFields;
   /** The graph run's artifact root (global storage; staging + snapshots). */
   artifactRootOf: (graphRunId: number) => string;
   /** Compose the graph session environment (KARST_GRAPH_*). */
@@ -269,58 +268,39 @@ export interface BootstrapPlannerInput {
   projectSlug: string;
 }
 
-/** Resolve a graph config profile name to provider/model/effort. */
-export function resolveProfileFor(
-  config: GraphApproachConfig,
-  profile: string,
-): { provider: string; model?: string; effort?: string } | undefined {
-  const p = config.profiles[profile];
-  if (!p) return undefined;
-  return { provider: p.provider, model: p.model, effort: p.effort };
-}
 
-/**
- * Resolve graph node profile: preset-aware for graphExpert/graphWorker/graphFast,
- * otherwise fall back to config profiles. Presets enable per-approach capability
- * overrides; a profile not in {expert, worker, fast} or with no preset slot
- * resolves from config alone.
- */
-export function resolveGraphNodeProfile(
-  manifest: Manifest,
-  config: GraphApproachConfig,
-  profile: string,
-  onDebug?: (message: string) => void,
-): { provider: string; model?: string; effort?: string } | undefined {
-  const identity = resolveLiveGraphProfile(manifest, config, profile);
-  if (!identity) return undefined;
-  onDebug?.(
-    identity.source === 'preset'
-      ? `[process] graph node profile "${profile}" → preset slot (${identity.provider})`
-      : `[process] graph node profile "${profile}" → config (${identity.provider}${identity.model ? `/${identity.model}` : ''})`,
-  );
-  return { provider: identity.provider, model: identity.model, effort: identity.effort };
-}
+export { resolveGraphNodeProfile, resolveProfileFor } from './profileResolver.js';
+export type { GraphLaunchTicketFields, GraphProfileSource, ResolvedGraphProfile } from './profileResolver.js';
 
 /**
  * The identity a launch of this graph run uses for `profile` (T1258): the run's
- * snapshot for a graph role, else the live resolution — a pre-v133 run has no
- * snapshot. Planner, replan, node, retry and autorecovery launches all read it.
+ * snapshot for a graph role it holds, else the live resolution — a pre-v133 run
+ * has no snapshot. Planner, replan, node, retry and autorecovery launches all
+ * read it, so the ticket's own fields are part of the snapshot too.
  */
 function launchProfileOfRun(
-  deps: Pick<GraphDriverDeps, 'db' | 'manifest'>,
+  deps: GraphDriverDeps,
   graphRunId: number,
   config: GraphApproachConfig,
   profile: string,
-  onDebug?: (message: string) => void,
-): { provider: string; model?: string; effort?: string } | undefined {
-  const snapshot = parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId));
-  const resolved = launchProfileFor(snapshot, deps.manifest, config, profile);
-  if (resolved) {
-    onDebug?.(
-      `[process] graph run ${graphRunId} profile "${profile}" → ${resolved.provider}${resolved.model ? `/${resolved.model}` : ''} (${snapshot?.roles[profile as GraphRole] ? 'run snapshot' : 'live'})`,
-    );
-  }
-  return resolved;
+  ticketId: number,
+): ResolvedGraphProfile | undefined {
+  const pinned = pinnedProfile(parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId)), profile);
+  if (!pinned) return resolveLaunchProfile(deps, config, profile, ticketId);
+  deps.debug?.(
+    `[process] graph run ${graphRunId} profile "${profile}" → ${pinned.provider}${pinned.model ? `/${pinned.model}` : ''} (run snapshot)`,
+  );
+  return pinned;
+}
+
+/** Read the launching ticket's fields through the narrow dep, then resolve once. */
+function resolveLaunchProfile(
+  deps: GraphDriverDeps,
+  config: GraphApproachConfig,
+  profile: string,
+  ticketId: number,
+): ResolvedGraphProfile | undefined {
+  return resolveGraphNodeProfile(deps.manifest, config, profile, deps.ticketLaunchFieldsOf(ticketId), deps.debug);
 }
 
 /**
@@ -445,7 +425,9 @@ export async function bootstrapAndLaunchPlanner(
       ticketId: input.ticketId,
       stageAttempt: input.stageAttempt,
       approachId: input.approachId,
-      agentIdentity: serializeRunIdentities(resolveRunIdentities(deps.manifest, config)),
+      agentIdentity: serializeRunIdentities(
+        resolveRunIdentities(deps.manifest, config, deps.ticketLaunchFieldsOf(input.ticketId)),
+      ),
     },
   );
   if (!begun.ok) {
@@ -456,7 +438,7 @@ export async function bootstrapAndLaunchPlanner(
   // never leaves `ready` needs no recovery, while one parked at `launching`
   // invites the reconcile sweep to relaunch a planner whose profile or
   // worktree will refuse it again on every pass.
-  const resolved = launchProfileOfRun(deps, graphRunId, config, config.planner.profile, deps.debug);
+  const resolved = launchProfileOfRun(deps, graphRunId, config, config.planner.profile, input.ticketId);
   if (!resolved) {
     return {
       kind: 'failed',
@@ -536,7 +518,7 @@ export async function bootstrapAndLaunchPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   deps.debug?.(
-    `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'})`,
+    `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`,
   );
   return { kind: 'launched', graphRunId, plannerRunId, generation, capability, session };
 }
@@ -600,7 +582,7 @@ export async function relaunchBootstrapPlanner(
   const { plannerRunId } = begun;
   // Refuse before the claim, exactly as the bootstrap path does: a planner
   // left at `ready` is not a launch the sweep will keep retrying.
-  const resolved = launchProfileOfRun(deps, input.graphRunId, config, config.planner.profile, deps.debug);
+  const resolved = launchProfileOfRun(deps, input.graphRunId, config, config.planner.profile, runTicketId(deps, input.graphRunId));
   if (!resolved) {
     return {
       kind: 'failed',
@@ -682,7 +664,7 @@ export async function relaunchBootstrapPlanner(
     return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
   }
   deps.debug?.(
-    `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} relaunched (${resolved.provider}/${resolved.model ?? 'default'})`,
+    `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} relaunched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`,
   );
   return {
     kind: 'launched',
@@ -805,7 +787,9 @@ async function executeReadyNode(
   // Agent node: workspace + supervised session, capability-authenticated.
   const approachId = runApproachId(deps, graphRunId);
   const config = deps.graphConfigOf(approachId);
-  const resolved = config ? launchProfileOfRun(deps, graphRunId, config, node.profile, deps.debug) : undefined;
+  const resolved = config
+    ? launchProfileOfRun(deps, graphRunId, config, node.profile, runTicketId(deps, graphRunId))
+    : undefined;
   if (!resolved) {
     completeDeterministic(deps, row.id, 'blocked');
     deps.debug?.(
@@ -814,7 +798,7 @@ async function executeReadyNode(
     return 'completed';
   }
   deps.debug?.(
-    `[driver] graph run ${graphRunId}: agent node ${row.node_id} profile "${node.profile}" → ${resolved.provider}${resolved.model ? `/${resolved.model}` : ''}`,
+    `[driver] graph run ${graphRunId}: agent node ${row.node_id} profile "${node.profile}" → ${resolved.provider}${resolved.model ? `/${resolved.model}` : ''} (${resolved.source})`,
   );
   const nodeCapability = randomBytes(32).toString('hex');
   // The generation is a UUIDv7 of the injected clock: its prefix is the claim
@@ -871,7 +855,7 @@ async function launchClaimedAgentNode(
   row: RunnableNodeRow,
   node: AgentNode,
   document: GraphDocument,
-  resolved: NonNullable<ReturnType<typeof resolveGraphNodeProfile>>,
+  resolved: ResolvedGraphProfile,
   config: NonNullable<ReturnType<GraphDriverDeps['graphConfigOf']>>,
   claim: { capability: string; generation: string; ownerNonce: string },
 ): Promise<ReadyNodeOutcome> {
@@ -925,8 +909,6 @@ async function launchClaimedAgentNode(
   const runResult = await runAgentNode(
     {
       transport: deps.transport,
-      resolveProfile: (profile) =>
-        launchProfileOfRun(deps, graphRunId, config, profile) ?? { provider: 'opencode' },
       readInstructions: (path) => {
         const bytes = path ? deps.readBytes(graphRunId, path) : undefined;
         return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
@@ -970,6 +952,7 @@ async function launchClaimedAgentNode(
       graphRunId,
       revisionId: row.revision_id,
       adapter: deps.adapterFor(resolved.provider),
+      resolved,
       repo,
       cwd,
       node,
@@ -1324,7 +1307,10 @@ function withModelDifference(deps: GraphDriverDeps, graphRunId: number, reason: 
   if (!reason.startsWith('failed-to-launch')) return reason;
   let difference: string | undefined;
   try {
-    difference = runModelDifference({ db: deps.db, manifest: deps.manifest, graphConfigOf: deps.graphConfigOf }, graphRunId);
+    difference = runModelDifference(
+      { db: deps.db, manifest: deps.manifest, graphConfigOf: deps.graphConfigOf, ticketLaunchFieldsOf: deps.ticketLaunchFieldsOf },
+      graphRunId,
+    );
   } catch (err) {
     // The note is optional: a lookup failure must never keep the park from blocking the run.
     deps.debug?.(`[driver] model difference lookup failed for graph run ${graphRunId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -1408,7 +1394,7 @@ export async function launchReplanPlanner(
   if (!run) return { kind: 'no-op' };
   const config = deps.graphConfigOf(run.approach_id);
   const resolved = config
-    ? launchProfileOfRun(deps, launch.graphRunId, config, config.planner.profile, deps.debug)
+    ? launchProfileOfRun(deps, launch.graphRunId, config, config.planner.profile, runTicketId(deps, launch.graphRunId))
     : undefined;
   if (!resolved) {
     return { kind: 'failed', reason: `planner profile of approach "${run.approach_id}" is unresolved` };
@@ -1471,6 +1457,6 @@ export async function launchReplanPlanner(
   if (!markPlannerRunning(deps, launch.plannerRunId)) {
     return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
   }
-  deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched`);
+  deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`);
   return { kind: 'launched', session, generation, capability };
 }

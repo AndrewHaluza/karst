@@ -18,7 +18,7 @@ function setup(live: Manifest | undefined) {
   const warn = vi.fn(async () => 'Switch to new models' as string | undefined);
   const refresh = vi.fn();
   const seams = makeModelChangeSeams({
-    db: () => h.db, transaction: (fn) => fn(), manifest: () => live, graphConfigOf: () => h.config,
+    db: () => h.db, transaction: (fn) => fn(), manifest: () => live, graphConfigOf: () => h.config, ticketLaunchFieldsOf: () => ({ agentPreset: null, provider: null, model: null, effort: null }),
     label: (t) => `T${t}`, warn, refresh, debug: vi.fn(), now: () => NOW,
   });
   return { h, id, seams, warn, refresh };
@@ -39,7 +39,7 @@ describe('makeModelChangeSeams', () => {
     const id = createGraphRun(h.db, { ticketId: h.ticketId, stageAttempt: 1, approachId: 'karst-graph-engineering', now: NOW });
     setGraphRunAgentIdentity(h.db, id, serializeRunIdentities(resolveRunIdentities(manifestOf('claude-opus-5'), h.config)), NOW);
     const seams = makeModelChangeSeams({
-      db: () => h.db, transaction: (fn) => fn(), manifest: () => manifestOf('claude-sonnet-5'), graphConfigOf: () => h.config,
+      db: () => h.db, transaction: (fn) => fn(), manifest: () => manifestOf('claude-sonnet-5'), graphConfigOf: () => h.config, ticketLaunchFieldsOf: () => ({ agentPreset: null, provider: null, model: null, effort: null }),
       label: (t) => `T${t}`, warn: vi.fn(async () => 'Switch to new models'), refresh: vi.fn(), debug: vi.fn(),
     });
     expect(await seams.ask({})).toBe(1);

@@ -149,6 +149,7 @@ export function harness(config: GraphApproachConfig = graphApproachConfig()): Ha
     debug: () => undefined,
     graphConfigOf: (approachId) => (approachId === 'karst-graph-engineering' ? config : undefined),
     manifest: testManifest(),
+    ticketLaunchFieldsOf: () => ({ agentPreset: null, provider: null, model: null, effort: null }),
     artifactRootOf: (graphRunId) => join(root, String(graphRunId)),
     graphEnvOf: (input) => ({
       KARST_GRAPH_RUN_ID: String(input.graphRunId),

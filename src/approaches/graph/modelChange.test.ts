@@ -34,11 +34,14 @@ function runWith(h: Harness, preset: 'p1' | 'p2' | null, status: string, ticketI
   return id;
 }
 
+const NO_TICKET = { agentPreset: null, provider: null, model: null, effort: null };
+
 const depsOf = (h: Harness, manifest: Manifest) => ({
   db: h.db,
   transaction: <T,>(fn: () => T): T => fn(),
   manifest,
   graphConfigOf: () => h.config,
+  ticketLaunchFieldsOf: () => NO_TICKET,
   now: () => NOW,
   debug: vi.fn(),
 });
@@ -71,6 +74,17 @@ describe('findModelChanges', () => {
     const h = harness();
     runWith(h, 'p1', 'running');
     expect(findModelChanges(depsOf(h, manifestWith('p2')), { ticketId: h.ticketId + 99 })).toEqual([]);
+  });
+});
+
+describe('findModelChanges ticket fields', () => {
+  it('reports a run when the ticket now names another core, model or effort', () => {
+    const h = harness();
+    runWith(h, 'p1', 'running');
+    const deps = { ...depsOf(h, manifestWith('p1')), ticketLaunchFieldsOf: () => ({ ...NO_TICKET, effort: 'max' }) };
+    const found = findModelChanges(deps);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.summary.difference).toContain('expert');
   });
 });
 

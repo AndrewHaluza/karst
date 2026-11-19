@@ -7,6 +7,7 @@
 
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
+import type { GraphLaunchTicketFields } from '../../approaches/graph/profileResolver.js';
 import { askModelChange } from '../../approaches/graph/modelChange.js';
 
 export interface ModelChangeSeamsDeps {
@@ -14,6 +15,7 @@ export interface ModelChangeSeamsDeps {
   readonly transaction: <T>(fn: () => T) => T;
   readonly manifest: () => Manifest | undefined;
   readonly graphConfigOf: (approachId: string) => GraphApproachConfig | undefined;
+  readonly ticketLaunchFieldsOf: (ticketId: number) => GraphLaunchTicketFields;
   readonly label: (ticketId: number) => string;
   readonly warn: (message: string, ...actions: string[]) => PromiseLike<string | undefined>;
   readonly refresh: (ticketId: number) => void;
@@ -31,7 +33,7 @@ export function makeModelChangeSeams(deps: ModelChangeSeamsDeps): ModelChangeSea
     const db = deps.db();
     const manifest = deps.manifest();
     if (!db || !manifest) return undefined;
-    return { db, manifest, graphConfigOf: deps.graphConfigOf, transaction: deps.transaction, now, debug: deps.debug };
+    return { db, manifest, graphConfigOf: deps.graphConfigOf, ticketLaunchFieldsOf: deps.ticketLaunchFieldsOf, transaction: deps.transaction, now, debug: deps.debug };
   };
   return {
     ask: async (filter) => {

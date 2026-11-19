@@ -2552,7 +2552,7 @@ describe('resolveGraphNodeProfile', () => {
       defaultAgentPreset: 'active',
     });
     const result = resolveGraphNodeProfile(m, config, 'expert');
-    expect(result).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'high' });
+    expect(result).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'high', source: 'preset' });
   });
 
   it('resolves graphWorker profile from preset slot when present', () => {
@@ -2568,7 +2568,7 @@ describe('resolveGraphNodeProfile', () => {
       defaultAgentPreset: 'active',
     });
     const result = resolveGraphNodeProfile(m, config, 'worker');
-    expect(result).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' });
+    expect(result).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low', source: 'preset' });
   });
 
   it('resolves graphFast profile from preset slot when present', () => {
@@ -2584,19 +2584,20 @@ describe('resolveGraphNodeProfile', () => {
       defaultAgentPreset: 'active',
     });
     const result = resolveGraphNodeProfile(m, config, 'fast');
-    expect(result).toEqual({ provider: 'opencode', model: 'mimo-2.5', effort: 'flash' });
+    // The effort gate removes `flash`: the model does not advertise it.
+    expect(result).toEqual({ provider: 'opencode', model: 'mimo-2.5', source: 'preset' });
   });
 
   it('falls back to config profile when no preset slot', () => {
     const m = testManifest();
     const result = resolveGraphNodeProfile(m, config, 'expert');
-    expect(result).toEqual({ provider: 'opencode', model: 'mimo-2.5' });
+    expect(result).toEqual({ provider: 'opencode', model: 'mimo-2.5', source: 'approach' });
   });
 
   it('resolves custom profile from config only (not preset-capable)', () => {
     const m = testManifest();
     const result = resolveGraphNodeProfile(m, config, 'custom');
-    expect(result).toEqual({ provider: 'antigravity', model: 'custom-model' });
+    expect(result).toEqual({ provider: 'antigravity', model: 'custom-model', source: 'approach' });
   });
 
   it('returns undefined for missing profile', () => {
@@ -2618,7 +2619,7 @@ describe('resolveGraphNodeProfile', () => {
       defaultAgentPreset: 'active',
     });
     const debugSpy = vi.fn();
-    resolveGraphNodeProfile(m, config, 'expert', debugSpy);
+    resolveGraphNodeProfile(m, config, 'expert', undefined, debugSpy);
     expect(debugSpy).toHaveBeenCalledWith(
       '[process] graph node profile "expert" → preset slot (claude)',
     );
@@ -2627,7 +2628,7 @@ describe('resolveGraphNodeProfile', () => {
   it('calls onDebug callback for config profile resolution', () => {
     const m = testManifest();
     const debugSpy = vi.fn();
-    resolveGraphNodeProfile(m, config, 'worker', debugSpy);
+    resolveGraphNodeProfile(m, config, 'worker', undefined, debugSpy);
     expect(debugSpy).toHaveBeenCalledWith(
       '[process] graph node profile "worker" → config (claude/claude-opus-5)',
     );
@@ -2941,5 +2942,169 @@ describe('nodePromptWithReporter', () => {
     expect(prompt).toContain(
       'Report your outcome with:\n- `node "/path/to/cli.js" node complete`\n- `node "/path/to/cli.js" node block --reason "<why>"`\n- `node "/path/to/cli.js" node replan --reason "<why>"`',
     );
+  });
+});
+
+describe('resolveGraphNodeProfile — ticket rungs, gates and source', () => {
+  const config = graphApproachConfig({
+    profiles: {
+      expert: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+      worker: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
+      custom: { provider: 'antigravity', model: 'custom-model' },
+    },
+  });
+  const presets = {
+    active: { label: 'A', slots: { graphExpert: { provider: 'codex', model: 'gpt-5.5', effort: 'high' } } },
+    mine: { label: 'M', slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' } } },
+  } as const;
+  const none = { agentPreset: null, provider: null, model: null, effort: null };
+
+  it('returns source preset for a slot and approach for the config profile', () => {
+    const m = testManifest({ agentPresets: presets, activeAgentPreset: 'active' } as never);
+    expect(resolveGraphNodeProfile(m, config, 'expert', none)?.source).toBe('preset');
+    expect(resolveGraphNodeProfile(testManifest(), config, 'expert', none)?.source).toBe('approach');
+  });
+
+  it('lets the ticket agentPreset beat the active preset', () => {
+    const m = testManifest({ agentPresets: presets, activeAgentPreset: 'active' } as never);
+    const r = resolveGraphNodeProfile(m, config, 'expert', { ...none, agentPreset: 'mine' });
+    expect(r).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low', source: 'preset' });
+  });
+
+  it('lets the ticket provider/model/effort beat the preset slot', () => {
+    const m = testManifest({ agentPresets: presets, activeAgentPreset: 'active' } as never);
+    const r = resolveGraphNodeProfile(m, config, 'expert', {
+      agentPreset: null,
+      provider: 'claude',
+      model: 'claude-opus-5',
+      effort: 'max',
+    });
+    expect(r).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'max', source: 'ticket' });
+  });
+
+  it('drops the whole slot when the ticket names another core (no model crosses cores)', () => {
+    const m = testManifest({ agentPresets: presets, activeAgentPreset: 'active' } as never);
+    const r = resolveGraphNodeProfile(m, config, 'expert', { ...none, provider: 'claude' });
+    expect(r?.provider).toBe('claude');
+    expect(r?.model).toBeUndefined();
+    expect(r?.source).toBe('ticket');
+  });
+
+  it('drops a codex slot that carries a Claude model and falls back to the approach profile', () => {
+    const bad = { bad: { label: 'B', slots: { graphWorker: { provider: 'codex', model: 'claude-opus-5' } } } };
+    const m = testManifest({ agentPresets: bad, activeAgentPreset: 'bad' } as never);
+    const debug = vi.fn();
+    const r = resolveGraphNodeProfile(m, config, 'worker', none, debug);
+    expect(r).toEqual({ provider: 'claude', model: 'claude-sonnet-5', effort: 'low', source: 'approach' });
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('dropped'));
+  });
+
+  it('removes an effort the model does not advertise', () => {
+    const odd = { odd: { label: 'O', slots: { graphExpert: { provider: 'codex', model: 'gpt-5.5', effort: 'turbo' } } } };
+    const m = testManifest({ agentPresets: odd, activeAgentPreset: 'odd' } as never);
+    const r = resolveGraphNodeProfile(m, config, 'expert', none);
+    expect(r).toMatchObject({ provider: 'codex', model: 'gpt-5.5' });
+    expect(r?.effort).toBeUndefined();
+  });
+
+  it('refuses prototype-chain profile ids', () => {
+    expect(resolveGraphNodeProfile(testManifest(), config, 'toString', none)).toBeUndefined();
+    expect(resolveGraphNodeProfile(testManifest(), config, '__proto__', none)).toBeUndefined();
+  });
+
+  it('keeps profile ids outside expert/worker/fast config-only', () => {
+    const m = testManifest({ agentPresets: presets, activeAgentPreset: 'active' } as never);
+    expect(resolveGraphNodeProfile(m, config, 'custom', none)).toMatchObject({
+      provider: 'antigravity',
+      source: 'approach',
+    });
+  });
+});
+
+describe('planner launches resolve through the preset-aware resolver', () => {
+  const slotManifest = (): Manifest =>
+    testManifest({
+      agentPresets: {
+        smart: { label: 'S', slots: { graphExpert: { provider: 'codex', model: 'gpt-5.5', effort: 'high' } } },
+        mine: { label: 'M', slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' } } },
+      },
+      activeAgentPreset: 'smart',
+    } as never);
+
+  function spyAdapters(h: Harness): string[] {
+    const providers: string[] = [];
+    h.deps.adapterFor = (provider) => {
+      providers.push(provider);
+      return fakeAdapter();
+    };
+    return providers;
+  }
+  const interactiveOf = (h: Harness) =>
+    (h.starts[0] as { interactive: { model?: string; effort?: string } }).interactive;
+
+  it('applies the graphExpert slot on bootstrap', async () => {
+    const h = harness();
+    h.deps.manifest = slotManifest();
+    const providers = spyAdapters(h);
+    const result = await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', projectSlug: 'acme',
+    });
+    expect(result.kind).toBe('launched');
+    expect(providers).toContain('codex');
+    expect(interactiveOf(h)).toMatchObject({ model: 'gpt-5.5', effort: 'high' });
+  });
+
+  it('lets the ticket agentPreset beat the active preset on bootstrap', async () => {
+    const h = harness();
+    h.deps.manifest = slotManifest();
+    h.deps.ticketLaunchFieldsOf = () => ({ agentPreset: 'mine', provider: null, model: null, effort: null });
+    await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', projectSlug: 'acme',
+    });
+    expect(interactiveOf(h)).toMatchObject({ model: 'gpt-5.6-sol', effort: 'low' });
+  });
+
+  it('applies the graphExpert slot on relaunch', async () => {
+    const h = harness();
+    h.deps.manifest = slotManifest();
+    const providers = spyAdapters(h);
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', now: NOW,
+    });
+    h.db
+      .prepare(`INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status) VALUES (?, 1, 'bootstrap', 'stale')`)
+      .run(graphRunId);
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(result.kind).toBe('launched');
+    expect(providers).toContain('codex');
+    expect(interactiveOf(h)).toMatchObject({ model: 'gpt-5.5', effort: 'high' });
+  });
+
+  it('applies the graphExpert slot on replan', async () => {
+    const h = harness();
+    h.deps.manifest = slotManifest();
+    const providers = spyAdapters(h);
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', now: NOW,
+    });
+    h.db
+      .prepare(`INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status) VALUES (?, 2, 'replan', 'ready')`)
+      .run(graphRunId);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const result = await launchReplanPlanner(h.deps, {
+      graphRunId, plannerRunId, generation: '', capability: '', prompt: '# replan',
+      cwd: join(h.root, 'wt'), repo: 'api',
+    });
+    expect(result.kind).toBe('launched');
+    expect(providers).toContain('codex');
+    expect(interactiveOf(h)).toMatchObject({ model: 'gpt-5.5', effort: 'high' });
+  });
+
+  it('uses the approach profile when no slot is present', async () => {
+    const h = harness();
+    await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', projectSlug: 'acme',
+    });
+    expect(interactiveOf(h)).toMatchObject({ model: 'claude-opus-5', effort: 'high' });
   });
 });

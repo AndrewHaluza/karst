@@ -21,13 +21,13 @@ import { runMcpServe, type McpToolRunner } from './server.js';
  */
 function isAsyncVerb(argv: readonly string[]): boolean {
   const [verb, sub] = argv;
-  if (verb === 'setup') return sub === 'verify' || sub === 'check';
+  if (verb === 'setup') return sub === 'verify' || sub === 'check' || sub === 'checklist';
   return verb === 'servers' || verb === 'base' || verb === 'stage' || verb === 'artifact' || verb === 'doctor';
 }
 
 /**
  * The real tool runner: a call is the SAME dispatch as a shell call. The async
- * verbs (`servers`, `setup verify`, `setup check`, `base`, `stage`, `artifact`,
+ * verbs (`servers`, `setup verify`, `setup check`, `setup checklist`, `base`, `stage`, `artifact`,
  * `doctor`) route through `runCliAsync`; everything else is the synchronous
  * `runCli`, which opens and closes its store per call.
  */

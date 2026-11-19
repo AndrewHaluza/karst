@@ -255,3 +255,31 @@ describe('validateGraphConfig', () => {
     expect(() => validateGraphConfig({}, 'g')).not.toThrow();
   });
 });
+
+describe('planner.profile validation', () => {
+  it('refuses an inherited-member planner profile', () => {
+    expect(() => validateGraphConfig({ planner: { profile: 'toString' } }, 'g')).toThrow(ManifestError);
+    expect(() => validateGraphConfig({ planner: { profile: 'toString' } }, 'g')).toThrow(
+      /g\.planner\.profile "toString"/,
+    );
+  });
+
+  it('refuses a planner profile that is not declared and not a preset-capable id', () => {
+    expect(() => validateGraphConfig({ planner: { profile: 'ghost' } }, 'g')).toThrow(/g\.planner\.profile "ghost"/);
+  });
+
+  it('accepts a declared custom planner profile and the preset-capable ids', () => {
+    const declared = validateGraphConfig(
+      { planner: { profile: 'mine' }, profiles: { mine: { provider: 'claude', model: 'claude-opus-5' } } },
+      'g',
+    );
+    expect(declared.planner.profile).toBe('mine');
+    expect(validateGraphConfig({ planner: { profile: 'worker' } }, 'g').planner.profile).toBe('worker');
+  });
+
+  it('keeps profile ids from the prototype chain out of the profiles map', () => {
+    const cfg = validateGraphConfig({ profiles: { expert: { provider: 'claude', model: 'claude-opus-5' } } }, 'g');
+    expect(Object.getPrototypeOf(cfg.profiles)).toBeNull();
+    expect('toString' in cfg.profiles).toBe(false);
+  });
+});

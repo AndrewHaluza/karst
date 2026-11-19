@@ -57,7 +57,7 @@ const LIMITS = strictObject(
   Object.fromEntries(Object.entries(GRAPH_HARD_CEILINGS).map(([key, ceiling]) => [key, integer(1, ceiling)])),
 );
 
-/** `maxExpertRuns >= maxReplans + 1` is a validator-only rule. */
+/** `maxExpertRuns >= maxReplans + 1` and `planner.profile` naming a declared (or preset-capable) profile are validator-only rules. */
 const GRAPH = strictObject({
   planner: strictObject({ profile: SHORT_STRING, prompt: strictObject({ artifact: SHORT_STRING }, ['artifact']) }, ['profile']),
   profiles: { type: 'object', additionalProperties: PROFILE },

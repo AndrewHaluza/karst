@@ -74,8 +74,6 @@ export interface FrozenIdentity {
 
 export interface RunAgentNodeDeps {
   transport: AgentTransport;
-  /** Resolve the node's profile to provider/model/effort. */
-  resolveProfile: (profile: string) => { provider: string; model?: string; effort?: string };
   /** Body of the instructions artifact, or undefined when missing. */
   readInstructions: (snapshotPath: string) => string | undefined;
   /** The declared input artifacts, in declaration order, UNBOUNDED — the
@@ -106,6 +104,8 @@ export interface RunAgentNodeInput {
   revisionId: number;
   /** The adapter the transport bridges from (wiring-resolved per provider). */
   adapter: AgentAdapter;
+  /** The launch identity the driver resolved ONCE (adapter and identity share it). */
+  resolved: { provider: string; model?: string; effort?: string };
   /** Repository whose worktree the session runs in. */
   repo: string;
   /** Workspace directory. */
@@ -161,7 +161,7 @@ export async function runAgentNode(
       reason: `exact-model-capability: ${reason}`,
     };
   }
-  const resolved = deps.resolveProfile(input.node.profile);
+  const { resolved } = input;
   const instructions = deps.readInstructions(input.instructionsSnapshot);
   const inputs = boundInputs(deps.readInputs(input.inputSnapshots));
   const prompt = composeNodePrompt(deps.nodePrompt, deps.ticketContext, instructions, inputs);

@@ -88,7 +88,7 @@ describe('bootstrap snapshot', () => {
     const snap = parseRunIdentities(graphRunAgentIdentity(h.db, graphRunId));
     expect(snap?.roles.expert).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'high', source: 'preset' });
     expect(snap?.roles.worker?.model).toBe('claude-sonnet-5');
-    expect(snap?.roles.fast?.source).toBe('config');
+    expect(snap?.roles.fast?.source).toBe('approach');
   });
 
   it('launches the first planner with the snapshot identity', async () => {
