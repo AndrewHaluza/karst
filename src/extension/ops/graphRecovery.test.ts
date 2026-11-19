@@ -174,6 +174,8 @@ describe('parkGraphLaunchFailure', () => {
           transaction: <T>(fn: () => T): T => fn(),
           now: () => '2026-08-12T00:00:00.000Z',
           debug: () => undefined,
+          manifest: {},
+          graphConfigOf: () => undefined,
         }) as never,
       (message) => reported.push(message),
     );

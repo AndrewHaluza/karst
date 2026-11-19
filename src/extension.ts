@@ -259,6 +259,9 @@ import {
 import { graphLaunchDecision } from './approaches/graph/launchGuard.js';
 import { perKeySingleFlight } from './approaches/graph/singleFlight.js';
 import { makeGraphOwnedBinding } from './extension/graphOwnedBinding.js';
+import { agentSettingsChanged } from './approaches/graph/modelChange.js';
+import { ticketLaunchFields } from './approaches/graph/profileResolver.js';
+import { makeModelChangeSeams } from './extension/ops/modelChangeSeams.js';
 import { reattachableSessionIdentity } from './approaches/graph/coordinator/reattach.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './approaches/graph/integration/pipeline.js';
 import { createGraphTabClosers, graphSessionNameOf } from './extension/ops/graphTerminalTabs.js';
@@ -2207,7 +2210,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       reloadManifest,
       warn: (msg: string) => logger.warn(msg),
       listInstalledIds: listInstalledApproachIds,
-      onAgentChoiceChanged: (id: number) => graphOwned.agentChoiceChanged(id),
+      onAgentChoiceChanged: (id: number) =>
+        graphOwned.agentChoiceChanged(id).catch((e) => logError('karst: model-change question failed', e)),
       openUrl: (url: string) => void vscode.env.openExternal(vscode.Uri.parse(url)),
       openSettings: () => void vscode.commands.executeCommand('karst.openSettings'),
       storageDir: context.globalStorageUri.fsPath,
@@ -2312,6 +2316,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildSettingsActions({
       writeManifest,
       reloadManifest,
+      onAgentSettingsSaved: (prev, next) => void graphOwned.agentSettingsSaved(agentSettingsChanged(prev, next), currentProject()?.id).catch((e) => logError('karst: model-change question failed', e)),
       onChange: () => {
         provider.refresh();
         // Re-push any open dashboards so worktree-path display etc. reflect edits.
@@ -3011,6 +3016,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     inform: (m) => void toast.info(m),
     refresh: (id) => { provider.refresh(); dashboard.pushState(id); },
     logError, debug: (m) => logger.debug(m),
+    modelChange: makeModelChangeSeams({ db: () => graphCoordinatorStore?.db, transaction: (fn) => runImmediateTransaction(graphCoordinatorStore!.db, fn), manifest: currentManifest, graphConfigOf: (id) => graphApproachConfigFor(id), ticketLaunchFieldsOf: (id) => ticketLaunchFields(getTicket(graphCoordinatorStore!, id)), label: (id) => formatId('ticket', id), warn: (m, ...a) => ask.warn(m, ...a), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, debug: (m) => logger.debug(m) }),
   });
   let restartGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
 
@@ -4791,10 +4797,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       debug: (message) => logger.debug(message),
       graphConfigOf: graphApproachConfigFor,
       manifest: currentManifest() ?? emptyManifest(),
-      ticketLaunchFieldsOf: (ticketId) => {
-        const t = getTicket(gs!, ticketId);
-        return { agentPreset: t.agentPreset, provider: t.agentProvider, model: t.model, effort: t.effort };
-      },
+      ticketLaunchFieldsOf: (ticketId) => ticketLaunchFields(getTicket(gs!, ticketId)),
       artifactRootOf: graphArtifactRoot,
       graphEnvOf: (input) => {
         const route = graphRouteFor(input.graphRunId);

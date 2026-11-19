@@ -27,6 +27,11 @@ export interface GraphOwnedBindingDeps {
   readonly refresh: (ticketId: number) => void;
   readonly logError: (message: string, error: unknown) => void;
   readonly debug: (message: string) => void;
+  /** T1258: the model-change question and the switch, bound to the live manifest in `extension.ts`. */
+  readonly modelChange?: {
+    /** Asks for the matching live runs; resolves with how many the question covered (0 = none shown). */
+    readonly ask: (filter: { ticketId?: number; projectId?: number }) => Promise<number>;
+  };
 }
 
 export function makeGraphOwnedBinding(deps: GraphOwnedBindingDeps) {
@@ -59,11 +64,25 @@ export function makeGraphOwnedBinding(deps: GraphOwnedBindingDeps) {
         { ticketLabel: deps.label(ticketId), run, liveness },
       );
     },
-    /** An agent, model or preset pick applies to the next launch, not to the running graph. */
-    agentChoiceChanged(ticketId: number): void {
+    /**
+     * An agent, model or preset pick: ask Keep or Switch when the new settings
+     * give a graph run another identity; otherwise say it applies to the next launch.
+     */
+    async agentChoiceChanged(ticketId: number): Promise<void> {
       const db = deps.db();
       const run = db ? deps.activeRun(db, ticketId) : undefined;
-      if (run) deps.inform(graphOwnedChangeMessage(deps.label(ticketId), run));
+      if (!run) return;
+      const asked = deps.modelChange ? await deps.modelChange.ask({ ticketId }) : 0;
+      if (asked === 0) deps.inform(graphOwnedChangeMessage(deps.label(ticketId), run));
+    },
+    /** A Settings Save: ask once for every live run of the window's project when it changed what a graph role resolves to. */
+    async agentSettingsSaved(identityChanged: boolean, projectId: number | undefined): Promise<void> {
+      if (!identityChanged || !deps.modelChange) return;
+      if (projectId === undefined) {
+        deps.debug('[process] model-change question skipped: no project in this window');
+        return;
+      }
+      await deps.modelChange.ask({ projectId });
     },
   };
 }

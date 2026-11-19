@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildSettingsActions, type SettingsActionsDeps } from './actions.js';
 import type { SettingsHostMessage } from './messages.js';
 import type { Manifest, ApproachDef } from '../../manifest/types.js';
@@ -208,6 +208,28 @@ describe('settings actions — save', () => {
     expect(order).toEqual([]); // never wrote
     const e = posted.find((m) => m.type === 'error');
     expect((e as any).message).toMatch(/portRange/);
+  });
+});
+
+describe('settings actions — save notifies the agent-settings listener (T1258)', () => {
+  it('passes the file manifest and the saved manifest after the reload', async () => {
+    const calls: Array<[Manifest, Manifest]> = [];
+    const log: string[] = [];
+    const { actions } = harness({
+      reloadManifest: () => log.push('reload'),
+      onAgentSettingsSaved: (prev, next) => { log.push('agentSettings'); calls.push([prev, next]); },
+    });
+    await actions.save({ ...VALID, activeAgentPreset: 'p2', agentPresets: { p2: { label: 'Two', slots: {} } } });
+    expect(log).toEqual(['reload', 'agentSettings']);
+    expect(calls[0]![0].activeAgentPreset).toBeUndefined();
+    expect(calls[0]![1].activeAgentPreset).toBe('p2');
+  });
+
+  it('does not notify for an invalid draft', async () => {
+    const onAgentSettingsSaved = vi.fn();
+    const { actions } = harness({ onAgentSettingsSaved });
+    await actions.save({ ...VALID, portRange: [9000, 1000] });
+    expect(onAgentSettingsSaved).not.toHaveBeenCalled();
   });
 });
 

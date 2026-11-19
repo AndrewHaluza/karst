@@ -609,6 +609,29 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'auto_recovery_count')).toHaveLength(1);
   });
 
+  it('migrates a pre-v133 database by adding approach_graph_runs.agent_identity, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE approach_graph_runs (id INTEGER PRIMARY KEY, ticket_id INTEGER, status TEXT)');
+    legacy.exec("INSERT INTO approach_graph_runs (ticket_id, status) VALUES (1, 'running')");
+    legacy.pragma('user_version = 132');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('approach_graph_runs')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('agent_identity');
+    expect(migrated.db.prepare('SELECT agent_identity FROM approach_graph_runs').get()).toEqual({ agent_identity: null });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'agent_identity')).toHaveLength(1);
+  });
+
   it('migrates a pre-v132 database by adding wait_ms to gate_runs and deliver_gate_results, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

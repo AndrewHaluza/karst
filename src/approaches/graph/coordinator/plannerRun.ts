@@ -48,6 +48,8 @@ export interface BeginBootstrapInput {
   ticketId: number;
   stageAttempt: number;
   approachId: string;
+  /** The serialized agent identity snapshot the new run starts with (T1258); absent = none, resolved live. */
+  agentIdentity?: string;
 }
 
 export type BeginBootstrapResult =
@@ -94,6 +96,7 @@ export function beginBootstrapPlannerRun(
       stageAttempt: input.stageAttempt,
       approachId: input.approachId,
       now,
+      ...(input.agentIdentity !== undefined ? { agentIdentity: input.agentIdentity } : {}),
     });
     plannerRunId = createPlannerRun(deps.db, {
       graphRunId,

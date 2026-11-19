@@ -86,23 +86,57 @@ describe('launchBlocked', () => {
 });
 
 describe('agentChoiceChanged', () => {
-  it('informs when a graph run is active', () => {
+  it('asks the model-change question for the ticket and stays quiet when it was shown', async () => {
+    const ask = vi.fn(async () => 1);
+    const { deps, binding } = make({ modelChange: { ask } });
+    await binding.agentChoiceChanged(5);
+    expect(ask).toHaveBeenCalledWith({ ticketId: 5 });
+    expect(deps.inform).not.toHaveBeenCalled();
+  });
+
+  it('informs when a graph run is active and no identity differs', async () => {
     const { deps, binding } = make();
-    binding.agentChoiceChanged(5);
+    await binding.agentChoiceChanged(5);
     expect(deps.inform).toHaveBeenCalledWith(graphOwnedChangeMessage('T5', RUN));
   });
 
-  it('stays silent without a run', () => {
-    const { deps, binding } = make({ activeRun: () => undefined });
-    binding.agentChoiceChanged(5);
+  it('stays silent without a run', async () => {
+    const ask = vi.fn(async () => 0);
+    const { deps, binding } = make({ activeRun: () => undefined, modelChange: { ask } });
+    await binding.agentChoiceChanged(5);
     expect(deps.inform).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
   });
 
-  it('stays silent and skips the lookup without a db', () => {
+  it('stays silent and skips the lookup without a db', async () => {
     const activeRun = vi.fn(() => RUN);
     const { deps, binding } = make({ db: () => undefined, activeRun });
-    binding.agentChoiceChanged(5);
+    await binding.agentChoiceChanged(5);
     expect(activeRun).not.toHaveBeenCalled();
     expect(deps.inform).not.toHaveBeenCalled();
+  });
+});
+
+describe('agentSettingsSaved', () => {
+  it('asks for the runs of the window project when the identity inputs changed', async () => {
+    const ask = vi.fn(async () => 2);
+    const { binding } = make({ modelChange: { ask } });
+    await binding.agentSettingsSaved(true, 4);
+    expect(ask).toHaveBeenCalledWith({ projectId: 4 });
+  });
+
+  it('asks nothing and logs when the window has no project', async () => {
+    const ask = vi.fn(async () => 2);
+    const { deps, binding } = make({ modelChange: { ask } });
+    await binding.agentSettingsSaved(true, undefined);
+    expect(ask).not.toHaveBeenCalled();
+    expect(deps.debug).toHaveBeenCalledWith(expect.stringContaining('no project'));
+  });
+
+  it('asks nothing when the identity inputs did not change', async () => {
+    const ask = vi.fn(async () => 2);
+    const { binding } = make({ modelChange: { ask } });
+    await binding.agentSettingsSaved(false, 4);
+    expect(ask).not.toHaveBeenCalled();
   });
 });

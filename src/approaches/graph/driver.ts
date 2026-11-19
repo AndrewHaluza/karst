@@ -48,7 +48,9 @@ import {
   releaseCommandProcessSlot,
   releaseGraphProcessSlot,
 } from '../../store/graph/graphRuns.js';
-import { graphRunById } from '../../store/graph/graphRuns.js';
+import { graphRunAgentIdentity, graphRunById } from '../../store/graph/graphRuns.js';
+import { runModelDifference } from './modelChange.js';
+import { parseRunIdentities, pinnedProfile, resolveRunIdentities, serializeRunIdentities } from './runIdentity.js';
 import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun } from './coordinator/plannerRun.js';
 import { emitGraphDiagnostic } from './diagnostics.js';
 import {
@@ -97,9 +99,11 @@ import type {
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessOutcome } from '../../workflow/gates/run.js';
 import type { GraphApproachConfig, GraphCommandConfig, Manifest } from '../../manifest/types.js';
-import { resolvePresetSlot } from '../../agent/agentPresets.js';
-import { isKnownProvider } from '../../agent/provider.js';
-import { isModelCompatibleWithProvider, resolveEffortForProvider } from '../../agent/models.js';
+import {
+  resolveGraphNodeProfile,
+  type GraphLaunchTicketFields,
+  type ResolvedGraphProfile,
+} from './profileResolver.js';
 import type { GraphPromptIdentity } from '../../agent/graphPrompts.js';
 import type { TerminalNamingBag } from '../../ui/terminalNaming.js';
 import { uuidv7 } from './coordinator/lineage.js';
@@ -267,128 +271,29 @@ export interface BootstrapPlannerInput {
   projectSlug: string;
 }
 
-const hasOwn = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key);
 
-/** Resolve a graph config profile name to provider/model/effort (own keys only). */
-export function resolveProfileFor(
-  config: GraphApproachConfig,
-  profile: string,
-): { provider: string; model?: string; effort?: string } | undefined {
-  if (!hasOwn(config.profiles, profile)) return undefined;
-  const p = config.profiles[profile];
-  if (!p) return undefined;
-  return { provider: p.provider, model: p.model, effort: p.effort };
-}
-
-/** The ticket fields a graph launch reads (AC-04 ticket rungs). */
-export interface GraphLaunchTicketFields {
-  agentPreset: string | null;
-  provider: string | null;
-  model: string | null;
-  effort: string | null;
-}
-
-/** The rung that supplied a graph launch's identity. */
-export type GraphProfileSource = 'ticket' | 'preset' | 'approach';
-
-export interface ResolvedGraphProfile {
-  provider: string;
-  model?: string;
-  effort?: string;
-  source: GraphProfileSource;
-}
-
-const NO_TICKET_FIELDS: GraphLaunchTicketFields = { agentPreset: null, provider: null, model: null, effort: null };
-
-const GRAPH_CAPABILITY_BY_PROFILE: Readonly<Record<string, 'graphExpert' | 'graphWorker' | 'graphFast'>> = {
-  expert: 'graphExpert',
-  worker: 'graphWorker',
-  fast: 'graphFast',
-};
-
-const nonBlank = (v: string | null | undefined): string | undefined =>
-  v !== null && v !== undefined && v.trim() !== '' ? v : undefined;
-
-/** True when `model` may launch on `provider` (undefined model → true; unknown core → true, the adapter lookup refuses it). */
-function modelFits(provider: string, model: string | undefined): boolean {
-  if (model === undefined || !isKnownProvider(provider)) return true;
-  return isModelCompatibleWithProvider(provider, model);
-}
+export { resolveGraphNodeProfile, resolveProfileFor } from './profileResolver.js';
+export type { GraphLaunchTicketFields, GraphProfileSource, ResolvedGraphProfile } from './profileResolver.js';
 
 /**
- * The ONE resolver of a graph agent launch (planner and node), AC-04 order:
- * the ticket's own core/model/effort → the preset slot (ticket `agentPreset` →
- * active preset) for `expert`/`worker`/`fast` → the approach profile. A slot
- * is an atomic triple: a model the slot's core cannot run drops the WHOLE slot,
- * and a ticket core that differs from the slot's drops it too. The catalog gate
- * and the effort gate then run on the result, so nothing unchecked reaches an
- * adapter. `source` names the rung for logs. Own-property lookups only.
+ * The identity a launch of this graph run uses for `profile` (T1258): the run's
+ * snapshot for a graph role it holds, else the live resolution — a pre-v133 run
+ * has no snapshot. Planner, replan, node, retry and autorecovery launches all
+ * read it, so the ticket's own fields are part of the snapshot too.
  */
-export function resolveGraphNodeProfile(
-  manifest: Manifest,
+function launchProfileOfRun(
+  deps: GraphDriverDeps,
+  graphRunId: number,
   config: GraphApproachConfig,
   profile: string,
-  ticket: GraphLaunchTicketFields = NO_TICKET_FIELDS,
-  onDebug?: (message: string) => void,
+  ticketId: number,
 ): ResolvedGraphProfile | undefined {
-  const capability = hasOwn(GRAPH_CAPABILITY_BY_PROFILE, profile)
-    ? GRAPH_CAPABILITY_BY_PROFILE[profile]
-    : undefined;
-  const slot = capability ? resolvePresetSlot(manifest, capability, ticket.agentPreset) : undefined;
-  let base: ResolvedGraphProfile | undefined;
-  if (slot && modelFits(slot.provider, slot.model)) {
-    base = { provider: slot.provider, model: slot.model, effort: slot.effort, source: 'preset' };
-  } else if (slot) {
-    onDebug?.(
-      `[process] graph node profile "${profile}": preset slot (${slot.provider}/${slot.model}) dropped — model not compatible with ${slot.provider}`,
-    );
-  }
-  if (!base) {
-    const approach = resolveProfileFor(config, profile);
-    if (approach) {
-      base = { ...approach, source: 'approach' };
-      if (!modelFits(approach.provider, approach.model)) {
-        onDebug?.(
-          `[process] graph node profile "${profile}": approach model ${approach.model} dropped — not compatible with ${approach.provider}`,
-        );
-        base = { provider: approach.provider, source: 'approach' };
-      }
-    }
-  }
-
-  const ticketProvider = nonBlank(ticket.provider);
-  if (ticketProvider && base?.provider !== ticketProvider) {
-    base = { provider: ticketProvider, source: 'ticket' };
-  } else if (ticketProvider && base) {
-    base = { ...base, source: 'ticket' };
-  }
-  if (!base) return undefined;
-  const ticketModel = nonBlank(ticket.model);
-  const ticketEffort = nonBlank(ticket.effort);
-  if (ticketModel && modelFits(base.provider, ticketModel)) {
-    base = { ...base, model: ticketModel, source: 'ticket' };
-  }
-  if (ticketEffort) base = { ...base, effort: ticketEffort, source: 'ticket' };
-
-  const effort = isKnownProvider(base.provider)
-    ? resolveEffortForProvider(base.provider, base.effort, undefined, base.model)
-    : base.effort;
-  if (base.effort !== undefined && effort === undefined) {
-    onDebug?.(`[process] graph node profile "${profile}": effort ${base.effort} dropped — not supported by the model`);
-  }
-  const resolved: ResolvedGraphProfile = {
-    provider: base.provider,
-    ...(base.model !== undefined ? { model: base.model } : {}),
-    ...(effort !== undefined ? { effort } : {}),
-    source: base.source,
-  };
-  const label = { ticket: 'ticket', preset: 'preset slot', approach: 'config' }[resolved.source];
-  onDebug?.(
-    resolved.source === 'preset'
-      ? `[process] graph node profile "${profile}" → preset slot (${resolved.provider})`
-      : `[process] graph node profile "${profile}" → ${label} (${resolved.provider}${resolved.model ? `/${resolved.model}` : ''})`,
+  const pinned = pinnedProfile(parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId)), profile);
+  if (!pinned) return resolveLaunchProfile(deps, config, profile, ticketId);
+  deps.debug?.(
+    `[process] graph run ${graphRunId} profile "${profile}" → ${pinned.provider}${pinned.model ? `/${pinned.model}` : ''} (run snapshot)`,
   );
-  return resolved;
+  return pinned;
 }
 
 /** Read the launching ticket's fields through the narrow dep, then resolve once. */
@@ -531,7 +436,14 @@ export async function bootstrapAndLaunchPlanner(
       projectSlug: input.projectSlug,
       now: deps.now,
     },
-    { ticketId: input.ticketId, stageAttempt: input.stageAttempt, approachId: input.approachId },
+    {
+      ticketId: input.ticketId,
+      stageAttempt: input.stageAttempt,
+      approachId: input.approachId,
+      agentIdentity: serializeRunIdentities(
+        resolveRunIdentities(deps.manifest, config, deps.ticketLaunchFieldsOf(input.ticketId)),
+      ),
+    },
   );
   if (!begun.ok) {
     return { kind: 'instructions-missing', reason: begun.reason };
@@ -541,7 +453,7 @@ export async function bootstrapAndLaunchPlanner(
   // never leaves `ready` needs no recovery, while one parked at `launching`
   // invites the reconcile sweep to relaunch a planner whose profile or
   // worktree will refuse it again on every pass.
-  const resolved = resolveLaunchProfile(deps, config, config.planner.profile, input.ticketId);
+  const resolved = launchProfileOfRun(deps, graphRunId, config, config.planner.profile, input.ticketId);
   if (!resolved) {
     return {
       kind: 'failed',
@@ -686,7 +598,7 @@ export async function relaunchBootstrapPlanner(
   const { plannerRunId } = begun;
   // Refuse before the claim, exactly as the bootstrap path does: a planner
   // left at `ready` is not a launch the sweep will keep retrying.
-  const resolved = resolveLaunchProfile(deps, config, config.planner.profile, runTicketId(deps, input.graphRunId));
+  const resolved = launchProfileOfRun(deps, input.graphRunId, config, config.planner.profile, runTicketId(deps, input.graphRunId));
   if (!resolved) {
     return {
       kind: 'failed',
@@ -893,7 +805,7 @@ async function executeReadyNode(
   const approachId = runApproachId(deps, graphRunId);
   const config = deps.graphConfigOf(approachId);
   const resolved = config
-    ? resolveLaunchProfile(deps, config, node.profile, runTicketId(deps, graphRunId))
+    ? launchProfileOfRun(deps, graphRunId, config, node.profile, runTicketId(deps, graphRunId))
     : undefined;
   if (!resolved) {
     completeDeterministic(deps, row.id, 'blocked');
@@ -1400,10 +1312,34 @@ export function parkLaunchFailure(
       now: deps.now(),
     });
     if (casStatus(deps.db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, graphRunId, 'running', 'blocked')) {
-      markGraphRunBlocked(deps.db, graphRunId, runReason, deps.now());
+      markGraphRunBlocked(deps.db, graphRunId, withModelDifference(deps, graphRunId, runReason), deps.now());
     }
     releaseGraphProcessSlot(deps.db, graphRunId, deps.now());
   });
+}
+
+/**
+ * T1258: a launch failure under a run whose snapshot differs from the current
+ * settings names the difference, so a quota or bad-model block shows why the
+ * run still uses its start models. The recovery category
+ * reads the reason's prefix, so the note goes after it.
+ */
+function withModelDifference(deps: GraphDriverDeps, graphRunId: number, reason: string): string {
+  if (!reason.startsWith('failed-to-launch')) return reason;
+  let difference: string | undefined;
+  try {
+    difference = runModelDifference(
+      { db: deps.db, manifest: deps.manifest, graphConfigOf: deps.graphConfigOf, ticketLaunchFieldsOf: deps.ticketLaunchFieldsOf },
+      graphRunId,
+    );
+  } catch (err) {
+    // The note is optional: a lookup failure must never keep the park from blocking the run.
+    deps.debug?.(`[driver] model difference lookup failed for graph run ${graphRunId}: ${err instanceof Error ? err.message : String(err)}`);
+    return reason;
+  }
+  return difference === undefined
+    ? reason
+    : `${reason} · the settings now give other models (${difference}); the run keeps its start models`;
 }
 
 /** Cap for the captured provider line recorded as a launch-failure reason,
@@ -1479,7 +1415,7 @@ export async function launchReplanPlanner(
   if (!run) return { kind: 'no-op' };
   const config = deps.graphConfigOf(run.approach_id);
   const resolved = config
-    ? resolveLaunchProfile(deps, config, config.planner.profile, runTicketId(deps, launch.graphRunId))
+    ? launchProfileOfRun(deps, launch.graphRunId, config, config.planner.profile, runTicketId(deps, launch.graphRunId))
     : undefined;
   if (!resolved) {
     return { kind: 'failed', reason: `planner profile of approach "${run.approach_id}" is unresolved` };
