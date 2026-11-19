@@ -131,21 +131,24 @@ function checkPorts(name: string, service: ServiceDef, p: ManifestProbes): Docto
 }
 
 /**
- * A service with an HTTP health URL whose declared default port is on the Fetch
- * blocked-port list can never pass its health check: Node's `fetch` throws
- * `bad port` and Chrome refuses the port. A `tcp://` health works there, and a
- * hard manifest error would stop the whole manifest, so this is a warning only.
+ * A service whose HEALTH check is HTTP and whose PRIMARY port default is on the
+ * Fetch blocked-port list can never pass: Node's `fetch` throws `bad port` and
+ * Chrome refuses the port. No `health` means HTTP for a command service
+ * (`runtime/serviceLaunch.ts#defaultHealthUrl`) and `tcp://` for a container.
+ * A `tcp://` health works on these ports, and a hard manifest error would stop
+ * the whole manifest, so this is a warning only. The primary slot is the one the
+ * health check probes: `http`, else the first declared (`startOne.ts#primaryPortSlot`).
  * Returns nothing when the service is fine.
  */
 function checkBlockedDefaults(name: string, service: ServiceDef): DoctorCheck | undefined {
-  if (service.health === undefined || service.health.startsWith('tcp://')) return undefined;
-  const blocked = service.ports.filter((slot) => isBlockedPort(slot.default));
-  if (blocked.length === 0) return undefined;
-  const named = blocked.map((slot) => `${slot.default} (${slot.name})`).join(', ');
+  const tcp = service.health === undefined ? service.docker !== undefined : service.health.startsWith('tcp://');
+  if (tcp) return undefined;
+  const primary = service.ports.find((slot) => slot.name === 'http') ?? service.ports[0];
+  if (primary === undefined || !isBlockedPort(primary.default)) return undefined;
   return check(
     `manifest.blocked-ports.${name}`,
     'warn',
-    `default port is blocked by fetch and Chrome, so the HTTP health check cannot pass: ${named}`,
+    `default port is blocked by fetch and Chrome, so the HTTP health check cannot pass: ${primary.default} (${primary.name})`,
     consented(
       'Use a default port that is not on the Fetch blocked-port list, or use a tcp:// health',
       `Change the default port or the health URL for "${name}" in karst.yml`,
