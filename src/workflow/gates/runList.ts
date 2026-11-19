@@ -9,12 +9,22 @@ import { isUiGate } from './uiScope.js';
 import { gateTimeoutMs, runProcess, type GateOutputChunk, type GateProcessRunner, type ProcessOutcome } from './run.js';
 
 /**
- * Run a resolved gate list sequentially in one worktree.
+ * Run a resolved gate list in one worktree, in two lanes (@arch:GATE-CONCURRENCY).
  *
- * Sequential, not `Promise.all`: several npm scripts racing in one worktree fight
- * over the same node_modules and build output, and their interleaved text lands in
- * one unreadable artifact. Each still runs async, so the extension host keeps
- * serving hooks and webviews throughout.
+ * Lane 1 holds the UI gates (`isUiGate`: the visual sweep runs in its own container), lane 2 holds
+ * every other gate. The lanes run side by side; inside a lane the gates run one after the other in
+ * manifest order, so two vitest gates never run at once and the `node_modules` and build output of
+ * the worktree keep a single writer per lane. A list with gates in only one lane is the old
+ * sequential run. Each gate still runs async, so the extension host keeps serving hooks and
+ * webviews throughout.
+ *
+ * Each gate's output is captured on its own: the caller builds the artifact sections from
+ * `results` after the list returns, and `onGateOutput` carries the gate name with every chunk.
+ * `results` are in manifest order and each carries its `index` in `gates`, also after a Stop
+ * (a gate that did not finish leaves no row, and no later row shifts its identity).
+ *
+ * A throw in one lane (a lease error) aborts the other lane through an internal signal and waits
+ * for it to settle before the error is thrown again, so no gate process outlives the call.
  *
  * No short-circuit on the first failure. The attempt cap makes complete
  * information per attempt worth more than saved minutes: an agent that learns
@@ -62,7 +72,10 @@ export interface RunGatesOptions {
   /**
    * Called BEFORE each gate's work begins, with the gate's name — the live
    * counterpart of `onGateComplete`, so callers can flip a process header to
-   * `run` the moment the gate starts rather than only after it lands.
+   * `run` the moment the gate starts rather than only after it lands. With two
+   * lanes, it is called again with the gate that still runs after another gate
+   * ended (right after that gate's `onGateComplete`), so a reader that shows ONE
+   * running gate (`deliver_runs.current_gate`, the Inside gates row) never names a gate that ended.
    */
   onGateStart?: (gateName: string) => void;
   /**
@@ -126,16 +139,28 @@ export interface RunGatesOptions {
   gateSlotPollMs?: number;
 }
 
+export type RunGateListResult =
+  | { kind: 'ran'; results: GateResult[]; regenerateFailed?: true }
+  | { kind: 'stopped'; results: GateResult[] };
+
+interface GateRun {
+  readonly gates: readonly ResolvedGate[];
+  readonly cwd: string;
+  readonly opts: RunGatesOptions;
+  readonly now: () => string;
+  /** The signal every gate sees: the caller's Stop, or a lane's throw (see `runGateList`). */
+  readonly signal: AbortSignal;
+}
+
+/** What one gate yields: its result, or `undefined` when a Stop landed before it ended. */
+type GateEnd = { readonly result: GateResult } | undefined;
+
 export async function runGateList(
   gates: readonly ResolvedGate[],
   cwd: string,
   opts: RunGatesOptions = {},
-): Promise<
-  | { kind: 'ran'; results: GateResult[]; regenerateFailed?: true }
-  | { kind: 'stopped'; results: GateResult[] }
-> {
+): Promise<RunGateListResult> {
   const now = opts.now ?? nowIso;
-  const results: GateResult[] = [];
   const onDebug = opts.onDebug;
   if (opts.regenerate && opts.regenerate.commands.length > 0) {
     const regenName = regenerateGateName(opts.regenerate.repo);
@@ -153,103 +178,163 @@ export async function runGateList(
       opts.sandboxed === true,
       now,
     );
-    if (regen.kind === 'stopped') return { kind: 'stopped', results };
+    if (regen.kind === 'stopped') return { kind: 'stopped', results: [] };
     // Index -1: the evidence row is not one of the resolved gates. Written on EVERY run
     // (ok too), so a regenerate that changed nothing or never committed is still visible.
     const r = regen.result;
     opts.onGateComplete?.(r.name, r.exitCode, r.startedAt ?? null, r.endedAt ?? null, -1, r.output, null);
     if (regen.kind === 'failed') return { kind: 'ran', results: [r], regenerateFailed: true };
   }
-  for (const [index, gate] of gates.entries()) {
-    if (opts.signal?.aborted) return { kind: 'stopped', results };
-    opts.onGateStart?.(gate.name);
-    const startedAt = now();
+
+  // The internal controller follows the caller's Stop and adds the abort of a failing lane.
+  const controller = new AbortController();
+  const follow = (): void => controller.abort();
+  if (opts.signal?.aborted) controller.abort();
+  else opts.signal?.addEventListener('abort', follow, { once: true });
+  const run: GateRun = { gates, cwd, opts, now, signal: controller.signal };
+
+  const slots: (GateResult | undefined)[] = gates.map(() => undefined);
+  // Gates that started and have not ended, in start order: the label a single-gate reader shows.
+  const running = new Map<number, string>();
+  let stopped = false;
+  const runLane = async (indexes: readonly number[]): Promise<void> => {
+    for (const index of indexes) {
+      if (run.signal.aborted) {
+        stopped = true;
+        return;
+      }
+      const gate = gates[index]!;
+      running.set(index, gate.name);
+      opts.onGateStart?.(gate.name);
+      let end: GateEnd;
+      try {
+        end = await runOneGate(run, index);
+      } finally {
+        running.delete(index);
+      }
+      if (end === undefined) {
+        stopped = true;
+        return;
+      }
+      slots[index] = { ...end.result, index };
+      // A reader of one running gate (current_gate, the Inside gates row) must name a gate
+      // that still runs once this one has ended, so the survivor is announced again.
+      const [survivor] = [...running.values()].reverse();
+      if (survivor !== undefined) opts.onGateStart?.(survivor);
+    }
+  };
+
+  const uiLane: number[] = [];
+  const mainLane: number[] = [];
+  for (const [index, gate] of gates.entries()) (isUiGate(gate) ? uiLane : mainLane).push(index);
+  const lanes = [uiLane, mainLane].filter((lane) => lane.length > 0);
+  const settled = await Promise.allSettled(
+    lanes.map((lane) =>
+      runLane(lane).catch((err: unknown) => {
+        // Stop the other lane's gates now, then rethrow once every lane has settled.
+        controller.abort();
+        throw err;
+      }),
+    ),
+  );
+  opts.signal?.removeEventListener('abort', follow);
+  const failure = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+  if (failure) throw failure.reason;
+  const results = slots.filter((r): r is GateResult => r !== undefined);
+  return stopped ? { kind: 'stopped', results } : { kind: 'ran', results };
+}
+
+/** Run one gate of the list: leases, spawn, resource-kill retry. `undefined` = a Stop ended it. */
+async function runOneGate(run: GateRun, index: number): Promise<GateEnd> {
+  const { gates, cwd, opts, now, signal } = run;
+  const gate = gates[index]!;
+  const onDebug = opts.onDebug;
+  const startedAt = now();
+  onDebug?.(
+    `[gate] ${gate.name}: gate ${index + 1} of ${gates.length} — ` +
+      `${gate.command}${gate.args.length > 0 ? ` ${gate.args.join(' ')}` : ''}`,
+  );
+
+  if (gate.script !== null && gate.required && opts.scriptsAvailable?.(gate.script, gate.derivedScript === true) === false) {
+    // The config named a question this repo cannot answer. A failure, not null —
+    // and agent-fixable, because both the config and the missing script are in
+    // the repository. Caught here rather than by spawning `npm run`, whose
+    // "Missing script" exit 1 would read as a verdict about the ticket's code.
+    const endedAt = now();
+    const baseDefines = await opts.baseDefinesScript?.(gate.script);
+    if (baseDefines === true) {
+      const base = opts.baseRef ?? 'the base branch';
+      const reason =
+        `gate "${gate.name}" ${gate.derivedScript === true ? 'runs' : 'needs'} npm script "${gate.script}", which ${base} defines but this branch does not — ` +
+        `rebase onto ${base} ("Rebase on base")`;
+      onDebug?.(`[gate] ${gate.name}: ${reason}`);
+      opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, reason, null);
+      return { result: { name: gate.name, exitCode: 1, output: reason, staleBranch: reason, startedAt, endedAt } };
+    }
     onDebug?.(
-      `[gate] ${gate.name}: gate ${index + 1} of ${gates.length} — ` +
-        `${gate.command}${gate.args.length > 0 ? ` ${gate.args.join(' ')}` : ''}`,
+      `[gate] ${gate.name}: configured script "${gate.script}" is missing from package.json (required gate)`,
     );
-
-    if (gate.script !== null && gate.required && opts.scriptsAvailable?.(gate.script, gate.derivedScript === true) === false) {
-      // The config named a question this repo cannot answer. A failure, not null —
-      // and agent-fixable, because both the config and the missing script are in
-      // the repository. Caught here rather than by spawning `npm run`, whose
-      // "Missing script" exit 1 would read as a verdict about the ticket's code.
-      const endedAt = now();
-      const baseDefines = await opts.baseDefinesScript?.(gate.script);
-      if (baseDefines === true) {
-        const base = opts.baseRef ?? 'the base branch';
-        const reason =
-          `gate "${gate.name}" ${gate.derivedScript === true ? 'runs' : 'needs'} npm script "${gate.script}", which ${base} defines but this branch does not — ` +
-          `rebase onto ${base} ("Rebase on base")`;
-        onDebug?.(`[gate] ${gate.name}: ${reason}`);
-        results.push({ name: gate.name, exitCode: 1, output: reason, staleBranch: reason, startedAt, endedAt });
-        opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, reason, null);
-        continue;
-      }
-      onDebug?.(
-        `[gate] ${gate.name}: configured script "${gate.script}" is missing from package.json (required gate)`,
-      );
-      results.push({
-        name: gate.name,
-        exitCode: 1,
-        output: `configured gate "${gate.name}" needs a "${gate.script}" script, which package.json does not define${baseDefines === false ? ' (nor does the base branch)' : ''}`,
-        startedAt,
-        endedAt,
-      });
-      opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, results[results.length - 1]!.output, null);
-      continue;
-    }
-
-    const timeoutMs = gateTimeoutMs(gate, isUiGate(gate));
-    const runOpts = {
-      signal: opts.signal,
-      ...(timeoutMs === undefined ? {} : { timeoutMs }),
-      onDebug,
-      onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
-      onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid, cwd) : undefined,
+    const result: GateResult = {
+      name: gate.name,
+      exitCode: 1,
+      output: `configured gate "${gate.name}" needs a "${gate.script}" script, which package.json does not define${baseDefines === false ? ' (nor does the base branch)' : ''}`,
+      startedAt,
+      endedAt,
     };
-    const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
-    // A gate with `maxConcurrent` waits here for a host-wide slot, before any spawn (arch:GATE-CONCURRENCY).
-    let slotWaitMs = 0;
-    let gateLease: { release: () => Promise<void> } | undefined;
-    if (gate.maxConcurrent !== undefined) {
-      const leaseFrom = Date.now();
-      try {
-        gateLease = await leaseGateSlot(gate.name, gate.maxConcurrent, {
-          dir: opts.gateSlotsDir,
-          pollMs: opts.gateSlotPollMs,
-          signal: opts.signal,
-          onWait: (held) =>
-            opts.onGateOutput?.(gate.name, {
-              stream: 'stderr',
-              text: `${gate.name}: waiting for a free slot (${held} of ${gate.maxConcurrent} in use by other tickets)\n`,
-            }),
-        });
-      } catch (err) {
-        if (opts.signal?.aborted) return { kind: 'stopped', results };
-        throw err;
-      }
-      slotWaitMs += Date.now() - leaseFrom;
-    }
-    // Integration suites own fixed port bands; concurrent gates (other tickets'
-    // worktrees) must not share one, so each leases a slot and runs shifted.
-    let lease: PortSlotLease | undefined;
-    if (isIntegrationGate(gate)) {
-      const portFrom = Date.now();
-      try {
-        lease = await leasePortSlot({ signal: opts.signal, onDebug });
-        slotWaitMs += Date.now() - portFrom;
-      } catch (err) {
-        // Only a Stop is a stop; any other lease failure is an environment fault
-        // and must surface, not masquerade as the user cancelling.
-        await gateLease?.release();
-        if (opts.signal?.aborted) return { kind: 'stopped', results };
-        throw err;
-      }
-    }
-    let outcome: ProcessOutcome;
-    let resourceKilled: string | undefined;
+    opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, result.output, null);
+    return { result };
+  }
+
+  const timeoutMs = gateTimeoutMs(gate, isUiGate(gate));
+  const runOpts = {
+    signal,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    onDebug,
+    onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
+    onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid, cwd) : undefined,
+  };
+  const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
+  // A gate with `maxConcurrent` waits here for a host-wide slot, before any spawn (arch:GATE-CONCURRENCY).
+  let slotWaitMs = 0;
+  let gateLease: { release: () => Promise<void> } | undefined;
+  if (gate.maxConcurrent !== undefined) {
+    const leaseFrom = Date.now();
     try {
+      gateLease = await leaseGateSlot(gate.name, gate.maxConcurrent, {
+        dir: opts.gateSlotsDir,
+        pollMs: opts.gateSlotPollMs,
+        signal,
+        onWait: (held) =>
+          opts.onGateOutput?.(gate.name, {
+            stream: 'stderr',
+            text: `${gate.name}: waiting for a free slot (${held} of ${gate.maxConcurrent} in use by other tickets)\n`,
+          }),
+      });
+    } catch (err) {
+      if (signal.aborted) return undefined;
+      throw err;
+    }
+    slotWaitMs += Date.now() - leaseFrom;
+  }
+  // Integration suites own fixed port bands; concurrent gates (other tickets'
+  // worktrees) must not share one, so each leases a slot and runs shifted.
+  let lease: PortSlotLease | undefined;
+  if (isIntegrationGate(gate)) {
+    const portFrom = Date.now();
+    try {
+      lease = await leasePortSlot({ signal, onDebug });
+      slotWaitMs += Date.now() - portFrom;
+    } catch (err) {
+      // Only a Stop is a stop; any other lease failure is an environment fault
+      // and must surface, not masquerade as the user cancelling.
+      await gateLease?.release();
+      if (signal.aborted) return undefined;
+      throw err;
+    }
+  }
+  let outcome: ProcessOutcome;
+  let resourceKilled: string | undefined;
+  try {
     const offsetEnv = lease ? [`${PORT_OFFSET_ENV}=${lease.offset}`] : [];
     // Every spawn of this gate (first run, host fallback, resource-kill retry) runs in the leased band.
     // The ticket's base branch reaches every gate process, host or sandbox (the D360 drift check reads it).
@@ -262,13 +347,13 @@ export async function runGateList(
       ...(opts.firstPass ? [`KARST_GATE_FIRST_PASS=${opts.firstPass}`] : []),
       ...(opts.prBody !== undefined ? [`PR_BODY=${opts.prBody}`, ...(opts.baseRef ? [`BASE_REF=${opts.baseRef}`] : [])] : []),
     ];
-    const launchOnce = (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
+    const launchOnce = (proc: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> =>
       extraEnv.length + offsetEnv.length + baseEnv.length > 0
-        ? run('env', [...baseEnv, ...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)
-        : run(gate.command, gate.args, cwd, runOpts);
+        ? proc('env', [...baseEnv, ...extraEnv, ...offsetEnv, gate.command, ...gate.args], cwd, runOpts)
+        : proc(gate.command, gate.args, cwd, runOpts);
     // A sandbox runner reports its own slot wait on the outcome; every spawn of the gate adds its share.
-    const launch = async (run: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> => {
-      const launched = await launchOnce(run, extraEnv);
+    const launch = async (proc: GateProcessRunner, extraEnv: readonly string[] = []): Promise<ProcessOutcome> => {
+      const launched = await launchOnce(proc, extraEnv);
       slotWaitMs += launched.waitMs ?? 0;
       return launched;
     };
@@ -281,50 +366,51 @@ export async function runGateList(
       if (policy === 'host' && opts.hostProcess && !onHost) {
         outcome = await launch(opts.hostProcess);
       } else if (policy !== 'park') {
-        const run = onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess);
-        outcome = await launch(run, [`${GATE_MAX_WORKERS_ENV}=1`]);
+        const proc = onHost ? opts.hostProcess! : (opts.runProcess ?? runProcess);
+        outcome = await launch(proc, [`${GATE_MAX_WORKERS_ENV}=1`]);
       }
       if (outcome.kind === 'completed' && isResourceKill({ name: gate.name, exitCode: outcome.exitCode, output: outcome.output })) {
         resourceKilled = resourceKillReason(gate.name, sandboxed);
       }
     }
-    } finally {
-      await lease?.release();
-      await gateLease?.release();
-    }
+  } finally {
+    await lease?.release();
+    await gateLease?.release();
+  }
 
-    if (outcome.kind === 'aborted') return { kind: 'stopped', results };
-    if (outcome.kind === 'spawnFailed' && !gate.required && gate.script !== null) {
-      // A discovered script whose binary vanished between probe and spawn: karst
-      // had no question to ask after all, so it stays null rather than becoming a
-      // verdict about the ticket's code.
-      onDebug?.(`[gate] ${gate.name}: discovered script's binary is gone — recorded as nothing to run`);
-      results.push({
-        name: gate.name,
-        exitCode: null,
-        output: `no "${gate.script}" script available — nothing to run`,
-      });
-      opts.onGateComplete?.(gate.name, null, null, null, index, results[results.length - 1]!.output, null);
-      continue;
-    }
-    if (outcome.kind === 'spawnFailed' && gate.sandbox === 'host' && opts.hostProcess) {
-      // A host gate the host boundary refused (arch:SANDBOX-HOST): it never ran, so
-      // it has no verdict. Null + `hostRefused`, for required and optional gates alike.
-      onDebug?.(`[gate] ${gate.name}: host gate refused — recorded as capability-missing: ${outcome.message}`);
-      results.push({ name: gate.name, exitCode: null, output: outcome.output, hostRefused: true });
-      opts.onGateComplete?.(gate.name, null, null, null, index, outcome.output, null);
-      continue;
-    }
-    const endedAt = now();
-    const exitCode = outcome.kind === 'completed' ? outcome.exitCode : 1;
-    const output =
-      exitCode !== 0 && outcome.output.trim() === ''
-        ? `exited ${exitCode} with no output (command: ${[gate.command, ...gate.args].join(' ')})`
-        : outcome.output;
-    onDebug?.(
-      `[gate] ${gate.name}: ${outcome.kind} (exit ${outcome.kind === 'completed' ? outcome.exitCode : 1}) — ${outcome.output.length} byte(s)`,
-    );
-    results.push({
+  if (outcome.kind === 'aborted') return undefined;
+  if (outcome.kind === 'spawnFailed' && !gate.required && gate.script !== null) {
+    // A discovered script whose binary vanished between probe and spawn: karst
+    // had no question to ask after all, so it stays null rather than becoming a
+    // verdict about the ticket's code.
+    onDebug?.(`[gate] ${gate.name}: discovered script's binary is gone — recorded as nothing to run`);
+    const result: GateResult = {
+      name: gate.name,
+      exitCode: null,
+      output: `no "${gate.script}" script available — nothing to run`,
+    };
+    opts.onGateComplete?.(gate.name, null, null, null, index, result.output, null);
+    return { result };
+  }
+  if (outcome.kind === 'spawnFailed' && gate.sandbox === 'host' && opts.hostProcess) {
+    // A host gate the host boundary refused (arch:SANDBOX-HOST): it never ran, so
+    // it has no verdict. Null + `hostRefused`, for required and optional gates alike.
+    onDebug?.(`[gate] ${gate.name}: host gate refused — recorded as capability-missing: ${outcome.message}`);
+    opts.onGateComplete?.(gate.name, null, null, null, index, outcome.output, null);
+    return { result: { name: gate.name, exitCode: null, output: outcome.output, hostRefused: true } };
+  }
+  const endedAt = now();
+  const exitCode = outcome.kind === 'completed' ? outcome.exitCode : 1;
+  const output =
+    exitCode !== 0 && outcome.output.trim() === ''
+      ? `exited ${exitCode} with no output (command: ${[gate.command, ...gate.args].join(' ')})`
+      : outcome.output;
+  onDebug?.(
+    `[gate] ${gate.name}: ${outcome.kind} (exit ${outcome.kind === 'completed' ? outcome.exitCode : 1}) — ${outcome.output.length} byte(s)`,
+  );
+  opts.onGateComplete?.(gate.name, exitCode, startedAt, endedAt, index, output, slotWaitMs);
+  return {
+    result: {
       name: gate.name,
       exitCode,
       output,
@@ -332,10 +418,8 @@ export async function runGateList(
       endedAt,
       waitMs: slotWaitMs,
       ...(resourceKilled !== undefined ? { resourceKilled } : {}),
-    });
-    opts.onGateComplete?.(gate.name, exitCode, startedAt, endedAt, index, output, slotWaitMs);
-  }
-  return { kind: 'ran', results };
+    },
+  };
 }
 
 /** Gates running the `*.integration.test.*` suites, whose fixed port bands must not be shared across worktrees. */

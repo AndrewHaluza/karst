@@ -42,4 +42,10 @@ export interface GateResult {
    * runner slot) before the process spawned. Absent for a gate that never ran.
    */
   waitMs?: number;
+  /**
+   * The gate's position in the resolved gate list. Set by `runGateList`, which returns results in manifest
+   * order but, after a Stop, only for the gates that finished: a caller reads the gate's identity by `index`,
+   * never by the position in `results`. Absent on a failed regenerate result (not one of the gates).
+   */
+  index?: number;
 }

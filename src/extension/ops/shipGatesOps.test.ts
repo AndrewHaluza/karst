@@ -227,20 +227,38 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     expect(rows[0]!.summary).toBe(NO_UI_CHANGE_REASON);
     expect(rows[1]!.summary).toBe(NO_UI_CHANGE_REASON);
   });
+  it('names a gate that still runs as the current gate after the other lane ended', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-1', title: 't' }).id;
+    let sampled: string | null | undefined;
+    const runProcess: GateProcessRunner = async (_cmd, args) => {
+      // The UI lane starts first; the main lane (unit, started last) ends first. The visual gate samples later.
+      if (args.includes('test:visual:docker')) {
+        await new Promise((r) => setTimeout(r, 40));
+        sampled = currentDeliverRun(store, ticketId)?.currentGate;
+      }
+      return { kind: 'completed', exitCode: 0, output: '' };
+    };
+    await runShipGates([repoWith(scripts)], { uat: uiGates, runProcess, git: gitDiff(['src/ui/a.tsx']), gateEnv: () => ({ prBody: '', baseRef: 'develop' }), evidence: { store, ticketId } });
+    expect(sampled).toBe('visual');
+  });
   it('runs the UI gates when the diff has a UI path', async () => {
     const { ran } = await run(gitDiff(['src/ui/a.tsx']));
-    expect(ran).toEqual(names);
+    // The UI lane and the main lane start together, so the start order is not the manifest order.
+    expect([...ran].sort()).toEqual([...names].sort());
   });
   it('runs the UI gates when the diff is unreadable', async () => {
     const { ran } = await run(gitDiff([], true));
-    expect(ran).toEqual(names);
+    // The UI lane and the main lane start together, so the start order is not the manifest order.
+    expect([...ran].sort()).toEqual([...names].sort());
   });
   it('runs the UI gates when no base ref is known', async () => {
     const pr = repoWith(scripts);
     const ran: string[] = [];
     const runProcess: GateProcessRunner = async (_cmd, args) => { ran.push(args.find((a) => names.includes(a)) ?? '?'); return { kind: 'completed', exitCode: 0, output: '' }; };
     await runShipGates([pr], { uat: uiGates, runProcess, git: gitDiff(['src/store/a.ts']) });
-    expect(ran).toEqual(names);
+    // The UI lane and the main lane start together, so the start order is not the manifest order.
+    expect([...ran].sort()).toEqual([...names].sort());
   });
 
   it('runs only the named gates and records the run as after-take-over', async () => {
@@ -349,7 +367,7 @@ describe('runShipGates on a base-moved merge (D541)', () => {
     expect(listDeliverResults(store, ticketId).find((r) => r.gateName === 'visual')).toMatchObject({ exitCode: null, summary: reason });
   });
   it('runs the visual gate when the base delta holds a UI path', async () => {
-    expect((await run(true)).ran).toEqual(['test', 'test:visual:docker']);
+    expect([...(await run(true)).ran].sort()).toEqual(['test', 'test:visual:docker']);
   });
 });
 

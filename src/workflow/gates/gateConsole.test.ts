@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { GATE_CONSOLE_FLUSH_MS, GATE_CONSOLE_MAX_BUFFER, GateConsole } from './gateConsole.js';
+import { GATE_CONSOLE_FLUSH_MS, GATE_CONSOLE_MAX_BUFFER, GATE_CONSOLE_PARTIAL_QUIET_MS, GateConsole } from './gateConsole.js';
 
 function sink() {
   const posted: { ticketId: number; stage: string; text: string }[] = [];
@@ -33,13 +33,39 @@ describe('GateConsole', () => {
     expect(posted).toEqual([]);
   });
 
-  it('flushes the old gate before the new gate header', () => {
+  it('posts each gate under its own header, whole lines in order of the gates', () => {
     const { console, posted } = sink();
-    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'a' });
-    console.append(7, 'uat', 'lint', { stream: 'stdout', text: 'b' });
-    expect(posted.map((p) => p.text)).toEqual(['\n$ unit\na']);
+    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'a\n' });
+    console.append(7, 'uat', 'lint', { stream: 'stdout', text: 'b\n' });
+    vi.advanceTimersByTime(GATE_CONSOLE_FLUSH_MS);
+    expect(posted.map((p) => p.text)).toEqual(['\n$ unit\na\n\n$ lint\nb\n']);
+  });
+
+  it('keeps each line whole under its gate header when two gates alternate with partial chunks', () => {
+    const { console, posted } = sink();
+    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'un' });
+    console.append(7, 'uat', 'visual', { stream: 'stdout', text: 'vis1\nvi' });
+    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'it1\nun' });
+    vi.advanceTimersByTime(GATE_CONSOLE_FLUSH_MS);
+    console.append(7, 'uat', 'visual', { stream: 'stdout', text: 'sual2\n' });
+    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'it2\n' });
+    vi.advanceTimersByTime(GATE_CONSOLE_FLUSH_MS);
+    expect(posted.map((p) => p.text)).toEqual([
+      '\n$ unit\nunit1\n\n$ visual\nvis1\n',
+      '\n$ unit\nunit2\n\n$ visual\nvisual2\n',
+    ]);
+  });
+
+  it('posts a partial line at the run end, and after a gate has been quiet', () => {
+    const { console, posted } = sink();
+    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'Continue? ' });
+    vi.advanceTimersByTime(GATE_CONSOLE_FLUSH_MS);
+    expect(posted).toEqual([]);
+    vi.advanceTimersByTime(GATE_CONSOLE_PARTIAL_QUIET_MS);
+    expect(posted.map((p) => p.text)).toEqual(['\n$ unit\nContinue? ']);
+    console.append(7, 'uat', 'lint', { stream: 'stdout', text: 'tail' });
     console.flush(7, 'uat');
-    expect(posted.map((p) => p.text)).toEqual(['\n$ unit\na', '\n$ lint\nb']);
+    expect(posted.map((p) => p.text)).toEqual(['\n$ unit\nContinue? ', '\n\n$ lint\ntail']);
   });
 
   it('flush posts the pending buffer synchronously and cancels the timer', () => {
@@ -68,11 +94,11 @@ describe('GateConsole', () => {
 
   it('keeps the header once per gate across flushes', () => {
     const { console, posted } = sink();
-    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'a' });
+    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'a\n' });
     vi.advanceTimersByTime(GATE_CONSOLE_FLUSH_MS);
-    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'b' });
+    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'b\n' });
     vi.advanceTimersByTime(GATE_CONSOLE_FLUSH_MS);
-    expect(posted.map((p) => p.text)).toEqual(['\n$ unit\na', 'b']);
+    expect(posted.map((p) => p.text)).toEqual(['\n$ unit\na\n', 'b\n']);
   });
 
   it('strips control sequences that would hijack the console', () => {
@@ -91,14 +117,14 @@ describe('GateConsole', () => {
 
   it('keeps each ticket/stage buffer independent', () => {
     const { console, posted } = sink();
-    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'a' });
-    console.append(8, 'uat', 'unit', { stream: 'stdout', text: 'b' });
-    console.append(7, 'review', 'unit', { stream: 'stdout', text: 'c' });
+    console.append(7, 'uat', 'unit', { stream: 'stdout', text: 'a\n' });
+    console.append(8, 'uat', 'unit', { stream: 'stdout', text: 'b\n' });
+    console.append(7, 'review', 'unit', { stream: 'stdout', text: 'c\n' });
     vi.advanceTimersByTime(GATE_CONSOLE_FLUSH_MS);
     expect(posted.map((p) => [p.ticketId, p.stage, p.text])).toEqual([
-      [7, 'uat', '\n$ unit\na'],
-      [8, 'uat', '\n$ unit\nb'],
-      [7, 'review', '\n$ unit\nc'],
+      [7, 'uat', '\n$ unit\na\n'],
+      [8, 'uat', '\n$ unit\nb\n'],
+      [7, 'review', '\n$ unit\nc\n'],
     ]);
   });
 
