@@ -316,16 +316,23 @@ function abandonedStart(opts: StartHotOpts, pid: number, exited: Promise<void>):
  * reader to the wrong one. Best-effort: a probe that cannot answer adds nothing
  * rather than delaying or replacing the real error.
  */
-async function describePortState(opts: StartHotOpts): Promise<string> {
+async function describePortState(opts: StartHotOpts, err: HealthTimeoutError): Promise<string> {
   try {
     if (!(await isPortOpen(opts.host, opts.port))) {
       return `\nNothing is listening on ${opts.host}:${opts.port} — the service never bound its port.`;
     }
     const pids = await listenerPids(opts.host, opts.port);
     const who = pids.length > 0 ? `pid ${pids.join(', ')}` : 'a process karst cannot identify';
+    if (err.identityMissing) {
+      return (
+        `\nSomething is listening on ${opts.host}:${opts.port} (${who}) and answered ` +
+        `${opts.healthUrl} with a 2xx, but without the identity header, so karst cannot tell it is this start.`
+      );
+    }
+    const last = err.lastOutcome === null ? '' : ` Last probe result: ${err.lastOutcome}.`;
     return (
       `\nSomething is listening on ${opts.host}:${opts.port} (${who}) but it never answered ` +
-      `${opts.healthUrl} with a 2xx.`
+      `${opts.healthUrl} with a 2xx.${last}`
     );
   } catch {
     return '';
@@ -531,7 +538,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     // because karst just freed it, and the answer would describe the aftermath
     // instead of the fault. Every other failure already says what happened (the
     // process exited, the command is missing) and needs no port reading.
-    const portState = err instanceof HealthTimeoutError ? await describePortState(opts) : '';
+    const portState = err instanceof HealthTimeoutError ? await describePortState(opts, err) : '';
     killTree(knownPid);
     // Killing the attached client leaves the CONTAINER running, and no `servers`
     // row exists yet — so nothing downstream will ever learn this name. Remove it

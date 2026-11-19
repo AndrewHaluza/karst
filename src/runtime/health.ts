@@ -58,11 +58,75 @@ function tcpTarget(url: string): { host: string; port: number } | null {
   }
 }
 
+/** The outcome text for a 2xx that did not carry the expected identity header. */
+const NO_INSTANCE_HEADER = `200 without ${INSTANCE_HEADER}`;
+
+/**
+ * The wait ran out. `lastOutcome` is what the LAST probe saw (`refused
+ * (ECONNREFUSED)`, `HTTP 503`, `200 without x-karst-instance`, or an error
+ * text), so a timeout names a cause instead of only a duration.
+ */
 export class HealthTimeoutError extends Error {
-  constructor(url: string, timeoutMs: number) {
-    super(`health check ${url} did not pass within ${timeoutMs}ms`);
+  readonly lastOutcome: string | null;
+  /** True when the last probe got a 2xx that lacked the identity header. */
+  readonly identityMissing: boolean;
+  constructor(url: string, timeoutMs: number, lastOutcome: string | null = null) {
+    super(
+      `health check ${url} did not pass within ${timeoutMs}ms` +
+        (lastOutcome === null ? '' : ` (last result: ${lastOutcome})`),
+    );
     this.name = 'HealthTimeoutError';
+    this.lastOutcome = lastOutcome;
+    this.identityMissing = lastOutcome === NO_INSTANCE_HEADER;
   }
+}
+
+/**
+ * A probe failed in a way no wait can cure: Node's fetch refused the URL
+ * itself (a blocked port, an unknown scheme, an invalid URL), so karst never
+ * sent a request. Waiting out the timeout would hide the cause.
+ */
+export class HealthPermanentError extends Error {
+  constructor(url: string, reason: string) {
+    super(`health check ${url} can never pass: the probe was refused before any request (${reason})`);
+    this.name = 'HealthPermanentError';
+  }
+}
+
+const PERMANENT_CAUSE_MESSAGES = new Set(['bad port', 'unknown scheme']);
+const PERMANENT_CAUSE_CODES = new Set(['ERR_INVALID_URL']);
+
+interface ProbeFailure {
+  readonly permanent: boolean;
+  /** The cause message when permanent; otherwise the error text. */
+  readonly text: string;
+  readonly outcome: string;
+}
+
+function causeOf(err: unknown): { message: string; code: string | undefined } {
+  const cause = err instanceof Error ? err.cause : undefined;
+  const source = cause ?? err;
+  const message = source instanceof Error ? source.message : String(source);
+  const code = (source as { code?: unknown } | null)?.code;
+  return { message, code: typeof code === 'string' ? code : undefined };
+}
+
+/**
+ * Classify a probe error by a PERMANENT list; everything else retries. The
+ * list is short on purpose: an unknown error is far likelier a service still
+ * booting (resets, DNS retries, timeouts) than a fault that never clears.
+ */
+function classifyProbeError(err: unknown): ProbeFailure {
+  const { message, code } = causeOf(err);
+  const outerMessage = err instanceof Error ? err.message : String(err);
+  const permanent =
+    PERMANENT_CAUSE_MESSAGES.has(message) ||
+    (code !== undefined && PERMANENT_CAUSE_CODES.has(code)) ||
+    outerMessage.startsWith('Failed to parse URL');
+  if (permanent) return { permanent, text: message, outcome: message };
+  if (code === 'ECONNREFUSED') return { permanent, text: message, outcome: `refused (${code})` };
+  const outcome = code !== undefined ? `${outerMessage} (${code})` : outerMessage;
+  return { permanent, text: message, outcome };
 }
 
 export class HealthAbortedError extends Error {
@@ -138,6 +202,9 @@ export async function isServing(url: string, timeoutMs = 1_000): Promise<boolean
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     return res.ok;
   } catch {
+    // Every error is "not serving", including a permanent one (a blocked
+    // port): liveness only needs a yes or no, so it does not classify errors
+    // as `waitForHealth` does. Out of scope for the permanent-error fix.
     return false; // nothing listening, or not answering in time
   }
 }
@@ -146,7 +213,8 @@ export async function isServing(url: string, timeoutMs = 1_000): Promise<boolean
  * Poll a health URL until it returns a 2xx, with exponential backoff, or reject
  * with HealthTimeoutError after timeoutMs (§7.2 step 4 — health-gated start).
  * A connection refused (server not up yet) is treated the same as a non-2xx:
- * keep polling until the deadline. If `signal` aborts (spin cancelled), rejects
+ * keep polling until the deadline. A PERMANENT probe error (blocked port,
+ * unknown scheme, invalid URL) rejects at once with HealthPermanentError. If `signal` aborts (spin cancelled), rejects
  * promptly with HealthAbortedError instead of waiting out the timeout.
  */
 export async function waitForHealth(url: string, opts: HealthOptions = {}): Promise<void> {
@@ -156,17 +224,18 @@ export async function waitForHealth(url: string, opts: HealthOptions = {}): Prom
   const { signal } = opts;
   const deadline = Date.now() + timeoutMs;
   let interval = intervalMs;
+  let lastOutcome: string | null = null;
 
   for (;;) {
     if (signal?.aborted) throw new HealthAbortedError(url);
     const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) throw new HealthTimeoutError(url, timeoutMs);
+    if (remainingMs <= 0) throw new HealthTimeoutError(url, timeoutMs, lastOutcome);
     const probe = new AbortController();
     const onCallerAbort = (): void => probe.abort(signal?.reason);
     signal?.addEventListener('abort', onCallerAbort, { once: true });
     if (signal?.aborted) onCallerAbort();
     const probeDeadline = setTimeout(
-      () => probe.abort(new HealthTimeoutError(url, timeoutMs)),
+      () => probe.abort(new HealthTimeoutError(url, timeoutMs, lastOutcome)),
       remainingMs,
     );
     try {
@@ -175,8 +244,10 @@ export async function waitForHealth(url: string, opts: HealthOptions = {}): Prom
         // A raw TCP target carries no response headers, so instance identity
         // cannot be asserted here: an open port is the whole verdict.
         if (await isPortOpen(tcp.host, tcp.port, Math.min(remainingMs, 1_000))) return;
+        lastOutcome = `no connection accepted on ${tcp.host}:${tcp.port}`;
       } else {
         const res = await fetch(url, { signal: probe.signal });
+        lastOutcome = `HTTP ${res.status}`;
         if (res.ok) {
           const verdict = instanceVerdict(res, opts.requireInstance);
           if (verdict.ok) return;
@@ -186,6 +257,7 @@ export async function waitForHealth(url: string, opts: HealthOptions = {}): Prom
           if (verdict.found !== null) {
             throw new HealthForeignInstanceError(url, opts.requireInstance!, verdict.found);
           }
+          lastOutcome = NO_INSTANCE_HEADER;
         }
       }
     } catch (err) {
@@ -195,14 +267,16 @@ export async function waitForHealth(url: string, opts: HealthOptions = {}): Prom
       // A foreign instance is a verdict, not a probe failure: it came from the
       // `try` above, and retrying would only re-ask a question already answered.
       if (err instanceof HealthForeignInstanceError) throw err;
-      if (probe.signal.aborted) throw new HealthTimeoutError(url, timeoutMs);
-      void err; // not listening yet — fall through to retry
+      if (probe.signal.aborted) throw new HealthTimeoutError(url, timeoutMs, lastOutcome);
+      const failure = classifyProbeError(err);
+      if (failure.permanent) throw new HealthPermanentError(url, failure.text);
+      lastOutcome = failure.outcome; // not listening yet — retry
     } finally {
       clearTimeout(probeDeadline);
       signal?.removeEventListener('abort', onCallerAbort);
     }
     if (signal?.aborted) throw new HealthAbortedError(url);
-    if (Date.now() >= deadline) throw new HealthTimeoutError(url, timeoutMs);
+    if (Date.now() >= deadline) throw new HealthTimeoutError(url, timeoutMs, lastOutcome);
     await sleep(Math.min(interval, Math.max(0, deadline - Date.now())), signal);
     interval = Math.min(interval * 2, maxIntervalMs);
   }
