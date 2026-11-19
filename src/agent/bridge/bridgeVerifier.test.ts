@@ -46,6 +46,12 @@ describe('verifyBridgeLine', () => {
     const notMonitor = verifyBridgeLine(hook({ tool_name: 'Bash', tool_input: { timeout_ms: 5000 } }), expectOf());
     expect(payloadOf(notMonitor).timeout_ms).toBeUndefined();
   });
+  it('carries async_launched only as a boolean (file channel)', () => {
+    const ok = verifyBridgeLine(hook({ tool_name: 'Agent', async_launched: true }), expectOf());
+    expect(payloadOf(ok).async_launched).toBe(true);
+    const bad = verifyBridgeLine(hook({ tool_name: 'Agent', async_launched: 'yes' }), expectOf());
+    expect(payloadOf(bad).async_launched).toBeUndefined();
+  });
   it('carries the first model step’s model and drops a malformed one (T1005)', () => {
     const good = verifyBridgeLine(
       hook({ hook_event_name: 'ModelSelected', model: { providerID: 'opencode-go', modelID: 'deepseek-v4.1-flash', variant: 'high', extra: 'drop' } }),

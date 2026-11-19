@@ -363,6 +363,16 @@ process.stdin.on('end', () => {
       toolInput.timeout_ms = input.timeout_ms;
     }
     const toolInputField = Object.keys(toolInput).length > 0 ? { tool_input: toolInput } : {};
+    // claude's Agent tool runs async by default and reports it only in
+    // tool_response ({isAsync:true,status:'async_launched'}). Forward ONLY the
+    // derived boolean; tool_response (up to 1 MB) never leaves the bridge.
+    const response = raw.tool_response && typeof raw.tool_response === 'object' ? raw.tool_response : {};
+    const asyncLaunched =
+      event === 'PostToolUse' &&
+      provider === 'claude' &&
+      (response.isAsync === true || response.status === 'async_launched')
+        ? { async_launched: true }
+        : {};
     // T993: claude wakes the agent for a finished background job with a
     // UserPromptSubmit whose prompt starts with this tag. Forward ONLY the
     // boolean; the prompt text never leaves the bridge.
@@ -372,7 +382,7 @@ process.stdin.on('end', () => {
       raw.prompt.startsWith('<task-notification>')
         ? { task_notification: true }
         : {};
-    posts.push({ ...mapped, ...toolName, ...toolInputField, ...taskNotification, cwd: raw.cwd, session_id: raw.session_id });
+    posts.push({ ...mapped, ...toolName, ...toolInputField, ...asyncLaunched, ...taskNotification, cwd: raw.cwd, session_id: raw.session_id });
   }
   const usage = usagePayload(raw) || (provider === 'codex' ? rolloutUsagePayload(raw) : null);
   if (usage) {

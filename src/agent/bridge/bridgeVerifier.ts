@@ -66,6 +66,7 @@ function hookPayload(raw: Record<string, unknown>, expect: BridgeExpectation): H
   // finite Monitor timeout. Nothing else of tool_input crosses.
   const toolInput = isRecord(raw.tool_input) ? raw.tool_input : {};
   if (typeof toolInput.run_in_background === 'boolean') payload.run_in_background = toolInput.run_in_background;
+  if (typeof raw.async_launched === 'boolean') payload.async_launched = raw.async_launched;
   const timeoutMs = toolInput.timeout_ms;
   if (raw.tool_name === 'Monitor' && typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0) {
     payload.timeout_ms = timeoutMs;

@@ -1541,6 +1541,36 @@ describe('dispatchHook — background-wait turn end', () => {
     expect(getTicket(store, id).agentState).toBe('running');
   });
 
+  it('parseHookPayload forwards async_launched only when boolean', () => {
+    expect(parseHookPayload({ hook_event_name: 'PostToolUse', tool_name: 'Agent', async_launched: true })?.async_launched).toBe(true);
+    expect(parseHookPayload({ hook_event_name: 'PostToolUse', tool_name: 'Agent', async_launched: 'yes' })?.async_launched).toBeUndefined();
+  });
+
+  it('async-launched Agent (no run_in_background) then Stop -> running, no nudge, wait persisted', () => {
+    const { id, tracker, send } = setup();
+    send({ hook_event_name: 'PostToolUse', tool_name: 'Agent', async_launched: true });
+    send({ hook_event_name: 'Stop' });
+    expect(getTicket(store, id).agentState).toBe('running');
+    expect(tracker.nudge(id)).toBeNull();
+    expect(listProcessRuns(store, id)[0]!.promptTelemetry?.markerMissCase).toBe('background-wait');
+    expect((store.db.prepare('SELECT background_wait_until AS v FROM tickets WHERE id = ?').get(id) as { v: string | null }).v).not.toBeNull();
+  });
+
+  it('Agent without async_launched and without run_in_background then Stop -> waiting + nudge', () => {
+    const { id, tracker, send } = setup();
+    send({ hook_event_name: 'PostToolUse', tool_name: 'Agent' });
+    send({ hook_event_name: 'Stop' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+    expect(tracker.nudge(id)).not.toBeNull();
+  });
+
+  it('async_launched on a codex PostToolUse does not open a wait (AC-08)', () => {
+    const { id, send } = setup();
+    send({ hook_event_name: 'PostToolUse', tool_name: 'Agent', async_launched: true }, 'codex');
+    send({ hook_event_name: 'Stop' }, 'codex');
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
   it('zero-tool Stop -> waiting', () => {
     const { id, send } = setup();
     send({ hook_event_name: 'Stop' });
