@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSetupProposalOps, type SetupSkipWiring } from './setupProposalOps.js';
 import type { ProposalResult } from '../../setup/ledger.js';
-import type { PendingSkipRequest } from '../../setup/checklist/skips.js';
+import type { PendingSkipRequest, SkipRequest } from '../../setup/checklist/skips.js';
 import type { SkipRecord } from '../../setup/checklist/types.js';
 
-const request = (id: string, over: Partial<PendingSkipRequest['value']> = {}): PendingSkipRequest => ({
+const request = (id: string, over: Partial<SkipRequest> = {}): PendingSkipRequest => ({
   id,
   file: `/s/1/outbox/skips/${id}.json`,
   value: { code: 'git.conventions', reason: 'the team has no convention yet', ...over },
 });
 
-function setup(initial: PendingSkipRequest[], approve = true) {
+function setup(initial: PendingSkipRequest[], approve = true, opt: { throwOnRecord?: boolean; warn?: (m: string) => void } = {}) {
   let pending = [...initial];
   const recorded: { scratch: string; skip: SkipRecord }[] = [];
   const results: ProposalResult[] = [];
@@ -21,7 +21,10 @@ function setup(initial: PendingSkipRequest[], approve = true) {
       removed.push(file);
       pending = pending.filter((p) => p.file !== file);
     },
-    record: (scratch, skip) => void recorded.push({ scratch, skip }),
+    record: (scratch, skip) => {
+      if (opt.throwOnRecord) throw new Error('disk full');
+      recorded.push({ scratch, skip });
+    },
   };
   const confirm = vi.fn(async (_d: { message: string; detail: string; startCommandsChanged?: boolean }) => approve);
   const ctl = createSetupProposalOps({
@@ -33,7 +36,7 @@ function setup(initial: PendingSkipRequest[], approve = true) {
     runCommand: vi.fn(),
     applyPatch: vi.fn(),
     resolveDir: () => ({ ok: true as const, dir: '/w' }),
-    notify: { info: vi.fn(), warn: vi.fn() } as never,
+    notify: { info: vi.fn(), warn: opt.warn ?? vi.fn() } as never,
     fs: {
       readdir: () => [], readFile: () => '', remove: () => undefined, exists: () => false, mtime: () => 0,
       writeResult: (_d, r) => void results.push(r),
@@ -99,6 +102,22 @@ describe('skip requests', () => {
     await f.ctl.scan();
     expect(f.recorded.map((r) => r.skip.code)).toEqual(['uat.paths']);
     expect(f.results.map((r) => r.status)).toEqual(['withdrawn', 'applied']);
+  });
+
+  it('removes an invalid request and records why', async () => {
+    const f = setup([{ id: 's-9', file: '/s/1/outbox/skips/s-9.json', error: 'unknown code' }]);
+    await f.ctl.scan();
+    expect(f.confirm).not.toHaveBeenCalled();
+    expect(f.removed).toEqual(['/s/1/outbox/skips/s-9.json']);
+    expect(f.results).toMatchObject([{ id: 's-9', kind: 'skip', status: 'invalid', reason: 'unknown code' }]);
+  });
+
+  it('records an invalid result and warns when the host cannot save an approved skip', async () => {
+    const warn = vi.fn();
+    const f = setup([request('s-1')], true, { throwOnRecord: true, warn });
+    await f.ctl.scan();
+    expect(f.results).toMatchObject([{ id: 's-1', kind: 'skip', status: 'invalid', reason: 'the host could not save the skip: disk full' }]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('disk full'));
   });
 
   it('ignores skip requests when no skip wiring exists', async () => {

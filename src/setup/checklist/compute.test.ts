@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeChecklist } from './compute.js';
 import type { ChecklistItem, SkipRecord } from './types.js';
-import { runReadiness } from '../readiness/runReadiness.js';
+import { runReadiness, type ReadinessInput } from '../readiness/runReadiness.js';
 import { fakeProbes } from '../readiness/fakeProbes.testutil.js';
 import type { ReadinessProbes } from '../readiness/types.js';
 import type { DiscoveredRepo, DiscoveryResult } from '../discover.js';
@@ -26,9 +26,9 @@ const discovery = (...repos: DiscoveredRepo[]): DiscoveryResult => ({ repos, emp
 async function run(
   manifest: Manifest | undefined,
   found_: DiscoveryResult | undefined,
-  opts: { probes?: Partial<ReadinessProbes>; skips?: SkipRecord[] } = {},
+  opts: { probes?: Partial<ReadinessProbes>; skips?: SkipRecord[]; verify?: ReadinessInput['verifyServices'] } = {},
 ): Promise<ChecklistItem[]> {
-  const report = await runReadiness({ manifest, warnings: [], repos: [], probes: fakeProbes(opts.probes) });
+  const report = await runReadiness({ manifest, warnings: [], repos: [], probes: fakeProbes(opts.probes), verifyServices: 'verify' in opts ? opts.verify : async () => ({ ok: true, failed: [] }) });
   return computeChecklist({ manifest, discovery: found_, readiness: report.items, skips: opts.skips ?? [] });
 }
 const byCode = (items: readonly ChecklistItem[], code: string): ChecklistItem => items.find((i) => i.code === code)!;
@@ -149,6 +149,17 @@ describe('computeChecklist: done means verified', () => {
     const item = byCode(items, 'agents.default');
     expect(item.status).toBe('todo');
     expect(item.detail).toContain('defaultModel');
+  });
+
+  it('services.declared is todo until setup verify ran and passed', async () => {
+    const m = manifestOf({ defaultModel: 'm', repositories: { web: repo({ service: SERVICE }) } });
+    const d = discovery(found('web', '/w/web', true));
+    const notRun = await run(m, d, { verify: undefined, skips: [] });
+    expect(byCode(notRun, 'services.declared')).toMatchObject({ status: 'todo' });
+    expect(byCode(notRun, 'services.declared').detail).toContain('setup verify');
+    const failed = await run(m, d, { verify: async () => ({ ok: false, error: 'boom', failed: ['web'] }) });
+    expect(byCode(failed, 'services.declared').status).toBe('todo');
+    expect(byCode(await run(m, d), 'services.declared').status).toBe('done');
   });
 
   it('services.declared is todo when the service has no health', async () => {

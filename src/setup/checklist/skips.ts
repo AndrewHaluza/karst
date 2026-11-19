@@ -92,13 +92,12 @@ export function writeSkipRequest(outbox: string, request: SkipRequest, uuid: () 
   return file;
 }
 
-export interface PendingSkipRequest {
-  id: string;
-  file: string;
-  value: SkipRequest;
-}
+export type PendingSkipRequest =
+  | { id: string; file: string; value: SkipRequest }
+  /** A request file the host cannot use: the host removes it and records why. */
+  | { id: string; file: string; error: string };
 
-/** Host side: the valid pending requests of one outbox, oldest name first. */
+/** Host side: the pending requests of one outbox (valid or not), oldest name first. */
 export function readSkipRequests(outbox: string): PendingSkipRequest[] {
   const dir = join(outbox, 'skips');
   let names: string[];
@@ -111,12 +110,16 @@ export function readSkipRequests(outbox: string): PendingSkipRequest[] {
   for (const name of names.sort()) {
     if (!name.endsWith('.json') || name.startsWith('.')) continue;
     const file = join(dir, name);
+    const id = basename(name, '.json');
     try {
-      if (statSync(file).size > MAX_REQUEST_BYTES) continue;
+      if (statSync(file).size > MAX_REQUEST_BYTES) {
+        out.push({ id, file, error: `the request is larger than ${MAX_REQUEST_BYTES} bytes` });
+        continue;
+      }
       const checked = validateSkipRequest(JSON.parse(readFileSync(file, 'utf8')));
-      if (checked.ok) out.push({ id: basename(name, '.json'), file, value: checked.value });
-    } catch {
-      continue;
+      out.push(checked.ok ? { id, file, value: checked.value } : { id, file, error: checked.reason });
+    } catch (e) {
+      out.push({ id, file, error: `unreadable: ${e instanceof Error ? e.message : String(e)}` });
     }
   }
   return out;

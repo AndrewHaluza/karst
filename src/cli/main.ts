@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest, Severity } from '../manifest/types.js';
+import type { ReadinessInput } from '../setup/readiness/runReadiness.js';
 import { openReadonlyStore } from './readonlyStore.js';
 import { openGraphWritableStore, openWritableStore } from './writableStore.js';
 import { parseContextArgs, runContextCommand } from './context.js';
@@ -792,6 +793,25 @@ export function runCli(
   );
 }
 
+/** `setup verify` for the selected repos, as the readiness `services` item runs it. Shared by `setup check` and `setup checklist`. */
+function setupVerifyServices(db: string, manifest: Manifest): NonNullable<ReadinessInput['verifyServices']> {
+  return async (repos) => {
+    const store = openWritableStore(db);
+    try {
+      const { ensureBaseline } = await import('../runtime/baseline.js');
+      const out = JSON.parse(
+        await runSetupVerifyCommand(store, manifest, { repos: [...repos] }, (s, m, service) =>
+          ensureBaseline(s, m, service),
+        ),
+      ) as { ok: boolean; error?: string; services?: { service?: string; ok: boolean }[] };
+      const failed = (out.services ?? []).filter((r) => !r.ok).map((r) => r.service ?? '?');
+      return { ok: out.ok, error: out.error, failed };
+    } finally {
+      store.close();
+    }
+  };
+}
+
 async function assertMarkerHasWork(
   db: string,
   manifestPath: string,
@@ -880,6 +900,7 @@ export async function runCliAsync(
       repos: [],
       probes: nodeReadinessProbes(root),
       discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
+      verifyServices: loaded?.manifest ? setupVerifyServices(db, loaded.manifest) : undefined,
       skips: readSkips(skipStorePath(db, manifestPath)),
     });
   }
@@ -906,24 +927,7 @@ export async function runCliAsync(
       warnings: loaded?.codedWarnings ?? [],
       repos: parsed.repos,
       probes: nodeReadinessProbes(dirname(resolve(manifestPath))),
-      verifyServices:
-        db && manifest
-          ? async (repos) => {
-              const store = openWritableStore(db);
-              try {
-                const { ensureBaseline } = await import('../runtime/baseline.js');
-                const out = JSON.parse(
-                  await runSetupVerifyCommand(store, manifest, { repos: [...repos] }, (s, m, service) =>
-                    ensureBaseline(s, m, service),
-                  ),
-                ) as { ok: boolean; error?: string; services?: { service?: string; ok: boolean }[] };
-                const failed = (out.services ?? []).filter((r) => !r.ok).map((r) => r.service ?? '?');
-                return { ok: out.ok, error: out.error, failed };
-              } finally {
-                store.close();
-              }
-            }
-          : undefined,
+      verifyServices: db && manifest ? setupVerifyServices(db, manifest) : undefined,
     });
   }
   // `setup verify` spins the proposed manifest's baseline services with health

@@ -72,11 +72,21 @@ describe('skip request files', () => {
     expect(file).toBe(join(dir, 'skips', 'id-1.json'));
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ code: 'git.conventions', reason: 'r' });
     expect(readSkipRequests(dir).map((r) => r.id)).toEqual(['id-1']);
+    expect(readSkipRequests(dir)[0]).toMatchObject({ value: { code: 'git.conventions' } });
   });
   it('ignores an invalid or oversize request file', () => {
     mkdirSync(join(dir, 'skips'));
     writeFileSync(join(dir, 'skips', 'a.json'), '{"code":"nope","reason":"x"}');
     writeFileSync(join(dir, 'skips', 'b.json'), 'x'.repeat(10_000));
-    expect(readSkipRequests(dir)).toEqual([]);
+    expect(readSkipRequests(dir).filter((r) => 'value' in r)).toEqual([]);
+  });
+  it('reports an invalid request file with a reason instead of dropping it', () => {
+    mkdirSync(join(dir, 'skips'));
+    writeFileSync(join(dir, 'skips', 'a.json'), '{"code":"nope","reason":"x"}');
+    writeFileSync(join(dir, 'skips', 'c.json'), '{not json');
+    writeFileSync(join(dir, 'skips', 'b.json'), 'x'.repeat(10_000));
+    const out = readSkipRequests(dir);
+    expect(out.map((r) => r.id)).toEqual(['a', 'b', 'c']);
+    for (const r of out) expect(r).toMatchObject({ error: expect.stringMatching(/\S/) });
   });
 });

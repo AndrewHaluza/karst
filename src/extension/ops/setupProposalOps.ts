@@ -546,8 +546,13 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
 
   async function handleSkips(scratch: string, skips: SetupSkipWiring): Promise<void> {
     for (const req of skips.read(scratch)) {
-      const { code, target, reason } = req.value;
       const file = req.file;
+      if ('error' in req) {
+        skips.remove(file);
+        record(scratch, file, 'skip', 'invalid', { reason: req.error });
+        continue;
+      }
+      const { code, target, reason } = req.value;
       const approved = await deps.confirm({
         message: `Skip the setup item ${code}${target !== undefined ? ` for ${target}` : ''}?`,
         detail: `The agent proposes to skip this item.\nReason: ${reason}`,
@@ -562,7 +567,14 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
         record(scratch, file, 'skip', 'declined', { reason: 'declined by the user' });
         continue;
       }
-      skips.record(scratch, { code, ...(target !== undefined ? { target } : {}), reason, at: new Date().toISOString() });
+      try {
+        skips.record(scratch, { code, ...(target !== undefined ? { target } : {}), reason, at: new Date().toISOString() });
+      } catch (e) {
+        const why = e instanceof Error ? e.message : String(e);
+        deps.notify.warn(`Karst: the skip of ${code} was approved but could not be saved (${why}).`);
+        record(scratch, file, 'skip', 'invalid', { reason: `the host could not save the skip: ${why}` });
+        continue;
+      }
       record(scratch, file, 'skip', 'applied');
     }
   }

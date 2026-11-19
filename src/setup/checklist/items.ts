@@ -93,6 +93,10 @@ function servicesDeclared(ctx: RuleContext): RuleResult {
     else problems.push(`${name} declares a service without ports or health`);
   }
   problems.push(...failing(ctx, 'services'));
+  // `warn` means setup verify did not run: a declared service is not verified yet.
+  for (const w of ctx.readiness.filter((x) => x.id === 'services' && x.status === 'warn')) {
+    problems.push(`services: ${w.detail}`);
+  }
   return result(problems, skippedAny);
 }
 
