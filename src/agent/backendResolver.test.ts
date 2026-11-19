@@ -19,14 +19,14 @@ describe('resolveBackend account', () => {
     configureAccounts({ claude: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } });
     const blocked = await resolveBackend({ ...base, backends: { claude: 'sbx' }, preflight: ok, worktree });
     expect(blocked.runner).toBe(HOST_SESSION_RUNNER);
-    expect(blocked.line).toMatch(/^host \(claude account 'work'.*sbx sandbox does not use\)$/);
+    expect(blocked.line).toMatch(/^host \(claude account 'work'.*no sbx token.*\)$/);
     const def = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'default' });
     expect(def.runner.kind).toBe('sbx');
   });
   it('types the account block, so callers never parse the line', async () => {
     configureAccounts({ claude: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } });
     const blocked = await resolveBackend({ ...base, backends: { claude: 'sbx' }, preflight: ok, worktree });
-    expect(blocked.blocked).toEqual({ kind: 'account', reason: expect.stringMatching(/claude account 'work'.*sbx sandbox does not use/) });
+    expect(blocked.blocked).toEqual({ kind: 'account', reason: expect.stringMatching(/claude account 'work'.*no sbx token/)});
     const def = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'default' });
     expect(def.blocked).toBeUndefined();
     const other = await resolveBackend({ ...base, core: 'opencode', backends: { opencode: 'sbx' }, preflight: ok });
@@ -139,5 +139,27 @@ describe('resolveBackend', () => {
   it('uses an injected host runner', async () => {
     const host = { ...HOST_SESSION_RUNNER };
     expect((await resolveBackend({ ...base, backends: undefined, host })).runner).toBe(host);
+  });
+});
+
+describe('resolveBackend sbx token account', () => {
+  afterEach(() => resetAccounts());
+  const grants = { issue: vi.fn(), release: vi.fn() };
+  const work = { claude: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } } as const;
+  it('runs a token account in sbx and hands the runner the account', async () => {
+    configureAccounts(work as never);
+    const out = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, oauth: { grants, tokenAccounts: new Set(['work']) } });
+    expect(out.blocked).toBeUndefined();
+    expect(out.runner.kind).toBe('sbx');
+    expect(out.runner.prepareLaunch).toBeTypeOf('function');
+  });
+  it('lets the default account release a stale grant', async () => {
+    configureAccounts(work as never);
+    const out = await resolveBackend({ ...base, projectRoot, backends: { claude: 'sbx' }, preflight: ok, worktree, account: 'default', oauth: { grants, tokenAccounts: new Set(['work']) } });
+    expect(out.runner.prepareLaunch).toBeTypeOf('function');
+  });
+  it('gives no prepare step to codex', async () => {
+    const out = await resolveBackend({ ...base, projectRoot, core: 'codex', backends: { codex: 'sbx' }, preflight: ok, worktree, oauth: { grants, tokenAccounts: new Set() } });
+    expect(out.runner.prepareLaunch).toBeUndefined();
   });
 });

@@ -102,6 +102,13 @@ describe('launchWithoutSilentHostFallback (F14)', () => {
     expect(await launchWithoutSilentHostFallback(b)).toMatchObject({ kind: 'launched' });
     expect(b.choose).not.toHaveBeenCalled();
   });
+  it('does not resolve a backend for a ticket whose session is live (a new launch would revoke its running key)', async () => {
+    const i = base({ reuseLive: () => true });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'reused' });
+    expect(i.launch).not.toHaveBeenCalled();
+    const j = base({ reuseLive: () => false, launch: async () => box });
+    expect(await launchWithoutSilentHostFallback(j)).toMatchObject({ kind: 'launched' });
+  });
   it('cancel (or dismissing) does nothing', async () => {
     const i = base({});
     expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'cancelled' });

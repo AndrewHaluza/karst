@@ -20,7 +20,7 @@ import { recordedAccountForSession } from '../../store/sessionLaunchIntents.js';
 import { createFileSignedInProbe } from '../../agent/accounts/signedInProbe.js';
 import type { AccountCore } from '../../agent/accounts/types.js';
 import type { SecretStore } from '../secretStore.js';
-import { removeSbxToken } from '../sbxTokenStore.js';
+import { removeSbxToken as removeSbxTokenFromStore, SBX_TOKEN_CORE } from '../sbxTokenStore.js';
 
 const ALIAS_LOOKUP_TIMEOUT_MS = 3000;
 const ALIAS_NAME = /^[A-Za-z0-9._-]+$/;
@@ -110,6 +110,8 @@ export async function wireAccounts(input: {
   readonly accountStore?: AccountStore;
   /** SecretStorage: a deleted account also loses its sbx token. */
   readonly secrets?: SecretStore;
+  /** Revoke the sandbox keys of a deleted claude account, before its token goes (@arch:AC-60). A failure is logged and the delete goes on. */
+  readonly revokeSbxKeys?: (account: string) => Promise<void>;
   /** Called after the registry took a new accounts config (a write here, a reload, another window's edit). Not called for the first load. */
   readonly onChange?: () => void;
 }): Promise<AccountsWiring> {
@@ -138,6 +140,14 @@ export async function wireAccounts(input: {
   configureSessionLedgerSink((key, account) => {
     appendSessionLedger(input.globalStorageRoot, key, account).catch((e) => input.debug?.(`[accounts] session ledger not saved: ${String(e)}`));
   });
+  // A function declaration, not an inline arrow: Stryker's Babel parser rejects typed parameters inside a conditional spread.
+  async function removeSbxToken(core: AccountCore, name: string): Promise<void> {
+    if (core === SBX_TOKEN_CORE && input.revokeSbxKeys) {
+      // No error text: a store error may name a secret.
+      await input.revokeSbxKeys(name).catch(() => input.debug?.(`[oauth-proxy] revoke of the keys of the deleted account ${name} failed`));
+    }
+    await removeSbxTokenFromStore(input.secrets as SecretStore, core, name);
+  }
   const ops = createAccountOps({
     store: publishing,
     managedRoot: join(input.globalStorageRoot, 'accounts'),
@@ -147,7 +157,7 @@ export async function wireAccounts(input: {
     binaryResolves,
     lookupAlias,
     signedIn: createFileSignedInProbe(home, (core) => DEFAULT_DIRS[core](home)),
-    ...(input.secrets ? { removeSbxToken: (core: AccountCore, name: string) => removeSbxToken(input.secrets as SecretStore, core, name) } : {}),
+    ...(input.secrets ? { removeSbxToken } : {}),
     ...(input.debug ? { debug: input.debug } : {}),
   });
   // Another window may change accounts.json: re-publish so this window does not

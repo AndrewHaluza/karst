@@ -6,7 +6,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
 import { makeSandboxWiring, type SandboxWiringInput } from './sandboxWiring.js';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setStage } from '../../store/stages.js';
@@ -236,6 +236,43 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     await w.cleanupOrphans();
     const rms = proc.calls.filter((c) => c.args[0] === 'rm').map((c) => c.args.at(-1));
     expect(rms).toEqual([sbxName({ projectRoot: ROOT, ticketId: gone, core: 'claude' })]);
+  });
+
+  it('orphan cleanup and a dashboard remove revoke the proxy key of the removed sbx sandbox (@arch:AC-51)', async () => {
+    const { projectId, gone, a, proc, dockerProc } = live();
+    const release = vi.fn(async () => ({ port: 8787 }));
+    const sbxOauth = () => ({ grants: { issue: vi.fn(), release }, releaseGrant: vi.fn(async () => {}) });
+    const { w, choose } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a, gone]), proc, dockerProc, sbxOauth });
+    choose.mockResolvedValue(REMOVE_ORPHANS as never);
+    await w.cleanupOrphans();
+    expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: ROOT, ticketId: gone, core: 'claude' }));
+    expect(proc.calls.some((c) => c.args.join(' ').startsWith('policy rm'))).toBe(true);
+  });
+
+  it('a sandbox rebuild revokes the proxy key of the sandbox it removes (@arch:AC-60)', async () => {
+    const { projectId, a, proc, dockerProc } = live();
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(a);
+    const release = vi.fn(async () => ({ port: 8787 }));
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]), proc, dockerProc, sbxOauth: () => ({ grants: { issue: vi.fn(), release }, releaseGrant: vi.fn(async () => {}) }) });
+    await w.rebuild(a);
+    expect(proc.calls.some((c) => c.args[0] === 'rm' && c.args[1] === '--force')).toBe(true);
+    expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' }));
+  });
+
+  it('the stray sweep of a closed ticket releases the proxy grant of its clone dir (@arch:AC-51)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-wiring-strays-'));
+    const root = join(dir, 'karst.yml');
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const closed = createTicket(store, { key: 'A-9', title: 'z', projectId }).id;
+    archiveTicket(store, closed);
+    const name = sbxName({ projectRoot: root, ticketId: closed, core: 'claude' });
+    mkdirSync(join(dir, '.karst', 'sbx-clones', name), { recursive: true });
+    const releaseGrant = vi.fn(async () => {});
+    const info = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => root, projectId: () => projectId, owned: new Set([closed]), info, sbxOauth: () => ({ grants: { issue: vi.fn(), release: vi.fn() }, releaseGrant }) });
+    await w.reconcile();
+    expect(releaseGrant).toHaveBeenCalledWith(name);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('removed 1 stray sandbox resource'));
   });
 
   it('archive of a running sandbox syncs, disposes and removes its bridge; done stops it', async () => {

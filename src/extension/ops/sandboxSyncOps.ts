@@ -4,7 +4,7 @@ import type { SandboxLimitsConfig } from '../../agent/sbx/sbxLimits.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendCoreKey, backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { accountForLaunch } from '../../agent/accounts/registry.js';
-import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
+import { resolveBackend, type ResolveBackendInput, type ResolvedBackend } from '../../agent/backendResolver.js';
 import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
@@ -22,6 +22,7 @@ import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostH
 import { DIRTY_NOT_BEHIND, stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
 import type { TicketPlacement } from '../../store/placement.js';
+import type { SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
 
 export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps.js';
@@ -47,6 +48,8 @@ export interface BackendSessionInput {
   /** An explicit launch account (a fresh start under `default`); wins over the resumed session's account (@arch:AC-55). */
   readonly account?: string;
   readonly resolve?: typeof resolveBackend;
+  /** The host OAuth proxy side of an sbx claude launch, read at each resolve so a token added a moment ago counts (@arch:AC-51). */
+  readonly oauth?: () => Promise<NonNullable<ResolveBackendInput['oauth']>>;
   /** Attaches the ticket's evidence bridge; `openSession` calls it only for a sandbox runner (arch:AC-34). */
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
@@ -85,7 +88,9 @@ export function backendSessionOptions(input: BackendSessionInput): {
   const resolve = input.resolve ?? resolveBackend;
   const resolveRunner = async (): Promise<ResolvedBackend> => {
     const bridgePaths = input.bridgeFor ? await input.bridgeFor(input.ticketId).catch(() => undefined) : undefined;
+    const oauth = input.oauth ? await input.oauth() : undefined;
     const out = await resolve({
+      ...(oauth ? { oauth } : {}),
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...accountFor(input.core, input.resumeSessionId, input.account),
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
@@ -124,6 +129,8 @@ export interface LaunchBackend {
   readonly bridge?: BridgePaths;
   /** Links the sandbox transcripts into the bridge dir. Run it after the bounded backend step, never inside it: `sbx create` can be slow. */
   readonly linkTranscripts?: () => Promise<void>;
+  /** Gives the proxy key of this launch back; for a backend result that arrives after its timeout and is never launched. */
+  readonly abortLaunch?: () => Promise<void>;
 }
 
 /**
@@ -151,15 +158,27 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
       if (!ready.ok) throw new Error(`Karst: ${input.ticketLabel} ${ready.reason}`);
     }
   }
-  if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
-    const synced = await input.syncExisting();
-    if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);
+  // sbx claude through the host proxy: a new key per launch, the policy rule and the key approval (@arch:AC-51).
+  // A launch that stops after the key is issued gives the key back: no key outlives a failed launch.
+  try {
+    const prepared = await resolved.runner.prepareLaunch?.();
+    if (prepared && !prepared.ok) throw new Error(`Karst: ${input.ticketLabel} ${prepared.reason}`);
+    if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
+      const synced = await input.syncExisting();
+      if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);
+    }
+    const paths = await options.bridgeFor?.(input.ticketId);
+    const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
+    if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
+    const canLink = Boolean(paths && input.worktree);
+    // The guest setup of a new sandbox runs in the link step: without a bridge it could not run, and the launch would fail later without a reason.
+    if (!canLink && resolved.runner.guestSetupPending?.()) throw new Error(`Karst: ${input.ticketLabel} the proxy key of a new sandbox needs a bridge and a worktree to be set up; the launch stops`);
+    const link = paths && input.worktree ? transcriptLinkStep(resolved.runner, input, paths.dir, input.worktree.path) : undefined;
+    return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}), ...(link ? { linkTranscripts: link } : {}), ...(resolved.runner.abortLaunch ? { abortLaunch: () => resolved.runner.abortLaunch!() } : {}) };
+  } catch (err) {
+    await resolved.runner.abortLaunch?.().catch(() => undefined);
+    throw err;
   }
-  const paths = await options.bridgeFor?.(input.ticketId);
-  const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
-  if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
-  const link = paths && input.worktree ? transcriptLinkStep(resolved.runner, input, paths.dir, input.worktree.path) : undefined;
-  return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}), ...(link ? { linkTranscripts: link } : {}) };
 }
 
 /**
@@ -173,6 +192,11 @@ function transcriptLinkStep(runner: SessionRunner, input: BackendSessionInput, b
     // A missing token count must not stop a session: a failed link is only a warning.
     const linked = await link({ bridgeDir, hostWorktreePath })
       .catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err) }));
+    // A failed guest setup is no transcript problem: the launch stops with its own reason, before `placeInteractive` fails without one.
+    if (!linked.ok && runner.guestSetupPending?.()) {
+      await runner.abortLaunch?.().catch(() => undefined);
+      throw new Error(`Karst: ${input.ticketLabel} ${linked.reason}`);
+    }
     if (!linked.ok) input.info(`warning: ${input.ticketLabel}: sandbox transcripts are not linked, token usage will not be counted: ${linked.reason}`);
   };
 }
@@ -206,6 +230,8 @@ export interface SandboxSyncDeps {
   readonly dockerProc?: DockerProcess;
   /** The sbx memory ceiling, so a runner built here can name it in an OOM report. */
   readonly sbxMemory?: () => string | undefined;
+  /** The proxy grants: a runner built here revokes the key of its sandbox at dispose (@arch:AC-51). */
+  readonly oauthGrants?: SbxOauthGrants;
   readonly temp?: TempDirs;
   readonly platform?: NodeJS.Platform;
   /** The bridge dir as the host sees it: sbx hands the host's bundle to the sandbox through its `xfer/` (F8). */
@@ -222,7 +248,7 @@ export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, tic
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
     const evidenceDir = deps.evidenceDirOf?.(ticketId);
     const memory = deps.sbxMemory?.();
-    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}), ...(memory ? { memory } : {}) });
+    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}), ...(memory ? { memory } : {}), ...(deps.oauthGrants ? { oauth: { grants: deps.oauthGrants } } : {}) });
   }
   if (core !== null && isDockerCore(core)) {
     return createDockerSessionRunner({

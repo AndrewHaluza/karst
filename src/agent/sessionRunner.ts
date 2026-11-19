@@ -39,6 +39,8 @@ export interface PlacedInteractiveLaunch {
   readonly shellPath: string;
   readonly shellArgs: string[];
   readonly env: Record<string, string>;
+  /** The env holds a secret: the terminal must not be kept in VS Code storage (no revive after a reload). */
+  readonly transient?: boolean;
 }
 
 export type RunHeadless = (
@@ -157,6 +159,15 @@ export interface SessionRunner {
   oomReport?(): Promise<string>;
   /** sbx only: a write probe in the sandbox; a read-only filesystem is `ok: false` with the recovery steps (never a host fallback). */
   ensureWritable?(ticket?: SandboxTicketRef): Promise<StepOutcome>;
+  /**
+   * sbx claude under a stored-token account: issue this launch's proxy key and, when the sandbox exists, allow
+   * the proxy port and approve the key. Run it before `placeInteractive`, which fails without it (@arch:AC-51).
+   */
+  prepareLaunch?(): Promise<StepOutcome>;
+  /** sbx only: a new sandbox still needs its guest setup, which only `linkTranscripts` runs (it needs a bridge). */
+  guestSetupPending?(): boolean;
+  /** sbx only: a launch that fails after `prepareLaunch` gives its proxy key back at once (revoke, policy rule), so no key outlives the failed launch. */
+  abortLaunch?(): Promise<void>;
   /** sbx only: poll until the clone's ticket branch resolves (a fresh clone is briefly `.invalid`); `ok: false` when it never does. */
   ensureCloneReady?(branch: string): Promise<StepOutcome>;
   /** sbx only: remove the sandbox for a rebuild from the host branch, but only when the host branch and sync ref hold all its commits. */

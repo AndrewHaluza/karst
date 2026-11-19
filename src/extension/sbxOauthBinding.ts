@@ -4,6 +4,10 @@ import { createProxyClient, proxyPaths } from '../agent/oauthProxy/client.js';
 import { createProxyLifecycle, type SandboxRegistration } from '../agent/oauthProxy/lifecycle.js';
 import { spawnDetachedProxy } from '../agent/oauthProxy/spawnProxy.js';
 import { join } from 'node:path';
+import { createDirLock, type WithLock } from './crossWindowLock.js';
+import { createSbxGrantStore } from './sbxGrantStore.js';
+import { createLaunchOauthInput, createSbxGrantReleaser } from './ops/sbxLaunchOauth.js';
+import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
 import { createSbxTokenOps } from './ops/sbxTokenOps.js';
 import type { Notify } from './ops/notify.js';
 import type { SecretStore } from './secretStore.js';
@@ -21,8 +25,10 @@ export interface SbxOauthHost {
   readonly globalStorageRoot: string;
   readonly extensionPath: string;
   readonly subscriptions: { dispose(): unknown }[];
-  /** The keys and tokens of this window's live sandboxes (the sbx launch wiring supplies them). */
-  readonly liveRegistrations: () => Promise<readonly SandboxRegistration[]>;
+  /** Overrides the keys and tokens of the live sandboxes; the default is the grant store of this binding. */
+  readonly liveRegistrations?: () => Promise<readonly SandboxRegistration[]>;
+  /** Overrides the cross-window lock of the grant index; the default is a lock directory in the storage root. */
+  readonly grantLock?: WithLock;
   readonly spawn?: typeof spawnDetachedProxy;
   readonly debug: (message: string) => void;
 }
@@ -36,16 +42,19 @@ export function registerSbxOauth(host: SbxOauthHost) {
   const { vscode } = host;
   const paths = proxyPaths(host.globalStorageRoot);
   const spawn = host.spawn ?? spawnDetachedProxy;
+  const client = createProxyClient(paths);
+  let grants!: ReturnType<typeof createSbxGrantStore>;
   const lifecycle = createProxyLifecycle({
-    client: createProxyClient(paths),
+    client,
     spawnProxy: () => spawn({ script: join(host.extensionPath, 'dist', 'oauth-proxy', 'oauth-proxy.mjs'), paths, logFile: join(host.globalStorageRoot, 'oauth-proxy.log'), onError: host.debug }),
-    liveRegistrations: host.liveRegistrations,
+    liveRegistrations: host.liveRegistrations ?? (() => grants.liveRegistrations()),
     debug: host.debug,
   });
   const proxy = createSbxProxyWiring({
     lifecycle, listAccounts: (core) => host.accounts.listAccounts(core), secrets: host.secrets,
     every: intervalEvery, debug: host.debug,
   });
+  grants = createSbxGrantStore({ secrets: host.secrets, client, ensureProxy: proxy.sync, lock: host.grantLock ?? createDirLock(join(host.globalStorageRoot, 'sbx-grants-index.lock')), debug: host.debug });
   const ops = createSbxTokenOps({
     secrets: host.secrets,
     listAccounts: (core) => host.accounts.listAccounts(core),
@@ -55,7 +64,10 @@ export function registerSbxOauth(host: SbxOauthHost) {
       password: true, ignoreFocusOut: true, validateInput: (v) => validateSbxToken(v),
     }),
     notify: host.notify,
-    onChanged: (_account, change) => { if (change === 'set') void proxy.sync(); },
+    onChanged: (account, change) => {
+      if (change === 'set') void proxy.sync();
+      else void grants.revokeAccount(account).catch((e: unknown) => host.debug(`[oauth-proxy] revoke of the keys of ${account} failed: ${e instanceof Error ? 'error' : 'unknown error'}`));
+    },
   });
   host.subscriptions.push(
     vscode.commands.registerCommand(SET_SBX_TOKEN_COMMAND, () => ops.set()),
@@ -63,5 +75,12 @@ export function registerSbxOauth(host: SbxOauthHost) {
   );
   host.subscriptions.push({ dispose: proxy.dispose });
   void proxy.startIfTokens();
-  return { lifecycle, sync: proxy.sync };
+  const listAccounts: Parameters<typeof createLaunchOauthInput>[0]['listAccounts'] = (core) => host.accounts.listAccounts(core);
+  return {
+    lifecycle, sync: proxy.sync, grants,
+    /** The `oauth` input of the launch backend resolver. */
+    oauthInput: createLaunchOauthInput({ grants, secrets: host.secrets, listAccounts, debug: host.debug }),
+    /** Revoke the key and remove the policy rule of a sandbox that is removed by name. */
+    releaseGrant: createSbxGrantReleaser({ grants, run: (args) => NODE_SBX_PROCESS.run('sbx', args), debug: host.debug }),
+  };
 }

@@ -197,11 +197,15 @@ export interface HostFallbackInput<T extends { readonly sandboxed: boolean; read
   readonly refuseOnBlock?: boolean;
   /** The blocked account when it can hold an sbx token (a folder or managed claude account); absent hides 'Add a token'. */
   readonly tokenAccount?: () => string | undefined;
+  /** The ticket's agent is live in this window: a new launch only reveals it, so no backend is resolved (a new sbx key would revoke the key the live agent runs on). */
+  readonly reuseLive?: () => boolean;
 }
 
 export type HostFallbackResult<T> =
   | { readonly kind: 'launched'; readonly backend: T; readonly freshSession: boolean }
   | { readonly kind: 'cancelled' }
+  /** The ticket's session is live: nothing was resolved and nothing ran. */
+  | { readonly kind: 'reused' }
   /** The user chose a NEW session under the explicit `default` account: the caller relaunches with it; nothing ran. */
   | { readonly kind: 'restart-default' }
   /** The user chose 'Add a token': the caller opens Settings on that account's row; nothing ran. */
@@ -213,6 +217,7 @@ export const FAIL_CLOSED_REASON = 'the sandbox backend is unavailable and auto-f
 
 /** F14: a ticket with a sandbox never silently falls back to the host; the user picks Retry / host-after-removal / Cancel. */
 export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean; readonly blocked?: { readonly kind: 'account'; readonly reason: string } }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
+  if (input.reuseLive?.()) return { kind: 'reused' };
   for (;;) {
     const backend = await input.launch();
     if (backend.sandboxed || !input.wantsSandbox) return { kind: 'launched', backend, freshSession: false };

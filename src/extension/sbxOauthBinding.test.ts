@@ -26,7 +26,7 @@ function setup(opts: { stored?: boolean; registrations?: { key: string; token: s
   const debug: string[] = [];
   const reg = registerSbxOauth({
     vscode, secrets, accounts: { listAccounts: async () => rows }, notify: { info: (m) => { infos.push(m); }, warn: () => {}, error: async () => {} },
-    globalStorageRoot: '/gs', extensionPath: '/ext', subscriptions, liveRegistrations: async () => opts.registrations ?? [], debug: (m) => debug.push(m),
+    globalStorageRoot: '/gs', grantLock: async (section) => section(), extensionPath: '/ext', subscriptions, ...(opts.registrations ? { liveRegistrations: async () => opts.registrations! } : {}), debug: (m) => debug.push(m),
     spawn: (i) => { spawns.push(i); },
   });
   return { commands, picks, inputs, map, spawns, infos, subscriptions, debug, reg };
@@ -87,5 +87,13 @@ describe('sbx oauth binding', () => {
     const b = setup(); await tick();
     expect(b.spawns).toHaveLength(0);
     [a, b].forEach((s) => s.subscriptions.forEach((d) => d.dispose()));
+  });
+
+  it('removing a token leaves no live key for the account', async () => {
+    const s = setup({ stored: true });
+    await s.commands.get(REMOVE_SBX_TOKEN_COMMAND)!();
+    expect(await s.reg.grants.liveRegistrations()).toEqual([]);
+    expect(s.map.has('karst.sbx.token.claude.work')).toBe(false);
+    s.subscriptions.forEach((d) => d.dispose());
   });
 });

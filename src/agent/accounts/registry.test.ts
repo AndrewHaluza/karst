@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   accountForLaunch, accountReaderEnv, configureAccounts, configureRecordedAccountLookup,
-  resetAccounts, sandboxAccountBlock, sessionReaderEnv,
+  resetAccounts, sandboxAccountBlock, sbxTokenAccount, sessionReaderEnv,
 } from './registry.js';
 import type { AccountsConfig } from './types.js';
 
@@ -65,11 +65,24 @@ describe('sandboxAccountBlock', () => {
   });
   it('blocks every stored account under sbx, and the default account never', () => {
     configureAccounts(config);
-    expect(sandboxAccountBlock('claude', 'work', 'sbx')).toMatch(/claude account 'work'.*sbx sandbox/);
+    expect(sandboxAccountBlock('claude', 'work', 'sbx')).toMatch(/claude account 'work'.*no sbx token/);
     expect(sandboxAccountBlock('claude', 'cmd', 'sbx')).toMatch(/host command/);
     expect(sandboxAccountBlock('claude', 'default', 'sbx')).toBeUndefined();
     expect(sandboxAccountBlock('claude', 'work', 'docker')).toBeUndefined();
     expect(sandboxAccountBlock('opencode', undefined, 'sbx')).toBeUndefined();
+  });
+  it('lets a folder or managed claude account with a stored token run under sbx, and never a command account or another core', () => {
+    configureAccounts(config);
+    expect(sandboxAccountBlock('claude', 'work', 'sbx', new Set(['work']))).toBeUndefined();
+    expect(sandboxAccountBlock('claude', 'work', 'sbx', new Set(['other']))).toMatch(/no sbx token/);
+    expect(sandboxAccountBlock('claude', 'cmd', 'sbx', new Set(['cmd']))).toMatch(/host command/);
+  });
+  it('tells which accounts can take an sbx token', () => {
+    configureAccounts(config);
+    expect(sbxTokenAccount('claude', 'work')).toBe('work');
+    expect(sbxTokenAccount('claude', 'cmd')).toBeUndefined();
+    expect(sbxTokenAccount('claude', 'default')).toBeUndefined();
+    expect(sbxTokenAccount('codex', 'work')).toBeUndefined();
   });
 });
 

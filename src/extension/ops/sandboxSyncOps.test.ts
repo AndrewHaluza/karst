@@ -1,4 +1,5 @@
-import { configureRecordedAccountLookup } from '../../agent/accounts/registry.js';
+import { configureAccounts, configureRecordedAccountLookup, resetAccounts } from '../../agent/accounts/registry.js';
+import { resolveBackend } from '../../agent/backendResolver.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -7,11 +8,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, stashSandboxAndUpdate, syncSandboxOp } from './sandboxSyncOps.js';
+import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, sandboxRunnerFor, ensureSandboxInSync, ensureSandboxSynced, stashSandboxAndUpdate, syncSandboxOp } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -501,6 +502,71 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     expect(resolve).toHaveBeenCalledTimes(1);
   });
 
+  describe('sbx proxy launch (@arch:AC-51)', () => {
+    const oauth = { grants: { issue: vi.fn(), release: vi.fn() }, tokenAccounts: new Set(['work']) };
+    const mk = (prepareLaunch?: unknown) => ({ kind: 'sbx', enforcesSandbox: true, ...(prepareLaunch ? { prepareLaunch } : {}), bridgeRunDir: (p: { dir: string }) => p.dir }) as never;
+    it('reads the token accounts at each resolve and hands them to the backend resolver', async () => {
+      const resolve = vi.fn(async () => ({ runner: mk(), line: 'sbx' }));
+      const oauthNow = vi.fn(async () => oauth);
+      await resolveLaunchBackend({ ...base, resolve, oauth: oauthNow, bridgeFor: async () => paths });
+      expect(oauthNow).toHaveBeenCalledTimes(1);
+      expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ oauth }));
+    });
+    it('prepares the launch, which issues the key, before the launch is handed back', async () => {
+      const prepare = vi.fn(async () => ({ ok: true as const }));
+      const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(prepare), line: 'sbx' }), bridgeFor: async () => paths });
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(out.sandboxed).toBe(true);
+    });
+    it('stops the launch with the reason when the prepare fails', async () => {
+      const prepare = vi.fn(async () => ({ ok: false as const, reason: 'proxy is down' }));
+      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(prepare), line: 'sbx' }), bridgeFor: async () => paths })).rejects.toThrow('Karst: K-7 proxy is down');
+    });
+    it('stops the launch with a reason when a new sandbox needs a guest setup but no bridge gives a link step', async () => {
+      const runner = { ...(mk(async () => ({ ok: true as const })) as object), linkTranscripts: async () => ({ ok: true as const }), guestSetupPending: () => true } as never;
+      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }) })).rejects.toThrow(/K-7 .*bridge/);
+    });
+    it('a failed guest setup stops the launch with its own reason, not the transcript warning', async () => {
+      const info = vi.fn();
+      const runner = { ...(mk(async () => ({ ok: true as const })) as object), linkTranscripts: async () => ({ ok: false as const, reason: 'sbx policy allow failed: denied' }), guestSetupPending: () => true } as never;
+      const out = await resolveLaunchBackend({ ...base, info, worktree: { path: '/wt/b', branch: 'k/b' }, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths });
+      await expect(out.linkTranscripts!()).rejects.toThrow(/K-7 .*sbx policy allow failed: denied/);
+      expect(info).not.toHaveBeenCalledWith(expect.stringContaining('token usage'));
+    });
+    it('hands back the abort of the launch, which gives the key back', async () => {
+      const abortLaunch = vi.fn(async () => undefined);
+      const runner = { ...(mk(async () => ({ ok: true as const })) as object), abortLaunch } as never;
+      const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths });
+      await out.abortLaunch!();
+      expect(abortLaunch).toHaveBeenCalledTimes(1);
+      expect((await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(), line: 'sbx' }), bridgeFor: async () => paths })).abortLaunch).toBeUndefined();
+    });
+    it('keeps the launch error when the give-back of the key fails too', async () => {
+      const abortLaunch = vi.fn(async () => { throw new Error('revoke failed'); });
+      const runner = { ...(mk(async () => ({ ok: false as const, reason: 'proxy is down' })) as object), abortLaunch } as never;
+      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths })).rejects.toThrow('proxy is down');
+      expect(abortLaunch).toHaveBeenCalledTimes(1);
+    });
+    it('launches a runner with no sandbox probe, no run dir and no bridge, and records no clone without a bridge', async () => {
+      const runner = { kind: 'sbx', enforcesSandbox: true } as never;
+      const syncExisting = vi.fn(async () => ({ ok: true as const }));
+      const out = await resolveLaunchBackend({ ...base, worktree: { path: '/wt/b', branch: 'k/b' }, syncExisting, resolve: async () => ({ runner, line: 'sbx' }) });
+      expect(out.sandboxed).toBe(true);
+      expect(syncExisting).not.toHaveBeenCalled();
+      expect(out.runDir).toBeUndefined();
+      expect(out.bridge).toBeUndefined();
+      const withBridge = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths });
+      expect(withBridge.runDir).toBeUndefined();
+      expect(withBridge.bridge).toEqual(paths);
+    });
+    it('does not prepare a host runner', async () => {
+      const prepare = vi.fn();
+      const host = { kind: 'host', enforcesSandbox: false, prepareLaunch: prepare } as never;
+      await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: host, line: 'host (x)' }) });
+      expect(prepare).not.toHaveBeenCalled();
+    });
+  });
+
   it('hands back the transcript link step without running it; a failed link only logs and the launch proceeds', async () => {
     const worktree = { path: '/wt/b', branch: 'k/b' };
     const link = vi.fn(async () => ({ ok: true as const }));
@@ -561,6 +627,14 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     expect((ok as { ensureCloneReady: ReturnType<typeof vi.fn> }).ensureCloneReady).toHaveBeenCalledWith('k/b');
     const empty = mk({ ok: false, reason: 'sandbox clone is empty: run Karst: Rebuild Sandbox' });
     await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: empty, line: 'sbx' }) })).rejects.toThrow(/K-7 sandbox clone is empty.*Rebuild Sandbox/);
+  });
+
+  it('gives the proxy key back when the launch stops after prepareLaunch', async () => {
+    const abortLaunch = vi.fn(async () => undefined);
+    const runner = { kind: 'sbx', enforcesSandbox: true, hasSandbox: async () => true, prepareLaunch: async () => ({ ok: true as const }), abortLaunch } as never;
+    const syncExisting = async () => ({ ok: false as const, reason: 'diverged', diverged: true });
+    await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }), syncExisting })).rejects.toThrow(/diverged/);
+    expect(abortLaunch).toHaveBeenCalledTimes(1);
   });
 
   it('syncs an EXISTING sandbox before the session starts; a blocker stops the launch (F8)', async () => {
@@ -761,6 +835,34 @@ describe('backendSessionOptions resume account (@arch:AC-55)', () => {
   });
 });
 
+describe('a resume under a token account runs in sbx (@arch:AC-51)', () => {
+  const grants = { issue: vi.fn(), release: vi.fn() };
+  const make = (tokenAccounts: string[]) => backendSessionOptions({
+    backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p/karst.yml', ticketId: 7, ticketLabel: 'K-7',
+    info: vi.fn(), warn: vi.fn(), resumeSessionId: 'sess-1', oauth: async () => ({ grants, tokenAccounts: new Set(tokenAccounts) }),
+    resolve: (input) => resolveBackend({ ...input, proc: fakeSbxProcess(), preflight: async () => ({ ok: true, existing: [sbxName({ projectRoot: '/p/karst.yml', ticketId: 7, core: 'claude' })] }), worktree: { hostWorktreePath: '/p/wt', branch: 'karst/t7' } }),
+  });
+  beforeEach(() => configureAccounts({ claude: { active: 'default', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } }));
+  afterEach(() => resetAccounts());
+
+  it('uses the recorded account: with a token it is not blocked and the runner prepares a key', async () => {
+    configureRecordedAccountLookup((_core, id) => (id === 'sess-1' ? 'work' : undefined));
+    try {
+      const resolved = await make(['work']).resolveRunner!();
+      expect(resolved.blocked).toBeUndefined();
+      expect(resolved.runner.prepareLaunch).toBeDefined();
+    } finally { configureRecordedAccountLookup(undefined); }
+  });
+
+  it('without a token the recorded account is blocked', async () => {
+    configureRecordedAccountLookup((_core, id) => (id === 'sess-1' ? 'work' : undefined));
+    try {
+      const resolved = await make([]).resolveRunner!();
+      expect(resolved.blocked).toMatchObject({ kind: 'account' });
+    } finally { configureRecordedAccountLookup(undefined); }
+  });
+});
+
 describe('backendSessionOptions explicit account (@arch:AC-55)', () => {
   const make = (extra: Record<string, unknown>) => {
     const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'host (x)' });
@@ -789,5 +891,16 @@ describe('backendSessionOptions explicit account (@arch:AC-55)', () => {
       backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), warn: vi.fn(), resolve,
     });
     expect(out.blocked).toEqual(blocked);
+  });
+});
+
+describe('sandboxRunnerFor releases the proxy grant at dispose (@arch:AC-51)', () => {
+  it('an sbx runner built here revokes the key of its sandbox before it removes it', async () => {
+    const release = vi.fn(async () => ({ port: 8787 }));
+    const proc = fakeSbxProcess();
+    const runner = sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p/karst.yml', proc, oauthGrants: { issue: vi.fn(), release } }, 'claude', 7)!;
+    await runner.dispose!({ hostWorktreePath: '', branch: 'b' });
+    expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: '/p/karst.yml', ticketId: 7, core: 'claude' }));
+    expect(proc.calls.some((c) => c.args.join(' ').startsWith('policy rm'))).toBe(true);
   });
 });

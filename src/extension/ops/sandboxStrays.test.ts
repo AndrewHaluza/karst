@@ -53,6 +53,23 @@ describe('findStrays / removeStrays', () => {
     expect(rms.join('\n')).not.toContain(live);
   });
 
+  it('releases the proxy grant of a removable sbx clone dir, and of no open ticket', async () => {
+    const { project, docker } = setup({});
+    for (const id of [3, 4]) mkdirSync(join(root!, '.karst', 'sbx-clones', n(project, id)), { recursive: true });
+    const released: string[] = [];
+    const deps = { projectRoot: project, docker, liveTicketIds: new Set([4]), releaseGrant: async (name: string) => { released.push(name); } };
+    await removeStrays(deps, await findStrays(deps, { sandboxes: [], errors: [] }));
+    expect(released).toEqual([n(project, 3)]);
+  });
+
+  it('reports a failed grant release and still removes the clone dir', async () => {
+    const { project, docker } = setup({});
+    mkdirSync(join(root!, '.karst', 'sbx-clones', n(project, 3)), { recursive: true });
+    const deps = { projectRoot: project, docker, liveTicketIds: new Set<number>(), releaseGrant: async () => { throw new Error('store down'); } };
+    const failed = await removeStrays(deps, await findStrays(deps, { sandboxes: [], errors: [] }));
+    expect(failed).toEqual([`clone-dir ${n(project, 3)}: store down`]);
+  });
+
   it('a failed listing proves nothing stray', async () => {
     const { project, docker } = setup({});
     mkdirSync(join(root!, '.karst', 'sbx-clones', n(project, 3)), { recursive: true });

@@ -238,6 +238,7 @@ export function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHo
         shellArgs: opts.shellArgs,
         env: opts.env,
         hideFromUser: opts.hideFromUser,
+        ...(opts.transient ? { isTransient: true } : {}),
         // Name/icon/color are frozen at creation — `Terminal.creationOptions` is
         // readonly, so the launch glyph is what the tab keeps for its lifetime.
         // A ThemeIcon (the contributed `karst-mark` font glyph), NOT a Uri: VS Code

@@ -80,4 +80,51 @@ describe('sbx token commands', () => {
     expect(b.map.size).toBe(1);
     expect(b.out.infos).toEqual([]);
   });
+
+  it('setFor asks for the token of one account, stores it and returns true', async () => {
+    const { ops, map, out } = setup();
+    expect(await ops.setFor('home')).toBe(true);
+    expect(out.offered).toEqual([]);
+    expect(map.get('karst.sbx.token.claude.home')).toBe(TOKEN);
+    expect(out.changed).toEqual(['home:set']);
+  });
+
+  it('setFor returns false on a cancelled input, a bad token or an account that cannot hold a token', async () => {
+    expect(await setup({ token: undefined }).ops.setFor('work')).toBe(false);
+    const bad = setup({ token: 'nope' });
+    expect(await bad.ops.setFor('work')).toBe(false);
+    expect(bad.out.warns).toHaveLength(1);
+    const cmd = setup();
+    expect(await cmd.ops.setFor('cmd')).toBe(false);
+    expect(cmd.out.asked).toEqual([]);
+    expect(cmd.out.warns).toHaveLength(1);
+  });
+  it('setFor says why a token is not stored: the store message, or a fixed text for a non-error', async () => {
+    for (const [thrown, text] of [[new Error('keychain locked'), 'keychain locked'], ['plain', 'The sbx token was not stored.']] as const) {
+      const warns: string[] = [];
+      const ops = createSbxTokenOps({
+        secrets: { get: async () => undefined, store: async () => { throw thrown; }, delete: async () => undefined },
+        listAccounts: async () => rows, pickAccount: async () => 'work', askToken: async () => TOKEN,
+        notify: { info: () => {}, warn: (m) => { warns.push(m); }, error: async () => {} },
+      });
+      expect(await ops.setFor('work')).toBe(false);
+      expect(warns).toEqual([text]);
+    }
+  });
+
+  it('works with no change callback and names the account that is not listed', async () => {
+    const infos: string[] = [];
+    const warns: string[] = [];
+    const map = new Map<string, string>();
+    const ops = createSbxTokenOps({
+      secrets: { get: async (k) => map.get(k), store: async (k, v) => { map.set(k, v); }, delete: async (k) => { map.delete(k); } },
+      listAccounts: async () => rows, pickAccount: async (names) => names[0], askToken: async () => TOKEN,
+      notify: { info: (m) => { infos.push(m); }, warn: (m) => { warns.push(m); }, error: async () => {} },
+    });
+    expect(await ops.setFor('work')).toBe(true);
+    await ops.remove();
+    expect(infos).toEqual(["The sbx token for the Claude account 'work' is stored.", "The sbx token for the Claude account 'work' is removed."]);
+    expect(await ops.setFor('ghost')).toBe(false);
+    expect(warns).toHaveLength(1);
+  });
 });
