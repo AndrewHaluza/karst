@@ -1,10 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, mkdirSync, realpathSync, readdirSync } from 'node:fs';
-import { loadManifestWithDiagnostics } from '../manifest/load.js';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runManifestCommand, parseManifestArgs } from './manifestCommand.js';
-import type { ManifestProposal } from '../setup/proposal.js';
 
 const VALID = `
 host: localhost
@@ -42,22 +40,20 @@ function writeYaml(text: string): string {
 }
 
 describe('parseManifestArgs', () => {
-  it('parses validate and propose with a file and optional summary', () => {
-    expect(parseManifestArgs(['manifest', 'validate', '--file', '/a.yml'])).toEqual({
-      sub: 'validate',
-      file: '/a.yml',
-    });
-    expect(parseManifestArgs(['manifest', 'propose', '--file', '/a.yml', '--summary', 'hi'])).toEqual({
-      sub: 'propose',
-      file: '/a.yml',
-      summary: 'hi',
-    });
+  it('parses validate with a file', () => {
+    expect(parseManifestArgs(['manifest', 'validate', '--file', '/a.yml'])).toEqual({ sub: 'validate', file: '/a.yml' });
   });
 
   it('rejects an unknown subcommand, a missing file and unknown args', () => {
     expect(() => parseManifestArgs(['manifest', 'nope'])).toThrow(/unknown subcommand/);
     expect(() => parseManifestArgs(['manifest', 'validate'])).toThrow(/missing --file/);
     expect(() => parseManifestArgs(['manifest', 'validate', '--file', '/a', '--nope'])).toThrow(/unknown argument/);
+  });
+
+  it('no longer knows propose, and its flags', () => {
+    expect(() => parseManifestArgs(['manifest', 'propose', '--file', '/a.yml'])).toThrow(/unknown subcommand 'propose'/);
+    expect(() => runManifestCommand(['manifest', 'propose', '--file', writeYaml(VALID)])).toThrow(/want 'validate' or 'show'/);
+    expect(() => parseManifestArgs(['manifest', 'validate', '--file', '/a', '--summary', 'x'])).toThrow(/unknown argument/);
   });
 });
 
@@ -71,51 +67,6 @@ describe('runManifestCommand validate', () => {
   it('throws the loader error for an invalid manifest', () => {
     expect(() => runManifestCommand(['manifest', 'validate', '--file', writeYaml(INVALID)])).toThrow(
       /repositories/,
-    );
-  });
-});
-
-describe('runManifestCommand propose', () => {
-  it('writes a kind:manifest proposal into KARST_SETUP_OUTBOX', () => {
-    const outbox = join(dir, 'outbox');
-    mkdirSync(outbox, { recursive: true });
-
-    const file = writeYaml(VALID);
-    const out = JSON.parse(
-      runManifestCommand(['manifest', 'propose', '--file', file], { outboxEnv: outbox, uuid: () => 'fixed' }),
-    );
-    expect(out).toEqual({ ok: true, kind: 'manifest', id: 'fixed', file: join(realpathSync(outbox), 'fixed.json'), wouldDrop: [] });
-    const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ManifestProposal;
-    expect(written.kind).toBe('manifest');
-    expect(written.targetPath).toBe(file);
-    expect(written.yaml).toContain('repositories:');
-    expect(written.summary).toMatch(/2 repositories, 1 with a service/);
-  });
-
-  it('uses a caller-supplied summary', () => {
-    const outbox = join(dir, 'outbox2');
-    mkdirSync(outbox, { recursive: true });
-    runManifestCommand(['manifest', 'propose', '--file', writeYaml(VALID), '--summary', 'mine'], {
-      outboxEnv: outbox,
-      uuid: () => 'fixed',
-    });
-    const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ManifestProposal;
-    expect(written.summary).toBe('mine');
-  });
-
-  it('writes a --clears list into the proposal and parses it', () => {
-    expect(parseManifestArgs(['manifest', 'propose', '--file', '/a.yml', '--clears', 'a.b,,c']).clears).toEqual(['a.b', 'c']);
-    expect(() => parseManifestArgs(['manifest', 'propose', '--file', '/a.yml', '--clears'])).toThrow(/--clears needs a value/);
-    const outbox = join(dir, 'outbox3');
-    mkdirSync(outbox, { recursive: true });
-    runManifestCommand(['manifest', 'propose', '--file', writeYaml(VALID), '--clears', 'x.y'], { outboxEnv: outbox, uuid: () => 'fixed' });
-    const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ManifestProposal;
-    expect(written.clears).toEqual(['x.y']);
-  });
-
-  it('refuses to propose without KARST_SETUP_OUTBOX', () => {
-    expect(() => runManifestCommand(['manifest', 'propose', '--file', writeYaml(VALID)])).toThrow(
-      /KARST_SETUP_OUTBOX/,
     );
   });
 });
@@ -144,105 +95,34 @@ describe('manifest show --active', () => {
   });
 });
 
-describe('manifest validate/propose against the current manifest', () => {
+describe('manifest validate against the current manifest', () => {
   const CURRENT = `${VALID}archiveDoneAfterDays: 3\n`;
   const REVIEW_ONLY = `${VALID}archiveDoneAfterDays: 9\n`;
-  const REPO_AND_PROTECTED = REVIEW_ONLY.replace('  docs:\n    repoPath: ../docs\n', '  docs:\n    repoPath: ../docs\n  api:\n    repoPath: ../api\n');
 
-  function setup(): { manifestPath: string; outbox: string } {
+  function current(): string {
     const manifestPath = join(dir, 'current.yml');
     writeFileSync(manifestPath, CURRENT);
-    const outbox = join(dir, 'ob');
-    mkdirSync(outbox, { recursive: true });
-    return { manifestPath, outbox };
+    return manifestPath;
   }
 
-  it('validate prints wouldDrop', () => {
-    const { manifestPath } = setup();
+  it('prints wouldDrop for a protected change on a non-scaffold manifest', () => {
     const out = JSON.parse(
-      runManifestCommand(['manifest', 'validate', '--file', writeYaml(REVIEW_ONLY)], { manifestPath, scaffold: () => undefined }),
+      runManifestCommand(['manifest', 'validate', '--file', writeYaml(REVIEW_ONLY)], { manifestPath: current(), scaffold: () => undefined }),
     );
     expect(out.wouldDrop).toEqual(['archiveDoneAfterDays']);
   });
 
-  it('refuses a draft that changes only protected fields on a non-scaffold manifest, queuing nothing', () => {
-    const { manifestPath, outbox } = setup();
-    expect(() =>
-      runManifestCommand(['manifest', 'propose', '--file', writeYaml(REVIEW_ONLY)], {
-        manifestPath,
-        outboxEnv: outbox,
-        scaffold: () => undefined,
-      }),
-    ).toThrow(/archiveDoneAfterDays.*Settings/);
-    expect(readdirSync(outbox)).toEqual([]);
+  it('prints an empty wouldDrop with no current manifest, or an unreadable one', () => {
+    const file = writeYaml(REVIEW_ONLY);
+    expect(JSON.parse(runManifestCommand(['manifest', 'validate', '--file', file], {})).wouldDrop).toEqual([]);
+    const bad = join(dir, 'bad.yml');
+    writeFileSync(bad, 'repositories: 3');
+    expect(JSON.parse(runManifestCommand(['manifest', 'validate', '--file', file], { manifestPath: bad })).wouldDrop).toEqual([]);
   });
 
-  it('refuses a draft with no difference at all', () => {
-    const { manifestPath, outbox } = setup();
-    expect(() =>
-      runManifestCommand(['manifest', 'propose', '--file', writeYaml(CURRENT)], {
-        manifestPath,
-        outboxEnv: outbox,
-        scaffold: () => undefined,
-      }),
-    ).toThrow(/no difference/);
-    expect(readdirSync(outbox)).toEqual([]);
-  });
-
-  it('queues a draft that only drops a retired key from the current file', () => {
-    const retired = `${VALID}approaches:
-  - id: karst-graph-engineering
-    label: Dynamic Graph
-    enabled: false
-    graph:
-      planner: { profile: expert, prompt: { artifact: skills/graph-planner/SKILL.md } }
-      profiles:
-        expert: { provider: claude, model: claude-opus-5, effort: high }
-        worker: { provider: claude, model: claude-sonnet-5, effort: low }
-      limits:
-        confirmGeneratedGraph: true
-        maxParallel: 1
-`;
-    const { manifestPath, outbox } = setup();
-    writeFileSync(manifestPath, retired);
-    const out = JSON.parse(
-      runManifestCommand(['manifest', 'propose', '--file', writeYaml(retired)], {
-        manifestPath,
-        outboxEnv: outbox,
-        uuid: () => 'fixed',
-        scaffold: () => undefined,
-      }),
-    );
-    expect(out.ok).toBe(true);
-    expect(readdirSync(outbox)).toHaveLength(1);
-  });
-
-  it('passes the same draft when the current manifest is the unedited scaffold', () => {
-    const { manifestPath, outbox } = setup();
-    const out = JSON.parse(
-      runManifestCommand(['manifest', 'propose', '--file', writeYaml(REVIEW_ONLY)], {
-        manifestPath,
-        outboxEnv: outbox,
-        uuid: () => 'fixed',
-        scaffold: () => loadManifestWithDiagnostics(manifestPath).manifest,
-      }),
-    );
-    expect(out.ok).toBe(true);
-    expect(out.wouldDrop).toEqual([]);
-  });
-
-  it('queues a draft with a repository change and a protected change, printing wouldDrop', () => {
-    const { manifestPath, outbox } = setup();
-    const out = JSON.parse(
-      runManifestCommand(['manifest', 'propose', '--file', writeYaml(REPO_AND_PROTECTED)], {
-        manifestPath,
-        outboxEnv: outbox,
-        uuid: () => 'fixed',
-        scaffold: () => undefined,
-      }),
-    );
-    expect(out.ok).toBe(true);
-    expect(out.wouldDrop).toEqual(['archiveDoneAfterDays']);
-    expect(readdirSync(outbox)).toEqual(['fixed.json']);
+  it('writes nothing', () => {
+    mkdirSync(join(dir, 'ob'));
+    runManifestCommand(['manifest', 'validate', '--file', writeYaml(REVIEW_ONLY)], { manifestPath: current(), scaffold: () => undefined });
+    expect(readdirSync(join(dir, 'ob'))).toEqual([]);
   });
 });

@@ -96,7 +96,7 @@ export async function callTool(
     return errorResult((e as Error).message);
   }
 
-  // `draft` and `setup propose-change` are the verbs whose input rides stdin,
+  // `draft` and `setup skip` are the verbs whose input rides stdin,
   // not argv: the registry encoder names the verb and the validated object is
   // fed back as stdin. Every other verb ignores `readStdin` (no `--file`/
   // `--stdin` token is emitted).

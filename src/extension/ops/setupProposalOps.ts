@@ -1,17 +1,16 @@
 import { readFileSync, readdirSync, unlinkSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { Manifest } from '../../manifest/types.js';
-import { parseManifestText } from '../../manifest/load.js';
 import {
   MAX_SETUP_PROPOSAL_BYTES,
   validateSetupProposal,
   type ChangeProposal,
-  type ManifestProposal,
+  type SetupProposal,
 } from '../../setup/proposal.js';
-import { adoptedProtectedFields, applyManifestProposal, droppedProtectedFields, sameManifest } from '../../setup/manifestApply.js';
+import { buildWriteFilePatch } from '../../setup/writeFile.js';
 import { writeProposalResult, type ProposalResult } from '../../setup/ledger.js';
 import type { ChangeDir } from '../../setup/changeTarget.js';
-import { describeChangeProposal, describeManifestProposal, type ProposalDescription } from '../../setup/review.js';
+import { describeRunProposal, describeWriteFileProposal, type ProposalDescription } from '../../setup/review.js';
 import { restoreKarstFiles, snapshotKarstFiles } from '../../setup/karstGuard.js';
 import { withVerification } from '../../setup/review.js';
 import { firstFailure, sha256Of, verifyAfterApply, verifyBeforeConsent, verifyEditsBeforeConsent } from '../../setup/verify/verify.js';
@@ -29,11 +28,11 @@ import type { Notify } from './notify.js';
  * approves. Mirrors `planningOutbox` in posture — the agent writes files, the
  * host is the sole writer of durable state, and a proposal is never trusted.
  *
- * A manifest proposal is validated against the real loader/schema (its YAML
- * text is parsed in memory) and applied through the injected `applyManifest`
- * seam, which preserves protected identity fields. A change proposal is shown
- * as its exact command or patch and applied only on consent. A rejected or
- * invalid proposal is removed and reported; nothing is left to re-scan.
+ * The outbox carries only the typed `run` and `write-file` proposals. A run is
+ * shown as its purpose and exact command; a write-file is shown as the diff
+ * that the HOST builds. Both apply only on consent. A `manifest` or `change`
+ * file is refused as invalid: the agent changes karst.yml through the typed
+ * edit tools. A rejected or invalid proposal is removed and reported.
  */
 
 export interface SetupProposalFs {
@@ -41,7 +40,7 @@ export interface SetupProposalFs {
   readFile: (path: string) => string;
   remove: (path: string) => void;
   exists: (path: string) => boolean;
-  /** Modification time, ms: orders a session's manifest proposals for superseding. */
+  /** Modification time, ms. */
   mtime: (path: string) => number;
   /** Persist a ledger entry into `<outbox>/results/`. */
   writeResult: (outbox: string, result: ProposalResult) => void;
@@ -130,6 +129,9 @@ export interface SetupSkipWiring {
   record: (scratch: string, skip: SkipRecord) => void;
 }
 
+/** The repo name that a path-only run carries in its host-built change. */
+const PATH_RUN_REPO = 'path-run';
+
 /** The edit list waits this long after its newest op: the agent usually adds several ops, and one popup shows them all. */
 export const EDIT_QUIET_MS = 4000;
 
@@ -147,12 +149,6 @@ export interface SetupProposalOpsDeps {
   readCurrentManifest: () => Manifest | undefined;
   /** Show the proposal to the user; resolve true only on explicit approval. */
   confirm: (description: ProposalDescription) => Promise<boolean>;
-  /** Write the approved manifest (already merged by `applyManifestProposal`); returns the sha256 of the file written. */
-  applyManifest: (applied: Manifest, scratch: string) => string;
-  /** Top-level sections of karst.yml that writing `applied` changes, defaults the writer adds included. Shown before consent. */
-  writtenSections?: (applied: Manifest, scratch: string) => string[];
-  /** Key paths in karst.yml that writing `applied` removes (retired and legacy keys). Named in the consent detail. */
-  removedKeys?: (applied: Manifest, scratch: string) => string[];
   /** Directories whose `.karst/` a change must not write: the workspace root and every repo. */
   karstRoots?: () => string[];
   /** True when `current` is still the unedited scaffold (protected fields are then proposable). */
@@ -161,7 +157,7 @@ export interface SetupProposalOpsDeps {
   runCommand: (cwd: string, command: string) => Promise<void>;
   /** Apply an approved change patch. */
   applyPatch: (cwd: string, patch: string) => Promise<void>;
-  /** Where a change runs: the explicit `path`, else the repo's directory. `ok: false` marks the proposal invalid. */
+  /** Where a run or a write-file goes: the explicit `path`, else the repo's directory. `ok: false` marks the proposal invalid. */
   resolveDir: (change: ChangeProposal) => ChangeDir;
   notify: Notify;
   fs?: SetupProposalFs;
@@ -242,6 +238,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     outcome: { applied: boolean; error?: string; restored: readonly string[] },
     extra: Partial<ProposalResult>,
     invalid?: string,
+    ledgerKind: ProposalResult['kind'] = kind,
   ): Promise<void> {
     const after = await verifyAfterApply(before, kind, outcome, {
       recheck: deps.verify(scratch).recheck,
@@ -252,108 +249,14 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       }),
     });
     if (invalid !== undefined) {
-      record(scratch, file, kind, 'invalid', { ...extra, reason: invalid });
+      record(scratch, file, ledgerKind, 'invalid', { ...extra, reason: invalid });
       return;
     }
-    record(scratch, file, kind, after.ok ? 'verified' : 'unverified', {
+    record(scratch, file, ledgerKind, after.ok ? 'verified' : 'unverified', {
       ...extra,
       ...(after.ok ? {} : { reason: failureReason(after) }),
     });
     if (!after.ok) deps.notify.warn(`Karst: the setup proposal was applied but did not verify (${failureReason(after)}).`);
-  }
-
-  /** Files superseded by a newer proposal; a modal still open on one must not record 'withdrawn'. */
-  const superseded = new Set<string>();
-
-  async function handleManifest(file: string, scratch: string, proposal: ManifestProposal): Promise<void> {
-    let proposed: Manifest;
-    try {
-      proposed = parseManifestText(proposal.yaml, proposal.targetPath).manifest;
-    } catch (e) {
-      const reason = (e as Error).message;
-      deps.notify.warn(`Karst: the setup agent proposed an invalid manifest (${reason}); ignored.`);
-      debug(`rejected invalid manifest proposal ${file}`);
-      fs.remove(file);
-      record(scratch, file, 'manifest', 'invalid', { reason });
-      return;
-    }
-    const current = deps.readCurrentManifest();
-    const firstSetup = isFirstSetup(current);
-    const dropped = droppedProtectedFields(current, proposed, firstSetup);
-    const effective = applyManifestProposal(current, proposed, firstSetup);
-    let writtenSections: string[] = [];
-    let removedKeys: string[] = [];
-    try {
-      writtenSections = deps.writtenSections?.(effective, scratch) ?? [];
-      removedKeys = deps.removedKeys?.(effective, scratch) ?? [];
-    } catch (e) {
-      debug(`could not preview written sections: ${e instanceof Error ? e.message : String(e)}`);
-    }
-    // A raw delta counts: a retired key that the loader drops in memory still changes the file.
-    if (current !== undefined && sameManifest(effective, current) && removedKeys.length === 0) {
-      // Nothing would change: offer no Apply, write no file, and say so in the ledger.
-      const reason =
-        dropped.length > 0
-          ? `no effective change; protected fields not applied: ${dropped.join(', ')}. The user changes them in Settings.`
-          : 'no effective change';
-      debug(`manifest proposal ${file} has no effective change`);
-      deps.notify.warn(`Karst: the setup proposal changes nothing (${reason}).`);
-      fs.remove(file);
-      record(scratch, file, 'manifest', 'no-change', { reason, dropped });
-      return;
-    }
-    const run = await verifyBeforeConsent(proposal, { firstSetup }, deps.verify(scratch).deps);
-    if (!run.result.ok) {
-      const reason = failureReason(run.result);
-      deps.notify.warn(`Karst: the setup agent's manifest proposal failed the host checks (${reason}); ignored.`);
-      debug(`refused manifest proposal ${file}: ${reason}`);
-      fs.remove(file);
-      hostRecord(scratch, file, 'manifest', 'refused', run.result);
-      record(scratch, file, 'manifest', 'invalid', { reason, dropped });
-      return;
-    }
-    const description = withVerification(
-      describeManifestProposal(current, proposal, proposed, {
-        dropped,
-        adopted: adoptedProtectedFields(proposed, firstSetup),
-        writtenSections,
-        removedKeys,
-      }),
-      run.result,
-    );
-    const approved = await deps.confirm(description);
-    if (!fs.exists(file)) {
-      debug(`manifest proposal ${file} was withdrawn while its consent was open`);
-      if (superseded.has(file)) return;
-      record(scratch, file, 'manifest', 'withdrawn', { reason: 'withdrawn while awaiting consent' });
-      return;
-    }
-    if (!approved) {
-      debug(`user declined manifest proposal ${file}`);
-      fs.remove(file);
-      record(scratch, file, 'manifest', 'declined', { reason: 'declined by the user', dropped });
-      return;
-    }
-    try {
-      const latest = deps.readCurrentManifest();
-      const latestFirst = isFirstSetup(latest);
-      const latestDropped = droppedProtectedFields(latest, proposed, latestFirst);
-      if (manifestMoved(scratch, run.result.pinnedSha256)) {
-        throw new Error('karst.yml changed after the host checks ran; propose again');
-      }
-      if (latestFirst !== firstSetup || latestDropped.join() !== dropped.join()) {
-        throw new Error('karst.yml changed while awaiting consent; protected fields differ from what was shown');
-      }
-      const sha256 = deps.applyManifest(applyManifestProposal(latest, proposed, latestFirst), scratch);
-      debug(`applied manifest proposal ${file}`);
-      await finishVerify(file, scratch, 'manifest', run.result, { applied: true, restored: [] }, { dropped, sha256 });
-    } catch (e) {
-      const reason = (e as Error).message;
-      deps.notify.warn(`Karst: could not apply the manifest proposal (${reason}).`);
-      hostRecord(scratch, file, 'manifest', 'refused', run.result);
-      record(scratch, file, 'manifest', 'invalid', { reason: `apply failed: ${reason}`, dropped });
-    }
-    fs.remove(file);
   }
 
   let editWait: number | undefined;
@@ -433,63 +336,80 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     }
   }
 
-  async function handleChange(file: string, scratch: string, change: ChangeProposal): Promise<void> {
-    const target = deps.resolveDir(change);
-    if (!target.ok) {
-      deps.notify.warn(`Karst: could not apply the change for "${change.repo}" (${target.reason}).`);
-      record(scratch, file, 'change', 'invalid', { reason: target.reason });
+  /** What a typed proposal becomes: the host-built change and the popup text, or a refusal. */
+  type Prepared = { ok: true; change: ChangeProposal; describe: ProposalDescription } | { ok: false; reason: string };
+
+  /** Verify, ask, run or apply, and record. `target` names the repo and path that `resolveDir` reads. */
+  async function handleChange(
+    file: string,
+    scratch: string,
+    kind: ProposalResult['kind'],
+    label: string,
+    target: ChangeProposal,
+    prepare: (dir: string) => Prepared,
+  ): Promise<void> {
+    const where = deps.resolveDir(target);
+    if (!where.ok) {
+      deps.notify.warn(`Karst: could not apply the change for "${label}" (${where.reason}).`);
+      record(scratch, file, kind, 'invalid', { reason: where.reason });
       fs.remove(file);
       return;
     }
-    const roots = [...new Set([target.dir, ...(deps.karstRoots?.() ?? [])])];
-    const run = await verifyBeforeConsent(
-      change,
-      { firstSetup: false, dir: target.dir, karstRoots: roots },
-      deps.verify(scratch).deps,
-    );
+    const prepared = prepare(where.dir);
+    if (!prepared.ok) {
+      deps.notify.warn(`Karst: refused the change for "${label}" (${prepared.reason}).`);
+      record(scratch, file, kind, 'invalid', { reason: prepared.reason });
+      fs.remove(file);
+      return;
+    }
+    const { change } = prepared;
+    const roots = [...new Set([where.dir, ...(deps.karstRoots?.() ?? [])])];
+    const run = await verifyBeforeConsent(change, { firstSetup: false, dir: where.dir, karstRoots: roots }, deps.verify(scratch).deps);
     if (!run.result.ok) {
       const reason = failureReason(run.result);
-      deps.notify.warn(`Karst: refused the change for "${change.repo}" (${reason}).`);
+      deps.notify.warn(`Karst: refused the change for "${label}" (${reason}).`);
       hostRecord(scratch, file, 'change', 'refused', run.result);
-      record(scratch, file, 'change', 'invalid', { reason });
+      record(scratch, file, kind, 'invalid', { reason });
       fs.remove(file);
       return;
     }
-    const approved = await deps.confirm(withVerification(describeChangeProposal(change, target.dir), run.result));
+    const approved = await deps.confirm(withVerification(prepared.describe, run.result));
     if (!fs.exists(file)) {
-      record(scratch, file, 'change', 'withdrawn', { reason: 'withdrawn while awaiting consent' });
+      record(scratch, file, kind, 'withdrawn', { reason: 'withdrawn while awaiting consent' });
       return;
     }
     if (!approved) {
-      debug(`user declined change proposal ${file}`);
+      debug(`user declined proposal ${file}`);
       fs.remove(file);
-      record(scratch, file, 'change', 'declined', { reason: 'declined by the user' });
+      record(scratch, file, kind, 'declined', { reason: 'declined by the user' });
       return;
     }
     if (manifestMoved(scratch, run.result.pinnedSha256)) {
-      const reason = 'karst.yml changed after the host checks ran; propose again';
-      deps.notify.warn(`Karst: could not apply the change for "${change.repo}" (${reason}).`);
+      const reason = 'karst.yml changed after the host checks ran; ask again';
+      deps.notify.warn(`Karst: could not apply the change for "${label}" (${reason}).`);
       hostRecord(scratch, file, 'change', 'refused', run.result);
-      record(scratch, file, 'change', 'invalid', { reason: `apply failed: ${reason}` });
+      record(scratch, file, kind, 'invalid', { reason: `apply failed: ${reason}` });
       fs.remove(file);
       return;
     }
-    const snapshots = change.command !== undefined ? snapshotKarstFiles(roots) : [];
+    let snapshots: ReturnType<typeof snapshotKarstFiles> = [];
     let failure: string | undefined;
     try {
-      if (change.command !== undefined) await deps.runCommand(target.dir, change.command);
-      else if (change.patch !== undefined) await deps.applyPatch(target.dir, change.patch);
+      // The byte copy comes first: when it fails, the command does not run.
+      snapshots = snapshotKarstFiles(roots);
+      if (change.command !== undefined) await deps.runCommand(where.dir, change.command);
+      else if (change.patch !== undefined) await deps.applyPatch(where.dir, change.patch);
     } catch (e) {
       failure = (e as Error).message;
     }
     const restored = restoreKarstFiles(snapshots);
     if (restored.length > 0) {
-      failure = `command wrote ${restored.join(', ')}; the host restored it. Use \`manifest propose\` to change karst.yml`;
+      failure = `command wrote ${restored.join(', ')}; the host restored it. Use the typed setup tools to change karst.yml`;
     }
     if (failure === undefined) {
-      debug(`applied change proposal ${file}`);
+      debug(`applied proposal ${file}`);
     } else {
-      deps.notify.warn(`Karst: could not apply the change for "${change.repo}" (${failure}).`);
+      deps.notify.warn(`Karst: could not apply the change for "${label}" (${failure}).`);
     }
     await finishVerify(
       file,
@@ -503,14 +423,43 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
         : restored.length > 0
           ? `invalid: command wrote ${restored.join(', ')}`
           : `apply failed: ${failure}`,
+      kind,
     );
     fs.remove(file);
+  }
+
+  /** A run: the host shows the purpose and the exact command, and the command is not dry-run. */
+  function handleRun(file: string, scratch: string, run: Extract<SetupProposal, { kind: 'run' }>): Promise<void> {
+    const label = run.repo ?? run.path ?? PATH_RUN_REPO;
+    // A path-only run has no repo name; the change shape needs one, and `path` wins in `resolveDir`.
+    const target: ChangeProposal = {
+      kind: 'change', repo: run.repo ?? PATH_RUN_REPO, reason: `run: ${run.purpose}`, command: run.command, ...(run.path !== undefined ? { path: run.path } : {}),
+    };
+    return handleChange(file, scratch, 'run', label, target, (dir) => ({
+      ok: true,
+      change: target,
+      describe: describeRunProposal(run, dir),
+    }));
+  }
+
+  /** A write-file: the host builds the patch from the path and the content, so the agent never writes patch text. */
+  function handleWriteFile(file: string, scratch: string, write: Extract<SetupProposal, { kind: 'write-file' }>): Promise<void> {
+    const target: ChangeProposal = { kind: 'change', repo: write.repo, reason: 'write-file', patch: '' };
+    return handleChange(file, scratch, 'write-file', write.repo, target, (dir) => {
+      const built = buildWriteFilePatch(dir, write.path, write.content);
+      if (!built.ok) return { ok: false, reason: built.reason };
+      return {
+        ok: true,
+        change: { ...target, reason: `write-file: ${write.path}`, patch: built.patch },
+        describe: describeWriteFileProposal(write, dir, built.patch),
+      };
+    });
   }
 
   interface Pending {
     file: string;
     mtime: number;
-    value: ManifestProposal | ChangeProposal;
+    value: SetupProposal;
   }
 
   /** Read and validate one scratch's outbox; unreadable and invalid files are removed and recorded. */
@@ -591,22 +540,9 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       if (deps.edits !== undefined) await handleEdits(scratch, deps.edits);
       if (deps.skips !== undefined) await handleSkips(scratch, deps.skips);
       const pending = loadPending(scratch);
-      // Only the newest manifest proposal of a session is live; older pending ones are superseded.
-      const manifests = pending
-        .filter((p) => p.value.kind === 'manifest')
-        .sort((a, b) => a.mtime - b.mtime || a.file.localeCompare(b.file));
-      const newest = manifests[manifests.length - 1];
-      for (const old of manifests.slice(0, -1)) {
-        superseded.add(old.file);
-        fs.remove(old.file);
-        record(scratch, old.file, 'manifest', 'superseded', {
-          reason: `superseded by ${basename(newest!.file, '.json')}`,
-        });
-      }
       for (const p of pending) {
-        if (p.value.kind === 'manifest') {
-          if (p === newest) await handleManifest(p.file, scratch, p.value);
-        } else await handleChange(p.file, scratch, p.value);
+        if (p.value.kind === 'run') await handleRun(p.file, scratch, p.value);
+        else await handleWriteFile(p.file, scratch, p.value);
       }
     }
   }

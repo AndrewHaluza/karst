@@ -17,7 +17,7 @@ export async function checkRepo(
       fail(
         `repo.git.${name}`,
         `${path} is not a git repo`,
-        `propose: git -C ${path} init -b ${baseline} plus an initial commit (karst setup propose-change)`,
+        `propose: git -C ${path} init -b ${baseline} plus an initial commit (karst setup run, purpose git-init)`,
       ),
     ];
   }

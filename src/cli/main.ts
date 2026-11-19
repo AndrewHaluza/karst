@@ -54,7 +54,7 @@ import { getCommandSpec } from './registry.js';
 import { resolveStructuredInput } from './commandInput.js';
 import { runSchemaCommand } from './schemaCommand.js';
 import { runManifestCommand } from './manifestCommand.js';
-import { realDiscoveryProbe, runSetupCommand, toChangeProposalInput } from './setupCommand.js';
+import { realDiscoveryProbe, runSetupCommand } from './setupCommand.js';
 import { parseSetupChecklistArgs, runSetupChecklistCommand } from './setupChecklist.js';
 import { discoverWorkspace } from '../setup/discover.js';
 import { readSkips, skipStorePath } from '../setup/checklist/skips.js';
@@ -317,12 +317,12 @@ export function runCli(
   const subcommand = rest[0];
   assertPlanningVerbAllowed(env, rest);
 
-  // `karst manifest validate|propose --file <path>` — a SETUP session's own
+  // `karst manifest validate --file <path>` — a SETUP session's own
   // parse path, taken BEFORE structured-input resolution on purpose: here
-  // `--file` names a YAML file to validate/propose, not a JSON structured-input
+  // `--file` names a YAML file to validate, not a JSON structured-input
   // payload. It opens no store and reads only the file it is given.
   if (subcommand === 'manifest') {
-    // The setup instructions pass no `--manifest` to validate/propose, so the
+    // The setup instructions pass no `--manifest` to validate, so the
     // session's `$KARST_MANIFEST` is the current manifest to compare against.
     return runManifestCommand(rest, {
       outboxEnv: env.KARST_SETUP_OUTBOX,
@@ -766,25 +766,16 @@ export function runCli(
     return runSchemaCommand(effectiveRest);
   }
 
-  // `karst setup discover|propose-change` — a SETUP session's discovery engine
-  // and its consented-change proposals. `discover` reads the filesystem + git
-  // (no store); `propose-change` validates one JSON object (stdin or `--stdin`)
-  // and writes it into `$KARST_SETUP_OUTBOX`. It never opens a store.
+  // `karst setup discover|skip|status|...` — a SETUP session's discovery engine
+  // and its outbox verbs. `discover` reads the filesystem + git (no store);
+  // `skip` validates one JSON object (stdin or `--stdin`) and writes it into
+  // `$KARST_SETUP_OUTBOX`. It never opens a store.
   if (subcommand === 'setup') {
     return runSetupCommand(effectiveRest, {
       outboxEnv: env.KARST_SETUP_OUTBOX,
       verifyDirEnv: setupVerifyDir(db, env.KARST_SETUP_SESSION),
       manifestPath: env[KARST_MANIFEST_ENV],
-      // Structured input for `propose-change` is the flat tool object
-      // `{subcommand, repo, reason, command?}`; the handler wants the change
-      // proposal itself, so `kind` is added and `subcommand` dropped. The
-      // shell path (plain stdin) already supplies the full proposal.
-      readStdin: structured
-        ? () =>
-            JSON.stringify(
-              effectiveRest[1] === 'propose-change' ? toChangeProposalInput(structured.value) : structured.value,
-            )
-        : io.readStdin,
+      readStdin: structured ? () => JSON.stringify(structured.value) : io.readStdin,
     });
   }
 

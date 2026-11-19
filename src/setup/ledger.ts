@@ -23,9 +23,14 @@ export type ProposalStatus =
   | 'verified'
   | 'unverified';
 
+const KINDS = ['manifest', 'change', 'run', 'write-file', 'edit', 'skip'] as const;
+export type ProposalKind = (typeof KINDS)[number] | 'unknown';
+const asKind = (v: unknown): ProposalKind => ((KINDS as readonly unknown[]).includes(v) ? (v as ProposalKind) : 'unknown');
+
 export interface ProposalResult {
   id: string;
-  kind: 'manifest' | 'change' | 'edit' | 'skip' | 'unknown';
+  /** `manifest` and `change` stay in the type for a refused old-kind file; the host never applies them. */
+  kind: ProposalKind;
   status: ProposalStatus;
   reason?: string;
   /** Protected fields the apply discarded (manifest proposals). */
@@ -56,7 +61,7 @@ function readResult(file: string): ProposalResult | undefined {
     if (typeof raw.status !== 'string' || !STATUSES.includes(raw.status)) return undefined;
     return {
       id: basename(file, '.json'),
-      kind: raw.kind === 'manifest' || raw.kind === 'change' || raw.kind === 'edit' || raw.kind === 'skip' ? raw.kind : 'unknown',
+      kind: asKind(raw.kind),
       status: raw.status as ProposalStatus,
       ...(typeof raw.reason === 'string' ? { reason: raw.reason } : {}),
       dropped: Array.isArray(raw.dropped) ? raw.dropped.filter((d): d is string => typeof d === 'string') : [],
@@ -72,7 +77,7 @@ function pendingKind(file: string): ProposalResult['kind'] {
   try {
     if (statSync(file).size > MAX_SETUP_PROPOSAL_BYTES) return 'unknown';
     const kind = (JSON.parse(readFileSync(file, 'utf8')) as { kind?: unknown }).kind;
-    return kind === 'manifest' || kind === 'change' ? kind : 'unknown';
+    return kind === 'edit' || kind === 'skip' ? 'unknown' : asKind(kind);
   } catch {
     return 'unknown';
   }

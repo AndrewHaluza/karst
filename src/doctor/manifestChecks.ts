@@ -48,7 +48,7 @@ function checkValid(p: ManifestProbes): DoctorCheck {
       'manifest.valid',
       'fail',
       `karst.yml does not load: ${p.manifestError}`,
-      consented('Fix karst.yml so it validates', 'Fix karst.yml to match the error above (use `karst manifest propose`)'),
+      consented('Fix karst.yml so it validates', 'Fix karst.yml to match the error above (use the typed setup tools)'),
     );
   }
   if (p.manifest === undefined) {
@@ -56,7 +56,7 @@ function checkValid(p: ManifestProbes): DoctorCheck {
       'manifest.valid',
       'warn',
       'no manifest: karst.yml was not found for this project',
-      consented('Create karst.yml', 'Create karst.yml (use `karst manifest propose`)'),
+      consented('Create karst.yml', 'Create karst.yml (use the typed setup tools)'),
     );
   }
   return check('manifest.valid', 'ok', 'karst.yml loads and validates');
@@ -64,7 +64,7 @@ function checkValid(p: ManifestProbes): DoctorCheck {
 
 function checkRepoPath(name: string, repo: RepositoryDef, p: ManifestProbes): DoctorCheck {
   const id = `manifest.repo-path.${name}`;
-  const fix = consented('Fix repoPath for this repository', 'Fix repoPath in karst.yml (use `karst manifest propose`)');
+  const fix = consented('Fix repoPath for this repository', 'Fix repoPath in karst.yml (use the typed setup tools)');
   if (!p.pathExists(repo.repoPath)) {
     return check(id, 'fail', `repoPath ${repo.repoPath} does not exist`, fix);
   }
@@ -147,7 +147,7 @@ function checkDependsOn(name: string, service: ServiceDef, m: Manifest): DoctorC
     `dependsOn does not resolve: ${named}`,
     consented(
       'Point dependsOn at a runnable repository with that port slot',
-      `Fix dependsOn for repository "${name}" in karst.yml (use \`karst manifest propose\`)`,
+      `Fix dependsOn for repository "${name}" in karst.yml (use the typed setup tools)`,
     ),
   );
 }

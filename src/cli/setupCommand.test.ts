@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runSetupCommand } from './setupCommand.js';
 import { writeProposalResult } from '../setup/ledger.js';
 import { writeVerifyRecord } from '../setup/verify/record.js';
 import type { DiscoveryProbe } from '../setup/discover.js';
-import type { ChangeProposal } from '../setup/proposal.js';
 
 let dir: string;
 beforeEach(() => {
@@ -76,60 +75,17 @@ describe('runSetupCommand discover', () => {
   });
 });
 
-describe('runSetupCommand propose-change', () => {
-  it('writes a change proposal into KARST_SETUP_OUTBOX', () => {
-    const outbox = join(dir, 'outbox');
-    mkdirSync(outbox, { recursive: true });
-    const change = { kind: 'change', repo: 'web', reason: 'deps missing', command: 'npm ci' };
-    const out = JSON.parse(
-      runSetupCommand(['setup', 'propose-change'], {
-        outboxEnv: outbox,
-        uuid: () => 'fixed',
-        readStdin: () => JSON.stringify(change),
-      }),
-    );
-    expect(out).toEqual({ ok: true, kind: 'change', id: 'fixed', file: join(realpathSync(outbox), 'fixed.json') });
-    const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ChangeProposal;
-    expect(written).toEqual(change);
-  });
-
-  it('normalizes the flat MCP tool object (no kind) into a change proposal', () => {
-    const outbox = join(dir, 'outbox');
-    mkdirSync(outbox, { recursive: true });
-    const toolObject = { subcommand: 'propose-change', repo: 'web', reason: 'deps', command: 'npm ci' };
-    const out = JSON.parse(
-      runSetupCommand(['setup', 'propose-change'], {
-        outboxEnv: outbox,
-        uuid: () => 'fixed',
-        readStdin: () => JSON.stringify(toolObject),
-      }),
-    );
-    expect(out).toMatchObject({ ok: true, kind: 'change' });
-    const written = JSON.parse(readFileSync(join(outbox, 'fixed.json'), 'utf8')) as ChangeProposal;
-    expect(written).toEqual({ kind: 'change', repo: 'web', reason: 'deps', command: 'npm ci' });
-  });
-
-  it('rejects a manifest proposal and malformed JSON', () => {
+describe('runSetupCommand removed propose-change', () => {
+  it('no longer knows propose-change', () => {
     const outbox = join(dir, 'outbox');
     mkdirSync(outbox, { recursive: true });
     expect(() =>
       runSetupCommand(['setup', 'propose-change'], {
         outboxEnv: outbox,
-        readStdin: () => JSON.stringify({ kind: 'manifest', targetPath: '/a', yaml: 'x', summary: 's' }),
-      }),
-    ).toThrow(/kind must be 'change'/);
-    expect(() =>
-      runSetupCommand(['setup', 'propose-change'], { outboxEnv: outbox, readStdin: () => 'not json' }),
-    ).toThrow(/not one JSON object/);
-  });
-
-  it('refuses without an outbox and refuses trailing args', () => {
-    expect(() =>
-      runSetupCommand(['setup', 'propose-change'], {
         readStdin: () => JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'c' }),
       }),
-    ).toThrow(/KARST_SETUP_OUTBOX/);
-    expect(() => runSetupCommand(['setup', 'propose-change', '--x'], {})).toThrow(/takes no arguments/);
+    ).toThrow(/unknown subcommand 'propose-change'/);
+    expect(readdirSync(outbox)).toEqual([]);
   });
 
   it('rejects an unknown subcommand', () => {
@@ -181,10 +137,11 @@ describe('runSetupCommand status and withdraw', () => {
     const dir = mkdtempSync(join(tmpdir(), 'setup-status-'));
     try {
       const out = JSON.parse(
-        runSetupCommand(['setup', 'propose-change'], {
+        runSetupCommand(['setup', 'run'], {
           outboxEnv: dir,
           uuid: () => 'abc',
-          readStdin: () => JSON.stringify({ kind: 'change', repo: 'web', reason: 'r', command: 'npm ci' }),
+          readStdin: () => JSON.stringify({ repo: 'web', purpose: 'install-deps', command: 'npm ci' }),
+          edit: { sessionEnv: 's1' },
         }),
       );
       expect(out.id).toBe('abc');

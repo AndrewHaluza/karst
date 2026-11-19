@@ -1,10 +1,7 @@
 import { createHash } from 'node:crypto';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import type { Manifest } from '../../manifest/types.js';
-import { renderManifestText } from '../../manifest/write.js';
-import { applyManifestProposal, droppedProtectedFields } from '../manifestApply.js';
 import { karstWriteViolation, patchTargets } from '../karstGuard.js';
-import { validateSetupProposal, type ChangeProposal, type ManifestProposal, type SetupProposal } from '../proposal.js';
+import { validateChangeProposal, type ChangeProposal } from '../proposal.js';
 import { diffItems, snapshotOf } from './items.js';
 import type {
   ItemChange,
@@ -57,17 +54,8 @@ export interface VerifyContext {
   karstRoots?: readonly string[];
 }
 
-/** What the host applies when every step passes. */
-export interface VerifiedManifest {
-  proposed: Manifest;
-  current: Manifest | undefined;
-  /** The proposal with the protected fields restored: the manifest that the host writes. */
-  effective: Manifest;
-}
-
 export interface VerifyRun {
   result: VerifyResult;
-  manifest?: VerifiedManifest;
 }
 
 /** Paths that a unified diff creates (`--- /dev/null` then `+++ b/<path>`), relative to the patch directory. */
@@ -132,7 +120,7 @@ function effectStep(changes: ItemChange[], claimed: readonly string[] | undefine
   return ok(changes.map((c) => `${c.kind} ${c.id}`).join('; '));
 }
 
-function finish(list: Checklist, changes: ItemChange[], pinned: string | null, manifest?: VerifiedManifest): VerifyRun {
+function finish(list: Checklist, changes: ItemChange[], pinned: string | null): VerifyRun {
   const result: VerifyResult = {
     ok: list.steps.every((s) => s.status !== 'fail'),
     steps: list.steps,
@@ -140,73 +128,30 @@ function finish(list: Checklist, changes: ItemChange[], pinned: string | null, m
     clears: changes.filter((c) => c.kind === 'cleared').map((c) => c.id),
     pinnedSha256: pinned,
   };
-  return { result, ...(manifest !== undefined ? { manifest } : {}) };
+  return { result };
 }
 
-/** Steps P1-P6 for one proposal. Pure over the injected deps; never writes a file. */
+/**
+ * Steps P1-P6 for one host-built change (a typed `run` or `write-file`). Pure
+ * over the injected deps; never writes a file. A karst.yml change is not a
+ * change: it goes through the typed edit list (`verifyEditsBeforeConsent`).
+ */
 export async function verifyBeforeConsent(raw: unknown, ctx: VerifyContext, deps: VerifyDeps): Promise<VerifyRun> {
   const list = new Checklist();
   const currentText = deps.readCurrentText();
   const pinned = sha256Of(currentText);
-  let proposal: SetupProposal | undefined;
+  let change: ChangeProposal | undefined;
   await list.run('P1', () => {
-    const checked = validateSetupProposal(raw);
+    const checked = validateChangeProposal(raw);
     if (!checked.ok) return failed(checked.reason);
-    proposal = checked.value;
-    return ok(`a valid ${checked.value.kind} proposal`);
+    change = checked.value;
+    return ok('a valid change proposal');
   });
-  if (proposal === undefined) {
+  if (change === undefined) {
     for (const id of PRE_STEPS.slice(1)) await list.run(id, () => skipped('no valid proposal'));
     return finish(list, [], pinned);
   }
-  return proposal.kind === 'manifest'
-    ? verifyManifest(list, proposal, ctx, deps, currentText, pinned)
-    : verifyChange(list, proposal, ctx, deps, currentText, pinned);
-}
-
-async function verifyManifest(
-  list: Checklist,
-  proposal: ManifestProposal,
-  ctx: VerifyContext,
-  deps: VerifyDeps,
-  currentText: string | undefined,
-  pinned: string | null,
-): Promise<VerifyRun> {
-  let current: LoadOutcome | undefined;
-  let verified: VerifiedManifest | undefined;
-  let rendered = '';
-  let after: LoadOutcome | undefined;
-  await list.run('P2', () =>
-    basename(deps.manifestPath) === 'karst.yml'
-      ? ok(`the host writes ${deps.manifestPath} and nothing else; the proposal targetPath is not used`)
-      : failed(`the host manifest path ${deps.manifestPath} is not a karst.yml`),
-  );
-  await list.run('P3', () => {
-    const proposedOutcome = deps.loadText(proposal.yaml);
-    if (!proposedOutcome.ok) return failed(`the proposal yaml does not load: ${proposedOutcome.error}`);
-    if (currentText !== undefined) current = deps.loadText(currentText);
-    const currentManifest = current?.ok ? current.manifest : undefined;
-    const effective = applyManifestProposal(currentManifest, proposedOutcome.manifest, ctx.firstSetup);
-    rendered = renderManifestText(currentText ?? '{}\n', effective);
-    verified = { proposed: proposedOutcome.manifest, current: currentManifest, effective };
-    return ok(`rendered ${rendered.length} characters of karst.yml`);
-  });
-  await list.run('P4', () => {
-    after = deps.loadText(rendered);
-    return after.ok ? ok('the result loads, validates and resolves its references') : failed(after.error);
-  });
-  await list.run('P5', () => {
-    if (ctx.firstSetup) return info('first setup: protected fields are proposable');
-    if (!after?.ok || verified === undefined) return failed('no result to compare');
-    const changed = droppedProtectedFields(verified.current, after.manifest, false);
-    return changed.length === 0 ? ok('protected fields are kept') : failed(`protected fields changed: ${changed.join(', ')}`);
-  });
-  let changes: ItemChange[] = [];
-  await list.run('P6', async () => {
-    changes = diffItems(await snapshotOf(current), await snapshotOf(after));
-    return effectStep(changes, proposal.clears);
-  });
-  return finish(list, changes, pinned, verified);
+  return verifyChange(list, change, ctx, deps, currentText, pinned);
 }
 
 async function verifyChange(
@@ -227,7 +172,7 @@ async function verifyChange(
     if (violation !== undefined) return failed(violation);
     const manifestFile = resolve(deps.manifestPath);
     const hit = patchTargets(patch).find((t) => [t, t.replace(/^[ab]\//, '')].some((c) => resolve(isAbsolute(c) ? c : join(dir, c)) === manifestFile));
-    return hit === undefined ? ok('the patch writes no .karst/ file and not karst.yml') : failed(`the patch writes ${hit}, the manifest; use \`manifest propose\``);
+    return hit === undefined ? ok('the patch writes no .karst/ file and not karst.yml') : failed(`the patch writes ${hit}, the manifest; use the typed setup tools`);
   });
   await list.run('P3', async () => {
     if (isCommand) return info('not dry-run: the command runs only after you approve');
@@ -249,6 +194,8 @@ async function verifyChange(
   await list.run('P6', async () => {
     if (isCommand) return info('a setup command: its effect is not dry-run');
     changes = diffItems(await snapshotOf(before), await snapshotOf(after));
+    // A host-built file write need not clear an item; only a claimed clear must match.
+    if (changes.length === 0 && change.clears === undefined) return info('a file write: it changes no readiness item');
     return effectStep(changes, change.clears);
   });
   return finish(list, changes, pinned);

@@ -12,7 +12,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 const KARST_DIR = '.karst';
 /** Files under `.karst/` that a change must never write. */
 const GUARDED_FILES: readonly string[] = ['karst.yml'];
-const REASON = 'use `manifest propose` to change karst.yml';
+const REASON = 'use the typed setup tools to change karst.yml';
 
 /** Paths named by the patch headers: `---`, `+++`, `rename to`/`from`, `copy to`/`from`. */
 export function patchTargets(patch: string): string[] {

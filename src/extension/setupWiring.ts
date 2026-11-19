@@ -13,7 +13,6 @@ import { createSetupProposalOps } from './ops/setupProposalOps.js';
 import type { Notify } from './ops/notify.js';
 import type { TerminalHost } from '../ui/session.js';
 import { manifestPathOrThrow, readScaffoldManifest } from './manifestResolve.js';
-import { manifestRemovedKeys, manifestWriteSections, writeManifestWithBackup } from '../manifest/write.js';
 import { ownedScratches, readSetupOwner } from '../setup/owner.js';
 import { ask } from './toastSeam.js';
 import { readEditOps, withdrawEditOp } from '../setup/editOps.js';
@@ -158,14 +157,6 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     confirm: async (d) =>
       (await ask.warn(d.message, { modal: true, detail: d.detail }, 'Apply')) === 'Apply',
     isScaffold: (current) => isScaffoldManifest(current, readScaffoldManifest()),
-    writtenSections: (applied, scratch) => {
-      const path = targetManifestPath(scratch);
-      return existsSync(path) ? manifestWriteSections(path, applied) : [];
-    },
-    removedKeys: (applied, scratch) => {
-      const path = targetManifestPath(scratch);
-      return existsSync(path) ? manifestRemovedKeys(path, applied) : [];
-    },
     karstRoots: () => {
       const root = workspaceRoot();
       const manifest = deps.currentManifest();
@@ -173,12 +164,6 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
         isAbsolute(r.repoPath) ? r.repoPath : join(root ?? process.cwd(), r.repoPath),
       );
       return [...(root !== undefined ? [root] : []), ...repos];
-    },
-    applyManifest: (applied, scratch) => {
-      const path = targetManifestPath(scratch);
-      mkdirSync(dirname(path), { recursive: true });
-      writeManifestWithBackup(path, applied);
-      return createHash('sha256').update(readFileSync(path)).digest('hex');
     },
     edits: {
       readOps: (scratch) => readEditOps(join(scratch, 'outbox')),
