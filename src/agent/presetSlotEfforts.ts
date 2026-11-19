@@ -18,6 +18,8 @@ export function validatePresetSlotEfforts(manifest: Manifest, catalog: ModelCata
         assertProfileEffort(slot.provider, slot.model, slot.effort, catalog);
       } catch (e) {
         if (!(e instanceof EffortError)) throw e;
+        // A model the catalog does not list is a warning (`presetSlotCatalogWarnings`), never a refusal.
+        if (e.kind === 'not-cataloged') continue;
         throw new EffortError(e.kind, `agentPresets.${name}.slots.${capability}: ${e.message}`);
       }
     }

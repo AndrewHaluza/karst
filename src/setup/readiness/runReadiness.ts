@@ -1,6 +1,7 @@
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import { effectiveAgentPresetName, resolveAgentPreset } from '../../agent/agentPresets.js';
+import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
 import { agentDependency } from '../../runtime/deps.js';
 import { checkGates } from './gateChecks.js';
 import { checkRepo } from './repoChecks.js';
@@ -28,14 +29,14 @@ export interface ReadinessInput {
 /**
  * The cores the manifest REQUIRES: the default (claude when unset), per-process
  * pins, the slots of the effective (active) preset, and the profiles of every
- * enabled approach that declares a graph. A slot of another preset is optional.
+ * enabled approach that declares a graph, built-ins included. A slot of another preset is optional.
  */
 export function coresUsed(m: Manifest): AgentProvider[] {
   const found = new Set<AgentProvider>([m.agentProvider ?? 'claude']);
   for (const p of Object.values(m.processes ?? {})) if (p?.provider) found.add(p.provider);
   const active = resolveAgentPreset(m, effectiveAgentPresetName(m));
   for (const slot of Object.values(active?.slots ?? {})) if (slot?.provider) found.add(slot.provider);
-  for (const approach of m.approaches ?? []) {
+  for (const approach of withBuiltInApproaches(m).approaches ?? []) {
     if (approach.enabled === false) continue;
     for (const profile of Object.values(approach.graph?.profiles ?? {})) {
       if (profile?.provider) found.add(profile.provider);

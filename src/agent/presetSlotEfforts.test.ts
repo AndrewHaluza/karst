@@ -14,6 +14,9 @@ describe('validatePresetSlotEfforts', () => {
     expect(() => validatePresetSlotEfforts(m, catalog)).toThrow(EffortError);
     expect(() => validatePresetSlotEfforts(m, catalog)).toThrow(/agentPresets\.p\.slots\.graphExpert/);
   });
+  it('does not refuse an uncatalogued model that carries an effort', () => {
+    expect(() => validatePresetSlotEfforts(withSlot({ provider: 'claude', model: 'claude-future-9', effort: 'high' }), catalog)).not.toThrow();
+  });
   it('accepts an advertised effort and a slot with no effort', () => {
     expect(() => validatePresetSlotEfforts(withSlot({ provider: 'claude', model: 'claude-sonnet-5-5', effort: 'low' }), catalog)).not.toThrow();
     expect(() => validatePresetSlotEfforts(withSlot({ provider: 'claude', model: 'claude-sonnet-5-5' }), catalog)).not.toThrow();

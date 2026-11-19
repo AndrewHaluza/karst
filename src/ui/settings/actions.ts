@@ -45,6 +45,8 @@ export interface SettingsActionsDeps {
    * when the agent presets or approach profiles changed.
    */
   onAgentSettingsSaved?(prev: Manifest, next: Manifest): void;
+  /** Shows a non-blocking Save finding, such as a preset slot model the catalog does not list. */
+  warn?(message: string): void;
   /**
    * Re-read the manifest FILE for a state push — the same source `open` uses,
    * so `request-state` (the webview's recovery for the dropped initial push)
@@ -436,12 +438,8 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           deps.onAgentSettingsSaved?.(loaded.manifest, next);
           deps.onChange();
           await pushStateWithInstalled();
-          const warnings = presetSlotCatalogWarnings(delta, deps.modelCatalog());
-          ctx.post({
-            type: 'saved',
-            ...(section ? { section } : {}),
-            ...(warnings.length > 0 ? { warnings } : {}),
-          });
+          ctx.post({ type: 'saved', ...(section ? { section } : {}) });
+          for (const warning of presetSlotCatalogWarnings(delta, deps.modelCatalog())) deps.warn?.(warning);
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

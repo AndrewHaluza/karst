@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { coresUsed, coresOptional, runReadiness, type ReadinessInput } from './runReadiness.js';
 import { fakeProbes } from './fakeProbes.testutil.js';
+import { BUILT_IN_PACKAGE_ID } from '../../approaches/builtInId.js';
 import type { Manifest } from '../../manifest/types.js';
 
 const manifest = (extra: Record<string, unknown> = {}, repo: Record<string, unknown> = {}): Manifest =>
@@ -36,8 +37,12 @@ describe('coresUsed graph and preset rules', () => {
   it('lists claude when only an enabled graph profile uses it', () => {
     expect(coresUsed(manifest({ agentProvider: 'codex', ...graph(true) })).sort()).toEqual(['claude', 'codex']);
   });
+  it('lists claude for the packaged graph approach when the default core is codex', () => {
+    expect(coresUsed(manifest({ agentProvider: 'codex' })).sort()).toEqual(['claude', 'codex']);
+  });
   it('ignores a disabled graph approach', () => {
-    expect(coresUsed(manifest({ agentProvider: 'codex', ...graph(false) }))).toEqual(['codex']);
+    const off = { approaches: [{ id: BUILT_IN_PACKAGE_ID, label: 'b', enabled: false }, ...graph(false).approaches] };
+    expect(coresUsed(manifest({ agentProvider: 'codex', ...off }))).toEqual(['codex']);
   });
   it('counts only the active preset as required', () => {
     const m = manifest({
@@ -48,7 +53,7 @@ describe('coresUsed graph and preset rules', () => {
         b: { slots: { review: { provider: 'antigravity', model: 'm' } } },
       },
     });
-    expect(coresUsed(m).sort()).toEqual(['codex', 'opencode']);
+    expect(coresUsed(m).sort()).toEqual(['claude', 'codex', 'opencode']);
     expect(coresOptional(m)).toEqual(['antigravity']);
   });
   it('reports a missing optional core as a warning, not a failure', async () => {
