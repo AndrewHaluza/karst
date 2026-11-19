@@ -740,6 +740,9 @@
     "arch:PORTS",
     "arch:SERVICES-WT"
   ],
+  "src/resolver/blockedPorts.ts#isBlockedPort": [
+    "arch:PORTS"
+  ],
   "src/runtime/branchName.ts#renderBranchName": [
     "arch:RENDERERS"
   ],
@@ -804,10 +807,10 @@
     "arch:PORTS"
   ],
   "src/runtime/portSlots.ts#leasePortSlot": [
-    "arch:PORTS"
+    "arch:PORT-BANDS"
   ],
   "src/runtime/portSlots.ts#shiftBand": [
-    "arch:PORTS"
+    "arch:PORT-BANDS"
   ],
   "src/runtime/pullBase.ts#pullBaseRef": [
     "arch:BASE-PULL"
