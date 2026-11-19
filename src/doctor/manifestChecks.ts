@@ -7,6 +7,7 @@
 
 import { resolveTarget, unitsOf } from '../manifest/runnable.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
+import { isBlockedPort } from '../resolver/blockedPorts.js';
 import { envWarnings } from '../manifest/validate/envWarnings.js';
 import type { DoctorCheck, DoctorFix, DoctorStatus } from './types.js';
 
@@ -129,6 +130,29 @@ function checkPorts(name: string, service: ServiceDef, p: ManifestProbes): Docto
   );
 }
 
+/**
+ * A service with an HTTP health URL whose declared default port is on the Fetch
+ * blocked-port list can never pass its health check: Node's `fetch` throws
+ * `bad port` and Chrome refuses the port. A `tcp://` health works there, and a
+ * hard manifest error would stop the whole manifest, so this is a warning only.
+ * Returns nothing when the service is fine.
+ */
+function checkBlockedDefaults(name: string, service: ServiceDef): DoctorCheck | undefined {
+  if (service.health === undefined || service.health.startsWith('tcp://')) return undefined;
+  const blocked = service.ports.filter((slot) => isBlockedPort(slot.default));
+  if (blocked.length === 0) return undefined;
+  const named = blocked.map((slot) => `${slot.default} (${slot.name})`).join(', ');
+  return check(
+    `manifest.blocked-ports.${name}`,
+    'warn',
+    `default port is blocked by fetch and Chrome, so the HTTP health check cannot pass: ${named}`,
+    consented(
+      'Use a default port that is not on the Fetch blocked-port list, or use a tcp:// health',
+      `Change the default port or the health URL for "${name}" in karst.yml`,
+    ),
+  );
+}
+
 function resolvesDependency(m: Manifest, target: string, port: string): boolean {
   const resolved = resolveTarget(m.repositories, target);
   return 'unit' in resolved && resolved.unit.def.ports.some((slot) => slot.name === port);
@@ -160,6 +184,8 @@ function checksForRepo(name: string, repo: RepositoryDef, m: Manifest, p: Manife
     const start = checkStart(unit.key, unit.def, p);
     if (start) out.push(start);
     out.push(checkPorts(unit.key, unit.def, p));
+    const blocked = checkBlockedDefaults(unit.key, unit.def);
+    if (blocked) out.push(blocked);
     out.push(checkDependsOn(unit.key, unit.def, m));
   }
   return out;

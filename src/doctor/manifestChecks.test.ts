@@ -416,3 +416,32 @@ describe('checkManifest: env warnings (macos_iot retro)', () => {
     expect(ids.some((id) => id.startsWith('manifest.env.'))).toBe(false);
   });
 });
+
+describe('checkManifest: manifest.blocked-ports', () => {
+  function checksFor(health: string | undefined, port: number) {
+    const m = manifest({
+      web: runnableRepo(
+        { ports: [slot('http', 'PORT', port)], ...(health === undefined ? {} : { health }) },
+        { repoPath: '/r/web' },
+      ),
+    });
+    return checkManifest(probes({ manifest: m }));
+  }
+
+  it('warns for an HTTP health service whose default port is blocked', () => {
+    const c = byId(checksFor('http://localhost:{port}/health', 4045), 'manifest.blocked-ports.web');
+    expect(c.status).toBe('warn');
+    expect(c.detail).toContain('4045');
+    expect(c.detail).toContain('http');
+  });
+
+  it('does not warn for tcp:// health, an unblocked port, or no health', () => {
+    for (const checks of [
+      checksFor('tcp://localhost:{port}', 4045),
+      checksFor('http://localhost:{port}/health', 4046),
+      checksFor(undefined, 4045),
+    ]) {
+      expect(checks.map((c) => c.id)).not.toContain('manifest.blocked-ports.web');
+    }
+  });
+});
