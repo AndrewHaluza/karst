@@ -19,6 +19,12 @@ export const STATE_VERSION = 1;
 
 const DEP_FILES = new Set(['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml']);
 const CONFIG_FILE = /^(?:tsconfig[^/]*\.json|vitest[^/]*\.config\.[cm]?[jt]s)$/;
+/** Baseline screenshots: only the two tests below read their files (`readdirSync`, `existsSync`, bytes). */
+const BASELINE_PNG = /^tests\/visual\/__baselines__\/.+\.png$/;
+
+/** Tests that read real baseline files. A baseline PNG selects them, even when it was deleted or renamed. */
+export const BASELINE_READERS = ['tests/visual/variants.test.ts', 'scripts/uiViews.test.mjs'];
+
 const CODE_FILE = /\.(?:[cm]?[jt]sx?)$/;
 
 /** Stable key of a gate: the hash of its vitest args (or of the script name for a docker gate). */
@@ -26,7 +32,7 @@ export const stateKey = (args) => createHash('sha256').update(args.join('\0')).d
 
 /**
  * Where one changed path sends the pass: `{ kind: 'full', reason }`, `{ kind: 'code' }` (select tests by it)
- * or `{ kind: 'docs' }` (selects no test).
+ * `{ kind: 'readers', files }` (a baseline PNG: select the tests that read baselines) or `{ kind: 'docs' }` (selects no test).
  */
 export function classifyPath(path) {
   const base = path.split('/').pop();
@@ -34,6 +40,7 @@ export function classifyPath(path) {
   if (CONFIG_FILE.test(base)) return { kind: 'full', reason: `${path} changed (test or type config)` };
   if (path.startsWith('scripts/vitest-')) return { kind: 'full', reason: `${path} changed (test setup)` };
   if (path.startsWith('docs/')) return { kind: 'docs' };
+  if (BASELINE_PNG.test(path)) return { kind: 'readers', files: BASELINE_READERS };
   if (!path.startsWith('src/')) return { kind: 'full', reason: `${path} changed (outside src and docs)` };
   if (!CODE_FILE.test(path)) return { kind: 'full', reason: `${path} changed (non-code file under src)` };
   return { kind: 'code' };
@@ -57,15 +64,16 @@ export function planScope({ state: stored, readable = true, base, delta, force =
   if (!state.clean) return full('earlier run was killed, hung or had failures that could not be parsed');
   if (base === null || base === undefined || state.base !== base) return full('the merge base moved');
   if (delta === null) return full('could not compare with the earlier run');
-  const deleted = delta.find((d) => d.status.startsWith('D'));
+  const deleted = delta.find((d) => d.status.startsWith('D') && !BASELINE_PNG.test(d.path));
   if (deleted) return full(`${deleted.path} was deleted or renamed`);
   const paths = [];
   for (const { path } of delta) {
     const where = classifyPath(path);
     if (where.kind === 'full') return full(where.reason);
     if (where.kind === 'code') paths.push(path);
+    if (where.kind === 'readers') paths.push(...where.files);
   }
-  return { kind: 'scoped', paths, failed: [...state.failed], since: state.tree, ...(stateless ? { branchDiff: true } : {}) };
+  return { kind: 'scoped', paths: [...new Set(paths)], failed: [...state.failed], since: state.tree, ...(stateless ? { branchDiff: true } : {}) };
 }
 
 /** A failed test that a sweep gate stored: `{ project, title }`, both non-empty strings. */
