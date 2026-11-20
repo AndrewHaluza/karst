@@ -213,6 +213,12 @@ describe('sharedServerOps', () => {
       expect(after).toHaveBeenCalledOnce();
     });
 
+    it('words one stopped service in the singular', async () => {
+      addBaseline(store, 'api');
+      await stopIdle(deps);
+      expect(notify.info).toHaveBeenCalledWith('Stopped 1 idle shared service: api.');
+    });
+
     it('names every failure and still stops the rest', async () => {
       addBaseline(store, 'api');
       addBaseline(store, 'db');
