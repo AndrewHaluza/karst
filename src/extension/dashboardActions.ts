@@ -74,7 +74,8 @@ import { type CapabilityGuard } from './insideActionHost.js';
 import { planRetryShip } from '../ui/dashboard/insideActions.js';
 import { ShipDrainingError } from './ops/reloadWhenIdle.js';
 import { toast, ask, showToast, recordOnly } from './toastSeam.js';
-import { markerAdvancedText, markerFailedText, reasonText, ticketLabel } from '../model/notifyText.js';
+import { markerAdvancedText, markerFailedText, reasonText } from '../model/notifyText.js';
+import { ticketToastLabel } from './ticketToastLabel.js';
 
 /**
  * Bind dashboard actions to real vscode side-effects. Server lifecycle: stop and
@@ -207,10 +208,7 @@ export function makeDashboardActions(
     error: (m: string, ...items: string[]) => showToast('error', m, items, ticketId),
   };
   // The ticket name every toast of this dashboard uses (@arch:NTF-03), read at the time of the toast.
-  const label = (): string => {
-    const t = getTicket(store, ticketId);
-    return ticketLabel(ticketId, t.key, t.title);
-  };
+  const label = (): string => ticketToastLabel(store, ticketId);
   const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
     {

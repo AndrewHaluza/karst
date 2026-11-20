@@ -14,8 +14,8 @@ import type { InsideActionHost } from '../ui/dashboard/insideActions.js';
 import { getPrById } from '../store/prs.js';
 import { getShipCommitById } from '../store/shipRuns.js';
 import { type AsyncCapabilityGuard } from './ops/capabilityGuard.js';
-import { markerAdvancedText, markerFailedText, reasonText, ticketLabel } from '../model/notifyText.js';
-import { getTicket } from '../store/tickets.js';
+import { markerAdvancedText, markerFailedText, reasonText } from '../model/notifyText.js';
+import { ticketToastLabel } from './ticketToastLabel.js';
 import { toast, ask } from './toastSeam.js';
 
 /** True when the capability's tools are present; otherwise tells the user why not. */
@@ -61,10 +61,7 @@ export function makeInsideActionHost(
   retryShipRepo: (ticketId: number, repo: string) => void,
 ): InsideActionHost {
   // The ticket name every toast of this host uses (@arch:NTF-03).
-  const label = (id: number): string => {
-    const t = getTicket(store, id);
-    return ticketLabel(id, t.key, t.title);
-  };
+  const label = (id: number): string => ticketToastLabel(store, id);
   const recoverySeams: GraphRecoverySeams = {
     recover: (input) => recoverGraphRun(graphRecoveryDeps(input.graphRunId), input),
     launchReplan: graphReplanLaunch,
