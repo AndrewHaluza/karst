@@ -10,6 +10,7 @@ import { claudeTrailingQuota, quotaTextFromHook } from '../agent/interactiveQuot
 import { makeOncePerError, recordInteractiveUsageLimit } from './ops/interactiveUsageLimitOps.js';
 import { makeInteractiveParkActions, runInteractiveOffer } from './ops/interactiveUsageLimitActions.js';
 import { ask, toast } from './toastSeam.js';
+import { reasonText, ticketLabel } from '../model/notifyText.js';
 
 export interface InteractiveUsageLimitBindingDeps {
   store: Store;
@@ -66,14 +67,14 @@ export function createInteractiveUsageLimitBinding(deps: InteractiveUsageLimitBi
               ask: (labels) =>
                 Promise.resolve(
                   ask.warn(
-                    `${ticket.key}: ${AGENT_PROVIDER_LABELS[provider] || provider} hit its usage limit.`,
+                    `${ticketLabel(ticketId, ticket.key, ticket.title)}: ${AGENT_PROVIDER_LABELS[provider] || provider} hit its usage limit.`,
                     ...labels,
                   ),
                 ),
             })
               .catch((e: unknown) => {
                 void toast.error(
-                  `${ticket.key}: usage-limit action failed: ${e instanceof Error ? e.message : String(e)}`,
+                  `${ticketLabel(ticketId, ticket.key, ticket.title)}: the usage-limit action failed (${reasonText(e)}).`,
                 );
               })
               .finally(() => deps.refresh(ticketId));

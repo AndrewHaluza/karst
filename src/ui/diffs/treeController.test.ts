@@ -158,7 +158,7 @@ describe('DiffTreeController', () => {
       'karst: loading ticket changes for Source Control failed',
       expect.any(Error),
     );
-    expect(host.warn).toHaveBeenCalledWith('load failed');
+    expect(host.warn).toHaveBeenCalledWith('Could not load the changes of the ticket (load failed).');
     expect(controller.roots().slice(1)).toEqual([]);
   });
 
@@ -369,7 +369,7 @@ describe('DiffTreeController', () => {
     await controller.show(1);
     await controller.discard('b');
 
-    expect(host.warn).toHaveBeenCalledWith('Could not discard changes: locked');
+    expect(host.warn).toHaveBeenCalledWith('Could not discard the changes (locked).');
     expect(load).toHaveBeenCalledTimes(1);
   });
 
@@ -405,7 +405,7 @@ describe('DiffTreeController', () => {
     await controller.show(1);
     await controller.unstage('a');
 
-    expect(host.warn).toHaveBeenCalledWith('Could not unstage file: locked');
+    expect(host.warn).toHaveBeenCalledWith('Could not unstage the file (locked).');
     expect(load).toHaveBeenCalledTimes(1);
   });
 

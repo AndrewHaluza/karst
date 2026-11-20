@@ -115,7 +115,7 @@ describe('createInteractiveUsageLimitBinding', () => {
     expect(input).toMatchObject({ store: deps.store, ticketId: 7, parkId: 55, actions });
     m.showWarningMessage.mockResolvedValue('Retry');
     expect(await input.ask(['Retry', 'Switch'])).toBe('Retry');
-    expect(m.showWarningMessage).toHaveBeenCalledWith(expect.stringMatching(/^T-9: .+ hit its usage limit\.$/), 'Retry', 'Switch');
+    expect(m.showWarningMessage).toHaveBeenCalledWith(expect.stringMatching(/^T7 · T-9: .+ hit its usage limit\.$/), 'Retry', 'Switch');
     await flush();
     expect(deps.refresh).toHaveBeenCalledTimes(2);
   });
@@ -126,11 +126,11 @@ describe('createInteractiveUsageLimitBinding', () => {
     m.runOffer.mockRejectedValueOnce(new Error('boom'));
     m.record.mock.calls[0]![0].offer(1);
     await flush();
-    expect(m.showErrorMessage).toHaveBeenCalledWith('T-9: usage-limit action failed: boom');
+    expect(m.showErrorMessage).toHaveBeenCalledWith('T7 · T-9: the usage-limit action failed (boom).');
     m.runOffer.mockRejectedValueOnce('plain');
     m.record.mock.calls[0]![0].offer(1);
     await flush();
-    expect(m.showErrorMessage).toHaveBeenLastCalledWith('T-9: usage-limit action failed: plain');
+    expect(m.showErrorMessage).toHaveBeenLastCalledWith('T7 · T-9: the usage-limit action failed (plain).');
     expect(deps.refresh).toHaveBeenCalledTimes(4);
   });
 });
