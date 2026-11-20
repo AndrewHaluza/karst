@@ -2,7 +2,9 @@
  * The paths whose change can alter what the visual/layout gates render. A
  * ticket whose diff touches none of them has nothing for those gates to say;
  * CI still runs the full sweep as the backstop for a backend change that
- * alters a fixture.
+ * alters a fixture. Host-built text a webview shows (the built-in prompts of the
+ * Settings page) is covered by a committed snapshot under `src/ui/settings/`,
+ * which is a UI path; CI stays the backstop for other host data.
  */
 export const UI_PATH_PATTERNS: readonly RegExp[] = [
   /^src\/ui\//,

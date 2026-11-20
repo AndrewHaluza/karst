@@ -1,0 +1,26 @@
+Review the committed changes (the diff against the base branch — do NOT review uncommitted working-tree changes) in this worktree (repository: <repository>) against its base branch, `<base branch>` (compare against `origin/<base branch>` when available, otherwise the local `<base branch>`).
+Report findings about the DIFF ONLY — code you did not touch is out of scope, however wrong it looks.
+Shell scripts that set up egress or a sandbox: check them against arch:AC-53 (docs/arch/agent-cores.md).
+
+Orientation (already established — do NOT re-derive it):
+- This ticket's branch is `<branch>`. Check: `git rev-parse --abbrev-ref HEAD` → MUST print `<branch>`. Wrong checkout → STOP: report severity "critical", title "wrong checkout", naming the expected branch `<branch>` and the actual branch, then output `[]`. Do NOT `git diff` or conclude "no changes" from a stale ref.
+- The changes to review are exactly: `git diff origin/<base branch>...origin/<branch>` (or `git diff <base branch>...<branch>` when the remote ref is absent) (committed changes only — do NOT include uncommitted working-tree changes).
+- The diff range above shows COMMITTED changes only. If it comes back EMPTY, there are no committed changes to review — report exactly one observation (severity "info", title "no changes to review") rather than silently outputting `[]`. Do NOT run `git status` or look for uncommitted work; this review is scoped to committed changes only.
+
+Scope rules (strict):
+- Start by reading that diff. Do not survey the repository first.
+- Do NOT run repository-wide reconnaissance: no `git worktree list`, no branch/remote mapping, no `git log` over history outside the diff range, no reading other worktrees or checkouts, no querying the orchestration tool's graph. No querying the orchestration tool that launched you — its CLI or its state database.
+- Widen beyond the diff only into a file the diff actually touches or directly calls, and only when a specific question requires it.
+
+Environment isolation: any probe that needs a home or config dir must use a temp one (set HOME, CLAUDE_CONFIG_DIR and CODEX_HOME to a fresh mktemp -d). Never read-modify-write the operator's ~/.claude.json, ~/.claude/ or ~/.codex/, and never restore them from a backup. Never rebuild, clean or reinstall the worktree (npm rebuild, npm run build/clean, git clean). Stop only processes you started, by their PID ($!). Never kill by name or pattern (pkill, killall, pgrep|xargs kill). Other agents on this machine run the same binaries. Make scratch dirs with mktemp -d, never a fixed name in $TMPDIR or a shared dir, and remove them before the marker.
+Deterministic checks are not your job: the gates phase already ran the project checks on this change. Do NOT run them, or any test runner, type checker, linter or visual/screenshot suite (npm test, npm run test*, vitest, jest, tsc, eslint, playwright), here or through a wrapper. Read the diff and the code it touches; report what is wrong with it.
+Do not end your answer while a command you started is still running; wait for it in the foreground, or kill it and report that it did not finish.
+
+Output rules (strict):
+- Output ONLY a JSON array, nothing else: no preamble, no markdown fence, no commentary.
+- Each element: {"severity": "critical"|"high"|"medium"|"low"|"info", "title": string, "detail": string, "file"?: string, "line"?: number}.
+- "file" must be a path RELATIVE to this worktree's root — never absolute, never outside it.
+- "title" is one short sentence; "detail" carries the explanation.
+- No changes worth reporting → output only the coverage entry below.
+Always finish by recording ONE entry with severity "info" and a title starting "COVERAGE (reported): " followed by PASS (checked, nothing found), SKIPPED (name what and why) or NOT RUN, then " — " and what you covered. Name the areas you reviewed and any you skipped and why. This entry is advisory and never counts as a finding.
+- Use "critical" only for something that will break in production (data loss, security, crash); "high" for a real bug or a clear regression; "medium"/"low"/"info" for style, maintainability, or a suggestion.
