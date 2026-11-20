@@ -78,6 +78,12 @@ describe('promptText — marker rule by identity', () => {
     expect(PROCESS_KILL_RULE).toContain('pkill');
   });
 
+  it('tells the agent to make scratch dirs with mktemp -d and remove them before the marker', () => {
+    expect(PROCESS_KILL_RULE).toContain('mktemp -d');
+    expect(PROCESS_KILL_RULE).toContain('never a fixed name in $TMPDIR');
+    expect(PROCESS_KILL_RULE).toContain('remove them before the marker');
+  });
+
   it('states the MCP preference by identity in the guide, the guide pointer, and the planning preamble', () => {
     expect(AGENT_GUIDE).toContain(MCP_TOOLS_PREFERRED);
     expect(renderGuideInstruction('node "/ext/cli.js" guide')).toContain(MCP_TOOLS_PREFERRED);

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -6,12 +6,18 @@ import { loadManifest, loadManifestWithDiagnostics } from './load.js';
 import { ManifestError } from './error.js';
 import { PRESET_CAPABILITIES, type Manifest } from './types.js';
 
-/** Write YAML to a temp file, return its path; caller cleans the dir. */
+/**
+ * Write YAML to a temp file, return its path; caller cleans the root.
+ * The manifest sits one level below the mkdtemp root, so a `../<repo>` path
+ * resolves inside the root and never reads a dir in the host temp dir.
+ */
 function fixture(yaml: string): { path: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'karst-manifest-'));
+  const root = mkdtempSync(join(tmpdir(), 'karst-manifest-'));
+  const dir = join(root, 'proj');
+  mkdirSync(dir);
   const path = join(dir, 'karst.yml');
   writeFileSync(path, yaml);
-  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return { path, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 const VALID = `
@@ -4321,5 +4327,49 @@ describe('autopilot (auto-fix of ship-stage problems)', () => {
     ['autopilot:\n  ci: [a]\n', /autopilot\.ci must be a mapping/],
   ])('rejects %j', (yml, message) => {
     expect(run(yml).error).toMatch(message);
+  });
+});
+
+describe('fixture() isolation from the host temp dir', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('a plain ../mono dir in the temp dir does not add warnings to a fixture manifest', () => {
+    const yaml = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+services:
+  api:
+    repoPath: ../mono
+    start: npm run api
+    ports:
+      - { name: http, env: PORT, default: 3000 }
+    dependsOn: []
+  web:
+    repoPath: ../mono
+    start: npm run web
+    ports:
+      - { name: http, env: PORT, default: 3001 }
+    dependsOn: []
+`;
+    // A fresh temp dir stands in for the host temp dir: the real one is never touched.
+    const fresh = mkdtempSync(join(tmpdir(), 'karst-fixture-host-'));
+    try {
+      vi.stubEnv('TMPDIR', fresh);
+      vi.stubEnv('TMP', fresh);
+      vi.stubEnv('TEMP', fresh);
+      mkdirSync(join(fresh, 'mono'));
+      const { path, cleanup } = fixture(yaml);
+      try {
+        const { warnings } = loadManifestWithDiagnostics(path);
+        expect(warnings).toHaveLength(1);
+      } finally {
+        cleanup();
+      }
+    } finally {
+      rmSync(fresh, { recursive: true, force: true });
+    }
   });
 });
