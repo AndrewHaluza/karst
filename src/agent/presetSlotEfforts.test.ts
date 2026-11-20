@@ -31,4 +31,18 @@ describe('presetSlotCatalogWarnings', () => {
     expect(w[0]).toContain('claude-future-9');
     expect(presetSlotCatalogWarnings(withSlot({ provider: 'claude', model: 'claude-sonnet-5-5' }), catalog)).toEqual([]);
   });
+  it('skips a slot whose provider and model the Save did not change', () => {
+    const m = withSlot({ provider: 'claude', model: 'claude-future-9' });
+    expect(presetSlotCatalogWarnings(m, catalog, m)).toEqual([]);
+    const changed = withSlot({ provider: 'claude', model: 'claude-future-8' });
+    expect(presetSlotCatalogWarnings(m, catalog, changed)).toHaveLength(1);
+  });
+  it('groups the slots of one preset into one warning with the role count and provider label', () => {
+    const slot = { provider: 'claude', model: 'opus-5-5' };
+    const m = { agentPresets: { opus: { slots: { a: slot, b: slot, c: slot } } } } as unknown as Manifest;
+    const w = presetSlotCatalogWarnings(m, catalog);
+    expect(w).toEqual([
+      'Preset "opus": the Claude Code catalog has no model "opus-5-5" (3 roles). Karst skips these roles at launch. Select a model on the Agents page.',
+    ]);
+  });
 });

@@ -439,7 +439,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           deps.onChange();
           await pushStateWithInstalled();
           ctx.post({ type: 'saved', ...(section ? { section } : {}) });
-          for (const warning of presetSlotCatalogWarnings(delta, deps.modelCatalog())) deps.warn?.(warning);
+          for (const warning of presetSlotCatalogWarnings(delta, deps.modelCatalog(), loaded.manifest)) deps.warn?.(warning);
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

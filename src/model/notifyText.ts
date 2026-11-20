@@ -51,3 +51,24 @@ export function markerAdvancedText(label: string): string {
 export function markerFailedText(label: string, reason: string): string {
   return `${label}: Karst could not mark the implementation as done (${reason}).`;
 }
+
+/** One preset slot model that the catalog does not list, as the toast names it. */
+export interface UnlistedPresetModel {
+  /** Provider display label (`Claude`), never the provider id. */
+  providerLabel: string;
+  model: string;
+}
+
+/**
+ * The warning for a Save that added or changed preset roles whose model the catalog does
+ * not list: one text for each preset (@arch:NTF-08), no manifest key path (@arch:NTF-04).
+ */
+export function presetModelUnlistedText(preset: string, models: readonly UnlistedPresetModel[], roleCount: number): string {
+  const roles = plural(roleCount, 'role', 'roles');
+  const names =
+    models.length === 1
+      ? `the ${models[0]!.providerLabel} catalog has no model "${models[0]!.model}"`
+      : `the catalog has no model ${models.map((m) => `"${m.model}" (${m.providerLabel})`).join(', ')}`;
+  const skip = roleCount === 1 ? 'Karst skips this role' : 'Karst skips these roles';
+  return `Preset "${preset}": ${names} (${roles}). ${skip} at launch. Select a model on the Agents page.`;
+}
