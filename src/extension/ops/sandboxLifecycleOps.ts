@@ -12,6 +12,7 @@ import { ensureSandboxSynced, sandboxRunnerFor, type SandboxSyncDeps, type Sandb
 export type Choose = (message: string, choices: readonly string[]) => Promise<string | undefined>;
 
 export const OPEN_SYNC_DIFF = 'Open sync diff';
+export const RETRY_NOW = 'Retry now';
 export const REMOVE_ANYWAY = 'Remove anyway';
 export const CANCEL = 'Cancel';
 export const REMOVE_ORPHANS = 'Remove orphan sandboxes';

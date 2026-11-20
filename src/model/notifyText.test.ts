@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markerAdvancedText, plural, reasonText, ticketLabel } from './notifyText.js';
+import { markerAdvancedText, markerFailedText, plural, reasonText, ticketLabel } from './notifyText.js';
 
 describe('ticketLabel', () => {
   it('joins the ref and the quoted title', () => {
@@ -63,5 +63,11 @@ describe('markerAdvancedText', () => {
     const t = markerAdvancedText('T1 "x"');
     expect(t).toBe('T1 "x": the implementation is done. The ticket moves to UAT.');
     expect(t).not.toMatch(/marker|graph run|Ticket T/u);
+  });
+});
+
+describe('markerFailedText', () => {
+  it('names the ticket and the reason', () => {
+    expect(markerFailedText('T1', 'x')).toBe('T1: Karst could not mark the implementation as done (x).');
   });
 });

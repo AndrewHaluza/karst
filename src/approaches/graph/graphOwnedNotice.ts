@@ -12,6 +12,7 @@ import type { GraphDb } from '../../store/graph/transitions.js';
 import { cancelableProcesses } from '../../store/graph/cancelRun.js';
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 import type { CancelGraphRunResult } from './cancel.js';
+import { plural } from '../../model/notifyText.js';
 
 export const CANCEL_GRAPH_ACTION = 'Cancel graph';
 
@@ -42,6 +43,18 @@ export async function graphRunLiveness(
   return { livePlanners, liveNodes };
 }
 
+/** A run status in words for a toast; the stored slug stays out of the text. */
+function statusWord(status: string): string {
+  switch (status) {
+    case 'draining':
+      return 'stopping';
+    case 'completed-awaiting-impl-marker':
+      return 'finished';
+    default:
+      return status;
+  }
+}
+
 function stateClause(status: string, liveness: GraphRunLiveness): string {
   switch (status) {
     case 'planning':
@@ -51,12 +64,12 @@ function stateClause(status: string, liveness: GraphRunLiveness): string {
     case 'running':
     case 'draining':
       return liveness.liveNodes > 0
-        ? `${liveness.liveNodes} node process${liveness.liveNodes === 1 ? ' is' : 'es are'} alive, but no session is attached to this window`
-        : 'none of its nodes has a live session';
+        ? `${plural(liveness.liveNodes, 'agent is', 'agents are')} running, but no session is attached to this window`
+        : 'none of its agents has a live session';
     case 'blocked':
       return 'it is parked until you resume or cancel it';
     case 'completed-awaiting-impl-marker':
-      return 'it waits for the implementation marker';
+      return 'it waits for you to move the ticket on';
     default:
       return 'its coordinator owns the next step';
   }
@@ -68,12 +81,12 @@ export function graphOwnedMessage(
   run: GraphOwnedRun,
   liveness: GraphRunLiveness,
 ): string {
-  return `Ticket ${ticketLabel}: graph run ${run.graphRunId} is ${run.status}; ${stateClause(run.status, liveness)}. No new session started.`;
+  return `${ticketLabel}: no new session started because the graph run is ${statusWord(run.status)} and ${stateClause(run.status, liveness)}. Select Cancel graph to stop it.`;
 }
 
 /** The note for an agent, model or preset change on a graph-owned ticket. */
 export function graphOwnedChangeMessage(ticketLabel: string, run: GraphOwnedRun): string {
-  return `Ticket ${ticketLabel}: the change applies to the next launch, not to graph run ${run.graphRunId} (${run.status}).`;
+  return `${ticketLabel}: the change applies to the next launch, not to the current graph run (${statusWord(run.status)}).`;
 }
 
 export interface GraphOwnedNoticeDeps {
@@ -90,13 +103,13 @@ export interface GraphOwnedNoticeDeps {
 function cancelResultMessage(ticketLabel: string, result: CancelGraphRunResult): string {
   switch (result.outcome) {
     case 'cancelled':
-      return `Ticket ${ticketLabel}: graph run ${result.graphRunId} was cancelled. The next Start uses the ticket's current approach.`;
+      return `${ticketLabel}: the graph run is cancelled. The next Start uses the current approach of the ticket.`;
     case 'refused-live-process':
-      return `Ticket ${ticketLabel}: graph run ${result.graphRunId} was NOT cancelled — a live process could not be proven to belong to it, so none was stopped.`;
+      return `${ticketLabel}: the graph run is not cancelled because a live process may not belong to it. Karst stopped no process.`;
     case 'already-terminal':
-      return `Ticket ${ticketLabel}: graph run ${result.graphRunId} already ended (${result.status ?? 'unknown'}).`;
+      return `${ticketLabel}: the graph run already ended.`;
     case 'raced':
-      return `Ticket ${ticketLabel}: graph run ${result.graphRunId} changed state while it was cancelled — check the ticket and try again.`;
+      return `${ticketLabel}: the graph run changed state during the cancel. Check the ticket and try again.`;
   }
 }
 
@@ -113,7 +126,7 @@ export async function showGraphOwnedNotice(
   const picked = await deps.warn(graphOwnedMessage(ticketLabel, run, input.liveness), CANCEL_GRAPH_ACTION);
   if (picked !== CANCEL_GRAPH_ACTION) return;
   const accepted = await deps.confirm(
-    `Cancel graph run ${run.graphRunId} (${run.status}) of ticket ${ticketLabel}? Its live processes stop and its work in progress ends.`,
+    `Cancel the graph run of ${ticketLabel}? Its live processes stop and its work in progress ends.`,
     CANCEL_GRAPH_ACTION,
   );
   if (!accepted) return;
