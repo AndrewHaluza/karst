@@ -8,6 +8,8 @@ import { buildSidebarState, RECENT_DONE_LIMIT } from './state.js';
 import { upsertProject } from '../../store/projects.js';
 import { markProposalAccepted, insertProposal, discardProposal } from '../../store/planningProposals.js';
 import { createPlanningSession, linkPlanningTicket, setPlanningSessionStatus } from '../../store/planningSessions.js';
+import { updateTicketFields } from '../../store/tickets.js';
+import { graphApproach, manifest as buildManifest, repo as repoFixture } from '../../manifest/fixtures.js';
 import { addRelation } from '../../store/ticketRelations.js';
 
 /** Stamp a ticket done at a specific completion time (stage row + current stage). */
@@ -24,6 +26,35 @@ describe('buildSidebarState', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
   afterEach(() => store.close());
+
+  it('gives a graph ticket its expert/worker/fast with the approach fallback, and a classic ticket none (T1266)', () => {
+    const m = buildManifest({ extention: repoFixture() }, {
+      approaches: [graphApproach({ enabled: true })],
+      agentPresets: { lean: { slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol' } } } },
+    });
+    const graph = createTicket(store, { key: 'G-1', title: 'graph' });
+    updateTicketFields(store, graph.id, { approach: 'karst-graph-engineering', agentPreset: 'lean' });
+    createTicket(store, { key: 'C-1', title: 'classic' });
+
+    const rows = buildSidebarState(store, { facets: ['all'], filter: '', manifest: m }).sections.current;
+    const byLabel = Object.fromEntries(rows.map((r) => [r.label, r.graphRoles]));
+    expect(byLabel['G-1 — graph']).toEqual([
+      { role: 'expert', text: 'codex · gpt-5.6-sol', source: 'preset' },
+      { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+      { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+    ]);
+    expect(byLabel['C-1 — classic']).toBeUndefined();
+  });
+
+  it('gives the packaged Dynamic Graph approach its approach fallback although the raw manifest never names it (T1266)', () => {
+    const m = buildManifest({ extention: repoFixture() }, {});
+    const graph = createTicket(store, { key: 'G-2', title: 'packaged' });
+    updateTicketFields(store, graph.id, { approach: 'karst-graph-engineering' });
+    const rows = buildSidebarState(store, { facets: ['all'], filter: '', manifest: m }).sections.current;
+    const roles = rows.find((r) => r.label === 'G-2 — packaged')?.graphRoles;
+    expect(roles?.map((r) => r.role)).toEqual(['expert', 'worker', 'fast']);
+    expect(roles?.every((r) => r.source === 'approach')).toBe(true);
+  });
 
   it('default (all) facet excludes archived and returns active rows in Current', () => {
     createTicket(store, { key: 'A-1', title: 'active' });

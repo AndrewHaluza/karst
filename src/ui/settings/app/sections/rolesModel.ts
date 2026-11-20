@@ -5,12 +5,12 @@
  * Mirrors the resolver's order (`resolveProcessAssignment` /
  * `resolvePresetDefaults`) for the draft being edited, with no ticket layer:
  *   pin (`processes.<role>` with `pinned: true`) → the selected preset's slot →
- *   the Default row (`agentProvider` / `defaultModel` / `defaultEffort`).
+ *   (graph roles only) the approach's profile → the Default row (`agentProvider` / `defaultModel` / `defaultEffort`).
  *
  * An edit always lands in the layer that wins: the pin when the role is
  * pinned, otherwise the selected preset — so an edit can never be dead.
  *
- * Only the seven process roles can carry a pin: a pin lives on a
+ * Only the eight process roles can carry a pin: a pin lives on a
  * `processes.<key>` row and there is no such row for implementation or the
  * graph roles.
  *
@@ -18,8 +18,9 @@
  */
 import type { AgentPreset, Manifest } from '../../../../manifest/types.js';
 import { PROCESS_KEYS, type ProcessKey } from '../../../../manifest/validate/processAssignments.js';
+import { graphConfigOfApproach, graphRoleView, type GraphRole } from '../../../../approaches/graph/graphRoleView.js';
 
-export type RoleSource = 'pin' | 'preset' | 'default';
+export type RoleSource = 'pin' | 'preset' | 'approach' | 'default';
 
 /** A role's core/model/effort as the picker edits it; '' is "unset". */
 export interface RoleValue {
@@ -77,11 +78,32 @@ export function defaultRow(draft: Manifest): RoleValue {
   };
 }
 
+const GRAPH_ROLE_OF: Readonly<Record<string, GraphRole>> = {
+  graphExpert: 'expert',
+  graphWorker: 'worker',
+  graphFast: 'fast',
+};
+
+/**
+ * A graph role with no preset slot launches on the approach's own profile
+ * (AC-04), not the Default row. Resolved by the shared graph role view with
+ * every preset removed, so only the approach rung (and its gates) answers.
+ */
+function approachRole(draft: Manifest, capability: string): RoleValue | undefined {
+  const role = Object.prototype.hasOwnProperty.call(GRAPH_ROLE_OF, capability) ? GRAPH_ROLE_OF[capability] : undefined;
+  if (role === undefined) return undefined;
+  const bare: Manifest = { ...draft, agentPresets: undefined, activeAgentPreset: undefined, defaultAgentPreset: undefined };
+  const resolved = graphRoleView(bare, graphConfigOfApproach(draft))[role];
+  return resolved ? { core: resolved.provider, model: resolved.model ?? '', effort: resolved.effort ?? '' } : undefined;
+}
+
 export function effectiveRole(draft: Manifest, presetName: string | null, capability: string): EffectiveRole {
   const pin = pinOf(draft, capability);
   if (pin) return { ...pin, source: 'pin' };
   const slot = slotOf(draft, presetName, capability);
   if (slot) return { ...slot, source: 'preset' };
+  const approach = approachRole(draft, capability);
+  if (approach) return { ...approach, source: 'approach' };
   return { ...defaultRow(draft), source: 'default' };
 }
 
@@ -129,6 +151,16 @@ function withSlot(draft: Manifest, presetName: string, capability: string, slot:
     slots: base as AgentPreset['slots'],
   };
   return { ...draft, agentPresets: { ...(draft.agentPresets ?? {}), [presetName]: next } };
+}
+
+/**
+ * A core-only pick on a role with no slot yet would be dropped by `writeRole`
+ * (a slot needs a model). Complete it from the inherited slot when that slot
+ * runs on the same core; otherwise return the value untouched.
+ */
+export function seedRoleValue(value: RoleValue, seed: { provider: string; model?: string; effort?: string } | null): RoleValue {
+  if (value.model !== '' || value.core === '' || seed === null || seed.provider !== value.core) return value;
+  return { core: value.core, model: seed.model ?? '', effort: value.effort || seed.effort || '' };
 }
 
 const ALL_CAPABILITIES = [

@@ -1,6 +1,6 @@
 import type { JsonSchema } from '../jsonSchema.js';
 import { BACKEND_CORES, allowedBackends } from '../../agent/backendChoices.js';
-import { PRESET_CAPABILITIES } from '../../manifest/types.js';
+import { PRESET_CAPABILITIES, type PresetCapability } from '../../manifest/types.js';
 import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
 import {
   BOOLEAN,
@@ -26,13 +26,31 @@ const SLOT = strictObject(
   ['provider', 'model'],
 );
 
+/** What each preset capability drives, so an agent can pick the right slot. */
+export const CAPABILITY_DESCRIPTIONS: Record<PresetCapability, string> = {
+  uatTester: 'UAT tester process',
+  uatFix: 'UAT fix process',
+  review: 'review process',
+  reviewFix: 'review fix process',
+  stallSuggestion: 'stall suggestion process',
+  prDescription: 'pull request description process',
+  ticketAnalysis: 'ticket analysis process',
+  implementation: 'ticket implementation session',
+  planning: 'planning process',
+  graphExpert: 'expert profile: graph planner and expert nodes',
+  graphWorker: 'worker profile: graph worker nodes',
+  graphFast: 'fast profile: graph fast nodes',
+};
+
 const PRESET: JsonSchema = {
   anyOf: [
     SLOT,
     strictObject(
       {
         label: STRING,
-        slots: strictObject(Object.fromEntries(PRESET_CAPABILITIES.map((c) => [c, SLOT]))),
+        slots: strictObject(
+          Object.fromEntries(PRESET_CAPABILITIES.map((c) => [c, { ...SLOT, description: CAPABILITY_DESCRIPTIONS[c] }])),
+        ),
       },
       ['slots'],
     ),

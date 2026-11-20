@@ -41,10 +41,14 @@ function scripted(answers: unknown[][]): { adapter: AgentAdapter; calls: RunHead
 
 describe('testerSkip helpers', () => {
   it('detects a target that observed nothing', () => {
-    expect(observedNothing(SKIP_TITLE, 0)).toBe(true);
-    expect(observedNothing('COVERAGE (reported): NOT RUN — x', 0)).toBe(true);
-    expect(observedNothing(SKIP_TITLE, 1)).toBe(false);
-    expect(observedNothing('COVERAGE (reported): PASS — x', 0)).toBe(false);
+    expect(observedNothing([SKIP_TITLE], 0)).toBe(true);
+    expect(observedNothing(['COVERAGE (reported): NOT RUN — x'], 0)).toBe(true);
+    expect(observedNothing([SKIP_TITLE], 1)).toBe(false);
+    const p = 'COVERAGE (reported): PASS [C1] a — ran x';
+    const k = 'COVERAGE (reported): SKIPPED [C2] b — no';
+    expect(observedNothing([p, k, k, k], 0)).toBe(false); // a target with one PASS criterion record and three SKIPPED is not observed nothing
+    expect(observedNothing([k, k], 0)).toBe(true);
+    expect(observedNothing(['COVERAGE (reported): PASS — x'], 0)).toBe(false);
   });
 
   it('prefixes the repo only when several targets were asked, and cuts to 160 chars', () => {

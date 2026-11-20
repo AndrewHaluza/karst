@@ -8,6 +8,9 @@ import {
   splitCoverage,
   stripCoverageLabel,
   coverageOrFallback,
+  coverageCriterion,
+  criteriaSummary,
+  coverageAllOrFallback,
 } from './coverageRecord.js';
 
 const rec = (title: string, severity = 'info') => ({ severity, title });
@@ -73,5 +76,33 @@ describe('stripCoverageLabel', () => {
     for (const t of ['COVERAGE (reported): PASS — x', 'note: COVERAGE (reported): PASS', `${'A'.repeat(30)}: COVERAGE (reported): PASS`]) {
       expect(stripCoverageLabel([rec(t)])).toEqual([rec(t)]);
     }
+  });
+});
+
+describe('criterion records', () => {
+  const t = (rest: string) => `${COVERAGE_PREFIX}${rest}`;
+  it('parses the C<n> tag after the status', () => {
+    expect(coverageCriterion(t('PASS [C3] picker opens — ran x'))).toBe('C3');
+    expect(coverageCriterion(t('FAIL [C12] x — y'))).toBe('C12');
+    expect(coverageStatus(t('FAIL [C1] x'))).toBe('FAIL');
+    expect(coverageCriterion(t('PASS — legacy'))).toBeNull();
+    expect(coverageCriterion('nit [C1]')).toBeNull();
+  });
+  it('summarises tested and untested criteria; null for legacy', () => {
+    expect(criteriaSummary([t('PASS [C1] a — x'), t('SKIPPED [C2] b — y'), t('NOT RUN [C5] c — z'), t('FAIL [C3] d — w')])).toBe(
+      '2 of 4 criteria tested; not tested: C2, C5',
+    );
+    expect(criteriaSummary([t('PASS [C1] a — x')])).toBe('1 of 1 criteria tested');
+    expect(criteriaSummary([t('PASS — legacy')])).toBeNull();
+  });
+  it('keeps all records up to the cap, else the fallback', () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ severity: 'high', title: t(`PASS [C${i}] x`) }));
+    expect(coverageAllOrFallback(many)).toHaveLength(20);
+    expect(coverageAllOrFallback(many)[0]!.severity).toBe('info');
+    expect(coverageAllOrFallback<{ severity: string; title: string }>([])[0]!.title).toContain('NOT RUN');
+  });
+  it('the UAT rule asks for a record for each criterion; the review rule does not', () => {
+    expect(COVERAGE_RULE_UAT).toContain('[C<n>]');
+    expect(COVERAGE_RULE_REVIEW).not.toContain('[C<n>]');
   });
 });

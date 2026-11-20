@@ -31,8 +31,9 @@ import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
 import { emptyCapabilityIdentity } from './stateAgent.js';
 import { agentContextFor } from './resolvers.js';
+import { ticketLaunchFields } from '../../approaches/graph/profileResolver.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
-import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
+import { fullPreset, graphApproach, manifest, repo } from '../../manifest/fixtures.js';
 import { PRESET_CAPABILITIES, type AgentProvider } from '../../manifest/types.js';
 
 describe('buildDashboardState', () => {
@@ -804,6 +805,48 @@ describe('buildDashboardState', () => {
     for (const capability of GRAPH) {
       expect(state.capabilityIdentity[capability]).toBeNull();
     }
+  });
+
+  it('shows the approach profile for a graph ticket whose slot is absent, and the slot when set (T1266)', () => {
+    const m = manifest({ extention: repo() }, {
+      approaches: [graphApproach({ enabled: true })],
+      agentPresets: { lean: { slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol' } } } },
+      agentProvider: 'claude',
+      defaultModel: 'claude-sonnet-5',
+    });
+    const t = createTicket(store, { key: 'GRAPH-VIEW', title: 'graph' });
+    updateTicketFields(store, t.id, { agentPreset: 'lean', approach: 'karst-graph-engineering' });
+    const rec = getTicket(store, t.id)!;
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined,
+      agentContextFor({ defaultModel: null, defaultEffort: null }, m, rec.agentPreset, rec.agentProvider, {
+        approach: rec.approach,
+        fields: ticketLaunchFields(rec),
+      }),
+    );
+    expect(state.capabilityIdentity.graphExpert).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', effort: null });
+    expect(state.capabilityIdentity.graphWorker).toEqual({ provider: 'claude', model: 'claude-sonnet-5', effort: 'low' });
+    expect(state.capabilityIdentity.graphFast).toEqual({ provider: 'claude', model: 'claude-sonnet-5', effort: 'low' });
+  });
+
+  it('names no graph role for a classic ticket whose preset has graph slots (T1266 fix)', () => {
+    const m = manifest({ extention: repo() }, {
+      approaches: [graphApproach({ enabled: true })],
+      agentPresets: { lean: { slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol' } } } },
+      agentProvider: 'claude',
+      defaultModel: 'claude-sonnet-5',
+    });
+    const t = createTicket(store, { key: 'CLASSIC-VIEW', title: 'classic' });
+    updateTicketFields(store, t.id, { agentPreset: 'lean' });
+    const rec = getTicket(store, t.id)!;
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined,
+      agentContextFor({ defaultModel: null, defaultEffort: null }, m, rec.agentPreset, rec.agentProvider, {
+        approach: rec.approach,
+        fields: ticketLaunchFields(rec),
+      }),
+    );
+    for (const capability of GRAPH) expect(state.capabilityIdentity[capability]).toBeNull();
   });
 
   it('states what launch opens when a preset owns implementation (NDL-116)', () => {

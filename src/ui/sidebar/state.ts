@@ -2,6 +2,9 @@ import { memoryWaitNotes } from '../../store/memoryQueue.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
+import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
+import { describeGraphRoles, graphConfigOfApproach, graphRoleView, type GraphRoleLine } from '../../approaches/graph/graphRoleView.js';
+import { ticketLaunchFields } from '../../approaches/graph/profileResolver.js';
 import { listTickets, listArchivedTickets, listArchivedTicketKeys, listOpenSubtasks, getTicket, findTicketById, type TicketWithStages } from '../../store/tickets.js';
 import type { PriorityLevel } from '../../planning/proposal.js';
 import { asPriorityLevel, effectiveTicketPriority, ticketPrioritySource, ticketProviderLabel, ticketProviderPriority } from '../../model/priority.js';
@@ -97,6 +100,20 @@ export interface PriorityView {
   reason?: string;
 }
 
+/** The graph role lines of a graph ticket (shared role view, AC-04); nothing for a classic ticket. */
+function graphRolesOf(
+  manifest: Manifest | undefined,
+  t: Parameters<typeof ticketLaunchFields>[0] & { approach: string | null },
+): { graphRoles?: readonly GraphRoleLine[] } {
+  if (!manifest) return {};
+  // The packaged Dynamic Graph approach is only in the built-in overlay, never in the raw manifest.
+  const effective = withBuiltInApproaches(manifest);
+  const config = graphConfigOfApproach(effective, t.approach);
+  if (!config) return {};
+  const lines = describeGraphRoles(graphRoleView(effective, config, ticketLaunchFields(t)));
+  return lines.length > 0 ? { graphRoles: lines } : {};
+}
+
 export interface TicketRow extends TicketNode, TicketActionFlags {
   /** The ticket's effective priority (your override, else the provider's) when it is one of the four levels; null otherwise. */
   priority: PriorityLevel | null;
@@ -108,6 +125,8 @@ export interface TicketRow extends TicketNode, TicketActionFlags {
   providerLabel: string;
   /** True when the row menu may set the priority: a top-level, not archived ticket at `scope`. */
   priorityEditable: boolean;
+  /** For a graph ticket: the expert/worker/fast the graph launches, with the rung that supplied each. Absent for a classic ticket. */
+  graphRoles?: readonly GraphRoleLine[];
   /** The ticket's current stage key (null when stageless) — a source fact, not a label. */
   stageCurrent: TicketWithStages['stageCurrent'];
   /**
@@ -547,6 +566,7 @@ export function buildSidebarState(
           t,
           t.subtaskParentId !== null ? listOpenSubtasks(store, t.id).length : 0,
         ),
+        ...graphRolesOf(opts.manifest, t),
         conflicted: mergeGate?.kind === 'conflicted',
         ciFailing: ciFailingRepos.length > 0,
         isActive: node.ticketId === (opts.activeTicketId ?? null),

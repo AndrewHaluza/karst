@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { coresUsed, runReadiness, type ReadinessInput } from './runReadiness.js';
+import { coresUsed, coresOptional, runReadiness, type ReadinessInput } from './runReadiness.js';
 import { fakeProbes } from './fakeProbes.testutil.js';
+import { BUILT_IN_PACKAGE_ID } from '../../approaches/builtInId.js';
 import type { Manifest } from '../../manifest/types.js';
 
 const manifest = (extra: Record<string, unknown> = {}, repo: Record<string, unknown> = {}): Manifest =>
@@ -18,13 +19,48 @@ const find = (r: { items: { id: string; status: string; detail: string }[] }, id
 
 describe('coresUsed', () => {
   it('defaults to claude', () => expect(coresUsed(manifest())).toEqual(['claude']));
-  it('unions default, processes and preset slots', () => {
+  it('unions default, processes and active preset slots', () => {
     const m = manifest({
       agentProvider: 'codex',
       processes: { review: { provider: 'opencode' } },
+      activeAgentPreset: 'p',
       agentPresets: { p: { slots: { planning: { provider: 'claude', model: 'm' } } } },
     });
     expect(coresUsed(m).sort()).toEqual(['claude', 'codex', 'opencode']);
+  });
+});
+
+describe('coresUsed graph and preset rules', () => {
+  const graph = (enabled: boolean) => ({
+    approaches: [{ id: 'g', label: 'g', enabled, graph: { profiles: { expert: { provider: 'claude', model: 'm' } } } }],
+  });
+  it('lists claude when only an enabled graph profile uses it', () => {
+    expect(coresUsed(manifest({ agentProvider: 'codex', ...graph(true) })).sort()).toEqual(['claude', 'codex']);
+  });
+  it('lists claude for the packaged graph approach when the default core is codex', () => {
+    expect(coresUsed(manifest({ agentProvider: 'codex' })).sort()).toEqual(['claude', 'codex']);
+  });
+  it('ignores a disabled graph approach', () => {
+    const off = { approaches: [{ id: BUILT_IN_PACKAGE_ID, label: 'b', enabled: false }, ...graph(false).approaches] };
+    expect(coresUsed(manifest({ agentProvider: 'codex', ...off }))).toEqual(['codex']);
+  });
+  it('counts only the active preset as required', () => {
+    const m = manifest({
+      agentProvider: 'codex',
+      activeAgentPreset: 'a',
+      agentPresets: {
+        a: { slots: { graphExpert: { provider: 'opencode', model: 'm' } } },
+        b: { slots: { review: { provider: 'antigravity', model: 'm' } } },
+      },
+    });
+    expect(coresUsed(m).sort()).toEqual(['claude', 'codex', 'opencode']);
+    expect(coresOptional(m)).toEqual(['antigravity']);
+  });
+  it('reports a missing optional core as a warning, not a failure', async () => {
+    const m = manifest({ agentPresets: { b: { slots: { review: { provider: 'codex', model: 'm' } } } } });
+    const r = await runReadiness(input({ manifest: m, probes: fakeProbes({ coreState: (p: string) => (p === 'codex' ? 'missing' : 'ok') }) }));
+    expect(find(r, 'core.codex')!.status).toBe('warn');
+    expect(r.ok).toBe(true);
   });
 });
 

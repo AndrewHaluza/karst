@@ -608,6 +608,46 @@ describe('buildTicketFormState — sandbox backend override', () => {
     expect(state.presetCores).toEqual({ fast: 'codex', deep: 'claude' });
   });
 
+  it('previews expert/worker/fast per preset for each graph approach, with the approach fallback', () => {
+    const m = {
+      ...MANIFEST,
+      activeAgentPreset: 'deep',
+      agentPresets: {
+        deep: { slots: { graphExpert: { provider: 'claude', model: 'claude-sonnet-5' } } },
+        plain: { slots: {} },
+      },
+    } as unknown as Manifest;
+    const state = buildTicketFormState(store, m, () => [], () => []);
+    const dyn = state.graphRoles['karst-dynamic-graph'] ?? state.graphRoles[Object.keys(state.graphRoles)[0] ?? ''];
+    expect(dyn).toBeDefined();
+    // '' is the Inherit row: the active preset applies.
+    expect(dyn?.['']?.find((l) => l.role === 'expert')).toMatchObject({ text: 'claude · claude-sonnet-5', source: 'preset' });
+    expect(dyn?.['deep']?.find((l) => l.role === 'expert')?.source).toBe('preset');
+    expect(dyn?.['plain']?.find((l) => l.role === 'expert')?.source).toBe('approach');
+    expect(dyn?.['plain']?.find((l) => l.role === 'worker')?.source).toBe('approach');
+  });
+
+  it('previews a dangling ticket preset as the approach profile, not the active preset (T1266 fix)', () => {
+    const m = {
+      ...MANIFEST,
+      activeAgentPreset: 'deep',
+      agentPresets: { deep: { slots: { graphExpert: { provider: 'claude', model: 'claude-sonnet-5' } } } },
+    } as unknown as Manifest;
+    const state = buildTicketFormState(store, m, () => [], () => []);
+    const dyn = state.graphRoles['karst-dynamic-graph'] ?? state.graphRoles[Object.keys(state.graphRoles)[0] ?? ''];
+    expect(dyn?.['\u0000dangling']?.find((l) => l.role === 'expert')?.source).toBe('approach');
+  });
+
+  it('has no graph preview for a manifest whose approaches declare no graph', () => {
+    const state = buildTicketFormState(store, MANIFEST, () => [], () => []);
+    for (const id of Object.keys(state.graphRoles)) expect(state.approaches.some((a) => a.id === id)).toBe(true);
+  });
+
+  it('the Inherit label follows the active preset, not only defaultAgentPreset', () => {
+    const m = { ...MANIFEST, activeAgentPreset: 'deep', agentPresets: { deep: fullPreset('claude', 'claude-opus-5') } } as Manifest;
+    expect(buildTicketFormState(store, m, () => [], () => []).defaultAgentPreset).toBe('deep');
+  });
+
   it('edit mode surfaces the ticket host opt-out and the backend map', () => {
     const t = createTicket(store, { key: 'A-1', title: 'T' });
     updateTicketFields(store, t.id, { agentBackend: 'host' });

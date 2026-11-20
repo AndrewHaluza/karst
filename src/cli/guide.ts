@@ -344,6 +344,14 @@ codes — never by an agent self-report. \`stage ship pass\` is REFUSED, and a
 conflict must never be marked failed: \`ship\` has no failed edge, so the
 ticket would park with no way out.
 
+## Agent presets and graph slots
+
+\`agentPresets\` maps a preset name to \`slots\`, one slot per capability, and
+\`activeAgentPreset\` picks the preset in use. A slot sets provider, model and
+effort together. The graph planner and the \`expert\` nodes use \`graphExpert\`.
+The \`worker\` and \`fast\` nodes use \`graphWorker\` and \`graphFast\`. Run
+\`schema\` for the description of each capability.
+
 ## Editing files
 
 Edit files with the Edit tool. If you use \`sed -i\`, write \`sed -i.bak\` (works on BSD and GNU).

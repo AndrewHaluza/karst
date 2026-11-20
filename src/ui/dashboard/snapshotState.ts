@@ -16,6 +16,7 @@ import {
 import { toRegisteredGraphTarget, type SnapshotRegistry } from './snapshotRegistry.js';
 import type { DashboardSelections } from './selections.js';
 import type { SupplementalLoaders } from './supplementalLoaders.js';
+import { ticketLaunchFields } from '../../approaches/graph/profileResolver.js';
 import { agentContextFor, assignmentFor, repoNameFor, serviceNamesFor } from './resolvers.js';
 
 /** Everything the snapshot is built from, as the manager was constructed with it. */
@@ -85,6 +86,7 @@ export function buildSnapshotState(
       i.manifest?.(),
       ticket?.agentPreset ?? null,
       ticket?.agentProvider ?? null,
+      ticket ? { approach: ticket.approach, fields: ticketLaunchFields(ticket) } : undefined,
     ),
     i.fixCapFor,
     (id) => {

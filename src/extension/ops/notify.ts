@@ -12,6 +12,11 @@ export interface Notify {
   error(message: string, ticketId?: number): Promise<void>;
   /** Error with buttons: resolves to the chosen label, or undefined when dismissed. */
   errorActions?(message: string, actions: readonly string[], ticketId?: number): Promise<string | undefined>;
+  /**
+   * Record-only path: write the `karst_events` row and show no toast. For a routine
+   * background event (@arch:NTF-00 rule 5). Optional so a test fake may omit it.
+   */
+  record?(level: 'info' | 'success' | 'warn' | 'error', message: string, ticketId?: number): void;
   /** Info with buttons: resolves to the chosen label, or undefined when dismissed. */
   infoActions?(message: string, actions: readonly string[], ticketId?: number): Promise<string | undefined>;
 }

@@ -553,6 +553,9 @@
   "src/extension/ops/mergeAllOps.ts#mergeAllOp": [
     "arch:GH-09"
   ],
+  "src/extension/ops/notify.ts": [
+    "arch:NTF-00"
+  ],
   "src/extension/ops/planningConstraintChecks.ts#archWarnings": [
     "arch:DRAFT-CONSTRAINTS"
   ],
@@ -607,6 +610,9 @@
   ],
   "src/extension/ops/worktreeSpecs.ts": [
     "arch:WT-00"
+  ],
+  "src/extension/toastSeam.ts": [
+    "arch:NTF-00"
   ],
   "src/extension/toastSeam.ts#ask": [
     "arch:EVENTS"
@@ -693,6 +699,23 @@
   ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
+  ],
+  "src/model/notifyText.ratchet.test.ts": [
+    "arch:NTF-00",
+    "arch:NTF-09"
+  ],
+  "src/model/notifyText.ts": [
+    "arch:NTF-00"
+  ],
+  "src/model/notifyText.ts#plural": [
+    "arch:NTF-04"
+  ],
+  "src/model/notifyText.ts#reasonText": [
+    "arch:NTF-04"
+  ],
+  "src/model/notifyText.ts#ticketLabel": [
+    "arch:IDS-01",
+    "arch:NTF-03"
   ],
   "src/model/prChecks.ts": [
     "arch:AP-07"
@@ -783,6 +806,9 @@
     "arch:GATE-ORPHANS"
   ],
   "src/runtime/health.ts#HealthForeignInstanceError": [
+    "arch:PORTS"
+  ],
+  "src/runtime/health.ts#HealthPermanentError": [
     "arch:PORTS"
   ],
   "src/runtime/health.ts#waitForHealth": [

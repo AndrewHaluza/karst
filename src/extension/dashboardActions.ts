@@ -73,7 +73,7 @@ import { formatId } from '../model/entityId.js';
 import { type CapabilityGuard } from './insideActionHost.js';
 import { planRetryShip } from '../ui/dashboard/insideActions.js';
 import { ShipDrainingError } from './ops/reloadWhenIdle.js';
-import { toast, ask, showToast } from './toastSeam.js';
+import { toast, ask, showToast, recordOnly } from './toastSeam.js';
 
 /**
  * Bind dashboard actions to real vscode side-effects. Server lifecycle: stop and
@@ -87,6 +87,7 @@ export const vscodeNotify: Notify = {
   error: async (m, ticketId) => { await showToast('error', m, [], ticketId); },
   errorActions: async (m, actions, ticketId) => showToast('error', m, actions, ticketId),
   infoActions: async (m, actions, ticketId) => showToast('info', m, actions, ticketId),
+  record: (level, m, ticketId) => recordOnly(level, m, ticketId),
 };
 
 /** The host seams of the review-stall actions. */

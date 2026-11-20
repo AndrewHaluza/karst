@@ -2320,6 +2320,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildSettingsActions({
       writeManifest,
       reloadManifest,
+      warn: (m) => vscodeNotify.warn(m),
       onAgentSettingsSaved: (prev, next) => void graphOwned.agentSettingsSaved(agentSettingsChanged(prev, next), currentProject()?.id).catch((e) => logError('karst: model-change question failed', e)),
       onChange: () => {
         provider.refresh();

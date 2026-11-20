@@ -12,6 +12,9 @@ import { resolveModelForProvider } from '../../agent/models.js';
 import { resolvePresetDefaults, resolvePresetSlot } from '../../agent/agentPresets.js';
 import { resolvePlanningDefaults } from '../../agent/planningDefaults.js';
 import { unitsOf } from '../../manifest/runnable.js';
+import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
+import { graphConfigOfApproach, graphRoleView, type GraphRole } from '../../approaches/graph/graphRoleView.js';
+import type { GraphLaunchTicketFields } from '../../approaches/graph/profileResolver.js';
 import type { CapabilityIdentity, DashboardAgentContext } from './stateTypes.js';
 
 /**
@@ -25,6 +28,19 @@ const GRAPH_CAPABILITIES: ReadonlySet<PresetCapability> = new Set<PresetCapabili
   'graphWorker',
   'graphFast',
 ]);
+
+/** The graph role each graph capability stands for. */
+const GRAPH_ROLE_OF: Readonly<Record<'graphExpert' | 'graphWorker' | 'graphFast', GraphRole>> = {
+  graphExpert: 'expert',
+  graphWorker: 'worker',
+  graphFast: 'fast',
+};
+
+/** The ticket facts the graph role view needs: its approach and its launch rungs. */
+export interface GraphTicketFacts {
+  readonly approach: string | null;
+  readonly fields: GraphLaunchTicketFields;
+}
 
 /**
  * The manifest/agent resolution the manager performs on behalf of the state
@@ -75,6 +91,7 @@ export function agentContextFor(
   manifest: Manifest | undefined,
   ticketPreset?: string | null,
   ticketProvider?: AgentProvider | null,
+  graphTicket?: GraphTicketFacts,
 ): DashboardAgentContext {
   const ctx = base ?? {};
   if (!manifest) return ctx;
@@ -99,12 +116,20 @@ export function agentContextFor(
       continue;
     }
     if (GRAPH_CAPABILITIES.has(capability)) {
-      // A graph slot applies as declared — it is the approach's own profile
-      // binding, and nothing at ticket level overrides it. Absent slot is
-      // Inherit (null): the approach's profile config wins untouched.
-      const slot = resolvePresetSlot(manifest, capability, opts.ticketPreset);
-      capabilityIdentity[capability] = slot
-        ? { provider: slot.provider, model: slot.model ?? null, effort: slot.effort ?? null }
+      // A graph ticket shows what a graph launch resolves (AC-04): ticket
+      // rungs → preset slot → approach profile, through the shared role view.
+      // A classic ticket (one whose approach has no graph) launches no graph role, so
+      // its header names none (null). With no ticket at all, a preset slot is the only
+      // rung; an absent slot is Inherit (null).
+      const effective = withBuiltInApproaches(manifest); // the packaged Dynamic Graph approach lives only in the overlay
+      const config = graphTicket ? graphConfigOfApproach(effective, graphTicket.approach) : undefined;
+      const resolved = graphTicket
+        ? config
+          ? graphRoleView(effective, config, graphTicket.fields)[GRAPH_ROLE_OF[capability as keyof typeof GRAPH_ROLE_OF]]
+          : undefined
+        : resolvePresetSlot(manifest, capability, opts.ticketPreset);
+      capabilityIdentity[capability] = resolved
+        ? { provider: resolved.provider as AgentProvider, model: resolved.model ?? null, effort: resolved.effort ?? null }
         : null;
       continue;
     }

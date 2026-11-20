@@ -276,6 +276,24 @@ describe('runUatTester', () => {
     ]);
   });
 
+  it('keeps every coverage record of a target, after the cap', async () => {
+    const { adapter } = rawAdapter(
+      JSON.stringify([
+        { severity: 'low', title: 'nit', detail: '' },
+        { severity: 'info', title: 'COVERAGE (reported): PASS [C1] a — ran x', detail: '' },
+        { severity: 'high', title: 'COVERAGE (reported): SKIPPED [C2] b — no probe', detail: '' },
+      ]),
+    );
+    await runUatTester(store, opts({ adapter, maxObservations: 1 }), { now });
+    const rows = listUatFindings(store, ticketId);
+    expect(rows.map((r) => r.title)).toEqual([
+      'nit',
+      'COVERAGE (reported): PASS [C1] a — ran x',
+      'COVERAGE (reported): SKIPPED [C2] b — no probe',
+    ]);
+    expect(rows.slice(1).every((r) => r.severity === 'info')).toBe(true);
+  });
+
   it('never counts a coverage record as blocking at the lowest threshold', () => {
     expect(
       countBlockingObservations([{ severity: 'info', title: 'COVERAGE (reported): PASS — x' }], 'info'),
@@ -1552,6 +1570,12 @@ describe('buildTesterPrompt', () => {
     const scopeIdx = prompt.indexOf('Scope rules');
     expect(criteriaIdx).toBeGreaterThan(-1);
     expect(scopeIdx).toBeGreaterThan(criteriaIdx);
+  });
+
+  it('the criteria block asks for C1..Cn and says a harness description does not limit scope', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, { criteria: 'It works.' });
+    expect(prompt).toContain('C1..Cn');
+    expect(prompt).toContain('does not limit which criteria to test');
   });
 
   it('omits the criteria block when absent or blank', () => {
