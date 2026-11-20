@@ -13,6 +13,7 @@ import {
   markAllEventsRead,
   markEventRead,
   recordEvent,
+  onEventRecorded,
   unreadEventCount,
 } from './karstEvents.js';
 
@@ -29,6 +30,24 @@ describe('karstEvents', () => {
   afterEach(() => store.close());
 
   const base = () => ({ projectId, level: 'info' as const, source: 'autopilot' as const, title: 't' });
+
+  it('tells a listener after a record, never after a failed one, and stops after unsubscribe', () => {
+    let calls = 0;
+    const off = onEventRecorded(store, () => { calls++; });
+    recordEvent(store, base(), debug);
+    expect(calls).toBe(1);
+    recordEvent(store, { ...base(), level: 'loud' as never }, debug);
+    expect(calls).toBe(1);
+    off();
+    recordEvent(store, base(), debug);
+    expect(calls).toBe(1);
+  });
+
+  it('a throwing listener is logged and does not lose the id', () => {
+    onEventRecorded(store, () => { throw new Error('boom'); });
+    expect(recordEvent(store, base(), debug)).not.toBeNull();
+    expect(debugLines.join('\n')).toContain('listener failed');
+  });
 
   it('records an event and lists it with its fields', () => {
     const t = createTicket(store, { key: 'EV-1', projectId, title: 'x' });

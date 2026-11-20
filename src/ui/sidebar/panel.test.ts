@@ -475,6 +475,22 @@ describe('SidebarViewManager', () => {
       expect(view.posted).toHaveLength(2);
     });
 
+    it('starts at one page again when the bound project changes', () => {
+      const a = seed(ACTIVITY_PAGE + 5);
+      const b = upsertProject(store, { slug: 'pb' }).id;
+      for (let i = 0; i < ACTIVITY_PAGE + 5; i++) recordEvent(store, { projectId: b, level: 'info', source: 'host', title: `b${i}` }, () => undefined);
+      let bound = a;
+      const mgr = new SidebarViewManager(store, () => stubActions(), undefined, undefined, undefined, () => bound);
+      const { host, resolve } = fakeHost();
+      mgr.bind(host);
+      const view = resolve();
+      mgr.showMoreActivity(view.posted[0]!.activity.rows[ACTIVITY_PAGE - 1]!.id);
+      expect(view.posted[1]!.activity.rows).toHaveLength(ACTIVITY_PAGE + 5);
+      bound = b;
+      (mgr as unknown as { push(): void }).push();
+      expect(view.posted[2]!.activity.rows).toHaveLength(ACTIVITY_PAGE);
+    });
+
     it('revealActivity posts at once on a resolved view', () => {
       const mgr = mk(seed(0));
       const { host, resolve } = fakeHost();

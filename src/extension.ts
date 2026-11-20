@@ -513,6 +513,7 @@ import { buildGettingStartedState } from './ui/gettingStarted/state.js';
 import { formatId, formatTicketRef, ticketRefOrUnknown } from './model/entityId.js';
 import { toast, ask, bindToastRecorder } from './extension/toastSeam.js';
 import { makeToastRecorder, panelActionRecorder } from './extension/ops/toastRecorder.js';
+import { onEventRecorded } from './store/karstEvents.js';
 import { bindActionRecorder } from './model/actionResult.js';
 
 /**
@@ -1543,6 +1544,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const eventDeps = { store: localStore, projectId: () => currentProject()?.id, debug: (m: string) => logger.debug(m) };
   bindToastRecorder(makeToastRecorder(eventDeps)); // D641: every toast and every panel action result is one karst_events row
   bindActionRecorder(panelActionRecorder(makeToastRecorder(eventDeps, 'panel')));
+  context.subscriptions.push({ dispose: onEventRecorded(localStore, () => provider.refresh()) }); // a row from this window is no external change
 
   // Backfill: spill any pre-existing oversized descriptions/briefs to the
   // attachment shelf.  Idempotent (a pointer is under threshold and won't

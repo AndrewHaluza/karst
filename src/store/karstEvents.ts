@@ -97,6 +97,27 @@ function oneLine(text: string): string {
   return clean(text).replace(/\s+/gu, ' ').trim();
 }
 
+/** Listeners per store; a record in this window tells the sidebar, which the data_version watch (other connections) never does. */
+const recordListeners = new WeakMap<Store, Set<() => void>>();
+
+/** Call `listener` after every event this store records. Returns the unsubscribe function. */
+export function onEventRecorded(store: Store, listener: () => void): () => void {
+  const set = recordListeners.get(store) ?? new Set<() => void>();
+  set.add(listener);
+  recordListeners.set(store, set);
+  return () => { set.delete(listener); };
+}
+
+function notifyRecorded(store: Store, debug: (m: string) => void): void {
+  for (const listener of recordListeners.get(store) ?? []) {
+    try {
+      listener();
+    } catch (err) {
+      debug(`[store] karst event listener failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
 /**
  * Record one event and trim the project's history in the same transaction. Never throws:
  * a failure is logged through `debug` and the result is null, so a status line can never
@@ -121,7 +142,9 @@ export function recordEvent(store: Store, input: RecordEventInput, debug: (m: st
         .run(input.projectId, input.projectId, EVENT_MAX_ROWS_PER_PROJECT);
       return Number(info.lastInsertRowid);
     });
-    return run();
+    const id = run();
+    notifyRecorded(store, debug);
+    return id;
   } catch (err) {
     debug(`[store] karst event failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;

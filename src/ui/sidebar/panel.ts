@@ -87,6 +87,8 @@ export class SidebarViewManager {
   private lastPosted: string | undefined;
   /** How many Activity rows the pane loads; Show more grows it by one page. */
   private activityLimit = ACTIVITY_PAGE;
+  /** The project the page size belongs to; another project starts at one page again. */
+  private activityProjectId: number | undefined;
   /** `karst.showActivity` ran before the view resolved; the first push after resolve reveals the pane. */
   private pendingReveal = false;
 
@@ -164,8 +166,16 @@ export class SidebarViewManager {
     this.view.postMessage({ type: 'reveal-activity' });
   }
 
+  private resetActivityLimitOnProjectChange(): void {
+    const projectId = this.projectId?.();
+    if (projectId === this.activityProjectId) return;
+    this.activityProjectId = projectId;
+    this.activityLimit = ACTIVITY_PAGE;
+  }
+
   /** Grow the Activity page by one page and re-push. Only the oldest shown row's id is a valid cursor. */
   showMoreActivity(beforeId: number): void {
+    this.resetActivityLimitOnProjectChange();
     const view = buildActivity(this.store, this.projectId?.(), this.activityLimit);
     // A stale click (the list moved since) must not grow the page.
     if (!view.hasMore || view.rows[view.rows.length - 1]?.id !== beforeId) return;
@@ -209,6 +219,7 @@ export class SidebarViewManager {
       return;
     }
     this.staleWhileHidden = false;
+    this.resetActivityLimitOnProjectChange();
     const now = this.options.now ?? (() => performance.now());
     const t0 = now();
     const state = buildSidebarState(
