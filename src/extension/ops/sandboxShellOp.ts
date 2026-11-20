@@ -46,10 +46,10 @@ export async function sandboxShellAvailability(deps: SandboxSyncDeps, target: Sa
 export async function openSandboxShellOp(deps: SandboxShellDeps, target: SandboxSyncTarget): Promise<boolean> {
   const r = await resolveShell(deps, target);
   if (!r.ok) {
-    await deps.notify.error(`Karst: cannot open a shell in the ${target.ticketLabel} sandbox: ${r.reason}`);
+    await deps.notify.error(`The shell in the sandbox of ${target.ticketLabel} did not open: ${r.reason}`);
     return false;
   }
-  deps.openTerminal({ name: `Karst sandbox · ${target.ticketLabel}`, cmd: r.cmd, args: r.args, cwd: r.cwd ?? target.worktree?.path ?? deps.projectRoot });
+  deps.openTerminal({ name: `Karst sandbox · ${target.ticketKey ?? target.ticketLabel}`, cmd: r.cmd, args: r.args, cwd: r.cwd ?? target.worktree?.path ?? deps.projectRoot });
   return true;
 }
 

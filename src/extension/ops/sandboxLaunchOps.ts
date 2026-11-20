@@ -8,6 +8,7 @@ import { listAttachments } from '../../store/attachments.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { isMirrorName, mirrorFile, MIRROR_KEEP_LOGS, pruneMirror, pruneOldLogs } from '../../agent/bridge/mirror.js';
 import type { LaunchBackend } from './sandboxSyncOps.js';
+import { RUN_ON_HOST_ACTION } from './sandboxLaunchFailureOps.js';
 
 /**
  * The sandbox-specific pieces of an interactive launch (arch:AC-34), kept out of
@@ -158,7 +159,7 @@ export async function guardLaunchResume(input: ResumeGuardLaunch): Promise<strin
     return input.resumeId;
   } catch (err) {
     if (!(err instanceof SandboxResumeOnHostError)) throw err;
-    input.warn(`Karst: ${input.ticketLabel} has a sandbox but this launch runs on the host: starting a fresh host session instead of resuming the sandbox session.`);
+    input.warn(`${input.ticketLabel} has a sandbox, but this launch runs on the host. A fresh host session starts instead of the sandbox session.`);
     return undefined;
   }
 }
@@ -171,7 +172,7 @@ export const HOST_FALLBACK_HOST = 'Sync and remove sandbox, then run on host wit
 
 /** The choices of an account block on a sandbox backend; Cancel is the dismissal. 'Add a token' shows only for an account that can hold an sbx token (D651). */
 export const ACCOUNT_BLOCK_DEFAULT = 'Start fresh under default for this ticket';
-export const ACCOUNT_BLOCK_HOST = 'Run on host';
+export const ACCOUNT_BLOCK_HOST = RUN_ON_HOST_ACTION;
 export const ACCOUNT_BLOCK_TOKEN = 'Add a token';
 const ACCOUNT_BLOCK_CHOICES: readonly string[] = [ACCOUNT_BLOCK_DEFAULT, ACCOUNT_BLOCK_HOST];
 
@@ -227,7 +228,7 @@ export async function launchWithoutSilentHostFallback<T extends { readonly sandb
     if (input.failClosed) return { kind: 'refused', reason: FAIL_CLOSED_REASON };
     if (!(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
     const picked = await input.choose(
-      `Karst: the sandbox backend for ${input.ticketLabel} is unavailable, but the ticket has a sandbox with the agent's work in it.`,
+      `The sandbox backend for ${input.ticketLabel} is unavailable. The ticket has a sandbox with the work of the agent in it.`,
       [HOST_FALLBACK_RETRY, HOST_FALLBACK_HOST],
     );
     if (picked === HOST_FALLBACK_RETRY) continue;
@@ -242,7 +243,7 @@ async function accountBlockChoice<T extends { readonly sandboxed: boolean }>(inp
   if (input.failClosed || input.refuseOnBlock) return { kind: 'refused', reason: `${reason}; the launch never runs on the host unasked` };
   const tokenAccount = input.tokenAccount?.();
   const choices = tokenAccount === undefined ? ACCOUNT_BLOCK_CHOICES : [ACCOUNT_BLOCK_TOKEN, ...ACCOUNT_BLOCK_CHOICES];
-  const picked = await input.chooseModal(`Karst: ${input.ticketLabel} cannot start in its sandbox: ${reason}.`, choices);
+  const picked = await input.chooseModal(`${input.ticketLabel} cannot start in its sandbox: ${reason}.`, choices);
   if (picked === ACCOUNT_BLOCK_TOKEN && tokenAccount !== undefined) return { kind: 'add-token', account: tokenAccount };
   if (picked === ACCOUNT_BLOCK_DEFAULT) return { kind: 'restart-default' };
   if (picked !== ACCOUNT_BLOCK_HOST) return { kind: 'cancelled' };
@@ -270,6 +271,6 @@ export function hostFallbackPrompts(win: { showWarningMessage(message: string, .
   return {
     choose: async (msg: string, opts: readonly string[]) => win.showWarningMessage(msg, ...opts),
     chooseModal: async (msg: string, opts: readonly string[]) => win.showWarningMessage(msg, { modal: true }, ...opts),
-    confirmHost: async (msg: string) => (await win.showWarningMessage(msg, { modal: true }, 'Run on host')) === 'Run on host',
+    confirmHost: async (msg: string) => (await win.showWarningMessage(msg, { modal: true }, ACCOUNT_BLOCK_HOST)) === ACCOUNT_BLOCK_HOST,
   };
 }

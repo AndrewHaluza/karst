@@ -159,7 +159,7 @@ describe('stopSandboxOp', () => {
   it('a failed sync warns but still stops the sandbox', async () => {
     const { d, lines, notify } = deps({ answers: { 'git -C /wt merge-base': { code: 1 } } });
     await expect(stopSandboxOp(d, target)).resolves.toBe(true);
-    expect(notify.warn).toHaveBeenCalledWith(expect.stringContaining('not synced before stop'));
+    expect(notify.warn).toHaveBeenCalledWith(expect.stringContaining('did not sync before it stopped'));
     expect(lines().at(-1)).toBe(`sbx stop ${name(7)}`);
   });
   it('non-owner and host core do nothing', async () => {
@@ -302,7 +302,7 @@ describe('cleanupOrphansOp', () => {
     expect(acted()).toEqual([]);
     const none = deps();
     await expect(cleanupOrphansOp(none.d, new Set([7, 8]))).resolves.toBe(0);
-    expect(none.notify.info).toHaveBeenCalledWith('Karst: no orphan sandboxes.');
+    expect(none.notify.info).toHaveBeenCalledWith('This project has no orphan sandboxes.');
   });
 });
 
@@ -324,7 +324,7 @@ describe('invalid-core sandboxes are orphans even for a live ticket (F6)', () =>
     expect(lines()).toContain(`sbx rm --force ${sbxBad.name}`);
     expect(lines().some((l) => l.includes(`rm --force ${name(7)}`))).toBe(false);
     expect(proc.calls.some((c) => c.command === 'docker')).toBe(false);
-    expect(notify.info).toHaveBeenCalledWith('Karst: removed 2 orphan sandbox(es).');
+    expect(notify.info).toHaveBeenCalledWith('Removed 2 orphan sandboxes.');
   });
 
   it('cleanup releases the proxy grant of an sbx orphan before it removes it, and of no docker orphan', async () => {
@@ -347,10 +347,10 @@ describe('invalid-core sandboxes are orphans even for a live ticket (F6)', () =>
     const dockerBad = bad('docker', 'null');
     const failing = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS), answers: { 'docker rm': { code: 1, stderr: 'in use\n' } } });
     await expect(cleanupOrphansOp(failing.d, new Set())).resolves.toBe(0);
-    expect(failing.notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${dockerBad.name} failed: docker rm: in use`);
+    expect(failing.notify.warn).toHaveBeenCalledWith(`The orphan sandbox ${dockerBad.name} was not removed: docker rm: in use`);
     const silent = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS), answers: { 'docker rm': { code: 3 } } });
     await cleanupOrphansOp(silent.d, new Set());
-    expect(silent.notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${dockerBad.name} failed: docker rm: exited 3`);
+    expect(silent.notify.warn).toHaveBeenCalledWith(`The orphan sandbox ${dockerBad.name} was not removed: docker rm: exited 3`);
   });
 
   it('a proper-core sandbox of a live ticket is not an orphan', async () => {
@@ -364,7 +364,7 @@ describe('lifecycle edge cases', () => {
   it('non-owner is told why', async () => {
     const { d, notify } = deps({ owns: () => false });
     await removeSandboxGuarded(d, target);
-    expect(notify.warn).toHaveBeenCalledWith('Karst: T-7 is owned by another window; its sandbox was left alone.');
+    expect(notify.warn).toHaveBeenCalledWith('The sandbox of T-7 stays. Another window owns the ticket.');
   });
 
   it('a failed listing does not prove absence: sync is still attempted', async () => {
@@ -392,16 +392,16 @@ describe('lifecycle edge cases', () => {
     const { d, lines, notify } = deps({ choose });
     await expect(removeSandboxGuarded(d, { ...target, worktree: undefined })).resolves.toBe(true);
     expect(choose.mock.calls[0]![0]).toBe(
-      'Karst: the sandbox of T-7 has commits that could not be synced (no worktree branch to sync into). Removing it loses them.');
+      'The sandbox of T-7 has commits that did not sync (no worktree branch to sync into). Removing the sandbox loses them.');
     expect(lines().some((l) => l.includes('remote remove'))).toBe(false);
     expect(lines().some((l) => l.includes('fetch'))).toBe(false);
-    expect(notify.info).toHaveBeenCalledWith('Karst: T-7 sandbox removed.');
+    expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
   });
 
   it('kept sandbox is reported; works before the bridge registry exists', async () => {
     const kept = deps({ answers: { 'git -C /wt merge-base': { code: 1 } } });
     await removeSandboxGuarded(kept.d, target);
-    expect(kept.notify.warn).toHaveBeenCalledWith('Karst: kept the sandbox of T-7.');
+    expect(kept.notify.warn).toHaveBeenCalledWith('The sandbox of T-7 stays. You did not confirm the removal.');
     const bare = deps();
     const { bridges: _b, ...noBridges } = bare.d;
     await expect(removeSandboxGuarded(noBridges, target)).resolves.toBe(true);
@@ -410,14 +410,14 @@ describe('lifecycle edge cases', () => {
   it('dispose error text names ticket and cause', async () => {
     const { d, notify } = deps({ bridges: { dispose: vi.fn(async () => { throw new Error('busy'); }) } });
     await removeSandboxGuarded(d, target);
-    expect(notify.error).toHaveBeenCalledWith('Karst: removing the sandbox for T-7 failed: busy');
+    expect(notify.error).toHaveBeenCalledWith('The sandbox of T-7 was not removed: busy');
   });
 
   it('stop failure warns; host core stop is silent', async () => {
     const { d, notify } = deps();
     const failing = { ...d, proc: { run: vi.fn(async () => { throw new Error('gone'); }) } };
     await expect(stopSandboxOp(failing, target)).resolves.toBe(false);
-    expect(notify.warn).toHaveBeenCalledWith('Karst: stopping the sandbox for T-7 failed: gone');
+    expect(notify.warn).toHaveBeenCalledWith('The sandbox of T-7 did not stop: gone');
     const host = deps();
     await stopSandboxOp(host.d, { ...target, core: 'agy' });
     expect(host.notify.warn).not.toHaveBeenCalled();
@@ -443,9 +443,9 @@ describe('lifecycle edge cases', () => {
     const run = failingDocker.run;
     failingDocker.run = (c, a, o) => (a[0] === 'rm' ? Promise.reject(new Error('locked')) : run(c, a, o));
     await expect(cleanupOrphansOp({ ...d, dockerProc: failingDocker }, new Set())).resolves.toBe(1);
-    expect(choose).toHaveBeenCalledWith(`Karst: remove 2 orphan sandbox(es) of this project? ${name(8)}, ${name(9, 'opencode')}`, [REMOVE_ORPHANS, CANCEL]);
-    expect(notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${name(9, 'opencode')} failed: locked`);
-    expect(notify.info).toHaveBeenCalledWith('Karst: removed 1 orphan sandbox(es).');
+    expect(choose).toHaveBeenCalledWith(`Remove 2 orphan sandboxes of this project? ${name(8)}, ${name(9, 'opencode')}`, [REMOVE_ORPHANS, CANCEL]);
+    expect(notify.warn).toHaveBeenCalledWith(`The orphan sandbox ${name(9, 'opencode')} was not removed: locked`);
+    expect(notify.info).toHaveBeenCalledWith('Removed 1 orphan sandbox.');
   });
 });
 

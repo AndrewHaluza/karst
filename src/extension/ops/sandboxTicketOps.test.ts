@@ -204,7 +204,7 @@ describe('reattachTicketSandbox', () => {
     await expect(reattachTicketSandbox(deps({ proc, debug, warn }), store, manifest, 7, () => Promise.resolve(true)))
       .resolves.toEqual({ republished: [], dropped: [] });
     expect(debug).toHaveBeenCalledWith('[runtime] ticket 7: baseline allow failed: sbx policy allow failed: nope');
-    expect(warn).toHaveBeenCalledWith('Karst: ticket 7 sandbox cannot reach its baseline services on the host: sbx policy allow failed: nope');
+    expect(warn).toHaveBeenCalledWith('The sandbox of T7 cannot reach its baseline services on the host: sbx policy allow failed: nope');
   });
 
   it('a failed baseline allow with no warn seam still re-verifies', async () => {
@@ -670,7 +670,7 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     const bad = await make({ setupExit: 2 });
     expect(await bad.b.provision(bad.id)).toMatchObject({ ok: false });
     expect(bad.errors).toHaveLength(1);
-    expect(bad.errors[0]).toContain('Karst: FEAT-X sandbox setup failed: ');
+    expect(bad.errors[0]).toContain('The sandbox setup of ');
   });
 
   it('rerunSetup forgets the recorded setup, runs it again and says so', async () => {

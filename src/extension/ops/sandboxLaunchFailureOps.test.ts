@@ -184,22 +184,22 @@ describe('sandboxLaunchFailureOptions', () => {
     }
     const settle = () => new Promise((r) => setTimeout(r, 0));
 
-    it('offers Run on Host and Retry Sandbox', async () => {
+    it('offers Run on host and Retry Sandbox', async () => {
       const { asked } = withActions(undefined);
       await settle();
       expect(asked).toHaveLength(1);
-      expect(asked[0]!.actions).toEqual(['Run on Host', 'Retry Sandbox']);
-      expect(asked[0]!.message).toContain('sandbox launch failed');
+      expect(asked[0]!.actions).toEqual(['Run on host', 'Retry sandbox']);
+      expect(asked[0]!.message).toContain('failed to launch');
     });
 
-    it('Run on Host runs the host callback only', async () => {
-      const { calls } = withActions('Run on Host');
+    it('Run on host runs the host callback only', async () => {
+      const { calls } = withActions('Run on host');
       await settle();
       expect(calls).toEqual(['host:4']);
     });
 
     it('Retry Sandbox runs the retry callback only', async () => {
-      const { calls } = withActions('Retry Sandbox');
+      const { calls } = withActions('Retry sandbox');
       await settle();
       expect(calls).toEqual(['retry:4']);
     });
@@ -211,7 +211,7 @@ describe('sandboxLaunchFailureOptions', () => {
     });
 
     it('logs a failing callback instead of throwing', async () => {
-      const { warns } = withActions('Run on Host', { runOnHost: () => Promise.reject(new Error('boom')) });
+      const { warns } = withActions('Run on host', { runOnHost: () => Promise.reject(new Error('boom')) });
       await settle();
       expect(warns.some((w) => w.includes('boom'))).toBe(true);
     });
@@ -243,7 +243,7 @@ describe('sandboxLaunchFailureOptions', () => {
     expect(interrupted).toEqual([[4, 'sandbox stopped']]);
     expect(marked).toEqual([4]);
     expect(notified).toHaveLength(1);
-    expect(notified[0]).toContain('sandbox was stopped');
+    expect(notified[0]).toContain('was stopped, so the agent is gone');
     expect(notified[0]).not.toContain('agentBackends');
     expect(notified[0]).not.toContain('launch failed');
     expect(warns.join()).not.toContain('launch failed');
@@ -253,7 +253,7 @@ describe('sandboxLaunchFailureOptions', () => {
   it('offers Relaunch on a sandbox stop and runs the open-session path', async () => {
     const relaunched: number[] = [];
     const { opts } = setup(undefined, {
-      notify: { info: () => undefined, warn: () => undefined, error: () => Promise.resolve(), errorActions: (_m: string, a: string[]) => { expect(a).toEqual(['Relaunch']); return Promise.resolve('Relaunch'); } },
+      notify: { info: () => undefined, warn: () => undefined, error: () => Promise.resolve(), errorActions: (_m: string, a: string[]) => { expect(a).toEqual(['Relaunch agent']); return Promise.resolve('Relaunch agent'); } },
       retrySandbox: (id) => { relaunched.push(id); },
     });
     opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'error: sandbox "n" was stopped' });

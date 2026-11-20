@@ -1,4 +1,5 @@
 import { tmpdir } from 'node:os';
+import { plural } from '../../model/notifyText.js';
 import { sandboxHeadRef } from '../../agent/cloneSyncClass.js';
 import { hostHeadFileFor, readHostHead } from '../../agent/hostHead.js';
 import { NODE_SBX_PROCESS } from '../../agent/sbx/sbxProcess.js';
@@ -27,7 +28,7 @@ export interface SandboxCarryDeps extends SandboxLifecycleDeps {
 export async function carrySandboxOp(deps: SandboxCarryDeps, target: SandboxSyncTarget): Promise<boolean> {
   const label = target.ticketLabel;
   const fail = async (why: string): Promise<false> => {
-    await deps.notify.error(`Karst: cannot carry the sandbox commits of ${label}: ${why}`);
+    await deps.notify.error(`The sandbox commits of ${label} were not carried: ${why}`);
     return false;
   };
   if (!target.worktree?.branch) return fail('no worktree branch.');
@@ -59,6 +60,6 @@ export async function carrySandboxOp(deps: SandboxCarryDeps, target: SandboxSync
   if (!removed) return false;
   await recordSyncedHead(deps, target);
   await deps.reopen(target.ticketId);
-  deps.notify.info(`Karst: carried ${carried.carried} sandbox commit(s) of ${label} onto the host branch; the sandbox was recreated.`);
+  deps.notify.info(`Carried ${plural(carried.carried, 'sandbox commit', 'sandbox commits')} of ${label} onto the host branch. The sandbox was recreated.`);
   return true;
 }
