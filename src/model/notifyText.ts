@@ -1,4 +1,5 @@
 import { formatTicketRef } from './entityId.js';
+import { STAGE_TITLES } from './inside/types.js';
 
 /**
  * Pure helpers for toast text (@arch:NTF-00). No `vscode` import and no store read:
@@ -50,6 +51,16 @@ export function markerAdvancedText(label: string): string {
 /** The toast for an implementation that could not move the ticket to UAT (rule 7: one text). */
 export function markerFailedText(label: string, reason: string): string {
   return `${label}: Karst could not mark the implementation as done (${reason}).`;
+}
+
+/** A stage as a toast names it (`UAT`, `Review`), never the lower-case slug (@arch:NTF-04). */
+export function stageTitle(stage: string): string {
+  return (STAGE_TITLES as Readonly<Record<string, string>>)[stage] ?? stage;
+}
+
+/** The toast for a server that a worktree removal could not stop (rule 7: one text). */
+export function serverStillRunningText(repo: string): string {
+  return `The server "${repo}" is still running in a removed worktree. Karst could not stop it. Stop it by hand.`;
 }
 
 /** One preset slot model that the catalog does not list, as the toast names it. */

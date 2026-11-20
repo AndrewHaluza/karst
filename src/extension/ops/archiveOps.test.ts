@@ -164,7 +164,7 @@ describe('archiveTicketOp', () => {
     await archiveTicketOp(d, 1);
     expect(archiveWorktree).toHaveBeenCalledTimes(2);
     expect(d.appendLine).toHaveBeenCalledWith('archive worktree failed for /r1/w1: Error: fail1');
-    expect(d.notify.warn).toHaveBeenCalledWith('Worktree not archived: Error: fail1');
+    expect(d.notify.warn).toHaveBeenCalledWith('Worktree not archived (fail1).');
   });
 
   it('calls closeDoneTerminals when setting is true', async () => {
@@ -258,7 +258,7 @@ describe('archiveInactiveWorktreesOp', () => {
   it('refuses when no manifest is loaded', async () => {
     const d = makeArchiveInactiveDeps({ manifest: vi.fn().mockReturnValue(undefined) });
     await archiveInactiveWorktreesOp(d);
-    expect(d.notify.warn).toHaveBeenCalledWith('Karst: no manifest loaded.');
+    expect(d.notify.warn).toHaveBeenCalledWith('No manifest is loaded. Load a manifest, then archive again.');
     expect(archiveInactiveWorktrees).not.toHaveBeenCalled();
     expect(d.refresh).not.toHaveBeenCalled();
   });
@@ -267,7 +267,7 @@ describe('archiveInactiveWorktreesOp', () => {
     const d = makeArchiveInactiveDeps({ projectId: vi.fn().mockReturnValue(undefined) });
     await archiveInactiveWorktreesOp(d);
     expect(d.notify.warn).toHaveBeenCalledWith(
-      'Karst: no project bound — refusing to archive inactive worktrees.',
+      'No project is open in this window. Open a project, then archive again.',
     );
     expect(archiveInactiveWorktrees).not.toHaveBeenCalled();
     expect(d.refresh).not.toHaveBeenCalled();
@@ -292,10 +292,34 @@ describe('archiveInactiveWorktreesOp', () => {
     expect(archiveInactiveWorktrees).toHaveBeenCalledWith(d.git, d.store, {}, { projectId: 7 });
     expect(d.log.info).toHaveBeenCalledWith('reaped /w');
     expect(d.notify.info).toHaveBeenCalledWith(
-      'Karst: archived 3 worktree(s), skipped 1, failed 0, stopped 1 running server(s).',
+      'Archived 3 worktrees, skipped 1, failed 0, stopped 1 server.',
     );
     expect(d.notify.warn).not.toHaveBeenCalled();
     expect(d.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('words the summary in the singular and drops the stopped part when no server stopped', async () => {
+    const d = makeArchiveInactiveDeps();
+    vi.mocked(archiveInactiveWorktrees).mockResolvedValue({ archived: 1, skipped: 2, failed: 3, reapedServers: [] } as never);
+    await archiveInactiveWorktreesOp(d);
+    expect(d.notify.info).toHaveBeenCalledWith('Archived 1 worktree, skipped 2, failed 3.');
+  });
+
+  it('words the plural stopped part and a single server that could not be stopped', async () => {
+    const d = makeArchiveInactiveDeps();
+    vi.mocked(archiveInactiveWorktrees).mockResolvedValue({
+      archived: 2,
+      skipped: 0,
+      failed: 0,
+      reapedServers: [
+        { outcome: 'killed', path: '/a', pid: 1 },
+        { outcome: 'killed', path: '/b', pid: 2 },
+        { outcome: 'kill-failed', path: '/c', repo: 'r9', pid: 3 },
+      ],
+    } as never);
+    await archiveInactiveWorktreesOp(d);
+    expect(d.notify.info).toHaveBeenCalledWith('Archived 2 worktrees, skipped 0, failed 0, stopped 2 servers.');
+    expect(d.notify.warn).toHaveBeenCalledWith('Could not stop 1 server in the archived worktrees: "r9". Stop them by hand.');
   });
 
   it('warns once about servers that could not be stopped', async () => {
@@ -311,7 +335,7 @@ describe('archiveInactiveWorktreesOp', () => {
     } as never);
     await archiveInactiveWorktreesOp(d);
     expect(d.notify.warn).toHaveBeenCalledWith(
-      "Karst: could not stop 2 server(s) still running in archived worktrees — 'r1' (pid 11), 'r2' (pid unknown).",
+      'Could not stop 2 servers in the archived worktrees: "r1", "r2". Stop them by hand.',
     );
   });
 });
@@ -332,7 +356,7 @@ describe('unarchiveTicketOp', () => {
       ticketId: 1,
       path: '/w1',
     });
-    expect(d.notify.warn).toHaveBeenCalledWith('Worktree not restored: branch exists');
+    expect(d.notify.warn).toHaveBeenCalledWith('Worktree not restored (branch exists).');
     expect(unarchiveTicket).toHaveBeenCalledWith(d.store, 1);
     expect(d.refresh).toHaveBeenCalled();
   });
@@ -344,7 +368,7 @@ describe('unarchiveTicketOp', () => {
     ] as never);
     vi.mocked(restoreWorktree).mockResolvedValue({ outcome: 'skipped', reason: undefined } as never);
     await unarchiveTicketOp(d, 1);
-    expect(d.notify.warn).toHaveBeenCalledWith('Worktree not restored: unknown reason');
+    expect(d.notify.warn).toHaveBeenCalledWith('Worktree not restored (unknown reason).');
   });
 
   it('restoreWorktree throwing does not stop unarchive', async () => {
@@ -355,7 +379,7 @@ describe('unarchiveTicketOp', () => {
     vi.mocked(restoreWorktree).mockRejectedValue(new Error('git fail'));
     await unarchiveTicketOp(d, 1);
     expect(d.appendLine).toHaveBeenCalledWith('restore worktree failed for /w1: Error: git fail');
-    expect(d.notify.warn).toHaveBeenCalledWith('Worktree not restored: Error: git fail');
+    expect(d.notify.warn).toHaveBeenCalledWith('Worktree not restored (git fail).');
     expect(unarchiveTicket).toHaveBeenCalled();
     expect(d.refresh).toHaveBeenCalled();
   });

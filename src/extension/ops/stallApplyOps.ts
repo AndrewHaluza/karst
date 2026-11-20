@@ -1,4 +1,6 @@
 import type { Store } from '../../store/db.js';
+import { plural } from '../../model/notifyText.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { getTicket, setAgentState, setStageCurrent, updateTicketFields } from '../../store/tickets.js';
 import { clearStageBlock, stageBlock } from '../../store/stageBlocks.js';
 import { setStage, stageAttempt } from '../../store/stages.js';
@@ -63,7 +65,7 @@ function endReviewEpisode(store: Store, ticketId: number, at: string): void {
 }
 
 function refusal(deps: StallApplyDeps, reason: string): StallApplyResult {
-  deps.notify.warn(`${formatId('ticket', deps.ticketId)}: ${reason}`);
+  deps.notify.warn(`${ticketToastLabel(deps.store, deps.ticketId)}: ${reason}`);
   deps.debug?.(`[stall] apply ticket ${deps.ticketId}: refused (${reason})`);
   return { ok: false, reason };
 }
@@ -107,7 +109,7 @@ function applyAgentOption(deps: StallApplyDeps, req: StallApplyRequest, at: stri
       startedAt: at,
     });
   })();
-  deps.notify.info(`${formatId('ticket', ticketId)}: stall answered — "${req.label}". A fix round opens.`);
+  deps.notify.info(`${ticketToastLabel(deps.store, ticketId)}: the stall was answered with "${req.label}". A fix round opens.`);
   return { ok: true };
 }
 
@@ -144,7 +146,7 @@ async function applyAccept(deps: StallApplyDeps, at: string): Promise<StallApply
     });
   })();
   deps.notify.info(
-    `${formatId('ticket', ticketId)}: report accepted with ${open} open blocking finding(s). They stay unfixed.`,
+    `${ticketToastLabel(deps.store, ticketId)}: the report was accepted with ${plural(open, 'open blocking finding', 'open blocking findings')}. They stay unfixed.`,
   );
   return { ok: true };
 }

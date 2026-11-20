@@ -12,6 +12,7 @@ import { detachSubtask, DetachSubtaskError, type DetachSubtaskResult } from '../
 import { describeChangeBaseRef } from '../../workflow/changeBaseRef.js';
 import type { Manifest } from '../../manifest/types.js';
 import { formatTicketRef } from '../../model/entityId.js';
+import { plural, reasonText, serverStillRunningText } from '../../model/notifyText.js';
 
 export interface LifecycleOpsDeps {
   readonly store: Store;
@@ -52,7 +53,7 @@ export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): 
   if (!(await deps.confirm(`Permanently delete "${label}"? This cannot be undone.`, 'Delete'))) return;
   try {
     if (deps.removeSandboxes && !(await deps.removeSandboxes(ticketId))) {
-      const message = `Karst did not delete "${label}": its sandbox could not be removed. Resolve that and delete again.`;
+      const message = `${label} was not deleted: its sandbox could not be removed. Resolve that and delete again.`;
       deps.log.warn(message);
       await deps.notify.error(message);
       return;
@@ -74,18 +75,16 @@ export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): 
     // route exists to end — so it is a warning, not a debug line.
     for (const s of outcome.reapedServers) {
       deps.log.debug(describeReap(s));
-      if (s.outcome === 'kill-failed') await deps.notify.warn(describeReap(s));
+      if (s.outcome === 'kill-failed') await deps.notify.warn(serverStillRunningText(s.repo));
     }
     if (outcome.failedWorktrees > 0) {
       await deps.notify.warn(
-        `Karst deleted "${label}" but could not remove ${outcome.failedWorktrees} worktree folder(s); ` +
-          `they may remain on disk.`,
+        `${label} was deleted, but ${plural(outcome.failedWorktrees, 'worktree folder', 'worktree folders')} could not be removed. Files may remain on disk.`,
       );
     }
   } catch (err) {
     const message =
-      `Karst could not finish permanently deleting "${label}". ` +
-      `Attachment cleanup may be incomplete: ${String(err)}`;
+      `${label} was not fully deleted (${reasonText(err)}). Attachment cleanup may be incomplete.`;
     deps.log.warn(message);
     await deps.notify.error(message);
   }
@@ -101,7 +100,7 @@ export async function createFollowUpTicketOp(deps: LifecycleOpsDeps, ticketId: n
     const message =
       err instanceof TicketNotDoneError
         ? err.message
-        : `Couldn't create a follow-up ticket: ${err instanceof Error ? err.message : String(err)}`;
+        : `The follow-up ticket was not created (${reasonText(err)}).`;
     await deps.notify.error(message);
     return;
   }
@@ -144,7 +143,7 @@ export async function createSubtaskOp(
     // Every Subtask*Error message is user-ready (it names the rule and the
     // remedy), so it passes through unchanged.
     const message =
-      err instanceof Error ? err.message : `Couldn't create a sub-task: ${String(err)}`;
+      err instanceof Error ? err.message : `The sub-task was not created (${reasonText(err)}).`;
     await deps.notify.error(message);
     return;
   }
@@ -183,7 +182,7 @@ function describeDetach(key: string, result: DetachSubtaskResult): string {
 export async function detachSubtaskOp(deps: LifecycleOpsDeps, subtaskId: number): Promise<void> {
   const manifestNow = deps.manifest();
   if (!manifestNow) {
-    await deps.notify.error('No manifest is loaded — cannot detach sub-task.');
+    await deps.notify.error('No manifest is loaded. Load a manifest, then detach the sub-task.');
     return;
   }
 
@@ -201,13 +200,13 @@ export async function detachSubtaskOp(deps: LifecycleOpsDeps, subtaskId: number)
     const message =
       err instanceof DetachSubtaskError
         ? err.message
-        : `Couldn't detach the sub-task: ${err instanceof Error ? err.message : String(err)}`;
+        : `The sub-task was not detached (${reasonText(err)}).`;
     await deps.notify.error(message);
     return;
   }
 
   if (!result.ok) {
-    await deps.notify.error(`Could not detach sub-task: ${result.reason}`);
+    await deps.notify.error(`The sub-task was not detached (${result.reason}).`);
     return;
   }
 

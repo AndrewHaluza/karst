@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { getTicket, updateTicketFields } from '../../store/tickets.js';
 import type { PriorityLevel } from '../../planning/proposal.js';
 import { formatId } from '../../model/entityId.js';
@@ -47,14 +48,14 @@ export async function setTicketPriorityOp(
   ticketId: number,
   level: PriorityLevel | null,
 ): Promise<void> {
-  const label = formatId('ticket', ticketId);
+  const itemId = formatId('ticket', ticketId);
   const refusal = priorityRefusal(deps.store, ticketId, deps.projectId());
   if (refusal !== null) {
-    await deps.notify.error(`Ticket ${label} ${refusal}; its priority was not changed.`);
+    await deps.notify.error(`${ticketToastLabel(deps.store, ticketId)} ${refusal}. Its priority did not change.`);
     return;
   }
-  const before = queueOwnLevel(deps, label);
+  const before = queueOwnLevel(deps, itemId);
   updateTicketFields(deps.store, ticketId, { priorityOverride: level });
   deps.onChange();
-  await offerLowerDependents(deps, label, before);
+  await offerLowerDependents(deps, itemId, before);
 }

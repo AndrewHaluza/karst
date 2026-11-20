@@ -106,7 +106,7 @@ describe('sendGateFailureToAgent on a graph ticket (T1158)', () => {
     );
     expect(d.handOff).not.toHaveBeenCalled();
     expect(d.drive).toHaveBeenCalledOnce();
-    expect(d.info).toHaveBeenCalledWith('Gate failure sent to a fix session; ticket moved to Fix from ship.');
+    expect(d.info).toHaveBeenCalledWith('Gate failure sent to a fix session. The ticket moved to Fix from Ship.');
   });
   it('a ticket whose impl runs no graph keeps the four steps and the send-back', async () => {
     seed({ block: true, run: 'failed' });

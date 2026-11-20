@@ -216,7 +216,7 @@ describe('setup ops', () => {
       host: { createTerminal: () => { throw new Error('pty gone'); } },
     });
     expect(await ops.create()).toBe(false);
-    expect(messages.at(-1)).toMatch(/could not start/i);
+    expect(messages.at(-1)).toMatch(/did not start/i);
     expect(debugs.some((m) => m.includes('pty gone'))).toBe(true);
   });
 

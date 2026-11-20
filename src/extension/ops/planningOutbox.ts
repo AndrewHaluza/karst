@@ -119,7 +119,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       }
     } catch (e) {
       if (errCode(e) === 'ENOENT') return undefined;
-      deps.notify.warn(`Karst: plan ${formatId('plan', sessionId)} outbox is not a plain directory; skipped.`);
+      deps.notify.warn(`The outbox of planning session ${formatId('plan', sessionId)} is not a plain directory, so Karst skipped it.`);
       debug(`session ${sessionId}: outbox rejected (${errCode(e) ?? String(e)})`);
       return undefined;
     }
@@ -186,7 +186,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   function reject(sessionId: number, claimed: string, proposal: string, reason: string): void {
     remove(claimed);
     debug(`session ${sessionId}: ${proposal} rejected (${reason})`);
-    deps.notify.warn(`Karst: plan ${formatId('plan', sessionId)} draft rejected — ${reason}.`);
+    deps.notify.warn(`A draft of planning session ${formatId('plan', sessionId)} was rejected (${reason}).`);
   }
 
   /**

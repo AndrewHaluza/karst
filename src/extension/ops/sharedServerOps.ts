@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import { plural } from '../../model/notifyText.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { Notify } from './notify.js';
 import { unitByKey } from '../../manifest/runnable.js';
@@ -190,6 +191,6 @@ export async function stopIdle(deps: SharedServerOpsDeps): Promise<StopIdleResul
     const failed = result.failed.map((f) => `${f.repo} (${f.reason})`).join('; ');
     throw new Error(`Stopped ${result.stopped.length} of ${idle.length}. Not stopped: ${failed}`);
   }
-  deps.notify.info(`Stopped ${result.stopped.length} idle shared service(s): ${result.stopped.join(', ')}.`);
+  deps.notify.info(`Stopped ${plural(result.stopped.length, 'idle shared service', 'idle shared services')}: ${result.stopped.join(', ')}.`);
   return result;
 }

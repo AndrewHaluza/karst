@@ -84,7 +84,7 @@ describe('the host refuses the old proposal kinds', () => {
     expect(f.fs.removed).toEqual([A]);
     expect(f.fs.results).toHaveLength(1);
     expect(f.fs.results[0]).toMatchObject({ id: 'a', kind, status: 'invalid', reason: 'use the typed setup tools' });
-    expect(f.warn).toHaveBeenCalledWith('Karst: ignored an invalid setup proposal (use the typed setup tools).');
+    expect(f.warn).toHaveBeenCalledWith('An invalid setup proposal was ignored (use the typed setup tools).');
   });
 
   it('drops an unknown kind and unparseable text, and ignores a non-json name', async () => {
@@ -134,7 +134,7 @@ describe('run proposal', () => {
     expect(f.runCommand).not.toHaveBeenCalled();
     expect(f.fs.removed).toEqual([A]);
     expect(f.fs.results[0]).toMatchObject({ kind: 'run', status: 'invalid', reason: expect.stringContaining('outside the workspace root') });
-    expect(f.warn).toHaveBeenCalledWith('Karst: could not apply the change for "../x" (path "../x" is outside the workspace root /w).');
+    expect(f.warn).toHaveBeenCalledWith('The change for "../x" was not applied (path "../x" is outside the workspace root /w).');
   });
 
   it('records a declined run and runs nothing', async () => {
@@ -169,7 +169,7 @@ describe('run proposal', () => {
     });
     await createSetupProposalOps(f.deps).scan();
     const reason = 'karst.yml changed after the host checks ran; ask again';
-    expect(f.warn).toHaveBeenCalledWith(`Karst: could not apply the change for "web" (${reason}).`);
+    expect(f.warn).toHaveBeenCalledWith(`The change for "web" was not applied (${reason}).`);
     expect(f.runCommand).not.toHaveBeenCalled();
     expect(f.fs.results.at(-1)).toMatchObject({ kind: 'run', status: 'invalid', reason: `apply failed: ${reason}` });
     expect(f.records.at(-1)).toMatchObject({ kind: 'change', status: 'refused' });
@@ -185,14 +185,14 @@ describe('run proposal', () => {
     const last = f.fs.results.at(-1)!;
     expect(last).toMatchObject({ id: 'a', kind: 'run', status: 'unverified', dropped: [] });
     expect(last.reason).toMatch(/^A3 /);
-    expect(f.warn).toHaveBeenCalledWith(`Karst: the setup proposal was applied but did not verify (${last.reason}).`);
+    expect(f.warn).toHaveBeenCalledWith(`The setup proposal was applied, but the check after it failed (${last.reason}).`);
   });
 
   it('records a failed command as invalid and the host record as unverified', async () => {
     const f = deps({ [A]: JSON.stringify(RUN) });
     f.runCommand.mockRejectedValue(new Error('boom'));
     await createSetupProposalOps(f.deps).scan();
-    expect(f.warn).toHaveBeenCalledWith('Karst: could not apply the change for "web" (boom).');
+    expect(f.warn).toHaveBeenCalledWith('The change for "web" was not applied (boom).');
     expect(f.fs.results.at(-1)).toMatchObject({ kind: 'run', status: 'invalid', reason: 'apply failed: boom' });
     expect(f.records.at(-1)).toMatchObject({ status: 'unverified' });
     const a1 = f.records.at(-1)!.steps.find((st) => st.id === 'A1')!;
@@ -361,7 +361,7 @@ describe('write-file proposal', () => {
     expect(f.applyPatch).not.toHaveBeenCalled();
     expect(f.fs.results[0]).toMatchObject({ kind: 'write-file', status: 'invalid' });
     expect(readdirSync(outside)).toEqual([]);
-    expect(f.warn.mock.calls[0]![0]).toMatch(/^Karst: refused the change for "web" \(/);
+    expect(f.warn.mock.calls[0]![0]).toMatch(/^The change for "web" was refused \(/);
   });
 
   it('refuses a symlink path with its own reason, and writes no host record', async () => {
@@ -370,7 +370,7 @@ describe('write-file proposal', () => {
     await createSetupProposalOps(d).scan();
     const reason = f.fs.results[0]!.reason!;
     expect(reason).toMatch(/symlink/i);
-    expect(f.warn).toHaveBeenCalledWith(`Karst: refused the change for "web" (${reason}).`);
+    expect(f.warn).toHaveBeenCalledWith(`The change for "web" was refused (${reason}).`);
     expect(f.records).toHaveLength(0);
     expect(f.fs.removed).toEqual([A]);
   });
@@ -388,7 +388,7 @@ describe('write-file proposal', () => {
     const reason = f.fs.results[0]!.reason!;
     expect(reason).toMatch(/^P2 /);
     expect(f.fs.results[0]).toMatchObject({ kind: 'write-file', status: 'invalid' });
-    expect(f.warn).toHaveBeenCalledWith(`Karst: refused the change for "web" (${reason}).`);
+    expect(f.warn).toHaveBeenCalledWith(`The change for "web" was refused (${reason}).`);
     expect(f.records.at(-1)).toMatchObject({ kind: 'change', status: 'refused' });
     expect(logs.some((m) => m.startsWith('[setup] could not write the verify record for ') && m.includes('record disk'))).toBe(true);
     expect(f.fs.removed).toEqual([A]);

@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import { claimMemoryWait, clearMemoryWait, claimMemoryWaitNow, listMemoryQueue, queueMemoryWait, requeueStaleMemoryClaims, STALE_MEMORY_CLAIM_MS } from '../../store/memoryQueue.js';
 import { waitingNote } from '../../agent/sbx/sbxMemory.js';
 import type { Notify } from './notify.js';
+import { reasonText } from '../../model/notifyText.js';
 
 /**
  * Host-memory admission and queue (arch:AUTOSTART pattern). A sandbox start first reads REAL free host memory; below the
@@ -86,7 +87,7 @@ export function makeMemoryQueue(deps: MemoryQueueDeps): MemoryQueue {
     const result = await run(first);
     clearMemoryWait(store, first);
     if (result.ok) lastStartAt = now();
-    else deps.notify.warn(`Karst: ${deps.label(first)} could not start after waiting for memory: ${result.message.slice(0, 300)}`);
+    else deps.notify.warn(`${deps.label(first)}: the session did not start after the wait for memory (${reasonText(result.message)}).`);
     return result.ok ? first : null;
   };
   return {

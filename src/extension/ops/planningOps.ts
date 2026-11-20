@@ -45,6 +45,10 @@ import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import type { Notify } from './notify.js';
 import { formatId } from '../../model/entityId.js';
 
+/** Button labels of the planner restart offer (@arch:NTF-06). */
+export const PLANNER_RESTART_ACTION = 'Restart on new agent';
+export const PLANNER_KEEP_ACTION = 'Keep current agent';
+
 /**
  * Planning sessions: create, open, archive (vscode-free; `extension.ts` binds).
  *
@@ -236,11 +240,9 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     if (wantKey === haveKey || deps.offerRestart === undefined || declined.get(session.id) === wantKey) {
       return session;
     }
-    const restart = 'Restart';
-    const keep = 'Keep';
     const choice = await deps.offerRestart(
-      `Planning ${formatId('plan', session.id)} runs on ${haveKey}. Planner is now ${wantKey}. Restart starts a fresh session on the new agent (the conversation does not carry over). Keep reopens it on the current agent.`,
-      { restart, keep },
+      `Planning session ${formatId('plan', session.id)} runs on ${haveKey}, but the planner is now ${wantKey}. A restart starts a new session on ${wantKey} and drops the conversation.`,
+      { restart: PLANNER_RESTART_ACTION, keep: PLANNER_KEEP_ACTION },
     );
     debug(`open ${session.id}: ${haveKey} vs planner ${wantKey} — ${choice ?? 'dismissed'}`);
     if (choice === 'restart') {
@@ -256,7 +258,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     const manifest = deps.manifest();
     if (!manifest) {
       debug(`launch ${session.id} blocked: no manifest loaded`);
-      deps.notify.warn('Karst: load a manifest before you start a planning session.');
+      deps.notify.warn('No manifest is loaded. Load a manifest, then start the planning session.');
       return false;
     }
     try {
@@ -335,7 +337,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       terminal.show();
     } catch (error) {
       debug(`launch ${session.id} failed (${session.core}): ${error instanceof Error ? error.message : String(error)}`);
-      deps.notify.warn(`Karst: could not start the planning agent (${session.core}). See the Karst output for details.`);
+      deps.notify.warn(`The planning agent (${session.core}) did not start. Open the Karst output to see why.`);
       return false;
     }
     deps.onChange?.();
@@ -347,7 +349,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const projectId = deps.projectId();
       if (projectId === undefined) {
         debug('create blocked: no active project');
-        deps.notify.warn('Karst: open a project before you start a planning session.');
+        deps.notify.warn('No project is open. Open a project, then start the planning session.');
         return undefined;
       }
       const agent = deps.defaultAgent();
@@ -375,7 +377,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const session = getPlanningSession(deps.store, id);
       if (!session || session.status === 'archived') {
         debug(`open ${id} blocked: ${session ? 'archived' : 'unknown'}`);
-        deps.notify.warn(`Karst: planning session ${formatId('plan', id)} no longer exists.`);
+        deps.notify.warn(`Planning session ${formatId('plan', id)} no longer exists.`);
         return;
       }
       await launch(await reconciled(session));
@@ -396,20 +398,20 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     async openArtifacts(id) {
       if (!getPlanningSession(deps.store, id)) {
         debug(`artifacts ${id} blocked: unknown`);
-        deps.notify.warn(`Karst: planning session ${formatId('plan', id)} no longer exists.`);
+        deps.notify.warn(`Planning session ${formatId('plan', id)} no longer exists.`);
         return;
       }
       const dir = planningArtifactsDir(deps.scratchDir(id));
       if (!(await hasArtifactFiles(dir))) {
         artifactFlags.set(id, 0);
         debug(`artifacts ${id} blocked: empty`);
-        deps.notify.info(`Karst: ${formatId('plan', id)} has no artifacts yet.`);
+        deps.notify.info(`Planning session ${formatId('plan', id)} has no artifacts yet.`);
         return;
       }
       artifactFlags.set(id, 1);
       if (!deps.openPath) {
         debug(`artifacts ${id} blocked: no opener`);
-        deps.notify.warn('Karst: this host cannot open a folder.');
+        deps.notify.warn('This host cannot open a folder.');
         return;
       }
       try {
@@ -419,7 +421,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         debug(`artifacts ${id} opened`);
       } catch (e) {
         debug(`artifacts ${id} failed: ${e instanceof Error ? e.message : String(e)}`);
-        deps.notify.warn(`Karst: could not open the artifacts folder of ${formatId('plan', id)}.`);
+        deps.notify.warn(`The artifacts folder of planning session ${formatId('plan', id)} did not open.`);
       }
     },
 
@@ -427,7 +429,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const session = getPlanningSession(deps.store, id);
       if (!session) {
         debug(`unarchive ${id} blocked: unknown`);
-        deps.notify.warn(`Karst: planning session ${formatId('plan', id)} no longer exists.`);
+        deps.notify.warn(`Planning session ${formatId('plan', id)} no longer exists.`);
         return;
       }
       const status = listPlanningTickets(deps.store, id).length > 0 ? 'filed' : 'active';

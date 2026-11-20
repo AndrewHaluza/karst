@@ -5,12 +5,16 @@ import type { Inventory } from '../runtime/resourceInventory.js';
 import { makeMemoryQueue, type MemoryQueue } from './ops/memoryQueueOps.js';
 import { makePressureWatch, type SandboxFootprint } from '../runtime/memoryPressure.js';
 import type { Notify } from './ops/notify.js';
+import { reasonText } from '../model/notifyText.js';
 import type { Manifest } from '../manifest/types.js';
 import { readFreeHostMemory } from '../agent/sbx/hostMemory.js';
 import { totalmem } from 'node:os';
 import { resolveMinFreeBytes, resolveSbxMemory } from '../agent/sbx/sbxMemory.js';
 import { SBX_CORES } from '../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
+
+/** The pressure notice button that stops the largest sandbox (@arch:NTF-06). */
+export const STOP_SANDBOX_ACTION = 'Stop sandbox';
 
 export interface MemoryBindingDeps {
   readonly store: Store;
@@ -107,17 +111,17 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
       const vm = inv.vmOverhead;
       return vm && ids.length > 0 ? ids.map((id) => ({ name: d.label(id), ticketId: id, footprintBytes: vm.rssBytes / ids.length })) : [];
     },
-    warn: async (message) => (await d.notify.infoActions?.(message, ['Stop'])) === 'Stop',
-    stop: (b) => d.stopSandbox(b.ticketId).catch((e: unknown) => d.notify.warn(`Karst: could not stop ${b.name}: ${String(e).slice(0, 300)}`)),
+    warn: async (message) => (await d.notify.infoActions?.(message, [STOP_SANDBOX_ACTION])) === STOP_SANDBOX_ACTION,
+    stop: (b) => d.stopSandbox(b.ticketId).catch((e: unknown) => d.notify.warn(`${b.name}: the sandbox did not stop (${reasonText(e)}). Stop it again from the Resources view.`)),
   });
   const pressureTimer = setInterval(() => void pressure.tick().catch((e: unknown) => d.debug(`[memory-pressure] tick failed: ${String(e)}`)), d.pressureMs ?? 30_000);
   // The Start anyway / Cancel notice; a dismissed notice is re-offered by `resolveWait` (the karst.memoryWait command).
   const offerChoice = (ticketId: number, note: string): void => {
-    void d.notify.infoActions?.(`Karst: ${d.label(ticketId)}: ${note}`, ['Start anyway', 'Cancel']).then(async (choice) => {
+    void d.notify.infoActions?.(`${d.label(ticketId)}: ${note}`, ['Start anyway', 'Cancel']).then(async (choice) => {
       if (choice === 'Cancel') { queue.cancel(ticketId); pending.delete(ticketId); }
       else if (choice === 'Start anyway') {
         const r = await queue.startAnyway(ticketId);
-        if (!r.ok) d.notify.warn(`Karst: ${d.label(ticketId)} could not start: ${r.message.slice(0, 300)}`);
+        if (!r.ok) d.notify.warn(`${d.label(ticketId)}: the session did not start (${reasonText(r.message)}).`);
       }
       d.refresh(ticketId);
     }).catch((e: unknown) => d.debug(`[memory-queue] launch notice failed: ${String(e)}`));
@@ -129,7 +133,7 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
       const waiting = memoryWaitNotes(d.store);
       const mine = listMemoryQueue(d.store, project); // queued rows of this window's project, FIFO
       const id = ticketId !== undefined ? mine.find((x) => x === ticketId) : mine[0];
-      if (id === undefined) { d.notify.info('Karst: no ticket is waiting for memory.'); return; }
+      if (id === undefined) { d.notify.info('No ticket is waiting for memory.'); return; }
       offerChoice(id, waiting.get(id) ?? 'Waiting for memory');
     },
     admitLaunch: async (ticketId, options) => {

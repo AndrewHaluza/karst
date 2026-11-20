@@ -5,6 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { parkGateStage, stageBlock, clearStageBlock } from '../../store/stageBlocks.js';
 import { openStageRun, latestStageRun } from '../../store/stageRuns.js';
 import { formatId } from '../../model/entityId.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { makeTesterSkipActions, decideTesterSkip } from './testerSkipOps.js';
 
 function parked(kind = 'tester-skipped') {
@@ -71,7 +72,7 @@ describe('tester-skipped actions', () => {
   it('names the ticket and logs when it refuses', () => {
     const p = parked('boot-failed');
     decideTesterSkip(p.deps, 'accept');
-    expect(p.notify.warn).toHaveBeenCalledWith(`${formatId('ticket', p.id)} is no longer waiting on a skipped tester.`);
+    expect(p.notify.warn).toHaveBeenCalledWith(`${ticketToastLabel(p.store, p.id)} is no longer waiting on a skipped tester.`);
     expect(p.debug).toHaveBeenCalledWith(`[gate] tester skip ticket ${p.id}: refused (not parked)`);
   });
 
@@ -94,7 +95,7 @@ describe('tester-skipped actions', () => {
     setStage(p.store, p.id, 'uat', { artifactPath: '/a/uat.log' });
     decideTesterSkip(p.deps, 'accept');
     expect(p.debug).toHaveBeenCalledWith(`[gate] tester skip ticket ${p.id}: uat: tester skip accepted by user`);
-    expect(p.notify.info).toHaveBeenCalledWith(`${formatId('ticket', p.id)}: uat: tester skip accepted by user`);
+    expect(p.notify.info).toHaveBeenCalledWith(`${ticketToastLabel(p.store, p.id)}: uat: tester skip accepted by user`);
     expect(getTicket(p.store, p.id).stages.find((s) => s.stageKey === 'uat')?.artifactPath).toBe('/a/uat.log');
   });
 

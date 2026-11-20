@@ -1,5 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { Notify } from './notify.js';
+import { reasonText } from '../../model/notifyText.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { getTicket } from '../../store/tickets.js';
 import { formatTicketRef } from '../../model/entityId.js';
 import { closeTicket, reopenTicket, type CloseReport } from '../../workflow/closeTicket.js';
@@ -40,11 +42,6 @@ export function describeLeft(left: CloseReport): string {
   return parts.length === 0 ? '' : ` Left as is: ${parts.join(', ')}.`;
 }
 
-const label = (store: Store, ticketId: number): string => {
-  const t = getTicket(store, ticketId);
-  return formatTicketRef(t.id, t.key);
-};
-
 export async function closeTicketOp(deps: CloseOpsDeps, ticketId: number): Promise<void> {
   const answer = await deps.askReason(ticketId);
   if (answer === undefined) return;
@@ -52,7 +49,7 @@ export async function closeTicketOp(deps: CloseOpsDeps, ticketId: number): Promi
   try {
     left = closeTicket(deps.store, ticketId, answer);
   } catch (err) {
-    await deps.notify.error(err instanceof Error ? err.message : String(err));
+    await deps.notify.error(reasonText(err));
     return;
   }
   try {
@@ -62,7 +59,7 @@ export async function closeTicketOp(deps: CloseOpsDeps, ticketId: number): Promi
   }
   deps.refresh(ticketId);
   deps.notify.info(
-    `Karst: closed ${label(deps.store, ticketId)} — resolved outside karst, nothing was verified.${describeLeft(left)}`,
+    `Closed ${ticketToastLabel(deps.store, ticketId)}. It was resolved outside Karst, so nothing was verified.${describeLeft(left)}`,
   );
 }
 
@@ -70,9 +67,9 @@ export async function reopenTicketOp(deps: CloseOpsDeps, ticketId: number): Prom
   try {
     reopenTicket(deps.store, ticketId);
   } catch (err) {
-    await deps.notify.error(err instanceof Error ? err.message : String(err));
+    await deps.notify.error(reasonText(err));
     return;
   }
   deps.refresh(ticketId);
-  deps.notify.info(`Karst: reopened ${label(deps.store, ticketId)} — back at implementation.`);
+  deps.notify.info(`Reopened ${ticketToastLabel(deps.store, ticketId)}. It is back at Implement.`);
 }

@@ -99,8 +99,8 @@ describe('sbx token commands', () => {
     expect(cmd.out.asked).toEqual([]);
     expect(cmd.out.warns).toHaveLength(1);
   });
-  it('setFor says why a token is not stored: the store message, or a fixed text for a non-error', async () => {
-    for (const [thrown, text] of [[new Error('keychain locked'), 'keychain locked'], ['plain', 'The sbx token was not stored.']] as const) {
+  it('setFor says why a token is not stored: the store message or the thrown text', async () => {
+    for (const [thrown, text] of [[new Error('keychain locked'), 'The sbx token was not stored (keychain locked).'], ['plain', 'The sbx token was not stored (plain).']] as const) {
       const warns: string[] = [];
       const ops = createSbxTokenOps({
         secrets: { get: async () => undefined, store: async () => { throw thrown; }, delete: async () => undefined },

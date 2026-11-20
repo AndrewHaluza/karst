@@ -11,7 +11,7 @@ import { repo } from '../../manifest/fixtures.js';
 import type { CreateTerminalOpts, SessionTerminal, TerminalHost } from '../../ui/session.js';
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import { hashInstructions } from '../../agent/instructions.js';
-import { createPlanningOps, planningSessionIdOf, type PlanningOpsDeps } from './planningOps.js';
+import { createPlanningOps, PLANNER_KEEP_ACTION, PLANNER_RESTART_ACTION, planningSessionIdOf, type PlanningOpsDeps } from './planningOps.js';
 import { createTicket, findTicketById } from '../../store/tickets.js';
 import { runNotesCommand } from '../../cli/notesCommand.js';
 import { trustKeyFor } from '../../agent/workspaceTrust.js';
@@ -382,7 +382,7 @@ describe('planning ops', () => {
       host: { createTerminal: () => { throw new Error('pty gone'); } },
     });
     expect(await ops.create('t')).toBeUndefined();
-    expect(messages.at(-1)).toMatch(/could not start/i);
+    expect(messages.at(-1)).toMatch(/did not start/i);
     expect(debugs.some((m) => m.includes('pty gone'))).toBe(true);
     expect(ops.list()).toEqual([]);
   });
@@ -391,7 +391,7 @@ describe('planning ops', () => {
     const s = createPlanningSession(store, { projectId, title: 't', core: 'claude', model: null });
     const ops = createPlanningOps({ ...deps, scratchDir: () => '/dev/null/nope' });
     await expect(ops.open(s.id)).resolves.toBeUndefined();
-    expect(messages.at(-1)).toMatch(/could not start/i);
+    expect(messages.at(-1)).toMatch(/did not start/i);
     expect(getPlanningSession(store, s.id)!.status).toBe('active');
   });
 
@@ -470,7 +470,7 @@ describe('planning ops', () => {
       await ops.openArtifacts(s.id);
       expect(opened).toEqual([]);
       expect(logs).toContain(`[planning] artifacts ${s.id} blocked: empty`);
-      expect(messages).toContain(`Karst: P${s.id} has no artifacts yet.`);
+      expect(messages).toContain(`Planning session P${s.id} has no artifacts yet.`);
       writeFileSync(join(scratch, String(s.id), 'artifacts', 'plan.md'), 'x');
       // The sidebar read is a cache (5 s): an open that scans the dir refreshes it.
       expect(ops.artifactCount(s.id)).toBe(0);
@@ -487,7 +487,7 @@ describe('planning ops', () => {
       messages.length = 0;
       await ops.openArtifacts(s.id);
       expect(logs).toContain(`[planning] artifacts ${s.id} blocked: no opener`);
-      expect(messages).toEqual(['Karst: this host cannot open a folder.']);
+      expect(messages).toEqual(['This host cannot open a folder.']);
     });
     it('repaints the sidebar when a background load finds a file', async () => {
       let changes = 0;
@@ -526,7 +526,7 @@ describe('planning ops', () => {
       await ops.openArtifacts(s.id);
       expect(logs).not.toContain(`[planning] artifacts ${s.id} opened`);
       expect(logs).toContain(`[planning] artifacts ${s.id} failed: openPath returned false`);
-      expect(messages).toContain(`Karst: could not open the artifacts folder of P${s.id}.`);
+      expect(messages).toContain(`The artifacts folder of planning session P${s.id} did not open.`);
     });
     it('warns for an unknown session and when the open fails', async () => {
       const logs: string[] = [];
@@ -535,12 +535,12 @@ describe('planning ops', () => {
       expect(ops.artifactCount(9999)).toBe(0);
       await ops.openArtifacts(9999);
       expect(logs).toContain('[planning] artifacts 9999 blocked: unknown');
-      expect(messages).toContain('Karst: planning session P9999 no longer exists.');
+      expect(messages).toContain('Planning session P9999 no longer exists.');
       const s = (await ops.create('t'))!;
       writeFileSync(join(scratch, String(s.id), 'artifacts', 'a.md'), 'x');
       await ops.openArtifacts(s.id);
       expect(logs).toContain(`[planning] artifacts ${s.id} failed: boom`);
-      expect(messages).toContain(`Karst: could not open the artifacts folder of P${s.id}.`);
+      expect(messages).toContain(`The artifacts folder of planning session P${s.id} did not open.`);
     });
   });
 
@@ -587,7 +587,7 @@ describe('planning ops', () => {
     expect(await ops.create('t')).toBeUndefined();
     expect(created).toHaveLength(0);
     expect(debugs.some((m) => m.includes('cannot block edits — declined by the user'))).toBe(true);
-    expect(warns.some((m) => /could not start/.test(m))).toBe(false);
+    expect(warns.some((m) => /did not start/.test(m))).toBe(false);
   });
 
   it('unarchives to filed when it produced tickets, else to active', async () => {
@@ -931,11 +931,11 @@ describe('planning ops: reopen offers a restart when the planner config moved on
     answer = 'restart';
     await o.open(session.id);
     expect(offers[0]!.message).toBe(
-      `Planning P${session.id} runs on claude · opus. Planner is now antigravity · gemini-3.8-flash-medium. Restart starts a fresh session on the new agent (the conversation does not carry over). Keep reopens it on the current agent.`,
+      `Planning session P${session.id} runs on claude · opus, but the planner is now antigravity · gemini-3.8-flash-medium. A restart starts a new session on antigravity · gemini-3.8-flash-medium and drops the conversation.`,
     );
     expect(offers[0]!.labels).toEqual({
-      restart: 'Restart',
-      keep: 'Keep',
+      restart: PLANNER_RESTART_ACTION,
+      keep: PLANNER_KEEP_ACTION,
     });
     expect(getPlanningSession(store, session.id)).toMatchObject({ core: 'antigravity', model: 'gemini-3.8-flash-medium' });
     expect(created.at(-1)!.opts.shellPath).not.toContain('claude');

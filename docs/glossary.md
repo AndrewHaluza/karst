@@ -534,7 +534,7 @@ values are rejected naming the field):
 - `agentProvider` — the default agent core (`claude` default).
 - `archiveDoneAfterDays` — done-ticket auto-archive delay (default 3 days).
 - `archivePlanningAfterDays` — finished planning-session auto-archive delay (default 3 days; every draft accepted, no live terminal, idle that long).
-- `stopServersOnDone` — what happens to running services when a ticket reaches `done`: `ask` (default, prompts once with Stop / Keep running / Always stop), `auto` (stops and announces), or `off` (services survive until archive).
+- `stopServersOnDone` — what happens to running services when a ticket reaches `done`: `ask` (default, prompts once with Stop servers / Keep servers running / Always stop servers), `auto` (stops and records an event), or `off` (services survive until archive).
 - `repositories` — map of name → `{repoPath, baselineBranch?, hasMigrations?,
   signals?, scope?, service?}`. `signals` route tickets to repos at classify;
   `hasMigrations: true` flags "not first-class under shared-DB"; `service` is

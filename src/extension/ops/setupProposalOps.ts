@@ -259,7 +259,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       ...extra,
       ...(after.ok ? {} : { reason: failureReason(after) }),
     });
-    if (!after.ok) deps.notify.warn(`Karst: the setup proposal was applied but did not verify (${failureReason(after)}).`);
+    if (!after.ok) deps.notify.warn(`The setup proposal was applied, but the check after it failed (${failureReason(after)}).`);
   }
 
   let editWait: number | undefined;
@@ -299,7 +299,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     const run = await verifyEditsBeforeConsent(ops.length, input, { firstSetup }, wiring.deps);
     if (!built.ok || !run.result.ok) {
       const reason = built.ok ? failureReason(run.result) : built.reason;
-      deps.notify.warn(`Karst: the setup edits failed the host checks (${reason}); ignored.`);
+      deps.notify.warn(`The setup edits were ignored because they failed the checks (${reason}).`);
       hostRecord(scratch, first, 'edit', 'refused', run.result);
       // A failure that names one op drops only that op; the valid ops stay and show in the next popup.
       const culprit = built.ok ? undefined : built.opId;
@@ -307,7 +307,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       return;
     }
     if (built.changes.length === 0 && built.fixes.length === 0) {
-      deps.notify.warn('Karst: the setup edits change nothing.');
+      deps.notify.warn('The setup edits change nothing, so none was applied.');
       settle('no-change', 'no effective change', ids);
       return;
     }
@@ -316,7 +316,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     if (!sameIds(latest, ids)) {
       // An op was withdrawn or added while the popup was open: nothing applies; the next scan shows the new list.
       debug('the edit list changed while its consent was open');
-      deps.notify.warn('Karst: the setup edit list changed while the popup was open; nothing applied. The new list shows next.');
+      deps.notify.warn('The setup edit list changed while the popup was open, so no edit was applied. The new list shows next.');
       return;
     }
     if (!approved) {
@@ -333,7 +333,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       for (const id of ids.slice(1)) record(scratch, `${id}.json`, 'edit', 'applied', { sha256 });
     } catch (e) {
       const reason = (e as Error).message;
-      deps.notify.warn(`Karst: could not apply the setup edits (${reason}).`);
+      deps.notify.warn(`The setup edits were not applied (${reason}).`);
       hostRecord(scratch, first, 'edit', 'refused', run.result);
       settle('invalid', `apply failed: ${reason}`, ids);
     }
@@ -353,14 +353,14 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
   ): Promise<void> {
     const where = deps.resolveDir(target);
     if (!where.ok) {
-      deps.notify.warn(`Karst: could not apply the change for "${label}" (${where.reason}).`);
+      deps.notify.warn(`The change for "${label}" was not applied (${where.reason}).`);
       record(scratch, file, kind, 'invalid', { reason: where.reason });
       fs.remove(file);
       return;
     }
     const prepared = prepare(where.dir);
     if (!prepared.ok) {
-      deps.notify.warn(`Karst: refused the change for "${label}" (${prepared.reason}).`);
+      deps.notify.warn(`The change for "${label}" was refused (${prepared.reason}).`);
       record(scratch, file, kind, 'invalid', { reason: prepared.reason });
       fs.remove(file);
       return;
@@ -370,7 +370,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     const run = await verifyBeforeConsent(change, { firstSetup: false, dir: where.dir, karstRoots: roots }, deps.verify(scratch).deps);
     if (!run.result.ok) {
       const reason = failureReason(run.result);
-      deps.notify.warn(`Karst: refused the change for "${label}" (${reason}).`);
+      deps.notify.warn(`The change for "${label}" was refused (${reason}).`);
       hostRecord(scratch, file, 'change', 'refused', run.result);
       record(scratch, file, kind, 'invalid', { reason });
       fs.remove(file);
@@ -389,7 +389,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     }
     if (manifestMoved(scratch, run.result.pinnedSha256)) {
       const reason = 'karst.yml changed after the host checks ran; ask again';
-      deps.notify.warn(`Karst: could not apply the change for "${label}" (${reason}).`);
+      deps.notify.warn(`The change for "${label}" was not applied (${reason}).`);
       hostRecord(scratch, file, 'change', 'refused', run.result);
       record(scratch, file, kind, 'invalid', { reason: `apply failed: ${reason}` });
       fs.remove(file);
@@ -412,7 +412,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
     if (failure === undefined) {
       debug(`applied proposal ${file}`);
     } else {
-      deps.notify.warn(`Karst: could not apply the change for "${label}" (${failure}).`);
+      deps.notify.warn(`The change for "${label}" was not applied (${failure}).`);
     }
     await finishVerify(
       file,
@@ -485,7 +485,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
       }
       const checked = validateSetupProposal(raw);
       if (!checked.ok) {
-        deps.notify.warn(`Karst: ignored an invalid setup proposal (${checked.reason}).`);
+        deps.notify.warn(`An invalid setup proposal was ignored (${checked.reason}).`);
         debug(`rejected proposal ${name}: ${checked.reason}`);
         fs.remove(file);
         // Keep the kind of a refused old-kind file so the ledger shows what the agent wrote.
@@ -529,7 +529,7 @@ export function createSetupProposalOps(deps: SetupProposalOpsDeps): SetupProposa
         skips.record(scratch, { code, ...(target !== undefined ? { target } : {}), reason, at: new Date().toISOString() });
       } catch (e) {
         const why = e instanceof Error ? e.message : String(e);
-        deps.notify.warn(`Karst: the skip of ${code} was approved but could not be saved (${why}).`);
+        deps.notify.warn(`The skip of ${code} was approved but was not saved (${why}).`);
         record(scratch, file, 'skip', 'invalid', { reason: `the host could not save the skip: ${why}` });
         continue;
       }

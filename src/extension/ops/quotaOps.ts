@@ -180,14 +180,14 @@ export function makeClaudeGlobalStatuslineSync(
         });
         if (outcome.refused !== undefined) {
           deps.warn(
-            `karst: Claude global statusline ${
-              outcome.refused === 'unreadable' ? 'settings are unreadable' : 'settings are not valid JSON'
-            } — left untouched`,
+            `The Claude settings file ${
+              outcome.refused === 'unreadable' ? 'is unreadable' : 'is not valid JSON'
+            }. Karst left the global statusline unchanged.`,
           );
           continue;
         }
         if (outcome.changed) {
-          deps.info(`karst: Claude global statusline ${outcome.installed ? 'installed' : 'restored'}`);
+          deps.info(`The Claude global statusline was ${outcome.installed ? 'installed' : 'restored'}.`);
         }
       }
     } catch (error) {

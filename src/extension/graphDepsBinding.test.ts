@@ -97,7 +97,7 @@ describe('openWorkspaceDepsEditor', () => {
       },
       'graph-workspace-deps: node run 5 (web: x)',
     );
-    expect(log.filter((l) => l.startsWith('warn:'))).toEqual([]);
+    expect(log.filter((l) => l.startsWith('warn:'))).toEqual(['warn:No karst.yml exists to edit. Run the setup session first.']);
     expect(log).not.toContain('show');
   });
 

@@ -181,7 +181,7 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
         return true;
       } catch (error) {
         debug(`launch ${id} failed (${core}): ${error instanceof Error ? error.message : String(error)}`);
-        deps.notify.warn(`Karst: could not start the setup agent (${core}). See the Karst output for details.`);
+        deps.notify.warn(`The setup agent (${core}) did not start. Open the Karst output to see why.`);
         return false;
       }
     },

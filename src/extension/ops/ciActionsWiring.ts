@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { OPEN_SYNC_DIFF } from './sandboxLifecycleOps.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
@@ -492,11 +493,11 @@ export function deliverBlockedPrompt(
   return async (reason, rewritten, cliUnknown) => {
     // The sandbox CLI cannot run from this extension host: a sync diff cannot help, fix the PATH.
     if (cliUnknown) {
-      await warn(`Deliver to PR stopped: ${reason} Put the CLI on the PATH of the VS Code extension host (start VS Code from a shell that has it), then retry. Nothing was pushed.`);
+      await warn(`Deliver to PR pushed nothing. ${reason} Start VS Code from a shell that has the sandbox CLI on its PATH, then retry.`);
       return;
     }
     const hint = rewritten ? ' Use "Carry sandbox commits onto host branch" on the dashboard.' : '';
-    const pick = await warn(`Deliver to PR stopped: the sandbox is not in sync (${reason}). Nothing was pushed.${hint}`, 'Open sync diff');
-    if (pick === 'Open sync diff') await openDiff();
+    const pick = await warn(`Deliver to PR pushed nothing: the sandbox is not in sync (${reason}).${hint}`, OPEN_SYNC_DIFF);
+    if (pick === OPEN_SYNC_DIFF) await openDiff();
   };
 }

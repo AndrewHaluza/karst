@@ -284,7 +284,7 @@ describe('planning outbox', () => {
     expect(warns.join()).toContain(`draft D${foreign} belongs to another session`);
     expect(warns.join()).toContain(`draft D${accepted} is accepted`);
     expect(warns.join()).toContain(`draft D${discarded} is discarded`);
-    expect(warns.join()).toContain(`plan P${sessionId} draft rejected — `);
+    expect(warns.join()).toContain(`A draft of planning session P${sessionId} was rejected (`);
     expect(warns.join()).toMatch(/another session/);
     expect(warns.join()).toMatch(/accepted/);
     expect(warns.join()).toMatch(/discarded/);

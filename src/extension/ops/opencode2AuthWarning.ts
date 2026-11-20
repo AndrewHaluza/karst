@@ -26,8 +26,12 @@ import { OPENCODE2_AUTH_LIST_ARGS, opencode2HasCredentials } from '../../agent/o
  * user actually sees.
  */
 export const OPENCODE2_AUTH_WARNING =
-  'Karst: OpenCode v2 has no provider signed in — the session opens with ' +
-  '"No provider selected". Sign in with \'Karst: Log in to OpenCode v2\'.';
+  'OpenCode v2 has no provider signed in, so the session opens with ' +
+  '"No provider selected". Sign in with the command "Karst: Log in to OpenCode v2".';
+
+/** The button labels of the auth warning (@arch:NTF-06). */
+export const OPENCODE2_LOGIN_ACTION = 'Log in to OpenCode';
+export const OPENCODE2_LAUNCH_ANYWAY_ACTION = 'Launch anyway';
 
 export interface Opencode2AuthWarningDeps {
   /** The provider this ticket's session will launch under. */
@@ -64,8 +68,8 @@ export async function warnOpencode2AuthIfUnset(
     return true;
   }
   if (opencode2HasCredentials(stdout)) return true;
-  const choice = await deps.choose(OPENCODE2_AUTH_WARNING, 'Log in', 'Launch anyway');
-  if (choice !== 'Log in') return true;
+  const choice = await deps.choose(OPENCODE2_AUTH_WARNING, OPENCODE2_LOGIN_ACTION, OPENCODE2_LAUNCH_ANYWAY_ACTION);
+  if (choice !== OPENCODE2_LOGIN_ACTION) return true;
   await deps.logIn();
   return false;
 }

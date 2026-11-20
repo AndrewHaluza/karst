@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { getTicket } from '../../store/tickets.js';
 import { clearStageBlock, stageBlock } from '../../store/stageBlocks.js';
 import { latestStageRun } from '../../store/stageRuns.js';
@@ -35,7 +36,7 @@ export function decideTesterSkip(deps: TesterSkipDeps, request: TesterSkipReques
   const { store, ticketId } = deps;
   const now = deps.now ?? nowIso;
   const debug = deps.debug ?? (() => {});
-  const label = formatId('ticket', ticketId);
+  const label = ticketToastLabel(store, ticketId);
   if (getTicket(store, ticketId).stageCurrent !== 'uat' || stageBlock(store, ticketId, 'uat')?.kind !== 'tester-skipped') {
     deps.notify.warn(`${label} is no longer waiting on a skipped tester.`);
     debug(`[gate] tester skip ticket ${ticketId}: refused (not parked)`);

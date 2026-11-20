@@ -4,7 +4,7 @@ import { upsertProject } from '../store/projects.js';
 import { createTicket } from '../store/tickets.js';
 import { listMemoryQueue } from '../store/memoryQueue.js';
 import type { AttributedRow, Inventory } from '../runtime/resourceInventory.js';
-import { bindMemory, isSbxLaunch, type MemoryBinding } from './memoryBinding.js';
+import { bindMemory, isSbxLaunch, STOP_SANDBOX_ACTION, type MemoryBinding } from './memoryBinding.js';
 
 const GB = 1024 ** 3;
 let store: Store;
@@ -240,7 +240,7 @@ describe('bindMemory pressure warning', () => {
     ], 20 * GB) });
     await vi.waitFor(() => expect(w.infoActions).toHaveBeenCalled());
     expect(message(w)).toContain('Sandbox web uses the most (3.0 GB)');
-    expect(w.infoActions.mock.calls[0]![1]).toEqual(['Stop']);
+    expect(w.infoActions.mock.calls[0]![1]).toEqual([STOP_SANDBOX_ACTION]);
   });
 
   it('names a container row with no label by its ticket', async () => {
@@ -286,7 +286,7 @@ describe('bindMemory pressure warning', () => {
 
   it('Stop stops the named sandbox', async () => {
     free = 0.2 * GB;
-    const w = watch({ inventory: () => inv([row({})]), answer: 'Stop' });
+    const w = watch({ inventory: () => inv([row({})]), answer: STOP_SANDBOX_ACTION });
     await vi.waitFor(() => expect(w.stopSandbox).toHaveBeenCalledWith(7));
     expect(w.warn).not.toHaveBeenCalled();
   });
@@ -303,11 +303,11 @@ describe('bindMemory pressure warning', () => {
     expect(w.debug).not.toHaveBeenCalled();
   });
 
-  it('warns when the stop fails, with the error cut to 300 characters', async () => {
+  it('warns when the stop fails, with the reason cut to 200 characters', async () => {
     free = 0.2 * GB;
-    const w = watch({ inventory: () => inv([row({})]), answer: 'Stop', stopSandbox: async () => { throw new Error('x'.repeat(400)); } });
+    const w = watch({ inventory: () => inv([row({})]), answer: STOP_SANDBOX_ACTION, stopSandbox: async () => { throw new Error('x'.repeat(400)); } });
     await vi.waitFor(() => expect(w.warn).toHaveBeenCalled());
-    expect(w.warn).toHaveBeenCalledWith(`Karst: could not stop web: ${`Error: ${'x'.repeat(400)}`.slice(0, 300)}`);
+    expect(w.warn).toHaveBeenCalledWith(`web: the sandbox did not stop (${'x'.repeat(199)}…). Stop it again from the Resources view.`);
   });
 
   it('logs a failed tick', async () => {
