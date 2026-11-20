@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+// @ts-expect-error plain .mjs module without types
+import { reportLines } from '../../scripts/vitestDrift.mjs';
 import {
   summarizeGateFailure,
   failingTestIds,
@@ -73,5 +75,60 @@ describe('vitest output', () => {
   it('leaves non-vitest output as a plain tail', () => {
     expect(failingTestIds('FAIL x > y\nboom')).toEqual(['x > y']);
     expect(summarizeGateFailure('FAIL x > y\nboom')).toBe('FAIL x > y\nboom');
+  });
+});
+
+describe('vitest drift sections', () => {
+  const A = 'src/manifest/load.test.ts > load > drifts';
+  const B = 'tests/visual/variants.test.ts > variants > breaks';
+  const C = 'src/other.test.ts > other > plain';
+  const build = (extra: string[] = []): string =>
+    [
+      `FAIL ${A}`,
+      `FAIL ${B}`,
+      ...extra.map((id) => `FAIL ${id}`),
+      ' Test Files  2 failed (2)',
+      'Slowest tests',
+      ...Array.from({ length: 20 }, (_, i) => `slow ${i}`),
+      `FAIL ${A}`,
+      ...(reportLines({ drift: [A], breaks: [B] }) as string[]),
+      `KARST-ALERT: develop-red base=abc tests=${A}`,
+      `FAIL ${B}`,
+      ' Test Files  1 failed (1)',
+    ].join('\n');
+
+  it('lists ticket breaks first, then marked drift, each id once', () => {
+    const s = summarizeGateFailure(build())!;
+    const lines = s.split('\n');
+    expect(lines[0]).toBe(`FAIL ${B}`);
+    expect(lines[1]).toBe(`FAIL ${A} (base drift, not this ticket)`);
+    expect(s.split(A).length - 1).toBe(1);
+    expect(s.split(B).length - 1).toBe(1);
+  });
+
+  it('puts other FAIL ids after drift ids', () => {
+    const lines = summarizeGateFailure(build([C]))!.split('\n');
+    expect(lines.slice(0, 3)).toEqual([
+      `FAIL ${B}`,
+      `FAIL ${A} (base drift, not this ticket)`,
+      `FAIL ${C}`,
+    ]);
+  });
+
+  it('drops the KARST-ALERT and NOTICE lines that repeat a listed id', () => {
+    const s = summarizeGateFailure(build())!;
+    expect(s).not.toContain('KARST-ALERT');
+    expect(s).not.toContain('NOTICE: develop is red');
+  });
+
+  it('does not parse visual gate output', () => {
+    const visual = [
+      'FAIL x.visual.ts > shot-a',
+      'ticket breaks (pass at the base, fail here) — 1:',
+      '  - shot-b',
+      'base drift (develop drift, not this ticket) — 1:',
+      '  - shot-a',
+    ].join('\n');
+    expect(summarizeGateFailure(visual)).toBe(visual.split('\n').map((l) => l.trim()).join('\n'));
   });
 });
