@@ -125,7 +125,9 @@ export function reviewBlockingSeverityRule(blockingSeverity: string): string {
 export const PROCESS_KILL_RULE =
   'Stop only processes you started, by their PID ($!). Never kill by name or ' +
   'pattern (pkill, killall, pgrep|xargs kill). Other agents on this machine run ' +
-  'the same binaries.';
+  'the same binaries. ' +
+  'Make scratch dirs with mktemp -d, never a fixed name in $TMPDIR or a shared dir, ' +
+  'and remove them before the marker.';
 
 /**
  * Environment isolation for headless gate roles (tester, review, fix). The
