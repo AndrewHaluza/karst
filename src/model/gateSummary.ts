@@ -33,6 +33,11 @@ const ANSI_RE = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 const LONE_ESC_RE = /\u001b/g;
 const FAIL_LINE_RE = /^(?:FAIL|×)\s+(\S.*?)(?:\s+\d+ms)?$/;
 const VITEST_FOOTER_RE = /^Test Files\s/;
+// Copies of the headers `reportLines` in scripts/vitestDrift.mjs prints (src never imports scripts; a pinning test guards them).
+const BREAKS_HEADER_RE = /^ticket breaks \(pass at the base, fail here\) — \d+:$/;
+const DRIFT_HEADER_RE = /^base drift \(develop drift, not this ticket\) — \d+:$/;
+const SECTION_ITEM_RE = /^- (\S.*)$/;
+const DRIFT_MARK = ' (base drift, not this ticket)';
 
 function cleanLines(output: string): string[] {
   const plain = output.replace(ANSI_RE, '').replace(LONE_ESC_RE, '');
@@ -58,20 +63,45 @@ export function failingTestIds(output: string): string[] {
   return ids;
 }
 
+/** The deduped ids listed under every section whose header matches `header` (cleaned lines). */
+function sectionIds(lines: string[], header: RegExp): string[] {
+  const ids: string[] = [];
+  lines.forEach((line, i) => {
+    if (!header.test(line)) return;
+    for (let j = i + 1; j < lines.length; j++) {
+      const m = SECTION_ITEM_RE.exec(lines[j]!);
+      if (!m) break;
+      if (!ids.includes(m[1]!)) ids.push(m[1]!);
+    }
+  });
+  return ids;
+}
+
 /**
  * A bounded excerpt of a failing gate's output, or null when the output is
  * empty or all whitespace (nothing useful to carry). Only ever called for a
- * gate that FAILED — a pass has no failure to summarize. ANSI is stripped;
- * for vitest output the failing test ids lead, then the tail fills the rest.
+ * gate that FAILED — a pass has no failure to summarize. ANSI is stripped.
+ * For vitest output the failing test ids lead, in this order: the ticket
+ * breaks, then the base-drift ids marked "(base drift, not this ticket)",
+ * then any other FAIL id, each once; the tail fills the rest. The sections
+ * are parsed from the whole output, never from the tail.
  */
 export function summarizeGateFailure(output: string): string | null {
   if (!output) return null;
   const nonEmpty = cleanLines(output);
   if (nonEmpty.length === 0) return null;
   const tail = nonEmpty.slice(-MAX_GATE_SUMMARY_LINES);
-  const ids = nonEmpty.some((l) => VITEST_FOOTER_RE.test(l)) ? failingTestIds(output) : [];
+  const isVitest = nonEmpty.some((l) => VITEST_FOOTER_RE.test(l));
+  const breaks = isVitest ? sectionIds(nonEmpty, BREAKS_HEADER_RE) : [];
+  const drift = isVitest ? sectionIds(nonEmpty, DRIFT_HEADER_RE).filter((id) => !breaks.includes(id)) : [];
+  const others = isVitest ? failingTestIds(output).filter((id) => !breaks.includes(id) && !drift.includes(id)) : [];
+  const ids = [...breaks, ...drift, ...others];
   if (ids.length === 0) return capTail(tail.join('\n'));
-  const head = ids.map((id) => `FAIL ${id}`).join('\n');
+  const head = [
+    ...breaks.map((id) => `FAIL ${id}`),
+    ...drift.map((id) => `FAIL ${id}${DRIFT_MARK}`),
+    ...others.map((id) => `FAIL ${id}`),
+  ].join('\n');
   const room = MAX_GATE_SUMMARY_CHARS - head.length - 1;
   if (room < 40) return head.length > MAX_GATE_SUMMARY_CHARS ? `${head.slice(0, MAX_GATE_SUMMARY_CHARS - 1)}…` : head;
   const rest = tail.filter((l) => !ids.some((id) => l.includes(id))).join('\n');
