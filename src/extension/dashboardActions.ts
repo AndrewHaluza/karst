@@ -74,6 +74,8 @@ import { type CapabilityGuard } from './insideActionHost.js';
 import { planRetryShip } from '../ui/dashboard/insideActions.js';
 import { ShipDrainingError } from './ops/reloadWhenIdle.js';
 import { toast, ask, showToast, recordOnly } from './toastSeam.js';
+import { markerAdvancedText, markerFailedText, reasonText } from '../model/notifyText.js';
+import { ticketToastLabel } from './ticketToastLabel.js';
 
 /**
  * Bind dashboard actions to real vscode side-effects. Server lifecycle: stop and
@@ -205,6 +207,8 @@ export function makeDashboardActions(
     warn: (m: string, ...items: string[]) => showToast('warn', m, items, ticketId),
     error: (m: string, ...items: string[]) => showToast('error', m, items, ticketId),
   };
+  // The ticket name every toast of this dashboard uses (@arch:NTF-03), read at the time of the toast.
+  const label = (): string => ticketToastLabel(store, ticketId);
   const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
     {
@@ -294,13 +298,11 @@ export function makeDashboardActions(
     launchWorktreeExtension: async (path) => {
       if (!(await guardCapability('worktrees'))) return;
       if (!launchConfig().enabled) {
-        void toast.warn(
-          'Launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
-        );
+        void toast.warn('Launch worktree extension is disabled. Set karst.launchWorktreeDev.enabled to true.');
         return;
       }
       if (!listWorktreesByTicket(store, ticketId).some((w) => w.path === path)) {
-        void toast.warn('That worktree is not registered to this ticket.');
+        void toast.warn(`${label()}: the worktree is not registered to this ticket. Refresh the panel and try again.`);
         return;
       }
       launchWorktree(path);
@@ -326,7 +328,7 @@ export function makeDashboardActions(
       void runShipSaga(ticketId).catch((e) => {
         if (e instanceof ShipDrainingError) {
           onInsideProgress(shipClearedEvent(ticketId));
-          void toast.info(`Karst: ${e.message}`);
+          void toast.info(`${label()}: ${e.message}`);
           return;
         }
         logError('ship failed', e);
@@ -337,9 +339,7 @@ export function makeDashboardActions(
         // toast lands.
         afterServerChange();
         onInsideProgress(shipClearedEvent(ticketId));
-        void toast.error(
-          `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        void toast.error(`${label()}: the ship failed (${reasonText(e)}).`);
       });
     },
     // The rail's "Retry ship": re-run ship for every repo whose latest step failed,
@@ -348,20 +348,18 @@ export function makeDashboardActions(
       if (!(await guardCapability('ship'))) return;
       const plan = planRetryShip(store, ticketId);
       if ('reason' in plan) {
-        void toast.info(`Retry ship: ${plan.reason}.`);
+        void toast.info(`${label()}: nothing to retry in Ship (${plan.reason}).`);
         afterServerChange();
         return;
       }
       void runShipSaga(ticketId, true, { repos: plan.repos }).catch((e) => {
         if (e instanceof ShipDrainingError) {
-          void toast.info(`Karst: ${e.message}`);
+          void toast.info(`${label()}: ${e.message}`);
           return;
         }
         logError('retry ship failed', e);
         afterServerChange();
-        void toast.error(
-          `Ship failed: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        void toast.error(`${label()}: the ship failed (${reasonText(e)}).`);
       });
     },
     // Resume: same interactive-open path the sidebar/dashboard "open session"
@@ -389,9 +387,7 @@ export function makeDashboardActions(
           // for a stage the ticket has since left or landed.
           const state = sendBackState(store, ticketId);
           if (!state.available) {
-            void toast.info(
-              `Ticket ${formatId('ticket', ticketId)} cannot be sent back to Implement right now.`,
-            );
+            void toast.info(`${label()} cannot move back to Implement now.`);
             return;
           }
           const fromShip = state.stage === 'ship';
@@ -409,13 +405,11 @@ export function makeDashboardActions(
           if (!choice) return; // dismissed: nothing ran, and nothing is claimed
           const result = sendBackToImplement(store, ticketId, { debug });
           void toast.info(
-            `Ticket ${formatId('ticket', ticketId)} moved back to Implement${result.from === 'ship' ? ' — open pull requests kept' : ''}.`,
+            `${label()} moved back to Implement.${result.from === 'ship' ? ' Open pull requests stay open.' : ''}`,
           );
         } catch (e) {
           logError('send back to implement failed', e);
-          void toast.error(
-            `Could not send ticket ${formatId('ticket', ticketId)} back: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          void toast.error(`${label()}: could not move back to Implement (${reasonText(e)}).`);
         } finally {
           afterServerChange();
         }
@@ -475,9 +469,7 @@ export function makeDashboardActions(
         try {
           const state = retryGateState(store, ticketId);
           if (!state.available) {
-            void toast.info(
-              'This stage cannot be retried right now.',
-            );
+            void toast.info(`${label()}: the stage cannot run again now.`);
             return;
           }
           const stageLabel = stage === 'uat' ? 'UAT' : 'Review';
@@ -489,15 +481,13 @@ export function makeDashboardActions(
           if (!choice || (await askPausedModal(store, ticketId, `retry ${stageLabel}`, `Retry ${stageLabel}`, () => afterServerChange())) === 'cancel') return;
           const result = retryGateStage(store, ticketId, stage);
           if (!result.ok) {
-            void toast.info(`Could not retry: ${result.reason}`);
+            void toast.info(`${label()}: could not retry the ${stageLabel} stage (${result.reason}).`);
             return;
           }
-          void toast.info(`${stageLabel} stage reset — retrying.`);
+          void toast.info(`${label()}: the ${stageLabel} stage runs again.`);
         } catch (e) {
           logError('retry gate failed', e);
-          void toast.error(
-            `Could not retry the stage: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          void toast.error(`${label()}: could not retry the stage (${reasonText(e)}).`);
         } finally {
           afterServerChange();
         }
@@ -527,15 +517,11 @@ export function makeDashboardActions(
       if (outcome.kind === 'graph-mark-impl') {
         const result = fireGraphImplMarkerFromHost(store, outcome.ticketId);
         if (result.ok) {
-          void toast.info(
-            `Ticket ${formatId('ticket', outcome.ticketId)}: the implementation marker fired (graph run ${outcome.graphRunId}) — advancing to uat.`,
-          );
+          void toast.info(markerAdvancedText(label()));
           afterServerChange();
           driveAfterResume(outcome.ticketId);
         } else {
-          void toast.warn(
-            `Ticket ${formatId('ticket', outcome.ticketId)}: could not fire the implementation marker (${result.reason}).`,
-          );
+          void toast.warn(markerFailedText(label(), reasonText(result.reason)));
         }
         return;
       }
@@ -607,7 +593,7 @@ export function makeDashboardActions(
           await vscode.window.showTextDocument(doc, { preview: true });
         } catch (e) {
           // The gate wrote the path, but the file can be gone (worktree removed).
-          void toast.warn(`Cannot open the log at ${artifact}.`);
+          void toast.warn(`Cannot open the log at ${artifact}. The worktree may be removed.`);
           logError('open stage log failed', e);
         }
       })();
@@ -650,14 +636,14 @@ export function makeDashboardActions(
         const artifact = buildTicketArtifacts(store, ticketId).find((a) => a.id === artifactId);
         const resource = artifact && artifact.resources[index];
         if (!artifact || !resource) {
-          void toast.warn('That artifact file is no longer available.');
+          void toast.warn('That artifact file is not available. Refresh the panel and try again.');
           return;
         }
         try {
           const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resource.path));
           await vscode.window.showTextDocument(doc, { preview: true });
         } catch (e) {
-          void toast.warn(`Cannot open the file at ${resource.path}.`);
+          void toast.warn(`Cannot open the file at ${resource.path}. The worktree may be removed.`);
           logError('open artifact resource failed', e);
         }
       })();
@@ -696,15 +682,11 @@ export function makeDashboardActions(
           // message and a stale panel can name a PR that has since gone.
           const pr = findTicketPr(store, ticketId, repo);
           if (!pr) {
-            void toast.info(
-              `No pull request is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to merge.`,
-            );
+            void toast.info(`${label()}: no pull request exists for "${repo}". There is nothing to merge.`);
             return;
           }
           if (pr.status === 'merged') {
-            void toast.info(
-              `Pull request${pr.number ? ` #${pr.number}` : ''} is already merged.`,
-            );
+            void toast.info(`Pull request${pr.number ? ` #${pr.number}` : ''} is already merged.`);
             return;
           }
 
@@ -731,7 +713,7 @@ export function makeDashboardActions(
           if (result.ok) {
             void toast.info(
               result.completedTicket
-                ? `Merged pull request${pr.number ? ` #${pr.number}` : ''} — ticket ${formatId('ticket', ticketId)} done.`
+                ? `Merged pull request${pr.number ? ` #${pr.number}` : ''}. ${label()} is done.`
                 : `Merged pull request${pr.number ? ` #${pr.number}` : ''}.`,
             );
             // `done` is reached here, not at ship: this is where the work has
@@ -745,12 +727,10 @@ export function makeDashboardActions(
           // already persisted the real, re-probed state, so the panel and this
           // message describe the same PR.
           logError(`merge failed for ticket ${formatId('ticket', ticketId)} (${repo})`, undefined);
-          void toast.error(`Merge failed: ${result.reason}`);
+          void toast.error(`${label()}: the merge failed (${result.reason}).`);
         } catch (e) {
           logError('merge failed', e);
-          void toast.error(
-            `Merge failed: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          void toast.error(`${label()}: the merge failed (${reasonText(e)}).`);
         } finally {
           afterServerChange();
         }
@@ -802,9 +782,7 @@ export function makeDashboardActions(
         try {
           const pr = findTicketPr(store, ticketId, repo);
           if (!pr) {
-            void toast.info(
-              `No pull request is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to dismiss.`,
-            );
+            void toast.info(`${label()}: no pull request exists for "${repo}". There is nothing to dismiss.`);
             return;
           }
           const num = pr.number ? ` #${pr.number}` : '';
@@ -832,12 +810,12 @@ export function makeDashboardActions(
             defaultGitRunner,
           );
           if (!result.ok) {
-            void toast.error(result.reason);
+            void toast.error(`${label()}: could not dismiss the pull request (${result.reason}).`);
             return;
           }
           void toast.info(
             result.completedTicket
-              ? `Dismissed pull request${num} — ticket ${formatId('ticket', ticketId)} done.`
+              ? `Dismissed pull request${num}. ${label()} is done.`
               : `Dismissed pull request${num}.`,
           );
           // Same rule as the merge that finishes a ticket: `done` is where the
@@ -846,9 +824,7 @@ export function makeDashboardActions(
           if (result.completedTicket) await onTicketCompleted();
         } catch (e) {
           logError('dismiss failed', e);
-          void toast.error(
-            `Could not dismiss the pull request: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          void toast.error(`${label()}: could not dismiss the pull request (${reasonText(e)}).`);
         } finally {
           afterServerChange();
         }
@@ -861,12 +837,10 @@ export function makeDashboardActions(
       if (!(await guardCapability('ship'))) return;
       try {
         const result = undismissTicketPr(store, { ticketId, repo, debug });
-        if (!result.ok) void toast.info(result.reason);
+        if (!result.ok) void toast.info(`${label()}: could not undo the dismissal (${result.reason}).`);
       } catch (e) {
         logError('undismiss failed', e);
-        void toast.error(
-          `Could not undo the dismissal: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        void toast.error(`${label()}: could not undo the dismissal (${reasonText(e)}).`);
       } finally {
         afterServerChange();
       }
@@ -911,9 +885,7 @@ export function makeDashboardActions(
     saveEnvOverrides: async (scope, text) => {
       const known = getTicket(store, ticketId).selectedRepos;
       if (scope !== ALL_SERVICES && !known.includes(scope)) {
-        void toast.warn(
-          `“${scope}” is not a repository this ticket scopes — nothing was saved.`,
-        );
+        void toast.warn(`"${scope}" is not a repository of ${label()}. Karst did not save the variables.`);
         return;
       }
       setServiceEnvOverrides(store, ticketId, scope, parseEnvText(text));

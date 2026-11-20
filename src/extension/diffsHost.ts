@@ -39,9 +39,7 @@ export async function pickDiffsTicket(
 ): Promise<number | undefined> {
   const scope = diffsTicketScope(projectId);
   if (scope === null) {
-    void toast.info(
-      'Karst: open a project to choose which ticket’s changes to show.',
-    );
+    void toast.info('No project is open. Open a project to show the changes of a ticket.');
     return undefined;
   }
 

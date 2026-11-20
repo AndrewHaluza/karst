@@ -6,6 +6,7 @@ import { brandIconUri } from '../panelIcon.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { renderDoctorHtml } from '../../doctor/renderHtml.js';
 import { toast } from '../../extension/toastSeam.js';
+import { reasonText } from '../../model/notifyText.js';
 
 export interface DoctorWiringDeps {
   brandIcon?: BrandIconPaths;
@@ -46,7 +47,7 @@ export function registerDoctorCommand(deps: DoctorWiringDeps): DoctorWiring {
       try {
         panel.webview.html = renderDoctorHtml(await runDoctorViaCli(opts, fix), randomBytes(16).toString('hex'));
       } catch (e) {
-        void toast.error(`Karst doctor: ${(e as Error).message}`);
+        void toast.error(`Could not run the doctor checks (${reasonText(e)}).`);
       }
     };
     panel.webview.onDidReceiveMessage((m: unknown) => {

@@ -1,9 +1,13 @@
 import type { OutputKind } from '../../manifest/types.js';
+import { reasonText } from '../../model/notifyText.js';
 import { diffViewColumn } from './diffColumn.js';
 import type { DiffTarget, WorktreeSpec } from './git.js';
 import { buildScmGroups } from './scmModel.js';
 import type { TicketChangesSnapshot } from './snapshot.js';
 import { buildDiffTree, selectorNode, type DiffNode } from './treeModel.js';
+
+/** The toast of a change that is no longer in the tree (@arch:NTF-07: one text). */
+const CHANGE_UNAVAILABLE_TEXT = 'That change is no longer available. Reopen changes for this ticket.';
 
 /** The host seam a tree view presents to the controller. */
 export interface DiffTreeHost {
@@ -82,8 +86,7 @@ export class DiffTreeController {
       result = await this.deps.load(ticketId);
     } catch (error) {
       this.deps.logError('karst: loading ticket changes for Source Control failed', error);
-      const message = error instanceof Error ? error.message : String(error);
-      this.deps.host.warn(message);
+      this.deps.host.warn(`Could not load the changes of the ticket (${reasonText(error)}).`);
       return;
     }
 
@@ -141,7 +144,7 @@ export class DiffTreeController {
   async openChange(changeId: string): Promise<void> {
     const target = this.targetMap.get(changeId);
     if (!target) {
-      this.deps.host.warn('That change is no longer available. Reopen changes for this ticket.');
+      this.deps.host.warn(CHANGE_UNAVAILABLE_TEXT);
       this.deps.debug?.('[diffs] tree openChange miss');
       return;
     }
@@ -152,15 +155,14 @@ export class DiffTreeController {
       await this.deps.openDiff(target, column);
     } catch (error) {
       this.deps.logError('karst: opening diff from Source Control failed', error);
-      const message = error instanceof Error ? error.message : String(error);
-      this.deps.host.warn(message);
+      this.deps.host.warn(`Could not open the diff (${reasonText(error)}).`);
     }
   }
 
   private row(changeId: string): TreeRowAction | null {
     const row = this.rowActions.get(changeId);
     if (!row) {
-      this.deps.host.warn('That change is no longer available. Reopen changes for this ticket.');
+      this.deps.host.warn(CHANGE_UNAVAILABLE_TEXT);
       this.deps.debug?.('[diffs] tree row miss');
       return null;
     }
@@ -182,7 +184,7 @@ export class DiffTreeController {
     }
     const result = await this.deps.discard(row.repoPath, row.path, row.status);
     if (!result.ok) {
-      this.deps.host.warn(`Could not discard changes: ${result.error ?? 'unknown error'}`);
+      this.deps.host.warn(`Could not discard the changes (${reasonText(result.error)}).`);
       this.deps.debug?.('[diffs] tree discard failed');
       return;
     }
@@ -199,7 +201,7 @@ export class DiffTreeController {
     }
     const result = await this.deps.addArtifact(this.ticketId, row.absolutePath, kind);
     if (!result.ok) {
-      this.deps.host.warn(`Could not add to artifacts: ${result.error ?? 'unknown error'}`);
+      this.deps.host.warn(`Could not add the file to the artifacts (${reasonText(result.error)}).`);
       this.deps.debug?.('[diffs] tree add-to-artifacts failed');
     }
   }
@@ -209,7 +211,7 @@ export class DiffTreeController {
     if (!row) return;
     const result = await this.deps.unstage(row.repoPath, row.path);
     if (!result.ok) {
-      this.deps.host.warn(`Could not unstage file: ${result.error ?? 'unknown error'}`);
+      this.deps.host.warn(`Could not unstage the file (${reasonText(result.error)}).`);
       this.deps.debug?.('[diffs] tree unstage failed');
       return;
     }

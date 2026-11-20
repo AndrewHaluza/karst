@@ -8,6 +8,7 @@ import { generateProjectSlug } from '../project/slug.js';
 import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { toast, ask } from './toastSeam.js';
+import { reasonText } from '../model/notifyText.js';
 export { readScaffoldManifest } from '../setup/scaffoldManifest.js';
 
 /**
@@ -88,7 +89,7 @@ export async function scaffoldManifest(): Promise<void> {
   }
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(manifestPath));
   void toast.info(
-    `Created karst.yml — set each repository's repoPath, then try again. Quality-gate setup runbook: ${SETUP_GUIDE_FILENAME}`,
+    `Created karst.yml. Set the repoPath of each repository, then try again; the setup runbook is ${SETUP_GUIDE_FILENAME}.`,
   );
 }
 
@@ -111,7 +112,7 @@ export async function resolveManifest(
 ): Promise<Manifest | undefined> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
-    void toast.error('Open a folder before using Karst.');
+    void toast.error('No folder is open. Open a folder, then try again.');
     return undefined;
   }
   const manifestPath = manifestPathOrThrow();
@@ -126,9 +127,7 @@ export async function resolveManifest(
       try {
         await scaffoldManifest();
       } catch (err) {
-        void toast.error(
-          `Could not create karst.yml: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        void toast.error(`Could not create karst.yml (${reasonText(err)}).`);
       }
     }
     return undefined;
@@ -139,14 +138,12 @@ export async function resolveManifest(
     // Non-fatal: a legacy `services:` manifest still loads, but the author
     // should know it's deprecated. One toast per resolve (not per repository).
     for (const w of warnings) {
-      void toast.warn(`Karst manifest: ${w}`);
+      void toast.warn(`karst.yml warning: ${w}`);
     }
     for (const n of notices) info(`karst.yml: ${n}`);
     return manifest;
   } catch (err) {
-    void toast.error(
-      `Karst manifest: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    void toast.error(`Could not load karst.yml (${reasonText(err)}). Fix the file, then try again.`);
     return undefined;
   }
 }

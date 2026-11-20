@@ -102,6 +102,9 @@ function metadataPreview(draft: DiagnosticDraft): string {
   ].join('\n')
 }
 
+/** The toast of an issue report that the person cancelled (@arch:NTF-07: one text). */
+const REPORT_CANCELLED_TEXT = 'Issue report cancelled. Nothing was submitted.'
+
 async function chooseFinalAction(
   snapshot: FinalizedDiagnosticReport,
 ): Promise<FinalReviewAction> {
@@ -166,9 +169,7 @@ function makePorts(
         }
       }
       if (candidates.length === 0) {
-        void toast.info(
-          'Karst: no tickets found; preparing an extension-level report.',
-        )
+        void toast.info('This project has no tickets. The report covers the extension only.')
         selectedScope = 'project'
         return selectedScope
       }
@@ -314,13 +315,11 @@ function makePorts(
         vscode.Uri.parse(buildGitHubIssueUrl(snapshot, version)),
       )
       if (!opened) throw new Error('browser_open_failed')
-      void toast.info(
-        'GitHub opened — finish and submit the issue in your browser. Nothing was uploaded.',
-      )
+      void toast.info('GitHub is open in your browser. Submit the issue there; Karst uploaded nothing.')
     },
     onExportError: async () => {
       const choice = await ask.error(
-        'Could not export the report (export_failed). The reviewed snapshot is still available.',
+        'Could not export the report. The reviewed snapshot is still available.',
         'Try again',
         'Cancel',
       )
@@ -336,9 +335,7 @@ export function createReportIssueHandler(
     const project = deps.currentProject()
     const manifest = deps.currentManifest()
     if (!project || !manifest) {
-      void toast.warn(
-        'Karst: open a configured project before creating an issue report.',
-      )
+      void toast.warn('The project is not configured. Open a configured project, then create the issue report.')
       return
     }
     try {
@@ -351,20 +348,16 @@ export function createReportIssueHandler(
             ticketIdArg(argument),
           ))
           if (result.status === 'cancelled') {
-            void toast.info(
-              'Issue report cancelled. Nothing was submitted.',
-            )
+            void toast.info(REPORT_CANCELLED_TEXT)
           }
           return
         } catch (error) {
           if (error instanceof CollectionCancelledError) {
-            void toast.info(
-              'Issue report cancelled. Nothing was submitted.',
-            )
+            void toast.info(REPORT_CANCELLED_TEXT)
             return
           }
           const choice = await ask.error(
-            'Could not prepare the issue report (collection_failed). Nothing was submitted.',
+            'Could not prepare the issue report. Nothing was submitted.',
             'Try again',
             'Cancel',
           )
