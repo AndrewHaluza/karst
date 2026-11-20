@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
 import { ManifestError } from './error.js';
 import { PRESET_CAPABILITIES, type Manifest } from './types.js';
@@ -1102,7 +1102,13 @@ services:
       - { name: http, env: PORT, default: 3001 }
     dependsOn: []
 `;
-    const { path, cleanup } = fixture(yaml);
+    // `../mono` resolves against the manifest's folder: nest the manifest so a stray `mono` folder in the temp root never joins the test.
+    const nested = fixture('');
+    const dir = join(dirname(nested.path), 'cfg');
+    mkdirSync(dir);
+    const path = join(dir, 'karst.yml');
+    writeFileSync(path, yaml);
+    const cleanup = nested.cleanup;
     try {
       const { manifest, warnings } = loadManifestWithDiagnostics(path);
       expect(warnings).toHaveLength(1);

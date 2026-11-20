@@ -47,7 +47,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1171 peek-460 / peek-300 variants (every state family's open row), @ui:RD-TIERS: 2 widths x 2 themes (+2 screenshots as counted) and their layout runs (+5).
   // T1213 planning-artifacts variants (Open artifacts icon on a planning row), @ui:RD-TIERS: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
-  sidebar: { screenshots: 34, layout: 80 },
+  // T1269 Activity pane variants (empty, populated, long content, 460 and 300 tiers), @ui:RD-TIERS: 7 screenshots (3 variants in dark, 2 widths in dark and light) and their layout runs (+15).
+  sidebar: { screenshots: 41, layout: 95 },
   // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
   ticketForm: { screenshots: 31, layout: 95 },
   usage: { screenshots: 10, layout: 40 },

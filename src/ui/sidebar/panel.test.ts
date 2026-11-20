@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
+import { upsertProject } from '../../store/projects.js';
+import { recordEvent } from '../../store/karstEvents.js';
+import { ACTIVITY_PAGE } from './activity.js';
 import { SidebarViewManager, SIDEBAR_REFRESH_DEBOUNCE_MS, type SidebarView, type SidebarViewHost } from './panel.js';
 import type { SidebarActions, SidebarHostMessage } from './messages.js';
 import type { SidebarState } from './state.js';
@@ -53,6 +56,10 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
     cloudSessionLink: vi.fn(),
     cloudSessionUnlink: vi.fn(),
     cloudSessionAdd: vi.fn(),
+    activityOpen: vi.fn(),
+    activityMarkRead: vi.fn(),
+    activityMarkAllRead: vi.fn(),
+    activityMore: vi.fn(),
     toggleFacet: vi.fn(),
     setFilter: vi.fn(),
     refresh: vi.fn(),
@@ -434,6 +441,76 @@ describe('SidebarViewManager', () => {
       resolve();
       const second = resolve();
       expect(second.posted).toHaveLength(1);
+    });
+  });
+
+  describe('Activity pane', () => {
+    const seed = (n: number): number => {
+      const projectId = upsertProject(store, { slug: 'pa' }).id;
+      for (let i = 0; i < n; i++) recordEvent(store, { projectId, level: 'info', source: 'host', title: `e${i}` }, () => undefined);
+      return projectId;
+    };
+    const mk = (projectId: number) => new SidebarViewManager(store, () => stubActions(), undefined, undefined, undefined, () => projectId);
+
+    it('puts the bound project\'s newest rows in the state', () => {
+      const mgr = mk(seed(3));
+      const { host, resolve } = fakeHost();
+      mgr.bind(host);
+      expect(resolve().posted[0]!.activity).toMatchObject({ total: 3, unread: 3, hasMore: false });
+    });
+
+    it('showMoreActivity grows the page only for the oldest shown row', () => {
+      const mgr = mk(seed(ACTIVITY_PAGE + 5));
+      const { host, resolve } = fakeHost();
+      mgr.bind(host);
+      const view = resolve();
+      const first = view.posted[0]!.activity;
+      expect(first.rows).toHaveLength(ACTIVITY_PAGE);
+      mgr.showMoreActivity(first.rows[0]!.id);
+      expect(view.posted).toHaveLength(1);
+      mgr.showMoreActivity(first.rows[ACTIVITY_PAGE - 1]!.id);
+      expect(view.posted[1]!.activity).toMatchObject({ hasMore: false });
+      expect(view.posted[1]!.activity.rows).toHaveLength(ACTIVITY_PAGE + 5);
+      mgr.showMoreActivity(1);
+      expect(view.posted).toHaveLength(2);
+    });
+
+    it('starts at one page again when the bound project changes', () => {
+      const a = seed(ACTIVITY_PAGE + 5);
+      const b = upsertProject(store, { slug: 'pb' }).id;
+      for (let i = 0; i < ACTIVITY_PAGE + 5; i++) recordEvent(store, { projectId: b, level: 'info', source: 'host', title: `b${i}` }, () => undefined);
+      let bound = a;
+      const mgr = new SidebarViewManager(store, () => stubActions(), undefined, undefined, undefined, () => bound);
+      const { host, resolve } = fakeHost();
+      mgr.bind(host);
+      const view = resolve();
+      mgr.showMoreActivity(view.posted[0]!.activity.rows[ACTIVITY_PAGE - 1]!.id);
+      expect(view.posted[1]!.activity.rows).toHaveLength(ACTIVITY_PAGE + 5);
+      bound = b;
+      (mgr as unknown as { push(): void }).push();
+      expect(view.posted[2]!.activity.rows).toHaveLength(ACTIVITY_PAGE);
+    });
+
+    it('revealActivity posts at once on a resolved view', () => {
+      const mgr = mk(seed(0));
+      const { host, resolve } = fakeHost();
+      mgr.bind(host);
+      const view = resolve();
+      mgr.revealActivity();
+      expect(view.postedRaw.filter((m) => m.type === 'reveal-activity')).toHaveLength(1);
+    });
+
+    it('revealActivity before the view resolves is held and posted once after the first state', () => {
+      const mgr = mk(seed(0));
+      const { host, resolve } = fakeHost();
+      mgr.bind(host);
+      mgr.revealActivity();
+      const view = resolve();
+      const types = view.postedRaw.map((m) => m.type);
+      expect(types.filter((t) => t === 'reveal-activity')).toHaveLength(1);
+      expect(types.indexOf('reveal-activity')).toBeGreaterThan(types.indexOf('state'));
+      mgr.refresh();
+      expect(view.postedRaw.filter((m) => m.type === 'reveal-activity')).toHaveLength(1);
     });
   });
 });

@@ -560,7 +560,7 @@ describe('search box', () => {
 describe('host feed', () => {
   it('remembers the last snapshot with setState so a re-resolved view repaints at once', async () => {
     const h = await mount(base);
-    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, queue: true, tickets: false }, showArchivedPlans: false, queueFilters: { kinds: [], sessions: [], levels: [], blocked: [], chain: null } } });
+    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, queue: true, tickets: false, activity: true }, showArchivedPlans: false, queueFilters: { kinds: [], sessions: [], levels: [], blocked: [], chain: null } } });
   });
 
   it('escapes hostile ticket text — it is text, never markup (UI-R32)', async () => {

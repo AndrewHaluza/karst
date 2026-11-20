@@ -55,6 +55,7 @@ import { formatId, parseId } from '../../model/entityId.js';
 import { listOpenBlockersFor } from '../../store/ticketRelations.js';
 import { cloudSessionsForSidebar, type CloudSessionChip } from '../../cloud/sidebarView.js';
 import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
+import { buildActivity, type ActivityView } from './activity.js';
 
 export type { CloudSessionChip };
 
@@ -386,6 +387,8 @@ export interface SidebarState {
   planning: PlanningRow[];
   /** The project queue (Queue pane): drafts and scope tickets in one computed order, whatever the ticket facet or search. */
   queue: QueueView;
+  /** The Activity pane: the newest Karst events of the bound project, whatever the ticket facet or search. */
+  activity: ActivityView;
   /** Cloud sessions with no ticket, shown as rows in the tickets pane; empty without a project or a match. */
   unlinkedCloudSessions: UnlinkedCloudSession[];
 }
@@ -435,6 +438,8 @@ export function buildSidebarState(
      * user can't see. Undefined only before a project is bound.
      */
     projectId?: number;
+    /** How many Activity rows to load (the pane's page size, grown by Show more). */
+    activityLimit?: number;
     /**
      * The ticket whose dashboard/edit/diffs view is currently active in this
      * window, if any; its row is highlighted. Null/undefined → no highlight.
@@ -607,7 +612,7 @@ export function buildSidebarState(
   };
 
   const counts = facetCounts(active, archivedKeys.length);
-  const base = { facets, filter: query, counts, unlinkedCloudSessions: unlinkedRows(cloud, query), queue: queueView(store, opts.projectId, opts.manifest?.ticketing?.provider) };
+  const base = { facets, filter: query, counts, unlinkedCloudSessions: unlinkedRows(cloud, query), queue: queueView(store, opts.projectId, opts.manifest?.ticketing?.provider), activity: buildActivity(store, opts.projectId, opts.activityLimit) };
 
   const isAll = facets.length === 1 && facets[0] === 'all';
   const isDone = facets.length === 1 && facets[0] === 'done';

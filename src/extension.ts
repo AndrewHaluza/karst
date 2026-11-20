@@ -84,6 +84,7 @@ import { createLivenessLoop } from './extension/ops/livenessLoop.js';
 import { watchExternalChanges } from './store/externalChanges.js';
 import { ExternalChangeSync } from './ui/dashboard/externalSync.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
+import { makeActivityActions } from './extension/ops/activityOps.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
 import { resolveSidebarEdge } from './ui/sidebar/edge.js';
 import { ActiveTicketTracker } from './ui/activeTicket.js';
@@ -512,6 +513,7 @@ import { buildGettingStartedState } from './ui/gettingStarted/state.js';
 import { formatId, formatTicketRef, ticketRefOrUnknown } from './model/entityId.js';
 import { toast, ask, bindToastRecorder } from './extension/toastSeam.js';
 import { makeToastRecorder, panelActionRecorder } from './extension/ops/toastRecorder.js';
+import { onEventRecorded } from './store/karstEvents.js';
 import { bindActionRecorder } from './model/actionResult.js';
 
 /**
@@ -790,6 +792,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       onError: (error) => logError(`ticket-list navigation failed for ticket ${id}`, error),
     }),
     openDashboard: (id) => void vscode.commands.executeCommand('karst.openDashboard', id),
+    ...makeActivityActions({ store: localStore, projectId: () => currentProject()?.id, openDashboard: async (id) => { await vscode.commands.executeCommand('karst.openDashboard', id); }, refresh: () => mgr.refresh(), showMore: (beforeId) => mgr.showMoreActivity(beforeId) }),
     spin: (id) => void vscode.commands.executeCommand('karst.spinTicket', id),
     // The peek action strip: the dashboard rail's own actions (same capability guard and merge confirm).
     shipTicket: (id) => dashboard.actionsForTicket(id).shipTicket(),
@@ -1541,6 +1544,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const eventDeps = { store: localStore, projectId: () => currentProject()?.id, debug: (m: string) => logger.debug(m) };
   bindToastRecorder(makeToastRecorder(eventDeps)); // D641: every toast and every panel action result is one karst_events row
   bindActionRecorder(panelActionRecorder(makeToastRecorder(eventDeps, 'panel')));
+  context.subscriptions.push({ dispose: onEventRecorded(localStore, () => provider.refresh()) }); // a row from this window is no external change
 
   // Backfill: spill any pre-existing oversized descriptions/briefs to the
   // attachment shelf.  Idempotent (a pointer is under threshold and won't
@@ -7242,6 +7246,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     (doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) })).command,
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
+    vscode.commands.registerCommand('karst.showActivity', async () => { provider.revealActivity(); await vscode.commands.executeCommand(`${SIDEBAR_VIEW_ID}.focus`); }),
     vscode.commands.registerCommand('karst.showAttention', async () => {
       const items = currentAttention();
       if (items.length === 0) {

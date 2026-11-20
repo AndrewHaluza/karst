@@ -7,10 +7,13 @@ import {
   EVENT_MAX_AGE_DAYS,
   EVENT_MAX_ROWS_PER_PROJECT,
   EVENT_TITLE_MAX,
+  countEvents,
+  getEvent,
   listEvents,
   markAllEventsRead,
   markEventRead,
   recordEvent,
+  onEventRecorded,
   unreadEventCount,
 } from './karstEvents.js';
 
@@ -27,6 +30,24 @@ describe('karstEvents', () => {
   afterEach(() => store.close());
 
   const base = () => ({ projectId, level: 'info' as const, source: 'autopilot' as const, title: 't' });
+
+  it('tells a listener after a record, never after a failed one, and stops after unsubscribe', () => {
+    let calls = 0;
+    const off = onEventRecorded(store, () => { calls++; });
+    recordEvent(store, base(), debug);
+    expect(calls).toBe(1);
+    recordEvent(store, { ...base(), level: 'loud' as never }, debug);
+    expect(calls).toBe(1);
+    off();
+    recordEvent(store, base(), debug);
+    expect(calls).toBe(1);
+  });
+
+  it('a throwing listener is logged and does not lose the id', () => {
+    onEventRecorded(store, () => { throw new Error('boom'); });
+    expect(recordEvent(store, base(), debug)).not.toBeNull();
+    expect(debugLines.join('\n')).toContain('listener failed');
+  });
 
   it('records an event and lists it with its fields', () => {
     const t = createTicket(store, { key: 'EV-1', projectId, title: 'x' });
@@ -131,5 +152,15 @@ describe('karstEvents', () => {
     recordEvent(store, { ...base(), ticketId: t.id }, debug);
     store.db.prepare('DELETE FROM tickets WHERE id = ?').run(t.id);
     expect(listEvents(store, { projectId, limit: 10 })).toEqual([]);
+  });
+
+  it('getEvent returns one row or null, and countEvents counts the project only', () => {
+    const other = upsertProject(store, { slug: 'p2' }).id;
+    const id = recordEvent(store, base(), debug)!;
+    recordEvent(store, base(), debug);
+    recordEvent(store, { ...base(), projectId: other }, debug);
+    expect(getEvent(store, id)).toMatchObject({ id, projectId, title: 't' });
+    expect(getEvent(store, 99999)).toBeNull();
+    expect(countEvents(store, projectId)).toBe(2);
   });
 });

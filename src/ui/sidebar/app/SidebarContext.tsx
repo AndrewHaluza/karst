@@ -52,6 +52,8 @@ export interface SidebarContextValue {
   /** Pure view state (collapsed panes, archived planning toggle): persisted in the webview state, never posted. */
   readonly view: ViewState;
   readonly togglePane: (pane: PaneKey) => void;
+  /** Counts `karst.showActivity` requests: the Activity pane scrolls itself into view on each change. */
+  readonly activityReveal: number;
   readonly toggleShowArchivedPlans: () => void;
   /** Replace the Queue filters with the result of `update` (view state: never posted). */
   readonly updateQueueFilters: (update: (prev: QueueFilters) => QueueFilters) => void;
@@ -113,6 +115,7 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
   const [hist, setHist] = useState({ open: false, user: false });
   const [planOpen, setPlanOpenMap] = useState<ReadonlyMap<number, boolean>>(new Map());
   const [planFocus, setPlanFocus] = useState<string | null>(null);
+  const [activityReveal, setActivityReveal] = useState(0);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const menuRef = useRef<MenuState | null>(null);
   menuRef.current = menu;
@@ -155,6 +158,10 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
           // redrawn, so a state push always closes it.
           closeMenu(false);
           notes.current.announceNew(next.planning || []);
+        } else if (msg.type === 'reveal-activity') {
+          // Expand the pane (view state only) and ask it to scroll into view.
+          setView((v) => (v.collapsed.activity ? { ...v, collapsed: { ...v.collapsed, activity: false } } : v));
+          setActivityReveal((n) => n + 1);
         } else if (msg.type === 'action-result') {
           notes.current.settle(msg.requestId, msg.ok, msg.message);
         }
@@ -258,12 +265,12 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
 
   const value = useMemo<SidebarContextValue>(
     () => ({
-      state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted,
+      state, post, fire, applyPreset, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted,
       openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist,
       planOpen, setPlanOpen, collapseAllPlans, planFocus, setPlanFocus,
       menu, openMenu, closeMenu,
     }),
-    [state, post, fire, applyPreset, view, togglePane, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted, openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
+    [state, post, fire, applyPreset, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted, openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
 import { buildSidebarState } from './state.js';
+import { ACTIVITY_PAGE, buildActivity } from './activity.js';
 import {
   parseSidebarMessage,
   routeSidebarAction,
@@ -84,6 +85,12 @@ export class SidebarViewManager {
   private staleWhileHidden = false;
   /** Serialized form of the last `state` posted, so an identical state is not posted again. */
   private lastPosted: string | undefined;
+  /** How many Activity rows the pane loads; Show more grows it by one page. */
+  private activityLimit = ACTIVITY_PAGE;
+  /** The project the page size belongs to; another project starts at one page again. */
+  private activityProjectId: number | undefined;
+  /** `karst.showActivity` ran before the view resolved; the first push after resolve reveals the pane. */
+  private pendingReveal = false;
 
   constructor(
     private readonly store: Store,
@@ -142,7 +149,38 @@ export class SidebarViewManager {
         void reportAction(requestId, (m) => view.postMessage(m), () => this.runAction(msg, actions));
       });
       this.push();
+      if (this.pendingReveal) this.revealActivity();
     });
+  }
+
+  /**
+   * Expand the Activity pane and scroll it into view (`karst.showActivity`).
+   * A cold view holds the request until it resolves; the webview applies it after its first state.
+   */
+  revealActivity(): void {
+    if (!this.view) {
+      this.pendingReveal = true;
+      return;
+    }
+    this.pendingReveal = false;
+    this.view.postMessage({ type: 'reveal-activity' });
+  }
+
+  private resetActivityLimitOnProjectChange(): void {
+    const projectId = this.projectId?.();
+    if (projectId === this.activityProjectId) return;
+    this.activityProjectId = projectId;
+    this.activityLimit = ACTIVITY_PAGE;
+  }
+
+  /** Grow the Activity page by one page and re-push. Only the oldest shown row's id is a valid cursor. */
+  showMoreActivity(beforeId: number): void {
+    this.resetActivityLimitOnProjectChange();
+    const view = buildActivity(this.store, this.projectId?.(), this.activityLimit);
+    // A stale click (the list moved since) must not grow the page.
+    if (!view.hasMore || view.rows[view.rows.length - 1]?.id !== beforeId) return;
+    this.activityLimit += ACTIVITY_PAGE;
+    this.push();
   }
 
   /** Dispatch one parsed message, logging (but still surfacing) any failure. */
@@ -181,6 +219,7 @@ export class SidebarViewManager {
       return;
     }
     this.staleWhileHidden = false;
+    this.resetActivityLimitOnProjectChange();
     const now = this.options.now ?? (() => performance.now());
     const t0 = now();
     const state = buildSidebarState(
@@ -193,6 +232,7 @@ export class SidebarViewManager {
         manifest: this.manifest?.(),
         activeTicketId: this.activeTicketId?.(),
         projectId: this.projectId?.(),
+        activityLimit: this.activityLimit,
         ...(this.planningLive ? { planningLive: this.planningLive } : {}),
         ...(this.artifactCount ? { artifactCount: this.artifactCount } : {}),
         ...(this.options.planningArtifactCount ? { planningArtifactCount: this.options.planningArtifactCount } : {}),
