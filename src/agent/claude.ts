@@ -323,16 +323,17 @@ export class ClaudeAdapter implements AgentAdapter {
         // The artifacts dir is the one path the file tools may write. Deny beats
         // allow, so the repos, the outbox and the instruction file stay closed
         // (`//` anchors a rule at the filesystem root); any other path asks.
+        // Edit rules only: the CLI applies an Edit(path) rule to every file-write
+        // tool (Write, Edit, MultiEdit) and warns on a Write(path) rule.
         const rule = (tool: string, path: string): string => `${tool}(/${path})`;
         const closed = [
           ...(opts.addDirs ?? []).map((d) => `${d}/**`),
           `${opts.cwd}/outbox/**`,
           `${opts.cwd}/karst-instructions.md`,
-        ].flatMap((path) => [rule('Edit', path), rule('Write', path)]);
+        ].map((path) => rule('Edit', path));
         args.push(
           '--allowedTools',
           rule('Edit', `${opts.writableDir}/**`),
-          rule('Write', `${opts.writableDir}/**`),
           '--disallowedTools',
           'NotebookEdit', ...closed, ...claudeProcessKillDeny(),
         );

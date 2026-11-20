@@ -317,15 +317,18 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     });
     const l = { args, env };
     if (provider === 'claude') {
-      const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--allowedTools') + 3);
-      expect(allowed).toEqual(['Edit(//karst/scratch/artifacts/**)', 'Write(//karst/scratch/artifacts/**)']);
+      // The CLI applies an Edit(path) rule to every file-write tool and warns
+      // "never matches" on a Write(path) rule, so only Edit rules are written.
+      const allowed = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'));
+      expect(allowed).toEqual(['Edit(//karst/scratch/artifacts/**)']);
+      expect(args.filter((a) => a.startsWith('Write('))).toEqual([]);
       const denied = args.slice(args.indexOf('--disallowedTools') + 1);
       expect(denied).toContain('NotebookEdit');
       expect(denied).not.toContain('Edit');
       expect(denied).not.toContain('Write');
       for (const path of ['/repos/api/**', '/karst/scratch/outbox/**', '/karst/scratch/karst-instructions.md']) {
         expect(denied).toContain(`Edit(/${path})`);
-        expect(denied).toContain(`Write(/${path})`);
+        expect(denied).not.toContain(`Write(/${path})`);
       }
     } else if (provider === 'codex') {
       // workspace-write with no extra roots: cwd (so artifacts) is writable, the repos are not.
