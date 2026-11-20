@@ -209,7 +209,7 @@ describe('sharedServerOps', () => {
       expect(confirm).toHaveBeenCalledOnce();
       expect(confirm.mock.calls[0]![0]).toContain('api, db');
       expect(result.stopped.sort()).toEqual(['api', 'db']);
-      expect(notify.info).toHaveBeenCalledWith('Stopped 2 idle shared service(s): api, db.');
+      expect(notify.info).toHaveBeenCalledWith('Stopped 2 idle shared services: api, db.');
       expect(after).toHaveBeenCalledOnce();
     });
 

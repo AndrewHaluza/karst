@@ -9,6 +9,7 @@ import { archiveWorktree, restoreWorktree, type ArchiveTarget } from '../../runt
 import { archiveInactiveWorktrees } from '../../runtime/archiveBulk.js';
 import { makePortAllocator } from '../../resolver/allocator.js';
 import { describeReap } from '../../runtime/worktreeServers.js';
+import { plural, reasonText, serverStillRunningText } from '../../model/notifyText.js';
 import { emptyManifest } from '../../extension/manifestResolve.js';
 
 export interface ArchiveOpsDeps {
@@ -81,12 +82,12 @@ export async function archiveTicketOp(deps: ArchiveOpsDeps, ticketId: number): P
         for (const s of r.reapedServers) {
           deps.log.info(describeReap(s));
           if (s.outcome === 'kill-failed') {
-            deps.notify.warn(describeReap(s));
+            deps.notify.warn(serverStillRunningText(s.repo));
           }
         }
       } catch (err) {
         deps.appendLine(`archive worktree failed for ${w.path}: ${String(err)}`);
-        deps.notify.warn(`Worktree not archived: ${String(err)}`);
+        deps.notify.warn(`Worktree not archived (${reasonText(err)}).`);
       }
     }
   }
@@ -113,12 +114,12 @@ export interface ArchiveInactiveDeps {
 export async function archiveInactiveWorktreesOp(deps: ArchiveInactiveDeps): Promise<void> {
   const manifest = deps.manifest();
   if (!manifest) {
-    deps.notify.warn('Karst: no manifest loaded.');
+    deps.notify.warn('No manifest is loaded. Load a manifest, then archive again.');
     return;
   }
   const projectId = deps.projectId();
   if (projectId === undefined) {
-    deps.notify.warn('Karst: no project bound — refusing to archive inactive worktrees.');
+    deps.notify.warn('No project is open in this window. Open a project, then archive again.');
     return;
   }
   const allocator = makePortAllocator(deps.store, manifest.portRange);
@@ -135,13 +136,13 @@ export async function archiveInactiveWorktreesOp(deps: ArchiveInactiveDeps): Pro
   const stopped = summary.reapedServers.filter((s) => s.outcome === 'killed').length;
   const stillRunning = summary.reapedServers.filter((s) => s.outcome === 'kill-failed');
   deps.notify.info(
-    `Karst: archived ${summary.archived} worktree(s), skipped ${summary.skipped}, failed ${summary.failed}` +
-      (stopped > 0 ? `, stopped ${stopped} running server(s).` : '.'),
+    `Archived ${plural(summary.archived, 'worktree', 'worktrees')}, skipped ${summary.skipped}, failed ${summary.failed}` +
+      (stopped > 0 ? `, stopped ${plural(stopped, 'server', 'servers')}.` : '.'),
   );
   if (stillRunning.length > 0) {
     deps.notify.warn(
-      `Karst: could not stop ${stillRunning.length} server(s) still running in archived ` +
-        `worktrees — ${stillRunning.map((s) => `'${s.repo}' (pid ${s.pid ?? 'unknown'})`).join(', ')}.`,
+      `Could not stop ${plural(stillRunning.length, 'server', 'servers')} in the archived worktrees: ` +
+        `${stillRunning.map((s) => `"${s.repo}"`).join(', ')}. Stop them by hand.`,
     );
   }
   deps.refresh();
@@ -152,11 +153,11 @@ export async function unarchiveTicketOp(deps: ArchiveOpsDeps, ticketId: number):
     try {
       const r = await restoreWorktree(deps.git, deps.store, { ticketId, path: a.path });
       if (r.outcome === 'skipped') {
-        deps.notify.warn(`Worktree not restored: ${r.reason ?? 'unknown reason'}`);
+        deps.notify.warn(`Worktree not restored (${r.reason ?? 'unknown reason'}).`);
       }
     } catch (err) {
       deps.appendLine(`restore worktree failed for ${a.path}: ${String(err)}`);
-      deps.notify.warn(`Worktree not restored: ${String(err)}`);
+      deps.notify.warn(`Worktree not restored (${reasonText(err)}).`);
     }
   }
   unarchiveTicket(deps.store, ticketId);

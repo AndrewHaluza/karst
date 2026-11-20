@@ -1,4 +1,6 @@
 import type { Store } from '../../store/db.js';
+import { reasonText } from '../../model/notifyText.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { getTicket } from '../../store/tickets.js';
 import { clearStageBlock, stageBlock } from '../../store/stageBlocks.js';
 import { armForcePushLease } from '../../store/worktrees.js';
@@ -43,7 +45,7 @@ function parseHead(reason: string): { repo: string; ref: string } | null {
 export function decidePushDiverged(deps: PushDivergedDeps, request: PushDivergedRequest): 'refused' | PushDivergedRequest {
   const { store, ticketId } = deps;
   const debug = deps.debug ?? (() => {});
-  const label = formatId('ticket', ticketId);
+  const label = ticketToastLabel(store, ticketId);
   const block = getTicket(store, ticketId).stageCurrent === 'ship' ? stageBlock(store, ticketId, 'ship') : undefined;
   const head = block?.kind === 'push-diverged' ? parseHead(block.reason ?? '') : null;
   if (head === null) {
@@ -63,7 +65,7 @@ export function decidePushDiverged(deps: PushDivergedDeps, request: PushDiverged
   deps.redrive(ticketId);
   // The driver starts gate stages only: the Implement session needs the hand-off.
   const refusal = deps.handOff(`${integrateReason(head.ref)}\nCall the karst MCP tool \`stage\` with { stage: "impl" } when done. ${SEND_BACK_AFTER_MARKER}`);
-  if (refusal !== null) deps.notify.warn(`${label} moved back to Implement. No session was started: ${refusal}`);
+  if (refusal !== null) deps.notify.warn(`${label} moved back to Implement. No session started: ${refusal}`);
   return 'integrate';
 }
 
@@ -76,7 +78,7 @@ export function makePushDivergedActions(deps: PushDivergedDeps): {
     try {
       decidePushDiverged(deps, request);
     } catch (err) {
-      deps.notify.warn(`${formatId('ticket', deps.ticketId)}: ${err instanceof Error ? err.message : String(err)}`);
+      deps.notify.warn(`${ticketToastLabel(deps.store, deps.ticketId)}: ${reasonText(err)}`);
     }
     deps.refresh(deps.ticketId);
   };

@@ -5,6 +5,8 @@ import {
 } from '../../agent/opencode2Binary.js';
 import {
   OPENCODE2_AUTH_WARNING,
+  OPENCODE2_LAUNCH_ANYWAY_ACTION,
+  OPENCODE2_LOGIN_ACTION,
   shouldGateOpencode2Auth,
   warnOpencode2AuthIfUnset,
 } from './opencode2AuthWarning.js';
@@ -72,18 +74,18 @@ describe('warnOpencode2AuthIfUnset', () => {
   it('warns and lets the launch continue when the user dismisses the prompt', async () => {
     const d = deps();
     expect(await warnOpencode2AuthIfUnset(d)).toBe(true);
-    expect(d.choose).toHaveBeenCalledWith(OPENCODE2_AUTH_WARNING, 'Log in', 'Launch anyway');
+    expect(d.choose).toHaveBeenCalledWith(OPENCODE2_AUTH_WARNING, OPENCODE2_LOGIN_ACTION, OPENCODE2_LAUNCH_ANYWAY_ACTION);
     expect(d.logIn).not.toHaveBeenCalled();
   });
 
   it('continues when the user picks Launch anyway', async () => {
-    const d = deps({ choose: vi.fn(async () => 'Launch anyway') });
+    const d = deps({ choose: vi.fn(async () => OPENCODE2_LAUNCH_ANYWAY_ACTION) });
     expect(await warnOpencode2AuthIfUnset(d)).toBe(true);
     expect(d.logIn).not.toHaveBeenCalled();
   });
 
   it('opens the login terminal and holds the launch back when the user picks Log in', async () => {
-    const d = deps({ choose: vi.fn(async () => 'Log in') });
+    const d = deps({ choose: vi.fn(async () => OPENCODE2_LOGIN_ACTION) });
     expect(await warnOpencode2AuthIfUnset(d)).toBe(false);
     expect(d.logIn).toHaveBeenCalledTimes(1);
   });
@@ -109,9 +111,9 @@ describe('warnOpencode2AuthIfUnset', () => {
   });
 
   it('names the command the user runs, in the palette title', () => {
-    expect(OPENCODE2_AUTH_WARNING).toContain('no provider signed in');
+    expect(OPENCODE2_AUTH_WARNING).toContain('has no provider signed in');
     expect(OPENCODE2_AUTH_WARNING).toContain('No provider selected');
-    expect(OPENCODE2_AUTH_WARNING).toContain("Karst: Log in to OpenCode v2");
+    expect(OPENCODE2_AUTH_WARNING).toContain('"Karst: Log in to OpenCode v2"');
   });
 });
 

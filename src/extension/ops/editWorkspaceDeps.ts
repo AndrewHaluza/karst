@@ -86,14 +86,14 @@ export interface EditWorkspaceDepsDeps {
 export async function editWorkspaceDepsOp(deps: EditWorkspaceDepsDeps, blockedReason: string): Promise<void> {
   const manifest = deps.readManifest();
   if (!manifest) {
-    void deps.notify.info('Karst: no karst.yml to edit — run the setup session first.');
+    void deps.notify.warn('No karst.yml exists to edit. Run the setup session first.');
     return;
   }
   const plan = planWorkspaceDepsEdit(manifest.text, repoNameOfDepsReason(blockedReason));
   await deps.open(manifest.path, plan);
   void deps.notify.info(
     plan.found
-      ? 'Karst: set graphWorkspace for this repository, save karst.yml, then Resume the graph.'
-      : 'Karst: karst.yml opened — find the repository entry, add graphWorkspace, save, then Resume the graph.',
+      ? 'Set graphWorkspace for this repository in karst.yml, save the file, then resume the graph.'
+      : 'karst.yml is open. Add graphWorkspace to the repository entry, save the file, then resume the graph.',
   );
 }

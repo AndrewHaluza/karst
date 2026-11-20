@@ -100,20 +100,20 @@ describe('editWorkspaceDepsOp', () => {
     expect(opened).toHaveLength(1);
     expect(opened[0]![0]).toBe('/p/karst.yml');
     expect(opened[0]![1].revealLine).toBe(3);
-    expect(infos[0]).toContain('Resume');
+    expect(infos[0]).toBe('Set graphWorkspace for this repository in karst.yml, save the file, then resume the graph.');
   });
   it('opens nothing without a karst.yml', async () => {
-    const infos: string[] = [];
+    const warns: string[] = [];
     let opened = false;
     await editWorkspaceDepsOp(
       {
         readManifest: () => undefined,
         open: async () => void (opened = true),
-        notify: { info: (m) => void infos.push(m), warn: () => undefined, error: async () => undefined },
+        notify: { info: () => undefined, warn: (m) => void warns.push(m), error: async () => undefined },
       },
       '',
     );
     expect(opened).toBe(false);
-    expect(infos).toHaveLength(1);
+    expect(warns).toEqual(['No karst.yml exists to edit. Run the setup session first.']);
   });
 });

@@ -16,6 +16,7 @@ import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults, finishDeliverRun } from '../../store/deliverRuns.js';
+import { OPEN_SYNC_DIFF } from './sandboxLifecycleOps.js';
 import { autoDeliverAction, baseMovedFailure, shipBaseCheck, shipBaseRemedy, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
 const SHA = 'a'.repeat(40);
@@ -850,9 +851,9 @@ describe('refreshUndeliveredForShipTickets', () => {
 describe('deliverBlockedPrompt', () => {
   it('opens the sync diff only when picked, naming the carry action for a rewritten clone', async () => {
     const open = vi.fn(async () => {});
-    const warn = vi.fn(async (_m: string, ..._a: string[]) => 'Open sync diff' as string | undefined);
+    const warn = vi.fn(async (_m: string, ..._a: string[]) => OPEN_SYNC_DIFF as string | undefined);
     await deliverBlockedPrompt(warn, open)('diverged', true);
-    expect(warn.mock.calls[0]![0]).toMatch(/Nothing was pushed.*Carry sandbox commits/);
+    expect(warn.mock.calls[0]![0]).toBe('Deliver to PR pushed nothing: the sandbox is not in sync (diverged). Use "Carry sandbox commits onto host branch" on the dashboard.');
     expect(open).toHaveBeenCalledOnce();
     open.mockClear();
     await deliverBlockedPrompt(async () => undefined, open)('diverged', false);
@@ -863,9 +864,9 @@ describe('deliverBlockedPrompt', () => {
 describe('deliverBlockedPrompt: sandbox CLI unknown (arch:AC-39)', () => {
   it('names the PATH problem and offers no sync diff', async () => {
     const open = vi.fn(async () => {});
-    const warn = vi.fn(async (_m: string, ..._a: string[]) => 'Open sync diff' as string | undefined);
+    const warn = vi.fn(async (_m: string, ..._a: string[]) => OPEN_SYNC_DIFF as string | undefined);
     await deliverBlockedPrompt(warn, open)('sbx CLI not runnable from the extension host: x.', false, true);
-    expect(warn.mock.calls[0]![0]).toMatch(/sbx CLI not runnable.*PATH.*Nothing was pushed/);
+    expect(warn.mock.calls[0]![0]).toBe('Deliver to PR pushed nothing. sbx CLI not runnable from the extension host: x. Start VS Code from a shell that has the sandbox CLI on its PATH, then retry.');
     expect(warn.mock.calls[0]!.slice(1)).toEqual([]);
     expect(open).not.toHaveBeenCalled();
   });

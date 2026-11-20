@@ -132,7 +132,7 @@ describe('extension activation', () => {
       opsSource.indexOf('export async function archiveInactiveWorktreesOp'),
     );
     expect(guard).toContain('if (projectId === undefined)');
-    expect(guard).toContain('refusing to archive inactive worktrees');
+    expect(guard).toContain('No project is open in this window. Open a project, then archive again.');
     expect(guard).toContain('{ projectId }');
     // The old call degraded to `undefined` (= all projects) when unbound, so the
     // guard must reject `undefined` explicitly rather than fall through.

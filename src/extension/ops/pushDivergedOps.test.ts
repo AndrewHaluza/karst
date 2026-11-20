@@ -65,7 +65,7 @@ describe('push-diverged actions', () => {
     const p = parked();
     p.handOff.mockReturnValue('the ticket is paused.');
     expect(decidePushDiverged(p.deps, 'integrate')).toBe('integrate');
-    expect(p.notify.warn).toHaveBeenCalledWith(expect.stringContaining('No session was started: the ticket is paused.'));
+    expect(p.notify.warn).toHaveBeenCalledWith(expect.stringContaining('No session started: the ticket is paused.'));
   });
 
   it.each(['overwrite', 'integrate'] as const)('%s refuses when ship is parked on another block', (request) => {

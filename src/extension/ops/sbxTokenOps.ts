@@ -7,6 +7,7 @@ import type { AccountRow } from '../../agent/accounts/accountOps.js';
 import type { SecretStore } from '../secretStore.js';
 import { hasSbxToken, removeSbxToken, SBX_TOKEN_CORE, sbxTokenEligibility, setSbxToken } from '../sbxTokenStore.js';
 import type { Notify } from './notify.js';
+import { reasonText } from '../../model/notifyText.js';
 
 export interface SbxTokenOpsDeps {
   readonly secrets: SecretStore;
@@ -36,7 +37,7 @@ export function createSbxTokenOps(deps: SbxTokenOpsDeps) {
     try {
       await setSbxToken(deps.secrets, SBX_TOKEN_CORE, account, token);
     } catch (e) {
-      deps.notify.warn(e instanceof Error ? e.message : 'The sbx token was not stored.');
+      deps.notify.warn(`The sbx token was not stored (${reasonText(e)}).`);
       return false;
     }
     deps.onChanged?.(account, 'set');

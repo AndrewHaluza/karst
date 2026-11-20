@@ -4,6 +4,7 @@ import { sendBackToImplement, SEND_BACK_EVENT_PREFIX } from '../../workflow/send
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 import { enterShipFixRound } from '../../workflow/shipFixRound.js';
 import { getTicket } from '../../store/tickets.js';
+import { reasonText, stageTitle } from '../../model/notifyText.js';
 import { markCiRound } from '../../store/autopilot.js';
 import { FIX_ROUTE_CONFIRM_TAIL, handOffPrompt, takesFixRoute } from './ciFailureOps.js';
 
@@ -103,7 +104,7 @@ export async function sendGateFailureToAgent(deps: BaseMovedFailureOpsDeps): Pro
       enterShipFixRound(deps.store, deps.ticketId, { reason, artifactPath: path, debug: deps.debug });
       if (deps.markManualReship === true) markCiRound(deps.store, deps.ticketId, Date.now(), 'manual');
       deps.drive();
-      deps.info('Gate failure sent to a fix session; ticket moved to Fix from ship.');
+      deps.info('Gate failure sent to a fix session. The ticket moved to Fix from Ship.');
       return;
     }
     const result = sendBackToImplement(deps.store, deps.ticketId, { debug: deps.debug, reason });
@@ -112,12 +113,12 @@ export async function sendGateFailureToAgent(deps: BaseMovedFailureOpsDeps): Pro
     const refusal = deps.handOff(handOffPrompt(reason));
     deps.info(
       refusal === null
-        ? `Gate failure sent to the agent; ticket moved back to Implement from ${result.from}.`
-        : `Ticket moved back to Implement from ${result.from}. No session was started: ${refusal}`,
+        ? `Gate failure sent to the agent. The ticket moved back to Implement from ${stageTitle(result.from)}.`
+        : `The ticket moved back to Implement from ${stageTitle(result.from)}. No session started: ${refusal}`,
     );
   } catch (err) {
     deps.logError('karst: send gate failure to agent failed', err);
-    deps.error(err instanceof Error ? err.message : String(err));
+    deps.error(reasonText(err));
   } finally {
     deps.afterServerChange();
   }

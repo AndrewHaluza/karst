@@ -7,6 +7,8 @@ import { postMessage } from '../../store/ticketMessages.js';
 import { pickSubtasksToStart, type AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { isStackedSubtask } from '../../workflow/baseRef.js';
 import type { Notify } from './notify.js';
+import { reasonText } from '../../model/notifyText.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { formatId, formatTicketRef } from '../../model/entityId.js';
 
 /**
@@ -105,7 +107,7 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
         : `is at ${child.stageCurrent} without a session — open its session`;
     const body = `${key} autostart failed: ${reason.slice(0, MAX_REASON)} (${where})`;
     deps.debug(`[driver] autostart ${formatId('ticket', id)}: failed — ${where}`);
-    deps.notify.warn(`karst: sub-task ${key} could not auto-start: ${reason.slice(0, MAX_REASON)}`);
+    deps.notify.warn(`Sub-task ${ticketToastLabel(deps.store, id)} did not start by itself (${reasonText(reason)}). Start it by hand.`);
     if (child?.subtaskParentId == null) return;
     try {
       postMessage(deps.store, {

@@ -5,6 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { recordFindings } from '../../store/reviewFindings.js';
 import { openRecoveryRound, failRevalidationForStall } from '../../store/recoveryRounds.js';
 import { listRecoveryRounds } from '../../store/recoveryRoundsRead.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { applyStallOption, type StallApplyDeps } from './stallApplyOps.js';
 
 const T0 = '2026-01-01T00:00:00.000Z';
@@ -48,7 +49,7 @@ describe('applyStallOption — details', () => {
     expect(last.sourceProcessId).toBe('review');
     expect(last.startedAt).toBe(AT);
     expect(last.maxRounds).toBe(7);
-    expect(notify.info).toHaveBeenCalledWith(expect.stringContaining('stall answered — "Cut scope". A fix round opens.'));
+    expect(notify.info).toHaveBeenCalledWith(`${ticketToastLabel(store, ticketId)}: the stall was answered with "Cut scope". A fix round opens.`);
   });
 
   it('keeps one field when only the other changes', async () => {
@@ -65,7 +66,7 @@ describe('applyStallOption — details', () => {
     if (res.ok) throw new Error('expected a refusal');
     expect(res.reason).not.toBe('');
     expect(notify.warn).toHaveBeenCalledWith(expect.stringContaining(res.reason));
-    expect(notify.warn.mock.calls[0]![0]).toMatch(/^\S+: /);
+    expect(notify.warn.mock.calls[0]![0]).toBe(`${ticketToastLabel(store, ticketId)}: ${res.reason}`);
     expect(debug).toHaveBeenCalledWith(`[stall] apply ticket ${ticketId}: refused (${res.reason})`);
   });
 
@@ -81,7 +82,7 @@ describe('applyStallOption — details', () => {
     expect(fix.attempt).toBe(0);
     expect(fix.startedAt).toBeNull();
     expect(fix.endedAt).toBeNull();
-    expect(notify.info).toHaveBeenCalledWith(expect.stringContaining('report accepted with 1 open blocking finding(s). They stay unfixed.'));
+    expect(notify.info).toHaveBeenCalledWith(`${ticketToastLabel(store, ticketId)}: the report was accepted with 1 open blocking finding. They stay unfixed.`);
     expect(debug).toHaveBeenCalled();
   });
 

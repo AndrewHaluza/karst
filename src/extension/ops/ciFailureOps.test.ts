@@ -167,7 +167,7 @@ describe('sendCiFailureToAgent', () => {
     await sendCiFailureToAgent(d);
     expect(getTicket(store, id).stageCurrent).toBe('impl');
     const msg = vi.mocked(d.info).mock.calls[0]![0] as string;
-    expect(msg).toContain('No session was started: the ticket is paused.');
+    expect(msg).toBe('The ticket moved back to Implement from Ship. No session started: the ticket is paused.');
     expect(msg).not.toContain('sent to the agent');
   });
   it('unavailable (not failing) informs and moves nothing', async () => {
@@ -222,7 +222,7 @@ describe('sendCiFailureToAgent', () => {
     const { d } = deps();
     await sendCiFailureToAgent(d);
     expect(d.confirm).toHaveBeenCalledWith(expect.stringContaining('moves the ticket back to Implement; UAT and Review will run again'));
-    expect(d.info).toHaveBeenCalledWith('CI failure sent to the agent; ticket moved back to Implement from ship.');
+    expect(d.info).toHaveBeenCalledWith('CI failure sent to the agent. The ticket moved back to Implement from Ship.');
     expect(d.logError).not.toHaveBeenCalled();
   });
   it('truncates an oversized body to its tail with a marker', async () => {
@@ -283,7 +283,7 @@ describe('sendCiFailureToAgent on a graph ticket (T1158)', () => {
     );
     expect(d.handOff).not.toHaveBeenCalled();
     expect(d.drive).toHaveBeenCalledOnce();
-    expect(d.info).toHaveBeenCalledWith('CI failure sent to a fix session; ticket moved to Fix from ship.');
+    expect(d.info).toHaveBeenCalledWith('CI failure sent to a fix session. The ticket moved to Fix from Ship.');
     expect(store.db.prepare('SELECT checks FROM prs WHERE ticket_id = ?').get(id)).toEqual({ checks: null });
     expect(d.afterServerChange).toHaveBeenCalledOnce();
   });

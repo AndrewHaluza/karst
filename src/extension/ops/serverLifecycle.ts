@@ -2,7 +2,8 @@ import type { Store } from '../../store/db.js';
 import type { Manifest, StopServersOnDone } from '../../manifest/types.js';
 import type { Notify } from './notify.js';
 import { getTicket, setTicketServersOnDone } from '../../store/tickets.js';
-import { formatId } from '../../model/entityId.js';
+import { plural, reasonText } from '../../model/notifyText.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 
 export interface ServerLifecycleDeps {
   readonly store: Store;
@@ -30,7 +31,10 @@ export function listRunningTicketServices(store: Store, ticketId: number): Runni
     .all(ticketId) as RunningServerRow[];
 }
 
-export const SERVERS_ON_DONE_ACTIONS = ['Stop servers', 'Keep running', 'Always stop'] as const;
+export const STOP_SERVERS_ACTION = 'Stop servers';
+export const KEEP_SERVERS_ACTION = 'Keep servers running';
+export const ALWAYS_STOP_SERVERS_ACTION = 'Always stop servers';
+export const SERVERS_ON_DONE_ACTIONS = [STOP_SERVERS_ACTION, KEEP_SERVERS_ACTION, ALWAYS_STOP_SERVERS_ACTION] as const;
 
 async function stopTicketServices(deps: ServerLifecycleDeps, ticketId: number): Promise<boolean> {
   try {
@@ -39,7 +43,7 @@ async function stopTicketServices(deps: ServerLifecycleDeps, ticketId: number): 
     return true;
   } catch (err) {
     deps.logError?.(`karst: stopping servers for ticket ${ticketId} failed`, err);
-    await deps.notify.error(`Failed to stop servers for ticket ${formatId('ticket', ticketId)}: ${err instanceof Error ? err.message : String(err)}`);
+    await deps.notify.error(`${ticketToastLabel(deps.store, ticketId)}: the servers did not stop (${reasonText(err)}).`);
     return false;
   }
 }
@@ -80,9 +84,8 @@ export async function maybeStopServersOnDone(
     if (!ok) {
       return;
     }
-    const count = running.length;
-    const serverWord = count === 1 ? 'server' : 'servers';
-    deps.notify.info(`Stopped ${count} ${serverWord} for ${formatId('ticket', ticketId)} (done)`);
+    // A routine background event (@arch:NTF-05): the row is recorded, no toast.
+    deps.notify.record?.('info', `${ticketToastLabel(deps.store, ticketId)}: stopped ${plural(running.length, 'server', 'servers')} because the ticket is done.`, ticketId);
     return;
   }
 
@@ -92,10 +95,7 @@ export async function maybeStopServersOnDone(
 
   // ask (default) -> if not yet asked, show ONE non-modal information message with the three actions.
   const count = running.length;
-  const tId = formatId('ticket', ticket.id);
-  const label = ticket.title ? `${tId} · ${ticket.title}` : tId;
-  const serverPlural = count === 1 ? 'server is' : 'servers are';
-  const message = `${label} is done. Its ${count} ${serverPlural} still running.`;
+  const message = `${ticketToastLabel(deps.store, ticket.id)} is done. ${plural(count, 'server is', 'servers are')} still running.`;
 
   const choice = deps.notify.infoActions
     ? await deps.notify.infoActions(message, SERVERS_ON_DONE_ACTIONS)
@@ -107,18 +107,18 @@ export async function maybeStopServersOnDone(
     return;
   }
 
-  if (choice === 'Keep running') {
+  if (choice === KEEP_SERVERS_ACTION) {
     setTicketServersOnDone(deps.store, ticketId, 'kept');
     return;
   }
 
-  if (choice === 'Stop servers') {
+  if (choice === STOP_SERVERS_ACTION) {
     setTicketServersOnDone(deps.store, ticketId, 'stopped');
     await stopTicketServices(deps, ticketId);
     return;
   }
 
-  if (choice === 'Always stop') {
+  if (choice === ALWAYS_STOP_SERVERS_ACTION) {
     setTicketServersOnDone(deps.store, ticketId, 'stopped');
     try {
       if (deps.writeManifest && deps.manifestPath) {
@@ -129,12 +129,12 @@ export async function maybeStopServersOnDone(
             throw new Error('cannot write stopServersOnDone: manifest is not loaded');
           }
           deps.writeManifest(path, { ...current, stopServersOnDone: 'auto' });
-          deps.notify.info('Set stopServersOnDone to auto in karst.yml.');
+          deps.notify.info('Karst stops the servers of a done ticket without asking from now on.');
         }
       }
     } catch (err) {
       deps.logError?.('karst: writing stopServersOnDone: auto to manifest failed', err);
-      await deps.notify.error(`Failed to update karst.yml: ${err instanceof Error ? err.message : String(err)}`);
+      await deps.notify.error(`The setting was not saved to the manifest (${reasonText(err)}). The servers of this ticket still stop now.`);
     }
     await stopTicketServices(deps, ticketId);
     return;

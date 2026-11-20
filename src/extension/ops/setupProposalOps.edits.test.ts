@@ -172,7 +172,7 @@ describe('the typed edit list', () => {
     const same = setup([SET_GENERAL('a-1', { baselineBranch: 'main' })]);
     await same.ctl.scan();
     expect(same.results[0]!.reason).toBe('no effective change');
-    expect(same.warn).toHaveBeenCalledWith('Karst: the setup edits change nothing.');
+    expect(same.warn).toHaveBeenCalledWith('The setup edits change nothing, so none was applied.');
 
     const failed = setup([SET_GENERAL('a-1', { debug: true })]);
     failed.applyText.mockImplementation(() => {
@@ -180,7 +180,7 @@ describe('the typed edit list', () => {
     });
     await failed.ctl.scan();
     expect(failed.results[0]!.reason).toBe('apply failed: disk full');
-    expect(failed.warn).toHaveBeenCalledWith('Karst: could not apply the setup edits (disk full).');
+    expect(failed.warn).toHaveBeenCalledWith('The setup edits were not applied (disk full).');
   });
 
   it('refuses a list that fails a host check and records the refusal', async () => {
@@ -190,7 +190,7 @@ describe('the typed edit list', () => {
     expect(f.applyText).not.toHaveBeenCalled();
     expect(f.results).toMatchObject([{ id: 'a-1', kind: 'edit', status: 'invalid' }]);
     expect(f.results[0]!.reason).toMatch(/^P2 /);
-    expect(f.warn).toHaveBeenCalledWith(expect.stringMatching(/^Karst: the setup edits failed the host checks \(P2 .*\); ignored\.$/));
+    expect(f.warn).toHaveBeenCalledWith(expect.stringMatching(/^The setup edits were ignored because they failed the checks \(P2 .*\)\.$/));
     expect(f.records.at(-1)).toMatchObject({ id: 'a-1', kind: 'edit', status: 'refused' });
   });
 

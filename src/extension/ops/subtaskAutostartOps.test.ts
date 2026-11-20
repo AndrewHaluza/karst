@@ -354,12 +354,12 @@ describe('subtask autostart op — logging, claims, and edge paths', () => {
     expect(lines(stale)).toContain('[driver] autostart: re-queued 1 orphaned claim(s)');
   });
 
-  it('the failure warning bounds the reason to 300 characters and logs where it stopped', async () => {
+  it('the failure warning bounds the reason to 200 characters and logs where it stopped', async () => {
     const a = child('P-1-s1');
     const d = deps({ startTicket: vi.fn(async () => ({ ok: false as const, message: 'x'.repeat(1000) })) });
     await makeSubtaskAutostart(d).sweep();
     const warning = String(vi.mocked(d.notify.warn).mock.calls[0]?.[0]);
-    expect(warning).toBe(`karst: sub-task T${a} · P-1-s1 could not auto-start: ${'x'.repeat(300)}`);
+    expect(warning).toBe(`Sub-task T${a} · P-1-s1 "P-1-s1" did not start by itself (${'x'.repeat(199)}…). Start it by hand.`);
     expect(lines(d)).toContain(`[driver] autostart T${a}: failed — stayed at scope — start it manually`);
   });
 
@@ -373,7 +373,7 @@ describe('subtask autostart op — logging, claims, and edge paths', () => {
       }),
     });
     expect(await makeSubtaskAutostart(d).sweep()).toEqual([]);
-    expect(d.notify.warn).toHaveBeenCalledWith(`karst: sub-task T${a} could not auto-start: gone`);
+    expect(d.notify.warn).toHaveBeenCalledWith(`Sub-task T${a} did not start by itself (gone). Start it by hand.`);
     expect(lines(d)).toContain(`[driver] autostart T${a}: failed — stayed at scope — start it manually`);
     expect(lines(d).some((m) => m.includes('failure event not posted'))).toBe(false);
     expect(lines(d).some((m) => m.includes('sweep failed'))).toBe(false);

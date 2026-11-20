@@ -4,13 +4,16 @@ import { getTicket } from '../../store/tickets.js';
 import {
   maybeStopServersOnDone,
   type ServerLifecycleDeps,
+  STOP_SERVERS_ACTION,
+  KEEP_SERVERS_ACTION,
+  ALWAYS_STOP_SERVERS_ACTION,
 } from './serverLifecycle.js';
 import type { Manifest } from '../../manifest/types.js';
 import { stopTicketServers } from '../../runtime/supervisor.js';
 
 let store: Store;
 
-function seedTicket(id = 408, title: string | null = 'Usage limits', key: string | null = 'T408'): void {
+function seedTicket(id = 408, title: string | null = 'Usage limits', key: string | null = null): void {
   store.db
     .prepare(
       "INSERT INTO tickets (id, key, title, stage_current, agent_state) VALUES (?, ?, ?, 'scope', 'none')",
@@ -49,6 +52,7 @@ function makeDeps(overrides: Partial<ServerLifecycleDeps> = {}): {
     warn: ReturnType<typeof vi.fn>;
     error: ReturnType<typeof vi.fn>;
     infoActions: ReturnType<typeof vi.fn>;
+    record: ReturnType<typeof vi.fn>;
   };
   stopServers: ReturnType<typeof vi.fn>;
   writeManifest: ReturnType<typeof vi.fn>;
@@ -59,6 +63,7 @@ function makeDeps(overrides: Partial<ServerLifecycleDeps> = {}): {
     warn: vi.fn(),
     error: vi.fn().mockResolvedValue(undefined),
     infoActions: vi.fn().mockResolvedValue(undefined),
+    record: vi.fn(),
   };
   const stopServers = overrides.stopServers ? vi.fn(overrides.stopServers) : vi.fn().mockResolvedValue(undefined);
   const writeManifest = overrides.writeManifest ? vi.fn(overrides.writeManifest) : vi.fn();
@@ -155,15 +160,15 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
 
     expect(stopServers).toHaveBeenCalledWith(store, 408);
     expect(afterServerChange).toHaveBeenCalled();
-    expect(notify.info).toHaveBeenCalledWith('Stopped 2 servers for T408 (done)');
+    expect(notify.record).toHaveBeenCalledWith('info', 'T408 "Usage limits": stopped 2 servers because the ticket is done.', 408);
     expect(getTicket(store, 408).serversOnDone).toBe('auto');
 
     // Re-observation does not stop or announce again
     stopServers.mockClear();
-    notify.info.mockClear();
+    notify.record.mockClear();
     await maybeStopServersOnDone(deps, 408);
     expect(stopServers).not.toHaveBeenCalled();
-    expect(notify.info).not.toHaveBeenCalled();
+    expect(notify.record).not.toHaveBeenCalled();
   });
 
   it('auto -> handles singular server count', async () => {
@@ -176,7 +181,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     await maybeStopServersOnDone(deps, 408);
 
     expect(stopServers).toHaveBeenCalledWith(store, 408);
-    expect(notify.info).toHaveBeenCalledWith('Stopped 1 server for T408 (done)');
+    expect(notify.record).toHaveBeenCalledWith('info', 'T408 "Usage limits": stopped 1 server because the ticket is done.', 408);
   });
 
   it('ask (default) -> shows ONE prompt with three actions; dismissal records asked and does not re-prompt', async () => {
@@ -192,8 +197,8 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     await maybeStopServersOnDone(deps, 408);
 
     expect(notify.infoActions).toHaveBeenCalledWith(
-      'T408 · Usage limits is done. Its 2 servers are still running.',
-      ['Stop servers', 'Keep running', 'Always stop'],
+      'T408 "Usage limits" is done. 2 servers are still running.',
+      [STOP_SERVERS_ACTION, KEEP_SERVERS_ACTION, ALWAYS_STOP_SERVERS_ACTION],
     );
     expect(stopServers).not.toHaveBeenCalled();
     expect(getTicket(store, 408).serversOnDone).toBe('asked');
@@ -213,8 +218,8 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     await maybeStopServersOnDone(deps, 408);
 
     expect(notify.infoActions).toHaveBeenCalledWith(
-      'T408 · Usage limits is done. Its 1 server is still running.',
-      ['Stop servers', 'Keep running', 'Always stop'],
+      'T408 "Usage limits" is done. 1 server is still running.',
+      [STOP_SERVERS_ACTION, KEEP_SERVERS_ACTION, ALWAYS_STOP_SERVERS_ACTION],
     );
   });
 
@@ -222,7 +227,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     seedTicket(408, 'Usage limits');
     insertRunningService(408, 'web');
     const { deps, notify, stopServers } = makeDeps();
-    notify.infoActions.mockResolvedValueOnce('Keep running');
+    notify.infoActions.mockResolvedValueOnce(KEEP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
@@ -240,7 +245,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     insertRunningService(408, 'web');
     const afterServerChange = vi.fn();
     const { deps, notify, stopServers } = makeDeps({ afterServerChange });
-    notify.infoActions.mockResolvedValueOnce('Stop servers');
+    notify.infoActions.mockResolvedValueOnce(STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
@@ -261,7 +266,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     insertRunningService(408, 'web');
     const afterServerChange = vi.fn();
     const { deps, notify, stopServers, writeManifest } = makeDeps({ afterServerChange });
-    notify.infoActions.mockResolvedValueOnce('Always stop');
+    notify.infoActions.mockResolvedValueOnce(ALWAYS_STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
@@ -269,7 +274,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
       '/path/to/karst.yml',
       expect.objectContaining({ stopServersOnDone: 'auto' }),
     );
-    expect(notify.info).toHaveBeenCalledWith('Set stopServersOnDone to auto in karst.yml.');
+    expect(notify.info).toHaveBeenCalledWith('Karst stops the servers of a done ticket without asking from now on.');
     expect(stopServers).toHaveBeenCalledWith(store, 408);
     expect(afterServerChange).toHaveBeenCalled();
     expect(getTicket(store, 408).serversOnDone).toBe('stopped');
@@ -283,7 +288,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
         throw new Error('disk full');
       },
     });
-    notify.infoActions.mockResolvedValueOnce('Always stop');
+    notify.infoActions.mockResolvedValueOnce(ALWAYS_STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
@@ -303,7 +308,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     const { deps, notify, stopServers, writeManifest, logError } = makeDeps({
       manifest: () => undefined,
     });
-    notify.infoActions.mockResolvedValueOnce('Always stop');
+    notify.infoActions.mockResolvedValueOnce(ALWAYS_STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
@@ -323,7 +328,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     const sandboxStop = vi.fn().mockResolvedValue(undefined);
     const stopServers = (s: Store, id: number) => sandboxStop(s, id);
     const { deps, notify } = makeDeps({ stopServers });
-    notify.infoActions.mockResolvedValueOnce('Stop servers');
+    notify.infoActions.mockResolvedValueOnce(STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
@@ -348,7 +353,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
       stopError,
     );
     expect(notify.error).toHaveBeenCalledWith(
-      'Failed to stop servers for ticket T408: EPERM kill denied',
+      'T408 "Usage limits": the servers did not stop (EPERM kill denied).',
     );
     expect(notify.info).not.toHaveBeenCalled();
     expect(getTicket(store, 408).serversOnDone).toBe('auto');
@@ -363,8 +368,8 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     await maybeStopServersOnDone(deps, 408);
 
     expect(notify.infoActions).toHaveBeenCalledWith(
-      'T408 is done. Its 1 server is still running.',
-      ['Stop servers', 'Keep running', 'Always stop'],
+      'T408 is done. 1 server is still running.',
+      [STOP_SERVERS_ACTION, KEEP_SERVERS_ACTION, ALWAYS_STOP_SERVERS_ACTION],
     );
   });
 
@@ -390,11 +395,11 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
         throw 'string error';
       },
     });
-    notify.infoActions.mockResolvedValueOnce('Stop servers');
+    notify.infoActions.mockResolvedValueOnce(STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
-    expect(notify.error).toHaveBeenCalledWith('Failed to stop servers for ticket T408: string error');
+    expect(notify.error).toHaveBeenCalledWith('T408 "Usage limits": the servers did not stop (string error).');
   });
 
   it('write failure without logError still notifies error and stops', async () => {
@@ -406,11 +411,11 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
         throw 'fail';
       },
     });
-    notify.infoActions.mockResolvedValueOnce('Always stop');
+    notify.infoActions.mockResolvedValueOnce(ALWAYS_STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
-    expect(notify.error).toHaveBeenCalledWith('Failed to update karst.yml: fail');
+    expect(notify.error).toHaveBeenCalledWith('The setting was not saved to the manifest (fail). The servers of this ticket still stop now.');
     expect(stopServers).toHaveBeenCalledWith(store, 408);
   });
 
@@ -421,7 +426,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     const { deps, notify, logError } = makeDeps({
       stopServers: () => Promise.reject(stopError),
     });
-    notify.infoActions.mockResolvedValueOnce('Stop servers');
+    notify.infoActions.mockResolvedValueOnce(STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 
@@ -441,7 +446,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     const { deps, notify } = makeDeps({
       stopServers: stopTicketServers,
     });
-    notify.infoActions.mockResolvedValueOnce('Stop servers');
+    notify.infoActions.mockResolvedValueOnce(STOP_SERVERS_ACTION);
 
     await maybeStopServersOnDone(deps, 408);
 

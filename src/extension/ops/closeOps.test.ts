@@ -37,7 +37,7 @@ describe('closeTicketOp', () => {
     expect(deps.refresh).toHaveBeenCalledWith(id);
     expect(deps.refresh).toHaveBeenCalledTimes(1);
     expect(notify.info).toHaveBeenCalledWith(
-      `Karst: closed ${formatTicketRef(id, 'T-1')} — resolved outside karst, nothing was verified.`,
+      `Closed ${formatTicketRef(id, 'T-1')} "t". It was resolved outside Karst, so nothing was verified.`,
     );
   });
 
@@ -90,7 +90,7 @@ describe('closeTicketOp', () => {
     store.db.prepare("INSERT INTO prs (ticket_id, repo, number, status) VALUES (?, 'a', 1, 'open')").run(id);
     await closeTicketOp(deps, id);
     expect(notify.info).toHaveBeenCalledWith(
-      `Karst: closed ${formatTicketRef(id, 'T-1')} — resolved outside karst, nothing was verified. Left as is: 1 open PR.`,
+      `Closed ${formatTicketRef(id, 'T-1')} "t". It was resolved outside Karst, so nothing was verified. Left as is: 1 open PR.`,
     );
   });
 });
@@ -114,7 +114,7 @@ describe('reopenTicketOp', () => {
     await reopenTicketOp(deps, id);
     expect(getTicket(store, id).stageCurrent).toBe('impl');
     expect(notify.info).toHaveBeenLastCalledWith(
-      `Karst: reopened ${formatTicketRef(id, 'T-1')} — back at implementation.`,
+      `Reopened ${formatTicketRef(id, 'T-1')} "t". It is back at Implement.`,
     );
     expect(deps.refresh).toHaveBeenNthCalledWith(2, id);
     expect(deps.refresh).toHaveBeenCalledTimes(2);

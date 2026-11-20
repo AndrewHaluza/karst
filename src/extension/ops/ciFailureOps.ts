@@ -10,6 +10,7 @@ import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 import { getTicket } from '../../store/tickets.js';
 import { markCiRound } from '../../store/autopilot.js';
 import { listPrFeedback, type PrFeedbackRow } from '../../store/prFeedback.js';
+import { reasonText as errorReasonText, stageTitle } from '../../model/notifyText.js';
 
 /**
  * The host action "Send CI failure to agent" — command logic behind the
@@ -205,7 +206,7 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
       // The driver resumes the pending round in a fix session (stage-resume); no impl session gets a hand-off.
       if (deps.markManualReship === true) markCiRound(deps.store, deps.ticketId, Date.now(), 'manual');
       deps.drive();
-      deps.info('CI failure sent to a fix session; ticket moved to Fix from ship.');
+      deps.info('CI failure sent to a fix session. The ticket moved to Fix from Ship.');
       return;
     }
     const result = sendBackToImplement(deps.store, deps.ticketId, { debug: deps.debug, reason });
@@ -217,12 +218,12 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
     const refusal = deps.handOff(handOffPrompt(reason));
     deps.info(
       refusal === null
-        ? `CI failure sent to the agent; ticket moved back to Implement from ${result.from}.`
-        : `Ticket moved back to Implement from ${result.from}. No session was started: ${refusal}`,
+        ? `CI failure sent to the agent. The ticket moved back to Implement from ${stageTitle(result.from)}.`
+        : `The ticket moved back to Implement from ${stageTitle(result.from)}. No session started: ${refusal}`,
     );
   } catch (err) {
     deps.logError('karst: send CI failure to agent failed', err);
-    deps.error(err instanceof Error ? err.message : String(err));
+    deps.error(errorReasonText(err));
   } finally {
     deps.afterServerChange();
   }
