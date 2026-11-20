@@ -52,7 +52,7 @@ describe('launchBlocked', () => {
     const { deps, binding } = make({ warn: vi.fn(async () => undefined) });
     await binding.launchBlocked(5, RUN);
     expect(deps.warn).toHaveBeenCalledWith(
-      'Ticket T5: graph run 17 is running; 3 node processes are alive, but no session is attached to this window. No new session started.',
+      'T5: no new session started because the graph run is running and 3 agents are running, but no session is attached to this window. Select Cancel graph to stop it.',
       CANCEL_GRAPH_ACTION,
     );
     expect(deps.confirm).not.toHaveBeenCalled();
@@ -63,7 +63,7 @@ describe('launchBlocked', () => {
     const tx = vi.fn(<T,>(fn: () => T) => fn());
     const { deps, binding } = make({ transaction: tx as never });
     await binding.launchBlocked(5, RUN);
-    expect(deps.confirm).toHaveBeenCalledWith(expect.stringContaining('graph run 17'), CANCEL_GRAPH_ACTION);
+    expect(deps.confirm).toHaveBeenCalledWith(expect.stringContaining('the graph run of T5'), CANCEL_GRAPH_ACTION);
     const [cancelDeps, id, reason] = vi.mocked(cancelGraphRun).mock.calls[0]!;
     expect(id).toBe(17);
     expect(reason).toBe('cancelled by user from a blocked launch');
@@ -73,7 +73,7 @@ describe('launchBlocked', () => {
     expect(cancelDeps.killTree).toBe(deps.killTree);
     expect(cancelDeps.debug).toBe(deps.debug);
     expect(deps.refresh).toHaveBeenCalledWith(5);
-    expect(deps.inform).toHaveBeenCalledWith(expect.stringContaining('was cancelled'));
+    expect(deps.inform).toHaveBeenCalledWith(expect.stringContaining('is cancelled'));
   });
 
   it('logs a failed cancel and does not refresh', async () => {

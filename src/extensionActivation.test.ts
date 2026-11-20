@@ -648,7 +648,7 @@ describe('extension activation', () => {
     expect(source).toContain('onRecovered: onGraphRecovered');
     expect(source).toContain('provider.refresh();\n    dashboard.pushState(ticketId);\n    void driveGraphRunContinuation(graphRunId);');
     expect(source).toContain('void driveGraphRunContinuation(graphRunId);');
-    expect(source).toContain('result.drained || result.terminated > 0');
+    expect(source).toContain('r.drained || r.terminated > 0');
   });
 
   it('refreshes and wakes every successful graph recovery from the legacy resume-stage route', () => {

@@ -511,6 +511,8 @@ import { makeGettingStartedPanelHost } from './ui/gettingStarted/host.js';
 import { buildSetupStatus } from './init/status.js';
 import { buildGettingStartedState } from './ui/gettingStarted/state.js';
 import { formatId, formatTicketRef, ticketRefOrUnknown } from './model/entityId.js';
+import { markerAdvancedText, markerFailedText, plural, reasonText, ticketLabel as toastTicketLabel, type TicketLabeler } from './model/notifyText.js';
+import { OPEN_SYNC_DIFF, RETRY_NOW } from './extension/ops/sandboxLifecycleOps.js';
 import { toast, ask, bindToastRecorder } from './extension/toastSeam.js';
 import { makeToastRecorder, panelActionRecorder } from './extension/ops/toastRecorder.js';
 import { onEventRecorded } from './store/karstEvents.js';
@@ -535,6 +537,7 @@ const MARK_SVG = join(RUNTIME_ASSETS_ROOT, '..', 'media', 'karst-mark.svg');
  * purpose — it is PERSISTED workspaceState, and renaming it would re-open the
  * panel for every user who had already dismissed it (glossary rename, 869ecknnn).
  */
+const LAUNCH_WORKTREE_DISABLED = 'Launching a worktree extension is disabled. Set karst.launchWorktreeDev.enabled to true.';
 const GETTING_STARTED_DISMISSED_KEY = 'karst.welcomeDismissed';
 /**
  * The hook port this window bound last time. Rebinding it is what keeps a session
@@ -646,6 +649,20 @@ const driver = new DriverController();
 const drain = createDrain(); // @arch:DRAIN-01, in memory only
 
 
+/** The toast for a graph Stop: info when it stopped, warn when it did not (@arch:NTF-00 rule 5). */
+function graphStopToast(
+  label: string,
+  r: { outcome?: string; terminated: number; refused: number; drained?: boolean },
+): { level: 'info' | 'warn'; text: string } {
+  const warn = (text: string) => ({ level: 'warn' as const, text });
+  if (r.outcome === 'cancelled') return { level: 'info', text: `${label}: the graph run is cancelled. ${plural(r.terminated, 'process', 'processes')} stopped.` };
+  if (r.outcome === 'cancel-refused') return warn(`${label}: the graph run is not cancelled because a live process may not belong to it. Karst stopped no process.`);
+  if (r.outcome === 'cancel-raced') return warn(`${label}: the graph run changed state during the stop. Check the ticket and try again.`);
+  if (r.outcome === 'live-process-unreachable') return warn(`${label}: the graph is not stopped because an agent process is not attached to this window. Stop it from the window that launched it, or reload this window.`);
+  if (r.drained || r.terminated > 0) return { level: 'info', text: `${label}: the graph is stopped. ${plural(r.terminated, 'session', 'sessions')} ended${r.refused > 0 ? ` and ${r.refused} did not end` : ''}.` };
+  return { level: 'info', text: `${label}: no graph session was stopped.` };
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
   const probeRecorder = installProbeRecorder();
@@ -670,6 +687,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return restoreGate.fail();
   }
   const localStore = store;
+  /** A ticket as a toast names it (@arch:NTF-00): T-id · key and a short title; the id alone when the row is gone. */
+  const toastLabel: TicketLabeler = (id) => {
+    try {
+      const row = getTicket(localStore, id);
+      return toastTicketLabel(id, row.key, row.title);
+    } catch {
+      return ticketRefOrUnknown(id);
+    }
+  };
   registerProbeCommand(context, probeRecorder, () => store!, { deactivate, activate: () => activate(context) });
 
   // One "Karst" output channel is the sink for every caught error.
@@ -1087,8 +1113,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushState(ticketId);
       const t = getTicket(localStore, ticketId);
       void toast.warn(
-        `Karst: couldn't resume the previous session for "${formatTicketRef(ticketId, t.key)}" ` +
-          `(it may have expired or the worktree was recreated). Retrying with a fresh session.`,
+        `${toastLabel(ticketId)}: Karst could not resume the previous session. ` +
+          `The session may have expired, so Karst starts a fresh session.`,
       );
       // A background `recoverSession` observes the same close and may dispose
       // the failed generation. Defer to the next event-loop turn so its awaited
@@ -1662,7 +1688,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const login = opencode2LoginCommand();
       if (!login) {
         void toast.warn(
-          "Set 'karst.opencode2.binaryPath' to the OpenCode v2 launcher before logging in.",
+          "OpenCode v2 cannot log in. Set 'karst.opencode2.binaryPath' to the OpenCode v2 launcher.",
         );
         return;
       }
@@ -1782,19 +1808,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, modelCatalog, { provider: targetProvider, model, effort });
       // Keep the same outcome toasts as before (stale / launch-failed).
       if (outcome.kind === 'stale') {
-        void toast.info('The ticket state changed before the agent could be switched.');
+        void toast.info('The ticket changed before Karst could switch the agent. Try again.');
       } else if (outcome.kind === 'unavailable') {
-        void toast.warn(`${AGENT_PROVIDER_LABELS[outcome.provider] || outcome.provider} is not available — ensure the CLI is installed and on PATH.`);
+        void toast.warn(`${AGENT_PROVIDER_LABELS[outcome.provider] || outcome.provider} is not available. Install the CLI and add it to PATH.`);
       } else if (outcome.kind === 'launch-failed') {
         void toast.error(
-          `The agent selection was saved, but its session could not start: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`,
+          `The agent selection is saved, but its session did not start (${reasonText(outcome.error)}).`,
         );
       }
       return outcome;
     } catch (error) {
       logError('agent session switch failed', error);
       void toast.error(
-        `Could not switch the agent session: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
+        `Karst could not switch the agent session (${reasonText(error)}). Try again.`,
       );
       return undefined;
     } finally {
@@ -2368,8 +2394,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (cleared > 0) {
           provider.refresh();
           void toast.info(
-            `Uninstalled "${id}" — cleared it from ${cleared} ticket${cleared === 1 ? '' : 's'}. ` +
-              `Pick an approach again for those tickets after reinstalling.`,
+            `Uninstalled "${id}" and cleared it from ${plural(cleared, 'ticket', 'tickets')}. ` +
+              `Pick an approach again for those tickets after you reinstall it.`,
           );
         }
         return cleared;
@@ -2635,7 +2661,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             if (wtPath) {
               const result = await gitDiscard(defaultGitRunner, wtPath, file.path, file.status);
               if (!result.ok) {
-                void toast.warn(`Could not discard changes: ${result.error ?? 'unknown error'}`);
+                void toast.warn(`Karst could not discard the changes (${reasonText(result.error)}).`);
               }
               return;
             }
@@ -2653,7 +2679,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (wtPath) {
             const result = await gitUnstage(defaultGitRunner, wtPath, file.path);
             if (!result.ok) {
-              void toast.warn(`Could not unstage file: ${result.error ?? 'unknown error'}`);
+              void toast.warn(`Karst could not unstage the file (${reasonText(result.error)}).`);
             }
             return;
           }
@@ -2728,9 +2754,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logError('ticket status update failed', e);
       if (warn) {
         void toast.warn(
-          `Ticket merged, but the status update failed: ${
-            e instanceof Error ? e.message : String(e)
-          }`,
+          `The ticket merged, but Karst could not update its status (${reasonText(e)}).`,
         );
       }
     }
@@ -2924,12 +2948,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const launchWorktreeDevWindow = async (worktreePath: string): Promise<void> => {
     if (!launchWorktreeConfig().enabled) {
       void toast.warn(
-        'Karst: launch-worktree-extension is disabled — set karst.launchWorktreeDev.enabled to true.',
+        LAUNCH_WORKTREE_DISABLED,
       );
       return;
     }
     if (launchingWorktrees.has(worktreePath)) {
-      void toast.info(`Already building ${worktreePath} — one launch at a time.`);
+      void toast.info(`Already building ${worktreePath}. Wait for the build to end.`);
       return;
     }
     launchingWorktrees.add(worktreePath);
@@ -2989,14 +3013,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       } else if (outcome.kind === 'failed') {
         void toast.error(
-          `Could not launch the worktree extension: ${outcome.message}`,
+          `Karst could not launch the worktree extension (${reasonText(outcome.message)}).`,
         );
       }
       // aborted: the user cancelled — the progress notification is its own report.
     } catch (err) {
       logError('launch worktree extension failed', err);
       void toast.error(
-        `Could not launch the worktree extension: ${err instanceof Error ? err.message : String(err)}`,
+        `Karst could not launch the worktree extension (${reasonText(err)}).`,
       );
     } finally {
       launchingWorktrees.delete(worktreePath);
@@ -3015,7 +3039,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     db: () => graphCoordinatorStore?.db,
     transaction: (fn) => runImmediateTransaction(graphCoordinatorStore!.db, fn),
     facts: systemAsyncProcessFacts, killTree, activeRun: activeGraphRunFor,
-    label: (id) => formatId('ticket', id),
+    label: (id) => toastLabel(id),
     warn: (m, ...a) => ask.warn(m, ...a),
     confirm: async (m, accept) => (await ask.warn(m, { modal: true }, accept)) === accept,
     inform: (m) => void toast.info(m),
@@ -3267,7 +3291,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = fireGraphImplMarkerFromHost(localStore, ticketId);
         if (result.ok) {
           void toast.info(
-            `Ticket ${formatId('ticket', ticketId)}: the implementation marker fired (graph run ${graphRunId}) — advancing to uat.`,
+            markerAdvancedText(toastLabel(ticketId)),
           );
           // The ticket is the stage driver's again the moment the marker
           // lands. Nothing else kicks it here — the graph node fires no hook
@@ -3277,7 +3301,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           maybeDrive(ticketId, 'graph-impl-marker');
         } else {
           void toast.warn(
-            `Ticket ${formatId('ticket', ticketId)}: could not fire the implementation marker (${result.reason}).`,
+            markerFailedText(toastLabel(ticketId), result.reason ?? 'unknown error'),
           );
         }
         provider.refresh();
@@ -3312,10 +3336,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           if (result.discarded) {
             void toast.info(
-              `Ticket ${formatId('ticket', ticketId)}: unknown process for node run #${nodeRunId} discarded` +
-                (result.graphBlockedWith
-                  ? ' — the graph deadlocked on topology; resume or replan to continue.'
-                  : ''),
+              `${toastLabel(ticketId)}: Karst discarded an unknown process.` +
+                (result.graphBlockedWith ? ' The graph is blocked. Resume or replan the graph to continue.' : ''),
             );
           }
           provider.refresh();
@@ -3335,7 +3357,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // until then. The write itself stays behind the store's claim gate.
       graphEditOverride: (ticketId, nodeRunId) => {
         void toast.info(
-          `Ticket ${formatId('ticket', ticketId)}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
+          `${toastLabel(ticketId)}: editing the overrides of a node is not available yet.`,
         );
       },
       graphEditWorkspaceDeps: (_ticketId, graphRunId) =>
@@ -3360,7 +3382,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!(await guardCapability('ship'))) return;
       void runShipSaga(ticketId, true, { repos: [repo] }).catch((e) => {
         if (e instanceof ShipDrainingError) {
-          void toast.info(`Karst: ${e.message}`);
+          void toast.info(e.message);
           return;
         }
         logError('karst: per-repo ship retry failed', e);
@@ -4123,7 +4145,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     rerunFailedGates: hostRerunFor({ ...gateRerunDeps, drain }), // D403: one host gate re-run for a refused no-commit fix marker
     debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-45 marker: sync first, failures at WARN
-    notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? ask.error(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? ask.error(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : ask.warn(m)); },
+    notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? ask.error(m, OPEN_SYNC_DIFF).then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? ask.error(m, RETRY_NOW).then((c) => { if (c) void bridges?.retryNow(id); }) : ask.warn(m)); },
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
   try { stopStaleDeliverRuns(localStore, pidAlive, nowIso()); } catch (e) { logError('stale deliver runs sweep failed', e); }
@@ -5210,7 +5232,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const reason = result.reason;
       logger.warn(`karst: graph launch for ticket ${formatId('ticket', ticketId)} failed: ${reason}`);
       void toast.error(
-        `Ticket ${formatId('ticket', ticketId)}: the graph engineering run could not start — ${reason}`,
+        `${toastLabel(ticketId)}: the graph run could not start (${reason}). Check the ticket setup, then start it again.`,
       );
       return false;
     }
@@ -5432,7 +5454,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (result.kind === 'failed') {
       logError(`karst: replan planner launch failed for run ${launch.graphRunId}`, new Error(result.reason));
       void toast.error(
-        `Ticket ${ticketRefOrUnknown(graphRunTicketId(launch.graphRunId))}: the replan planner could not start — ${result.reason}`,
+        `${toastLabel(graphRunTicketId(launch.graphRunId))}: the replan could not start (${result.reason}).`,
       );
     }
   };
@@ -5482,7 +5504,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (result.kind === 'failed') {
       logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, new Error(result.reason));
       void toast.error(
-        `Ticket ${ticketRefOrUnknown(graphRunTicketId(launch.graphRunId))}: the bootstrap planner could not start — ${result.reason}`,
+        `${toastLabel(graphRunTicketId(launch.graphRunId))}: the graph plan could not start (${result.reason}).`,
       );
     }
   };
@@ -5807,19 +5829,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The message states what happened. A run whose live process this window
       // cannot reach was NOT stopped, and saying so is the whole point of the
       // outcome: draining it would strand it behind a false success.
-      void toast.info(
-        result.outcome === 'cancelled'
-          ? `Ticket ${formatId('ticket', ticketId)}: the graph run was cancelled — ${result.terminated} process${result.terminated === 1 ? '' : 'es'} stopped.`
-          : result.outcome === 'cancel-refused'
-            ? `Ticket ${formatId('ticket', ticketId)}: the graph run was NOT cancelled — a live process could not be proven to belong to it, so none was stopped.`
-            : result.outcome === 'cancel-raced'
-              ? `Ticket ${formatId('ticket', ticketId)}: the graph run changed state while it was stopped — check the ticket and try again.`
-              : result.outcome === 'live-process-unreachable'
-          ? `Ticket ${formatId('ticket', ticketId)}: the implementation graph was NOT stopped — a node process is still running but is not attached to this window. Stop it from the window that launched it, or reload and try again.`
-          : result.drained || result.terminated > 0
-            ? `Ticket ${formatId('ticket', ticketId)}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`
-            : `Ticket ${formatId('ticket', ticketId)}: no graph sessions were stopped.`,
-      );
+      const stop = graphStopToast(toastLabel(ticketId), result);
+      void (stop.level === 'info' ? toast.info(stop.text) : toast.warn(stop.text));
       provider.refresh();
       dashboard.pushState(ticketId);
     } catch (err) {
@@ -5847,8 +5858,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!result.restarted) {
         void toast.warn(
           result.outcome === 'replan-in-flight' || result.outcome === 'replan-pending'
-            ? `Ticket ${formatId('ticket', ticketId)}: the graph is mid-replan — it will resume on its own when the new plan lands.`
-            : `Ticket ${formatId('ticket', ticketId)}: the graph run could not be restarted (${result.outcome}).`,
+            ? `${toastLabel(ticketId)}: the graph waits for a new plan. It resumes when the plan is ready.`
+            : `${toastLabel(ticketId)}: Karst could not restart the graph run. Check the ticket and try again.`,
         );
         return;
       }
@@ -6454,7 +6465,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = fireGraphImplMarkerFromHost(localStore, ticketId);
         if (result.ok) {
           void toast.info(
-            `Ticket ${formatId('ticket', ticketId)}: the implementation marker fired (graph run ${activeGraph.graphRunId}) — advancing to uat.`,
+            markerAdvancedText(toastLabel(ticketId)),
           );
           maybeDrive(ticketId, 'graph-impl-marker');
           provider.refresh();
@@ -6462,7 +6473,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return { kind: 'launched' };
         }
         void toast.warn(
-          `Ticket ${formatId('ticket', ticketId)}: could not fire the implementation marker (${result.reason}).`,
+          markerFailedText(toastLabel(ticketId), result.reason ?? 'unknown error'),
         );
         return startGuards.failedLaunch(ticketId, result.reason ?? 'could not fire implementation marker');
       }
@@ -6515,7 +6526,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const draft = getTicket(localStore, ticketId);
         if (draft.selectedRepos.length === 0) {
           void toast.warn(
-            `Ticket ${formatId('ticket', ticketId)} has no repositories selected — edit it to choose one, then start.`,
+            `${toastLabel(ticketId)} has no repository selected. Edit the ticket to choose one, then start it.`,
           );
           return startGuards.failedLaunch(ticketId, 'no repositories selected');
         }
@@ -6536,13 +6547,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         } catch (e) {
           logError('start ticket (scope on session open) failed', e);
           void toast.error(
-            `Could not start ticket ${formatId('ticket', ticketId)}: ${e instanceof Error ? e.message : String(e)}`,
+            `${toastLabel(ticketId)}: Karst could not start the ticket (${reasonText(e)}).`,
           );
           return startGuards.failedLaunch(ticketId, `scope failed: ${e instanceof Error ? e.message : String(e)}`);
         }
         wt = listWorktreesByTicket(localStore, ticketId)[0];
         if (!wt) {
-          void toast.warn(`Ticket ${formatId('ticket', ticketId)} could not be scoped — check its repositories.`);
+          void toast.warn(`${toastLabel(ticketId)}: Karst could not scope the ticket. Check its repositories.`);
           return startGuards.failedLaunch(ticketId, 'no worktree after scope');
         }
       }
@@ -6580,7 +6591,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (decision.kind === 'attempt-consumed') {
           if (!advanceConsumedGraphAttempt(localStore, ticketId, decision, implAttemptOf(ticketId), (m) => logger.info(m))) {
             void toast.warn(
-              `Ticket ${formatId('ticket', ticketId)}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
+              `${toastLabel(ticketId)}: Implementation attempt ${decision.stageAttempt} already ran a graph run, and an attempt hosts one run. Fail the Implementation stage to open the next attempt, then start the graph again.`,
             );
             return { kind: 'not-applicable', reason: 'graph-owned' };
           }
@@ -6871,8 +6882,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const approachIsSourced = approachDef?.source !== undefined;
       if (t.approach && approachIsSourced && approachPrompt === null && extraArgs === undefined) {
         void toast.warn(
-          `Approach "${t.approach}" produced no method prompt or loadable artifacts — ` +
-            `opening with ticket context only. Check the approach's entrypoint in the manifest and reinstall it.`,
+          `Approach "${t.approach}" gave no method prompt or loadable artifacts, so Karst opens the ticket with its context only. ` +
+            `Check the approach entrypoint in the manifest, then reinstall it.`,
         );
       }
 
@@ -6973,7 +6984,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const t = getTicket(localStore, ticketId);
         label = compactTicketLabel(t, ticketLabel(t, manifest.ticketLabelTemplate));
       } catch {
-        void toast.error(`Ticket ${formatId('ticket', ticketId)} not found.`);
+        void toast.error(`${toastLabel(ticketId)} does not exist. Refresh the ticket list.`);
         return;
       }
 
@@ -6986,7 +6997,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const remembered = context.workspaceState.get<string[]>(memKey);
       const items = spinRepoPicks(manifest, remembered, { servicesOnly });
       if (items.length === 0) {
-        void toast.info('No repository declares a service to run.');
+        void toast.info('No repository declares a service to run. Add a service to a repository in karst.yml.');
         return;
       }
 
@@ -7022,15 +7033,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         provider.refresh();
         dashboard.pushState(ticketId);
         void toast.info(
-          `Spun ${label} — ${result.servers.length} server(s) running.`,
+          `${toastLabel(ticketId)}: ${plural(result.servers.length, 'server', 'servers')} running.`,
         );
         // A conflicting dev server that had to be killed is the user's own
         // process — an unreported reap is how a "why did my dev server die?"
         // mystery starts (the archive paths raise the same warning).
         if (result.reclaimedPids.length > 0) {
           void toast.warn(
-            `Spin for ${label} stopped ${result.reclaimedPids.length} conflicting dev server(s) ` +
-              `(pid ${result.reclaimedPids.join(', ')}) to free the allocated port(s).`,
+            `${toastLabel(ticketId)}: Karst stopped ${plural(result.reclaimedPids.length, 'conflicting dev server', 'conflicting dev servers')} ` +
+              `to free the allocated ports.`,
           );
         }
       } catch (err) {
@@ -7038,10 +7049,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         dashboard.pushState(ticketId); // surface failed servers on the dashboard
         if (err instanceof SpinCancelledError) {
           // User-initiated: quiet info, not a red error toast.
-          void toast.info(`Spin cancelled for ${label}.`);
+          void toast.info(`${toastLabel(ticketId)}: the spin is cancelled.`);
         } else {
           void toast.error(
-            `Spin failed for ${label}: ${err instanceof Error ? err.message : String(err)}`,
+            `${toastLabel(ticketId)}: the spin failed (${reasonText(err)}).`,
           );
         }
       }
@@ -7056,21 +7067,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!(await guardCapability('worktrees'))) return;
       if (!launchWorktreeConfig().enabled) {
         void toast.warn(
-          'Karst: launch worktree extension is disabled — set karst.launchWorktreeDev.enabled to true.',
+          LAUNCH_WORKTREE_DISABLED,
         );
         return;
       }
       const project = currentProject();
       if (!project) {
         void toast.warn(
-          'Karst: open a workspace folder first, then launch a worktree extension.',
+          'Open a workspace folder first, then launch a worktree extension.',
         );
         return;
       }
       const rows = selectLaunchableWorktrees(listWorktreesByProject(localStore, project.id));
       if (rows.length === 0) {
         void toast.info(
-          'No karst-extension worktrees in this project — scope a ticket against the karst repository first.',
+          'No karst-extension worktrees in this project. Scope a ticket against the karst repository first.',
         );
         return;
       }
@@ -7234,13 +7245,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.compactArchivedWorktrees', async () => {
       const manifest = currentManifest();
       if (!manifest) {
-        void toast.warn('Karst: no manifest loaded.');
+        void toast.warn('No manifest is loaded. Open a folder that has a karst.yml.');
         return;
       }
       const result = await compactArchivedWorktrees(defaultGitRunner, localStore, 7 * 24 * 60 * 60 * 1000);
       void toast.info(
-        `Karst: compacted ${result.compacted} archive(s), skipped ${result.skipped}, failed ${result.failed}` +
-          ` — swept ${result.sweep.prunedBranches} orphan branch(es), ${result.sweep.prunedArchiveRefs} orphan ref(s).`,
+        `Compacted ${plural(result.compacted, 'archive', 'archives')}, skipped ${result.skipped}, failed ${result.failed}. ` +
+          `Swept ${plural(result.sweep.prunedBranches, 'orphan branch', 'orphan branches')} and ${plural(result.sweep.prunedArchiveRefs, 'orphan ref', 'orphan refs')}.`,
       );
       provider.refresh();
     }),
@@ -7321,12 +7332,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         path = manifestPathOrThrow();
       } catch {
-        void toast.warn('Karst: no workspace folder is open.');
+        void toast.warn('No workspace folder is open. Open a folder first.');
         return;
       }
       if (!existsSync(path)) {
         void toast.warn(
-          `Karst: no manifest at ${path}. Run onboarding to scaffold one.`,
+          `No manifest at ${path}. Run onboarding to scaffold one.`,
         );
         return;
       }

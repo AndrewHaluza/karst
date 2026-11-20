@@ -13,30 +13,30 @@ const NONE = { livePlanners: 0, liveNodes: 0 };
 describe('graphOwnedMessage', () => {
   it('names the run, the status and a dead planner for a planning run', () => {
     expect(graphOwnedMessage('T1107', { graphRunId: 17, status: 'planning' }, NONE)).toBe(
-      'Ticket T1107: graph run 17 is planning; its planner has no live session. No new session started.',
+      'T1107: no new session started because the graph run is planning and its planner has no live session. Select Cancel graph to stop it.',
     );
   });
 
   it('says the planner is alive but detached when a planner process lives', () => {
     const text = graphOwnedMessage('T1', { graphRunId: 3, status: 'planning' }, { livePlanners: 1, liveNodes: 0 });
-    expect(text).toContain('graph run 3 is planning');
+    expect(text).toContain('the graph run is planning');
     expect(text).toContain('planner is alive, but its session is not attached');
   });
 
   it('describes the node state for running and draining runs', () => {
-    expect(graphOwnedMessage('T1', { graphRunId: 4, status: 'running' }, NONE)).toContain('none of its nodes has a live session');
+    expect(graphOwnedMessage('T1', { graphRunId: 4, status: 'running' }, NONE)).toContain('none of its agents has a live session');
     expect(graphOwnedMessage('T1', { graphRunId: 4, status: 'draining' }, { livePlanners: 0, liveNodes: 1 })).toContain(
-      '1 node process is alive',
+      '1 agent is running',
     );
     expect(graphOwnedMessage('T1', { graphRunId: 4, status: 'running' }, { livePlanners: 0, liveNodes: 2 })).toContain(
-      '2 node processes are alive',
+      '2 agents are running',
     );
   });
 
   it('describes blocked, marker-wait and other statuses', () => {
     expect(graphOwnedMessage('T1', { graphRunId: 5, status: 'blocked' }, NONE)).toContain('parked until you resume or cancel');
     expect(graphOwnedMessage('T1', { graphRunId: 5, status: 'completed-awaiting-impl-marker' }, NONE)).toContain(
-      'waits for the implementation marker',
+      'waits for you to move the ticket on',
     );
     expect(graphOwnedMessage('T1', { graphRunId: 5, status: 'other' }, NONE)).toContain('coordinator owns the next step');
   });
@@ -45,7 +45,7 @@ describe('graphOwnedMessage', () => {
 describe('graphOwnedChangeMessage', () => {
   it('says the change applies to the next launch', () => {
     const text = graphOwnedChangeMessage('T1107', { graphRunId: 17, status: 'planning' });
-    expect(text).toContain('applies to the next launch, not to graph run 17');
+    expect(text).toContain('applies to the next launch, not to the current graph run (planning)');
   });
 });
 
@@ -74,7 +74,7 @@ describe('showGraphOwnedNotice', () => {
   it('offers Cancel graph in the warning', async () => {
     const deps = makeDeps();
     await showGraphOwnedNotice(deps, input);
-    expect(deps.warn).toHaveBeenCalledWith(expect.stringContaining('graph run 17 is planning'), CANCEL_GRAPH_ACTION);
+    expect(deps.warn).toHaveBeenCalledWith(expect.stringContaining('the graph run is planning'), CANCEL_GRAPH_ACTION);
   });
 
   it('cancels, refreshes and reports after a confirm', async () => {
@@ -83,7 +83,7 @@ describe('showGraphOwnedNotice', () => {
     expect(deps.confirm).toHaveBeenCalledOnce();
     expect(deps.cancel).toHaveBeenCalledWith(17);
     expect(deps.refresh).toHaveBeenCalledOnce();
-    expect(deps.inform).toHaveBeenCalledWith(expect.stringContaining('was cancelled'));
+    expect(deps.inform).toHaveBeenCalledWith(expect.stringContaining('is cancelled'));
   });
 
   it('changes nothing when the warning is dismissed', async () => {
@@ -102,8 +102,8 @@ describe('showGraphOwnedNotice', () => {
   });
 
   it.each([
-    [{ outcome: 'refused-live-process', graphRunId: 17, killed: 0, refusals: [] } as CancelGraphRunResult, 'NOT cancelled'],
-    [{ outcome: 'already-terminal', graphRunId: 17, status: 'closed' } as CancelGraphRunResult, 'already ended (closed)'],
+    [{ outcome: 'refused-live-process', graphRunId: 17, killed: 0, refusals: [] } as CancelGraphRunResult, 'is not cancelled'],
+    [{ outcome: 'already-terminal', graphRunId: 17, status: 'closed' } as CancelGraphRunResult, 'already ended'],
     [{ outcome: 'raced', graphRunId: 17, killed: 0 } as CancelGraphRunResult, 'changed state'],
   ])('reports the cancel outcome %#', async (result, text) => {
     const deps = makeDeps({ cancel: vi.fn(async () => result) });

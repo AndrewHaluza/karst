@@ -46,3 +46,8 @@ export function plural(n: number, one: string, many: string): string {
 export function markerAdvancedText(label: string): string {
   return `${label}: the implementation is done. The ticket moves to UAT.`;
 }
+
+/** The toast for an implementation that could not move the ticket to UAT (rule 7: one text). */
+export function markerFailedText(label: string, reason: string): string {
+  return `${label}: Karst could not mark the implementation as done (${reason}).`;
+}
