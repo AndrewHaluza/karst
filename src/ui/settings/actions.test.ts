@@ -227,7 +227,36 @@ describe('settings actions — preset slot checks at Save', () => {
     const { actions, posted } = harness({ warn });
     await actions.save(withSlot({ provider: 'claude', model: 'claude-future-9' }));
     expect(posted.some((m) => m.type === 'saved')).toBe(true);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('claude-future-9'));
+    expect(warn).toHaveBeenCalledTimes(1);
+    const text = warn.mock.calls[0]![0] as string;
+    expect(text).toContain('Preset "p"');
+    expect(text).toContain('claude-future-9');
+    expect(text).not.toContain('agentPresets.');
+    expect(text).not.toContain('slots.');
+  });
+
+  const SLOTS = ['graphExpert', 'uatFix', 'review'] as const;
+  const unknown = (n: number) =>
+    Object.fromEntries(SLOTS.slice(0, n).map((k) => [k, { provider: 'claude', model: 'opus-5-5' }]));
+  const withPresets = (presets: Record<string, unknown>, extra: Partial<Manifest> = {}): Manifest =>
+    ({ ...VALID, ...extra, agentPresets: presets }) as Manifest;
+
+  it('does not warn for unknown-model slots that the Save did not change', async () => {
+    const warn = vi.fn();
+    const base = withPresets({ opus: { slots: unknown(3) } });
+    const { actions, posted } = harness({ warn, loadState: () => ({ manifest: base, error: null }) });
+    await actions.save({ ...base, host: '0.0.0.0' });
+    expect(posted.some((m) => m.type === 'saved')).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('warns once for a new preset with 3 unknown-model slots, with the role count', async () => {
+    const warn = vi.fn();
+    const base = withPresets({});
+    const { actions } = harness({ warn, loadState: () => ({ manifest: base, error: null }) });
+    await actions.save(withPresets({ opus: { slots: unknown(3) } }));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('3 roles');
   });
 });
 
