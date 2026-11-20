@@ -19,6 +19,13 @@ import {
 } from './uiViews.mjs';
 
 describe('selectViews', () => {
+  it('maps a built-in prompt snapshot to the settings view only', () => {
+    // The snapshot is the UI path a prompt text change edits (D737, @arch:GATE-REPEAT).
+    const snapshot = 'src/ui/settings/builtInPromptsSnapshots/uatTester.tool.txt';
+    expect(isUiPath(snapshot)).toBe(true);
+    expect(selectViews([snapshot])).toEqual({ all: false, views: ['settings'] });
+  });
+
   it('maps a dashboard-only change to the dashboard and status', () => {
     expect(selectViews(['src/ui/dashboard/app/Inside.tsx', 'src/ui/dashboard/state.ts'])).toEqual({
       all: false,
