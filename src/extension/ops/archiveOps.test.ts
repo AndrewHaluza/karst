@@ -298,6 +298,30 @@ describe('archiveInactiveWorktreesOp', () => {
     expect(d.refresh).toHaveBeenCalledOnce();
   });
 
+  it('words the summary in the singular and drops the stopped part when no server stopped', async () => {
+    const d = makeArchiveInactiveDeps();
+    vi.mocked(archiveInactiveWorktrees).mockResolvedValue({ archived: 1, skipped: 2, failed: 3, reapedServers: [] } as never);
+    await archiveInactiveWorktreesOp(d);
+    expect(d.notify.info).toHaveBeenCalledWith('Archived 1 worktree, skipped 2, failed 3.');
+  });
+
+  it('words the plural stopped part and a single server that could not be stopped', async () => {
+    const d = makeArchiveInactiveDeps();
+    vi.mocked(archiveInactiveWorktrees).mockResolvedValue({
+      archived: 2,
+      skipped: 0,
+      failed: 0,
+      reapedServers: [
+        { outcome: 'killed', path: '/a', pid: 1 },
+        { outcome: 'killed', path: '/b', pid: 2 },
+        { outcome: 'kill-failed', path: '/c', repo: 'r9', pid: 3 },
+      ],
+    } as never);
+    await archiveInactiveWorktreesOp(d);
+    expect(d.notify.info).toHaveBeenCalledWith('Archived 2 worktrees, skipped 0, failed 0, stopped 2 servers.');
+    expect(d.notify.warn).toHaveBeenCalledWith('Could not stop 1 server in the archived worktrees: "r9". Stop them by hand.');
+  });
+
   it('warns once about servers that could not be stopped', async () => {
     const d = makeArchiveInactiveDeps();
     vi.mocked(archiveInactiveWorktrees).mockResolvedValue({

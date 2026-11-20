@@ -79,7 +79,7 @@ export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): 
     }
     if (outcome.failedWorktrees > 0) {
       await deps.notify.warn(
-        `${label} was deleted, but ${plural(outcome.failedWorktrees, 'worktree folder', 'worktree folders')} could not be removed. They may remain on disk.`,
+        `${label} was deleted, but ${plural(outcome.failedWorktrees, 'worktree folder', 'worktree folders')} could not be removed. Files may remain on disk.`,
       );
     }
   } catch (err) {

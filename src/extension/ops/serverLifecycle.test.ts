@@ -171,6 +171,18 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     expect(notify.record).not.toHaveBeenCalled();
   });
 
+  it('auto -> a host without a record seam still stops the servers and shows no toast', async () => {
+    seedTicket(408, 'Usage limits');
+    insertRunningService(408, 'web');
+    const { deps, notify, stopServers } = makeDeps({
+      manifest: () => ({ stopServersOnDone: 'auto' } as Manifest),
+    });
+    const { record: _record, ...bare } = notify;
+    await maybeStopServersOnDone({ ...deps, notify: bare } as typeof deps, 408);
+    expect(stopServers).toHaveBeenCalledWith(store, 408);
+    expect(notify.info).not.toHaveBeenCalled();
+  });
+
   it('auto -> handles singular server count', async () => {
     seedTicket(408, 'Usage limits');
     insertRunningService(408, 'web');
@@ -355,6 +367,7 @@ describe('serverLifecycle — maybeStopServersOnDone', () => {
     expect(notify.error).toHaveBeenCalledWith(
       'T408 "Usage limits": the servers did not stop (EPERM kill denied).',
     );
+    expect(notify.record).not.toHaveBeenCalled();
     expect(notify.info).not.toHaveBeenCalled();
     expect(getTicket(store, 408).serversOnDone).toBe('auto');
   });

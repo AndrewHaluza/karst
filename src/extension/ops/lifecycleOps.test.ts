@@ -111,7 +111,7 @@ describe('deleteTicketOp', () => {
     const d = makeDeps({ removeSandboxes: vi.fn().mockResolvedValue(false) });
     await deleteTicketOp(d, 1);
     expect(deleteTicketPermanently).not.toHaveBeenCalled();
-    expect(d.notify.error).toHaveBeenCalledWith(expect.stringContaining('sandbox could not be removed'));
+    expect(d.notify.error).toHaveBeenCalledWith('T-1: test ticket was not deleted: its sandbox could not be removed. Resolve that and delete again.');
   });
 
   describe('artifact history keep/purge', () => {
@@ -220,6 +220,15 @@ describe('deleteTicketOp', () => {
     expect(d.notify.warn).toHaveBeenCalledWith('The server "web" is still running in a removed worktree. Karst could not stop it. Stop it by hand.');
   });
 
+  it('words one worktree folder in the singular', async () => {
+    const d = makeDeps();
+    vi.mocked(deleteTicketPermanently).mockResolvedValue({ reapedServers: [], failedWorktrees: 1 });
+    await deleteTicketOp(d, 1);
+    expect(d.notify.warn).toHaveBeenCalledWith(
+      'T-1: test ticket was deleted, but 1 worktree folder could not be removed. Files may remain on disk.',
+    );
+  });
+
   it('warns when a worktree folder could not be removed', async () => {
     const d = makeDeps();
     vi.mocked(deleteTicketPermanently).mockResolvedValue({
@@ -228,7 +237,7 @@ describe('deleteTicketOp', () => {
     });
     await deleteTicketOp(d, 1);
     expect(d.notify.warn).toHaveBeenCalledWith(
-      'T-1: test ticket was deleted, but 2 worktree folders could not be removed. They may remain on disk.',
+      'T-1: test ticket was deleted, but 2 worktree folders could not be removed. Files may remain on disk.',
     );
   });
 });
