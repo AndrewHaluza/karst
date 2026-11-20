@@ -137,7 +137,7 @@ describe('planning ops', () => {
     // The artifacts dir is named in the standing rules and is the one path the file tools may write.
     expect(readFileSync(instructionsPath, 'utf8')).toContain(`$KARST_ARTIFACTS (${join(opts.cwd, 'artifacts')})`);
     expect(opts.shellArgs).toContain(`Edit(/${join(opts.cwd, 'artifacts')}/**)`);
-    expect(opts.shellArgs).toContain(`Write(/${join(opts.cwd, 'outbox')}/**)`);
+    expect(opts.shellArgs.some((a: string) => a.startsWith('Write('))).toBe(false);
     for (const key of ['KARST_TICKET_ID', 'KARST_DB', 'KARST_MANIFEST']) expect(opts.env).not.toHaveProperty(key);
   });
 
