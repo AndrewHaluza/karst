@@ -21,12 +21,31 @@ import { pinKeyOf, type EffectiveRole, type RoleValue } from './rolesModel.js';
 export const SOURCE_TEXT: Readonly<Record<EffectiveRole['source'], { chip: string; label: string; why: string }>> = {
   pin: { chip: 'pinned', label: 'Pinned', why: 'Pinned: the same in all presets, and it beats the preset.' },
   preset: { chip: 'preset', label: 'Preset', why: 'From the selected preset.' },
+  approach: { chip: 'approach', label: 'Approach profile', why: "No preset value: uses the approach's profile." },
   default: { chip: 'default', label: 'Karst default', why: "No preset value and no pin: uses Karst's built-in default." },
 };
 
+const GRAPH_PROFILE_OF_CAPABILITY: Readonly<Record<string, string>> = {
+  graphExpert: 'expert',
+  graphWorker: 'worker',
+  graphFast: 'fast',
+};
+
+/** The reason a Source chip gives; a graph role names its approach profile (AC-04). */
+export function sourceWhy(source: EffectiveRole['source'], capability: string): string {
+  const profile = Object.prototype.hasOwnProperty.call(GRAPH_PROFILE_OF_CAPABILITY, capability)
+    ? GRAPH_PROFILE_OF_CAPABILITY[capability]
+    : undefined;
+  if (profile !== undefined && source === 'approach') return `No preset value: uses the approach's ${profile} profile.`;
+  if (profile !== undefined && source === 'default') {
+    return "No preset value and no approach profile: uses Karst's built-in default.";
+  }
+  return SOURCE_TEXT[source].why;
+}
+
 /** The Source cell chip. A Karst default carries the mark and a screen-reader label. */
-function SourceCell({ source }: { readonly source: EffectiveRole['source'] }) {
-  const t = SOURCE_TEXT[source];
+function SourceCell({ source, capability }: { readonly source: EffectiveRole['source']; readonly capability: string }) {
+  const t = { ...SOURCE_TEXT[source], why: sourceWhy(source, capability) };
   if (source === 'default') {
     return (
       <span title={`${t.label}. ${t.why}`} data-source={source}>
@@ -80,6 +99,10 @@ export interface RoleRowProps {
   readonly onOpenProfile: (name: string | null) => void;
   /** The summary row opened (true) or closed (false); the route keeps the opened role. */
   readonly onToggle: (open: boolean) => void;
+  /** What the row controls, when its name alone misleads (graph planner → expert row). */
+  readonly hint?: string;
+  /** The "Inherited: …" line; shown only while no preset slot or pin supplies the value. */
+  readonly inherited?: string;
 }
 
 /** The Agent profile cell: select + link into the Agent profiles tab. */
@@ -158,7 +181,7 @@ export function RoleRow(props: RoleRowProps) {
     selected ? 'is-selected' : '',
     flash ? 'is-flash' : '',
     sharesProfile ? 'is-shared' : '',
-    effective.source === 'default' ? 'is-inherited' : '',
+    effective.source === 'default' || effective.source === 'approach' ? 'is-inherited' : '',
     props.enabled ? '' : 'is-disabled',
   ]
     .filter(Boolean)
@@ -177,6 +200,7 @@ export function RoleRow(props: RoleRowProps) {
       </div>
       <div className="agents-cell agents-cell-role" role="cell">
         <span className="agents-role-name">{label}</span>
+        {props.hint ? <span className="agents-role-hint">{props.hint}</span> : null}
       </div>
       <div className="agents-cell agents-cell-profile" id={`${panelId}-profile`} role="cell">
         <ProfileCell {...props} />
@@ -194,10 +218,13 @@ export function RoleRow(props: RoleRowProps) {
           compact
           onChange={props.onChange}
         />
+        {props.inherited && (effective.source === 'default' || effective.source === 'approach') ? (
+          <span className="agents-muted agents-inherited">{props.inherited}</span>
+        ) : null}
       </div>
       <div className="agents-cell agents-cell-source" role="cell">
         <span className="agents-field-label" aria-hidden="true">Source</span>
-        <SourceCell source={effective.source} />
+        <SourceCell source={effective.source} capability={capability} />
       </div>
       <div className="agents-cell agents-cell-actions" role="cell">
         {pinnable ? (
@@ -213,7 +240,7 @@ export function RoleRow(props: RoleRowProps) {
         ) : (
           <span className="agents-slot" aria-hidden="true" />
         )}
-        <IconButton label="Clear override" disabled={effective.source === 'default'} onClick={props.onClear}>
+        <IconButton label="Clear override" disabled={effective.source === 'default' || effective.source === 'approach'} onClick={props.onClear}>
           <TablerIcon name="eraser" />
         </IconButton>
       </div>
@@ -261,12 +288,12 @@ export function CompareRow({ capability, label, a, b, differs, aName, bName, onC
       <div className="agents-cell" role="cell">
         <span className="agents-field-label">A: {aName}</span>
         <span className="agents-a">{roleText(a)}</span>
-        <SourceCell source={a.source} />
+        <SourceCell source={a.source} capability={capability} />
       </div>
       <div className="agents-cell" role="cell">
         <span className="agents-field-label">B: {bName}</span>
         <span className="agents-b">{roleText(b)}</span>
-        <SourceCell source={b.source} />
+        <SourceCell source={b.source} capability={capability} />
         {a.source === 'pin' && b.source === 'pin' ? (
           <span className="agents-muted">pinned — same in all presets</span>
         ) : null}

@@ -37,7 +37,7 @@ const BASE: Manifest = buildManifest(
     baselineBranch: 'main',
     agentProvider: 'codex',
     defaultModel: 'gpt-5.6-sol',
-    approaches: [graphApproach()],
+    approaches: [graphApproach({ enabled: true })],
     processes: processes(),
     agents: {},
     worktreePathDisplay: 'relative',
@@ -55,6 +55,15 @@ describe('preset matrix — group shape', () => {
     for (const row of flat) expect(row.label).toBe(PRESET_CAPABILITY_LABELS[row.capability]);
     // …and every label is a real word, never the raw id.
     for (const row of flat) expect(row.label).not.toBe(row.capability);
+  });
+
+  it('names the planning row for what it is and hints which row the graph planner uses', () => {
+    const rows = Object.fromEntries(buildPresetCapabilityGroups().flatMap((g) => g.rows).map((r) => [r.capability, r]));
+    expect(rows.planning?.label).toBe('Planning sessions');
+    expect(rows.graphExpert?.hint).toBe('Graph expert: graph planner and expert nodes');
+    expect(rows.graphWorker?.hint).toBe('Graph worker / Graph fast: worker / fast nodes');
+    expect(rows.graphFast?.hint).toBe('Graph worker / Graph fast: worker / fast nodes');
+    expect(rows.review?.hint).toBeUndefined();
   });
 
   it('is the §5 Quality / Ticket / Graph-role split, in render order', () => {
@@ -132,6 +141,14 @@ describe('preset matrix — Inherit preview', () => {
     // …and `implementation`, which no process and no profile owns, is the
     // manifest default — the same rung a slot composes over.
     expect(views.implementation.provider).toBe('codex');
+  });
+
+  it('previews the graph role from the first ENABLED graph approach, as the Roles rows do (T1266 fix)', () => {
+    const off = graphApproach({ id: 'off', enabled: false });
+    const on = graphApproach({ id: 'on', enabled: true });
+    const onProfiles = { ...on.graph!.profiles, expert: { provider: 'codex' as const, model: 'gpt-5.6-sol' } };
+    const m: Manifest = { ...BASE, approaches: [off, { ...on, graph: { ...on.graph!, profiles: onProfiles } }] };
+    expect(buildPresetInheritanceViews(m, CATALOG).graphExpert).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol' });
   });
 
   it('carries an effort only when the model advertises it', () => {

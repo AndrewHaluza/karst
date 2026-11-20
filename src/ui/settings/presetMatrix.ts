@@ -31,6 +31,7 @@ import type {
   Manifest,
   PresetCapability,
 } from '../../manifest/types.js';
+import { graphConfigOfApproach } from '../../approaches/graph/graphRoleView.js';
 import { PRESET_CAPABILITIES } from '../../manifest/types.js';
 import {
   PROCESS_KEYS,
@@ -74,10 +75,20 @@ export const PRESET_CAPABILITY_LABELS: Record<PresetCapability, string> = {
   ticketAnalysis: 'Ticket Analysis Agent',
   stallSuggestion: 'Stall Suggestion Agent',
   implementation: 'Implementation',
-  planning: 'Planner',
+  planning: 'Planning sessions',
   graphExpert: 'Graph expert',
   graphWorker: 'Graph worker',
   graphFast: 'Graph fast',
+};
+
+/**
+ * Which launches a graph row controls. The graph planner runs on the expert
+ * profile, so the expert row covers it; `planning` (planning sessions) does not.
+ */
+export const PRESET_CAPABILITY_HINTS: Partial<Record<PresetCapability, string>> = {
+  graphExpert: 'Graph expert: graph planner and expert nodes',
+  graphWorker: 'Graph worker / Graph fast: worker / fast nodes',
+  graphFast: 'Graph worker / Graph fast: worker / fast nodes',
 };
 
 /**
@@ -89,6 +100,8 @@ export const PRESET_CAPABILITY_LABELS: Record<PresetCapability, string> = {
 export interface PresetCapabilityRowView {
   capability: PresetCapability;
   label: string;
+  /** A one-line note on what the row controls, when its name alone misleads. */
+  hint?: string;
 }
 
 /** A §5 group with its rows, in render order — the whole matrix shape. */
@@ -107,10 +120,14 @@ export function buildPresetCapabilityGroups(): PresetCapabilityGroupView[] {
   return PRESET_CAPABILITY_GROUPS.map((group) => ({
     id: group.id,
     label: group.label,
-    rows: group.capabilities.map((capability) => ({
-      capability,
-      label: PRESET_CAPABILITY_LABELS[capability],
-    })),
+    rows: group.capabilities.map((capability) => {
+      const hint = PRESET_CAPABILITY_HINTS[capability];
+      return {
+        capability,
+        label: PRESET_CAPABILITY_LABELS[capability],
+        ...(hint === undefined ? {} : { hint }),
+      };
+    }),
   }));
 }
 
@@ -180,17 +197,15 @@ function graphProfileFor(
   manifest: Manifest,
   role: string,
 ): { provider: AgentProvider; model?: string; effort?: string } | undefined {
-  for (const approach of manifest.approaches ?? []) {
-    const profile = approach.graph?.profiles?.[role];
-    if (profile !== undefined) {
-      return {
-        provider: profile.provider,
-        ...(profile.model === undefined ? {} : { model: profile.model }),
-        ...(profile.effort === undefined ? {} : { effort: profile.effort }),
-      };
-    }
-  }
-  return undefined;
+  // The same approach the Roles rows fall back to (first enabled graph approach), so the
+  // "Inherited" line and the role row never name different approaches.
+  const profile = graphConfigOfApproach(manifest)?.profiles?.[role];
+  if (profile === undefined) return undefined;
+  return {
+    provider: profile.provider,
+    ...(profile.model === undefined ? {} : { model: profile.model }),
+    ...(profile.effort === undefined ? {} : { effort: profile.effort }),
+  };
 }
 
 /**

@@ -105,3 +105,28 @@ describe('HeaderMeta — capability chips', () => {
     expect($('.capModel').textContent).toBe('x/y');
   });
 });
+
+describe('HeaderMeta — graph role chips (T1266)', () => {
+  it('shows expert, worker and fast for a graph ticket, grouped by identity, even when they match implementation', () => {
+    mountHeader(
+      headerState({
+        capabilityIdentity: caps({
+          graphExpert: { provider: 'claude', model: 'claude-opus-5' },
+          graphWorker: { provider: 'claude', model: 'm1' },
+          graphFast: { provider: 'claude', model: 'm1' },
+        }),
+      }),
+    );
+    expect(row().hidden).toBe(false);
+    const chips = [...document.querySelectorAll('#capabilityLabels .capChip')];
+    expect(chips.map((c) => c.getAttribute('title'))).toEqual([
+      'Expert: claude/claude-opus-5',
+      'Worker · Fast: claude/m1',
+    ]);
+  });
+
+  it('shows no graph chip for a classic ticket', () => {
+    mountHeader(headerState({ capabilityIdentity: caps({ graphExpert: null, graphWorker: null, graphFast: null }) }));
+    expect(document.querySelectorAll('#capabilityLabels .capChip')).toHaveLength(0);
+  });
+});

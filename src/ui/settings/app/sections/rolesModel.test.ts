@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Manifest } from '../../../../manifest/types.js';
 import {
-  clearRole, copyRoleFrom, differingRoles, effectiveRole, pinOf, pinRole, rolesUsingProfile, setDefaultRow, setRoleEnabled, setRoleProfile, unpinRole, writeRole,
+  seedRoleValue, clearRole, copyRoleFrom, differingRoles, effectiveRole, pinOf, pinRole, rolesUsingProfile, setDefaultRow, setRoleEnabled, setRoleProfile, unpinRole, writeRole,
 } from './rolesModel.js';
 
 const base = (over: Partial<Manifest> = {}): Manifest =>
@@ -25,6 +25,17 @@ describe('effectiveRole', () => {
   });
   it('falls to the Default row, source "default"', () => {
     expect(effectiveRole(base(), 'A', 'uatFix')).toEqual({ core: 'opencode', model: 'opencode-go/deepseek-v4-flash', effort: '', source: 'default' });
+  });
+  it('a graph role with no slot falls to the approach profile, source "approach"', () => {
+    const m = base({
+      approaches: [
+        { id: 'dyn', label: 'Dyn', enabled: true, graph: { planner: { profile: 'expert', prompt: { artifact: 'x' } }, profiles: { expert: { provider: 'claude', model: 'claude-opus-5', effort: 'high' } }, commands: {}, limits: {} } },
+      ],
+    } as unknown as Partial<Manifest>);
+    expect(effectiveRole(m, 'A', 'graphExpert')).toEqual({ core: 'claude', model: 'claude-opus-5', effort: 'high', source: 'approach' });
+  });
+  it('a graph role with no slot and no approach profile still falls to the Default row', () => {
+    expect(effectiveRole(base(), 'A', 'graphWorker')).toMatchObject({ core: 'opencode', source: 'default' });
   });
   it('a pin beats the preset in every preset, source "pin"', () => {
     const m = pinPlanning(base());
@@ -138,5 +149,20 @@ describe('profile, enabled and default row', () => {
     const next = setDefaultRow(base(), { core: 'codex', model: '', effort: '' });
     expect(next).toMatchObject({ agentProvider: 'codex' });
     expect(next.defaultModel).toBeUndefined();
+  });
+});
+
+describe('seedRoleValue', () => {
+  it('completes a core-only pick from the inherited slot of the same core', () => {
+    const seed = { provider: 'claude', model: 'claude-opus-5', effort: 'high' } as never;
+    expect(seedRoleValue({ core: 'claude', model: '', effort: '' }, seed)).toEqual({ core: 'claude', model: 'claude-opus-5', effort: 'high' });
+  });
+  it('keeps the value when the model is set, the core differs or there is no seed', () => {
+    const seed = { provider: 'claude', model: 'claude-opus-5' } as never;
+    const full = { core: 'claude', model: 'claude-sonnet-5', effort: '' };
+    expect(seedRoleValue(full, seed)).toBe(full);
+    const other = { core: 'codex', model: '', effort: '' };
+    expect(seedRoleValue(other, seed)).toBe(other);
+    expect(seedRoleValue(other, null)).toBe(other);
   });
 });

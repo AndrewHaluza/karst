@@ -29,7 +29,15 @@ export interface MetaSlice {
   readonly blockers: readonly Blocker[];
   /** The reverse edges: tickets and drafts that wait on this ticket. */
   readonly unblocks: readonly Blocker[];
-  readonly capabilities: { readonly implementation: Capability; readonly uatTester: Capability; readonly review: Capability };
+  readonly capabilities: {
+    readonly implementation: Capability;
+    readonly uatTester: Capability;
+    readonly review: Capability;
+    /** The graph roles a graph launch resolves (approach fallback included); absent for a classic ticket. */
+    readonly graphExpert: Capability;
+    readonly graphWorker: Capability;
+    readonly graphFast: Capability;
+  };
   readonly modelsByCore: Readonly<Record<string, ReadonlyArray<{ readonly id: string; readonly label?: string }>>>;
 }
 
@@ -74,7 +82,14 @@ export const selectMeta = (snapshot: DashboardSnapshot): MetaSlice | null => {
     parent: s.parent ? { ref: s.parent.ref } : null,
     blockers: s.blockers || [],
     unblocks: s.unblocks || [],
-    capabilities: { implementation: ids.implementation, uatTester: ids.uatTester, review: ids.review },
+    capabilities: {
+      implementation: ids.implementation,
+      uatTester: ids.uatTester,
+      review: ids.review,
+      graphExpert: ids.graphExpert,
+      graphWorker: ids.graphWorker,
+      graphFast: ids.graphFast,
+    },
     modelsByCore: (s.agentSwitch?.modelsByCore ?? {}) as MetaSlice['modelsByCore'],
   };
 };

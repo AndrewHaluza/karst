@@ -583,6 +583,16 @@ const dashboardVariants = (): Variant[] => [
   })), { skipLayout: true }),
   // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
   variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'], skipLayout: true }),
+  // T1266: a graph ticket's header names expert / worker / fast, the approach fallback included.
+  variant('dashboard', 'graph-header', dashboardScenario('running', 2, (s) => ({
+    ...s,
+    capabilityIdentity: {
+      ...s.capabilityIdentity,
+      graphExpert: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+      graphWorker: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
+      graphFast: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
+    },
+  })), { themes: ['dark', 'light'], skipLayout: true }),
   ...runtimeStripVariants(),
   ...panelStateVariants(),
   // D203: the Servers panel's read-only shared half — one running from the base
@@ -724,6 +734,24 @@ const rolesNarrowVariants = (): Variant[] =>
     route: { section: 'agents', hash: formatAgentsHash(route) },
   }));
 
+/** T1266: the graph role rows (approach fallback + a slot) at the wide, mid-narrow and tight tiers (@ui:UI-R57). */
+const ROLES_GRAPH = [
+  ['roles-graph', 1100, { tab: 'roles', selected: 'graphExpert' }],
+  ['roles-graph-narrow', 630, { tab: 'roles', selected: 'graphExpert' }],
+  ['roles-graph-tight', 320, { tab: 'roles' }],
+] as const;
+
+const rolesGraphVariants = (): Variant[] =>
+  ROLES_GRAPH.map(([id, width, route]) => ({
+    ...variant('settings', id, () => stateMessage(REALISTIC_SETTINGS), {
+      baseline: `settings--${id}`,
+      themes: DARK_ONLY,
+      skipLayout: true,
+      width,
+    }),
+    route: { section: 'agents', hash: formatAgentsHash(route) },
+  }));
+
 const AUTOPILOT_FAULT = 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1';
 const AUTOPILOT_TIERS = [['mid', 800], ['narrow', 480]] as const;
 const MANY_CHECKS = ['lint', 'typecheck', 'test:unit', 'test:integration', 'test:e2e', 'build', 'docs-gate', 'docs-graph', 'mutation-score', 'visual-regression', 'layout-sanity', 'a-very-long-check-name-for-wrapping'];
@@ -828,6 +856,7 @@ const settingsVariants = (): Variant[] => [
   ...autopilotVariants(),
   ...navNarrowVariants(),
   ...rolesNarrowVariants(),
+  ...rolesGraphVariants(),
   qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 }),
   // T1091: the provider select near the bottom edge of a short window.
   {
@@ -1080,7 +1109,27 @@ const ticketFormVariants = (): Variant[] => {
       recentModels: {},
       sessionOpen: false,
     });
+  // T1266: the Dynamic Graph approach is selected, so the settings region lists expert / worker / fast.
+  const graphRoles = () =>
+    withState({
+      ...edit,
+      approaches: [{ id: 'karst-graph-engineering', label: 'Dynamic Graph', description: '', recommended: true, installed: true, enabled: true }],
+      selectedApproach: 'karst-graph-engineering',
+      agentPresetNames: ['fast', 'deep'],
+      selectedAgentPreset: 'deep',
+      defaultAgentPreset: 'fast',
+      graphRoles: {
+        'karst-graph-engineering': {
+          deep: [
+            { role: 'expert', text: 'codex · gpt-5.6-sol · high', source: 'preset' },
+            { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+            { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+          ],
+        },
+      },
+    });
   return [
+    variant('ticketForm', 'graph-roles', graphRoles, { themes: DARK_ONLY }),
     variant('ticketForm', 'populated', () => getCorpus('ticketForm'), { baseline: 'ticketForm', themes: ALL_THEMES }),
     variant('ticketForm', 'empty', () => withState({})),
     variant('ticketForm', 'loading', LOADING),

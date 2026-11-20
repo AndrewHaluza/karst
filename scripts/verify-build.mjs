@@ -89,7 +89,11 @@ const REQUIRED_ARTIFACTS = [
 // Raised 406 → 408 KB when T1241 (the QuotaCard on the Accounts tab, the Active chip and the Cell
 // component) merged with the per-project active account (#1208), each of which fit alone: the
 // merged bundle is 416258 bytes (~1.5 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 408 * 1024;
+// Raised 408 → 417 KB for T1266: Settings reads the graph roles through the shared `graphRoleView`,
+// which bundles the D726 resolver (`resolveGraphNodeProfile`, the preset slot reader and the model
+// and effort gates; ~7 KB minified) instead of a second copy of that logic: bundle is 425174
+// bytes (~1.8 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 417 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

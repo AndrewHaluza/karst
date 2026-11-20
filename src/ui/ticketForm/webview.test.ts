@@ -284,6 +284,7 @@ describe('ticket-form webview.html', () => {
       AP_ROUTES: {},
       post: () => {},
       rerenderBackendPicker: () => {},
+      inheritPresetLabel: () => 'Inherit (active preset)',
       mountAgentPicker: (_root: unknown, opts: { onChange: (v: unknown) => void }) => {
         (sandbox as { capturedOnChange?: (v: unknown) => void }).capturedOnChange = opts.onChange;
         return { setDisabled: () => {} };
@@ -1141,7 +1142,7 @@ describe('ticket-form webview.html — agent preset (shared picker presetMode)',
   it('enables presetMode with the pushed names and the saved preset', () => {
     expect(HTML).toContain('presetMode: {');
     expect(HTML).toContain('names: lastAgentPresetNames');
-    expect(HTML).toContain("inheritLabel: 'Inherit (active preset)'");
+    expect(HTML).toContain('inheritLabel: inheritPresetLabel()');
     expect(HTML).toContain('draft.agentPreset ?? lastSelectedAgentPreset');
   });
 

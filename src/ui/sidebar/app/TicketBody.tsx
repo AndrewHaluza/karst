@@ -108,6 +108,19 @@ function AgentLine({ agent }: { readonly agent: NonNullable<TicketPeek['agent']>
   );
 }
 
+/** The graph roles a graph ticket launches: host-resolved (UI-R31), one line per role with its source. */
+function GraphRoles({ roles }: { readonly roles: NonNullable<TicketRow['graphRoles']> }) {
+  return (
+    <>
+      {roles.map((r) => (
+        <div className="peek-line peek-graph-role" key={r.role} data-graph-role={r.role}>
+          <span className="peek-graph-name">{r.role}</span> {r.text} <span className="peek-graph-source">({r.source})</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
 /** Captured-artifact count (artifact store): a chip that opens the dashboard. Absent at zero. */
 function ArtifactsChip({ row }: { readonly row: TicketRow }) {
   if (!row.artifacts) return null;
@@ -164,6 +177,7 @@ export function TicketBody({ row, sessVerb }: { readonly row: TicketRow; readonl
             {peek.repos && peek.repos.length ? <PeekRepos repos={peek.repos} /> : null}
             {peek.pausedNote ? <div className="peek-line peek-paused">{peek.pausedNote}</div> : null}
             {peek.agent && peek.agent.provider ? <AgentLine agent={peek.agent} /> : null}
+            {row.graphRoles && row.graphRoles.length ? <GraphRoles roles={row.graphRoles} /> : null}
             <WhereLine peek={peek} row={row} />
           </div>
           <ActionStrip peek={peek} row={row} />
