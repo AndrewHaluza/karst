@@ -45,9 +45,9 @@ export interface SandboxLaunchFailureInput {
 /** The CLI's reply to `--resume <id>` when the sandbox's $HOME holds no such conversation. */
 export const STALE_RESUME_PATTERN = /No conversation found with session ID/i;
 
-export const RUN_ON_HOST_ACTION = 'Run on Host';
-export const RETRY_SANDBOX_ACTION = 'Retry Sandbox';
-export const RELAUNCH_ACTION = 'Relaunch';
+export const RUN_ON_HOST_ACTION = 'Run on host';
+export const RETRY_SANDBOX_ACTION = 'Retry sandbox';
+export const RELAUNCH_ACTION = 'Relaunch agent';
 export const SANDBOX_STOPPED_DETAIL = 'sandbox stopped';
 
 export const LAUNCH_FAILURE_FILE = 'sandbox-launch-failure.txt';
@@ -85,7 +85,7 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       input.warn(`[session] ticket ${input.ticketLabel} could not interrupt the run: ${String(e)}`);
     }
     input.markNotStarted(input.ticketId);
-    const message = `Karst: ${input.ticketLabel} ${info.runner} sandbox was stopped. The agent is gone; Relaunch to resume.`;
+    const message = `The ${info.runner} sandbox of ${input.ticketLabel} was stopped, so the agent is gone. ${RELAUNCH_ACTION} to resume.`;
     if (!input.notify.errorActions) {
       input.notify.warn(message);
       return;
@@ -126,7 +126,7 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
             input.warn(`[session] ticket ${input.ticketLabel} could not close the run after the OOM: ${String(e)}`);
           }
           input.markNotStarted(input.ticketId);
-          report(`Karst: ${input.ticketLabel}: ${oom}`);
+          report(`${input.ticketLabel}: ${oom}`);
         }).catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} OOM report failed: ${String(e)}`));
         return;
       }
@@ -156,8 +156,8 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       input.markNotStarted(input.ticketId);
       void input.removeSandbox?.().catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} could not remove the half-built sandbox: ${String(e)}`));
       const base =
-        `Karst: ${input.ticketLabel} ${info.runner} sandbox launch failed (exit ${info.exitCode}). ` +
-        `Retry, or set agentBackends.${input.core}=host. Details in the Karst log.`;
+        `The ${info.runner} sandbox of ${input.ticketLabel} failed to launch (exit ${info.exitCode}). ` +
+        `Retry, or set agentBackends.${input.core}=host. Details are in the Karst log.`;
       // The Docker memory diagnosis only fits a Docker SIGKILL/OOM (exit 137); never other codes or runners.
       if (info.exitCode !== 137 || info.runner !== 'docker') {
         report(base);

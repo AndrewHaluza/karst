@@ -28,23 +28,23 @@ describe('diffSandboxOp', () => {
     const { deps, showDiff, infos } = setup(fakeSbxProcess());
     await expect(diffSandboxOp(deps, target)).resolves.toBe(true);
     expect(showDiff).not.toHaveBeenCalled();
-    expect(infos).toEqual(['Karst: the sandbox of K-7 has no commits beyond the host branch.']);
+    expect(infos).toEqual(['The sandbox of K-7 has no commits beyond the host branch.']);
   });
 
   it('reports a failed diff', async () => {
     const { deps, showDiff, errors } = setup(fakeSbxProcess({ 'git -C /wt/a fetch': { code: 1, stderr: 'net down\n' } }));
     await expect(diffSandboxOp(deps, target)).resolves.toBe(false);
     expect(showDiff).not.toHaveBeenCalled();
-    expect(errors).toEqual([expect.stringMatching(/^Karst: sandbox diff for K-7 failed: git fetch .* failed: net down/)]);
+    expect(errors).toEqual([expect.stringMatching(/^The sandbox diff of K-7 failed: git fetch .* failed: net down/)]);
   });
 
   it('refuses a ticket without a worktree branch or without a sandbox core, running nothing', async () => {
     const a = setup();
     await expect(diffSandboxOp(a.deps, { ...target, worktree: undefined })).resolves.toBe(false);
-    expect(a.errors).toEqual(['Karst: K-7 has no worktree branch to diff against.']);
+    expect(a.errors).toEqual(['The sandbox diff of K-7 did not open. The ticket has no worktree branch.']);
     const b = setup();
     await expect(diffSandboxOp(b.deps, { ...target, core: 'none' })).resolves.toBe(false);
-    expect(b.errors).toEqual(['Karst: K-7 has no sandbox (core none).']);
+    expect(b.errors).toEqual(['The sandbox diff of K-7 did not open. The ticket has no sandbox (core none).']);
     expect(a.proc.calls.length + b.proc.calls.length).toBe(0);
   });
 });

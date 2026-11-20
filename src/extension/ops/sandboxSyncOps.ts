@@ -21,6 +21,7 @@ import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { DIRTY_NOT_BEHIND, stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
+import { reasonText } from '../../model/notifyText.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import type { SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
@@ -104,7 +105,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
     });
     // The fail-closed fallback is never silent (arch:AC-31): say why it runs prompted.
     // A typed account block is not a fallback: the launch asks (or refuses) instead of running on the host.
-    if (backend !== 'host' && out.runner.kind === 'host' && !out.blocked) input.warn?.(`Karst: ${input.ticketLabel} running prompted on host: ${fallbackReason(out.line)}`);
+    if (backend !== 'host' && out.runner.kind === 'host' && !out.blocked) input.warn?.(`${input.ticketLabel} runs prompted on the host: ${fallbackReason(out.line)}`);
     return out;
   };
   return {
@@ -151,28 +152,28 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   const existing = resolved.runner.ensureWritable ? await resolved.runner.hasSandbox?.() : false;
   if (existing) {
     const writable = await resolved.runner.ensureWritable!(input.worktree?.branch ? { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } : undefined);
-    if (!writable.ok) throw new Error(`Karst: ${input.ticketLabel} ${writable.reason}`);
+    if (!writable.ok) throw new Error(`${input.ticketLabel}: ${writable.reason}`);
     const branch = input.worktree?.branch;
     if (branch && resolved.runner.ensureCloneReady) {
       const ready = await resolved.runner.ensureCloneReady(branch);
-      if (!ready.ok) throw new Error(`Karst: ${input.ticketLabel} ${ready.reason}`);
+      if (!ready.ok) throw new Error(`${input.ticketLabel}: ${ready.reason}`);
     }
   }
   // sbx claude through the host proxy: a new key per launch, the policy rule and the key approval (@arch:AC-51).
   // A launch that stops after the key is issued gives the key back: no key outlives a failed launch.
   try {
     const prepared = await resolved.runner.prepareLaunch?.();
-    if (prepared && !prepared.ok) throw new Error(`Karst: ${input.ticketLabel} ${prepared.reason}`);
+    if (prepared && !prepared.ok) throw new Error(`${input.ticketLabel}: ${prepared.reason}`);
     if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
       const synced = await input.syncExisting();
-      if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);
+      if (!synced.ok) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${synced.reason}`);
     }
     const paths = await options.bridgeFor?.(input.ticketId);
     const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
     if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
     const canLink = Boolean(paths && input.worktree);
     // The guest setup of a new sandbox runs in the link step: without a bridge it could not run, and the launch would fail later without a reason.
-    if (!canLink && resolved.runner.guestSetupPending?.()) throw new Error(`Karst: ${input.ticketLabel} the proxy key of a new sandbox needs a bridge and a worktree to be set up; the launch stops`);
+    if (!canLink && resolved.runner.guestSetupPending?.()) throw new Error(`${input.ticketLabel}: the launch stops. The proxy key of a new sandbox needs a bridge and a worktree to be set up.`);
     const link = paths && input.worktree ? transcriptLinkStep(resolved.runner, input, paths.dir, input.worktree.path) : undefined;
     return { options: handed, sandboxed: true, placement, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}), ...(link ? { linkTranscripts: link } : {}), ...(resolved.runner.abortLaunch ? { abortLaunch: () => resolved.runner.abortLaunch!() } : {}) };
   } catch (err) {
@@ -195,7 +196,7 @@ function transcriptLinkStep(runner: SessionRunner, input: BackendSessionInput, b
     // A failed guest setup is no transcript problem: the launch stops with its own reason, before `placeInteractive` fails without one.
     if (!linked.ok && runner.guestSetupPending?.()) {
       await runner.abortLaunch?.().catch(() => undefined);
-      throw new Error(`Karst: ${input.ticketLabel} ${linked.reason}`);
+      throw new Error(`${input.ticketLabel}: ${linked.reason}`);
     }
     if (!linked.ok) input.info(`warning: ${input.ticketLabel}: sandbox transcripts are not linked, token usage will not be counted: ${linked.reason}`);
   };
@@ -218,6 +219,8 @@ function fallbackReason(line: string): string {
 export interface SandboxSyncTarget {
   readonly ticketId: number;
   readonly ticketLabel: string;
+  /** The bare ticket key for a terminal name; `ticketLabel` is the longer toast name. */
+  readonly ticketKey?: string;
   /** The core that ran the session (the ticket's session provider). */
   readonly core: string | null;
   readonly worktree: { readonly path: string; readonly branch: string | null } | undefined;
@@ -269,24 +272,24 @@ export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, tic
  */
 export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<boolean> {
   if (!target.worktree?.branch) {
-    await deps.notify.error(`Karst: ${target.ticketLabel} has no worktree branch to sync into.`);
+    await deps.notify.error(`The sandbox of ${target.ticketLabel} did not sync. The ticket has no worktree branch.`);
     return false;
   }
   const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
   if (!runner?.sync) {
-    await deps.notify.error(`Karst: ${target.ticketLabel} has no sandbox (core ${target.core ?? 'unknown'}).`);
+    await deps.notify.error(`${target.ticketLabel} has no sandbox (core ${target.core ?? 'unknown'}).`);
     return false;
   }
   const probe = await probeOf(runner);
   if (probe.state !== 'present') {
-    await deps.notify.error(probe.state === 'unknown' ? `Karst: sandbox sync for ${target.ticketLabel} failed: ${unknownReason(runner, probe)}` : `Karst: ${target.ticketLabel} has no sandbox to sync.`);
+    await deps.notify.error(probe.state === 'unknown' ? `The sandbox of ${target.ticketLabel} did not sync: ${unknownReason(runner, probe)}` : `${target.ticketLabel} has no sandbox to sync.`);
     return false;
   }
   const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
   if (!result.ok) {
     const rewritten = /not a fast-forward/i.test(result.reason) && (await isRewritten(deps, { path: target.worktree.path, branch: target.worktree.branch, ticketId: target.ticketId }));
     deps.onRewritten?.(target.ticketId, rewritten);
-    await deps.notify.error(`Karst: sandbox sync for ${target.ticketLabel} failed: ${result.reason}${rewritten ? ' The host branch was rewritten: use "Carry sandbox commits onto host branch" on the dashboard.' : ''}`);
+    await deps.notify.error(`The sandbox of ${target.ticketLabel} did not sync: ${result.reason}${rewritten ? ' The host branch was rewritten. Use "Carry sandbox commits onto host branch" on the dashboard.' : ''}`);
     return false;
   }
   deps.onRewritten?.(target.ticketId, false);
@@ -297,15 +300,15 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
     try {
       const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, opts);
       if (!refreshed.ok) {
-        await deps.notify.error(`Karst: sandbox sync for ${target.ticketLabel} failed: ${refreshed.reason}`);
+        await deps.notify.error(`The sandbox of ${target.ticketLabel} did not sync: ${refreshed.reason}`);
         return false;
       }
     } catch (err) {
-      await deps.notify.error(`Karst: sandbox sync for ${target.ticketLabel} failed: sandbox refresh failed: ${message(err)}`);
+      await deps.notify.error(`The sandbox of ${target.ticketLabel} did not sync: the sandbox refresh failed (${reasonText(err)}).`);
       return false;
     }
   }
-  deps.notify.info(`Karst: ${target.ticketLabel} ${result.summary}.`);
+  deps.notify.info(`${target.ticketLabel}: ${result.summary}.`);
   return true;
 }
 
@@ -346,7 +349,7 @@ export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTa
       if (!refreshed.ok && opts.allowDirtyClone && refreshed.reason.startsWith(DIRTY_NOT_BEHIND)) return { ok: true };
       return refreshed.ok ? { ok: true } : { ok: false, reason: refreshed.reason, diverged: /diverged/i.test(refreshed.reason) };
     } catch (err) {
-      return { ok: false, reason: `sandbox refresh failed: ${message(err)}`, diverged: false };
+      return { ok: false, reason: `sandbox refresh failed: ${reasonText(err)}`, diverged: false };
     }
   });
 }
@@ -375,9 +378,9 @@ export function stashSandboxAndUpdate(deps: SandboxSyncDeps, target: SandboxSync
       const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, { stashMessage: stash, ...baseOpts(deps, target.ticketId) });
       if (!refreshed.ok) return { ok: false, reason: refreshed.reason };
     } catch (err) {
-      return { ok: false, reason: `sandbox refresh failed: ${message(err)}` };
+      return { ok: false, reason: `sandbox refresh failed: ${reasonText(err)}` };
     }
-    deps.notify.info(`Karst: ${target.ticketLabel} sandbox updated from the host; any uncommitted sandbox work is in the stash "${stash}" (git stash list, inside the sandbox).`);
+    deps.notify.info(`Updated the sandbox of ${target.ticketLabel} from the host. Uncommitted sandbox work is in the stash "${stash}" (run git stash list inside the sandbox).`);
     return { ok: true, stash };
   });
 }
@@ -409,7 +412,7 @@ async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget, known?
     if (diverged) deps.onRewritten?.(target.ticketId, rewritten);
     return { ok: false, reason: result.reason, diverged, ...(rewritten ? { rewritten } : {}) };
   } catch (err) {
-    return { ok: false, reason: `sandbox sync failed: ${message(err)}`, diverged: false };
+    return { ok: false, reason: `sandbox sync failed: ${reasonText(err)}`, diverged: false };
   }
 }
 
@@ -419,7 +422,7 @@ export async function probeOf(runner: SessionRunner): Promise<SandboxProbe> {
     if (runner.probeSandbox) return await runner.probeSandbox();
     return (await runner.hasSandbox?.()) ? { state: 'present' } : { state: 'absent' };
   } catch (err) {
-    return { state: 'unknown', reason: message(err) };
+    return { state: 'unknown', reason: reasonText(err) };
   }
 }
 
@@ -468,35 +471,35 @@ export interface SandboxDisposeDeps extends SandboxSyncDeps {
 export async function disposeSandboxOp(deps: SandboxDisposeDeps, target: SandboxSyncTarget): Promise<boolean> {
   const bridges = deps.bridges;
   if (!bridges) {
-    await deps.notify.error(`Karst: cannot remove the sandbox for ${target.ticketLabel} yet: the hook endpoint is still starting. Try again.`);
+    await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed. The hook endpoint is still starting. Try again.`);
     return false;
   }
   if (!target.worktree?.branch) {
-    await deps.notify.error(`Karst: ${target.ticketLabel} has no worktree branch.`);
+    await deps.notify.error(`${target.ticketLabel} has no worktree branch.`);
     return false;
   }
   const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
   if (!runner?.dispose) {
-    await deps.notify.error(`Karst: ${target.ticketLabel} has no sandbox (core ${target.core ?? 'unknown'}).`);
+    await deps.notify.error(`${target.ticketLabel} has no sandbox (core ${target.core ?? 'unknown'}).`);
     return false;
   }
   try {
     const removal = await runner.dispose({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
     if (!removal.ok) {
-      await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed (${disposeFailures(removal)}); its evidence dir was kept.`);
+      await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed (${disposeFailures(removal)}). Its evidence folder stays.`);
       return false;
     }
   } catch (err) {
-    await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
+    await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed: ${reasonText(err)}`);
     return false;
   }
   try {
     await bridges.dispose(target.ticketId);
   } catch (err) {
-    await deps.notify.error(`Karst: ${target.ticketLabel} sandbox removed, but its evidence dir was not: ${message(err)}`);
+    await deps.notify.error(`Removed the sandbox of ${target.ticketLabel}. The evidence folder stays: ${reasonText(err)}`);
     return false;
   }
-  deps.notify.info(`Karst: ${target.ticketLabel} sandbox removed.`);
+  deps.notify.info(`Removed the sandbox of ${target.ticketLabel}.`);
   return true;
 }
 
@@ -506,31 +509,28 @@ export async function disposeSandboxOp(deps: SandboxDisposeDeps, target: Sandbox
  */
 export async function rebuildSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<boolean> {
   if (!target.worktree?.branch) {
-    await deps.notify.error(`Karst: ${target.ticketLabel} has no worktree branch.`);
+    await deps.notify.error(`${target.ticketLabel} has no worktree branch.`);
     return false;
   }
   const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
   if (!runner?.rebuild) {
-    await deps.notify.error(`Karst: ${target.ticketLabel} has no rebuildable sandbox (core ${target.core ?? 'unknown'}).`);
+    await deps.notify.error(`${target.ticketLabel} has no sandbox that Karst can rebuild (core ${target.core ?? 'unknown'}).`);
     return false;
   }
   try {
     const removal = await runner.rebuild({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
     if (!removal.ok) {
-      await deps.notify.error(`Karst: rebuilding the sandbox for ${target.ticketLabel} failed (${disposeFailures(removal)}).`);
+      await deps.notify.error(`The sandbox of ${target.ticketLabel} was not rebuilt (${disposeFailures(removal)}).`);
       return false;
     }
   } catch (err) {
-    await deps.notify.error(`Karst: rebuilding the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
+    await deps.notify.error(`The sandbox of ${target.ticketLabel} was not rebuilt: ${reasonText(err)}`);
     return false;
   }
-  deps.notify.info(`Karst: ${target.ticketLabel} sandbox removed; Karst: Open AI Session recreates it from the host branch.`);
+  deps.notify.info(`Removed the sandbox of ${target.ticketLabel}. Open an AI session to recreate it from the host branch.`);
   return true;
 }
 
-function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 function isSbxCore(core: string | null): core is SbxCore {
   return core !== null && (SBX_CORES as readonly string[]).includes(core);

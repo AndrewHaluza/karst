@@ -88,8 +88,8 @@ export async function warnMissingSetup(
   if (!seam.warn) return;
   try {
     const missing = await reposMissingSetup(deps, ticketId);
-    if (missing.length === 1) seam.warn(`Karst: sandbox repo ${missing[0]} has a lockfile but no sandbox.setup, so its clone has no dependencies. Add \`${MISSING_SETUP_HINT}\` to its manifest entry.`);
-    else if (missing.length > 1) seam.warn(`Karst: sandbox repos ${missing.join(', ')} have a lockfile but no sandbox.setup, so their clones have no dependencies. Add \`${MISSING_SETUP_HINT}\` to each manifest entry.`);
+    if (missing.length === 1) seam.warn(`The sandbox repo ${missing[0]} has a lockfile but no sandbox.setup, so its clone has no dependencies. Add \`${MISSING_SETUP_HINT}\` to its manifest entry.`);
+    else if (missing.length > 1) seam.warn(`The sandbox repos ${missing.join(', ')} have a lockfile but no sandbox.setup, so their clones have no dependencies. Add \`${MISSING_SETUP_HINT}\` to each manifest entry.`);
   } catch (err) {
     seam.debug?.(`[sandbox] ticket ${ticketId}: missing-setup probe failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -137,7 +137,7 @@ export async function provisionTicketSandbox(deps: TicketSetupDeps, ticketId: nu
     if (!stateFile) return { ok: true }; // no bridge dir: nowhere outside the mount to record, so no step
     const result = await ensureSandboxSetup(
       {
-        runGate, stateFile, ...(window ? { window } : {}), onCloseFailed: (m: string) => { void deps.notify.error(`Karst: ${deps.ticketLabel(ticketId)} sandbox setup network window did not close, a setup host may stay open to the agent: ${m}`); }, ...(i === 0 && paths ? { logFile: paths.setupLogFile } : {}),
+        runGate, stateFile, ...(window ? { window } : {}), onCloseFailed: (m: string) => { void deps.notify.error(`The network window of the sandbox setup of ${deps.ticketLabel(ticketId)} did not close: ${m}. A setup host may stay open to the agent.`); }, ...(i === 0 && paths ? { logFile: paths.setupLogFile } : {}),
         ...(deps.now ? { now: deps.now } : {}), ...(deps.sleep ? { sleep: deps.sleep } : {}), ...(deps.killContextOf?.(ticketId) ? { killContext: deps.killContextOf(ticketId)! } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
       },
       { key: `${ticketId}:${job.name}`, setup: job.setup, hosts: job.hosts, cwd: job.cwd, ...(opts.signal ? { signal: opts.signal } : {}) },
@@ -161,7 +161,7 @@ export async function clearSetupState(paths: BridgePaths): Promise<void> {
 
 /** One notification; with an action-capable Notify and bound actions it carries the buttons. */
 function notifyFailure(deps: TicketSetupDeps, ticketId: number, reason: string, logFile: string): void {
-  const message = `Karst: ${deps.ticketLabel(ticketId)} sandbox setup failed: ${reason}`;
+  const message = `The sandbox setup of ${deps.ticketLabel(ticketId)} failed: ${reason}`;
   const { actions } = deps;
   if (!deps.notify.errorActions || !actions) {
     void deps.notify.error(message);

@@ -1,4 +1,5 @@
 import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
+import { plural, reasonText } from '../../model/notifyText.js';
 import { SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../../agent/sbx/sbxProcess.js';
 import { isDockerCore } from '../../agent/docker/dockerImage.js';
@@ -71,14 +72,10 @@ function removeRunner(deps: SandboxLifecycleDeps, runner: SessionRunner, ref: Sa
   return removeVerified(deps, () => runner.dispose!(ref), stillListed);
 }
 
-function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 /** Ask before losing sandbox commits; default (dismiss) = cancel. */
 async function confirmUnsynced(deps: SandboxLifecycleDeps, target: SandboxSyncTarget, reason: string): Promise<boolean> {
   const choice = await deps.choose(
-    `Karst: the sandbox of ${target.ticketLabel} has commits that could not be synced (${reason}). Removing it loses them.`,
+    `The sandbox of ${target.ticketLabel} has commits that did not sync (${reason}). Removing the sandbox loses them.`,
     [OPEN_SYNC_DIFF, REMOVE_ANYWAY, CANCEL],
   );
   if (choice === REMOVE_ANYWAY) return true;
@@ -106,7 +103,7 @@ export async function removeSandboxGuarded(
   }
   if (boxes.length === 0) return true;
   if (!deps.owns(target.ticketId)) {
-    deps.notify.warn(`Karst: ${target.ticketLabel} is owned by another window; its sandbox was left alone.`);
+    deps.notify.warn(`The sandbox of ${target.ticketLabel} stays. Another window owns the ticket.`);
     return false;
   }
   for (const box of boxes) {
@@ -115,10 +112,10 @@ export async function removeSandboxGuarded(
   try {
     await deps.bridges?.dispose(target.ticketId);
   } catch (err) {
-    await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
+    await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed: ${reasonText(err)}`);
     return false;
   }
-  deps.notify.info(`Karst: ${target.ticketLabel} sandbox removed.`);
+  deps.notify.info(`Removed the sandbox of ${target.ticketLabel}.`);
   return true;
 }
 
@@ -139,18 +136,18 @@ async function removeOneGuarded(
     if (!runner) return true;
     const synced = opts.skipSync ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
     if (!synced.ok && !(await confirmUnsynced(deps, target, synced.reason))) {
-      deps.notify.warn(`Karst: kept the sandbox of ${target.ticketLabel}.`);
+      deps.notify.warn(`The sandbox of ${target.ticketLabel} stays. You did not confirm the removal.`);
       return false;
     }
     const removal = await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
     if (!removal.ok) {
       // Keep the bridge dir and clone record: the Remove affordance retries against them.
-      await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed (${disposeFailures(removal)}); it and its evidence dir were kept. Remove it again to retry.`);
+      await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed (${disposeFailures(removal)}). The sandbox and its evidence folder stay. Remove the sandbox again to retry.`);
       return false;
     }
     return true;
   } catch (err) {
-    await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
+    await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed: ${reasonText(err)}`);
     return false;
   }
 }
@@ -166,12 +163,12 @@ export async function stopSandboxOp(deps: SandboxLifecycleDeps, target: SandboxS
   if (!runner?.stop) return false;
   const synced = await ensureSandboxSynced(deps, target);
   if (synced.ok) void deps.bridges?.retryPending?.(target.ticketId);
-  else deps.notify.warn(`Karst: ${target.ticketLabel} sandbox not synced before stop: ${synced.reason}`);
+  else deps.notify.warn(`The sandbox of ${target.ticketLabel} did not sync before it stopped: ${synced.reason}`);
   try {
     await runner.stop();
     return true;
   } catch (err) {
-    deps.notify.warn(`Karst: stopping the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
+    deps.notify.warn(`The sandbox of ${target.ticketLabel} did not stop: ${reasonText(err)}`);
     return false;
   }
 }
@@ -313,11 +310,11 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
   const inv = await inventoryOf(deps);
   const orphans = inv.sandboxes.filter((s) => s.invalidCore === true || !liveTicketIds.has(s.ticketId));
   if (orphans.length === 0) {
-    deps.notify.info('Karst: no orphan sandboxes.');
+    deps.notify.info('This project has no orphan sandboxes.');
     return 0;
   }
   const choice = await deps.choose(
-    `Karst: remove ${orphans.length} orphan sandbox(es) of this project? ${orphans.map((o) => o.name).join(', ')}`,
+    `Remove ${plural(orphans.length, 'orphan sandbox', 'orphan sandboxes')} of this project? ${orphans.map((o) => o.name).join(', ')}`,
     [REMOVE_ORPHANS, CANCEL],
   );
   if (choice !== REMOVE_ORPHANS) return 0;
@@ -333,9 +330,9 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
       await deps.bridges?.dispose(o.ticketId);
       removed += 1;
     } catch (err) {
-      deps.notify.warn(`Karst: removing orphan sandbox ${o.name} failed: ${message(err)}`);
+      deps.notify.warn(`The orphan sandbox ${o.name} was not removed: ${reasonText(err)}`);
     }
   }
-  deps.notify.info(`Karst: removed ${removed} orphan sandbox(es).`);
+  deps.notify.info(`Removed ${plural(removed, 'orphan sandbox', 'orphan sandboxes')}.`);
   return removed;
 }

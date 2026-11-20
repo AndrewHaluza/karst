@@ -42,7 +42,7 @@ describe('provisionTicketSandbox', () => {
   it('a window that fails to close is shown to the user and does not fail the setup', async () => {
     const r = rig({ setup: 'npm ci', closeFails: true });
     expect(await provisionTicketSandbox(r.deps, 7)).toEqual({ ok: true });
-    expect(r.errors).toEqual(['Karst: T7 sandbox setup network window did not close, a setup host may stay open to the agent: rm failed']);
+    expect(r.errors).toEqual(['The network window of the sandbox setup of T7 did not close: rm failed. A setup host may stay open to the agent.']);
   });
 
   it('opens the declared setupHosts around the setup, the defaults when none are declared', async () => {
@@ -99,7 +99,7 @@ describe('provisionTicketSandbox', () => {
     const out = await provisionTicketSandbox(r.deps, 7);
     expect(out).toMatchObject({ ok: false });
     expect(r.errors).toHaveLength(1);
-    expect(r.errors[0]).toMatch(/^Karst: T7 sandbox setup failed: sandbox dependencies not provisioned: /);
+    expect(r.errors[0]).toMatch(/^The sandbox setup of T7 failed: sandbox dependencies not provisioned: /);
   });
 
   it('matches a worktree to its repository by repoPath, and runs setup in that worktree', async () => {
@@ -303,14 +303,14 @@ describe('warnMissingSetup', () => {
     await warnMissingSetup({ warn }, rig({ lockfile: true }).deps, 7);
     expect(MISSING_SETUP_HINT).toBe('sandbox.setup: npm ci');
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith('Karst: sandbox repo app has a lockfile but no sandbox.setup, so its clone has no dependencies. Add `sandbox.setup: npm ci` to its manifest entry.');
+    expect(warn).toHaveBeenCalledWith('The sandbox repo app has a lockfile but no sandbox.setup, so its clone has no dependencies. Add `sandbox.setup: npm ci` to its manifest entry.');
   });
   it('uses plural wording for several repos', async () => {
     const warn = vi.fn();
     const r = rig({ lockfile: true });
     const manifest = buildManifest({ a: repo({ repoPath: '/a' }), b: repo({ repoPath: '/b' }) });
     await warnMissingSetup({ warn }, { ...r.deps, manifest: () => manifest, worktrees: () => [{ repo: 'a', path: '/wa' }, { repo: 'b', path: '/wb' }] }, 7);
-    expect(warn).toHaveBeenCalledExactlyOnceWith('Karst: sandbox repos a, b have a lockfile but no sandbox.setup, so their clones have no dependencies. Add `sandbox.setup: npm ci` to each manifest entry.');
+    expect(warn).toHaveBeenCalledExactlyOnceWith('The sandbox repos a, b have a lockfile but no sandbox.setup, so their clones have no dependencies. Add `sandbox.setup: npm ci` to each manifest entry.');
   });
   it('does not warn (or probe) when nothing is missing or there is no warn seam', async () => {
     const warn = vi.fn();

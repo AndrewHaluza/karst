@@ -50,7 +50,7 @@ describe('makeSandboxWiring with no sandbox backend', () => {
   it('orphan cleanup says no backend', async () => {
     const { w, notify } = wiring({ backendOn: () => true });
     await w.cleanupOrphans();
-    expect(notify.info).toHaveBeenCalledWith('Karst: no sandbox backend configured.');
+    expect(notify.info).toHaveBeenCalledWith('This project has no sandbox backend. Set one in the Settings page.');
   });
   it('a missing project root disables the hooks even with a backend', async () => {
     const { w } = wiring({ backendOn: () => true, projectRoot: () => undefined, projectId: () => 1 });
@@ -66,8 +66,8 @@ describe('makeSandboxWiring manual commands', () => {
     await w.sync(id);
     await w.dispose(id);
     expect(notify.error.mock.calls.map((c: unknown[]) => c[0])).toEqual([
-      'Karst: K-1 has no worktree branch to sync into.',
-      'Karst: cannot remove the sandbox for K-1 yet: the hook endpoint is still starting. Try again.',
+      'The sandbox of T1 · K-1 "t" did not sync. The ticket has no worktree branch.',
+      'The sandbox of T1 · K-1 "t" was not removed. The hook endpoint is still starting. Try again.',
     ]);
   });
 });
@@ -112,7 +112,7 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     const { projectId, a, proc, dockerProc } = live();
     const { w, notify } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc });
     await w.shell(a);
-    expect(notify.error).toHaveBeenCalledWith('Karst: cannot open a sandbox shell yet: no terminal is available.');
+    expect(notify.error).toHaveBeenCalledWith('The sandbox shell did not open. No terminal is available.');
   });
 
   it('shell: a running sandbox opens a terminal named after the ticket key', async () => {
@@ -173,7 +173,7 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     const { w, notify } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc: fakeSbxProcess(), dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), pickTicket });
     await expect(w.commandTarget(undefined, 'sync')).resolves.toBeUndefined();
     expect(pickTicket).not.toHaveBeenCalled();
-    expect(notify.info).toHaveBeenCalledWith('Karst: no ticket in this project has a sandbox to sync.');
+    expect(notify.info).toHaveBeenCalledWith('No ticket in this project has a sandbox to sync.');
   });
 
   it('palette command target: one pick per ticket (two sandboxes of one ticket list once) and invalid-core objects are skipped', async () => {
@@ -216,7 +216,7 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
   it('palette command target: no project root → says no backend is configured', async () => {
     const { w, notify } = wiring({ projectRoot: () => undefined });
     await expect(w.commandTarget(undefined, 'remove')).resolves.toBeUndefined();
-    expect(notify.info).toHaveBeenCalledWith('Karst: no sandbox backend is configured for this project.');
+    expect(notify.info).toHaveBeenCalledWith('This project has no sandbox backend. Set one in the Settings page.');
   });
 
   it('reconcile drops only the missing owned sandbox session; logs the orphan', async () => {
@@ -301,7 +301,7 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     const { a } = live();
     const { w, notify } = wiring({ projectRoot: () => undefined });
     await w.sync(a);
-    expect(notify.error).toHaveBeenCalledWith('Karst: A-1 has no worktree branch to sync into.');
+    expect(notify.error).toHaveBeenCalledWith('The sandbox of T2 · A-1 "a" did not sync. The ticket has no worktree branch.');
   });
 });
 
@@ -379,7 +379,7 @@ describe('makeSandboxWiring ownership after the session closed (review fix)', ()
     const { w, a, proc, notify } = setup('running');
     await expect(w.idleSweep()).resolves.toBe(0);
     await expect(w.beforeArchive(a)).resolves.toBe(false);
-    expect(notify.warn).toHaveBeenCalledWith('Karst: O-1 is owned by another window; its sandbox was left alone.');
+    expect(notify.warn).toHaveBeenCalledWith('The sandbox of T2 · O-1 "a" stays. Another window owns the ticket.');
     expect(proc.calls.some((c) => c.args[0] === 'rm' || c.args[0] === 'stop')).toBe(false);
   });
   it('another project\'s ticket is never controlled', async () => {
@@ -665,7 +665,7 @@ describe('makeSandboxWiring dashboard actions (no backend gate)', () => {
     const { w, notify } = wiring({ projectRoot: () => ROOT, proc, dockerProc });
     await w.stop(id);
     expect(proc.calls.some((c) => c.args.join(' ') === `stop ${name}`)).toBe(true);
-    expect(notify.info).toHaveBeenCalledWith('Karst: K-1 sandbox stopped.');
+    expect(notify.info).toHaveBeenCalledWith('Stopped the sandbox of T1 · K-1 "t".');
   });
 
   it('stop leaves another window\'s ticket alone and says nothing', async () => {
@@ -726,7 +726,7 @@ describe('makeSandboxWiring dashboard actions (no backend gate)', () => {
   it('diff reports a missing worktree', async () => {
     const { w, notify } = wiring({ projectRoot: () => ROOT });
     await w.diff(id);
-    expect(notify.error).toHaveBeenCalledWith('Karst: K-1 has no worktree branch to diff against.');
+    expect(notify.error).toHaveBeenCalledWith('The sandbox diff of T1 · K-1 "t" did not open. The ticket has no worktree branch.');
   });
 });
 
@@ -848,7 +848,7 @@ describe('makeSandboxWiring carry (T714)', () => {
   it('carry without a reopen binding reports an error and touches nothing', async () => {
     const { w, notify } = wiring({ backendOn: () => true, projectId: () => 1 });
     await w.carry(id);
-    expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('reopening is not available'));
+    expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('Reopening is not available'));
   });
 });
 

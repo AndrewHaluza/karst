@@ -18,6 +18,7 @@ import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import { rebuildSandboxOp, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
@@ -107,7 +108,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     // The recorded placement is the source of truth: host = no sandbox core at all, so nothing is ever spawned (arch:AC-32).
     const placement = getPlacement(w.store, ticketId);
     const core = placement ? (placement.backend === 'host' ? null : placement.core) : (t.sessionProvider ?? null);
-    return { ticketId, ticketLabel: t.key ?? String(ticketId), core, worktree: readClonedWorktree(w.bridgeDirOf?.(ticketId), worktrees) ?? worktrees[0] };
+    return { ticketId, ticketLabel: ticketToastLabel(w.store, ticketId), ticketKey: t.key ?? String(ticketId), core, worktree: readClonedWorktree(w.bridgeDirOf?.(ticketId), worktrees) ?? worktrees[0] };
   };
   const oauthDeps = (): Pick<SandboxLifecycleDeps, 'oauthGrants' | 'releaseGrant'> => {
     const o = w.sbxOauth?.();
@@ -208,7 +209,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     if (arg !== undefined) return arg;
     const projectRoot = w.projectRoot();
     if (projectRoot === undefined) {
-      w.notify.info('Karst: no sandbox backend is configured for this project.');
+      w.notify.info('This project has no sandbox backend. Set one in the Settings page.');
       return undefined;
     }
     const inv = await inventoryOf({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
@@ -221,7 +222,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       return [{ label: t.key ?? String(t.id), description: `${box.runner} ${box.core} (${box.state}) \u00b7 ${t.title}`, ticketId: t.id }];
     });
     if (picks.length === 0) {
-      w.notify.info(`Karst: no ticket in this project has a sandbox to ${verb}.`);
+      w.notify.info(`No ticket in this project has a sandbox to ${verb}.`);
       return undefined;
     }
     return w.pickTicket?.(picks, `Ticket whose sandbox to ${verb}`);
@@ -237,7 +238,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
   };
   const stopTicket = async (ticketId: number): Promise<void> => {
     const { d, t } = await manualDeps(ticketId);
-    if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
+    if (await stopSandboxOp(d, t)) w.notify.info(`Stopped the sandbox of ${t.ticketLabel}.`);
   };
   /**
    * Only the ticket's OWN runner listing counts. The other runner's failure
@@ -357,7 +358,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     stashUpdate: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
       const r = await stashSandboxAndUpdate({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
-      if (!r.ok) await w.notify.error(`Karst: ${t.ticketLabel} sandbox not updated: ${r.reason}`);
+      if (!r.ok) await w.notify.error(`The sandbox of ${t.ticketLabel} was not updated: ${r.reason}`);
       else {
         for (const k of ['uat', 'review'] as const) if (stageBlock(w.store, ticketId, k)?.kind === 'sandbox-sync') resumeBlockedStage(w.store, ticketId, ticketId, k);
         w.redrive?.(ticketId);
@@ -375,13 +376,13 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     /** Dashboard "Open shell in sandbox": a terminal with a shell inside the RUNNING sandbox; the agent session is untouched. */
     shell: async (ticketId: number): Promise<void> => {
       const openTerminal = w.openTerminal;
-      if (!openTerminal) { await w.notify.error('Karst: cannot open a sandbox shell yet: no terminal is available.'); return; }
+      if (!openTerminal) { await w.notify.error('The sandbox shell did not open. No terminal is available.'); return; }
       const { t, projectRoot } = await manual(ticketId);
       await openSandboxShellOp({ notify: w.notify, projectRoot, openTerminal, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), ...syncTrack }, t);
     },
     carry: async (ticketId: number): Promise<void> => {
       const { d, t } = await manualDeps(ticketId);
-      if (!w.reopen) { await w.notify.error('Karst: cannot carry the sandbox commits yet: reopening is not available.'); return; }
+      if (!w.reopen) { await w.notify.error('The sandbox commits were not carried. Reopening is not available.'); return; }
       const done = await carrySandboxOp({ ...d, ...syncTrack, reopen: w.reopen }, t);
       if (done) rewrittenTickets.delete(ticketId);
     },
@@ -532,7 +533,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     cleanupOrphans: async (): Promise<void> => {
       const d = deps();
-      if (!d || w.projectId() === undefined) { w.notify.info('Karst: no sandbox backend configured.'); return; }
+      if (!d || w.projectId() === undefined) { w.notify.info('This project has no sandbox backend. Set one in the Settings page.'); return; }
       await cleanupOrphansOp(d, new Set(liveTickets().map((t) => t.id)));
     },
     /** Periodic idle sweep; the returned disposable stops it. A failed sweep is logged, never thrown. */

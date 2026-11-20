@@ -35,6 +35,7 @@ import { getTicket } from '../../store/tickets.js';
 import { getPlacement, type TicketPlacement } from '../../store/placement.js';
 import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, onceByMessage, provisionTicketSandbox, ticketCloneReady, warnMissingSetup } from './sandboxSetupOp.js';
 import type { Notify } from './notify.js';
+import { ticketToastLabel } from '../ticketToastLabel.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
 import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
@@ -212,7 +213,7 @@ export async function reattachTicketSandbox(
   const allow = await allowBaselineHostPorts(ctx.runner, baselineHostPorts(manifest, ticketBaselineKeys(store, ticketId)));
   if (!allow.ok) {
     deps.debug?.(`[runtime] ticket ${ticketId}: baseline allow failed: ${allow.reason}`);
-    deps.warn?.(`Karst: ticket ${ticketId} sandbox cannot reach its baseline services on the host: ${allow.reason}`);
+    deps.warn?.(`The sandbox of ${ticketToastLabel(store, ticketId)} cannot reach its baseline services on the host: ${allow.reason}`);
   }
   const runGate = ctx.runner.runGate;
   await warnMissingSetup(deps, { manifest: () => manifest, worktrees: (id) => listWorktreesByTicket(store, id), gateProcess: () => runGate }, ticketId);
@@ -414,7 +415,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       const bridge = deps.bridgeOf?.(ticketId);
       if (bridge) await clearSetupState(bridge);
       const r = await bindings.provision(ticketId);
-      if (r.ok) void input.notify?.info('Karst: sandbox setup finished.');
+      if (r.ok) void input.notify?.info(`The sandbox setup of ${ticketToastLabel(input.store, ticketId)} finished.`);
     },
     /**
      * Background start right after launch/reattach (arch:AC-36): never blocks the session. The sandbox may

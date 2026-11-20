@@ -99,7 +99,7 @@ describe('backendSessionOptions per-ticket opt-out and visible fallback (arch:AC
     const warn = vi.fn();
     const resolve = vi.fn().mockResolvedValue(onHost('sbx not signed in (run `sbx login`)'));
     await backendSessionOptions({ ...base, backends: { claude: 'sbx', codex: 'sbx' }, resolve, warn }).resolveRunner!();
-    expect(warn).toHaveBeenCalledWith('Karst: K-7 running prompted on host: sbx not signed in (run `sbx login`)');
+    expect(warn).toHaveBeenCalledWith('K-7 runs prompted on the host: sbx not signed in (run `sbx login`)');
   });
 
   it('says nothing when the sandbox started, when the project is host, or after an explicit opt-out', async () => {
@@ -163,7 +163,7 @@ describe('syncSandboxOp', () => {
     const r = recorder();
     const proc = fakeSbxProcess(LISTED);
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(true);
-    expect(r.infos).toEqual([expect.stringMatching(/^Karst: K-7 fast-forwarded feat\/x to the sbx sandbox's commits\.$/)]);
+    expect(r.infos).toEqual([expect.stringMatching(/^K-7: fast-forwarded feat\/x to the sbx sandbox's commits\.$/)]);
     expect(r.errors).toEqual([]);
   });
 
@@ -171,7 +171,7 @@ describe('syncSandboxOp', () => {
     const r = recorder();
     const proc = fakeSbxProcess({ ...LISTED, 'git -C /wt/a merge-base': { code: 1 } });
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(false);
-    expect(r.errors).toEqual([expect.stringMatching(/^Karst: sandbox sync for K-7 failed: refused: .*never forced/)]);
+    expect(r.errors).toEqual([expect.stringMatching(/^The sandbox of K-7 did not sync: refused: .*never forced/)]);
     expect(r.infos).toEqual([]);
   });
 
@@ -183,10 +183,10 @@ describe('syncSandboxOp', () => {
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: 'gemini' })).resolves.toBe(false);
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: null })).resolves.toBe(false);
     expect(r.errors).toEqual([
-      'Karst: K-7 has no worktree branch to sync into.',
-      'Karst: K-7 has no worktree branch to sync into.',
-      'Karst: K-7 has no sandbox (core gemini).',
-      'Karst: K-7 has no sandbox (core unknown).',
+      'The sandbox of K-7 did not sync. The ticket has no worktree branch.',
+      'The sandbox of K-7 did not sync. The ticket has no worktree branch.',
+      'K-7 has no sandbox (core gemini).',
+      'K-7 has no sandbox (core unknown).',
     ]);
     expect(proc.calls).toEqual([]);
   });
@@ -233,14 +233,14 @@ describe('syncSandboxOp', () => {
       const proc = wrapped({ code: 4 });
       const { r, d } = deps(proc, () => 'develop');
       await expect(syncSandboxOp(d, target)).resolves.toBe(false);
-      expect(r.errors).toEqual([expect.stringContaining('failed')]);
+      expect(r.errors).toEqual([expect.stringContaining('did not sync')]);
     });
   });
 
   it('a listed-absent sandbox has nothing to sync manually', async () => {
     const r = recorder();
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } }) }, target)).resolves.toBe(false);
-    expect(r.errors).toEqual(['Karst: K-7 has no sandbox to sync.']);
+    expect(r.errors).toEqual(['K-7 has no sandbox to sync.']);
   });
 
   it.each(['opencode', 'opencode2'])('syncs a %s ticket from its docker clone', async (core) => {
@@ -248,7 +248,7 @@ describe('syncSandboxOp', () => {
     const dockerProc = fakeDockerProcess();
     const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', dockerProc, temp, platform: 'darwin' }, { ...target, core })).resolves.toBe(true);
-    expect(r.infos).toEqual(["Karst: K-7 fast-forwarded feat/x to the docker sandbox's commits."]);
+    expect(r.infos).toEqual(["K-7: fast-forwarded feat/x to the docker sandbox's commits."]);
     const bundle = dockerProc.calls.find((c) => c.args.includes('karst-bundle'))!;
     expect(bundle.command).toBe('docker');
     expect(bundle.args.some((a) => new RegExp(`^type=volume,source=karst-[0-9a-f]{8}-7-${core}-repo,target=/work,readonly$`).test(a))).toBe(true);
@@ -290,7 +290,7 @@ describe('disposeSandboxOp', () => {
     expect(order.at(-1)).toBe('bridge 7');
     expect(order).toContain('sbx rm');
     expect(proc.calls.some((c) => c.args.join(' ').includes('-C /wt/a remote remove'))).toBe(true);
-    expect(r.infos).toEqual(['Karst: K-7 sandbox removed.']);
+    expect(r.infos).toEqual(['Removed the sandbox of K-7.']);
     expect(r.errors).toEqual([]);
   });
 
@@ -300,17 +300,17 @@ describe('disposeSandboxOp', () => {
     const bridges = { dispose: vi.fn(async () => {}) };
     await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc, bridges }, target)).resolves.toBe(false);
     expect(bridges.dispose).not.toHaveBeenCalled();
-    expect(r.errors).toEqual(['Karst: removing the sandbox for K-7 failed: sbx gone']);
+    expect(r.errors).toEqual(['The sandbox of K-7 was not removed: sbx gone']);
     const r2 = recorder();
     await disposeSandboxOp({ notify: r2.notify, projectRoot: '/p', proc: { run: () => Promise.reject('x') }, bridges }, target);
-    expect(r2.errors).toEqual(['Karst: removing the sandbox for K-7 failed: x']);
+    expect(r2.errors).toEqual(['The sandbox of K-7 was not removed: x']);
   });
 
   it('a bridge removal failure is reported after the sandbox is gone', async () => {
     const r = recorder();
     const bridges = { dispose: vi.fn(async () => { throw new Error('EBUSY'); }) };
     await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, target)).resolves.toBe(false);
-    expect(r.errors).toEqual(['Karst: K-7 sandbox removed, but its evidence dir was not: EBUSY']);
+    expect(r.errors).toEqual(['Removed the sandbox of K-7. The evidence folder stays: EBUSY']);
   });
 
   it('reports when the bridge registry is not ready, touching nothing', async () => {
@@ -318,7 +318,7 @@ describe('disposeSandboxOp', () => {
     const proc = fakeSbxProcess();
     await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc, bridges: undefined }, target)).resolves.toBe(false);
     expect(proc.calls).toEqual([]);
-    expect(r.errors).toEqual(['Karst: cannot remove the sandbox for K-7 yet: the hook endpoint is still starting. Try again.']);
+    expect(r.errors).toEqual(['The sandbox of K-7 was not removed. The hook endpoint is still starting. Try again.']);
   });
 
   it('refuses a ticket without a worktree or a sandbox core, touching nothing', async () => {
@@ -328,7 +328,7 @@ describe('disposeSandboxOp', () => {
     await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, { ...target, core: 'gemini' })).resolves.toBe(false);
     expect(bridges.dispose).not.toHaveBeenCalled();
     await disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, { ...target, core: null });
-    expect(r.errors).toEqual(['Karst: K-7 has no worktree branch.', 'Karst: K-7 has no sandbox (core gemini).', 'Karst: K-7 has no sandbox (core unknown).']);
+    expect(r.errors).toEqual(['K-7 has no worktree branch.', 'K-7 has no sandbox (core gemini).', 'K-7 has no sandbox (core unknown).']);
   });
 });
 
@@ -520,17 +520,17 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     });
     it('stops the launch with the reason when the prepare fails', async () => {
       const prepare = vi.fn(async () => ({ ok: false as const, reason: 'proxy is down' }));
-      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(prepare), line: 'sbx' }), bridgeFor: async () => paths })).rejects.toThrow('Karst: K-7 proxy is down');
+      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(prepare), line: 'sbx' }), bridgeFor: async () => paths })).rejects.toThrow('K-7: proxy is down');
     });
     it('stops the launch with a reason when a new sandbox needs a guest setup but no bridge gives a link step', async () => {
       const runner = { ...(mk(async () => ({ ok: true as const })) as object), linkTranscripts: async () => ({ ok: true as const }), guestSetupPending: () => true } as never;
-      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }) })).rejects.toThrow(/K-7 .*bridge/);
+      await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'sbx' }) })).rejects.toThrow(/K-7: .*bridge/);
     });
     it('a failed guest setup stops the launch with its own reason, not the transcript warning', async () => {
       const info = vi.fn();
       const runner = { ...(mk(async () => ({ ok: true as const })) as object), linkTranscripts: async () => ({ ok: false as const, reason: 'sbx policy allow failed: denied' }), guestSetupPending: () => true } as never;
       const out = await resolveLaunchBackend({ ...base, info, worktree: { path: '/wt/b', branch: 'k/b' }, resolve: async () => ({ runner, line: 'sbx' }), bridgeFor: async () => paths });
-      await expect(out.linkTranscripts!()).rejects.toThrow(/K-7 .*sbx policy allow failed: denied/);
+      await expect(out.linkTranscripts!()).rejects.toThrow(/K-7: .*sbx policy allow failed: denied/);
       expect(info).not.toHaveBeenCalledWith(expect.stringContaining('token usage'));
     });
     it('hands back the abort of the launch, which gives the key back', async () => {
@@ -626,7 +626,7 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: ok, line: 'sbx' }) });
     expect((ok as { ensureCloneReady: ReturnType<typeof vi.fn> }).ensureCloneReady).toHaveBeenCalledWith('k/b');
     const empty = mk({ ok: false, reason: 'sandbox clone is empty: run Karst: Rebuild Sandbox' });
-    await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: empty, line: 'sbx' }) })).rejects.toThrow(/K-7 sandbox clone is empty.*Rebuild Sandbox/);
+    await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: empty, line: 'sbx' }) })).rejects.toThrow(/K-7: sandbox clone is empty.*Rebuild Sandbox/);
   });
 
   it('gives the proxy key back when the launch stops after prepareLaunch', async () => {
@@ -645,7 +645,7 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(false), line: 'docker' }), syncExisting });
     expect(syncExisting).toHaveBeenCalledTimes(1);
     const blocked = vi.fn(async () => ({ ok: false as const, reason: 'uncommitted work', diverged: false }));
-    await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(true), line: 'docker' }), syncExisting: blocked })).rejects.toThrow(/K-7 sandbox is not in sync.*uncommitted work/);
+    await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(true), line: 'docker' }), syncExisting: blocked })).rejects.toThrow(/K-7: the sandbox is not in sync.*uncommitted work/);
   });
 
   it('reports the placement it resolved: sbx / docker with the runner name, host fallback with its reason', async () => {
