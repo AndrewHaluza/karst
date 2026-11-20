@@ -4,7 +4,7 @@ const m = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock('vscode', () => ({
   window: { showInformationMessage: m.info, showWarningMessage: m.warn, showErrorMessage: m.error },
 }));
-import { ask, bindToastRecorder, showToast, toast } from './toastSeam.js';
+import { ask, bindToastRecorder, recordOnly, showToast, toast } from './toastSeam.js';
 
 describe('toastSeam', () => {
   const order: string[] = [];
@@ -55,5 +55,21 @@ describe('toastSeam', () => {
     await expect(ask.info('Sure?', { modal: true }, 'Yes')).resolves.toBe('Yes');
     expect(record).not.toHaveBeenCalled();
     expect(m.info).toHaveBeenCalledWith('Sure?', { modal: true }, 'Yes');
+  });
+
+  it('recordOnly writes the row and shows no message', () => {
+    const record = vi.fn();
+    bindToastRecorder(record);
+    recordOnly('warn', 'Quiet', 3);
+    expect(record).toHaveBeenCalledWith('warn', 'Quiet', 3);
+    expect(m.info).not.toHaveBeenCalled();
+    expect(m.warn).not.toHaveBeenCalled();
+    expect(m.error).not.toHaveBeenCalled();
+  });
+
+  it('recordOnly does nothing without a recorder and survives a throwing one', () => {
+    expect(() => recordOnly('info', 'early')).not.toThrow();
+    bindToastRecorder(() => { throw new Error('db gone'); });
+    expect(() => recordOnly('error', 'x')).not.toThrow();
   });
 });

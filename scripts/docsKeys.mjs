@@ -52,6 +52,7 @@ export const ARCH_PREFIXES = Object.freeze({
   'docs/arch/github-and-merge.md': 'GH',
   'docs/arch/ids.md': 'IDS',
   'docs/arch/manifest-and-settings.md': 'MS',
+  'docs/arch/notifications.md': 'NTF',
   'docs/arch/autopilot.md': 'AP',
   'docs/arch/prompt-metrics.md': 'PM',
   'docs/arch/stages-and-gates.md': 'SG',
