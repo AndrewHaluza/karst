@@ -30,7 +30,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1193 auto-ci-uat / auto-ci-review / auto-ci-review-confirm, @ui:UI-R57: 3 new Auto-fix step states x 4 width tiers x 1 theme (dark) (+12 screenshots) and their layout runs (+24).
   // T1217 pr-stale-checks, @ui:UI-R57: the stale CI chip, 3 width tiers x 1 theme (dark) (+3 screenshots); layout runs unchanged.
   // T1266 graph-header (a graph ticket's expert / worker / fast chips), @ui:UI-R57: 2 themes (+2 screenshots); skipLayout, so no layout runs.
-  dashboard: { screenshots: 608, layout: 714 },
+  // T1289 inside-uat-gates-skip-reasons (a no-UI-change visual gate and a ticket-disabled gate), @ui:UI-R57: 4 width tiers (+4 screenshots) and their layout runs (+8).
+  dashboard: { screenshots: 612, layout: 722 },
   diffs: { screenshots: 7, layout: 25 },
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },
