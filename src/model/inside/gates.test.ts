@@ -360,6 +360,19 @@ describe("uatProcesses", () => {
       expect(view.status).toBe("note");
     });
 
+    it("keeps the switch visible when a ticket skip and a no-UI-change skip make up the batch", () => {
+      const view = uatProcesses(
+        qualityInput({
+          cell: cell("uat", "bypassed"),
+          gateRuns: [
+            run("uat", "a (web)", null, { runAt: NOW, skipped: true, skipReason: "ticket" }),
+            run("uat", "b (web)", null, { runAt: NOW, skipped: true, skipReason: "no-ui-change" }),
+          ],
+        }),
+      )[0]!;
+      expect(view.detail).toBe("2/2 gates not run — disabled or not applicable");
+    });
+
     it("still says bypassed when every skip is a ticket or Settings switch", () => {
       const view = uatProcesses(
         qualityInput({

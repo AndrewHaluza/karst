@@ -763,9 +763,14 @@ function gatesProcess(
     // the row states the skip plainly instead of the generic nothing-to-run.
     detail = `${batch.length}/${batch.length} gates disabled — stage bypassed`;
   } else if (batch.length > 0 && answered === 0 && allSkipped && !batch.every(isDisableSkip)) {
-    // Every gate was a conditional skip (no UI change, added later): nothing was withdrawn, so
-    // neither "disabled" nor "bypassed" is true. The row reads from what happened.
-    detail = `${batch.length}/${batch.length} gates not run — ${batch.every((r) => r.skipReason === 'no-ui-change') ? 'no UI change' : 'not applicable'}`;
+    // Every gate was skipped, and at least one skip is conditional (no UI change, added later), so
+    // "disabled" and "bypassed" are not true for the whole batch. A mixed batch keeps the switch visible.
+    const why = batch.every((r) => r.skipReason === 'no-ui-change')
+      ? 'no UI change'
+      : batch.some(isDisableSkip)
+        ? 'disabled or not applicable'
+        : 'not applicable';
+    detail = `${batch.length}/${batch.length} gates not run — ${why}`;
   } else if (batch.length > 0 && answered === 0) {
     // Recorded and answered nothing (every gate's script is missing, or every
     // gate is disabled) — the n/m reading stays, never absence.

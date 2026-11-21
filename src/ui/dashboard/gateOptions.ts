@@ -28,6 +28,8 @@ export interface GateRunOrderEntry {
   name: string;
   repo: string;
   disabled: boolean;
+  /** Set for a gate that Settings or the manifest switched off (`enabled: false`); absent = the ticket switch. */
+  disabledBy?: 'config';
 }
 
 export interface GateOptions {
@@ -138,6 +140,9 @@ export function buildGateOptionsLoader(deps: {
               disabled: disabled.uat.includes(gate.name),
             });
           }
+          for (const gate of resolution.configDisabled ?? []) {
+            uatRunOrder.push({ name: gate.name, repo: target.repo, disabled: true, disabledBy: 'config' });
+          }
         }
       }
 
@@ -156,6 +161,9 @@ export function buildGateOptionsLoader(deps: {
               repo: target.repo,
               disabled: disabled.review.includes(gate.name),
             });
+          }
+          for (const gate of resolution.configDisabled ?? []) {
+            reviewRunOrder.push({ name: gate.name, repo: target.repo, disabled: true, disabledBy: 'config' });
           }
         }
       }
