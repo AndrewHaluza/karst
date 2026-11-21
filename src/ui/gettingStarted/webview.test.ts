@@ -35,6 +35,10 @@ describe('gettingStarted webview.html', () => {
     expect(HTML).toContain('<!--KARST_CSP-->');
   });
 
+  it('injects the status palette, so the k-dot marks and the progress fill have a colour', () => {
+    expect(HTML).toContain('<style>/*KARST_PALETTE*/</style>');
+  });
+
   it('the splash header carries the approved full-color mark, not the old graph', () => {
     expect(HTML).toContain('M 96 20');
     expect(HTML).toContain('cx="106.5" cy="111.5" r="26.5"');
