@@ -33,6 +33,18 @@ describe('boundModalDetail', () => {
   it('leaves the pointer line out without a title', () => {
     expect(boundModalDetail('a\nb\nc\nd', LIMITS)).toEqual({ detail: 'a\nb\nc', cut: true });
   });
+  it('keeps a detail exactly at both limits', () => {
+    expect(boundModalDetail('a\nb\nc', LIMITS).cut).toBe(false);
+    expect(boundModalDetail('x'.repeat(40), LIMITS).cut).toBe(false);
+    expect(boundModalDetail('x'.repeat(41), LIMITS).cut).toBe(true);
+    expect(boundModalDetail('a\nb\nc\nd', LIMITS).cut).toBe(true);
+  });
+  it('keeps a last line that ends exactly on the character limit', () => {
+    const r = boundModalDetail(`${'a'.repeat(19)}\n${'b'.repeat(20)}\nc`, LIMITS);
+    expect(r.detail).toBe(`${'a'.repeat(19)}\n${'b'.repeat(20)}`);
+    const r2 = boundModalDetail(`${'a'.repeat(19)}\n${'b'.repeat(21)}\nc`, LIMITS);
+    expect(r2.detail).toBe('a'.repeat(19));
+  });
   it('uses 15 lines and 1000 characters by default', () => {
     expect(MODAL_DETAIL_LIMITS).toEqual({ maxLines: 15, maxChars: 1000 });
   });
@@ -48,11 +60,24 @@ describe('toastSeam', () => {
     bindToastRecorder(undefined);
     m.open.mockReset().mockImplementation(() => { order.push('open'); return Promise.resolve({}); });
     m.showDoc.mockReset().mockResolvedValue(undefined);
-    m.register.mockReset();
   });
 
   describe('ask with a modal detail', () => {
     const long = Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n');
+    it('registers the content provider once (this test runs first: the seam binds it at its first use) and serves the full text by uri', async () => {
+      await ask.warn('One', { modal: true, detail: long });
+      await ask.warn('Two', { modal: true, detail: `${long}\nmore` });
+      expect(m.register).toHaveBeenCalledTimes(1);
+      expect(m.register.mock.calls[0]![0]).toBe('karst-modal-detail');
+      const provider = m.register.mock.calls[0]![1] as { provideTextDocumentContent: (u: { path: string }) => string };
+      const [a, b] = m.open.mock.calls.map((c) => (c[0] as { scheme: string; path: string }));
+      expect(a!.scheme).toBe('karst-modal-detail');
+      expect(a!.path).toMatch(/^\/\d+\/One$/u);
+      expect(b!.path).not.toBe(a!.path);
+      expect(provider.provideTextDocumentContent(a!)).toBe(long);
+      expect(provider.provideTextDocumentContent(b!)).toBe(`${long}\nmore`);
+      expect(provider.provideTextDocumentContent({ path: '/nope' })).toBe('');
+    });
     it('opens the full text once in a tab before the capped modal', async () => {
       await ask.warn('Apply setup?', { modal: true, detail: long }, 'Apply');
       expect(order).toEqual(['open', 'show']);
@@ -62,6 +87,23 @@ describe('toastSeam', () => {
       expect([msg, label, opts.modal]).toEqual(['Apply setup?', 'Apply', true]);
       expect(opts.detail.endsWith('The full text is in the editor tab "Apply setup?".')).toBe(true);
       expect(opts.detail.split('\n')).toHaveLength(16);
+    });
+    it('builds the tab title from the message: one line, no slash, at most 60 characters', async () => {
+      await ask.warn('a//b\n\nc\\d', { modal: true, detail: long });
+      await ask.warn('', { modal: true, detail: long });
+      await ask.warn('\nHi\n', { modal: true, detail: long });
+      await ask.warn('x'.repeat(60), { modal: true, detail: long });
+      await ask.warn('y'.repeat(61), { modal: true, detail: long });
+      const paths = m.open.mock.calls.map((c) => (c[0] as { path: string }).path.replace(/^\/\d+\//u, ''));
+      expect(paths).toEqual(['a b c d', 'Details', 'Hi', 'x'.repeat(60), `${'y'.repeat(59)}…`]);
+    });
+    it('passes a modal with a null or a non-string detail through unchanged', async () => {
+      await ask.warn('A', null);
+      await ask.warn('B', { modal: true });
+      await ask.warn('C', { modal: true, detail: 5 });
+      expect(m.open).not.toHaveBeenCalled();
+      expect(m.warn).toHaveBeenNthCalledWith(1, 'A', null);
+      expect(m.warn).toHaveBeenNthCalledWith(3, 'C', { modal: true, detail: 5 });
     });
     it('opens no tab for a short detail', async () => {
       await ask.info('Sure?', { modal: true, detail: 'short' }, 'Yes');

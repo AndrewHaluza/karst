@@ -72,12 +72,12 @@ export function boundModalDetail(detail: string, limits: ModalDetailLimits, titl
   const kept: string[] = [];
   let chars = 0;
   for (const line of lines) {
-    const next = chars + line.length + (kept.length > 0 ? 1 : 0);
-    if (kept.length >= limits.maxLines || next > limits.maxChars) break;
+    const next = chars + line.length + 1; // the line and its line end
+    if (kept.length >= limits.maxLines || next - 1 > limits.maxChars) break;
     kept.push(line);
     chars = next;
   }
-  if (kept.length === 0) kept.push((lines[0] ?? '').slice(0, limits.maxChars));
+  if (kept.length === 0) kept.push(lines[0]!.slice(0, limits.maxChars));
   if (title !== undefined) kept.push(`The full text is in the editor tab "${title}".`);
   return { detail: kept.join('\n'), cut: true };
 }
@@ -105,18 +105,18 @@ async function openFullDetail(title: string, text: string): Promise<void> {
   await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true });
 }
 
-function modalOptions(rest: Rest): { readonly modal: true; readonly detail: string } | undefined {
+function modalOptions(rest: Rest): { readonly detail: string } | undefined {
   const first = rest[0];
-  if (typeof first !== 'object' || first === null) return undefined;
-  const { modal, detail } = first as { modal?: unknown; detail?: unknown };
-  return modal === true && typeof detail === 'string' ? { modal: true, detail } : undefined;
+  const { modal, detail } = (first ?? {}) as { modal?: unknown; detail?: unknown };
+  return modal === true && typeof detail === 'string' ? { detail } : undefined;
 }
 
 async function askBounded(level: EventLevel, message: string, rest: Rest): Promise<string | undefined> {
   const options = modalOptions(rest);
   const title = modalTitle(message);
-  const bound = options ? boundModalDetail(options.detail, MODAL_DETAIL_LIMITS, title) : undefined;
-  if (!options || !bound?.cut) return SHOW[level](message, ...rest);
+  if (!options) return SHOW[level](message, ...rest);
+  const bound = boundModalDetail(options.detail, MODAL_DETAIL_LIMITS, title);
+  if (!bound.cut) return SHOW[level](message, ...rest);
   let shown = bound.detail;
   try {
     await openFullDetail(title, options.detail);
