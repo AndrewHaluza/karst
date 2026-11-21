@@ -9,19 +9,6 @@
 <style>
   /*KARST_DS_CSS*/
 
-  :root{
-    /* One chevron for every dropdown (native <select> + the custom agent-core
-       trigger) so placement and size read the same. The glyph is Tabler's
-       chevron-down (docs/ui/ICONS.md §4) embedded as a data-URI — the only
-       icon form that reaches a CSS background. A data-URI SVG cannot
-       consume a CSS custom property, so its stroke colour cannot resolve to a
-       --k-* token the way every other colour in this file does — this is the
-       one accepted UI-R04 exception, forced by the encoding, not by choice.
-       Mid-gray shows on light and dark input chrome alike. (Same definition
-       as settings/webview.html — the two pages must not drift.) */
-    --chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6l6 -6' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  }
-
   *{box-sizing:border-box}
   body{
     max-width:var(--k-content-max);margin-inline:auto;
@@ -43,14 +30,10 @@
   label{display:block;font-size:var(--k-text-md);color:var(--k-text-dim);margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
   textarea.k-input{width:100%;resize:vertical;min-height:calc(var(--k-space-8) * 3.2)}
   input.k-input[type=text]{width:100%}
-  /* Drop the OS arrow and paint our own, vertically centered with room reserved
-     via padding — the native arrow's placement drifts between platforms/renderers,
-     and the custom Agent-core trigger below paints the SAME --chevron, so every
-     dropdown on the page reads as one widget (same treatment as settings). */
+  /* Drop the OS arrow; each select sits in a .k-select wrapper with an inline SVG chevron (ST-1), the same glyph
+     the custom Agent-core trigger below shows, so every dropdown on the page reads as one widget. */
   select.k-input{width:100%;appearance:none;-webkit-appearance:none;
-    padding-right:calc(var(--k-space-8) + var(--k-space-4));
-    background-image:var(--chevron);background-repeat:no-repeat;
-    background-position:right var(--k-space-5) center}
+    padding-right:calc(var(--k-space-8) + var(--k-space-4))}
   .row{display:flex;gap:var(--k-space-4);align-items:center;flex-wrap:wrap}
   .row input[type=text]{flex:1}
 
@@ -149,7 +132,7 @@
   .agentselect-trigger:hover{background:var(--vscode-input-background)}
   .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .agentselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
-    background:var(--chevron) no-repeat center/var(--k-space-6)}
+    display:inline-flex;color:var(--k-text-dim)}
   /* The trigger composes .k-btn for its chrome (UI-R07), but it is a DROPDOWN
      control, not an action button — so the primitive's button behaviors are
      suppressed here, the same call designComponents.ts makes for .k-btn--row:
@@ -214,7 +197,8 @@
   .searchfilter{display:flex;align-items:center;gap:var(--k-space-4);margin-top:var(--k-space-3)}
   .searchfilter.hidden{display:none}
   .searchfilter label{margin:var(--k-space-0);flex:none}
-  .searchfilter select{flex:1;min-width:0;width:auto;min-height:var(--k-control-h-lg)}
+  .searchfilter .k-select{flex:1;min-width:0;width:auto}
+  .searchfilter select{min-height:var(--k-control-h-lg)}
   .searchfilter .searchhint{margin:var(--k-space-0);font-size:var(--k-text-xs)}
 
   /* ── Phase 2 sections + gate ─────────────────────────────────────────── */
@@ -392,8 +376,6 @@
   .actionbar .sp{flex:1}
   .actionbar .reason{font-size:var(--k-text-sm);color:var(--k-text-dim)}
   .actionbar .reason:empty{display:none}
-  /* Disabled primary stays readable (A5): dimmed, never near-invisible. */
-  .actionbar .k-btn--primary:disabled{opacity:.7}
   .field{display:block}
   .pullrow{margin:var(--k-space-0)}
 
@@ -547,9 +529,9 @@
       </div>
       <div class="searchfilter hidden" id="searchFilterRow">
         <label for="searchStatus">Status</label>
-        <select class="k-input" id="searchStatus" title="Filters search results">
+        <div class="k-select"><select class="k-input" id="searchStatus" title="Filters search results">
           <option value="to do" selected>to do</option>
-        </select>
+        </select><span class="k-select-chev" aria-hidden="true"></span></div>
       </div>
     </div>
     <div class="row2">
@@ -572,7 +554,7 @@
 
   <div class="setblock typefield" id="typePicker">
     <label for="typeSelect">Type</label>
-    <select class="k-input" id="typeSelect" aria-label="Type" title="Feeds {type} in the branch, commit and PR conventions (Settings → Git)"></select>
+    <div class="k-select"><select class="k-input" id="typeSelect" aria-label="Type" title="Feeds {type} in the branch, commit and PR conventions (Settings → Git)"></select><span class="k-select-chev" aria-hidden="true"></span></div>
   </div>
 
   <div class="setblock">
@@ -590,7 +572,7 @@
     <h2>Agent</h2>
     <div id="agentPicker" class="hidden">
       <label for="agentSelect">Subagent</label>
-      <select class="k-input" id="agentSelect"></select>
+      <div class="k-select"><select class="k-input" id="agentSelect"></select><span class="k-select-chev" aria-hidden="true"></span></div>
       <div class="k-empty hidden" id="agentEmpty"><div class="k-empty-title">No agents available</div>
         <div class="k-empty-hint">Add an agent to the approach, or define one in Settings → Agents.</div></div>
     </div>
@@ -603,7 +585,7 @@
          Shown in create and edit mode when Settings → Agents selects sbx or docker. -->
     <div id="backendPicker" class="hidden">
       <label for="backendSelect">Sandbox backend</label>
-      <select class="k-input" id="backendSelect" aria-label="Sandbox backend" title="Opt out to the host only (prompted, no sandbox); project picks the backend"></select>
+      <div class="k-select"><select class="k-input" id="backendSelect" aria-label="Sandbox backend" title="Opt out to the host only (prompted, no sandbox); project picks the backend"></select><span class="k-select-chev" aria-hidden="true"></span></div>
     </div>
     <!-- Graph roles: shown only when the selected approach has a graph. Host-resolved
          (state.graphRoles), so it names what a graph launch runs, never a webview copy. -->
@@ -663,6 +645,8 @@
   /*KARST_AGENT_PICKER_JS*/
 
   const vscode = acquireVsCodeApi();
+  // Each native select's chevron is an inline SVG (ST-1): the CSP blocks a data: URL image.
+  document.querySelectorAll('.k-select-chev').forEach((chev) => karstIconInto(chev, 'chevron-down', 16));
   const post = (m) => vscode.postMessage(m);
 
   // Window-reload persistence — the ONLY code that calls vscode.getState/setState.

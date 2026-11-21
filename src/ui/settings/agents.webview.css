@@ -232,6 +232,7 @@
 #section-agents .agents-profile-select.has-mark select { padding-inline-start: calc(var(--k-space-3) + 14px + var(--k-space-1)); }
 #section-agents .agents-profile-select.has-mark .k-karst-mark {
   position: absolute; inset-inline-start: var(--k-space-3); top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--k-link);
+  z-index: 1; /* above the positioned .k-select wrapper that follows it in the DOM */
 }
 #section-agents .k-karst-mark { flex: none; }
 

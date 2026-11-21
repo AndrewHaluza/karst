@@ -49,7 +49,7 @@ describe('PresetToolbar', () => {
     expect(screen.getByRole('group', { name: 'Delete preset' })).toBeDefined();
   });
 
-  it('renders active chip without (active) in select options and has aria-description="active"', () => {
+  it('marks the active preset "(active)" in the select and has aria-description="active"', () => {
     render(
       <PresetToolbar
         draft={EMPTY_MANIFEST}
@@ -66,8 +66,7 @@ describe('PresetToolbar', () => {
     const select = screen.getByRole('combobox');
     expect(select.getAttribute('aria-description')).toBe('active');
     const options = screen.getAllByRole('option');
-    expect(options.map((o) => o.textContent)).toEqual(['default-preset', 'secondary']);
-    expect(screen.getAllByText('active').length).toBe(2);
+    expect(options.map((o) => o.textContent)).toEqual(['default-preset (active)', 'secondary']);
     expect(screen.queryByRole('button', { name: 'Activate' })).toBeNull();
   });
 

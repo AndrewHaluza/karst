@@ -35,6 +35,7 @@ import { useHostMutation, type MutationStatus } from '../useHostMutation.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { Help } from '../primitives/Help.js';
+import { TablerIcon } from '../primitives/TablerIcon.js';
 import { useAnchoredPopover } from '../../../shared/useAnchoredPopover.js';
 import { useDismiss } from '../primitives/useDismiss.js';
 import type { ListFetch, StatusFetch } from '../reducer.js';
@@ -607,7 +608,9 @@ function ProviderPicker({
           onClick={() => setOpen((was) => !was)}
         >
           <ProviderBadgeIsland provider={value} />
-          <span className="chev" aria-hidden="true" />
+          <span className="chev" aria-hidden="true">
+            <TablerIcon name="chevron-down" size={12} />
+          </span>
         </button>
         <div
           className={open ? 'provselect-menu' : 'provselect-menu hidden'}

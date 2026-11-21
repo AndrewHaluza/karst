@@ -82,7 +82,7 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Search / filter | `search` | toolbar + facets |
 | Settings | `settings` | toolbar |
 | Expand disclosure | `chevron-right` | rotates 90° when open |
-| Dropdown disclosure | `chevron-down` | the `--chevron` data-URI, §4 |
+| Dropdown disclosure | `chevron-down` | an inline SVG element beside the select (`.k-select-chev`), §4 |
 | Done check (status glyph) | `circle-check` | sidebar compact row |
 | Copy confirmation flash | `check` | transient button feedback |
 | Server rack (empty state) | `server-2` | "no servers running" mark |
@@ -147,10 +147,10 @@ change an icon's **size** (13–15px rows, 16px default) and its **colour**
 `.ib svg` sizing (token-derived) and the sidebar's 13px rows are local
 geometry — exactly the local-vs-shared split of UI-R04/R05.
 
-The one glyph that cannot inherit colour: the **`--chevron` data-URI**
-(settings + ticketForm dropdowns). A CSS background image cannot consume a
-custom property; the Tabler path is embedded with a fixed mid-gray, documented
-at its definition as the accepted exception.
+The dropdown chevron inherits colour like every other icon. The webview CSP
+blocks a `data:` image, so a select gets a real inline SVG element
+(`.k-select-chev`, `pointer-events:none`) beside it, and a custom trigger holds
+the SVG in its `.chev` slot. No `--chevron` variable exists.
 END_DOC_BLOCK: [@ui:ICONS-04]
 
 ## [@ui:ICONS-05] Product-specific exceptions — documented, not silently second-styled
