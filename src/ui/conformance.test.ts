@@ -78,7 +78,9 @@ const LITERAL_BUDGET: Record<string, number> = {
   settings: 0,
   sidebar: 0,
   usage: 0,
-  gettingStarted: 0,
+  // 1, not 0: the Agent setup rows move the tag under the title at the narrow tier (`699px`, NARROW_MAX,
+  // @ui:RD-TIERS) — a media condition cannot read a custom property. Pinned by webview.test.ts.
+  gettingStarted: 1,
   resources: 0,
   serverLogs: 0,
 };
