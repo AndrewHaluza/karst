@@ -2,7 +2,7 @@ import { vi, describe, expect, it } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
-import { manifest, repo, svc } from '../../manifest/fixtures.js';
+import { manifest, repo, svc, uat } from '../../manifest/fixtures.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { buildGateOptionsLoader } from './gateOptions.js';
 
@@ -46,6 +46,33 @@ describe('buildGateOptionsLoader', () => {
       { name: 'e2e', repo: '/repo/api', disabled: true },
     ]);
     expect(options.review.some((o) => o.name === 'lint')).toBe(true);
+  });
+
+  it('marks a gate that Settings switched off in the run order, apart from the ticket switch', async () => {
+    const store = openStore(':memory:');
+    const ticketId = seedScopedTicket(store, '/repo/api');
+    const load = buildGateOptionsLoader({
+      store,
+      manifest: () =>
+        manifest(
+          { api: repo({ repoPath: '/repo/api', service: svc() }) },
+          {
+            uat: uat({
+              gates: [
+                { name: 'test', kind: 'script', script: 'test' },
+                { name: 'e2e', kind: 'script', script: 'e2e', enabled: false },
+              ],
+            }),
+          },
+        ),
+      probe: () => ({ kind: 'ok', scripts: { test: 'vitest', e2e: 'pw' } }),
+      git: changed,
+    });
+    const options = await load(ticketId, new AbortController().signal);
+    expect(options.runOrder?.uat).toEqual([
+      { name: 'test', repo: '/repo/api', disabled: false },
+      { name: 'e2e', repo: '/repo/api', disabled: true, disabledBy: 'config' },
+    ]);
   });
 
   it('lists a disabled gate even though resolution removed it from the run list', async () => {

@@ -381,6 +381,8 @@ END_DOC_BLOCK: [@arch:V121]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
+**v134:** `gate_runs.skip_reason` (`ticket` | `config` | `no-ui-change` | `added-later`, why a skipped row did not run; `@arch:RESULTS`). Additive, NULL = not skipped or a pre-v134 row, no backfill. The renderer reads the key, never the summary prose.
+
 **v133:** `approach_graph_runs.agent_identity` (JSON: the resolved provider, model, effort and source per graph role, snapshotted at bootstrap and replaced by a switch, `@arch:GRAPHRUN`). Additive, NULL = a pre-v133 run that resolves live, no backfill.
 
 **v132:** `gate_runs.wait_ms`, `deliver_gate_results.wait_ms` (ms in slot waits, `@arch:RESULTS`). Additive, NULL = no run or old row.

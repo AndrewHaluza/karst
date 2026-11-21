@@ -100,17 +100,18 @@ export function resolveReviewGates(
   const snapshotCut = partitionNotInSnapshot(ticketCut.kept, snapshotNames, debug);
   const kept = snapshotCut.kept;
   const addedLater = snapshotCut.skipped;
+  const configDisabled = [...configOff].filter(([key]) => !byIdentity.has(key)).map(([, gate]) => gate);
   const skipped = [
     ...ticketCut.skipped,
     ...addedLater,
-    ...[...configOff].filter(([key]) => !byIdentity.has(key)).map(([, gate]) => gate),
+    ...configDisabled,
   ];
   if (kept.length > 0 || skipped.length > 0) {
     debug?.(
       `[gate] review resolve: ${kept.length} kept, ${skipped.length} disabled for this ticket ` +
         `(disabled: ${skipped.map((g) => g.name).join(', ') || 'none'})`,
     );
-    return { kind: 'gates', gates: kept, skipped, ...(addedLater.length > 0 ? { addedLater } : {}) };
+    return { kind: 'gates', gates: kept, skipped, ...(addedLater.length > 0 ? { addedLater } : {}), ...(configDisabled.length > 0 ? { configDisabled } : {}) };
   }
   // Zero gates, nothing disabled, and no unavailability is the malformed-
   // package.json case, which the caller (`stages/review.ts`) turns into a

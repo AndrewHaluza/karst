@@ -6,7 +6,7 @@ import type { Manifest } from '../../manifest/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
-import { listGateRuns, type GateRun, type GateRunInput } from '../../store/gateRuns.js';
+import { listGateRuns, type GateRun, type GateRunInput, type GateSkipReason } from '../../store/gateRuns.js';
 import { listFindings, type Finding } from '../../store/reviewFindings.js';
 import { currentReviewCycleStart, scopeCycleFindings } from '../../model/findingScope.js';
 import { listStageRuns } from '../../store/stageRuns.js';
@@ -25,7 +25,7 @@ import { resolveTicketBaseRef } from '../baseRef.js';
 import { cutGatesWithoutUiChange } from '../gates/uiDiff.js';
 import { NO_UI_CHANGE_REASON } from '../gates/uiScope.js';
 import type { ResolvedGate } from '../gates/resolve.js';
-import { gateAddedReason } from '../gates/disable.js';
+import { gateAddedReason, gateSkipReasonOf } from '../gates/disable.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
@@ -498,6 +498,7 @@ export async function runReview(
     }
 
     const addedLater = new Set(resolution.addedLater ?? []);
+    const configDisabled = new Set(resolution.configDisabled ?? []);
 
     // A branch with no UI path in its diff has nothing for the container-pinned
     // visual/layout gates to say: they record `skipped` (evidence, not a pass).
@@ -513,8 +514,9 @@ export async function runReview(
       : { kept: [...resolution.gates], skipped: [] as ResolvedGate[] };
     resolution = { ...resolution, gates: uiCut.kept, skipped: [...resolution.skipped, ...uiCut.skipped] };
     const uiSkipped = new Set(uiCut.skipped);
+    const skipKey = (gate: ResolvedGate): GateSkipReason => gateSkipReasonOf(gate, { uiSkipped, addedLater, configDisabled });
     const skipReason = (gate: ResolvedGate): string =>
-      uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : addedLater.has(gate) ? gateAddedReason(gate.name) : 'disabled for this ticket';
+      uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : addedLater.has(gate) ? gateAddedReason(gate.name) : configDisabled.has(gate) ? 'disabled in Settings' : 'disabled for this ticket';
 
     // One row per gate the user switched off, carrying the identity it WOULD
     // have been invoked with. No timing and no exit code, because none exists —
@@ -529,6 +531,7 @@ export async function runReview(
         command: gate.command,
         args: gate.args,
         skipped: true,
+        skipReason: skipKey(gate),
         ...(addedLater.has(gate) ? { summary: gateAddedReason(gate.name) } : {}),
       };
       // Kept OUT of `entries`: a skipped gate must not reach `aggregateReview`

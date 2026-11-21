@@ -3109,5 +3109,11 @@ function migrateLocked(db: Database): void {
     if (runCols133.size > 0 && !runCols133.has('agent_identity')) db.exec('ALTER TABLE approach_graph_runs ADD COLUMN agent_identity TEXT');
   }
 
+  if (current < 134) {
+    // v134: `gate_runs.skip_reason` — why a skipped gate row did not run: 'ticket' | 'config' | 'no-ui-change' | 'added-later' (@arch:RESULTS). Additive; NULL = a pre-v134 row or a row that was not skipped (no backfill).
+    const gateCols134 = tableColumns(db, 'gate_runs');
+    if (gateCols134.size > 0 && !gateCols134.has('skip_reason')) db.exec('ALTER TABLE gate_runs ADD COLUMN skip_reason TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

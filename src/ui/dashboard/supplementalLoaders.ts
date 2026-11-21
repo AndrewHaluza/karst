@@ -29,7 +29,7 @@ function sameRunOrder(
   if (!a || !b) return false;
   return (
     a.length === b.length &&
-    a.every((x, i) => x.name === b[i]!.name && x.repo === b[i]!.repo && x.disabled === b[i]!.disabled)
+    a.every((x, i) => x.name === b[i]!.name && x.repo === b[i]!.repo && x.disabled === b[i]!.disabled && x.disabledBy === b[i]!.disabledBy)
   );
 }
 

@@ -1,5 +1,6 @@
 import type { BlockerKind } from '../../model/types.js';
 import type { ResolvedGate } from './resolve.js';
+import type { GateSkipReason } from '../../store/gateRuns.js';
 
 /**
  * A resolved gate list cut by the ticket's own disable list.
@@ -101,6 +102,8 @@ export type StageGateResolution =
       skipped: ResolvedGate[];
       /** The subset of `skipped` that is absent from the ticket's gate snapshot (same objects). Absent = none. */
       addedLater?: ResolvedGate[];
+      /** The subset of `skipped` that the manifest or Settings switched off (`enabled: false`; same objects). Absent = none. */
+      configDisabled?: ResolvedGate[];
     }
   | { kind: 'unavailable'; blocker: BlockerKind; reason: string };
 
@@ -124,4 +127,18 @@ export function applyConfigSwitch<T extends { name: string; enabled?: boolean }>
     return { declared: [], disabledNames: [] };
   }
   return { declared, disabledNames: off.map((g) => g.name) };
+}
+
+/**
+ * The closed skip-reason key of one skipped gate. `uiSkipped` is the cut made for a diff with no UI
+ * path. Every other skipped gate is a ticket switch unless it is in `addedLater` or `configDisabled`.
+ */
+export function gateSkipReasonOf(
+  gate: ResolvedGate,
+  sets: { uiSkipped?: ReadonlySet<ResolvedGate>; addedLater?: ReadonlySet<ResolvedGate>; configDisabled?: ReadonlySet<ResolvedGate> },
+): GateSkipReason {
+  if (sets.uiSkipped?.has(gate)) return 'no-ui-change';
+  if (sets.addedLater?.has(gate)) return 'added-later';
+  if (sets.configDisabled?.has(gate)) return 'config';
+  return 'ticket';
 }

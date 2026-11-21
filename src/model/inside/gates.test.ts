@@ -318,6 +318,86 @@ describe("uatProcesses", () => {
     expect(gates.aggregate).toBeUndefined(); // the pill moved into the description
   });
 
+  describe("skip reason rendering", () => {
+    const skipRow = (reason: GateRun["skipReason"], extra: Partial<GateRun> = {}) => {
+      const views = uatProcesses(
+        qualityInput({
+          cell: cell("uat", "passed"),
+          gateRuns: [
+            run("uat", "test (web)", 0, { runAt: NOW }),
+            run("uat", "visual (web)", null, { runAt: NOW, skipped: true, skipReason: reason, ...extra }),
+          ],
+        }),
+      );
+      return rowsOf(views[0]!).find((r) => r.label === "visual")!;
+    };
+
+    it.each([
+      ["ticket", "skip", "Skipped — disabled for this ticket"],
+      ["config", "skip", "Skipped — disabled in Settings"],
+      ["no-ui-change", "note", "Not run — no UI change in this ticket"],
+      [null, "skip", "Skipped"],
+    ] as const)("reads %s as %s: %s", (reason, status, detail) => {
+      const row = skipRow(reason);
+      expect(row.status).toBe(status);
+      expect(row.detail).toBe(detail);
+    });
+
+    it("reads added-later as a note carrying the recorded reason text", () => {
+      const row = skipRow("added-later", { summary: 'gate "visual" was added after this ticket started' });
+      expect(row.status).toBe("note");
+      expect(row.detail).toBe('gate "visual" was added after this ticket started');
+    });
+
+    it("does not call a batch of no-UI-change skips disabled or bypassed", () => {
+      const view = uatProcesses(
+        qualityInput({
+          cell: cell("uat", "bypassed"),
+          gateRuns: [run("uat", "visual (web)", null, { runAt: NOW, skipped: true, skipReason: "no-ui-change" })],
+        }),
+      )[0]!;
+      expect(view.detail).not.toMatch(/disabled|bypassed/);
+      expect(view.status).toBe("note");
+    });
+
+    it("keeps the switch visible when a ticket skip and a no-UI-change skip make up the batch", () => {
+      const view = uatProcesses(
+        qualityInput({
+          cell: cell("uat", "bypassed"),
+          gateRuns: [
+            run("uat", "a (web)", null, { runAt: NOW, skipped: true, skipReason: "ticket" }),
+            run("uat", "b (web)", null, { runAt: NOW, skipped: true, skipReason: "no-ui-change" }),
+          ],
+        }),
+      )[0]!;
+      expect(view.detail).toBe("2/2 gates not run — disabled or not applicable");
+    });
+
+    it("still says bypassed when every skip is a ticket or Settings switch", () => {
+      const view = uatProcesses(
+        qualityInput({
+          cell: cell("uat", "bypassed"),
+          gateRuns: [
+            run("uat", "a (web)", null, { runAt: NOW, skipped: true, skipReason: "ticket" }),
+            run("uat", "b (web)", null, { runAt: NOW, skipped: true, skipReason: "config" }),
+          ],
+        }),
+      )[0]!;
+      expect(view.detail).toBe("2/2 gates disabled — stage bypassed");
+      expect(view.status).toBe("skip");
+    });
+
+    it("reads a forecast gate switched off in Settings as disabled in Settings", () => {
+      const view = uatProcesses(
+        qualityInput({
+          cell: cell("uat", "pending"),
+          resolvedGates: [{ name: "visual", disabled: true, disabledBy: "config" }],
+        }),
+      )[0]!;
+      expect(rowsOf(view)[0]!.detail).toBe("disabled in Settings");
+    });
+  });
+
   it("leads a recorded-but-unanswered batch as n/m, never absence", () => {
     // An all-note batch ("nothing to run") was RECORDED and answered nothing:
     // "0/1 answered" states that. Absence is reserved for no recorded row.

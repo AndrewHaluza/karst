@@ -111,6 +111,31 @@ function isSettledSelection(
 const NO_RUN_FOR_ATTEMPT_DETAIL = 'no recorded run for this attempt';
 
 /**
+ * How a skipped row reads, chosen by its closed `skipReason` key and never by its prose. Only a
+ * switch the user made (ticket menu, Settings) reads as a skip; a conditional skip is a neutral note.
+ * A NULL key is a pre-v134 row: it keeps the skip status and says no more than it knows.
+ */
+function skipView(run: GateRun): { status: 'skip' | 'note'; detail: string } {
+  switch (run.skipReason) {
+    case 'ticket':
+      return { status: 'skip', detail: 'Skipped — disabled for this ticket' };
+    case 'config':
+      return { status: 'skip', detail: 'Skipped — disabled in Settings' };
+    case 'no-ui-change':
+      return { status: 'note', detail: 'Not run — no UI change in this ticket' };
+    case 'added-later':
+      return { status: 'note', detail: run.summary ?? 'Not run — added after this ticket started' };
+    default:
+      return { status: 'skip', detail: 'Skipped' };
+  }
+}
+
+/** True when a skipped row is a switch someone made (ticket or Settings); a pre-v134 NULL counts, as it was always read so. */
+function isDisableSkip(r: GateRun): boolean {
+  return r.skipped && (r.skipReason === undefined || r.skipReason === null || r.skipReason === 'ticket' || r.skipReason === 'config');
+}
+
+/**
  * One recorded gate as a row.
  *
  * Three distinct outcomes, and the difference between the last two is the whole
@@ -127,10 +152,11 @@ const NO_RUN_FOR_ATTEMPT_DETAIL = 'no recorded run for this attempt';
  */
 function gateOp(run: GateRun): StageOp & { repo: string | null; durationExact: string } {
   if (run.skipped) {
+    const { status, detail } = skipView(run);
     return {
-      status: 'skip',
+      status,
       name: stripRepoDecoration(run.gateName),
-      detail: 'Skipped — disabled by user',
+      detail,
       duration: '',
       repo: run.repo,
       durationExact: '',
@@ -221,6 +247,8 @@ const FINDINGS_EVIDENCE_LIMIT = 6;
 export interface ResolvedGate {
   name: string;
   disabled: boolean;
+  /** Who switched it off: the ticket gate menu (default) or the manifest/Settings (`enabled: false`). */
+  disabledBy?: 'ticket' | 'config';
   repo?: string;
 }
 
@@ -557,7 +585,8 @@ function gatesProcess(
   // Every gate was deliberately disabled for this ticket: the stage advanced
   // `bypassed`, so its gates did NOT pass — the batch is all-skipped and there
   // is no gate outcome to count. Distinct from a parked stage and from green.
-  const bypassed = !settled && shown === 'bypassed';
+  const allSkipped = batch.length > 0 && batch.every((r) => r.skipped);
+  const bypassed = !settled && shown === 'bypassed' && (!allSkipped || batch.every(isDisableSkip));
   // Gates are only the stage's FIRST question. While the stage stays `running`
   // the gates process must not keep drawing a spinner after every gate has
   // answered: the stage is still running because its AI process (the Tester
@@ -645,7 +674,7 @@ function gatesProcess(
         waitingRows.push({
           status: 'skip',
           label: g.name,
-          detail: 'disabled for this ticket',
+          detail: g.disabledBy === 'config' ? 'disabled in Settings' : 'disabled for this ticket',
           ...(repo ? { repo } : {}),
         });
       } else if (!runAssigned) {
@@ -677,7 +706,7 @@ function gatesProcess(
     ? resolved.map((g): EvidenceRow => ({
         status: g.disabled ? 'skip' : 'pending',
         label: g.name,
-        detail: g.disabled ? 'disabled for this ticket' : 'will run when the stage runs',
+        detail: g.disabled ? (g.disabledBy === 'config' ? 'disabled in Settings' : 'disabled for this ticket') : 'will run when the stage runs',
         ...(g.repo ? { repo: repoLabel(g.repo) } : {}),
       }))
     : [...recordedRows, ...waitingRows];
@@ -733,6 +762,15 @@ function gatesProcess(
     // A bypassed stage is never green: every gate was withdrawn by the user, so
     // the row states the skip plainly instead of the generic nothing-to-run.
     detail = `${batch.length}/${batch.length} gates disabled — stage bypassed`;
+  } else if (batch.length > 0 && answered === 0 && allSkipped && !batch.every(isDisableSkip)) {
+    // Every gate was skipped, and at least one skip is conditional (no UI change, added later), so
+    // "disabled" and "bypassed" are not true for the whole batch. A mixed batch keeps the switch visible.
+    const why = batch.every((r) => r.skipReason === 'no-ui-change')
+      ? 'no UI change'
+      : batch.some(isDisableSkip)
+        ? 'disabled or not applicable'
+        : 'not applicable';
+    detail = `${batch.length}/${batch.length} gates not run — ${why}`;
   } else if (batch.length > 0 && answered === 0) {
     // Recorded and answered nothing (every gate's script is missing, or every
     // gate is disabled) — the n/m reading stays, never absence.
@@ -768,7 +806,9 @@ function gatesProcess(
               : 'pending'
         : failed > 0
           ? 'fail'
-          : bypassed
+          : allSkipped && !batch.every(isDisableSkip)
+            ? 'note'
+            : bypassed
             ? // Every gate was disabled by the user: the stage advanced without a
               // gate outcome, so the row reads `skip` — never a green `pass`.
               'skip'
