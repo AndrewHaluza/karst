@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { opencode2Config, resetOpencode2Config } from '../agent/opencode2Binary.js';
 import { basename, dirname, join } from 'node:path';
-import { assertPlanningVerbAllowed, exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
+import type { Manifest } from '../manifest/types.js';
+import { assertPlanningVerbAllowed, checklistVerifyServices, exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
@@ -899,6 +900,14 @@ describe('runCliAsync — setup checklist outside a setup session', () => {
     const report = JSON.parse(out) as { ok: boolean; items: unknown[] };
     expect(report.ok).toBe(false);
     expect(report.items).toHaveLength(9);
+  });
+
+  it('starts no baseline service outside a setup session, and does inside one', () => {
+    const manifest = { id: 'm' } as unknown as Manifest;
+    expect(checklistVerifyServices({}, 'db', manifest)).toBeUndefined();
+    expect(checklistVerifyServices({ KARST_SETUP_SESSION: '' }, 'db', manifest)).toBeUndefined();
+    expect(checklistVerifyServices({ KARST_SETUP_SESSION: 's1' }, 'db', undefined)).toBeUndefined();
+    expect(checklistVerifyServices({ KARST_SETUP_SESSION: 's1' }, 'db', manifest)).toBeTypeOf('function');
   });
 
   it('still refuses a writing setup verb without a setup session', async () => {

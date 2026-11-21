@@ -58,7 +58,7 @@ import { realDiscoveryProbe, runSetupCommand } from './setupCommand.js';
 import { parseSetupChecklistArgs, runSetupChecklistCommand } from './setupChecklist.js';
 import { discoverWorkspace } from '../setup/discover.js';
 import { readSkips, skipStorePath } from '../setup/checklist/skips.js';
-import { isEditTool } from './setupEdit/command.js';
+import { isEditTool, SETUP_SESSION_ENV } from './setupEdit/command.js';
 import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
 import { runMcpCommand } from './mcp/command.js';
@@ -802,6 +802,20 @@ function setupVerifyServices(db: string, manifest: Manifest): NonNullable<Readin
   };
 }
 
+/**
+ * The `services` check of `setup checklist`. `setup verify` starts baseline services and writes the
+ * store, so only a setup session runs it. The host runs `setup checklist` for the Getting Started
+ * panel outside a session; there the check reads "not run" and nothing starts (@arch:CLI-14).
+ */
+export function checklistVerifyServices(
+  env: Readonly<Record<string, string | undefined>>,
+  db: string,
+  manifest: Manifest | undefined,
+): ReadinessInput['verifyServices'] {
+  const inSession = env[SETUP_SESSION_ENV] !== undefined && env[SETUP_SESSION_ENV] !== '';
+  return inSession && manifest ? setupVerifyServices(db, manifest) : undefined;
+}
+
 async function assertMarkerHasWork(
   db: string,
   manifestPath: string,
@@ -891,7 +905,7 @@ export async function runCliAsync(
       probes: nodeReadinessProbes(root),
       manifestDir: root,
       discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
-      verifyServices: loaded?.manifest ? setupVerifyServices(db, loaded.manifest) : undefined,
+      verifyServices: checklistVerifyServices(env, db, loaded?.manifest),
       skips: readSkips(skipStorePath(db, manifestPath)),
       format,
     });
