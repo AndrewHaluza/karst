@@ -32,6 +32,7 @@ See `docs/plans/2026-10-06-opencode2-verification.md`.
 | --- | --- |
 | `live-events-baseline.ndjson` | Full bridge event stream + `data` payloads for a text-only turn (v2 event names; no `session.idle`/`session.status`). |
 | `live-permission-events.ndjson` | Real `permission.asked` / `permission.replied` for action `shell` and `external_directory`; non-interactive runs auto-reject. |
+| `live-form-events.ndjson` | Real `form.created` / `form.replied` / `form.cancelled` for the `question` tool (opencode 2.2.7, `opencode-go/deepseek-v4.1-flash`, recorded 2026-11-21 through a plugin on `ctx.event.subscribe()`). One answered, one cancelled form. `form.created` nests the session id at `data.form.sessionID`; the other two carry it at `data.sessionID`. Full event envelopes; `<scratch>` replaces the directory. |
 | `live-agent-permissions-resolved.json` | Resolved `build` permission rules: project `opencode.json` only, vs project + `OPENCODE_CONFIG_CONTENT` appended after (last-match-wins). |
 | `live-plugin-setup.json` | v2 plugin `setup()` being handed the spawn env (`KARST_OPENCODE_HEADLESS`), plus the `ctx` key surface. |
 | `live-prompt-delivery.json` | Stored user text per delivery path; `stdin` is the only byte-identical headless path. |

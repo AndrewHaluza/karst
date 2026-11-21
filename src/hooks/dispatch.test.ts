@@ -305,6 +305,18 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).agentState).toBe('waiting');
   });
 
+  it('shows an opencode2 question form (form.created) as waiting and its answer as running', () => {
+    const id = ticketAt();
+    dispatchHook(store, { hook_event_name: 'session.status', cwd: WT, session_id: 'ses_e018df296ffejBd0wZtNYITi1T', message: 'busy' });
+    expect(getTicket(store, id).agentState).toBe('running');
+    // The opencode2 bridge posts form.created as permission.asked.
+    dispatchHook(store, { hook_event_name: 'permission.asked', cwd: WT, session_id: 'ses_e018df296ffejBd0wZtNYITi1T' });
+    expect(getTicket(store, id).agentState).toBe('waiting');
+    // form.replied / form.cancelled are posted as permission.replied.
+    dispatchHook(store, { hook_event_name: 'permission.replied', cwd: WT, session_id: 'ses_e018df296ffejBd0wZtNYITi1T' });
+    expect(getTicket(store, id).agentState).toBe('running');
+  });
+
   it('treats an unknown opencode event (session.error) as no-signal', () => {
     const id = ticketAt();
     dispatchHook(store, {

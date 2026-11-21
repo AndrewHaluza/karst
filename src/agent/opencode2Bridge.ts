@@ -36,9 +36,12 @@ import { isFileChannel, pluginFileTransport, sandboxPluginLocation, writeBridgeS
  *  - every failure is swallowed so a dead endpoint or a plugin defect never
  *    throws into the agent's event loop.
  *
- * The `form.*` elicitation subsystem (`form.created`/`replied`/`cancelled`) is
- * deliberately NOT mapped here: no live fixture verified its payloads. See the
- * `default:` branch comment — a follow-up ticket maps it once a fixture exists.
+ * The `form.*` elicitation subsystem (the `question` tool) maps onto the
+ * permission signal: `form.created` posts `permission.asked` ('waiting'),
+ * `form.replied` and `form.cancelled` post `permission.replied` ('running').
+ * Payloads are verified by `__fixtures__/opencode-v2/live-form-events.ndjson`
+ * (opencode 2.2.7): `form.created` nests the session id at `data.form.sessionID`;
+ * `form.replied`/`form.cancelled` carry it flat at `data.sessionID`.
  *
  * MAILBOX-DELIVERY-PER-CORE-PUSH: opencode2 takes the TYPED delivery route. Its
  * `setup(ctx)` carries no SDK client (unlike v1's `{ client }`), so the plugin
@@ -145,8 +148,12 @@ function stringOf(value) {
 
 // Payload extraction. v2 events carry the session id FLAT at data.sessionID
 // (unlike v1, which nested a Session object under properties.info).
+// form.created is the exception: it nests the session id under data.form.
 function extractSessionId(data) {
-  return stringOf(data && data.sessionID);
+  const flat = stringOf(data && data.sessionID);
+  if (flat) return flat;
+  const form = asRecord(data && data.form);
+  return stringOf(form && form.sessionID);
 }
 
 // The launch cwd (the worktree) is the ONE field the hook endpoint keys tickets
@@ -425,12 +432,19 @@ function handleEvent(event, directory) {
     case 'permission.replied':
       post('permission.replied', sessionId, cwd);
       break;
+    // v2's question/elicitation subsystem (live-form-events.ndjson): an open
+    // form is the same "needs the user" signal as a permission request, and
+    // the turn does not end while it is open (no session.idle follows).
+    case 'form.created':
+      post('permission.asked', sessionId, cwd);
+      break;
+    case 'form.replied':
+    case 'form.cancelled':
+      post('permission.replied', sessionId, cwd);
+      break;
     default:
-      // form.created / form.replied / form.cancelled (v2's question/elicitation
-      // subsystem) are deliberately UNMAPPED: no live fixture verified their
-      // payloads. Follow-up: map them to permission.asked/permission.replied
-      // once a recorded fixture exists. session.idle/status/updated do NOT exist
-      // on v2 and are intentionally absent as inputs.
+      // session.idle/status/updated do NOT exist on v2 and are intentionally
+      // absent as inputs.
       break;
   }
 }
