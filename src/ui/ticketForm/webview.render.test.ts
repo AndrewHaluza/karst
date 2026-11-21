@@ -504,3 +504,29 @@ describe('ticket form — graph role preview (T1266)', () => {
     expect(preview(v).classList.contains('hidden')).toBe(true);
   });
 });
+
+describe('ticket form — a title-derived key is not a user-owned key', () => {
+  it('two state pushes in create mode keep the key auto-derived on submit', () => {
+    const v = open(baseState({ title: 'fix: the toasts built in sandbox' }));
+    v.receive({ type: 'state', state: baseState({ title: 'fix: the toasts built in sandbox' }) });
+    expect(v.query<HTMLInputElement>('#ref')!.value).not.toBe('');
+    v.click('#submitBtn');
+    const sub = v.posted.find((m) => (m as { type: string }).type === 'submit') as { keyAutoDerived: boolean };
+    expect(sub.keyAutoDerived).toBe(true);
+  });
+
+  it('two state pushes in create mode keep the key auto-derived on save', () => {
+    const v = open(baseState({ title: 'fix: the toasts built in sandbox' }));
+    v.receive({ type: 'state', state: baseState({ title: 'fix: the toasts built in sandbox' }) });
+    v.click('#saveBtn');
+    const save = v.posted.find((m) => (m as { type: string }).type === 'save') as { keyAutoDerived: boolean };
+    expect(save.keyAutoDerived).toBe(true);
+  });
+
+  it('a key that came from the state stays user-owned', () => {
+    const v = open(baseState({ title: 'T', key: 'P-1', mode: 'edit', ticketId: 1 }));
+    v.click('#submitBtn');
+    const sub = v.posted.find((m) => (m as { type: string }).type === 'submit') as { keyAutoDerived: boolean };
+    expect(sub.keyAutoDerived).toBe(false);
+  });
+});

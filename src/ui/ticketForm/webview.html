@@ -1014,8 +1014,10 @@
     // ticket has no key yet.
     if (!el('ref').value && !formPersist.isDirty('ref')) el('ref').value = state.key || state.sourceRef || '';
     // A key that came from the state is the ticket's real identity — the Title
-    // must never overwrite it on the next keystroke.
-    if (el('ref').value) refTouched = true;
+    // must never overwrite it on the next keystroke. A key this page derived
+    // from the Title is NOT owned: a later push must not mark it as typed, or
+    // Submit would send the derived key as user-owned and skip the collision suffix.
+    if (el('ref').value && (state.key || state.sourceRef)) refTouched = true;
     if (!el('title').value && !formPersist.isDirty('title')) el('title').value = state.title || '';
     // Create mode with a title but no key yet: show what will be persisted.
     if (!refTouched) el('ref').value = deriveKey(el('title').value);

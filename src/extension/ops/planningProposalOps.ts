@@ -183,8 +183,9 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       constraints,
       constraintDocs: deps.archDocs?.(repos, constraints) ?? {},
       warnings: p.warnings,
-      onCreated: (ticketId) =>
-        void guarded('link', id, () => {
+      // Rethrows after the toast: the form must not start a ticket whose draft link failed.
+      onCreated: (ticketId) => {
+        try {
           const current = getProposal(deps.store, id);
           markProposalAccepted(deps.store, id, ticketId, reviewed);
           // The form's ticket is what the human saw and saved, so it is
@@ -196,7 +197,14 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
             );
           }
           refresh(p.sessionId);
-        }),
+        } catch (e) {
+          debug(`proposal ${id}: link failed: ${errText(e)}`);
+          void deps.notify.error(`Couldn't link draft ${formatId('draft', id)}: ${errText(e)}`);
+          deps.onChange();
+          throw e;
+        }
+        deps.onChange();
+      },
     };
   }
 }
