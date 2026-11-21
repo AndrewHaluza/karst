@@ -1,4 +1,4 @@
-import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -10,6 +10,8 @@ import { dirname, join } from 'node:path';
 
 const STATE_DIR = 'karst-gate-state';
 const STATE_VERSION = 1;
+/** The Stryker incremental file of `gate:mutation` (@arch:GATE-MUTATION). It has no version or clean flag, so it is copied as it is. */
+const STRYKER_STATE = 'stryker-lines.json';
 
 /**
  * The merge base the newest CLEAN gate state saw, or null. `gitDir` is the git directory of the ticket worktree.
@@ -58,6 +60,7 @@ export async function seedMergedState(fromGitDir: string, toGitDir: string, base
     return 0;
   }
   await mkdir(to, { recursive: true });
+  await copyFile(join(from, STRYKER_STATE), join(to, STRYKER_STATE)).catch(() => undefined);
   let seeded = 0;
   for (const name of names) {
     try {

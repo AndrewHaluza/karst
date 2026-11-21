@@ -872,6 +872,9 @@ review:
   openChanges: false
   # gates:
   #   - { name: lint,   kind: script,  script: lint }
+  #   # Mutation on the lines the ticket added (@arch:GATE-MUTATION): fails when a mutant survives there.
+  #   # Run it after sast, on the host (a sandbox memory cap is too small), one run at a time.
+  #   - { name: mutation, kind: command, command: npm, args: [run, -s, 'gate:mutation'], sandbox: host, maxConcurrent: 1, timeoutMinutes: 20 }
   #   - { name: clippy, kind: command, command: cargo, args: [clippy, --, -D, warnings] }
   #   - { name: govet,  kind: command, command: go,    args: [vet, ./...], repo: backend }
   # Per-repository gates REPLACE the global list above for that repo only —

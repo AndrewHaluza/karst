@@ -71,6 +71,12 @@
     "arch:ABI-00",
     "arch:ABI-01"
   ],
+  "scripts/mutationChanged.mjs": [
+    "arch:GATE-MUTATION"
+  ],
+  "scripts/mutationLines.mjs": [
+    "arch:GATE-MUTATION"
+  ],
   "scripts/nativeToolchain.mjs": [
     "arch:GATE-CAPABILITY"
   ],
@@ -510,6 +516,9 @@
   "src/extension/ops/baseMovedHost.ts": [
     "arch:GATE-BASE-MOVED",
     "arch:GATE-REPEAT"
+  ],
+  "src/extension/ops/baseMovedHost.ts#seedMergedState": [
+    "arch:GATE-MUTATION"
   ],
   "src/extension/ops/baseMovedRemedy.ts": [
     "arch:GATE-BASE-MOVED-STALE"
