@@ -1116,12 +1116,13 @@ describe('diffs webview design-system conformance', () => {
     expect(script).toContain('aria-label="Copy commit hash" title="Copy commit hash"');
   });
 
-  it('colours the change markers with the GitHub default palette (A green, D red, M amber, R gray)', () => {
+  it('colours the change markers with the GitHub default palette (A green, D red, M amber, R neutral)', () => {
     const style = styleBlock();
     expect(style).toContain('.status-added { color: var(--k-success); }');
     expect(style).toContain('.status-deleted { color: var(--k-danger); }');
-    expect(style).toContain('.status-modified { color: var(--k-warning); }');
-    expect(style).toContain('.status-renamed { color: var(--k-pending); }');
+    // UI-R29: the fill colours (--k-attention 3.12:1 in light, --k-pending 3.63:1 in dark) are not text tones.
+    expect(style).toContain('.status-modified { color: var(--k-attention-fg); }');
+    expect(style).toContain('.status-renamed { color: var(--k-text-dim); }');
   });
 
   it('every title attribute is non-empty, period-free, and no longer than 80 characters (UI-R20)', () => {

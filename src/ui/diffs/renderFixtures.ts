@@ -10,11 +10,12 @@ import { diffsSummaryText, worktreeCountText, type ChangedFileView, type CommitV
  * no fixture control can resolve a real host target.
  */
 
-export type DiffsScenario = 'empty' | 'populated' | 'error' | 'hostile';
+export type DiffsScenario = 'empty' | 'populated' | 'one-commit' | 'error' | 'hostile';
 
 export const DIFFS_SCENARIOS: readonly DiffsScenario[] = [
   'empty',
   'populated',
+  'one-commit',
   'error',
   'hostile',
 ];
@@ -139,6 +140,17 @@ function populatedState(): TicketChangesState {
   return stateFor([repoA, repoB]);
 }
 
+/** One commit and no pending changes: the singular count texts ("1 worktree", "1 commit", "clean"). */
+function oneCommitState(): TicketChangesState {
+  const repo = fixtureWorktree({
+    label: 'fixture-web',
+    branch: 'fixture/one-commit',
+    baseRef: 'main',
+    commits: [fixtureCommit(0, { files: [fixtureFile('src/app.ts')] })],
+  });
+  return stateFor([repo]);
+}
+
 /** One worktree that failed to inspect — the error branch of `worktreeRow`. */
 function errorState(): TicketChangesState {
   const repo = fixtureWorktree({
@@ -172,6 +184,7 @@ function hostileState(): TicketChangesState {
 const BUILDERS: Readonly<Record<DiffsScenario, () => TicketChangesState>> = {
   empty: emptyState,
   populated: populatedState,
+  'one-commit': oneCommitState,
   error: errorState,
   hostile: hostileState,
 };

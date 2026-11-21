@@ -33,10 +33,12 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1289 inside-uat-gates-skip-reasons (a no-UI-change visual gate and a ticket-disabled gate), @ui:UI-R57: 4 width tiers (+4 screenshots) and their layout runs (+8).
   // T1293 inside-uat-gates-wait-and-run (one gate waits for a slot, one runs in the other lane), @ui:UI-R57: 4 width tiers (+4 screenshots) and their layout runs (+8).
   dashboard: { screenshots: 616, layout: 730 },
-  diffs: { screenshots: 7, layout: 25 },
+  // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
+  diffs: { screenshots: 8, layout: 25 },
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },
-  serverLogs: { screenshots: 8, layout: 30 },
+  // T1298 search-one-match (the single-match text from the new host reply pair), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the page adds no layout.
+  serverLogs: { screenshots: 9, layout: 30 },
   // T1228 accounts-sbx-token (the sbx token cell, set and not set), @ui:UI-R57: 3 themes (+3 screenshots); skipLayout, because accounts-several already runs the same route.
   // T1237 the Sandbox tab route (#agents/sandbox), @ui:UI-R57: 3 themes (+3 screenshots) and 6 layout widths (+6); agents-sandbox-error: 1 theme (dark) (+1 screenshot); skipLayout.
   // T1236 nav-narrow variants (the nav chip row on general, agents roles and autopilot at 630 and 320 px), @ui:UI-R57: 6 variants x 1 theme (+6 screenshots); skipLayout, because the route layout runs already cover these routes.
@@ -50,7 +52,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1171 peek-460 / peek-300 variants (every state family's open row), @ui:RD-TIERS: 2 widths x 2 themes (+2 screenshots as counted) and their layout runs (+5).
   // T1213 planning-artifacts variants (Open artifacts icon on a planning row), @ui:RD-TIERS: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1269 Activity pane variants (empty, populated, long content, 460 and 300 tiers), @ui:RD-TIERS: 7 screenshots (3 variants in dark, 2 widths in dark and light) and their layout runs (+15).
-  sidebar: { screenshots: 41, layout: 95 },
+  // T1298 attention-one (the "1 needs you · 1 failed" attention line), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because it opens the populated page.
+  sidebar: { screenshots: 42, layout: 95 },
   // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
   ticketForm: { screenshots: 31, layout: 95 },
   usage: { screenshots: 10, layout: 40 },

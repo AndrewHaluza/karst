@@ -29,6 +29,7 @@ import { usageRenderFixtures } from '../../src/ui/usage/renderFixtures.js';
 import { resourcesRenderFixtures } from '../../src/ui/resources/renderFixtures.js';
 import { gettingStartedRenderFixtures } from '../../src/ui/gettingStarted/renderFixtures.js';
 import { diffsRenderFixtures } from '../../src/ui/diffs/renderFixtures.js';
+import { logMatchText } from '../../src/model/notifyText.js';
 import { WEBVIEW_NAMES, type WebviewName } from '../../src/model/webviewChains.js';
 import { layoutWidthsFor } from '../../src/ui/layout/layoutBreakpoints.js';
 import { formatAgentsHash } from '../../src/ui/settings/app/sections/agentsRoute.js';
@@ -95,6 +96,12 @@ export interface Variant {
   readonly hover?: string;
   /** Dashboard baseline review: selectors clicked in order after load (open the overlay, then reach a state). */
   readonly clicks?: readonly string[];
+  /**
+   * Screenshot-only: a field filled after load (a search box), then the host messages the view expects back.
+   * `replies` simulate the host's answer on the fixture page, whose `postMessage` stub has no host behind it.
+   */
+  readonly fill?: { readonly selector: string; readonly text: string };
+  readonly replies?: readonly unknown[];
 }
 
 export type CaptureMode = 'viewport';
@@ -138,6 +145,8 @@ function variant(
     click?: string;
     hover?: string;
     clicks?: readonly string[];
+    fill?: { readonly selector: string; readonly text: string };
+    replies?: readonly unknown[];
   } = {},
 ): Variant {
   return {
@@ -156,6 +165,8 @@ function variant(
     ...(opts.click === undefined ? {} : { click: opts.click }),
     ...(opts.hover === undefined ? {} : { hover: opts.hover }),
     ...(opts.clicks === undefined ? {} : { clicks: opts.clicks }),
+    ...(opts.fill === undefined ? {} : { fill: opts.fill }),
+    ...(opts.replies === undefined ? {} : { replies: opts.replies }),
   };
 }
 
@@ -878,6 +889,12 @@ const serverLogsVariants = (): Variant[] => {
   const line = (n: number) => `2026-01-01T00:00:${String(n % 60).padStart(2, '0')}.000Z GET /health ${'x'.repeat(n % 7)} 200 3ms\n`;
   return [
     variant('serverLogs', 'populated', () => getCorpus('serverLogs'), { baseline: 'serverLogs', themes: ALL_THEMES }),
+    // T1298: one search hit. The fixture host answers the count with `logMatchText(1)` (the page has no host behind postMessage).
+    variant('serverLogs', 'search-one-match', () => getCorpus('serverLogs'), {
+      skipLayout: true,
+      fill: { selector: '#logsSearch', text: 'timeout' },
+      replies: [{ type: 'server-logs-match-text', seq: 1, text: logMatchText(1) }],
+    }),
     variant('serverLogs', 'empty', () => logs()),
     variant('serverLogs', 'loading', LOADING),
     variant('serverLogs', 'error', () => logs(entry('api', '2026-01-01T00:00:00.000Z \u001b[31merror\u001b[0m ECONNREFUSED 127.0.0.1:5432\n'))),
@@ -912,6 +929,8 @@ const sidebarVariants = (): Variant[] => {
   const s = fixtureCorpus.bind(null, 'sidebar', sidebarRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
   return [
     variant('sidebar', 'populated', () => getCorpus('sidebar'), { baseline: 'sidebar', themes: ALL_THEMES }),
+    // T1298: the attention line at one input and one failed ("1 needs you · 1 failed"); the same state all-sections carries.
+    variant('sidebar', 'attention-one', s('all-sections'), { skipLayout: true }),
     variant('sidebar', 'empty', s('empty')),
     variant('sidebar', 'loading', LOADING),
     variant('sidebar', 'error', s('hostile')),
@@ -994,6 +1013,8 @@ const diffsVariants = (): Variant[] => {
   const d = fixtureCorpus.bind(null, 'diffs', diffsRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
   return [
     variant('diffs', 'populated', () => getCorpus('diffs'), { baseline: 'diffs', themes: ALL_THEMES }),
+    // T1298: one worktree with one commit and no pending changes — the singular count texts.
+    variant('diffs', 'one-commit', d('one-commit'), { skipLayout: true }),
     variant('diffs', 'empty', d('empty')),
     variant('diffs', 'loading', LOADING),
     variant('diffs', 'error', d('error')),
