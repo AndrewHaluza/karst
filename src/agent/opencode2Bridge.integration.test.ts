@@ -266,6 +266,69 @@ describe('generated opencode2 bridge — live event fixtures', () => {
     }
   });
 
+  it('tags the turn-end session.idle with background while a shell is open (live shell fixture)', async () => {
+    const r = await receiver();
+    try {
+      const { done } = await loadBridge(
+        parseNdjson(fixture('live-shell-background-events.ndjson')),
+        '/wt',
+        r.endpointUrl,
+      );
+      await done;
+      await waitFor(() => r.bodies.length >= 4);
+      const session = 'ses_e0138d354ffeexKaJJgm22PvDC';
+      // Turn 1 ends while the long shell is open: flagged. The shell's exit
+      // wakes the session itself (inbox notice -> execution.started), and the
+      // woken turn ends with no shell open: a plain idle. The short foreground
+      // shell closed before its turn ended and never flags anything.
+      expect(r.bodies).toEqual([
+        { hook_event_name: 'session.status', cwd: '/wt', session_id: session, message: 'busy' },
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: session, background: true },
+        { hook_event_name: 'session.status', cwd: '/wt', session_id: session, message: 'busy' },
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: session },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('keeps open shells per session and never flags another session', async () => {
+    const r = await receiver();
+    try {
+      const shellCreated = (id: string, sessionID: string): unknown => ({
+        type: 'shell.created',
+        data: { info: { id, status: 'running', metadata: { sessionID } } },
+      });
+      const succeeded = (sessionID: string): unknown => ({
+        type: 'session.execution.succeeded',
+        data: { sessionID },
+      });
+      const { done } = await loadBridge(
+        [
+          shellCreated('sh_a', 'ses_A'),
+          succeeded('ses_B'),
+          succeeded('ses_A'),
+          { type: 'shell.exited', data: { id: 'sh_unknown', exit: 0, status: 'exited' } },
+          succeeded('ses_A'),
+          { type: 'shell.exited', data: { id: 'sh_a', exit: 0, status: 'exited' } },
+          succeeded('ses_A'),
+        ],
+        '/wt',
+        r.endpointUrl,
+      );
+      await done;
+      await waitFor(() => r.bodies.length >= 4);
+      expect(r.bodies).toEqual([
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_B' },
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_A', background: true },
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_A', background: true },
+        { hook_event_name: 'session.idle', cwd: '/wt', session_id: 'ses_A' },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
   it('maps permission.asked/replied for shell and external_directory', async () => {
     const r = await receiver();
     try {
