@@ -39,6 +39,11 @@ describe('gettingStarted webview.html', () => {
     expect(HTML).toContain('<style>/*KARST_PALETTE*/</style>');
   });
 
+  it('wraps a long unbroken name inside its column', () => {
+    const style = styleBlock();
+    expect(style).toMatch(/\.item-label,\s*\.step-body\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  });
+
   it('the splash header carries the approved full-color mark, not the old graph', () => {
     expect(HTML).toContain('M 96 20');
     expect(HTML).toContain('cx="106.5" cy="111.5" r="26.5"');

@@ -48,6 +48,10 @@
         min-width: var(--k-space-8);
         color: var(--k-link);
       }
+      /* Long unbroken names (a repo path, a hash) wrap inside the column, never widen the page. */
+      .item-label, .step-body { min-width: 0; overflow-wrap: anywhere; }
+      .item-label { flex: 1 1 auto; }
+      .detail { overflow-wrap: anywhere; }
       .step-body { flex: 1; }
       .step-desc { font-size: var(--k-text-sm); color: var(--k-text-dim); }
       .section-desc {
@@ -163,6 +167,7 @@
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);

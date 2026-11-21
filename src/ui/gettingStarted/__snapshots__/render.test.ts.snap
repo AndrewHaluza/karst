@@ -25,7 +25,7 @@ exports[`gettingStarted render > agent-checking > snapshot (was: full document r
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -416,6 +416,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -601,7 +602,7 @@ exports[`gettingStarted render > agent-done > snapshot (was: full document rende
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 2</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 3</span></div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 2</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 3</span></div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -992,6 +993,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -1177,7 +1179,7 @@ exports[`gettingStarted render > agent-error > snapshot (was: full document rend
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -1568,6 +1570,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -1753,7 +1756,7 @@ exports[`gettingStarted render > agent-no-manifest > snapshot (was: full documen
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 1</span></div><div class="detail">Detail for step 1</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 1</span></div><div class="detail">Detail for step 1</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -2144,6 +2147,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -2329,7 +2333,7 @@ exports[`gettingStarted render > agent-open > snapshot (was: full document rende
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -2720,6 +2724,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -2905,7 +2910,7 @@ exports[`gettingStarted render > complete > snapshot (was: full document render)
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 2</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 3</span></div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 2</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 3</span></div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -3296,6 +3301,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -3872,6 +3878,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -4057,7 +4064,7 @@ exports[`gettingStarted render > fresh > snapshot (was: full document render) 1`
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 1</span></div><div class="detail">Detail for step 1</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 1</span></div><div class="detail">Detail for step 1</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -4448,6 +4455,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -4633,7 +4641,7 @@ exports[`gettingStarted render > hostile > snapshot (was: full document render) 
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>&lt;script&gt;alert(1)&lt;/script&gt;</span></div><div class="detail">fixture:&lt;script&gt;&amp;src/main.ts</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>A &amp; B "quoted" &lt;b&gt;</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</span></div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">&lt;script&gt;alert(1)&lt;/script&gt;</span></div><div class="detail">fixture:&lt;script&gt;&amp;src/main.ts</div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">A &amp; B "quoted" &lt;b&gt;</span></div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</span></div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -5024,6 +5032,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
@@ -5209,7 +5218,7 @@ exports[`gettingStarted render > partial > snapshot (was: full document render) 
 
     <section>
       <h2>Setup checklist</h2>
-      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span>Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span>Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
+      <ul id="checklist"><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 1</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li><div class="item-head"><span class="k-dot k-dot--passed" role="img" aria-label="Done"></span><span class="item-label">Setup step 3</span></div></li><li><div class="item-head"><span class="k-dot k-dot--failed" role="img" aria-label="Not done"></span><span class="item-label">Setup step 4</span></div><div class="detail">Detail for step 4</div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -5600,6 +5609,7 @@ function karstIconInto(el, name, size, cls) {
           dot.setAttribute('role', 'img');
           dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
+          label.className = 'item-label';
           label.textContent = it.label;
           head.append(dot, label);
           li.append(head);
