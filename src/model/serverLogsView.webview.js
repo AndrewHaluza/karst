@@ -232,6 +232,7 @@ window.createServerLogsView = function (opts) {
   var currentRunOnly = false;
   var loading = false;
   var matchIndex = 0;
+  var matchSeq = 0;
   var nextSeq = 0;
 
   function doc() { return typeof document === 'undefined' ? null : document; }
@@ -345,7 +346,15 @@ window.createServerLogsView = function (opts) {
     var el = doc() ? doc().getElementById('logsMatches') : null;
     if (!el) return;
     if (!hasQuery()) { el.textContent = ''; return; }
-    el.textContent = count === 0 ? 'no matches' : count + ' matches';
+    matchSeq += 1;
+    post({ type: 'server-logs-match-count', count: count, seq: matchSeq });
+  }
+
+  /** The host's finished match text (@arch:NTF-07); a stale answer is dropped. */
+  function handleMatchText(seq, text) {
+    if (seq !== matchSeq || !hasQuery()) return;
+    var el = doc() ? doc().getElementById('logsMatches') : null;
+    if (el) el.textContent = typeof text === 'string' ? text : '';
   }
 
   /** Wrap every case-insensitive occurrence of the query in a `<mark>`. */
@@ -511,6 +520,7 @@ window.createServerLogsView = function (opts) {
     currentRunOnly = false;
     loading = false;
     matchIndex = 0;
+    matchSeq = 0;
     nextSeq = 0;
     if (onClose) onClose();
     else post({ type: 'server-logs-close' });
@@ -560,6 +570,7 @@ window.createServerLogsView = function (opts) {
     clear: clear,
     handleInitial: handleInitial,
     handleOutput: handleOutput,
+    handleMatchText: handleMatchText,
     render: render,
     focusSearch: focusSearch,
   };

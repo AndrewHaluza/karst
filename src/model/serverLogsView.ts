@@ -10,6 +10,7 @@
  *   view.open();
  *   view.handleInitial(servers);       // the `server-logs` answer
  *   view.handleOutput(service, text);  // a `server-log-output` chunk
+ *   view.handleMatchText(seq, text);   // a `server-logs-match-text` answer
  *   view.clear();                      // drop the rendered lines, keep tailing
  *   view.close();                      // hide the surface
  *

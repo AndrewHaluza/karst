@@ -230,7 +230,7 @@ in the Tickets header offers single-select presets (All, Needs attention =
 `input`+`failed`, In progress, Done, Archived). A preset is a facet selection, so
 the host protocol is unchanged: the view posts `toggle-facet` `all` (reset) and
 then each facet. A selection no preset names (only reachable from an old
-persisted state) shows the dot and no checked item. "N need you · M blocked" sits
+persisted state) shows the dot and no checked item. "N need you · M failed" ("1 needs you" for one input; a zero part is hidden) sits
 under the Tickets header on All when a count is above zero and applies Needs
 attention. Presets affect Tickets only: `state.planning` now always carries live
 and archived sessions and the Planning pane filters archived ones with its toggle.

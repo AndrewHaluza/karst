@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { StaleDiffTargetError, type DiffTarget } from './git.js';
 import type { ChangesHostMessage } from './messages.js';
 import { TicketChangesManager, type ChangesPanel, type ChangesPanelHost } from './panel.js';
-import type { TicketChangesSnapshot, TicketChangesState } from './snapshot.js';
+import { diffsSummaryText, worktreeCountText, type TicketChangesSnapshot, type TicketChangesState } from './snapshot.js';
 
 class FakePanel implements ChangesPanel {
   revealed = 0;
@@ -55,6 +55,7 @@ function snapshot(ticketId: number, changeId: string, diffTarget: DiffTarget): T
     worktreeCount: 1,
     commitCount: 0,
     pendingCount: 1,
+    summaryText: diffsSummaryText(1, 0, 1),
     worktrees: [{
       label: 'Repository',
       branch: 'ticket/changes',
@@ -64,6 +65,7 @@ function snapshot(ticketId: number, changeId: string, diffTarget: DiffTarget): T
       unstaged: [],
       untracked: [],
       error: null,
+      countText: worktreeCountText(0, 1),
     }],
   };
   return { state, targets: new Map([[changeId, diffTarget]]) };

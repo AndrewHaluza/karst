@@ -24,6 +24,8 @@ export interface PanelOpenDeps {
   actionsFor: ActionsFactory;
   labelTemplate?: () => string | undefined;
   onServerLogsDetach?: (ticketId: number) => void;
+  /** Answer a `server-logs-match-count` with the one shared match text. */
+  serverLogsMatchCount?: (ticketId: number, count: number, seq: number) => void;
   binding?: DashboardBinding;
   onViewActivated?: (ticketId: number, active: boolean) => void;
   panels: Map<number, DashboardPanel>;
@@ -59,9 +61,12 @@ export function attachPanel(o: PanelOpenDeps, ticketId: number, panel: Dashboard
 
   // The factory's actions plus the detach callback bound to THIS ticket: the
   // webview's "Open in Window" message names no ticket, so the closure owns it.
+  const baseActions = o.actionsFor(ticketId);
   const actions: DashboardActions = {
-    ...o.actionsFor(ticketId),
+    ...baseActions,
     onServerLogsDetach: () => o.onServerLogsDetach?.(ticketId),
+    serverLogsMatchCount:
+      baseActions.serverLogsMatchCount ?? ((count, seq) => o.serverLogsMatchCount?.(ticketId, count, seq)),
   };
   // Message pump must never die on one bad message — routeAction validates,
   // and any downstream throw is contained so subsequent messages still flow.

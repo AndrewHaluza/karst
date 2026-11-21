@@ -80,6 +80,13 @@ describe('token-usage webview.html', () => {
     expect(pagerTemplate).toContain('No further page');
   });
 
+  it('renders the host-built callsText and page summary, with no local plural code', () => {
+    const script = scriptBlock();
+    expect(script).toContain('r.callsText');
+    expect(script).toContain('p.summary');
+    expect(script).not.toContain('=== 1 ?');
+  });
+
   it('renders pre-formatted counts and never formats a number itself', () => {
     expect(HTML).toContain('totalDisplay');
     expect(HTML).toContain('inputDisplay');

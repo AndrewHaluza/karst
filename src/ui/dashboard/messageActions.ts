@@ -237,6 +237,11 @@ export interface DashboardActions {
   /** Close the combined server logs view and stop streaming. */
   closeServerLogs: () => void | Promise<void>;
   /**
+   * Answer the shared logs view's search count: the host formats the one match
+   * text and posts it back. Optional for a host with no logs surface.
+   */
+  serverLogsMatchCount?: (count: number, seq: number) => void | Promise<void>;
+  /**
    * Open this ticket's logs in the standalone panel. Optional: absent, the
    * "Open in Window" control is a no-op (the pre-feature panel). The panel
    * binds the ticket id, so the webview names no target.

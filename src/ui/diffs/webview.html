@@ -351,6 +351,7 @@
       .chev, .copy-hash { transition: none; }
     }
   </style>
+  <style>/*KARST_PALETTE*/</style>
 </head>
 <body>
   <header>
@@ -538,7 +539,7 @@
       return `<details class="repo"${changed ? ' open' : ''}>`
         + `<summary>${CHEV}<span><strong>${esc(worktree.label)}</strong>`
         + `<small>${esc(subtitle)}</small></span>`
-        + `<span>${worktree.commits.length} commits · ${pending ? `${pending} pending` : 'clean'}</span>`
+        + `<span>${esc(worktree.countText)}</span>`
         + `</summary>`
         + `${worktree.commits.length
           ? `<details class="group" open><summary>${CHEV}COMMITS<span>${worktree.commits.length}</span></summary>`
@@ -555,9 +556,7 @@
       loading = isLoading;
       const needle = filter.value.trim().toLowerCase();
       activeNeedle = needle;
-      summary.textContent = state
-        ? `${state.worktreeCount} worktrees · ${state.commitCount} commits · ${state.pendingCount} pending`
-        : 'No worktrees';
+      summary.textContent = state ? state.summaryText : 'No worktrees';
       const visible = state
         ? state.worktrees.filter((worktree) => !needle || worktreeMatches(worktree, needle))
         : [];

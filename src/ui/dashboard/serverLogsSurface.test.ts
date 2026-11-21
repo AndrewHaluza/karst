@@ -27,6 +27,59 @@ const HYDRATED = injectWebviewSend(
   ),
 );
 
+class FakeElement {
+  innerHTML = '';
+  textContent = '';
+  value = '';
+  scrollTop = 0;
+  scrollHeight = 0;
+  clientHeight = 0;
+  handlers: Record<string, (e: unknown) => void> = {};
+  classList = { add: (): void => undefined, remove: (): void => undefined };
+  addEventListener(kind: string, fn: (e: unknown) => void): void { this.handlers[kind] = fn; }
+  querySelectorAll(): Array<never> { return []; }
+}
+
+/** Run the shipped runtime against a minimal DOM so its search protocol executes. */
+function bootRuntime(): {
+  view: {
+    open(): void;
+    handleInitial(servers: Array<{ service: string; content: string }>): void;
+    handleMatchText(seq: number, text: string): void;
+  };
+  els: Map<string, FakeElement>;
+  posted: Array<Record<string, unknown>>;
+} {
+  const els = new Map<string, FakeElement>();
+  for (const id of ['logsView', 'logsHost', 'logsSearch', 'logsMatches', 'logsStatus', 'logsTabs']) {
+    els.set(id, new FakeElement());
+  }
+  const logsView = els.get('logsView')!;
+  const document = {
+    body: { classList: { add: (): void => undefined, remove: (): void => undefined } },
+    // Before buildShell writes the root, the host element does not exist, so
+    // the runtime takes its build path (and binds the root listeners).
+    getElementById: (id: string) =>
+      id === 'logsHost' && logsView.innerHTML === '' ? null : (els.get(id) ?? null),
+  };
+  const sandbox: Record<string, unknown> = {
+    window: {},
+    document,
+    esc: (value: unknown) =>
+      String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!),
+  };
+  runInNewContext(SERVER_LOGS_JS, sandbox);
+  const factory = (sandbox.window as { createServerLogsView: (o: { post: (m: unknown) => void }) => {
+    open(): void;
+    handleInitial(servers: Array<{ service: string; content: string }>): void;
+    handleMatchText(seq: number, text: string): void;
+  } }).createServerLogsView;
+  const posted: Array<Record<string, unknown>> = [];
+  const view = factory({ post: (m) => posted.push(m as Record<string, unknown>) });
+  view.open();
+  return { view, els, posted };
+}
+
 /**
  * The shared server-logs surface (Task 3): the control strip, the ANSI
  * rendering and the wiring between the dashboard and the shared factory. The
@@ -65,6 +118,7 @@ describe('shared server logs surface', () => {
     expect(wrapper).toContain('.open()');
     expect(wrapper).toContain('.handleInitial(');
     expect(wrapper).toContain('.handleOutput(');
+    expect(wrapper).toContain('.handleMatchText(');
     expect(HTML).not.toContain('logsViewInstance');
     // The old inline surface is gone wholesale, not merely unused.
     expect(HTML).not.toContain('renderLogsContent');
@@ -82,6 +136,33 @@ describe('shared server logs surface', () => {
       expect(SERVER_LOGS_CSS, `no rule for ${cls}`).toContain('.' + cls);
     }
     expect(SERVER_LOGS_CSS).toContain('.k-loghit');
+  });
+
+  it('posts the search count and renders the host’s match text, dropping a stale answer', () => {
+    const { view, els, posted } = bootRuntime();
+    view.handleInitial([{ service: 'web', content: 'timeout here\nnothing else' }]);
+    expect(posted).toEqual([]);
+    els.get('logsView')!.handlers.input!({ target: { id: 'logsSearch', value: 'timeout' } });
+    expect(posted).toEqual([{ type: 'server-logs-match-count', count: 1, seq: 1 }]);
+    view.handleMatchText(1, '1 match');
+    expect(els.get('logsMatches')!.textContent).toBe('1 match');
+    view.handleMatchText(2, 'stale answer');
+    expect(els.get('logsMatches')!.textContent).toBe('1 match');
+    els.get('logsView')!.handlers.input!({ target: { id: 'logsSearch', value: 'timeout' } });
+    expect(posted.at(-1)).toEqual({ type: 'server-logs-match-count', count: 1, seq: 2 });
+    view.handleMatchText(2, '1 match');
+    expect(els.get('logsMatches')!.textContent).toBe('1 match');
+  });
+
+  it('clears the match text when the query is empty and holds no plural literal of its own', () => {
+    const { view, els } = bootRuntime();
+    view.handleInitial([{ service: 'web', content: 'timeout here' }]);
+    els.get('logsView')!.handlers.input!({ target: { id: 'logsSearch', value: 'timeout' } });
+    view.handleMatchText(1, '1 match');
+    els.get('logsView')!.handlers.input!({ target: { id: 'logsSearch', value: '  ' } });
+    expect(els.get('logsMatches')!.textContent).toBe('');
+    expect(SERVER_LOGS_JS).not.toContain("'no matches'");
+    expect(SERVER_LOGS_JS).not.toContain("+ ' matches'");
   });
 
   it('clear() drops the lines and re-renders, posting nothing', () => {

@@ -10,6 +10,7 @@ import type {
   StageLogReader,
 } from './panelTypes.js';
 import type { ServerLogsReader } from './serverLogsReader.js';
+import { logMatchText } from '../../model/notifyText.js';
 
 /**
  * The dashboard's console/log forwarding surface: transient inside-progress
@@ -131,6 +132,16 @@ export class DashboardConsole {
     this.serverLogsReader.startPolling(logServers, ticketId, (tid, service, text) =>
       this.postServerLogOutput(tid, service, text),
     );
+  }
+
+  /**
+   * Answer a `server-logs-match-count`: format the one match text host-side and
+   * post it back to the panel that asked. No-op if the panel is not open.
+   */
+  serverLogsMatchCount(ticketId: number, count: number, seq: number): void {
+    const panel = this.panelFor(ticketId);
+    if (!panel) return;
+    panel.postMessage({ type: 'server-logs-match-text', seq, text: logMatchText(count) });
   }
 
   /**

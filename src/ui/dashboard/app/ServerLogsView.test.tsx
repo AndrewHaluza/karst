@@ -15,6 +15,7 @@ interface Api {
   close: ReturnType<typeof vi.fn>;
   handleInitial: ReturnType<typeof vi.fn>;
   handleOutput: ReturnType<typeof vi.fn>;
+  handleMatchText: ReturnType<typeof vi.fn>;
 }
 let created: Array<{ opts: Opts; api: Api }> = [];
 let factory: ReturnType<typeof vi.fn>;
@@ -22,7 +23,7 @@ let factory: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   created = [];
   factory = vi.fn((opts: Opts) => {
-    const api: Api = { open: vi.fn(), close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn() };
+    const api: Api = { open: vi.fn(), close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn(), handleMatchText: vi.fn() };
     created.push({ opts, api });
     return api;
   });
@@ -53,6 +54,17 @@ describe('ServerLogsView — the thin wrapper over the shared runtime', () => {
     h.emit({ type: 'server-log-output', service: 'web', text: 'b\n' } as never);
     expect(created[0]!.api.handleInitial).toHaveBeenCalledWith([{ service: 'web', content: 'a' }]);
     expect(created[0]!.api.handleOutput.mock.calls).toEqual([['web', 'b\n']]);
+  });
+
+  it('forwards the surface’s search count and routes the finished text back to it', () => {
+    const h = mountOverlays(state);
+    open(h);
+    created[0]!.opts.post({ type: 'server-logs-match-count', count: 3, seq: 1 });
+    created[0]!.opts.post({ type: 'server-logs-match-count', count: '3', seq: 1 });
+    created[0]!.opts.post({ type: 'server-logs-match-count', count: 3 });
+    expect(h.send.serverLogsMatchCount.mock.calls).toEqual([[3, 1]]);
+    h.emit({ type: 'server-logs-match-text', seq: 1, text: '3 matches' } as never);
+    expect(created[0]!.api.handleMatchText).toHaveBeenCalledWith(1, '3 matches');
   });
 
   it('tolerates an answer with no servers', () => {
@@ -135,7 +147,7 @@ describe('ServerLogsView — shared DrillHeader', () => {
       expect(opts).toMatchObject({ drillHead: true });
       const api: Api = {
         open: vi.fn(() => { must('#logsView').innerHTML = '<div id="logsDrillHead"></div>'; }),
-        close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn(),
+        close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn(), handleMatchText: vi.fn(),
       };
       return api;
     });

@@ -15,16 +15,21 @@ import type { ServerLogEntry } from '../dashboard/messages.js';
  */
 export type ServerLogsWebviewMessage =
   | { type: 'server-logs-request' }
-  | { type: 'server-logs-close' };
+  | { type: 'server-logs-close' }
+  /** The search hit count; the host answers with `server-logs-match-text`. */
+  | { type: 'server-logs-match-count'; count: number; seq: number };
 
 export type ServerLogsHostMessage =
   | { type: 'server-logs'; servers: ServerLogEntry[] }
-  | { type: 'server-log-output'; service: string; text: string };
+  | { type: 'server-log-output'; service: string; text: string }
+  /** The finished match text for the search box, from `logMatchText`. */
+  | { type: 'server-logs-match-text'; seq: number; text: string };
 
 /** The host-side effects the standalone panel can trigger. */
 export interface ServerLogsActions {
   request(): void | Promise<void>;
   close(): void | Promise<void>;
+  matchCount(count: number, seq: number): void | Promise<void>;
 }
 
 /** Narrow an untrusted webview message; null for anything malformed. */
@@ -36,6 +41,11 @@ export function parseServerLogsMessage(raw: unknown): ServerLogsWebviewMessage |
       return { type: 'server-logs-request' };
     case 'server-logs-close':
       return { type: 'server-logs-close' };
+    case 'server-logs-match-count': {
+      if (typeof m.count !== 'number' || !Number.isSafeInteger(m.count) || m.count < 0) return null;
+      if (typeof m.seq !== 'number' || !Number.isSafeInteger(m.seq) || m.seq < 0) return null;
+      return { type: 'server-logs-match-count', count: m.count, seq: m.seq };
+    }
     default:
       return null;
   }
@@ -51,5 +61,7 @@ export function routeServerLogsAction(
       return actions.request();
     case 'server-logs-close':
       return actions.close();
+    case 'server-logs-match-count':
+      return actions.matchCount(msg.count, msg.seq);
   }
 }

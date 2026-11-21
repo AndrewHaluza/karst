@@ -43,6 +43,11 @@ export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/** The match-count label for the shared server-logs search box (@arch:NTF-07). */
+export function logMatchText(count: number): string {
+  return count === 0 ? 'No matches' : plural(count, 'match', 'matches');
+}
+
 /** The toast for an implementation that finished and moved the ticket to UAT (rule 7: one text). */
 export function markerAdvancedText(label: string): string {
   return `${label}: the implementation is done. The ticket moves to UAT.`;

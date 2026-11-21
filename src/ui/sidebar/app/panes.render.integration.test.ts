@@ -168,12 +168,21 @@ describe('Tickets filter menu', () => {
 });
 
 describe('attention line', () => {
-  it('reads "N need you · M blocked" on All and applies Needs attention when clicked', async () => {
+  it('reads "N need you · M failed" on All and applies Needs attention when clicked', async () => {
     const h = await mount(withCounts(fixture('all-sections'), { input: 2, failed: 1 }));
     const line = h.query('[data-attention]')!;
-    expect(text(line)).toBe('2 need you · 1 blocked');
+    expect(text(line)).toBe('2 need you · 1 failed');
     await h.click(line);
     expect(sent(h).map((m) => (m as { facet?: string }).facet)).toEqual(['all', 'input', 'failed']);
+  });
+
+  it('pluralizes the input part and hides a zero part', async () => {
+    const line = async (input: number, failed: number) =>
+      text(h0(await mount(withCounts(fixture('all-sections'), { input, failed })))!);
+    expect(await line(0, 1)).toBe('1 failed');
+    expect(await line(1, 0)).toBe('1 needs you');
+    expect(await line(1, 1)).toBe('1 needs you · 1 failed');
+    expect(await line(4, 2)).toBe('4 need you · 2 failed');
   });
 
   it('is hidden when both counts are zero and when a preset is active', async () => {

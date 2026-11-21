@@ -8,6 +8,7 @@ import type {
 import { USAGE_TABS } from './state.js';
 import type { QuotaRowView, QuotaView, QuotaWindowView } from './quotaState.js';
 import { USAGE_SORTS, type UsageSort } from '../../store/tokenUsageQuery.js';
+import { plural } from '../../model/notifyText.js';
 
 /**
  * The checked-in render fixture corpus for the usage webview.
@@ -75,10 +76,12 @@ function fixtureBreakdownRow(
   index: number,
   overrides?: Partial<UsageBreakdownRow>,
 ): UsageBreakdownRow {
+  const calls = overrides?.calls ?? 10 + index;
   return {
     key: `fixture:key:${index}`,
     label: `Stage ${index}`,
-    calls: 10 + index,
+    calls,
+    callsText: plural(calls, 'call', 'calls'),
     totalTokens: 1000 * (index + 1),
     totalDisplay: `${(index + 1)}k`,
     totalExact: String(1000 * (index + 1)),
@@ -115,10 +118,12 @@ function fixtureProfileRow(
   index: number,
   overrides?: Partial<UsageProfileRowView>,
 ): UsageProfileRowView {
+  const calls = overrides?.calls ?? 8 + index;
   return {
     key: `fixture:profile:${index}`,
     label: `Profile ${index}`,
-    calls: 8 + index,
+    calls,
+    callsText: plural(calls, 'call', 'calls'),
     totalTokens: 800 * (index + 1),
     totalDisplay: `${(index + 1) * 0.8}k`,
     totalExact: String(800 * (index + 1)),
@@ -206,7 +211,7 @@ function emptyState(): UsageState {
     byModel: [],
     byProfile: [],
     tickets: [],
-    page: { offset: 0, limit: 20, groups: 0, hasPrev: false, hasNext: false },
+    page: { offset: 0, limit: 20, groups: 0, hasPrev: false, hasNext: false, summary: 'No tickets' },
     error: null,
   };
 }
@@ -224,7 +229,7 @@ function singlePageState(): UsageState {
     byModel: [fixtureBreakdownRow(0, { key: 'fixture:model:0', label: 'claude-opus-4' })],
     byProfile: [fixtureProfileRow(0)],
     tickets: [fixtureTicketRow(0), fixtureTicketRow(1)],
-    page: { offset: 0, limit: 20, groups: 2, hasPrev: false, hasNext: false },
+    page: { offset: 0, limit: 20, groups: 2, hasPrev: false, hasNext: false, summary: '1–2 of 2 tickets' },
     error: null,
   };
 }
@@ -242,7 +247,7 @@ function pagedMiddleState(): UsageState {
     byModel: [fixtureBreakdownRow(0), fixtureBreakdownRow(1)],
     byProfile: [fixtureProfileRow(0), fixtureProfileRow(1)],
     tickets: [fixtureTicketRow(0), fixtureTicketRow(1), fixtureTicketRow(2)],
-    page: { offset: 20, limit: 20, groups: 60, hasPrev: true, hasNext: true },
+    page: { offset: 20, limit: 20, groups: 60, hasPrev: true, hasNext: true, summary: '21–23 of 60 tickets' },
     error: null,
   };
 }
@@ -260,7 +265,7 @@ function errorState(): UsageState {
     byModel: [],
     byProfile: [],
     tickets: [],
-    page: { offset: 0, limit: 20, groups: 0, hasPrev: false, hasNext: false },
+    page: { offset: 0, limit: 20, groups: 0, hasPrev: false, hasNext: false, summary: 'No tickets' },
     error: 'fixture: Query rejected — range not valid for this project',
   };
 }
@@ -278,7 +283,7 @@ function allSortsState(): UsageState {
     byModel: [fixtureBreakdownRow(0)],
     byProfile: [],
     tickets: [fixtureTicketRow(0)],
-    page: { offset: 0, limit: 20, groups: 1, hasPrev: false, hasNext: false },
+    page: { offset: 0, limit: 20, groups: 1, hasPrev: false, hasNext: false, summary: '1–1 of 1 ticket' },
     error: null,
   };
 }
@@ -307,7 +312,7 @@ function hostileState(): UsageState {
       fixtureTicketRow(0, { label: HOSTILE_LABEL }),
       fixtureTicketRow(1, { label: HOSTILE_LONG, ticketKey: null, ticketId: null }),
     ],
-    page: { offset: 0, limit: 20, groups: 2, hasPrev: false, hasNext: false },
+    page: { offset: 0, limit: 20, groups: 2, hasPrev: false, hasNext: false, summary: '1–2 of 2 tickets' },
     error: null,
   };
 }

@@ -1,4 +1,4 @@
-import type { ChangedFileView, CommitView, TicketChangesState, WorktreeChangesView } from './snapshot.js';
+import { diffsSummaryText, worktreeCountText, type ChangedFileView, type CommitView, type TicketChangesState, type WorktreeChangesView } from './snapshot.js';
 
 /**
  * The checked-in render fixture corpus for the diffs (ticket changes) webview.
@@ -30,7 +30,7 @@ export interface DiffsRenderFixture {
  * keeps `diffsRenderFixtures()` deterministic across repeated calls (no
  * shared mutable state), matching every other render-fixture module.
  */
-function fixtureFile(
+export function fixtureFile(
   path: string,
   overrides?: Partial<ChangedFileView>,
 ): ChangedFileView {
@@ -44,7 +44,7 @@ function fixtureFile(
   };
 }
 
-function fixtureCommit(index: number, overrides?: Partial<CommitView>): CommitView {
+export function fixtureCommit(index: number, overrides?: Partial<CommitView>): CommitView {
   return {
     hash: `fixture:hash:${index}`.padEnd(40, '0'),
     shortHash: `fixture${index}`,
@@ -56,10 +56,10 @@ function fixtureCommit(index: number, overrides?: Partial<CommitView>): CommitVi
   };
 }
 
-function fixtureWorktree(
+export function fixtureWorktree(
   overrides?: Partial<WorktreeChangesView>,
 ): WorktreeChangesView {
-  return {
+  const base = {
     label: 'fixture-repo',
     branch: 'fixture/branch',
     baseRef: 'main',
@@ -70,6 +70,8 @@ function fixtureWorktree(
     error: null,
     ...overrides,
   };
+  const pending = base.staged.length + base.unstaged.length + base.untracked.length;
+  return { ...base, countText: worktreeCountText(base.commits.length, pending) };
 }
 
 function countsFor(worktrees: readonly WorktreeChangesView[]): {
@@ -86,7 +88,7 @@ function countsFor(worktrees: readonly WorktreeChangesView[]): {
   );
 }
 
-function stateFor(worktrees: readonly WorktreeChangesView[]): TicketChangesState {
+export function stateFor(worktrees: readonly WorktreeChangesView[]): TicketChangesState {
   const { commitCount, pendingCount } = countsFor(worktrees);
   return {
     ticketId: 900001,
@@ -94,6 +96,7 @@ function stateFor(worktrees: readonly WorktreeChangesView[]): TicketChangesState
     commitCount,
     pendingCount,
     worktrees: [...worktrees],
+    summaryText: diffsSummaryText(worktrees.length, commitCount, pendingCount),
   };
 }
 

@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { DiffTarget, FileChangeStatus, WorktreeSpec } from './git.js';
-import type { TicketChangesSnapshot, WorktreeChangesView } from './snapshot.js';
+import { diffsSummaryText, worktreeCountText, type TicketChangesSnapshot, type WorktreeChangesView } from './snapshot.js';
 import { DiffTreeController, type DiffTreeControllerDeps, type DiffTreeHost } from './treeController.js';
 
 type ChangedFile = WorktreeChangesView['unstaged'][number];
 
 function makeWorktreeChangesView(overrides: Partial<WorktreeChangesView> = {}): WorktreeChangesView {
-  return {
+  const base = {
     label: 'repo',
     branch: 'main',
     baseRef: 'develop',
@@ -17,6 +17,8 @@ function makeWorktreeChangesView(overrides: Partial<WorktreeChangesView> = {}): 
     error: null,
     ...overrides,
   };
+  const pending = base.staged.length + base.unstaged.length + base.untracked.length;
+  return { ...base, countText: worktreeCountText(base.commits.length, pending) };
 }
 
 function makeChangedFileView(
@@ -35,16 +37,19 @@ function makeSnapshot(
   views: WorktreeChangesView[],
   targets: ReadonlyMap<string, DiffTarget> = new Map(),
 ): TicketChangesSnapshot {
+  const commitCount = views.reduce((count, view) => count + view.commits.length, 0);
+  const pendingCount = views.reduce(
+    (count, view) => count + view.staged.length + view.unstaged.length + view.untracked.length,
+    0,
+  );
   return {
     state: {
       ticketId: 1,
       worktreeCount: views.length,
-      commitCount: views.reduce((count, view) => count + view.commits.length, 0),
-      pendingCount: views.reduce(
-        (count, view) => count + view.staged.length + view.unstaged.length + view.untracked.length,
-        0,
-      ),
+      commitCount,
+      pendingCount,
       worktrees: views,
+      summaryText: diffsSummaryText(views.length, commitCount, pendingCount),
     },
     targets,
   };

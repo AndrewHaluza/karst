@@ -84,7 +84,7 @@ A button label is an imperative verb and an object, in sentence case, with the p
 END_DOC_BLOCK: [@arch:NTF-06]
 
 ## [@arch:NTF-07] One text, one function
-A text used in more than one place is one function in `src/model/notifyText.ts`, not a copied template. `markerAdvancedText(label)` is the first one.
+A text used in more than one place is one function in `src/model/notifyText.ts`, not a copied template. `markerAdvancedText(label)` is the first one. The count helpers `plural(n, one, many)` and `logMatchText(count)` are the same rule for webview count text: a plain-HTML page receives the finished text from the host, and a React webview imports the helper. No webview holds its own plural ternary.
 END_DOC_BLOCK: [@arch:NTF-07]
 
 ## [@arch:NTF-08] A text change updates its quotes
