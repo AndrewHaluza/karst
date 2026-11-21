@@ -3,6 +3,7 @@ import type { Manifest } from '../manifest/types.js';
 import { sessionCliEnv } from '../agent/cliEnv.js';
 import { parseGlobalFlags } from '../cli/main.js';
 import { parseSetupCheckArgs } from '../cli/setupCheck.js';
+import { parseSetupChecklistArgs } from '../cli/setupChecklist.js';
 import { parseSetupVerifyArgs } from '../cli/setupVerify.js';
 import {
   KARST_SETUP_SESSION_ENV,
@@ -103,6 +104,30 @@ describe('setupInstructions', () => {
     expect(flags.db).toBe('/d/karst.db');
     expect(flags.manifest).toBe('/w/karst.yml');
     expect(() => parse(flags.rest)).not.toThrow();
+  });
+
+  it('tells the agent to show the text checklist block unchanged', () => {
+    expect(text).toContain('setup checklist --format text');
+    expect(text).toMatch(/print the block to the user unchanged/);
+    expect(text).toMatch(/as its own message/);
+    expect(text).toContain('Do not summarize it.');
+    expect(text).toMatch(/Keep the JSON run for the loop decisions/);
+  });
+
+  it('the printed setup checklist --format text line parses in a setup session env', () => {
+    const env = sessionCliEnv({ cliEntry: '/x/cli.js', dbPath: '/d/karst.db', manifestPath: '/w/karst.yml' });
+    const line = text.split('\n').find((l) => l.includes('setup checklist --format text --db'));
+    expect(line).toBeDefined();
+    const argv = line!
+      .slice(line!.indexOf('setup checklist --format text'))
+      .split('`')[0]!
+      .trim()
+      .split(/\s+/)
+      .map((a) => a.replace(/^"\$(\w+)"$/, (_m, name: string) => env[name] ?? `<unset ${name}>`));
+    const flags = parseGlobalFlags(argv);
+    expect(flags.db).toBe('/d/karst.db');
+    expect(flags.manifest).toBe('/w/karst.yml');
+    expect(parseSetupChecklistArgs(flags.rest)).toEqual({ format: 'text' });
   });
 
   it('states the process rules a check cannot enforce', () => {
