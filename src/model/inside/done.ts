@@ -48,7 +48,10 @@ function stageVerdict(name: string, batch: readonly GateRun[]): string {
   const answers = batch.filter(answered);
   if (answers.some((r) => r.exitCode !== 0)) return `${name} failed`;
   if (answers.length > 0) return `${name} passed`;
-  return batch.every((r) => r.skipped) ? `${name} bypassed` : `${name}: no gate result`;
+  if (!batch.every((r) => r.skipped)) return `${name}: no gate result`;
+  // Only a switch someone made reads as a bypass; a no-UI-change or added-later skip withdrew nothing.
+  const switched = batch.every((r) => r.skipReason === undefined || r.skipReason === null || r.skipReason === 'ticket' || r.skipReason === 'config');
+  return switched ? `${name} bypassed` : `${name}: no gate result`;
 }
 
 /** How the final gate batches read: counts over the LATEST runs of both stages. */

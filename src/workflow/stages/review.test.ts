@@ -1245,6 +1245,12 @@ describe('runReview', () => {
     expect(skipped[0]!.exitCode).toBeNull();
   });
 
+  it('records the ticket reason on a review gate the ticket disabled', async () => {
+    setDisabledGates(store, id, 'review', ['lint']);
+    await runReview(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(listGateRuns(store, id).filter((r) => r.skipped).map((r) => r.skipReason)).toEqual(['ticket']);
+  });
+
   it("a uat disable does not affect review's gates", async () => {
     setDisabledGates(store, id, 'uat', ['lint']);
     const invoked: string[] = [];

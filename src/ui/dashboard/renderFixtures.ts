@@ -371,7 +371,7 @@ function reviewView(n: RenderRepoCount): InsideStageView {
         },
       ],
     ),
-    { status: 'skip', label: 'smoke', detail: 'Skipped — disabled by user' },
+    { status: 'skip', label: 'smoke', detail: 'Skipped — disabled for this ticket' },
   ];
   // The level rides its own closed `severity` key (the ramp's styling input)
   // and the location rides `location` (the row's link) — neither is parsed out

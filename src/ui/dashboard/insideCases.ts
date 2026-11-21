@@ -392,6 +392,19 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   },
   {
     stage: 'uat',
+    id: 'gates-skip-reasons',
+    state: fromFacts('uat', {
+      cells: { uat: { status: 'passed' } },
+      gateRuns: [
+        caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 }),
+        caseGate({ id: 2, stageKey: 'uat', gateName: 'visual (web)', exitCode: null, skipped: true, skipReason: 'no-ui-change', startedAt: null, endedAt: null }),
+        caseGate({ id: 3, stageKey: 'uat', gateName: 'e2e (web)', exitCode: null, skipped: true, skipReason: 'ticket', startedAt: null, endedAt: null }),
+      ],
+      processRuns: [uatTesterRun()],
+    }),
+  },
+  {
+    stage: 'uat',
     id: 'passed',
     state: fromFacts('uat', {
       cells: { uat: { status: 'passed' } },

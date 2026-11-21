@@ -2,6 +2,14 @@ import { HOST_RERUN_SOURCE } from './hostRerunSource.js';
 import type { Store } from './db.js';
 import type { StageKey } from '../model/types.js';
 
+/** Why a skipped gate row did not run; a closed key the renderer reads, never prose. */
+export const GATE_SKIP_REASONS = ['ticket', 'config', 'no-ui-change', 'added-later'] as const;
+export type GateSkipReason = (typeof GATE_SKIP_REASONS)[number];
+
+function toSkipReason(raw: string | null): GateSkipReason | null {
+  return GATE_SKIP_REASONS.find((k) => k === raw) ?? null;
+}
+
 /**
  * One recorded gate result — what a gate runner reported, kept after the fact.
  *
@@ -63,6 +71,11 @@ export interface GateRun {
    * and every pre-v132 row.
    */
   waitMs?: number | null;
+  /**
+   * v134: why a skipped row did not run. NULL on a row that was not skipped and on every pre-v134
+   * row (no backfill); a skipped row with NULL reads as a plain skip.
+   */
+  skipReason?: GateSkipReason | null;
 }
 
 export { HOST_RERUN_SOURCE };
@@ -92,6 +105,8 @@ export interface GateRunInput {
   summary?: string | null;
   /** v132: ms spent waiting for slots before the spawn. Absent for a gate that never ran. */
   waitMs?: number | null;
+  /** v134: why this row was skipped; set with `skipped`. */
+  skipReason?: GateSkipReason | null;
 }
 
 export interface GateRunBatch {
@@ -125,6 +140,7 @@ interface GateRunRow {
   summary: string | null;
   source: string | null;
   wait_ms: number | null;
+  skip_reason: string | null;
 }
 
 /**
@@ -184,6 +200,7 @@ function rowToGateRun(r: GateRunRow): GateRun {
     summary: r.summary,
     source: r.source,
     waitMs: r.wait_ms,
+    skipReason: toSkipReason(r.skip_reason),
   };
 }
 
@@ -207,8 +224,8 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
   const insert = store.db.prepare(
     `INSERT INTO gate_runs
        (ticket_id, stage_key, attempt, run_at, gate_name, exit_code, started_at, ended_at,
-        repo, command, args, skipped, stage_run_id, summary, source, wait_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        repo, command, args, skipped, stage_run_id, summary, source, wait_ms, skip_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const g of batch.gates) {
     insert.run(
@@ -228,6 +245,7 @@ export function recordGateRun(store: Store, batch: GateRunBatch): void {
       g.summary ?? null,
       batch.source ?? null,
       g.waitMs ?? null,
+      g.skipped ? g.skipReason ?? null : null,
     );
   }
 }
@@ -247,7 +265,7 @@ export function listGateRuns(store: Store, ticketId: number, opts: { includeHost
   return store.db
     .prepare(
       `SELECT id, ticket_id, stage_key, attempt, run_at, gate_name, exit_code,
-              started_at, ended_at, repo, command, args, skipped, stage_run_id, summary, source, wait_ms
+              started_at, ended_at, repo, command, args, skipped, stage_run_id, summary, source, wait_ms, skip_reason
          FROM gate_runs
         WHERE ticket_id = ? ${filter}
         ORDER BY id`,

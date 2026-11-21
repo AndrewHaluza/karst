@@ -8,7 +8,7 @@ import { runnableSubset, unitsOf, unitsOfRepos } from '../../manifest/runnable.j
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
-import type { GateRunInput } from '../../store/gateRuns.js';
+import type { GateRunInput, GateSkipReason } from '../../store/gateRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
 import { escalatedRefusalReason, hostRefusalRepeats } from '../gates/hostRefusalRepeat.js';
@@ -29,7 +29,7 @@ import { NO_UI_CHANGE_REASON } from '../gates/uiScope.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { resolveGates, type GateResolution, type ResolvedGate } from '../gates/resolve.js';
-import { applyConfigSwitch, gateAddedReason, partitionDisabled, partitionNotInSnapshot, type StageGateResolution } from '../gates/disable.js';
+import { applyConfigSwitch, gateAddedReason, gateSkipReasonOf, partitionDisabled, partitionNotInSnapshot, type StageGateResolution } from '../gates/disable.js';
 import { runGateList } from '../gates/runList.js';
 import { listArchCitations } from '../../store/archCitations.js';
 import { renderCitationText } from '../../model/archCitations.js';
@@ -340,17 +340,18 @@ export function resolveTargetGates(
   const snapshotCut = partitionNotInSnapshot(ticketCut.kept, snapshotNames, debug);
   const kept = snapshotCut.kept;
   const addedLater = snapshotCut.skipped;
+  const configDisabled = [...configOff].filter(([key]) => !byIdentity.has(key)).map(([, gate]) => gate);
   const skipped = [
     ...ticketCut.skipped,
     ...addedLater,
-    ...[...configOff].filter(([key]) => !byIdentity.has(key)).map(([, gate]) => gate),
+    ...configDisabled,
   ];
   if (kept.length > 0 || skipped.length > 0) {
     debug?.(
       `[gate] uat resolve: ${kept.length} kept, ${skipped.length} disabled for this ticket ` +
         `(disabled: ${skipped.map((g) => g.name).join(', ') || 'none'})`,
     );
-    return { kind: 'gates', gates: kept, skipped, ...(addedLater.length > 0 ? { addedLater } : {}) };
+    return { kind: 'gates', gates: kept, skipped, ...(addedLater.length > 0 ? { addedLater } : {}), ...(configDisabled.length > 0 ? { configDisabled } : {}) };
   }
   // Zero gates, nothing disabled, and no unavailability is the malformed-
   // package.json case, which the caller turns into a named failure rather than
@@ -656,6 +657,7 @@ export async function runUat(
     }
 
     const addedLater = new Set(resolution.addedLater ?? []);
+    const configDisabled = new Set(resolution.configDisabled ?? []);
 
     // A branch with no UI path in its diff has nothing for the container-pinned
     // visual/layout gates to say: they record `skipped` (evidence, not a pass).
@@ -671,8 +673,9 @@ export async function runUat(
       : { kept: [...resolution.gates], skipped: [] as ResolvedGate[] };
     resolution = { ...resolution, gates: uiCut.kept, skipped: [...resolution.skipped, ...uiCut.skipped] };
     const uiSkipped = new Set(uiCut.skipped);
+    const skipKey = (gate: ResolvedGate): GateSkipReason => gateSkipReasonOf(gate, { uiSkipped, addedLater, configDisabled });
     const skipReason = (gate: ResolvedGate): string =>
-      uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : addedLater.has(gate) ? gateAddedReason(gate.name) : 'disabled for this ticket';
+      uiSkipped.has(gate) ? NO_UI_CHANGE_REASON : addedLater.has(gate) ? gateAddedReason(gate.name) : configDisabled.has(gate) ? 'disabled in Settings' : 'disabled for this ticket';
 
     // One row per gate the user switched off, carrying the identity it WOULD
     // have been invoked with. No timing and no exit code, because none exists —
@@ -690,6 +693,7 @@ export async function runUat(
         command: gate.command,
         args: gate.args,
         skipped: true,
+        skipReason: skipKey(gate),
         ...(addedLater.has(gate) ? { summary: gateAddedReason(gate.name) } : {}),
       }]);
       skippedNames.push(gate.name);

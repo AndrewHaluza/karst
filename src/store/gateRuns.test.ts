@@ -289,6 +289,37 @@ describe('gate run evidence', () => {
     expect(row!.endedAt).toBeNull();
   });
 
+  it.each(['ticket', 'config', 'no-ui-change', 'added-later'] as const)('round-trips the skip reason %s', (reason) => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1, runAt: '2026-08-04T10:00:00.000Z',
+      gates: [{ gateName: 'visual', exitCode: null, skipped: true, skipReason: reason }],
+    });
+    expect(listGateRuns(store, t.id)[0]!.skipReason).toBe(reason);
+  });
+
+  it('reads a skipped row recorded without a reason as NULL, and drops a reason on a row that ran', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1, runAt: '2026-08-04T10:00:00.000Z',
+      gates: [
+        { gateName: 'old', exitCode: null, skipped: true },
+        { gateName: 'ran', exitCode: 0, skipReason: 'ticket' },
+      ],
+    });
+    expect(listGateRuns(store, t.id).map((r) => r.skipReason)).toEqual([null, null]);
+  });
+
+  it('reads an unknown stored skip reason as NULL', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    recordGateRun(store, {
+      ticketId: t.id, stageKey: 'uat', attempt: 1, runAt: '2026-08-04T10:00:00.000Z',
+      gates: [{ gateName: 'x', exitCode: null, skipped: true, skipReason: 'ticket' }],
+    });
+    store.db.prepare("UPDATE gate_runs SET skip_reason = 'bogus'").run();
+    expect(listGateRuns(store, t.id)[0]!.skipReason).toBeNull();
+  });
+
   it('reads a gate that ran as not skipped', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     recordGateRun(store, {

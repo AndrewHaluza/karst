@@ -170,6 +170,8 @@ CREATE TABLE IF NOT EXISTS gate_runs (
   ,wait_ms      INTEGER               -- v132: ms of ended_at - started_at spent waiting for slots (gate lease, port
                                        -- slot, sandbox runner slot) before the spawn. NULL = a gate that never ran, or
                                        -- a pre-v132 row (no backfill). 0 = it ran and waited for nothing (@arch:RESULTS).
+  ,skip_reason  TEXT                  -- v134: why a skipped row did not run: 'ticket' | 'config' | 'no-ui-change' |
+                                       -- 'added-later'. NULL = not skipped, or a pre-v134 row (no backfill).
 );
 CREATE INDEX IF NOT EXISTS idx_gate_runs_ticket ON gate_runs(ticket_id, stage_key, id);
 

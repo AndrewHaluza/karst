@@ -1115,6 +1115,34 @@ describe('runUat', () => {
     expect(rows.filter((r) => !r.skipped).map((r) => r.exitCode)).toEqual([0]);
   });
 
+  it('records the ticket reason on a gate the ticket disabled', async () => {
+    setDisabledGates(store, id, 'uat', ['e2e']);
+    await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
+    expect(listGateRuns(store, id).filter((r) => r.skipped).map((r) => r.skipReason)).toEqual(['ticket']);
+  });
+
+  it('records no-ui-change on a UI gate cut because the diff holds no UI path', async () => {
+    await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest({}, { uat: uatConfig({ gates: [
+          { name: 'visual', kind: 'script', script: 'test:visual:docker' },
+          { name: 'unit', kind: 'script', script: 'test' },
+        ] }) }),
+      },
+      deps({
+        probe: () => ({ kind: 'ok', scripts: { test: 'vitest', 'test:visual:docker': 'node x' } }),
+        git: async (args) =>
+          args[0] === 'diff' ? { exitCode: 0, stdout: 'src/model/a.ts\0', stderr: '' } : { exitCode: 0, stdout: 'abc123\n', stderr: '' },
+      }),
+    );
+    const skipped = listGateRuns(store, id).filter((r) => r.skipped);
+    expect(skipped.map((r) => [r.gateName.replace(/ \(.*$/, ''), r.skipReason])).toEqual([['visual', 'no-ui-change']]);
+  });
+
   it('a disabled gate never fails the stage', async () => {
     setDisabledGates(store, id, 'uat', ['e2e']);
     const result = await runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir }, deps());
@@ -1362,6 +1390,20 @@ describe('resolveTargetGates', () => {
     if (res.kind !== 'gates') throw new Error('unreachable');
     expect(res.gates.map((g) => g.name)).toEqual(['test']);
     expect(res.skipped.map((g) => g.name)).toEqual(['e2e']);
+  });
+
+  it('keeps a Settings-off gate apart from a ticket-off gate', () => {
+    const config = uatConfig({
+      gates: [
+        { name: 'test', kind: 'script', script: 'test' },
+        { name: 'e2e', kind: 'script', script: 'e2e', enabled: false },
+        { name: 'lint', kind: 'script', script: 'lint' },
+      ],
+    });
+    const res = resolveTargetGates(okProbe({ test: 'vitest', e2e: 'pw', lint: 'eslint' }), config, ['web'], ['lint']);
+    if (res.kind !== 'gates') throw new Error('unreachable');
+    expect(res.skipped.map((g) => g.name).sort()).toEqual(['e2e', 'lint']);
+    expect(res.configDisabled?.map((g) => g.name)).toEqual(['e2e']);
   });
 
   it('skips a gate absent from the ticket snapshot and marks it added-later', () => {
