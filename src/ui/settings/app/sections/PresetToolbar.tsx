@@ -1,14 +1,13 @@
 /**
  * The preset toolbar: the selector plus New / Duplicate / Rename / Delete /
- * Activate. A preset's `active` mark sits on the selector's option and a badge
- * replaces Activate for the active one. Refusals (a referenced preset, a
+ * Activate. The active preset reads "(active)" in the selector and Activate
+ * is hidden for it. Refusals (a referenced preset, a
  * duplicate name) show on one fault line under the bar — the draft is never
  * written by a refused op.
  */
 import { useState, type ReactNode } from 'react';
 import type { Manifest } from '../../../../manifest/types.js';
 import { Button } from '../primitives/Button.js';
-import { Chip } from '../primitives/Chip.js';
 import { Field } from '../primitives/Field.js';
 import { InlineTextInput } from '../primitives/InlineTextInput.js';
 import { TablerIcon } from '../primitives/TablerIcon.js';
@@ -53,7 +52,7 @@ export function PresetToolbar({
   };
 
   const isActive = selected !== null && selected === activeName;
-  const options = names.map((n) => ({ value: n, label: n }));
+  const options = names.map((n) => ({ value: n, label: n === activeName ? `${n} (active)` : n }));
 
   return (
     <div className="agents-toolbar">
@@ -69,7 +68,6 @@ export function PresetToolbar({
           ) : (
             <Field
               label="Presets"
-              help={isActive ? <span className="sr-only">active</span> : undefined}
               control={{
                 kind: 'select',
                 name: 'agents-preset',
@@ -84,9 +82,7 @@ export function PresetToolbar({
               }}
             />
           )}
-          {isActive ? (
-            <Chip tone="success">active</Chip>
-          ) : selected !== null ? (
+          {isActive ? null : selected !== null ? (
             <Button
               variant="primary"
               size="lg"
