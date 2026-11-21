@@ -148,9 +148,15 @@ describe('setupAddDirs', () => {
 });
 
 describe('setupKickoff / env name', () => {
-  it('is empty by default and trims a provided message', () => {
-    expect(setupKickoff()).toBe('');
-    expect(setupKickoff('  hi  ')).toBe('hi');
+  it('is non-empty for both states, names `setup checklist`, and differs between them', () => {
+    const first = setupKickoff({ firstSetup: true });
+    const rerun = setupKickoff({ firstSetup: false });
+    expect(first.length).toBeGreaterThan(0);
+    expect(rerun.length).toBeGreaterThan(0);
+    expect(first).toContain('`setup checklist`');
+    expect(rerun).toContain('`setup checklist`');
+    expect(first).toContain('`setup discover`');
+    expect(first).not.toBe(rerun);
     expect(KARST_SETUP_SESSION_ENV).toBe('KARST_SETUP_SESSION');
   });
 });
