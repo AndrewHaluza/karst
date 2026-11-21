@@ -54,8 +54,6 @@
   pointer-events:none;color:var(--k-text-dim)}
 .k-select > select:disabled + .k-select-chev{opacity:.45}
 .k-select > select.hidden + .k-select-chev,.k-select > select[hidden] + .k-select-chev{display:none}
-/* The chevron slot of a custom dropdown trigger (.chev) holds an inline SVG too. */
-.chev:where(.k-chev){display:inline-flex;flex:none;color:var(--k-text-dim)}
 .k-btn[aria-busy="true"]{cursor:progress}
 /* Click feedback tiers (UI-R11, SG-19). aria-busy is set at once but draws
    nothing: the spinner is `.is-spinning`, added by the runtime only after the
