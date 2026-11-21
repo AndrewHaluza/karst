@@ -1190,7 +1190,7 @@ describe('ticket form — group 2 contrast, wrap, hints', () => {
 
   it('wraps the key/fetch and filter rows', () => {
     expect(rule('.searchfilter')).toContain('display:flex');
-    expect(rule('.searchfilter select')).toContain('flex:1');
+    expect(rule('.searchfilter .k-select')).toContain('flex:1');
     expect(rule('.searchfilter select')).toContain('min-height:var(--k-control-h-lg)');
     expect(css).toMatch(/\.row\{[^}]*flex-wrap:wrap/);
   });
