@@ -204,6 +204,8 @@ describe('webview CSS success overrides (tier 3 only)', () => {
     expect(rule).toContain('color:var(--k-text-dim)');
     expect(rule).toContain('opacity:1');
     expect(CSS).toContain('.k-btn:disabled{opacity:.45');
+    // Equal specificity: the later rule wins, so the primary rule must come after the generic one.
+    expect(CSS.indexOf('.k-btn--primary:disabled,')).toBeGreaterThan(CSS.indexOf('.k-btn:disabled{opacity:.45'));
   });
 
   it('draws a select chevron as an element, never a data: URL image (ST-1)', () => {
