@@ -183,4 +183,20 @@ describe('page header primitive conformance (@ui:11.22)', () => {
       ).toBe(1);
     }
   });
+
+  /**
+   * The catalog carries its own hard-coded palette, so a token it copies from
+   * the design system but never defines falls back to the browser default:
+   * `.k-pagehead-title` rendered at weight 400 instead of 600, and the
+   * baseline bakes that in. The catalog is the visual proof for a primitive
+   * no panel uses yet (@ui:UI-R07), so its palette must cover every property
+   * its rules reference.
+   */
+  it('defines every custom property the catalog references (@ui:UI-R07)', () => {
+    const catalog = readFileSync(join(HERE, '..', '..', 'docs', 'ui', 'KARST-UI-CATALOG.html'), 'utf8');
+    const defined = new Set([...catalog.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]!));
+    const used = [...catalog.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!);
+    const missing = [...new Set(used)].filter((name) => !defined.has(name)).sort();
+    expect(missing, `catalog rules reference undefined custom properties: ${missing.join(', ')}`).toEqual([]);
+  });
 });
