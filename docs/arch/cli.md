@@ -258,6 +258,8 @@ Split out of `arch:CLI-14`.
 The host computes the items from `setup discover`, the manifest and the readiness result (`setup/checklist/compute.ts`; the item table is `setup/checklist/items.ts`). Each item is `{code,section,title,required,status,tool,detail}` with status `todo`, `done` or `skipped`. An item is `done` only when its readiness check passes: `services.declared` also needs `setup verify` to pass, so the verb runs it like `setup check` and needs `--db`.
 
 `--format text` selects the pure `renderChecklistText` block (`setupChecklist.ts`): a `Setup checklist  <done> of <total> done · <skipped> skipped · <requiredTodo> required open` header, one line per item in `ITEMS` order (`[x]` done, `[ ]` todo with `required` or `optional`, `[-]` skipped, then its `detail` cut at `CHECKLIST_DETAIL_MAX`), and a `Next: <code> → <tool>` or `All required items are done.` footer. The CLI renders it, not the agent, so the block is identical on every core; the setup instructions tell the agent to run both formats after each step and print the text block to the user unchanged, as its own message. JSON stays the default so the loop contract in `arch:CLI-14` does not change.
+
+The Getting Started panel reads the JSON form too (`@ui:GETTING-STARTED`). While `karst.yml` is missing, every item carries the same `NO_MANIFEST_DETAIL` text, and the panel shows that text once.
 END_DOC_BLOCK: [@arch:CLI-23]
 
 ## [@arch:CLI-21] `setup verify`, host scan, greenfield and monorepo setup
