@@ -320,6 +320,16 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
   padding:var(--k-space-9) var(--k-space-8);text-align:center;color:var(--k-text-dim)}
 .k-empty-title{font-size:var(--k-text-md);color:var(--k-text);margin-bottom:var(--k-space-2)}
 .k-empty-hint{font-size:var(--k-text-sm)}
+/* Shared page header (@ui:11.22): bottom boundary uses --k-border-strong (contrastBorder); actions take their own row at the narrow tier edge. */
+.k-pagehead{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;
+  gap:var(--k-space-4) var(--k-space-6);padding-bottom:var(--k-space-6);margin-bottom:var(--k-space-6);
+  border-bottom:var(--k-border-w) solid var(--k-border-strong)}
+.k-pagehead-main{display:flex;align-items:center;gap:var(--k-space-4);min-width:0}
+.k-pagehead-mark{flex:none}
+.k-pagehead-title{margin:0;color:var(--k-text);font-size:var(--k-text-xl);font-weight:var(--k-weight-semibold);overflow-wrap:anywhere}
+.k-pagehead-sub{margin:var(--k-space-1) 0 0;color:var(--k-text-dim);font-size:var(--k-text-sm);overflow-wrap:anywhere}
+.k-pagehead-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin-left:auto}
+@media (max-width: 699px){.k-pagehead-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (prefers-reduced-motion: reduce){
   .k-btn,.k-iconbtn,.k-input,.k-chip,.k-ticket-ref,.k-switch,.k-switch-track,
   .k-switch-track::after,.k-drawer,.k-toast{transition:none}

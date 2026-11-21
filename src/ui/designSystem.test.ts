@@ -161,3 +161,26 @@ describe('agent identity injection (B1)', () => {
     }
   });
 });
+
+
+describe('page header primitive conformance (@ui:11.22)', () => {
+  /**
+   * Panels that have adopted the shared page header. Empty in this ticket:
+   * each per-page draft appends its name here as it lands, so the contract is
+   * enforced from the moment a panel opts in. An empty `it.each` table fails
+   * in Vitest, so the list is iterated inside one test instead.
+   */
+  const PAGEHEAD_PANELS: readonly string[] = [];
+
+  it('gives every adopting panel one page header and one page title', () => {
+    expect(Array.isArray(PAGEHEAD_PANELS)).toBe(true);
+    for (const name of PAGEHEAD_PANELS) {
+      const html = read(name);
+      expect(html, `${name} is missing <header class="k-pagehead">`).toContain('class="k-pagehead"');
+      expect(
+        html.match(/<h1 class="k-pagehead-title">/g)?.length ?? 0,
+        `${name} must carry exactly one .k-pagehead-title`,
+      ).toBe(1);
+    }
+  });
+});

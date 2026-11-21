@@ -170,6 +170,21 @@ describe('design system components', () => {
     expect(rulesFor('.k-toast-root')).toContain('var(--k-z-toast)');
   });
 
+  it('draws the shared page header with a high-contrast boundary and a narrow actions row (@ui:11.22)', () => {
+    // One header primitive for the simple panels (Getting Started, Diffs,
+    // Usage, Resources, Doctor). The boundary is contrastBorder, not the
+    // ordinary border, so it survives a high-contrast theme.
+    expect(rulesFor('.k-pagehead')).toContain(
+      'border-bottom:var(--k-border-w) solid var(--k-border-strong)',
+    );
+    expect(CSS).toContain(
+      '@media (max-width: 699px){.k-pagehead-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}',
+    );
+    // A long unbroken token must wrap instead of forcing horizontal scroll.
+    expect(rulesFor('.k-pagehead-title')).toContain('overflow-wrap:anywhere');
+    expect(rulesFor('.k-pagehead-sub')).toContain('overflow-wrap:anywhere');
+  });
+
   it('emits valid, balanced CSS', () => {
     const opens = (CSS.match(/\{/g) ?? []).length;
     const closes = (CSS.match(/\}/g) ?? []).length;
