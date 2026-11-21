@@ -19,7 +19,7 @@
 .ap-trigger:disabled{opacity:.45;cursor:default}
 .ap-trigger .ap-trigger-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:var(--k-space-2)}
 .ap-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:auto;
-  background:var(--chevron) no-repeat center/var(--k-space-6)}
+  display:inline-flex;color:var(--k-text-dim)}
 .ap-menu{
   position:fixed;box-sizing:border-box;z-index:var(--k-z-drawer);
   background:var(--vscode-dropdown-background,var(--k-bg));
@@ -62,10 +62,9 @@
 .ap-seg-btn{border:0;border-radius:0;background:transparent;color:var(--k-text)}
 .ap-seg-btn + .ap-seg-btn{border-left:var(--k-border-w) solid var(--k-border)}
 .ap-seg-btn[aria-checked="true"]{background:var(--k-action-bg);color:var(--k-action-fg);font-weight:600}
-/* Preset select matches the Type select: shared chevron, ellipsis, room for it. */
+/* Preset select matches the Type select: inline SVG chevron in a .k-select wrapper, ellipsis, room for it. */
 select.ap-effort[data-ap-preset]{appearance:none;-webkit-appearance:none;text-overflow:ellipsis;
-  padding-right:calc(var(--k-space-8) + var(--k-space-4));background-image:var(--chevron);
-  background-repeat:no-repeat;background-position:right var(--k-space-5) center}
+  padding-right:calc(var(--k-space-8) + var(--k-space-4))}
 .ap-warn{font-size:var(--k-text-xs);color:var(--k-warning,var(--k-text-dim))}
 .ap-warn[hidden]{display:none}
 .ap-effort{width:100%;min-height:var(--k-control-h-lg);

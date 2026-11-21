@@ -82,9 +82,6 @@
   font:inherit;font-size:var(--k-text-base)}
 .select-trigger:hover{border-color:var(--k-focus)}
 .select-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-.select-trigger .chev{position:absolute;right:var(--k-space-4);top:50%;transform:translateY(-50%);
-  width:var(--k-space-6);height:var(--k-space-6);flex:none;margin:var(--k-space-0);
-  background:var(--chevron) no-repeat center/var(--k-space-6)}
 .select-trigger .sel-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:var(--k-space-2)}
 .select-shell.is-open{z-index:calc(var(--k-z-drawer) + 1)}
 .dropdown{position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);

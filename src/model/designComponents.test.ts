@@ -53,7 +53,9 @@ describe('design system components', () => {
   it('never disables a control with pointer-events (UI-R17)', () => {
     // pointer-events:none suppresses the title that explains WHY a control is
     // disabled, which is the only thing making the disablement actionable.
-    expect(CSS).not.toMatch(/pointer-events:\s*none/);
+    // The one exception is `.k-select-chev`: a decorative glyph over a select that must pass the click through.
+    const withoutChevron = CSS.replace(/\.k-select-chev\{[^}]*\}/, '');
+    expect(withoutChevron).not.toMatch(/pointer-events:\s*none/);
   });
 
   it('carries the pending spinner on aria-busy, not on a bespoke class (UI-R11)', () => {
@@ -193,5 +195,20 @@ describe('webview CSS success overrides (tier 3 only)', () => {
       for (const m of css.matchAll(/[^{}<>;]*\.is-success[^{}]*\{/g)) offenders.push(`${dir}: ${m[0].trim()}`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('renders a disabled primary neutral at full opacity, with no local opacity (ST-20, SG-20)', () => {
+    const rule = CSS.match(/\.k-btn--primary:disabled,\.k-btn--primary\[aria-disabled="true"\]\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toContain('background:var(--k-surface-sunken)');
+    expect(rule).toContain('border:var(--k-border-w) solid var(--k-border)');
+    expect(rule).toContain('color:var(--k-text-dim)');
+    expect(rule).toContain('opacity:1');
+    expect(CSS).toContain('.k-btn:disabled{opacity:.45');
+  });
+
+  it('draws a select chevron as an element, never a data: URL image (ST-1)', () => {
+    expect(CSS).toContain('.k-select-chev{');
+    expect(rulesFor('.k-select-chev')).toContain('pointer-events:none');
+    expect(CSS).not.toMatch(/url\(\s*["']?data:/);
   });
 });

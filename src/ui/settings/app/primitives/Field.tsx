@@ -15,6 +15,7 @@
  * class (UI-R10). When `.k-select` ships, only this file changes.
  */
 import { startTransition, useId, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
+import { TablerIcon } from './TablerIcon.js';
 
 export interface SelectOption {
   readonly value: string;
@@ -364,18 +365,23 @@ function renderControl(
       );
     case 'select':
       return (
-        <select
-          {...shared}
-          className={controlClass}
-          value={control.value}
-          onChange={(e) => control.onChange(e.target.value)}
-        >
-          {control.options.map((option) => (
-            <option key={option.value} value={option.value} disabled={option.disabled}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <span className="k-select">
+          <select
+            {...shared}
+            className={controlClass}
+            value={control.value}
+            onChange={(e) => control.onChange(e.target.value)}
+          >
+            {control.options.map((option) => (
+              <option key={option.value} value={option.value} disabled={option.disabled}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <span className="k-select-chev" aria-hidden="true">
+            <TablerIcon name="chevron-down" size={16} />
+          </span>
+        </span>
       );
     default:
       return assertNever(control);

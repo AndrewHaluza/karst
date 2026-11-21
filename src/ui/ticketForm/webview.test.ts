@@ -969,25 +969,29 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
 });
 
 describe('ticket-form webview.html — selects, buttons, positioning fixes', () => {
-  it('defines --chevron so the agent-core trigger paints its dropdown arrow', () => {
-    // The trigger's `.chev` uses var(--chevron) but the page never defined the
-    // variable (settings does, in its own :root) — the custom select rendered
-    // as a plain button with no affordance. The data URI is the one accepted
-    // UI-R04 exception (a data-URI SVG cannot consume a custom property).
-    expect(HTML).toMatch(/:root\{[^}]*--chevron:url\("data:image\/svg\+xml/);
+  it('does not define or use --chevron: the CSP blocks a data: URL image (ST-1)', () => {
+    expect(HTML).not.toContain('--chevron');
+    expect(HTML).not.toContain('data:image/svg+xml');
   });
 
-  it('strips the OS arrow from native selects and paints the shared chevron (UI-R04)', () => {
-    // settings does this; the ticket form's selects (#agentSelect/#modelSelect/
-    // #typeSelect/#searchStatus) kept the raw OS arrow, whose placement drifts
-    // between platforms/renderers and reads as a different widget from the
-    // custom Agent-core trigger beside them.
+  it('wraps every native select in .k-select with an inline SVG chevron slot (ST-1)', () => {
+    const selects = HTML.match(/<select class=/g) ?? [];
+    const wrapped = HTML.match(/<div class="k-select"><select\b[\s\S]*?<\/select><span class="k-select-chev" aria-hidden="true"><\/span><\/div>/g) ?? [];
+    expect(selects.length).toBeGreaterThan(0);
+    expect(wrapped.length).toBe(selects.length);
+    expect(scriptBlock()).toContain("karstIconInto(chev, 'chevron-down', 16)");
+  });
+
+  it('strips the OS arrow from native selects and keeps room for the chevron (UI-R04)', () => {
     const [main] = styleBlocks();
     const rule = main!.match(/select\.k-input\{[^}]*\}/)?.[0] ?? '';
     expect(rule).toContain('appearance:none;-webkit-appearance:none');
-    expect(rule).toContain('background-image:var(--chevron)');
     expect(rule).toContain('padding-right:calc(var(--k-space-8) + var(--k-space-4))');
-    expect(rule).toContain('background-position:right var(--k-space-5) center');
+    expect(rule).not.toContain('background-image');
+  });
+
+  it('has no local disabled rule for the primary action: the primitive owns it (ST-21)', () => {
+    expect(HTML).not.toMatch(/\.actionbar \.k-btn--primary:disabled/);
   });
 
   it('closes the agent-core menu and repaints the trigger on pick (create mode has no state push)', () => {
