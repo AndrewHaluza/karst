@@ -75,19 +75,6 @@ export function graphRunOrdinal(db: GraphDb, ticketId: number, runId: number): n
   return row.n;
 }
 
-/** The active graph run for a ticket/stage attempt, or undefined. */
-export function graphRunForTicket(
-  db: GraphDb,
-  ticketId: number,
-  stageAttempt: number,
-): GraphRunRow | undefined {
-  return db
-    .prepare(
-      'SELECT * FROM approach_graph_runs WHERE ticket_id = ? AND stage_attempt = ? ORDER BY id DESC LIMIT 1',
-    )
-    .get(ticketId, stageAttempt) as GraphRunRow | undefined;
-}
-
 /**
  * Compare-and-set a graph-run transition. Returns false when the row already
  * moved (a raced transition from another window) — never throws for a stale
@@ -367,14 +354,6 @@ export function latestGraphRunForTicket(
     .get(ticketId) as
     | Pick<GraphRunRow, 'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at' | 'blocked_reason'>
     | undefined;
-}
-
-/** The newest graph run id for a ticket, or undefined. */
-export function latestGraphRunIdForTicket(db: GraphDb, ticketId: number): number | undefined {
-  const row = db
-    .prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1')
-    .get(ticketId) as { id: number } | undefined;
-  return row?.id;
 }
 
 /**

@@ -65,10 +65,6 @@ export type GraphSubmitRejection =
   | 'wrong-capability'
   | 'wrong-project';
 
-export type GraphSubmitResult =
-  | { ok: true; graphRunId: number; plannerRunId: number; graphSnapshotId: string }
-  | { ok: false; rejected: GraphSubmitRejection; reason: string };
-
 /** SHA-256 over UTF-8 bytes; used for the capability hash and snapshots. */
 export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');

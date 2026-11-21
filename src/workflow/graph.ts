@@ -119,8 +119,3 @@ export function needsConfirm(stage: StageKey): boolean {
 
 /** Stages whose `failed` verdict routes to the fix loop. */
 export const GATE_STAGES: readonly StageKey[] = ['uat', 'review'] as const;
-
-/** True when a stage sends a failed ticket into `fix`. */
-export function isGate(stage: StageKey): boolean {
-  return GATE_STAGES.includes(stage);
-}

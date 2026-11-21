@@ -32,7 +32,6 @@ export const AGY_CONVERSATIONS_RELATIVE = join('conversations');
 
 /** Relative path of the CLI's workspace-to-conversation mapping cache file. */
 export const AGY_LAST_CONVERSATIONS_RELATIVE = join('cache', 'last_conversations.json');
-export const AGY_LAST_CONVERSATIONS_FILE = AGY_LAST_CONVERSATIONS_RELATIVE;
 
 /** Strict pattern for conversation IDs accepted from foreign cache files (e.g. preventing path traversal). */
 export const AGY_CONVERSATION_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
@@ -63,7 +62,6 @@ export const AGY_IDLE_STATUS = 'CASCADE_RUN_STATUS_IDLE';
 export const AGY_STEP_STATUS_RUNNING = 2;
 export const AGY_STEP_STATUS_DONE = 3;
 export const AGY_STEP_STATUS_AWAITING_APPROVAL = 9;
-export const AGY_STEP_STATUS_PENDING_APPROVAL = AGY_STEP_STATUS_AWAITING_APPROVAL;
 
 /** Read handle on the CLI's summary DB (foreign schema — strictly read-only). */
 export interface AgySummariesDb {

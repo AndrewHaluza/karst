@@ -4,7 +4,6 @@ import type { GitRunner } from '../../integrations/git.js';
 
 export const ALLOWED_EXTENSION_GROWTH = 15;
 export const COARSE_EXTENSION_CEILING = 7250;
-export const MAX_EXTENSION_LINES = COARSE_EXTENSION_CEILING;
 
 export function calculateGrowth(baseCount: number, currentCount: number): number {
   return currentCount - baseCount;

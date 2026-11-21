@@ -430,18 +430,6 @@ export function nodeRunActivationRef(
     .get(id) as Pick<NodeRunRow, 'revision_id' | 'node_id' | 'graph_run_id'> | undefined;
 }
 
-/** The recovery-retry shape of a re-armable node run. */
-export function nodeRunRetryRef(
-  db: GraphDb,
-  id: number,
-): Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'> | undefined {
-  return db
-    .prepare(
-      'SELECT id, revision_id, node_id, node_kind, status FROM approach_node_runs WHERE id = ?',
-    )
-    .get(id) as Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'> | undefined;
-}
-
 /** The integration pipeline's node shape. */
 export function nodeRunIntegrationRef(
   db: GraphDb,
@@ -1140,19 +1128,6 @@ export type WriteNodeOverrideResult =
   | { ok: true }
   | { ok: false; reason: 'unknown-revision' | 'claimed' };
 
-/** Whether launch claiming has begun for (revision, node): any node run in a
- *  status beyond the editable set. The write and clear CAS both gate here. */
-export function nodeClaimingBegan(db: GraphDb, revisionId: number, nodeId: string): boolean {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM approach_node_runs
-       WHERE revision_id = ? AND node_id = ?
-         AND status NOT IN (${NODE_OVERRIDE_EDITABLE_STATUSES.map(() => '?').join(',')})`,
-    )
-    .get(revisionId, nodeId, ...NODE_OVERRIDE_EDITABLE_STATUSES) as { n: number };
-  return row.n > 0;
-}
-
 /** Read one override for (revision, node, kind), or undefined when absent. */
 export function nodeOverrideFor(
   db: GraphDb,
@@ -1176,8 +1151,8 @@ export function nodeOverrideFor(
  * Otherwise the row is upserted on the natural key, bumping `row_version`.
  *
  * The claim check is FOLDED INTO the write statement (`INSERT … SELECT …
- * WHERE NOT EXISTS (…)`) rather than run as a separate `nodeClaimingBegan()`
- * read: with two statements a concurrent `BEGIN IMMEDIATE` claim could commit
+ * WHERE NOT EXISTS (…)`) rather than run as a separate claim read before the
+ * write: with two statements a concurrent `BEGIN IMMEDIATE` claim could commit
  * between the read and the write and the override would land on a frozen
  * launch (P2-10). One statement makes the check and the write atomic under
  * SQLite's statement-level atomicity, so no such window exists.
@@ -1436,16 +1411,6 @@ export function clearDeferral(db: GraphDb, revisionId: number, nodeId: string): 
     'DELETE FROM approach_node_deferrals WHERE revision_id = ? AND node_id = ?',
   ).run(revisionId, nodeId);
   return res.changes > 0;
-}
-
-/** A graph run's deferral rows, ordered by node id. */
-export function deferralsForGraphRun(db: GraphDb, graphRunId: number): DeferralRow[] {
-  return db
-    .prepare(
-      `SELECT id, graph_run_id, revision_id, node_id, reason, wait_since, updated_at
-         FROM approach_node_deferrals WHERE graph_run_id = ? ORDER BY node_id`,
-    )
-    .all(graphRunId) as DeferralRow[];
 }
 
 /**

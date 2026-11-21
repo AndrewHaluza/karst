@@ -103,9 +103,6 @@ export type InsideActionTarget =
   // Offered only on a blocked run with that reason; the dispatch re-checks both.
   | { kind: 'graph-edit-workspace-deps'; ticketId: number; graphRunId: number };
 
-/** Longest accepted action id. Ids are `snapshot-<n>:action-<n>`; this is slack. */
-export const MAX_ACTION_ID_CHARS = 96;
-
 const ACTION_ID_PATTERN = /^snapshot-(\d+):action-(\d+)$/;
 
 /**

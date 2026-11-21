@@ -214,9 +214,6 @@ export function dotFor(cell: StepperCell): InsideDot {
 /** The six stages the inside view presents. Deliberately not `StageKey`. */
 export type InsideStageKey = 'scope' | 'impl' | 'uat' | 'review' | 'ship' | 'done';
 
-/** A process id within the inside contract — `gates`, `commit`, `delivery-receipt`. */
-export type InsideProcessId = string;
-
 /** How one process row reads to the eye. The same vocabulary as `OpStatus`. */
 export type InsideStatus = 'pending' | 'run' | 'wait' | 'pass' | 'fail' | 'note' | 'skip';
 

@@ -73,10 +73,6 @@ export function isKnownOptional(checks: Pick<PrChecks, 'required'>, f: FailingCh
   return checks.required != null && checks.required.pending === 0 && f.required === false;
 }
 
-export const UNKNOWN_PR_CHECKS: PrChecks = {
-  state: 'unknown', total: 0, passed: 0, failed: 0, pending: 0, failing: [], failedShown: 0,
-};
-
 const CHECK_STATES: readonly ChecksState[] = ['passing', 'failing', 'pending', 'none', 'unknown'];
 
 const MERGE_BLOCKS: readonly MergeBlock[] = [

@@ -62,11 +62,6 @@ export function parseSbxList(stdout: string): SbxListEntry[] {
   return parseSbxJson(stdout) ?? parseSbxTable(stdout);
 }
 
-/** `sbx ls` names, in listing order: JSON when available, else the table's first column. */
-export function parseNames(stdout: string): string[] {
-  return parseSbxList(stdout).map((e) => e.name);
-}
-
 /** `sbx ls --json`, falling back to the table when the flag is unsupported or the call fails. */
 export async function listSbx(proc: SbxProcess): Promise<ProcessResult & { readonly entries: readonly SbxListEntry[] }> {
   const json = await proc.run('sbx', ['ls', '--json']);

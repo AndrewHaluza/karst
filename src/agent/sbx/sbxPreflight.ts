@@ -1,8 +1,6 @@
 import type { ProcessResult, SbxProcess } from './sbxProcess.js';
 import { listSbx } from './sbxList.js';
 
-export { parseNames } from './sbxList.js';
-
 export const SBX_BIN = 'sbx';
 
 export type SbxPreflight =

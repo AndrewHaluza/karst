@@ -113,16 +113,6 @@ export function plannerRunSubmissionRef(
     | undefined;
 }
 
-/** The snapshot/election shape: a planner run's id, status and snapshot. */
-export function plannerRunSnapshotRef(
-  db: GraphDb,
-  id: number,
-): Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined {
-  return db
-    .prepare('SELECT id, status, graph_snapshot_id FROM approach_planner_runs WHERE id = ?')
-    .get(id) as Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined;
-}
-
 /** The oldest submitted planner run of a graph run and kind, or undefined. */
 export function submittedPlannerRunForGraphRun(
   db: GraphDb,

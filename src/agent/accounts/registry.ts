@@ -20,11 +20,6 @@ export function configureAccountsProject(fn: (() => string | undefined) | undefi
   projectSlugOf = fn ?? (() => undefined);
 }
 
-/** The slug of the project of this window, when known. */
-export function accountsProjectSlug(): string | undefined {
-  return projectSlugOf();
-}
-
 /** The active account of a core for the project of this window. */
 function activeName(core: AccountCore): string {
   return activeAccountName(config, core, projectSlugOf());

@@ -44,9 +44,6 @@ export const PROCESS_WIDE_KILL_COMMANDS = [
   'kill 0',
 ] as const;
 
-/** One denied command from {@link PROCESS_WIDE_KILL_COMMANDS}. */
-export type ProcessWideKillCommand = (typeof PROCESS_WIDE_KILL_COMMANDS)[number];
-
 /**
  * opencode / opencode2 `permission.bash` granular rules: a wildcard pattern →
  * `deny`. The object form is last-match-wins (`pkill -f claude` matches

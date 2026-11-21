@@ -142,18 +142,13 @@ export class QuotaService {
   }
 }
 
-/**
- * The core set karst reads quota for, in display order: the cores with a reader
- * first, then the unsupported ones so every core still gets a row.
- */
-export const DEFAULT_QUOTA_CORES: readonly AgentProvider[] = [
+/** The core set karst reads quota for, in display order. */
+export const QUOTA_CORES: readonly AgentProvider[] = [
   'claude',
   'codex',
   'antigravity',
   'opencode',
 ];
-
-export const QUOTA_CORES = DEFAULT_QUOTA_CORES;
 
 export interface DefaultQuotaReadersDeps {
   homeDir?: string;
