@@ -97,6 +97,13 @@ export interface HookPayload {
    */
   task_notification?: boolean;
   /**
+   * True on an opencode2 `session.idle` whose turn ended while a shell the
+   * session started was still running (the bridge plugin counts `shell.created`
+   * against `shell.exited`). Forwarded only when boolean. Read for opencode2
+   * only; every other core has no verified background-shell signal (@arch:AC-08).
+   */
+  background?: boolean;
+  /**
    * Claude's `Stop` re-entry flag, forwarded by the shared bridge. True means
    * the agent is CONTINUING from a prior block, so the mail reply must not fire
    * (and must not spend the batch's one-block budget).
@@ -192,6 +199,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
   if (o.task_notification !== undefined && typeof o.task_notification !== 'boolean') {
     return null;
   }
+  if (o.background !== undefined && typeof o.background !== 'boolean') return null;
   const asyncLaunched = typeof o.async_launched === 'boolean' ? o.async_launched : undefined;
   const rawTimeout =
     o.tool_name === 'Monitor' && typeof toolInput === 'object' && toolInput !== null
@@ -227,6 +235,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     ...(asyncLaunched !== undefined ? { async_launched: asyncLaunched } : {}),
     ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
     ...(o.task_notification !== undefined ? { task_notification: o.task_notification as boolean } : {}),
+    ...(o.background !== undefined ? { background: o.background as boolean } : {}),
     ...(o.stop_hook_active !== undefined ? { stop_hook_active: o.stop_hook_active as boolean } : {}),
     ...(model !== undefined ? { model } : {}),
   };
@@ -884,6 +893,21 @@ export function dispatchHook(
           const deadline = tracker.backgroundWaitDeadline(ticketId);
           if (deadline !== undefined) persistWaitDeadline(store, ticketId, deadline, debug);
         }
+      }
+    }
+
+    // opencode2 turn end. The bridge tags the idle `background` while a shell the
+    // session started still runs; opencode2 wakes the session itself when the
+    // shell exits, so the woken turn's own idle (no flag) closes the wait. Other
+    // cores have no verified signal (@arch:AC-08) and never reach this branch.
+    if (payload.hook_event_name === 'session.idle' && lifecycleProvider === 'opencode2') {
+      if (payload.background === true && markerIsPending) {
+        tracker.extendBackgroundWait(ticketId, BACKGROUND_WAIT_DEFAULT_MS);
+        const deadline = tracker.backgroundWaitDeadline(ticketId);
+        if (deadline !== undefined) persistWaitDeadline(store, ticketId, deadline, debug);
+      } else {
+        tracker.endBackgroundWait(ticketId);
+        persistWaitCleared(store, ticketId, debug);
       }
     }
 

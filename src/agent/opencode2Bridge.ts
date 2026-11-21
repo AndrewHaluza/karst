@@ -43,6 +43,22 @@ import { isFileChannel, pluginFileTransport, sandboxPluginLocation, writeBridgeS
  * (opencode 2.2.7): `form.created` nests the session id at `data.form.sessionID`;
  * `form.replied`/`form.cancelled` carry it flat at `data.sessionID`.
  *
+ * Background shells (live-shell-background-events.ndjson, opencode 2.2.7): a
+ * shell that opencode2 moves to the background outlives the turn. The turn ends
+ * (`session.execution.succeeded`) while the shell runs, and without a signal the
+ * host reads that as a question to the user. The plugin sees every event in
+ * process, so it keeps, per session, the shells opened by `shell.created` and
+ * not yet closed by `shell.exited`, and tags the turn-end `session.idle` with
+ * `background: true` while that set is not empty. `shell.created` nests the
+ * session id at `data.info.metadata.sessionID` and the shell id at `data.info.id`;
+ * `shell.exited` carries only the shell id at `data.id`, so the plugin maps the
+ * shell id back to its session. The set lives in this process only: the opencode2
+ * `job` table keeps stale rows of dead sessions and is never read. opencode2
+ * wakes the session itself when the shell exits (`shell.exited`, then
+ * `session.inbox.enqueued`, then `session.execution.started`), so the next
+ * `session.status` busy ends the wait and the woken turn ends with a plain
+ * `session.idle`. No extra idle is posted on `shell.exited`.
+ *
  * MAILBOX-DELIVERY-PER-CORE-PUSH: opencode2 takes the TYPED delivery route. Its
  * `setup(ctx)` carries no SDK client (unlike v1's `{ client }`), so the plugin
  * cannot push a pointer the way v1's `session.idle` handler does; the endpoint
@@ -358,11 +374,45 @@ function deliver(payload, onDelivered) {
   } catch { finish(false); }
 }
 
-function post(hookEventName, sessionId, cwd, message) {
+function post(hookEventName, sessionId, cwd, message, background) {
   if (!sessionId && !cwd) return;
   const payload = { hook_event_name: hookEventName, cwd, session_id: sessionId };
   if (message) payload.message = message;
+  if (background === true) payload.background = true;
   deliver(payload);
+}
+
+// Shells opened and not yet exited, per session. shell.exited names only the
+// shell, so shellSession maps it back. In memory: a dead session's stale state
+// dies with this process.
+const openShells = new Map();
+const shellSession = new Map();
+
+function trackShellCreated(data) {
+  const info = asRecord(data && data.info);
+  const shellId = stringOf(info && info.id);
+  const metadata = asRecord(info && info.metadata);
+  const sessionId = stringOf(metadata && metadata.sessionID);
+  if (!shellId || !sessionId) return;
+  shellSession.set(shellId, sessionId);
+  const open = openShells.get(sessionId) || new Set();
+  open.add(shellId);
+  openShells.set(sessionId, open);
+}
+
+function trackShellExited(data) {
+  const shellId = stringOf(data && data.id);
+  const sessionId = shellSession.get(shellId);
+  if (!shellId || !sessionId) return;
+  shellSession.delete(shellId);
+  const open = openShells.get(sessionId);
+  if (!open) return;
+  open.delete(shellId);
+  if (open.size === 0) openShells.delete(sessionId);
+}
+
+function hasOpenShell(sessionId) {
+  return openShells.has(sessionId);
 }
 
 // The last posted cumulative tally per session — see tallySignature.
@@ -404,7 +454,14 @@ function handleEvent(event, directory) {
       post('session.status', sessionId, cwd, 'busy');
       break;
     case 'session.execution.succeeded':
-      post('session.idle', sessionId, cwd);
+      // A turn that ends while its own shell runs is parked, not asking.
+      post('session.idle', sessionId, cwd, undefined, hasOpenShell(sessionId));
+      break;
+    case 'shell.created':
+      trackShellCreated(data);
+      break;
+    case 'shell.exited':
+      trackShellExited(data);
       break;
     case 'session.execution.failed':
       // A failed turn is both a diagnostic (session.error carries the message)

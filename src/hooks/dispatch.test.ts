@@ -1862,6 +1862,103 @@ describe('dispatchHook — background wait survives Stop (T993)', () => {
   });
 });
 
+describe('dispatchHook — opencode2 background shell turn end (T1292)', () => {
+  let store: Store;
+  const WT = '/repo/.karst/worktrees/z';
+  const T0 = new Date('2026-11-21T14:00:00.000Z');
+  const MIN = 60_000;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+    vi.useRealTimers();
+  });
+
+  function setup(provider: 'opencode2' | 'opencode' = 'opencode2') {
+    const t = createTicket(store, { key: 'C', title: 'c' });
+    seedWorktree(store, t.id, WT);
+    openImplementationRun(store, { ticketId: t.id, attempt: 0, provider, startedAt: '2026-11-21T13:59:00.000Z' });
+    const tracker = new TurnTracker();
+    const send = (p: Record<string, unknown>): void => {
+      const parsed = parseHookPayload({ cwd: WT, ...p });
+      dispatchHook(store, parsed!, undefined, undefined, () => provider, undefined, undefined, tracker);
+    };
+    return { id: t.id, tracker, send, sweep: () => expireBackgroundWaits(store, tracker) };
+  }
+  const idleBg = { hook_event_name: 'session.idle', background: true };
+  const idle = { hook_event_name: 'session.idle' };
+  const busy = { hook_event_name: 'session.status', message: 'busy' };
+  const waitUntil = (id: number): string | null =>
+    (store.db.prepare('SELECT background_wait_until AS v FROM tickets WHERE id = ?').get(id) as { v: string | null }).v;
+
+  it('parseHookPayload forwards background only when boolean, and rejects another type', () => {
+    expect(parseHookPayload({ hook_event_name: 'session.idle', background: true })?.background).toBe(true);
+    expect(parseHookPayload({ hook_event_name: 'session.idle', background: false })?.background).toBe(false);
+    expect(parseHookPayload({ hook_event_name: 'session.idle' })?.background).toBeUndefined();
+    expect(parseHookPayload({ hook_event_name: 'session.idle', background: 'yes' })).toBeNull();
+  });
+
+  it('session.idle with the flag and a pending marker reads running and persists the wait', () => {
+    const { id, tracker, send } = setup();
+    send(idleBg);
+    expect(getTicket(store, id).agentState).toBe('running');
+    expect(tracker.backgroundWaitActive(id)).toBe(true);
+    expect(waitUntil(id)).not.toBeNull();
+    expect(listProcessRuns(store, id)[0]!.promptTelemetry?.markerMissCase).toBe('background-wait');
+  });
+
+  it('session.idle without the flag and a pending marker reads waiting (regression guard)', () => {
+    const { id, tracker, send } = setup();
+    send(idle);
+    expect(getTicket(store, id).agentState).toBe('waiting');
+    expect(tracker.backgroundWaitActive(id)).toBe(false);
+  });
+
+  it('the wait expires by the sweep deadline', () => {
+    const { id, send, sweep } = setup();
+    send(idleBg);
+    vi.advanceTimersByTime(BACKGROUND_WAIT_DEFAULT_MS - MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('running');
+    vi.advanceTimersByTime(2 * MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('the woken turn ends the wait: busy reads running, a plain idle then reads waiting', () => {
+    const { id, tracker, send, sweep } = setup();
+    send(idleBg);
+    send(busy);
+    expect(getTicket(store, id).agentState).toBe('running');
+    send(idle);
+    expect(tracker.backgroundWaitActive(id)).toBe(false);
+    expect(waitUntil(id)).toBeNull();
+    expect(getTicket(store, id).agentState).toBe('waiting');
+    vi.advanceTimersByTime(BACKGROUND_WAIT_DEFAULT_MS + MIN);
+    sweep();
+    expect(getTicket(store, id).agentState).toBe('waiting');
+  });
+
+  it('the done marker ends the wait', () => {
+    const { id, tracker, send } = setup();
+    send(idleBg);
+    completeImplementationRun(store, id, '2026-11-21T14:01:00.000Z');
+    send(idle);
+    expect(getTicket(store, id).agentState).toBe('idle');
+    expect(tracker.backgroundWaitActive(id)).toBe(false);
+  });
+
+  it('the flag is ignored for a core without a verified background-shell signal (AC-08)', () => {
+    const { id, tracker, send } = setup('opencode');
+    send(idleBg);
+    expect(getTicket(store, id).agentState).toBe('waiting');
+    expect(tracker.backgroundWaitActive(id)).toBe(false);
+  });
+});
+
 describe('dispatchHook — hook activity (T1111)', () => {
   let store: Store;
   const WT = '/repo/.karst/worktrees/h';
