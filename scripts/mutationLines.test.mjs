@@ -102,6 +102,11 @@ describe('linesMarkdown', () => {
     expect(text).toContain('| a.ts:12 | ConditionalExpression | `true` | Survived |');
     expect(text).toContain('1 undetected');
   });
+  it('escapes a backslash and a pipe, and joins whitespace, in the replacement cell', () => {
+    const f = { file: 'a.ts', line: 1, mutator: 'StringLiteral', replacement: 'a\\b | c\n  d', status: 'Survived' };
+    const text = linesMarkdown({ failures: [f], ignored: { static: 0, disabled: 0 }, judged: 1 });
+    expect(text).toContain('`a\\\\b \\| c d`');
+  });
 });
 
 describe('concurrencyFor', () => {

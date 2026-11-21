@@ -88,7 +88,7 @@ export function linesMarkdown({ failures, ignored, judged }) {
   lines.push(`Ignored on added lines: ${ignored.static + ignored.disabled} (${ignored.static} static, ${ignored.disabled} Stryker disable).`);
   if (failures.length > 0) {
     lines.push('', '| Location | Mutator | Replacement | Status |', '| --- | --- | --- | --- |');
-    for (const f of failures) lines.push(`| ${f.file}:${f.line} | ${f.mutator} | \`${f.replacement.replace(/\s+/g, ' ').replace(/\|/g, '\\|')}\` | ${f.status} |`);
+    for (const f of failures) lines.push(`| ${f.file}:${f.line} | ${f.mutator} | \`${f.replacement.replace(/\s+/g, ' ').replace(/[\\|]/g, '\\$&')}\` | ${f.status} |`);
   }
   return lines.join('\n');
 }
