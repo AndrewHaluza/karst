@@ -76,14 +76,6 @@ export function requeueStaleMemoryClaims(store: Store, staleMs: number, projectI
     .run({ project: projectId ?? null, age: `-${Math.floor(staleMs / 1000)} seconds` }).changes;
 }
 
-/** Milliseconds a ticket has been queued, or null when it is not queued. */
-export function memoryWaitAgeMs(store: Store, ticketId: number): number | null {
-  const r = store.db
-    .prepare(`SELECT CAST((julianday('now') - julianday(memory_wait_at)) * 86400000 AS INTEGER) AS age FROM tickets WHERE id = ? AND memory_wait <> ${MEMORY_WAIT_NONE} AND memory_wait_at IS NOT NULL`)
-    .get(ticketId) as { age: number } | undefined;
-  return r ? r.age : null;
-}
-
 /** The extension host that queued the ticket, or null (not queued, or queued before owners were recorded). */
 export function memoryWaitOwner(store: Store, ticketId: number): string | null {
   const r = store.db.prepare('SELECT memory_wait_owner AS o FROM tickets WHERE id = ? AND memory_wait <> 0').get(ticketId) as { o: string | null } | undefined;

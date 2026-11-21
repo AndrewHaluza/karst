@@ -27,9 +27,6 @@ export interface LiveRunUsage {
   cacheRead: number;
 }
 
-/** Reads the live count of the given process-run ids; null when none has a reading. */
-export type LiveRunUsageReader = (runIds: readonly number[]) => LiveRunUsage | null;
-
 interface Entry {
   readonly ticketId: number | null;
   readonly session: LiveHeadlessSession;

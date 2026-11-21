@@ -96,8 +96,6 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AgentProvider } from '../manifest/types.js';
-import type { ModelOption } from '../agent/modelCatalog.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { routeIdentityJs } from './routeIdentity.js';
 
@@ -121,11 +119,6 @@ export const AGENT_PICKER_CSS_MARKER = '/*KARST_AGENT_PICKER_CSS*/';
 
 /** Placeholder swapped for the picker JS; sits inside each webview's `<script>`. */
 export const AGENT_PICKER_JS_MARKER = '/*KARST_AGENT_PICKER_JS*/';
-
-/** The model catalog shape the picker reads (mirrors `ModelCatalog`). */
-export type AgentPickerCatalog = Readonly<
-  Partial<Record<AgentProvider, readonly ModelOption[]>>
->;
 
 /**
  * The `.ap-*` stylesheet for the unified picker. Self-contained so a surface

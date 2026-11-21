@@ -78,10 +78,6 @@ export type NodeCompletionRejection =
   | 'wrong-attempt'
   | 'unknown-outcome';
 
-export type NodeCompletionResult =
-  | { ok: true; nodeRunId: number; verb: NodeVerb; outcome: string }
-  | { ok: false; rejected: NodeCompletionRejection; reason: string };
-
 /** The observable preconditions that qualify a `replan` (Decision 27). */
 export const REPLAN_QUALIFYING_OUTCOMES: ReadonlySet<string> = new Set([
   'failed',

@@ -12,5 +12,3 @@ export const SPINNER_MIN_VISIBLE_MS = 500;
 
 /** Tier 3 (`confirm`): how long the in-place check stays. */
 export const CONFIRM_DWELL_MS = 1200;
-
-export type ClickTier = 'view' | 'mutation' | 'confirm';

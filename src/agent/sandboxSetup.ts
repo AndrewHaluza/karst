@@ -86,10 +86,6 @@ export function resetSetupLocks(): void {
   locks.clear();
 }
 
-export function setupInProgress(key: string): boolean {
-  return locks.has(key);
-}
-
 /**
  * The recorded setup of a ticket's sandbox: a `failed` state (first repo `<id>.setup.json` or a further
  * `<id>.<repo>.setup.json`) is an environment blocker (arch:AC-47). Missing or unreadable state is not a failure.

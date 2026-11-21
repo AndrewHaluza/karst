@@ -224,18 +224,6 @@ export function latestFindingBatch(store: Store, ticketId: number): Finding[] {
 }
 
 /**
- * A ticket's findings recorded under one review-stage `attempt` number.
- *
- * Bare attempt filter: `stages.attempt` climbs on a FAILED verdict but is
- * RESET to 0 by send-back, stage reset, PR-feedback fix and gate retry, so the
- * same number recurs across review cycles. Callers that mean "the current
- * cycle" must use `scopeCycleFindings` (`model/findingScope.ts`) instead.
- */
-export function findingsForAttempt(store: Store, ticketId: number, attempt: number): Finding[] {
-  return listFindings(store, ticketId).filter((f) => f.attempt === attempt);
-}
-
-/**
  * One finding by its row id, whatever ticket it belongs to — the typed-action
  * dispatch reloads the row by host-owned id and verifies the ticket itself
  * (`insideActions.ts`), so it must not be scoped to a caller-supplied ticket.

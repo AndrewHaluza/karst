@@ -20,5 +20,3 @@ export const DIAGNOSTIC_LIMITS = Object.freeze({
   maxSectionBytes: 1024 * 1024,
   maxTotalBytes: 1024 * 1024,
 })
-
-export type DiagnosticLimits = typeof DIAGNOSTIC_LIMITS

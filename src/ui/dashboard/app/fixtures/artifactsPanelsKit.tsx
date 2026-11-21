@@ -38,16 +38,6 @@ export const art = (id: string, over: Record<string, unknown> = {}): Summary =>
     ...over,
   }) as unknown as Summary;
 
-export const stored = (groups: Array<[string, number]> = [], total?: number): NonNullable<DashboardState['storedArtifacts']> => ({
-  total: total ?? groups.reduce((n, [, rows]) => n + rows, 0),
-  globs: [],
-  skips: [],
-  groups: groups.map(([kind, rows]) => ({
-    kind,
-    approaches: [{ approach: 'gsd', rows: Array.from({ length: rows }, () => ({}) as never) }],
-  })),
-});
-
 export const stateWith = (over: Partial<DashboardState>): DashboardState => ({ ticketId: 1, artifacts: [], ...over }) as unknown as DashboardState;
 
 export interface Harness {
