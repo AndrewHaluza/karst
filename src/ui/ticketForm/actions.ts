@@ -13,7 +13,10 @@ import {
   updateTicketCore,
   updateTicketFields,
   generateTicketKey,
+  getTicketByKey,
 } from '../../store/tickets.js';
+import { slugifyTitleKey } from '../../store/titleKey.js';
+import { formatId } from '../../model/entityId.js';
 import {
   getTicketSourceRef,
   ingestBriefRelations,
@@ -386,6 +389,29 @@ function scoredRepos(manifest: Manifest, brief: ContextBrief): string[] {
 }
 
 /**
+ * The key a form Submit/Save persists. A blank or auto-derived key goes through the store's
+ * collision logic (`-2`, `-3`…). In create mode a key that already names a ticket is never
+ * reused: `createTicketFlow` is idempotent by key, so reuse would bind, overwrite and start
+ * an unrelated (maybe finished) ticket. A taken key equal to the title's own derivation is
+ * still a derived key (a stale page may send it as user-owned), so it gets the suffix; any
+ * other taken key is the user's and is rejected.
+ */
+function resolveDraftKey(
+  ctx: TicketFormActionsCtx,
+  deps: TicketFormActionsDeps,
+  input: TicketDraftFields,
+): string {
+  const scope = { projectId: deps.projectId };
+  const derive = (): string => generateTicketKey(deps.store, scope, input.title);
+  if (input.keyAutoDerived || !input.key) return derive();
+  if (ctx.ticketId !== undefined) return input.key;
+  const taken = getTicketByKey(deps.store, input.key, scope);
+  if (!taken) return input.key;
+  if (input.key === slugifyTitleKey(input.title)) return derive();
+  throw new Error(`Key ${input.key} is already used by ${formatId('ticket', taken.id)}. Type a different key.`);
+}
+
+/**
  * Create-or-update the ticket from the ticket form's draft fields, and persist the
  * repo/approach/agent/model selection — the part `submit` and `save` share.
  * Binds a create-mode panel to the new ticket. Does NOT touch startTicket;
@@ -417,9 +443,7 @@ function persistDraft(
   // A blank key, or a key the webview auto-derived from the title (not user
   // owned), is resolved here so the store's collision logic (`-2`, `-3`…)
   // actually runs. A user-typed/pasted key is kept verbatim.
-  const key = input.keyAutoDerived || !input.key
-    ? generateTicketKey(deps.store, { projectId: deps.projectId }, input.title)
-    : input.key;
+  const key = resolveDraftKey(ctx, deps, input);
   let ticketId: number;
   if (ctx.ticketId !== undefined) {
     updateTicketCore(deps.store, ctx.ticketId, { key, title: input.title });
@@ -459,8 +483,12 @@ function persistDraft(
   // The user's explicit Save/Submit is the ONLY commit of a prefilled page; a
   // fetch/attach that bound an earlier draft must not have accepted it (see
   // `commitPrefill`). Fires the prefill's `onCreated` exactly once.
-  ctx.commitPrefill();
-  deps.onChange();
+  // A failed link rethrows: the caller reports it and must not start the ticket.
+  try {
+    ctx.commitPrefill();
+  } finally {
+    deps.onChange();
+  }
   return ticketId;
 }
 
@@ -885,13 +913,15 @@ export function buildTicketFormActions(
         // the brief so the NOT NULL insert never fails on a title-less brief.
         // Only bind AFTER a successful create so a failure leaves no half-state.
         if (ctx.ticketId === undefined) {
+          // A provider refetch reuses the row with this key; the form did not create it.
+          const reused = getTicketByKey(deps.store, ref, { projectId: deps.projectId }) !== undefined;
           const draft = createTicketFlow(deps.store, {
             key: ref,
             title: brief.title || ref,
             description: brief.description || undefined,
             projectId: deps.projectId,
           });
-          ctx.bindTicket(draft.id);
+          ctx.bindTicket(draft.id, { existing: reused });
           deps.onChange(); // sidebar shows the new draft
         }
 

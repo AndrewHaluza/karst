@@ -128,7 +128,10 @@ describe('planningProposalOps', () => {
     expect(forms[0]).toMatchObject({ title: 'Fix login', description: 'd'.repeat(40), summary: 'sum', repos: ['api'], draftId: proposalId });
     expect(ticketCount()).toBe(0);
     const t = createTicket(store, { key: 'K', title: 'Fix login', projectId });
+    changes = 0;
     forms[0]!.onCreated(t.id);
+    expect(changes).toBe(1);
+    expect(warns).toEqual([]);
     expect(getProposal(store, proposalId)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     expect(refreshed).toContain(sessionId);
@@ -145,7 +148,9 @@ describe('planningProposalOps', () => {
     // the divergence is surfaced instead of silently dropping the revision.
     expect(getProposal(store, proposalId)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
-    expect(warns.join(' ')).toMatch(/revised while you were editing/);
+    expect(warns).toEqual([
+      `Draft D${proposalId} was revised while you were editing; your saved ticket is linked and the newer revision was discarded.`,
+    ]);
     expect(errors).toHaveLength(0);
   });
 
@@ -277,9 +282,12 @@ describe('planningProposalOps', () => {
     await ops().announce(getProposal(store, proposalId)!);
     breakProposalWrites();
     const t = createTicket(store, { key: 'K', title: 'Fix login', projectId });
-    forms[0]!.onCreated(t.id);
+    changes = 0;
+    expect(() => forms[0]!.onCreated(t.id)).toThrow('db down');
     await flush();
     expect(errors).toEqual([`Couldn't link draft D${proposalId}: db down`]);
+    expect(debugs).toContain(`[planning] proposal ${proposalId}: link failed: db down`);
+    expect(changes).toBe(1);
   });
 
   describe('setPriority', () => {

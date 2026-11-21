@@ -1203,19 +1203,50 @@ describe('buildTicketFormActions', () => {
     expect(keys).toEqual(['FIX-LOGIN-REDIRECT', 'FIX-LOGIN-REDIRECT-2']);
   });
 
-  it('a user-owned key is kept verbatim even when it matches another ticket (no auto re-key)', async () => {
-    const mk = () => buildTicketFormActions(deps)({
-      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
-    });
-    const base = { title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null, createInProvider: false };
+  it('a user-typed key that another ticket already has is rejected, and nothing is written or started', async () => {
+    const existing = createTicket(store, { key: 'MY-KEY', title: 'done one' });
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
+    };
+    const base = { title: 'Fix login redirect', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null, createInProvider: false };
 
-    // createTicketFlow is idempotent by key, so a repeated user-owned key reuses
-    // the same row — the point is that it is NOT re-keyed to `-2` the way an
-    // auto-derived key would be. The key stays verbatim.
-    await mk().submit({ ...base, key: 'FIX-LOGIN-REDIRECT', keyAutoDerived: false });
-    await mk().submit({ ...base, key: 'FIX-LOGIN-REDIRECT', keyAutoDerived: false });
-    const keys = listTickets(store).map((t) => t.key);
-    expect(keys).toEqual(['FIX-LOGIN-REDIRECT']);
+    await buildTicketFormActions(deps)(ctx).submit({ ...base, key: 'MY-KEY', keyAutoDerived: false });
+
+    expect(listTickets(store)).toHaveLength(1);
+    expect(getTicket(store, existing.id).selectedRepos).toEqual([]);
+    expect(startTicket).not.toHaveBeenCalled();
+    expect((posted.find((m) => m.type === 'error') as { message: string }).message).toMatch(/MY-KEY.*already used by/);
+  });
+
+  it('a taken key equal to the title-derived key gets the collision suffix, never the existing row', async () => {
+    const existing = createTicket(store, { key: 'FIX-LOGIN-REDIRECT', title: 'done one' });
+    const bound: number[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: (id) => bound.push(id), commitPrefill: () => {}, close: () => {},
+    };
+
+    await buildTicketFormActions(deps)(ctx).submit({ key: 'FIX-LOGIN-REDIRECT', title: 'Fix login redirect', description: '', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null, createInProvider: false, keyAutoDerived: false });
+
+    expect(bound).toHaveLength(1);
+    expect(bound[0]).not.toBe(existing.id);
+    expect(getTicket(store, bound[0]!).key).toBe('FIX-LOGIN-REDIRECT-2');
+    expect(getTicket(store, existing.id).selectedRepos).toEqual([]);
+    expect(startTicket).toHaveBeenCalledWith(bound[0], { pullBase: true });
+    expect(startTicket).not.toHaveBeenCalledWith(existing.id, expect.anything());
+  });
+
+  it('submit does not start the ticket when the prefill link fails, and posts the error', async () => {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {},
+      commitPrefill: () => { throw new Error('adding this blocked-by relation would create a cycle'); }, close: () => {},
+    };
+
+    await buildTicketFormActions(deps)(ctx).submit({ key: '', title: 'linked draft', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null, createInProvider: false });
+
+    expect(startTicket).not.toHaveBeenCalled();
+    expect((posted.find((m) => m.type === 'error') as { message: string }).message).toMatch(/cycle/);
   });
 
   it('two blank-key submissions generate distinct keys — no collision', async () => {

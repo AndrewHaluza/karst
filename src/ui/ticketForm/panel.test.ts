@@ -837,6 +837,36 @@ describe('TicketFormManager — create prefill (planning proposal review)', () =
       expect(listTickets(store)).toHaveLength(1);
     });
 
+    it('never deletes a pre-existing row the form bound as existing, when closed without Save', () => {
+      const existing = createTicket(store, { key: 'OLD-1', title: 'done ticket' });
+      const { host, panels } = fakeHost();
+      const { factory, seen } = recordingFactory();
+      const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+      mgr.openCreate(prefill());
+      seen[0]!.bindTicket(existing.id, { existing: true });
+      panels[0]!.dispose();
+      expect(listTickets(store)).toHaveLength(1);
+    });
+
+    it('a failed onCreated link rethrows from commitPrefill and leaves the prefill uncommitted', () => {
+      const { host, panels } = fakeHost();
+      const { factory, seen } = recordingFactory();
+      let fail = true;
+      const created: number[] = [];
+      const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+      mgr.openCreate({
+        ...prefill(), onCreated: (id: number) => { if (fail) throw new Error('link down'); created.push(id); },
+      });
+      const minted = createTicket(store, { key: '', title: 'x' });
+      seen[0]!.bindTicket(minted.id);
+      expect(() => seen[0]!.commitPrefill()).toThrow('link down');
+      fail = false;
+      seen[0]!.commitPrefill();
+      expect(created).toEqual([minted.id]);
+      panels[0]!.dispose();
+      expect(listTickets(store)).toHaveLength(1);
+    });
+
     it('a plain create panel keeps its minted row on close', () => {
       const { host, panels } = fakeHost();
       const { factory, seen } = recordingFactory();

@@ -105,13 +105,15 @@ export interface TicketFormActionsCtx {
    * long before the user presses Save, so this must never be treated as
    * acceptance. Use `commitPrefill` for that.
    */
-  bindTicket(id: number): void;
+  bindTicket(id: number, opts?: { existing?: boolean }): void;
   /**
    * The user's explicit Save/Submit persisted this panel's ticket — the moment
    * a prefilled page's owner (a planning proposal) learns about it. Fires the
    * prefill's `onCreated` ONCE; a no-op for a panel with no prefill or one whose
    * ticket was never bound. Distinct from `bindTicket` so an earlier fetch or
    * attachment can bind a draft without silently accepting the proposal.
+   * Rethrows a failed `onCreated`; the prefill then stays uncommitted so a later
+   * commit retries it, and the caller must not start the ticket.
    */
   commitPrefill(): void;
   /**
@@ -516,9 +518,10 @@ export class TicketFormManager {
       get prefillSeed() {
         return prefill ? { title: prefill.title, description: prefill.description } : undefined;
       },
-      bindTicket: (id: number) => {
+      bindTicket: (id: number, opts?: { existing?: boolean }) => {
         // The row a restored form takes back is not this panel's own: restore never deletes it.
-        if (prefill && boundId === undefined && id !== mintedTicketId) mintedId = id;
+        // A row that already existed (`existing`) is never this panel's to delete either.
+        if (prefill && boundId === undefined && id !== mintedTicketId && !opts?.existing) mintedId = id;
         boundId = id;
         this.ticketByPanel.set(panel, id);
         // A prefilled review page owns the proposal summary as the draft's
@@ -552,8 +555,9 @@ export class TicketFormManager {
         // moment the prefill's owner learns the ticket (fires once). A fetch or
         // attachment that merely bound a draft does NOT reach here.
         if (!prefill || prefillCommitted || boundId === undefined) return;
-        prefillCommitted = true;
+        // A throwing owner leaves the prefill uncommitted: the link did not happen.
         prefill.onCreated(boundId);
+        prefillCommitted = true;
         // Push now so the webview rewrites its saved identity as a committed ticket, not a proposal draft.
         pushState();
       },
