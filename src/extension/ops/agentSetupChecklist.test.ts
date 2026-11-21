@@ -117,4 +117,51 @@ describe('agent setup checklist', () => {
     await vi.advanceTimersByTimeAsync(AGENT_SETUP_DEBOUNCE_MS * 2);
     expect(run).toHaveBeenCalledTimes(1);
   });
+
+  it('logs the failure with its message and the cause', async () => {
+    const { c, run, logError } = setup();
+    const cause = new Error('boom');
+    run.mockRejectedValueOnce(cause);
+    await c.refresh();
+    expect(logError).toHaveBeenCalledWith('karst: agent setup checklist failed', cause);
+  });
+
+  it('schedule after dispose arms no timer', () => {
+    const { c } = setup();
+    c.dispose();
+    c.schedule();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('dispose clears a pending debounce timer', () => {
+    const { c } = setup();
+    c.schedule();
+    expect(vi.getTimerCount()).toBe(1);
+    c.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('dispose drops the listeners, so a run that ends later notifies nobody', async () => {
+    let release: (s: string) => void = () => undefined;
+    const { c } = setup(() => new Promise<string>((r) => (release = r)));
+    const l = vi.fn();
+    c.subscribe(l);
+    const p = c.refresh();
+    expect(l).toHaveBeenCalledTimes(1);
+    c.dispose();
+    release(report());
+    await p;
+    expect(l).toHaveBeenCalledTimes(1);
+  });
+
+  it('a change during a run does not rerun after the controller is disposed', async () => {
+    let release: (s: string) => void = () => undefined;
+    const { c, run } = setup(() => new Promise<string>((r) => (release = r)));
+    const p = c.refresh();
+    c.schedule();
+    c.dispose();
+    release(report());
+    await p;
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });

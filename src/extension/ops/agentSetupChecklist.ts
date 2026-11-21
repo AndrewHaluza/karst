@@ -46,7 +46,7 @@ export function createAgentSetupChecklist(deps: AgentSetupChecklistDeps): AgentS
   let error: string | null = null;
   let updatedLabel: string | null = null;
   let inflight: Promise<void> | undefined;
-  let dirty = false;
+  let dirty: boolean; // set before each run; a schedule() during a run sets it again
   let timer: NodeJS.Timeout | undefined;
   let disposed = false;
 
