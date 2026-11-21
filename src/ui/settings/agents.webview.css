@@ -58,6 +58,13 @@
   align-items: flex-end;
 }
 
+/* The active chip sits level with the preset select's box, not on the label row's bottom edge. */
+#section-agents .agents-tgroup > .k-chip {
+  align-self: flex-end;
+  min-height: var(--k-control-h-lg);
+  box-sizing: border-box;
+}
+
 #section-agents .agents-tgroup--end {
   margin-left: auto;
 }
