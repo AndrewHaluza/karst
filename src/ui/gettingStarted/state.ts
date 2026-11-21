@@ -1,4 +1,5 @@
 import type { SetupItem } from '../../init/status.js';
+import type { AgentSetupView } from '../../setup/checklist/panelView.js';
 
 /**
  * Serializable state for the Getting Started page. A live setup checklist plus a fixed
@@ -54,6 +55,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
 
 export interface GettingStartedState {
   checklist: SetupItem[];
+  /** The 9-item first-setup list, computed by the host in a child process. Absent in old fixtures. */
+  agentSetup?: AgentSetupView;
   tutorial: readonly TutorialStep[];
 }
 
@@ -69,10 +72,10 @@ export function agentCliReady(checklist: readonly SetupItem[]): boolean {
   return agentItems.length > 0 && agentItems.every((item) => item.done);
 }
 
-export function buildGettingStartedState(checklist: SetupItem[]): GettingStartedState {
+export function buildGettingStartedState(checklist: SetupItem[], agentSetup?: AgentSetupView): GettingStartedState {
   const ready = agentCliReady(checklist);
   const tutorial = TUTORIAL_STEPS.map((step) =>
     step.action === 'setup-agent' ? { ...step, enabled: ready } : step,
   );
-  return { checklist, tutorial };
+  return agentSetup === undefined ? { checklist, tutorial } : { checklist, agentSetup, tutorial };
 }

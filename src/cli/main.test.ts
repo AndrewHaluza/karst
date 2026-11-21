@@ -882,6 +882,32 @@ describe('runCliAsync — base', () => {
 });
 
 
+describe('runCliAsync — setup checklist outside a setup session', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-cli-checklist-')));
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('runs without KARST_SETUP_SESSION: the verb writes nothing', async () => {
+    const out = await runCliAsync(
+      ['setup', 'checklist', '--db', join(dir, 'karst.db'), '--manifest', join(dir, 'karst.yml')],
+      {},
+    );
+    const report = JSON.parse(out) as { ok: boolean; items: unknown[] };
+    expect(report.ok).toBe(false);
+    expect(report.items).toHaveLength(9);
+  });
+
+  it('still refuses a writing setup verb without a setup session', async () => {
+    await expect(
+      runCliAsync(['setup', 'set-general', '--db', join(dir, 'karst.db'), '--manifest', join(dir, 'karst.yml')], {}),
+    ).rejects.toThrow(/only in a setup session/);
+  });
+});
+
 describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
   let dir: string;
   let dbPath: string;

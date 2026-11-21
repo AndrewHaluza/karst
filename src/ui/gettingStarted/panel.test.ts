@@ -307,4 +307,36 @@ describe('GettingStartedManager.adopt', () => {
     expect(mgr.adopt(r.restored)).toBe(false);
     expect(r.log).toEqual(['dispose']);
   });
+
+  describe('agent setup hooks', () => {
+    const actions = () => ({
+      createManifest: vi.fn(), recheckDeps: vi.fn(), openSettings: vi.fn(), createTicket: vi.fn(),
+      setupAgent: vi.fn(), reportIssue: vi.fn(), dismiss: vi.fn(), requestState: vi.fn(),
+    });
+
+    it('calls onOpen for a new panel and for a reveal, never for an adopted one', () => {
+      const { host } = makeHost();
+      const onOpen = vi.fn();
+      const mgr = new GettingStartedManager(fakeState, host, actions, vi.fn(), onOpen);
+      mgr.open();
+      expect(onOpen).toHaveBeenCalledTimes(1);
+      mgr.open();
+      expect(onOpen).toHaveBeenCalledTimes(2);
+    });
+
+    it('refresh pushes a fresh state without a re-check, and does nothing with no panel', () => {
+      const { host, panels } = makeHost();
+      const loadState = vi.fn(fakeState);
+      const mgr = new GettingStartedManager(loadState, host, actions);
+      mgr.refresh();
+      expect(loadState).not.toHaveBeenCalled();
+      mgr.open();
+      mgr.refresh();
+      expect(loadState).toHaveBeenLastCalledWith({ recheck: false });
+      expect(panels[0]!.posted).toHaveLength(2);
+      panels[0]!.dispose();
+      mgr.refresh();
+      expect(loadState).toHaveBeenCalledTimes(2);
+    });
+  });
 });

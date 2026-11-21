@@ -58,7 +58,6 @@ import { realDiscoveryProbe, runSetupCommand } from './setupCommand.js';
 import { parseSetupChecklistArgs, runSetupChecklistCommand } from './setupChecklist.js';
 import { discoverWorkspace } from '../setup/discover.js';
 import { readSkips, skipStorePath } from '../setup/checklist/skips.js';
-import { assertSetupSession } from './setupEdit/command.js';
 import { isEditTool } from './setupEdit/command.js';
 import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
@@ -867,9 +866,9 @@ export async function runCliAsync(
     return runMcpCommand(rest, { db, manifest: manifestPath, ticket }, env);
   }
   // `setup checklist` computes the first-setup checklist from discovery, the
-  // manifest and the readiness result. Setup sessions only; async like `setup check`.
+  // manifest and the readiness result. Read-only, so it needs no setup session (the host
+  // runs it for the Getting Started panel); async like `setup check`.
   if (rest[0] === 'setup' && rest[1] === 'checklist') {
-    assertSetupSession(env, 'karst setup checklist');
     configureOpencode2FromEnv(env);
     if (!manifestPath) throw new Error('missing --manifest <path>');
     // The user's approved skips live next to the store file: without --db the checklist would ignore them.

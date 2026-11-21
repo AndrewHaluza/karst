@@ -55,6 +55,23 @@
         color: var(--k-text-dim);
         margin: 0 0 var(--k-space-4);
       }
+      /* Agent setup (the 9-item first-setup list). The page is capped at 58ch, so the rows wrap by flex
+         instead of by @media: the tag drops under the title when the title needs the line. */
+      .as-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--k-space-4); }
+      .as-updated { font-size: var(--k-text-sm); color: var(--k-text-dim); }
+      .as-track {
+        display: block; appearance: none; width: 100%; height: var(--k-space-2); border: 0;
+        background: var(--k-surface-sunken); border-radius: var(--k-radius-xs); overflow: hidden;
+        margin: var(--k-space-4) 0 var(--k-space-3);
+      }
+      .as-track::-webkit-progress-bar { background: var(--k-surface-sunken); }
+      .as-track::-webkit-progress-value { background: var(--k-series-1); border-radius: var(--k-radius-xs); }
+      .as-track::-moz-progress-bar { background: var(--k-series-1); border-radius: var(--k-radius-xs); }
+      .as-line { margin: 0 0 var(--k-space-3); font-size: var(--k-text-sm); color: var(--k-text-dim); overflow-wrap: anywhere; }
+      .as-error { color: var(--k-danger); }
+      .as-row .item-head { flex-wrap: wrap; }
+      .as-title { flex: 1 1 20ch; min-width: 0; overflow-wrap: anywhere; }
+      .as-row .detail { overflow-wrap: anywhere; }
       .toolbar { display: flex; gap: var(--k-space-4); margin-top: var(--k-space-4); }
       footer { margin-top: var(--k-space-9); color: var(--k-text-dim); }
     </style>
@@ -88,6 +105,14 @@
         <button type="button" class="k-btn k-btn--secondary" id="recheck"
           title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
+    </section>
+
+    <section data-region="agent-setup" id="agent-setup">
+      <div class="as-head">
+        <h2>Agent setup</h2>
+        <span class="as-updated" id="as-updated"></span>
+      </div>
+      <div id="as-body"></div>
     </section>
 
     <section>
@@ -159,6 +184,84 @@
         }
       }
 
+      function asLine(text, extra) {
+        const p = document.createElement('p');
+        p.className = 'as-line' + (extra ? ' ' + extra : '');
+        p.textContent = text;
+        return p;
+      }
+
+      const AS_MARK = {
+        done: { dot: 'k-dot--passed', label: 'Done' },
+        open: { dot: 'k-dot--failed', label: 'Open' },
+        skipped: { dot: 'k-dot--attention', label: 'Skipped' },
+      };
+
+      function renderAgentSetupRow(row) {
+        const li = document.createElement('li');
+        li.className = 'as-row';
+        li.dataset.status = row.status;
+        const head = document.createElement('div');
+        head.className = 'item-head';
+        const mark = AS_MARK[row.status] || AS_MARK.open;
+        const dot = document.createElement('span');
+        dot.className = 'k-dot ' + mark.dot;
+        dot.setAttribute('role', 'img');
+        dot.setAttribute('aria-label', mark.label);
+        const title = document.createElement('span');
+        title.className = 'as-title';
+        title.textContent = row.title;
+        const tag = document.createElement('span');
+        tag.className = 'k-chip as-tag';
+        tag.textContent = row.required ? 'required' : 'optional';
+        head.append(dot, title, tag);
+        li.append(head);
+        if (row.status === 'open' && row.detail) {
+          const d = document.createElement('div');
+          d.className = 'detail';
+          d.textContent = row.detail;
+          li.append(d);
+        }
+        return li;
+      }
+
+      function renderAgentSetup(view) {
+        const body = document.getElementById('as-body');
+        const updated = document.getElementById('as-updated');
+        body.textContent = '';
+        updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
+        if (!view) return;
+        if (view.checking) {
+          const c = asLine('Checking…');
+          c.setAttribute('role', 'status');
+          body.append(c);
+        }
+        if (view.error) {
+          const e = asLine('Could not check the agent setup: ' + view.error + ' Use Re-check to try again.', 'as-error');
+          e.setAttribute('role', 'alert');
+          body.append(e);
+        }
+        if (view.summary) {
+          const track = document.createElement('progress');
+          track.className = 'as-track';
+          track.max = view.summary.total;
+          track.value = view.summary.done;
+          track.setAttribute('aria-label', 'Agent setup progress');
+          body.append(track);
+          body.append(asLine(
+            view.summary.done + ' of ' + view.summary.total + ' done · ' + view.summary.skipped +
+            ' skipped · ' + view.summary.requiredOpen + ' required open'));
+        }
+        if (view.noManifest) body.append(asLine(view.noManifest));
+        if (view.allRequiredDone) body.append(asLine('All required setup items are done.'));
+        if (view.rows.length > 0) {
+          const ul = document.createElement('ul');
+          ul.id = 'as-list';
+          for (const row of view.rows) ul.append(renderAgentSetupRow(row));
+          body.append(ul);
+        }
+      }
+
       function renderTutorial(steps) {
         const ul = document.getElementById('tutorial');
         ul.innerHTML = '';
@@ -201,6 +304,7 @@
         const msg = event.data;
         if (msg.type === 'state') {
           renderChecklist(msg.state.checklist);
+          renderAgentSetup(msg.state.agentSetup);
           renderTutorial(msg.state.tutorial);
         } else if (msg.type === 'action-result') {
           karstSettle(msg.requestId, msg.ok, msg.message);

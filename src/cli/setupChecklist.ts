@@ -5,8 +5,8 @@ import type { DiscoveryResult } from '../setup/discover.js';
 import type { SkipRecord } from '../setup/checklist/types.js';
 
 /**
- * `karst setup checklist` (@arch:CLI-14): the first-setup checklist, setup
- * sessions only. `--format text` renders the block the agent prints to the
+ * `karst setup checklist` (@arch:CLI-14): the first-setup checklist; it writes nothing,
+ * so it runs with or without a setup session. `--format text` renders the block the agent prints to the
  * user; nothing on this verb can mark an item skipped. A skip is a user
  * decision the host records (`setup skip` only asks).
  */

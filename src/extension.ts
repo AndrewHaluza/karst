@@ -788,7 +788,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Onboarding setup sessions (§ ONBOARDING-SETUP-AGENT): a read-only agent
   // terminal that discovers the workspace and proposes a manifest + consented
   // repo changes. The binding lives in setupWiring.ts so this file stays thin.
-  activateSetupFeature(context, {
+  const setupFeature = activateSetupFeature(context, {
     storageDir,
     dbPath,
     currentManifest: () => currentManifest(),
@@ -1618,9 +1618,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The panel's re-check button routes here; repaint the bar from the same
     // moment's truth, or installing a tool clears the checklist and leaves the
     // status bar still claiming it's missing. One probe pass feeds both.
+    // Re-check re-runs the 9-item agent list too. The run is a child process and is not awaited:
+    // the panel shows 'Checking…' over the old rows and gets a push when the run ends.
+    if (recheck) void setupFeature.agentChecklist.refresh();
     const faults = await refreshDepsStatus({ recheck });
     return buildGettingStartedState(
       buildSetupStatusFromFaults({ manifestExists, provider, faults }),
+      setupFeature.agentChecklist.view(),
     );
   };
 
@@ -1633,7 +1637,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       runCommand: (command) => void vscode.commands.executeCommand(command),
     }),
     logError,
+    () => void setupFeature.agentChecklist.refresh(), // panel open
   );
+  context.subscriptions.push({ dispose: setupFeature.agentChecklist.subscribe(() => gettingStarted.refresh()) });
 
   // The startup toast is dismissible and gone in seconds; a tool that is missing
   // (or signed out) stays that way until the user fixes it. The status bar is the
