@@ -30,9 +30,10 @@ export function getPlacement(store: Store, ticketId: number): TicketPlacement | 
 }
 
 /**
- * Single writer of placement. Written in one transaction with `session_provider`
+ * The writer of a launch's placement. Written in one transaction with `session_provider`
  * so the core that minted the session id and the placement never disagree.
- * Callers hold the ticket (arch:AC-37 `controls`).
+ * Callers hold the ticket (arch:AC-37 `controls`). `recordPlacementIfAbsent` is the one
+ * other writer: a graph run fills a placement only when none is recorded (T1286).
  */
 export function recordPlacement(store: Store, ticketId: number, placement: TicketPlacement, sessionProvider: AgentProvider | null): void {
   store.db.transaction(() => {
@@ -40,6 +41,44 @@ export function recordPlacement(store: Store, ticketId: number, placement: Ticke
       .prepare('UPDATE tickets SET placement_backend = ?, placement_core = ?, placement_sandbox = ?, placement_reason = ?, session_provider = ? WHERE id = ?')
       .run(placement.backend, placement.core, placement.sandboxName, placement.reason, sessionProvider, ticketId);
   })();
+}
+
+/** The host placement a graph run leaves: graph node sessions always run in the host worktree (D170). */
+export const GRAPH_RUN_PLACEMENT: TicketPlacement = { backend: 'host', core: null, sandboxName: null, reason: 'graph run' };
+
+/**
+ * Record a placement only when none is recorded (`AND placement_backend IS NULL`), keeping
+ * `session_provider` unchanged. A graph run writes the host placement it works in (T1286), but
+ * never overwrites a placement another path recorded (a sandbox fix session keeps its own).
+ * Returns whether a row was written.
+ */
+export function recordPlacementIfAbsent(store: Store, ticketId: number, placement: TicketPlacement): boolean {
+  const res = store.db
+    .prepare('UPDATE tickets SET placement_backend = ?, placement_core = ?, placement_sandbox = ?, placement_reason = ? WHERE id = ? AND placement_backend IS NULL')
+    .run(placement.backend, placement.core, placement.sandboxName, placement.reason, ticketId);
+  return res.changes > 0;
+}
+
+/**
+ * Backfill the placement of tickets whose impl work ran in graph node runs (T1286): a graph ticket
+ * (`runsGraph(ticket.approach)`) with at least one `approach_graph_runs` row and no recorded placement
+ * gets the host placement the run leaves. A direct ticket, a graph ticket with no run, and a ticket
+ * with a recorded placement are untouched. `projectId` scopes it, like `backfillPlacement`. No schema change.
+ */
+export function backfillGraphPlacement(store: Store, runsGraph: (approachId: string | null) => boolean, projectId?: number): number {
+  const rows = store.db
+    .prepare('SELECT id, approach FROM tickets WHERE placement_backend IS NULL AND (? IS NULL OR project_id = ?)')
+    .all(projectId ?? null, projectId ?? null) as { id: number; approach: string | null }[];
+  const hasRun = store.db.prepare('SELECT 1 AS one FROM approach_graph_runs WHERE ticket_id = ? LIMIT 1');
+  let written = 0;
+  store.db.transaction(() => {
+    for (const r of rows) {
+      if (!runsGraph(r.approach)) continue;
+      if (hasRun.get(r.id) === undefined) continue;
+      if (recordPlacementIfAbsent(store, r.id, GRAPH_RUN_PLACEMENT)) written += 1;
+    }
+  })();
+  return written;
 }
 
 /** Back to "not recorded" (e.g. a ticket whose sandbox was removed and has no session yet). */

@@ -55,6 +55,8 @@ export interface AutofixFacts {
   readonly history?: readonly string[];
   /** Every armed round of both kinds, oldest first, with the time of its Autopilot note (the Auto-fix row's attempt rows). */
   readonly attempts?: readonly AutofixAttempt[];
+  /** A placement is recorded for the ticket now: an old unreadable-placement park gets its Retry (T1286). */
+  readonly placementReadable?: boolean;
 }
 
 /** An open PR whose checks still run: its label and the rollup counts. */
@@ -118,8 +120,10 @@ const STOPPED = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)$/;
 const ENGINE_GH = /^auto-fix stopped: ci could not run \((.*)\)$/;
 const GH_FAILED = /^auto-fix (?:paused: could not read CI\b|stopped: ci could not run \()/;
 const SANDBOX_WORD = /sandbox/i;
-// A permanent park (an unreadable placement): a retry parks again. A sandbox park keeps ONE Retry (the ticket requires it).
+// A permanent park (an unreadable placement) keeps no Retry while no placement is recorded; one recorded later
+// (a graph run, the startup backfill) gives it the Retry that continues it (T1286). A sandbox park keeps ONE Retry.
 const NOT_RUN = /^auto-fix not run:/;
+const PLACEMENT_PARK = 'auto-fix not run: placement unknown';
 const SANDBOXED = 'auto-fix not run: sandboxed ticket';
 // T1158: a graph-ticket park holds only while a graph run is active. After the run closes, a Retry reaches an agent.
 const GRAPH_PARK = 'auto-fix not run: graph ticket';
@@ -272,7 +276,7 @@ export interface AutofixBannerView {
   readonly titleHref?: string;
   readonly titleSuffix: string;
   readonly cause: string;
-  /** Null for a permanent park (`auto-fix not run: …`, except the graph-ticket park, T1158): a Retry would only park again. */
+  /** Null for a permanent park (`auto-fix not run: …`, except the graph-ticket park, T1158, and an unreadable-placement park once a placement is recorded, T1286): a Retry would only park again. */
   readonly primary: AutofixBannerAction | null;
   readonly secondary: AutofixBannerAction | null;
   readonly history: readonly string[];
@@ -326,12 +330,14 @@ export function autofixBanner(f: AutofixFacts): AutofixBannerView | null {
     };
   }
   // A sandbox pause did not use the budget: ONE Retry, and the existing sandbox actions sit beside it (never run on host).
+  const permanent = NOT_RUN.test(reason) && !SANDBOX_WORD.test(reason) && reason !== GRAPH_PARK;
+  const placementRetry = reason === PLACEMENT_PARK && f.placementReadable === true;
   return {
     state: 'paused',
     title: 'Auto-fix paused',
     titleSuffix: reason === SANDBOXED ? 'sandbox ticket' : '',
-    cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Fix the sandbox, then retry.' : reason === GRAPH_PARK ? GRAPH_CAUSE : NOT_RUN.test(reason) ? `${capitalize(reason)}.` : `${capitalize(reason)}. Fix the cause, then retry.`,
-    primary: NOT_RUN.test(reason) && !SANDBOX_WORD.test(reason) && reason !== GRAPH_PARK ? null : RETRY,
+    cause: reason === SANDBOXED ? 'The sandbox cannot run a round. Fix the sandbox, then retry.' : reason === GRAPH_PARK ? GRAPH_CAUSE : placementRetry ? `${capitalize(reason)}. The placement is recorded now; retry to run a round.` : NOT_RUN.test(reason) ? `${capitalize(reason)}.` : `${capitalize(reason)}. Fix the cause, then retry.`,
+    primary: permanent && !placementRetry ? null : RETRY,
     secondary: SANDBOX_WORD.test(reason) ? SYNC_DIFF : null,
     history: [],
   };

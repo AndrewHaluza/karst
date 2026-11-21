@@ -9,6 +9,9 @@ import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
+import { makePlacementCheck } from '../autopilotBinding.js';
+import { getPlacement, recordPlacementIfAbsent, GRAPH_RUN_PLACEMENT } from '../../store/placement.js';
+import { createGraphRun } from '../../store/graph/graphRuns.js';
 
 const NORMAL_BLOCK = 'blocked: the pull request for "r" has changes and is not merged yet.';
 let store: Store;
@@ -943,6 +946,22 @@ describe('conflicts', () => {
     expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix not run: placement unknown' });
     expect(r.sendConflict).not.toHaveBeenCalled();
     expect(getAutopilotBudget(store, id, 'r', 'conflicts').attempts).toBe(0);
+  });
+
+  // T1286: the graph run records the host placement when it starts, so a graph ticket that reached ship after its run
+  // closed starts the conflicts round instead of parking placement-unknown.
+  it('a graph ticket whose run recorded host placement starts the conflicts round', async () => {
+    seedPr(PASSING);
+    conflict();
+    store.db.prepare("UPDATE tickets SET approach = 'karst-graph-engineering' WHERE id = ?").run(id);
+    createGraphRun(store.db, { ticketId: id, stageAttempt: 0, approachId: 'karst-graph-engineering', now: '2026-11-21T00:00:00.000Z' });
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'closed' WHERE ticket_id = ?").run(id);
+    recordPlacementIfAbsent(store, id, GRAPH_RUN_PLACEMENT);
+    expect(getPlacement(store, id)).toEqual(GRAPH_RUN_PLACEMENT);
+    const placement = makePlacementCheck((ticketId) => getPlacement(store, ticketId));
+    const r = rig({ placement: () => placement(id) });
+    expect(await autopilotTick(r.deps)).toMatchObject({ kind: 'armed', problem: 'conflicts' });
+    expect(r.sendConflict).toHaveBeenCalledWith('r');
   });
 
   it('waits for a free concurrency slot and uses no attempt', async () => {

@@ -3,6 +3,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, setAutopilotStopAfter, takeAutopilotAttempt, markConflictRound, markCiRound } from '../../store/autopilot.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
+import { getPlacement, recordPlacementIfAbsent, GRAPH_RUN_PLACEMENT } from '../../store/placement.js';
 import { autofixInputOf, readAutofix } from './stateAutofix.js';
 import type { AutofixFacts } from '../../model/inside/autofix.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
@@ -48,6 +49,15 @@ describe('readAutofix stop head', () => {
 });
 
 describe('readAutofix', () => {
+  // T1286: an old "placement unknown" park gets its Retry once a placement is recorded, and none while it is not.
+  it('gives a placement-unknown park a Retry when the placement is readable now', () => {
+    const { store, id } = setup();
+    park(store, id, 'auto-fix not run: placement unknown');
+    expect(getPlacement(store, id)).toBeNull();
+    expect(readAutofix(store, id, CONFIG).slice.banner?.primary).toBeNull();
+    recordPlacementIfAbsent(store, id, GRAPH_RUN_PLACEMENT);
+    expect(readAutofix(store, id, CONFIG).slice.banner?.primary).toMatchObject({ act: 'autopilot-retry' });
+  });
   it('reports the project default and an inherit override', () => {
     const { store, id } = setup();
     const r = readAutofix(store, id, CONFIG);

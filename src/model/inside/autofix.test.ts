@@ -215,9 +215,17 @@ describe('autofixBanner', () => {
     });
   });
 
-  it('keeps an unreadable-placement park permanent: no Retry', () => {
-    const b = autofixBanner({ ...BASE, reason: 'auto-fix not run: placement unknown' });
+  it('keeps an unreadable-placement park permanent while no placement is recorded: no Retry', () => {
+    const b = autofixBanner({ ...BASE, reason: 'auto-fix not run: placement unknown', placementReadable: false });
     expect(b).toMatchObject({ cause: 'Auto-fix not run: placement unknown.', primary: null, secondary: null });
+  });
+
+  // T1286: a park from before the graph run recorded its placement can continue without a manual conflict resolve.
+  it('gives an old unreadable-placement park a Retry once a placement is recorded', () => {
+    const b = autofixBanner({ ...BASE, reason: 'auto-fix not run: placement unknown', placementReadable: true });
+    expect(b?.state).toBe('paused');
+    expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry', icon: 'refresh', title: 'Retry the auto-fix' });
+    expect(b?.secondary).toBeNull();
   });
 
   it('gives a pause that is not about the sandbox a Retry and no sandbox action', () => {

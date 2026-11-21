@@ -1272,6 +1272,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sbxOauth: () => sbxOauth, sbxMemory: () => hostSbxMemory(currentManifest()?.sandboxMemory?.sbxMemory), store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), gateRunning: (id) => driver.isRunning(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), debug: (m) => logger.debug(m), logError,
     choose: (m, choices) => Promise.resolve(ask.warn(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
+    runsGraph: (approachId) => approachId !== null && Boolean(withBuiltInApproaches(currentManifest() ?? emptyManifest()).approaches?.find((a) => a.id === approachId)?.graph),
     projectId: () => currentProject()?.id, redrive: (id) => maybeDrive(id, 'sandbox-stash-update'),
     onShellChange: (id) => dashboard.pushState(id), openTerminal: (spec) => { const term = vscode.window.createTerminal({ name: spec.name, cwd: spec.cwd, shellPath: spec.cmd, shellArgs: [...spec.args] }); term.show(); }, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
     pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
@@ -4149,7 +4150,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
   try { stopStaleDeliverRuns(localStore, pidAlive, nowIso()); } catch (e) { logError('stale deliver runs sweep failed', e); }
-  await sandboxLife.backfillPlacements(); await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, liveSandboxTicketIds: () => sandboxLife.liveSandboxTicketIds(), sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
+  await sandboxLife.backfillPlacements(); await sandboxLife.backfillGraphPlacements(); await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, liveSandboxTicketIds: () => sandboxLife.liveSandboxTicketIds(), sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
 
   // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
   // in the coordinator modules. The coordinator gets its OWN connection with
@@ -5245,6 +5246,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       projectId: currentProject()?.id ?? 0,
       artifactRoot: graphArtifactRoot(result.graphRunId),
     };
+    // The run's node sessions work in the host worktree (D170): a launch session records its
+    // placement, a graph run leaves no such launch, so the graph start records it here (T1286).
+    sandboxLife.recordGraphStartPlacement(ticketId);
     attachPlannerCloseFallback(result.session, identity);
     result.session.terminal?.show();
     provider.refresh();
