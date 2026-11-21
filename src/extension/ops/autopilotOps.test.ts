@@ -1078,6 +1078,22 @@ describe('conflicts', () => {
     expect(drop).not.toHaveBeenCalled();
   });
 
+  it('says the wait again after a stalled round was dropped', async () => {
+    seedPr(PASSING);
+    conflict();
+    const lines = (debug: ReturnType<typeof vi.fn>): number => debug.mock.calls.filter(([m]) => String(m).includes('no round, a conflict round is armed')).length;
+    const busy = rig({ conflictRoundActive: () => true });
+    await autopilotTick(busy.deps);
+    expect(lines(busy.debug)).toBe(1);
+    // The round stalls (an engine round with a receipt and no merge): it is dropped and its wait is forgotten.
+    markConflictRound(store, id, Date.now());
+    expect(await autopilotTick(rig({ conflictRoundActive: () => true, conflictRoundStalled: () => true }).deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: conflict round did not deliver' });
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
+    const again = rig({ conflictRoundActive: () => true });
+    await autopilotTick(again.deps);
+    expect(lines(again.debug)).toBe(1);
+  });
+
   it('logs "no round, a conflict round is armed" once per armed state, not every tick', async () => {
     seedPr(PASSING);
     conflict();
