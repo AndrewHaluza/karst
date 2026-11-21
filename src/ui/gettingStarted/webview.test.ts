@@ -35,6 +35,15 @@ describe('gettingStarted webview.html', () => {
     expect(HTML).toContain('<!--KARST_CSP-->');
   });
 
+  it('injects the status palette, so the k-dot marks and the progress fill have a colour', () => {
+    expect(HTML).toContain('<style>/*KARST_PALETTE*/</style>');
+  });
+
+  it('wraps a long unbroken name inside its column', () => {
+    const style = styleBlock();
+    expect(style).toMatch(/\.item-label,\s*\.step-body\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  });
+
   it('the splash header carries the approved full-color mark, not the old graph', () => {
     expect(HTML).toContain('M 96 20');
     expect(HTML).toContain('cx="106.5" cy="111.5" r="26.5"');
@@ -47,9 +56,16 @@ describe('gettingStarted webview.html', () => {
     // hex fallback (#3fb950/#f85149) duplicating the shared status ramp. Every
     // length below the marker must now resolve through a --k-* token.
     const style = styleBlock();
-    const local = style.slice(style.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length);
+    // A media-query condition cannot read a token: the layout tier edge (NARROW_MAX, @ui:RD-TIERS) is a literal.
+    const local = style
+      .slice(style.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length)
+      .replace(/@media\s*\([^)]*\)/g, '@media');
     const offenders = local.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
     expect(offenders, JSON.stringify(offenders)).toBeNull();
+  });
+
+  it('moves the agent-setup tag under the title at the narrow tier (<= 699)', () => {
+    expect(styleBlock()).toMatch(/@media \(max-width: 699px\)\s*\{[^}]*\.as-row \.item-head \{ flex-direction: column/);
   });
 
   it('sets an explicit page background (UI-R05), like every other webview\'s body rule', () => {
@@ -131,6 +147,10 @@ describe('gettingStarted webview.html', () => {
     expect(script).not.toContain("getElementById('report-issue').onclick");
     expect(script).toContain("karstAction(document.getElementById('report-issue')");
     expect(script).toMatch(/post\('report-issue',\s*requestId\)/);
+  });
+
+  it('hides the Agent setup section while the host has sent no view', () => {
+    expect(scriptBlock()).toContain("document.getElementById('agent-setup').hidden = !view");
   });
 
   it('esc() is not needed here: rendering goes through textContent/createElement, never innerHTML interpolation', () => {

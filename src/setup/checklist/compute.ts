@@ -14,6 +14,9 @@ export interface ChecklistInput {
   skips: readonly SkipRecord[];
 }
 
+/** The detail every item carries while karst.yml is missing; the panel shows it once, not nine times. */
+export const NO_MANIFEST_DETAIL = 'karst.yml does not exist or does not load';
+
 /**
  * The first-setup checklist. Pure: no I/O. An item is `done` only when its rule
  * finds no open problem, and a rule reads the readiness result, not a tool call.
@@ -24,7 +27,7 @@ export function computeChecklist(input: ChecklistInput): ChecklistItem[] {
     const base = { code: def.code, section: def.section, title: def.title, required: def.required, tool: def.tool };
     if (manifest === undefined) {
       const load = input.readiness.find((i) => i.id === 'manifest.load');
-      return { ...base, status: 'todo', detail: `karst.yml does not exist or does not load${load ? ` (${load.detail})` : ''}` };
+      return { ...base, status: 'todo', detail: `${NO_MANIFEST_DETAIL}${load ? ` (${load.detail})` : ''}` };
     }
     const skipped = (target?: string): boolean =>
       input.skips.some((s) => s.code === def.code && (s.target === undefined || s.target === target));

@@ -230,3 +230,132 @@ describe('gettingStarted render', () => {
     });
   }
 });
+
+/** The host-computed 'Agent setup' section, one assertion set per state (a)-(d). */
+describe('gettingStarted render: agent setup', () => {
+  const byScenario = (name: string) => gettingStartedRenderFixtures().find((f) => f.scenario === name)!;
+  const open = (name: string) => {
+    const h = renderWebview('gettingStarted', { nonce: FIXTURE_NONCE });
+    h.receive({ type: 'state', state: byScenario(name).state });
+    const text = (sel: string): string => h.document.querySelector(sel)?.textContent ?? '';
+    return { h, text, rows: () => h.queryAll('#as-list > li') };
+  };
+
+  it('the section sits after Setup checklist, as data-region="agent-setup", with a Re-check button before it', () => {
+    const { h } = open('agent-open');
+    try {
+      const sections = h.queryAll('section');
+      const idx = sections.findIndex((s) => s.getAttribute('data-region') === 'agent-setup');
+      expect(idx).toBe(1);
+      expect(sections[0]!.querySelector('#recheck')).not.toBeNull();
+      expect(sections[idx]!.querySelector('h2')!.textContent).toBe('Agent setup');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a mixed run shows the time, the progress line, one row per item, marks and tags', () => {
+    const { h, text, rows } = open('agent-open');
+    try {
+      expect(text('#as-updated')).toBe('Updated 09:41');
+      expect(text('#as-body')).toContain('4 of 9 done · 1 skipped · 2 required open');
+      const progress = h.document.querySelector('progress')!;
+      expect([progress.max, progress.value]).toEqual([9, 4]);
+      const rs = rows();
+      expect(rs).toHaveLength(9);
+      expect(rs.map((r) => r.getAttribute('data-status'))).toEqual([
+        'done', 'done', 'open', 'open', 'skipped', 'done', 'open', 'open', 'done',
+      ]);
+      expect(rs[2]!.querySelector('[role="img"]')!.getAttribute('aria-label')).toBe('Open');
+      expect(rs[4]!.querySelector('[role="img"]')!.getAttribute('aria-label')).toBe('Skipped');
+      expect(rs[0]!.querySelector('[role="img"]')!.getAttribute('aria-label')).toBe('Done');
+      expect(rs[2]!.querySelector('.k-chip')!.textContent).toBe('required');
+      expect(rs[7]!.querySelector('.k-chip')!.textContent).toBe('optional');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('only an open row carries its detail on a second line', () => {
+    const { h, rows } = open('agent-open');
+    try {
+      const rs = rows();
+      expect(rs[2]!.querySelector('.detail')!.textContent).toBe('Detail for agent item 3');
+      expect(rs[0]!.querySelector('.detail')).toBeNull();
+      expect(rs[4]!.querySelector('.detail')).toBeNull();
+    } finally {
+      h.close();
+    }
+  });
+
+  it('(a) no karst.yml: nine open rows and the one detail line once', () => {
+    const { h, text, rows } = open('agent-no-manifest');
+    try {
+      expect(rows()).toHaveLength(9);
+      expect(h.queryAll('#as-list .detail')).toHaveLength(0);
+      const body = text('#as-body');
+      expect(body.split('karst.yml does not exist or does not load')).toHaveLength(2);
+      expect(body).toContain('0 of 9 done · 0 skipped · 6 required open');
+      expect(body).not.toContain('All required setup items are done.');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('(b) checking: shows Checking… and keeps the old rows', () => {
+    const { h, text, rows } = open('agent-checking');
+    try {
+      expect(text('#as-body')).toContain('Checking…');
+      expect(h.document.querySelector('#as-body [role="status"]')).not.toBeNull();
+      expect(rows()).toHaveLength(9);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('(c) error: one error line with the reason, rows stay, Re-check stays', () => {
+    const { h, text, rows } = open('agent-error');
+    try {
+      const alerts = h.queryAll('#as-body [role="alert"]');
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]!.textContent).toContain('setup checklist timed out after 120 s.');
+      expect(text('#as-body')).not.toContain('Checking…');
+      expect(rows()).toHaveLength(9);
+      expect(h.document.getElementById('recheck')).not.toBeNull();
+    } finally {
+      h.close();
+    }
+  });
+
+  it('(d) all required done: a short done line and no error', () => {
+    const { h, text } = open('agent-done');
+    try {
+      expect(text('#as-body')).toContain('All required setup items are done.');
+      expect(h.queryAll('#as-body [role="alert"]')).toHaveLength(0);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a state with no agentSetup renders an empty section body and no time', () => {
+    const { h, text } = open('fresh');
+    try {
+      expect(text('#as-body')).toBe('');
+      expect(text('#as-updated')).toBe('');
+      expect((h.document.getElementById('agent-setup') as HTMLElement).hidden).toBe(true);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a later state replaces the rows instead of adding to them', () => {
+    const { h, rows } = open('agent-open');
+    try {
+      h.receive({ type: 'state', state: byScenario('agent-done').state });
+      expect(rows()).toHaveLength(9);
+      expect(h.queryAll('progress')).toHaveLength(1);
+    } finally {
+      h.close();
+    }
+  });
+});

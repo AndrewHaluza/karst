@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { agentCliReady, buildGettingStartedState, TUTORIAL_STEPS } from './state.js';
+import { buildAgentSetupView } from '../../setup/checklist/panelView.js';
 import type { SetupItem } from '../../init/status.js';
 
 const checklist: SetupItem[] = [
@@ -9,6 +10,12 @@ const checklist: SetupItem[] = [
 ];
 
 describe('buildGettingStartedState', () => {
+  it('carries the agent setup view when given and omits the key when not', () => {
+    const view = buildAgentSetupView({ items: undefined, error: null, checking: true, updatedLabel: null });
+    expect(buildGettingStartedState(checklist, view).agentSetup).toBe(view);
+    expect('agentSetup' in buildGettingStartedState(checklist)).toBe(false);
+  });
+
   it('carries the checklist through unchanged', () => {
     expect(buildGettingStartedState(checklist).checklist).toEqual(checklist);
   });

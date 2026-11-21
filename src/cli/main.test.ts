@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { opencode2Config, resetOpencode2Config } from '../agent/opencode2Binary.js';
 import { basename, dirname, join } from 'node:path';
-import { assertPlanningVerbAllowed, exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
+import type { Manifest } from '../manifest/types.js';
+import { assertPlanningVerbAllowed, checklistVerifyServices, exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
@@ -881,6 +882,40 @@ describe('runCliAsync — base', () => {
   });
 });
 
+
+describe('runCliAsync — setup checklist outside a setup session', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-cli-checklist-')));
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('runs without KARST_SETUP_SESSION: the verb writes nothing', async () => {
+    const out = await runCliAsync(
+      ['setup', 'checklist', '--db', join(dir, 'karst.db'), '--manifest', join(dir, 'karst.yml')],
+      {},
+    );
+    const report = JSON.parse(out) as { ok: boolean; items: unknown[] };
+    expect(report.ok).toBe(false);
+    expect(report.items).toHaveLength(9);
+  });
+
+  it('starts no baseline service outside a setup session, and does inside one', () => {
+    const manifest = { id: 'm' } as unknown as Manifest;
+    expect(checklistVerifyServices({}, 'db', manifest)).toBeUndefined();
+    expect(checklistVerifyServices({ KARST_SETUP_SESSION: '' }, 'db', manifest)).toBeUndefined();
+    expect(checklistVerifyServices({ KARST_SETUP_SESSION: 's1' }, 'db', undefined)).toBeUndefined();
+    expect(checklistVerifyServices({ KARST_SETUP_SESSION: 's1' }, 'db', manifest)).toBeTypeOf('function');
+  });
+
+  it('still refuses a writing setup verb without a setup session', async () => {
+    await expect(
+      runCliAsync(['setup', 'set-general', '--db', join(dir, 'karst.db'), '--manifest', join(dir, 'karst.yml')], {}),
+    ).rejects.toThrow(/only in a setup session/);
+  });
+});
 
 describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
   let dir: string;

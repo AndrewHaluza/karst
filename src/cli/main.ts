@@ -58,8 +58,7 @@ import { realDiscoveryProbe, runSetupCommand } from './setupCommand.js';
 import { parseSetupChecklistArgs, runSetupChecklistCommand } from './setupChecklist.js';
 import { discoverWorkspace } from '../setup/discover.js';
 import { readSkips, skipStorePath } from '../setup/checklist/skips.js';
-import { assertSetupSession } from './setupEdit/command.js';
-import { isEditTool } from './setupEdit/command.js';
+import { isEditTool, SETUP_SESSION_ENV } from './setupEdit/command.js';
 import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
 import { runMcpCommand } from './mcp/command.js';
@@ -803,6 +802,23 @@ function setupVerifyServices(db: string, manifest: Manifest): NonNullable<Readin
   };
 }
 
+function inSetupSession(env: Readonly<Record<string, string | undefined>>): boolean {
+  return env[SETUP_SESSION_ENV] !== undefined && env[SETUP_SESSION_ENV] !== '';
+}
+
+/**
+ * The `services` check of `setup checklist`. `setup verify` starts baseline services and writes the
+ * store, so only a setup session runs it. The host runs `setup checklist` for the Getting Started
+ * panel outside a session; there the check reads "not run" and nothing starts (@arch:CLI-14).
+ */
+export function checklistVerifyServices(
+  env: Readonly<Record<string, string | undefined>>,
+  db: string,
+  manifest: Manifest | undefined,
+): ReadinessInput['verifyServices'] {
+  return inSetupSession(env) && manifest ? setupVerifyServices(db, manifest) : undefined;
+}
+
 async function assertMarkerHasWork(
   db: string,
   manifestPath: string,
@@ -867,9 +883,9 @@ export async function runCliAsync(
     return runMcpCommand(rest, { db, manifest: manifestPath, ticket }, env);
   }
   // `setup checklist` computes the first-setup checklist from discovery, the
-  // manifest and the readiness result. Setup sessions only; async like `setup check`.
+  // manifest and the readiness result. Read-only, so it needs no setup session (the host
+  // runs it for the Getting Started panel); async like `setup check`.
   if (rest[0] === 'setup' && rest[1] === 'checklist') {
-    assertSetupSession(env, 'karst setup checklist');
     configureOpencode2FromEnv(env);
     if (!manifestPath) throw new Error('missing --manifest <path>');
     // The user's approved skips live next to the store file: without --db the checklist would ignore them.
@@ -892,7 +908,8 @@ export async function runCliAsync(
       probes: nodeReadinessProbes(root),
       manifestDir: root,
       discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
-      verifyServices: loaded?.manifest ? setupVerifyServices(db, loaded.manifest) : undefined,
+      verifyServices: checklistVerifyServices(env, db, loaded?.manifest),
+      servicesUnverified: !inSetupSession(env),
       skips: readSkips(skipStorePath(db, manifestPath)),
       format,
     });

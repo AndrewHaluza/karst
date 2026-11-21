@@ -32,20 +32,30 @@ export interface GettingStartedPanelHost {
  */
 export class GettingStartedManager {
   private panel: GettingStartedPanel | undefined;
+  private push: ((recheck: boolean) => void) | undefined;
 
   constructor(
     private readonly loadState: (options: { recheck: boolean }) => GettingStartedState | Promise<GettingStartedState>,
     private readonly host: GettingStartedPanelHost,
     private readonly actionsFactory: GettingStartedActionsFactory,
     private readonly logError: LogError = (m, e) => console.error(m, e),
+    /** Called each time the panel opens: a new tab, a reveal, or a tab VS Code restored after a reload. */
+    private readonly onOpen: () => void = () => undefined,
   ) {}
 
   open(): void {
     if (this.panel) {
       this.panel.reveal();
+      this.onOpen();
       return;
     }
     this.start(this.host.createPanel('Karst — Getting Started'));
+    this.onOpen();
+  }
+
+  /** Rebuild and push the state to the open panel; a closed panel ignores it. */
+  refresh(): void {
+    this.push?.(false);
   }
 
   /** Adopt the tab VS Code restored after a reload; a duplicate is closed. Never reveals. */
@@ -55,6 +65,7 @@ export class GettingStartedManager {
       return false;
     }
     this.start(restored.wrap());
+    this.onOpen();
     return true;
   }
 
@@ -93,7 +104,11 @@ export class GettingStartedManager {
       if (!msg) return;
       void reportAction(requestId, (m) => panel.postMessage(m), () => this.runAction(msg, actions));
     });
-    panel.onDidDispose(() => (this.panel = undefined));
+    this.push = pushState;
+    panel.onDidDispose(() => {
+      this.panel = undefined;
+      this.push = undefined;
+    });
 
     pushState(false);
   }

@@ -20,13 +20,16 @@ import { EXAMPLE_MANIFEST_PATH } from '../setup/scaffoldManifest.js';
 import { stampScaffold } from '../manifest/scaffoldStamp.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { opencode2ConfigEnv } from '../agent/opencode2Binary.js';
-import { spawnHeadlessCli } from '../agent/headlessSpawn.js';
+import { spawnHeadlessCli, headlessPreview } from '../agent/headlessSpawn.js';
+import { createAgentSetupChecklist, type AgentSetupChecklist } from './ops/agentSetupChecklist.js';
 import { gitApplyPrefixArgs, nodeRecheck, nodeVerifyDeps, type CliRunner } from '../setup/verify/node.js';
 import { writeVerifyRecord } from '../setup/verify/record.js';
 import { addSkip, readSkipRequests, skipStorePath } from '../setup/checklist/skips.js';
 
 /** The A2 re-check runs the services item, which starts and health-gates a service. */
 const SETUP_RECHECK_TIMEOUT_MS = 5 * 60 * 1_000;
+/** One `setup checklist` run for the panel: discovery, readiness probes and the services item. */
+const AGENT_CHECKLIST_TIMEOUT_MS = 2 * 60 * 1_000;
 
 /**
  * The vscode binding for the onboarding setup feature (§ ONBOARDING-SETUP-AGENT).
@@ -57,6 +60,8 @@ export interface SetupWiringDeps {
 export interface SetupFeature {
   /** Launch a setup session. */
   create(): Promise<boolean>;
+  /** The live first-setup checklist the Getting Started panel shows (computed in a child process). */
+  agentChecklist: AgentSetupChecklist;
   /** Scan every setup outbox once. */
   scan(): Promise<void>;
   /** Register the `karst.setupAgent` command and the outbox watcher. */
@@ -120,6 +125,31 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     });
     return { stdout: out.stdout, exitCode: out.exitCode };
   };
+  /**
+   * The panel's checklist: `setup checklist` (JSON) in a child, like A2. Discovery and the readiness
+   * probes do sync git and fs IO (`git ls-remote` waits up to 10 s), so they never run on the host loop.
+   */
+  const agentChecklist = createAgentSetupChecklist({
+    now: () => new Date(),
+    logError: deps.logError,
+    run: async () => {
+      const entry = deps.cliEntry();
+      if (entry === undefined) throw new Error('the karst CLI entry is not available');
+      const manifestPath = manifestPathOrThrow();
+      const out = await spawnHeadlessCli(
+        process.execPath,
+        [entry, 'setup', 'checklist', '--db', deps.dbPath, '--manifest', manifestPath],
+        // The workspace root, not the manifest's folder: on a fresh workspace `.karst/` does not exist, and
+        // a spawn in a missing cwd fails with ENOENT before the CLI can report "no karst.yml" (state a).
+        workspaceRoot() ?? dirname(manifestPath),
+        { timeoutMs: AGENT_CHECKLIST_TIMEOUT_MS, env: opencode2ConfigEnv() },
+      );
+      if (out.exitCode !== 0) {
+        throw new Error(`setup checklist exited ${out.exitCode}: ${headlessPreview(out.stderr || out.stdout, 200)}`);
+      }
+      return out.stdout;
+    },
+  });
   const workspaceRoot = (): string | undefined => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const manifestOrEmpty = (): SetupManifest | undefined => deps.currentManifest();
 
@@ -204,6 +234,7 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
         const path = skipStorePath(deps.dbPath, targetManifestPath(scratch));
         if (path === undefined) throw new Error('no store path to record the skip in');
         addSkip(path, skip);
+        agentChecklist.schedule(); // an approved skip changes the list
       },
     },
     verify: (scratch) => {
@@ -212,7 +243,10 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
       return {
         deps: nodeVerifyDeps(manifestPath),
         recheck: nodeRecheck(manifestPath, deps.dbPath, runCli),
-        writeRecord: (record) => writeVerifyRecord(dir, record),
+        writeRecord: (record) => {
+          writeVerifyRecord(dir, record);
+          agentChecklist.schedule(); // a host apply changes the list; a burst runs one check
+        },
       };
     },
     resolveDir,
@@ -244,6 +278,7 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
   };
 
   return {
+    agentChecklist,
     create: () => setup.create(),
     scan,
     wire(context, commands) {
@@ -268,11 +303,13 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
           watcher?.close();
           clearTimeout(scanTimer);
           clearTimeout(editTimer);
+          agentChecklist.dispose();
         },
       });
       scheduleScan();
     },
     dispose() {
+      agentChecklist.dispose();
       clearTimeout(editTimer);
       watcher?.close();
       clearTimeout(scanTimer);
