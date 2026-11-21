@@ -1064,8 +1064,8 @@ function mountAgentPicker(root, opts) {
   var labelModel = o.labels && o.labels.model ? o.labels.model : 'Model';
   var labelEffort = o.labels && o.labels.effort ? o.labels.effort : 'Effort / variant';
 
-  // The chevron is an inline SVG: the webview CSP blocks a data: URL image (ST-1). karstIcon is the DS runtime global.
-  function apChevronSvg() { return typeof karstIcon === 'function' ? karstIcon('chevron-down', 16) : ''; }
+  // The chevron is an inline SVG (12 px in a .chev slot, the slot's token size; 16 px in a .k-select): the webview CSP blocks a data: URL image (ST-1). karstIcon is the DS runtime global.
+  function apChevronSvg(size) { return typeof karstIcon === 'function' ? karstIcon('chevron-down', size) : ''; }
 
   var apId = 'ap-' + (++AP_SEQ);
   root.innerHTML = '<div class="ap' + (compact ? ' ap-compact' : '') + '">'
@@ -1073,7 +1073,7 @@ function mountAgentPicker(root, opts) {
       ? apModeBarHtml(mode)
         + '<div class="ap-field" data-ap-preset-field><label class="ap-label">Preset</label>'
         + '<div class="k-select"><select class="ap-effort" data-ap-preset aria-label="Preset"></select>'
-        + '<span class="k-select-chev" aria-hidden="true">' + apChevronSvg() + '</span></div>'
+        + '<span class="k-select-chev" aria-hidden="true">' + apChevronSvg(16) + '</span></div>'
         + '<div class="ap-warn" data-ap-preset-warn role="alert" hidden></div></div>'
       : '')
     + '<div class="ap-field" data-ap-core-field>'
@@ -1092,7 +1092,7 @@ function mountAgentPicker(root, opts) {
     + '<div class="ap-field ap-effort-field" data-ap-effort-field hidden>'
     + '<label class="ap-label">' + apEsc(labelEffort) + '</label>'
     + '<div class="k-select"><select class="ap-effort" data-ap-effort aria-label="' + apEsc(labelEffort) + '"></select>'
-    + '<span class="k-select-chev" aria-hidden="true">' + apChevronSvg() + '</span></div>'
+    + '<span class="k-select-chev" aria-hidden="true">' + apChevronSvg(16) + '</span></div>'
     + '</div>'
     + '</div>';
 
@@ -1163,7 +1163,7 @@ function mountAgentPicker(root, opts) {
     var coreTrigger = $('[data-ap-trigger="core"]');
     coreTrigger.innerHTML =
       apTriggerLabelHtml(apCoreTriggerLabel(state.core, compact ? '' : (coreLabel || '')), apId + '-core')
-      + '<span class="chev" aria-hidden="true">' + apChevronSvg() + '</span>';
+      + '<span class="chev" aria-hidden="true">' + apChevronSvg(12) + '</span>';
     if (compact) {
       coreTrigger.setAttribute('aria-label', apCoreTriggerName(
         o.labels && o.labels.core ? o.labels.core : 'Agent core', (coreTrigger.textContent || '').trim()));
@@ -1175,14 +1175,14 @@ function mountAgentPicker(root, opts) {
       modelTrigger.innerHTML = apRouteIconHtml(parsed.route, routes)
         + apModelStackHtml(parsed, apId + '-model', routes)
         + (parsed.free ? '<span class="ap-free">free</span>' : '')
-        + '<span class="chev" aria-hidden="true">' + apChevronSvg() + '</span>';
+        + '<span class="chev" aria-hidden="true">' + apChevronSvg(12) + '</span>';
       var stackName = apRoutedTriggerName(labelModel, parsed, routes);
       modelTrigger.title = stackName;
       modelTrigger.setAttribute('aria-label', stackName);
     } else {
       modelTrigger.innerHTML =
         apTriggerLabelHtml(apEsc(coreLabel || labels().model || 'No model (agent picks)'), apId + '-model')
-        + '<span class="chev" aria-hidden="true">' + apChevronSvg() + '</span>';
+        + '<span class="chev" aria-hidden="true">' + apChevronSvg(12) + '</span>';
       var triggerName = apModelTriggerName(coreLabel, state.model, labels().model || 'No model (agent picks)');
       modelTrigger.title = triggerName;
       if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);

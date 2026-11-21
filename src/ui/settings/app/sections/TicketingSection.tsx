@@ -609,7 +609,7 @@ function ProviderPicker({
         >
           <ProviderBadgeIsland provider={value} />
           <span className="chev" aria-hidden="true">
-            <TablerIcon name="chevron-down" size={16} />
+            <TablerIcon name="chevron-down" size={12} />
           </span>
         </button>
         <div
