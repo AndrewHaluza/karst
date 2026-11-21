@@ -1,3 +1,7 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 /**
  * Every path karst itself writes into a working tree, as `.git/info/exclude`
  * patterns.
@@ -53,3 +57,65 @@ export const KARST_EXCLUDE_RULES: readonly string[] = [
   '/.opencode/commands/karst-*',
   '/.opencode/plugins/karst-*',
 ];
+
+/**
+ * `.git/info/exclude` — the untracked, per-clone ignore file. It lives in the
+ * common git dir, so one write covers the repository and every linked worktree
+ * cut from it. Karst never mutates the repo's tracked `.gitignore` (default,
+ * §8.1).
+ */
+function excludeFile(repoPath: string): string {
+  return join(repoPath, '.git', 'info', 'exclude');
+}
+
+/** The rules `contents` does not carry yet, in rule-list order. */
+function missingRules(contents: string): string[] {
+  const present = new Set(contents.split('\n').map((line) => line.trim()));
+  return KARST_EXCLUDE_RULES.filter((rule) => !present.has(rule));
+}
+
+/** Append `missing` to `contents`, keeping exactly one separating newline. */
+function withRules(contents: string, missing: readonly string[]): string {
+  const sep = contents.length > 0 && !contents.endsWith('\n') ? '\n' : '';
+  return `${contents}${sep}${missing.join('\n')}\n`;
+}
+
+/**
+ * Ignore everything karst generates via `.git/info/exclude`.
+ *
+ * Idempotent AND additive: only the missing rules are appended, so a repository
+ * whose exclude file predates a rule gains it without the older rules being
+ * rewritten or duplicated. Synchronous — callers on a background path must use
+ * `ensureKarstExcludedAsync` instead, since sync fs blocks the extension host's
+ * single event loop.
+ */
+export function ensureKarstExcluded(repoPath: string): void {
+  const file = excludeFile(repoPath);
+  let contents = '';
+  try {
+    contents = readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  const missing = missingRules(contents);
+  if (missing.length === 0) return;
+  writeFileSync(file, withRules(contents, missing));
+}
+
+/**
+ * `ensureKarstExcluded` through `fs/promises`, for the extension-host paths
+ * (`runtime/baseline.ts`) where sync IO would freeze every webview, the hook
+ * endpoint and every session for the duration of the write.
+ */
+export async function ensureKarstExcludedAsync(repoPath: string): Promise<void> {
+  const file = excludeFile(repoPath);
+  let contents = '';
+  try {
+    contents = await readFile(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  const missing = missingRules(contents);
+  if (missing.length === 0) return;
+  await writeFile(file, withRules(contents, missing));
+}

@@ -18,6 +18,7 @@ import {
 import { snapshotProcessFacts } from './portConflict.js';
 import { baselineCheckoutDir } from './baselinePaths.js';
 import { acquireBaselineStartLock, releaseBaselineStartLock } from './baselineStartLock.js';
+import { ensureKarstExcludedAsync } from './karstExcludes.js';
 import { worktreeRegisteredAtAsync } from './worktree.js';
 import { canonicalPath, isPathUnder } from './pathScope.js';
 import { runGit } from '../integrations/git.js';
@@ -197,6 +198,14 @@ async function ensureBaselineCheckout(
   debug?: DebugFn,
 ): Promise<{ dir: string; created: boolean; startRef: string }> {
   const dir = baselineCheckoutDir(repoPath, service);
+
+  // The checkout — and the `.karst/logs` written into it — live under the USER's
+  // repository, not a ticket worktree, so the same `.git/info/exclude` rules
+  // apply: otherwise `git status` shows `?? .karst/` and a `git add -A` stages
+  // karst's own scaffolding. Ensured on EVERY call, not only a fresh cut, so a
+  // repository whose checkout predates the rules gains them on the next start.
+  // Async, like everything else on this extension-host path.
+  await ensureKarstExcludedAsync(repoPath);
 
   if (existsSync(dir) && !(await worktreeRegisteredAtAsync(repoPath, dir))) {
     debug?.(`[runtime] baseline ${service}: ${dir} is not a registered worktree — recutting`);
