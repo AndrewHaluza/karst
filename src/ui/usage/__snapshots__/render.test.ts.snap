@@ -537,8 +537,8 @@ function karstIconInto(el, name, size, cls) {
     const pager = el('pager');
     pager.innerHTML =
       \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -1151,8 +1151,8 @@ function karstIconInto(el, name, size, cls) {
     const pager = el('pager');
     pager.innerHTML =
       \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -1765,8 +1765,8 @@ function karstIconInto(el, name, size, cls) {
     const pager = el('pager');
     pager.innerHTML =
       \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -2379,8 +2379,8 @@ function karstIconInto(el, name, size, cls) {
     const pager = el('pager');
     pager.innerHTML =
       \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -2993,8 +2993,8 @@ function karstIconInto(el, name, size, cls) {
     const pager = el('pager');
     pager.innerHTML =
       \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -3607,8 +3607,8 @@ function karstIconInto(el, name, size, cls) {
     const pager = el('pager');
     pager.innerHTML =
       \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -4221,8 +4221,8 @@ function karstIconInto(el, name, size, cls) {
     const pager = el('pager');
     pager.innerHTML =
       \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }

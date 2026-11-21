@@ -78,6 +78,9 @@ describe('token-usage webview.html', () => {
     expect(pagerTemplate).toContain("p.hasNext ? '' : ' disabled'");
     expect(pagerTemplate).toContain('No earlier page');
     expect(pagerTemplate).toContain('No further page');
+    // Both offsets reach innerHTML only through esc(): an unescaped interpolation is a CodeQL XSS sink (js/xss).
+    expect(pagerTemplate).toContain('data-page="${esc(prevOffset)}"');
+    expect(pagerTemplate).toContain('data-page="${esc(nextOffset)}"');
   });
 
   it('renders the host-built callsText and page summary, with no local plural code', () => {
