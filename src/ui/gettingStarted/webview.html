@@ -229,6 +229,7 @@
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {

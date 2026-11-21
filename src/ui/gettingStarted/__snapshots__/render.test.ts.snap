@@ -483,6 +483,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -1058,6 +1059,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -1633,6 +1635,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -2208,6 +2211,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -2783,6 +2787,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -2906,7 +2911,7 @@ exports[`gettingStarted render > complete > snapshot (was: full document render)
       </div>
     </section>
 
-    <section data-region="agent-setup" id="agent-setup">
+    <section data-region="agent-setup" id="agent-setup" hidden="">
       <div class="as-head">
         <h2>Agent setup</h2>
         <span class="as-updated" id="as-updated"></span>
@@ -3358,6 +3363,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -3481,7 +3487,7 @@ exports[`gettingStarted render > empty > snapshot (was: full document render) 1`
       </div>
     </section>
 
-    <section data-region="agent-setup" id="agent-setup">
+    <section data-region="agent-setup" id="agent-setup" hidden="">
       <div class="as-head">
         <h2>Agent setup</h2>
         <span class="as-updated" id="as-updated"></span>
@@ -3933,6 +3939,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -4056,7 +4063,7 @@ exports[`gettingStarted render > fresh > snapshot (was: full document render) 1`
       </div>
     </section>
 
-    <section data-region="agent-setup" id="agent-setup">
+    <section data-region="agent-setup" id="agent-setup" hidden="">
       <div class="as-head">
         <h2>Agent setup</h2>
         <span class="as-updated" id="as-updated"></span>
@@ -4508,6 +4515,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -5083,6 +5091,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {
@@ -5206,7 +5215,7 @@ exports[`gettingStarted render > partial > snapshot (was: full document render) 
       </div>
     </section>
 
-    <section data-region="agent-setup" id="agent-setup">
+    <section data-region="agent-setup" id="agent-setup" hidden="">
       <div class="as-head">
         <h2>Agent setup</h2>
         <span class="as-updated" id="as-updated"></span>
@@ -5658,6 +5667,7 @@ function karstIconInto(el, name, size, cls) {
         const body = document.getElementById('as-body');
         const updated = document.getElementById('as-updated');
         body.textContent = '';
+        document.getElementById('agent-setup').hidden = !view;
         updated.textContent = view && view.updatedLabel ? 'Updated ' + view.updatedLabel : '';
         if (!view) return;
         if (view.checking) {

@@ -342,6 +342,7 @@ describe('gettingStarted render: agent setup', () => {
     try {
       expect(text('#as-body')).toBe('');
       expect(text('#as-updated')).toBe('');
+      expect((h.document.getElementById('agent-setup') as HTMLElement).hidden).toBe(true);
     } finally {
       h.close();
     }

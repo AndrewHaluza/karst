@@ -133,6 +133,10 @@ describe('gettingStarted webview.html', () => {
     expect(script).toMatch(/post\('report-issue',\s*requestId\)/);
   });
 
+  it('hides the Agent setup section while the host has sent no view', () => {
+    expect(scriptBlock()).toContain("document.getElementById('agent-setup').hidden = !view");
+  });
+
   it('esc() is not needed here: rendering goes through textContent/createElement, never innerHTML interpolation', () => {
     const script = scriptBlock();
     expect(script).not.toContain('innerHTML = `');
