@@ -9,6 +9,7 @@ import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
+import { conflictRoundEnded, createConflictRounds } from './autoDeliverOps.js';
 import { makePlacementCheck } from '../autopilotBinding.js';
 import { getPlacement, recordPlacementIfAbsent, GRAPH_RUN_PLACEMENT } from '../../store/placement.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
@@ -1027,6 +1028,85 @@ describe('conflicts', () => {
     const r = rig({ conflictRoundStalled: () => true, conflictRoundActive: () => true, dropConflictRound: drop });
     expect((await autopilotTick(r.deps)).kind).toBe('busy');
     expect(drop).not.toHaveBeenCalled();
+  });
+
+  // T1287: a manual round armed by the Resolve conflicts click has no store slot, so no engine stall could ever end it.
+  it('ends a manual armed round once the PR is no longer conflicted, and the same tick starts the CI round', async () => {
+    seedPr(failing('build'));
+    conflict();
+    const rounds = createConflictRounds();
+    rounds.arm(id, { repo: 'r', baseSha: 'base1', files: ['a.ts'] });
+    cleanMerge();
+    const drop = vi.fn(() => rounds.disarm(id));
+    const r = rig({
+      conflictRoundActive: () => rounds.armed(id) !== null,
+      conflictRoundEnded: () => conflictRoundEnded({ store, ticketId: id, rounds, prHead: () => 'h', cwd: () => '/w/r', git: async () => ({ code: 0, stdout: '' }) }),
+      dropConflictRound: drop,
+    });
+    expect(await autopilotTick(r.deps)).toMatchObject({ kind: 'armed', problem: 'ci' });
+    expect(drop).toHaveBeenCalledTimes(1);
+    expect(rounds.armed(id)).toBeNull();
+    expect(r.sendCi).toHaveBeenCalledTimes(1);
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: the conflict round ended, the PR is no longer conflicted');
+  });
+
+  it('keeps the round and starts no round while the PR is still conflicted', async () => {
+    seedPr(failing('build'));
+    conflict();
+    const rounds = createConflictRounds();
+    rounds.arm(id, { repo: 'r', baseSha: 'base1', files: ['a.ts'] });
+    const drop = vi.fn(() => rounds.disarm(id));
+    const r = rig({
+      conflictRoundActive: () => rounds.armed(id) !== null,
+      conflictRoundEnded: () => conflictRoundEnded({ store, ticketId: id, rounds, prHead: () => 'h', cwd: () => '/w/r', git: async () => ({ code: 0, stdout: '' }) }),
+      dropConflictRound: drop,
+    });
+    expect((await autopilotTick(r.deps)).kind).toBe('busy');
+    expect(drop).not.toHaveBeenCalled();
+    expect(rounds.armed(id)).not.toBeNull();
+    expect(r.sendCi).not.toHaveBeenCalled();
+  });
+
+  it('reads the round-end seam only while a round is active', async () => {
+    seedPr(PASSING);
+    conflict();
+    const ended = vi.fn(async () => true);
+    const drop = vi.fn();
+    const r = rig({ conflictRoundActive: () => false, conflictRoundEnded: ended, dropConflictRound: drop });
+    await autopilotTick(r.deps);
+    expect(ended).not.toHaveBeenCalled();
+    expect(drop).not.toHaveBeenCalled();
+  });
+
+  it('says the wait again after a stalled round was dropped', async () => {
+    seedPr(PASSING);
+    conflict();
+    const lines = (debug: ReturnType<typeof vi.fn>): number => debug.mock.calls.filter(([m]) => String(m).includes('no round, a conflict round is armed')).length;
+    const busy = rig({ conflictRoundActive: () => true });
+    await autopilotTick(busy.deps);
+    expect(lines(busy.debug)).toBe(1);
+    // The round stalls (an engine round with a receipt and no merge): it is dropped and its wait is forgotten.
+    markConflictRound(store, id, Date.now());
+    expect(await autopilotTick(rig({ conflictRoundActive: () => true, conflictRoundStalled: () => true }).deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: conflict round did not deliver' });
+    approveOneMore({ store, ticketId: id, key: 'AP-1', note: () => {}, debug: () => {} }, 'r', 'conflicts');
+    const again = rig({ conflictRoundActive: () => true });
+    await autopilotTick(again.deps);
+    expect(lines(again.debug)).toBe(1);
+  });
+
+  it('logs "no round, a conflict round is armed" once per armed state, not every tick', async () => {
+    seedPr(PASSING);
+    conflict();
+    const r = rig({ conflictRoundActive: () => true });
+    const lines = (debug: ReturnType<typeof vi.fn>): number => debug.mock.calls.filter(([m]) => String(m).includes('no round, a conflict round is armed')).length;
+    await autopilotTick(r.deps);
+    await autopilotTick(r.deps);
+    expect(lines(r.debug)).toBe(1);
+    // The round ends: the next arming is a new state and says so once again.
+    await autopilotTick(rig({ conflictRoundActive: () => false }).deps);
+    const again = rig({ conflictRoundActive: () => true });
+    await autopilotTick(again.deps);
+    expect(lines(again.debug)).toBe(1);
   });
 
   it('marks the round on a sent conflict round and clears the mark when the round fails', async () => {

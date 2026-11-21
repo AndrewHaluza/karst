@@ -14,8 +14,9 @@ import type { GhRunner } from '../integrations/github.js';
 import { makeTransientCiSeams } from '../integrations/ciRerun.js';
 import { rebaseOnBaseAction, gitFor, headShaOf } from './ops/ciActionsWiring.js';
 import { resumeFinishedMerge, type ResumeDeps } from './ops/conflictResumeOps.js';
-import { conflictRounds, verifyMergeResolved } from './ops/autoDeliverOps.js';
+import { conflictRoundEnded, conflictRounds, verifyMergeResolved } from './ops/autoDeliverOps.js';
 import { deliverTargets } from '../workflow/deliverState.js';
+import { listPrsByTicket } from '../store/dashboard.js';
 import { regenerateCommand, type RegenerateEntry } from '../workflow/gates/regenerate.js';
 import type { StaleRebaseSeams } from './ops/autopilotStaleRebase.js';
 
@@ -173,6 +174,21 @@ function resumeDepsOf(d: AutopilotBindingDeps, id: number): ResumeDeps {
   };
 }
 
+/**
+ * The armed conflict round ended on its own (@arch:AP-01, T1287): the stored merge check of its repo names no conflict and
+ * the PR head already carries the round's base head. `git` reads the ancestry in the repo's worktree.
+ */
+function roundEndedOf(d: AutopilotBindingDeps, id: number): Promise<boolean> {
+  const targets = deliverTargets(d.store, id);
+  const prs = listPrsByTicket(d.store, id);
+  return conflictRoundEnded({
+    store: d.store, ticketId: id, rounds: conflictRounds,
+    prHead: (repo) => prs.find((p) => p.repo === repo && p.status === 'open')?.headOid ?? null,
+    cwd: (repo) => (targets.available ? targets.prs.find((p) => p.repo === repo)?.cwd ?? null : null),
+    git: gitFor(d.ciInput(id)),
+  });
+}
+
 export function startAutopilot(d: AutopilotBindingDeps): {
   dispose(): void;
   /** This window controls the ticket (arch:AC-37): it holds the session, or the store shows that no window does. No lease is taken. */
@@ -263,6 +279,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         sendGateFailure: () => sentRound(id, () => gateFailureOutcome(d.ciInput(id))),
         sendConflict: (repo) => sentRound(id, () => conflictOutcome(d.conflictInput(id, repo))),
         conflictRoundActive: () => d.conflictRoundActive(id),
+        conflictRoundEnded: () => roundEndedOf(d, id),
         conflictRoundStalled: () => d.conflictRoundStalled(id),
         ...(d.isDraining ? { isDraining: d.isDraining } : {}),
         dropConflictRound: () => d.dropConflictRound(id),

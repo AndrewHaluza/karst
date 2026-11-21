@@ -341,6 +341,31 @@ describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
   });
 });
 
+describe('deliverToPrAction ends an armed conflict round on a delivered push (T1287)', () => {
+  it('disarms the round a refused auto-deliver left armed, and logs it once', async () => {
+    seedPr();
+    conflictRounds.disarm(id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const i = input();
+    await deliverToPrAction(i);
+    expect(i.deliver.runShip).toHaveBeenCalledOnce();
+    expect(conflictRounds.armed(id)).toBeNull();
+    expect(i.debug).toHaveBeenCalledWith('[ship] ticket W-1: the conflict round ended, the merge was delivered to the PR');
+  });
+
+  it('keeps the round when the push delivers nothing', async () => {
+    seedPr();
+    conflictRounds.disarm(id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const i = input({
+      deliver: { runShip: vi.fn(async () => { throw new Error('push refused'); }), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() },
+    });
+    await deliverToPrAction(i);
+    expect(conflictRounds.armed(id)).not.toBeNull();
+    expect(i.debug).not.toHaveBeenCalledWith(expect.stringContaining('the conflict round ended'));
+  });
+});
+
 describe('deliverToPrAction re-runs the skipped gates after a take-over push (D540)', () => {
   it('runs exactly the skipped gates on the pushed head, records an after-take-over run and writes one note', async () => {
     seedPr();

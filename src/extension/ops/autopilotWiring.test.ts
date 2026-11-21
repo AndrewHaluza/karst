@@ -103,6 +103,16 @@ describe('autopilotSweep', () => {
     expect((store.db.prepare('SELECT COUNT(*) AS n FROM karst_events').get() as { n: number }).n).toBe(1);
   });
 
+  it('passes the round-end seam to the tick: an ended conflict round starts the CI round (T1287)', async () => {
+    const { store, projectId } = shipTicket();
+    const dropConflictRound = vi.fn();
+    const s = seams({ conflictRoundActive: () => true, conflictRoundEnded: async () => true, dropConflictRound });
+    const acted = await sweepOnce(store, projectId, s);
+    expect(dropConflictRound).toHaveBeenCalledOnce();
+    expect(s.sendCi).toHaveBeenCalledOnce();
+    expect(acted).toBe(1);
+  });
+
   it('passes the stale rebase seam to the tick, and a rebase counts as an action (T1081)', async () => {
     const { store, projectId } = shipTicket();
     const cmd = 'npm run -s docs:graph';

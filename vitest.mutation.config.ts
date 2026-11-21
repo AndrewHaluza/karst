@@ -20,6 +20,11 @@ export default defineConfig({
     // Scrub the KARST_* vars karst-launched terminals inject, so the suite is hermetic.
     setupFiles: ['./scripts/vitest-setup-env.mjs'],
     pool: 'forks',
+    // The fork pool loads better-sqlite3 in every worker. On a loaded host the default
+    // (one fork per CPU) makes the Stryker dry run exhaust memory and the worker dies with
+    // SIGSEGV, which the gate reads as a crashed test runner (@arch:GATE-MUTATION). A bounded
+    // pool keeps the dry run (and each mutant run) inside the host's memory.
+    maxWorkers: 4,
     testTimeout: 30_000,
   },
 });

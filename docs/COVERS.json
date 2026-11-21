@@ -526,6 +526,9 @@
   "src/extension/ops/ciActionsWiring.ts": [
     "arch:AP-05"
   ],
+  "src/extension/ops/ciActionsWiring.ts#deliverToPrAction": [
+    "arch:AP-01"
+  ],
   "src/extension/ops/ciFailureOps.ts#sendCiFailureToAgent": [
     "arch:AP-06"
   ],

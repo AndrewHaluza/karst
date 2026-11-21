@@ -6,7 +6,7 @@ import { startAutopilot, makePlacementCheck, registerAutopilotCommands, type Aut
 import { autopilotSweep, ciOutcome, conflictOutcome, gateFailureOutcome, postAutopilotNote } from './ops/autopilotWiring.js';
 import { gitFor, headShaOf, rebaseOnBaseAction } from './ops/ciActionsWiring.js';
 import { resumeFinishedMerge } from './ops/conflictResumeOps.js';
-import { verifyMergeResolved } from './ops/autoDeliverOps.js';
+import { verifyMergeResolved, conflictRoundEnded } from './ops/autoDeliverOps.js';
 import { deliverTargets } from '../workflow/deliverState.js';
 import { makeTransientCiSeams } from '../integrations/ciRerun.js';
 import { roundDied } from './ops/autopilotOps.js';
@@ -17,7 +17,7 @@ vi.mock('./ops/autopilotWiring.js', () => ({
 }));
 vi.mock('./ops/ciActionsWiring.js', () => ({ rebaseOnBaseAction: vi.fn(async () => true), gitFor: vi.fn(() => 'GIT'), headShaOf: vi.fn(async () => 'HEAD') }));
 vi.mock('./ops/conflictResumeOps.js', () => ({ resumeFinishedMerge: vi.fn(async () => 'resumed') }));
-vi.mock('./ops/autoDeliverOps.js', () => ({ conflictRounds: 'ROUNDS', verifyMergeResolved: vi.fn(() => 'VERIFIED') }));
+vi.mock('./ops/autoDeliverOps.js', () => ({ conflictRounds: 'ROUNDS', verifyMergeResolved: vi.fn(() => 'VERIFIED'), conflictRoundEnded: vi.fn(async () => true) }));
 vi.mock('../workflow/deliverState.js', () => ({ deliverTargets: vi.fn() }));
 vi.mock('../integrations/ciRerun.js', () => ({ makeTransientCiSeams: vi.fn(() => ({ readJobLog: 'RJL', readRunHeadSha: 'RRS' })) }));
 vi.mock('./ops/autopilotOps.js', () => ({ roundDied: vi.fn(() => null) }));
@@ -140,6 +140,25 @@ describe('the seams of one ticket', () => {
     vi.mocked(deliverTargets).mockReturnValue({ available: false, prs: [{ repo: 'a', cwd: '/a' }] } as never);
     await expect(seams.localHead!('a')).resolves.toBeNull();
     expect(headShaOf).not.toHaveBeenCalled();
+    handle.dispose();
+  });
+
+  it('the round-end seam reads the open PR head and the worktree of its repo', async () => {
+    const r = rig();
+    r.store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, head_oid) VALUES (?, ?, 5, ?, ?, ?)').run(r.id, 'a', 'u', 'open', 'PR-A');
+    r.store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, head_oid) VALUES (?, ?, 6, ?, ?, ?)').run(r.id, 'b', 'u', 'closed', 'PR-B');
+    vi.mocked(deliverTargets).mockReturnValue({ available: true, prs: [{ repo: 'a', cwd: '/wt/a' }] } as never);
+    const { handle, seams } = open(r);
+    await expect(seams.conflictRoundEnded!()).resolves.toBe(true);
+    const args = vi.mocked(conflictRoundEnded).mock.calls[0]![0];
+    expect(args).toMatchObject({ store: r.store, ticketId: r.id, rounds: 'ROUNDS', git: 'GIT' });
+    expect(args.prHead('a')).toBe('PR-A');
+    expect(args.prHead('b')).toBeNull(); // a closed PR never ends a round
+    expect(args.cwd('a')).toBe('/wt/a');
+    expect(args.cwd('z')).toBeNull();
+    vi.mocked(deliverTargets).mockReturnValue({ available: false, prs: [{ repo: 'a', cwd: '/wt/a' }] } as never);
+    await seams.conflictRoundEnded!();
+    expect(vi.mocked(conflictRoundEnded).mock.calls[1]![0].cwd('a')).toBeNull();
     handle.dispose();
   });
 

@@ -20,7 +20,7 @@ import { remedyBaseMoved } from './baseMovedRemedy.js';
 import { latestBaseMovedFailedGates } from '../../workflow/baseMovedFailure.js';
 import type { BaseRemedy } from '../../workflow/stages/ship.js';
 import { baseCheckParent, readLastGreenBase, seedMergedState } from './baseMovedHost.js';
-import { autoDeliverAfterConflict, beginManualPush, conflictRounds, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
+import { autoDeliverAfterConflict, beginManualPush, conflictRounds, endConflictRoundOnDeliver, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
 import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
 import { BULLETIN_BODY_MAX, BULLETIN_TITLE_MAX, postAgentNote } from '../../store/bulletinNotes.js';
 import { formatId } from '../../model/entityId.js';
@@ -277,6 +277,9 @@ export async function deliverToPrAction(i: CiActionsInput): Promise<void> {
   }
   // A click that pushed nothing leaves a running re-run alone. A delivered push makes a newer head: the older re-run stops.
   if (outcome.kind !== 'delivered') return;
+  // A push that delivered the merge ends an armed Resolve-conflicts round (T1287): a refused auto-deliver leaves the round
+  // armed for the next retry, and the manual Deliver that lands the merge must not keep autopilot blocked for ever.
+  endConflictRoundOnDeliver(conflictRounds, i.ticketId, key, (m) => i.debug(m));
   const rerun = (async () => {
     await supersedeRerun(i.ticketId);
     // D506: the push went at once. D540: the gates it skipped run now, on the pushed head, in the background.

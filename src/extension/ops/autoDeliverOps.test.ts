@@ -24,6 +24,8 @@ import {
   type RerunResult,
   setDeliverDrain,
   liveDeliverTickets,
+  conflictRoundEnded,
+  endConflictRoundOnDeliver,
 } from './autoDeliverOps.js';
 import type { DeliverTargets } from '../../workflow/deliverState.js';
 
@@ -655,4 +657,126 @@ describe('the drain (@arch:DRAIN-01)', () => {
     expect(inside).toBe(true);
   });
 
+});
+
+describe('conflictRoundEnded (T1287)', () => {
+  let store: Store;
+  let id: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicket(store, { key: 'K-1', title: 't' }).id;
+  });
+  afterEach(() => store.close());
+
+  const conflicted = (): void => {
+    setMergeCheck(store, { ticketId: id, repo: 'karst', state: 'conflicted', files: ['a.ts'], reason: null, headSha: 'local', baseSha: 'b4se', baseRef: 'develop', checkedAt: 'x' });
+  };
+  const clean = (): void => {
+    setMergeCheck(store, { ticketId: id, repo: 'karst', state: 'clean', files: [], reason: null, headSha: 'local', baseSha: 'b4se', baseRef: 'develop', checkedAt: 'x' });
+  };
+  const git = (code: number) => vi.fn(async () => ({ code, stdout: '' }));
+
+  function deps(over: Partial<Parameters<typeof conflictRoundEnded>[0]> = {}) {
+    const rounds = createConflictRounds();
+    rounds.arm(id, ROUND);
+    return {
+      store, ticketId: id, rounds, prHead: () => 'on-pr', cwd: () => '/wt', git: git(0),
+      ...over,
+    } satisfies Parameters<typeof conflictRoundEnded>[0];
+  }
+
+  it('is true when the stored check names no conflict and the PR head contains the round base head', async () => {
+    clean();
+    const d = deps();
+    expect(await conflictRoundEnded(d)).toBe(true);
+    expect(d.git).toHaveBeenCalledWith('/wt', ['merge-base', '--is-ancestor', 'b4se', 'on-pr']);
+  });
+
+  it('is false while the stored check is still conflicted, even when the PR head carries the base', async () => {
+    conflicted();
+    expect(await conflictRoundEnded(deps())).toBe(false);
+  });
+
+  it('is false when the PR head is unknown', async () => {
+    clean();
+    expect(await conflictRoundEnded(deps({ prHead: () => null }))).toBe(false);
+  });
+
+  it('is false when the PR head does not contain the round base head from the last merge check', async () => {
+    clean();
+    expect(await conflictRoundEnded(deps({ git: git(1) }))).toBe(false);
+  });
+
+  it('is false when the round repo has no worktree to read', async () => {
+    clean();
+    expect(await conflictRoundEnded(deps({ cwd: () => null }))).toBe(false);
+  });
+
+  it('needs no git read when the round recorded no base head', async () => {
+    clean();
+    const rounds = createConflictRounds();
+    rounds.arm(id, { ...ROUND, baseSha: null });
+    const g = git(1);
+    expect(await conflictRoundEnded({ store, ticketId: id, rounds, prHead: () => 'on-pr', cwd: () => '/wt', git: g })).toBe(true);
+    expect(g).not.toHaveBeenCalled();
+  });
+
+  it('is false when no round is armed', async () => {
+    clean();
+    const rounds = createConflictRounds();
+    expect(await conflictRoundEnded({ store, ticketId: id, rounds, prHead: () => 'on-pr', cwd: () => '/wt', git: git(0) })).toBe(false);
+  });
+
+  it('ends a round whose stored merge check row is gone, on the PR head alone', async () => {
+    const rounds = createConflictRounds();
+    rounds.arm(id, ROUND);
+    expect(await conflictRoundEnded({ store, ticketId: id, rounds, prHead: () => 'on-pr', cwd: () => '/wt', git: git(0) })).toBe(true);
+  });
+
+  it('is false while the auto-deliver of the round runs', async () => {
+    clean();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const rounds = createConflictRounds();
+    rounds.arm(id, ROUND);
+    const running = rig({
+      ticketId: id,
+      rounds,
+      runGates: async () => { await gate; return null; },
+    });
+    const run = autoDeliverAfterConflict(running.deps);
+    await vi.waitFor(() => expect(isAutoDelivering(id)).toBe(true));
+    expect(await conflictRoundEnded({
+      store, ticketId: id, rounds: running.rounds, prHead: () => 'on-pr', cwd: () => '/wt', git: git(0),
+    })).toBe(false);
+    release();
+    await run;
+    expect(isAutoDelivering(id)).toBe(false);
+  });
+});
+
+describe('endConflictRoundOnDeliver (T1287)', () => {
+  it('a refused auto-deliver keeps the round; the later manual deliver of the merge ends it with one line', async () => {
+    const { deps, rounds, log } = rig({ runGates: async () => 'gate "docs" failed (exit 1)' });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.armed(1)).not.toBeNull();
+    expect(endConflictRoundOnDeliver(rounds, 1, 'T1', (m) => log.push(`log:${m}`))).toBe(true);
+    expect(rounds.armed(1)).toBeNull();
+    expect(log).toContain('log:[ship] ticket T1: the conflict round ended, the merge was delivered to the PR');
+  });
+
+  it('does nothing and logs nothing when no round is armed', () => {
+    const rounds = createConflictRounds();
+    const log: string[] = [];
+    expect(endConflictRoundOnDeliver(rounds, 1, 'T1', (m) => log.push(m))).toBe(false);
+    expect(log).toEqual([]);
+  });
+
+  it('frees the round slot in the store through the disarm hook', () => {
+    let freed = 0;
+    const rounds = createConflictRounds(() => { freed += 1; });
+    rounds.arm(1, ROUND);
+    expect(endConflictRoundOnDeliver(rounds, 1, 'T1', () => undefined)).toBe(true);
+    expect(freed).toBe(1);
+  });
 });
