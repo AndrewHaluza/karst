@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -213,6 +213,44 @@ describe('baseline pool', () => {
     expect(git(dir, 'rev-parse', 'HEAD').trim()).toBe(
       git(repo, 'rev-parse', 'origin/develop').trim(),
     );
+  });
+
+  // The baseline checkout and the `.karst/logs` it writes live inside the
+  // USER's repository, so `git status` there showed `?? .karst/` and a
+  // `git add -A` staged karst's own scaffolding. The ticket worktree path always
+  // ensured the exclude rules; the baseline path never did.
+  it('writes the karst exclude rules into the repository, so the checkout is never untracked', async () => {
+    const port = portCounter++;
+    const rec = await ensureBaseline(store, manifest(repo, port), 'backend');
+    started.push(rec.id);
+
+    const excludePath = join(repo, '.git', 'info', 'exclude');
+    expect(readFileSync(excludePath, 'utf8')).toMatch(/^\/\.karst\/$/m);
+    expect(git(repo, 'status', '--porcelain')).not.toMatch(/\.karst/);
+
+    // A second start (this one adopts the running baseline) must not duplicate.
+    await ensureBaseline(store, manifest(repo, port), 'backend');
+    const count = (readFileSync(excludePath, 'utf8').match(/^\/\.karst\/$/gm) ?? []).length;
+    expect(count).toBe(1);
+  });
+
+  it('re-ensures the exclude rules for a checkout that already exists (an older repo)', async () => {
+    const port = portCounter++;
+    const rec = await ensureBaseline(store, manifest(repo, port), 'backend');
+    started.push(rec.id);
+
+    const excludePath = join(repo, '.git', 'info', 'exclude');
+    // What an older karst left behind: the checkout is registered but the rule
+    // is absent. The next start must add it, not only a freshly cut checkout.
+    await stopServer(store, rec.id);
+    started.splice(started.indexOf(rec.id), 1);
+    writeFileSync(excludePath, '');
+
+    const second = await ensureBaseline(store, manifest(repo, port), 'backend');
+    started.push(second.id);
+
+    const count = (readFileSync(excludePath, 'utf8').match(/^\/\.karst\/$/gm) ?? []).length;
+    expect(count).toBe(1);
   });
 
   it('leaves the local base branch free for pullBase', async () => {

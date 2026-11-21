@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { PortAllocator } from '../resolver/allocator.js';
 import { prepareCommand } from './command.js';
-import { KARST_EXCLUDE_RULES } from './karstExcludes.js';
+import { ensureKarstExcluded } from './karstExcludes.js';
 import { canonicalPath } from './pathScope.js';
 import { stopServersUnder, type ReapedServer } from './worktreeServers.js';
 import { runGit } from '../integrations/git.js';
@@ -114,27 +114,6 @@ export function worktreeRegisteredAt(repoPath: string, path: string): boolean {
 export async function worktreeRegisteredAtAsync(repoPath: string, path: string): Promise<boolean> {
   const r = await runGit(['worktree', 'list', '--porcelain'], repoPath);
   return r.exitCode === 0 && worktreeListHas(r.stdout, path);
-}
-
-/**
- * Ignore everything karst generates via `.git/info/exclude` — the untracked,
- * per-clone ignore file — so we never mutate the repo's tracked `.gitignore`
- * (default, §8.1). The file lives in the common git dir, so one write covers the
- * repository and every linked worktree cut from it.
- *
- * Idempotent AND additive: only the missing rules are appended, so a repository
- * whose exclude file predates a rule gains it without the older rules being
- * rewritten or duplicated.
- */
-function ensureKarstExcluded(repoPath: string): void {
-  const excludePath = join(repoPath, '.git', 'info', 'exclude');
-  let contents = '';
-  if (existsSync(excludePath)) contents = readFileSync(excludePath, 'utf8');
-  const present = new Set(contents.split('\n').map((line) => line.trim()));
-  const missing = KARST_EXCLUDE_RULES.filter((rule) => !present.has(rule));
-  if (missing.length === 0) return;
-  const sep = contents.length && !contents.endsWith('\n') ? '\n' : '';
-  writeFileSync(excludePath, `${contents}${sep}${missing.join('\n')}\n`);
 }
 
 /**

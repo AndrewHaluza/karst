@@ -128,6 +128,7 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
     resolveChangeDir(change, workspaceRoot() ?? process.cwd(), deps.currentManifest()?.repositories[change.repo]?.repoPath);
 
   const setup = createSetupOps({
+    isScaffold: (current) => isScaffoldManifest(current as Manifest, readScaffoldManifest()),
     manifest: manifestOrEmpty,
     workspaceRoot,
     defaultAgent: deps.defaultAgent,
