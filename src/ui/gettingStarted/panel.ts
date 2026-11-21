@@ -39,7 +39,7 @@ export class GettingStartedManager {
     private readonly host: GettingStartedPanelHost,
     private readonly actionsFactory: GettingStartedActionsFactory,
     private readonly logError: LogError = (m, e) => console.error(m, e),
-    /** Called each time the user opens the panel (a new tab or a reveal), never on a restore. */
+    /** Called each time the panel opens: a new tab, a reveal, or a tab VS Code restored after a reload. */
     private readonly onOpen: () => void = () => undefined,
   ) {}
 
@@ -65,6 +65,7 @@ export class GettingStartedManager {
       return false;
     }
     this.start(restored.wrap());
+    this.onOpen();
     return true;
   }
 

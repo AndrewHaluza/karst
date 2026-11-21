@@ -123,6 +123,16 @@ describe('setup checklist command', () => {
     );
   });
 
+  it('leaves a not-run services check out of the verdict only when servicesUnverified is set', async () => {
+    const svc = { start: 'npm run dev', ports: [3000], health: 'http://localhost:3000' };
+    const withService = { ...manifest, repositories: { web: { repoPath: '/w/web', hasMigrations: false, service: svc } } } as unknown as Manifest;
+    const input = { ...base, manifest: withService, verifyServices: undefined };
+    const code = (o: string): string | undefined => JSON.parse(o).items.find((i: { code: string }) => i.code === 'services.declared')?.status;
+    expect(code(await runSetupChecklistCommand(input))).toBe('todo');
+    expect(code(await runSetupChecklistCommand({ ...input, servicesUnverified: true }))).toBe('done');
+    expect(code(await runSetupChecklistCommand({ ...input, servicesUnverified: false }))).toBe('todo');
+  });
+
   it('prints the text block for format text', async () => {
     const out = await runSetupChecklistCommand({ ...base, format: 'text' });
     const lines = out.split('\n');

@@ -802,6 +802,10 @@ function setupVerifyServices(db: string, manifest: Manifest): NonNullable<Readin
   };
 }
 
+function inSetupSession(env: Readonly<Record<string, string | undefined>>): boolean {
+  return env[SETUP_SESSION_ENV] !== undefined && env[SETUP_SESSION_ENV] !== '';
+}
+
 /**
  * The `services` check of `setup checklist`. `setup verify` starts baseline services and writes the
  * store, so only a setup session runs it. The host runs `setup checklist` for the Getting Started
@@ -812,8 +816,7 @@ export function checklistVerifyServices(
   db: string,
   manifest: Manifest | undefined,
 ): ReadinessInput['verifyServices'] {
-  const inSession = env[SETUP_SESSION_ENV] !== undefined && env[SETUP_SESSION_ENV] !== '';
-  return inSession && manifest ? setupVerifyServices(db, manifest) : undefined;
+  return inSetupSession(env) && manifest ? setupVerifyServices(db, manifest) : undefined;
 }
 
 async function assertMarkerHasWork(
@@ -906,6 +909,7 @@ export async function runCliAsync(
       manifestDir: root,
       discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
       verifyServices: checklistVerifyServices(env, db, loaded?.manifest),
+      servicesUnverified: !inSetupSession(env),
       skips: readSkips(skipStorePath(db, manifestPath)),
       format,
     });

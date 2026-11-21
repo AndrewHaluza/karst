@@ -1,5 +1,6 @@
 import { runReadiness, type ReadinessInput } from '../setup/readiness/runReadiness.js';
 import { computeChecklist } from '../setup/checklist/compute.js';
+import type { ReadinessItem } from '../setup/readiness/types.js';
 import type { ChecklistItem } from '../setup/checklist/types.js';
 import type { DiscoveryResult } from '../setup/discover.js';
 import type { SkipRecord } from '../setup/checklist/types.js';
@@ -35,6 +36,17 @@ export interface ChecklistCommandInput extends ReadinessInput {
   skips: readonly SkipRecord[];
   /** Output format; `json` by default, so the checklist loop contract does not change. */
   format?: ChecklistFormat;
+  /**
+   * True outside a setup session: `setup verify` starts services, so it does not run and the readiness
+   * `services` item reads "not run". The checklist then leaves that item out of its verdict, so the
+   * host panel does not show a complete service open for ever (@arch:CLI-14).
+   */
+  servicesUnverified?: boolean;
+}
+
+/** The readiness list with a "not run" `services` item taken as passed, for a run that cannot verify. */
+function withServicesNotRunOk(items: readonly ReadinessItem[]): ReadinessItem[] {
+  return items.map((i) => (i.id === 'services' && i.status === 'warn' ? { ...i, status: 'ok' as const } : i));
 }
 
 export function parseSetupChecklistArgs(rest: readonly string[]): ParsedSetupChecklistArgs {
@@ -93,7 +105,7 @@ export async function runSetupChecklistCommand(input: ChecklistCommandInput): Pr
     manifest: input.manifest,
     manifestDir: input.manifestDir,
     discovery: input.discovery,
-    readiness: report.items,
+    readiness: input.servicesUnverified === true ? withServicesNotRunOk(report.items) : report.items,
     skips: input.skips,
   });
   const todo = items.filter((i) => i.status === 'todo');
