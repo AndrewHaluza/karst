@@ -124,6 +124,62 @@ describe('runShipGates evidence (T1018)', () => {
     expect(events).toEqual(['start:unit', 'wait:unit:sandbox', 'start:unit', 'end:unit', 'start:docs', 'wait:docs:sandbox', 'start:docs', 'end:docs']);
   });
 
+  it('names a waiting survivor in current_gate, and clears the live entry of a gate that threw', async () => {
+    const { store, ticketId, pr } = setup();
+    const progress: (string | null | undefined)[] = [];
+    const runProcess: GateProcessRunner = async (_c, _a, _cwd, options) => {
+      options?.onSlotWait?.({ kind: 'sandbox', held: 1, limit: 1 });
+      progress.push(currentDeliverRun(store, ticketId)?.currentGate);
+      return { kind: 'completed', exitCode: 0, output: '' };
+    };
+    await runShipGates([pr], { uat: twoGates, runProcess, evidence: { store, ticketId }, headSha: async () => null });
+    expect(progress).toEqual(['unit', 'docs']);
+    const ended: string[] = [];
+    const live = { start: () => undefined, wait: () => undefined, end: (g: string) => ended.push(g) };
+    const boom: GateProcessRunner = async () => { throw new Error('boom'); };
+    await expect(runShipGates([pr], { uat: twoGates, runProcess: boom, evidence: { store, ticketId }, headSha: async () => null, live })).rejects.toThrow();
+    expect(ended).toEqual(expect.arrayContaining(['unit', 'docs']));
+  });
+
+  it('names the gate that waits in current_gate, also when another gate started after it', async () => {
+    const { store, ticketId } = setup();
+    const pr = repoWith({ test: 'x', 'test:visual:docker': 'x' });
+    const uat = { gates: [{ name: 'visual', kind: 'script', script: 'test:visual:docker' }, { name: 'unit', kind: 'script', script: 'test' }], repositories: {} } as never;
+    let unitStarted!: () => void;
+    const started = new Promise<void>((r) => { unitStarted = r; });
+    let visualRead!: () => void;
+    const read = new Promise<void>((r) => { visualRead = r; });
+    const seen: (string | null | undefined)[] = [];
+    const runProcess: GateProcessRunner = async (_c, args, _cwd, options) => {
+      if (args.includes('test:visual:docker')) {
+        await started;
+        seen.push(currentDeliverRun(store, ticketId)?.currentGate);
+        options?.onSlotWait?.({ kind: 'sandbox', held: 1, limit: 1 });
+        seen.push(currentDeliverRun(store, ticketId)?.currentGate);
+        visualRead();
+      } else {
+        unitStarted();
+        await read;
+      }
+      return { kind: 'completed', exitCode: 0, output: '' };
+    };
+    await runShipGates([pr], { uat, runProcess, uiChanged: true, evidence: { store, ticketId }, headSha: async () => null });
+    expect(seen).toEqual(['unit', 'visual']);
+  });
+
+  it('reports a slot wait with no evidence store without a deliver write', async () => {
+    const pr = repoWith({ test: 'x' });
+    const waits: string[] = [];
+    const live = { start: () => undefined, wait: (g: string) => waits.push(g), end: () => undefined };
+    const runProcess: GateProcessRunner = async (_c, _a, _cwd, options) => {
+      options?.onSlotWait?.({ kind: 'sandbox', held: 1, limit: 1 });
+      return { kind: 'completed', exitCode: 0, output: '' };
+    };
+    const uat = { gates: [{ name: 'unit', kind: 'script', script: 'test' }], repositories: {} } as never;
+    await runShipGates([pr], { uat, runProcess, live });
+    expect(waits).toEqual(['unit']);
+  });
+
   it('pushes one progress update for each gate start and each gate wait, with no live sink', async () => {
     const { store, ticketId, pr } = setup();
     let progress = 0;

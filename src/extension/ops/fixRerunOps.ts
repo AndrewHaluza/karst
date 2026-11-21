@@ -223,26 +223,31 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
     onGateOutput: (name, chunk) => deps.onGateOutput?.(ticketId, stage, name, chunk),
     onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(ticketId, name, pid, cwd),
   };
+  // Names whose live entry the completion already ended; the run's end clears only the rest.
+  const endedNames = new Set<string>();
   const record = (rows: readonly number[], name: string, exitCode: number | null, startedAt: string | null, endedAt: string | null, rawOutput: string | undefined, waitMs: number | null | undefined): void => {
     const output = rawOutput ?? '';
+    endedNames.add(name);
     liveSink?.end(name);
     recordRerunRow(deps, ticketId, stage, attempt, now(), group, { name, exitCode, startedAt, endedAt, output, waitMs: waitMs ?? null, row: rows[0] ?? -1 });
     for (const row of rows) results[row] = resultOf(exitCode, output);
   };
   let reason = 'not run: regenerate failed';
+  // A gate that is stopped or throws never completes, so its live entry would outlive the run.
+  const clearLive = (names: readonly string[]): void => { for (const name of names) if (!endedNames.has(name)) liveSink?.end(name); };
   if (toRun.length > 0 || regenerate !== undefined) {
     const res = await run(toRun, group.path, {
       ...baseOpts,
       onGateComplete: (name, exitCode, startedAt, endedAt, index, rawOutput, waitMs) =>
         record(index < 0 ? (regenIdx >= 0 ? [regenIdx] : []) : (rowsOfGate.get(index) ?? []), name, exitCode, startedAt, endedAt, rawOutput, waitMs),
-    });
+    }).finally(() => clearLive(toRun.map((g) => g.name)));
     if (res.kind === 'stopped') reason = 'aborted';
   }
   for (const build of buildRuns) {
     const res = await run([build.gate], build.cwd, {
       ...baseOpts,
       onGateComplete: (name, exitCode, startedAt, endedAt, _index, rawOutput, waitMs) => record([build.row], name, exitCode, startedAt, endedAt, rawOutput, waitMs),
-    });
+    }).finally(() => clearLive([build.gate.name]));
     if (res.kind === 'stopped') reason = 'aborted';
   }
   return fill(results, reason);

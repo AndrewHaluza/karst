@@ -155,6 +155,11 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
       recordDeliverGate(store, runId, { gateName: g.name, repo: pr.repo, exitCode: null, headSha: head, summary: d.uiSkipReason ?? NO_UI_CHANGE_REASON, startedAt: at, endedAt: at });
     }
   }
+  // A gate that is stopped or throws never completes, so its live entry would outlive the run.
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: a store always comes with a run id while a gate runs (a null id means an abort before any gate), so the two halves are one condition
+  const markCurrent = (name: string): void => { if (store && runId !== null) setDeliverProgress(store, runId, name); };
+  const ended = new Set<string>();
+  const clearLive = (): void => { for (const g of p.gates) if (!ended.has(g.name)) d.live?.end(g.name); };
   const ran = await runGateList(p.gates, pr.cwd, {
     ...(env ? { prBody: env.prBody } : {}),
     ...(env?.baseRef ? { baseRef: env.baseRef } : {}),
@@ -166,15 +171,18 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
     ...(d.signal ? { signal: d.signal } : {}),
     ...(d.onOutput ? { onGateOutput: d.onOutput } : {}),
     onGateStart: (name) => {
-      if (store && runId !== null) setDeliverProgress(store, runId, name);
+      markCurrent(name);
       d.live?.start(name);
       d.onProgress?.();
     },
     onGateWait: (name, wait) => {
+      // A survivor that waits is the running gate now: current_gate must not keep the name of a gate that ended.
+      markCurrent(name);
       d.live?.wait(name, wait);
       d.onProgress?.();
     },
     onGateComplete: (name, exitCode, startedAt, endedAt, _index, output, waitMs) => {
+      ended.add(name);
       d.live?.end(name);
       if (store && runId !== null) {
         const failed = exitCode !== null && exitCode !== 0;
@@ -185,7 +193,7 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
       }
       d.onProgress?.();
     },
-  });
+  }).finally(clearLive);
   if (ran.kind === 'stopped') return `${pr.repo}: gate run was stopped`;
   for (const r of ran.results) {
     if (r.exitCode === null && r.hostRefused) return `${pr.repo}: gate "${r.name}" could not run (refused by the host boundary), so the merge is not verified`;
