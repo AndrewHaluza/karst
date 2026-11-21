@@ -59,8 +59,8 @@
         color: var(--k-text-dim);
         margin: 0 0 var(--k-space-4);
       }
-      /* Agent setup (the 9-item first-setup list). The page is capped at 58ch, so the rows wrap by flex
-         instead of by @media: the tag drops under the title when the title needs the line. */
+      /* Agent setup (the 9-item first-setup list). Rows wrap by flex; at the narrow tier (<= 699, @ui:RD-TIERS)
+         the tag always sits under the title. */
       .as-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--k-space-4); }
       .as-updated { font-size: var(--k-text-sm); color: var(--k-text-dim); }
       .as-track {
@@ -76,6 +76,10 @@
       .as-row .item-head { flex-wrap: wrap; }
       .as-title { flex: 1 1 20ch; min-width: 0; overflow-wrap: anywhere; }
       .as-row .detail { overflow-wrap: anywhere; }
+      @media (max-width: 699px) {
+        .as-row .item-head { flex-direction: column; align-items: flex-start; }
+        .as-title { flex: 0 1 auto; }
+      }
       .toolbar { display: flex; gap: var(--k-space-4); margin-top: var(--k-space-4); }
       footer { margin-top: var(--k-space-9); color: var(--k-text-dim); }
     </style>

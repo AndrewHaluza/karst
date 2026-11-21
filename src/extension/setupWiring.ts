@@ -139,7 +139,9 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
       const out = await spawnHeadlessCli(
         process.execPath,
         [entry, 'setup', 'checklist', '--db', deps.dbPath, '--manifest', manifestPath],
-        dirname(manifestPath),
+        // The workspace root, not the manifest's folder: on a fresh workspace `.karst/` does not exist, and
+        // a spawn in a missing cwd fails with ENOENT before the CLI can report "no karst.yml" (state a).
+        workspaceRoot() ?? dirname(manifestPath),
         { timeoutMs: AGENT_CHECKLIST_TIMEOUT_MS, env: opencode2ConfigEnv() },
       );
       if (out.exitCode !== 0) {

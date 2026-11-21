@@ -56,9 +56,16 @@ describe('gettingStarted webview.html', () => {
     // hex fallback (#3fb950/#f85149) duplicating the shared status ramp. Every
     // length below the marker must now resolve through a --k-* token.
     const style = styleBlock();
-    const local = style.slice(style.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length);
+    // A media-query condition cannot read a token: the layout tier edge (NARROW_MAX, @ui:RD-TIERS) is a literal.
+    const local = style
+      .slice(style.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length)
+      .replace(/@media\s*\([^)]*\)/g, '@media');
     const offenders = local.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
     expect(offenders, JSON.stringify(offenders)).toBeNull();
+  });
+
+  it('moves the agent-setup tag under the title at the narrow tier (<= 699)', () => {
+    expect(styleBlock()).toMatch(/@media \(max-width: 699px\)\s*\{[^}]*\.as-row \.item-head \{ flex-direction: column/);
   });
 
   it('sets an explicit page background (UI-R05), like every other webview\'s body rule', () => {
