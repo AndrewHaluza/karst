@@ -51,6 +51,17 @@ describe('Evidence — the generic rows', () => {
 });
 
 describe('Evidence — gates', () => {
+  it('clamps the detail of a waiting gate and keeps the full text as its tooltip', () => {
+    const detail = 'waiting for a free slot (2 of 2 in use by other tickets)';
+    withEvidence({ kind: 'gates', rows: [{ status: 'wait', label: 'e2e', detail }, { status: 'run', label: 'test', detail: 'running…' }], passed: 0, failed: 0, skipped: 0 });
+    const [wait, run] = [...document.querySelectorAll('.gate-detail')];
+    expect(wait!.classList.contains('wait')).toBe(true);
+    expect(wait!.getAttribute('title')).toBe(detail);
+    expect(wait!.getAttribute('aria-label')).toBe(detail);
+    expect(run!.classList.contains('wait')).toBe(false);
+    expect(run!.hasAttribute('title')).toBe(false);
+  });
+
   it('lays the host-built caption out above the gate rows, and draws none without one', () => {
     const rows = [{ status: 'pass', label: 'lint' }];
     withEvidence({ kind: 'gates', rows, passed: 1, failed: 0, skipped: 0, caption: 'Gates re-run: fix 72a3de0 changed the code after the last pass (run 5)' });

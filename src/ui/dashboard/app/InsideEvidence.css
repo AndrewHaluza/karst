@@ -110,6 +110,8 @@
 #inside .gate-name{color:var(--p-muted)}
 #inside .gate-detail{min-width:0;overflow-wrap:anywhere;white-space:normal;min-width:0;
   color:var(--p-muted);font-size:var(--p-sm)}
+/* A waiting gate keeps its slot text to 2 lines; the full text is the tooltip (T1293). */
+#inside .gate-detail.wait{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;text-overflow:ellipsis}
 
 /* Findings — one blueprint for Review findings and UAT observations */
 #inside .findings{display:grid;gap:var(--p-s1)}
