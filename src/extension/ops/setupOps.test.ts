@@ -6,6 +6,7 @@ import { repo } from '../../manifest/fixtures.js';
 import type { CreateTerminalOpts, SessionTerminal, TerminalHost } from '../../ui/session.js';
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import { hashInstructions } from '../../agent/instructions.js';
+import { FIRST_SETUP_KICKOFF, RERUN_SETUP_KICKOFF } from '../../setup/instructions.js';
 import { configureOpencode2, resetOpencode2Config } from '../../agent/opencode2Binary.js';
 import { createSetupOps, type SetupOpsDeps } from './setupOps.js';
 import { trustKeyFor } from '../../agent/workspaceTrust.js';
@@ -184,6 +185,24 @@ describe('setup ops', () => {
     const ops = createSetupOps({ ...deps, manifest: () => undefined });
     expect(await ops.create()).toBe(true);
     expect(created[0]!.opts.shellArgs).toEqual(expect.arrayContaining(['--add-dir', '/ws']));
+  });
+
+  it('sends the first-setup kickoff for a missing manifest', async () => {
+    await createSetupOps({ ...deps, manifest: () => undefined }).create();
+    const args = created[0]!.opts.shellArgs ?? [];
+    expect(args.some((a) => a.includes(FIRST_SETUP_KICKOFF))).toBe(true);
+  });
+
+  it('sends the first-setup kickoff for a scaffold manifest', async () => {
+    await createSetupOps({ ...deps, isScaffold: () => true }).create();
+    expect((created[0]!.opts.shellArgs ?? []).some((a) => a.includes(FIRST_SETUP_KICKOFF))).toBe(true);
+  });
+
+  it('sends the re-run kickoff for a real manifest', async () => {
+    await createSetupOps({ ...deps, isScaffold: () => false }).create();
+    const args = created[0]!.opts.shellArgs ?? [];
+    expect(args.some((a) => a.includes(RERUN_SETUP_KICKOFF))).toBe(true);
+    expect(args.some((a) => a.includes(FIRST_SETUP_KICKOFF))).toBe(false);
   });
 
   it('asks before launching a core that cannot block edits and declines cleanly', async () => {

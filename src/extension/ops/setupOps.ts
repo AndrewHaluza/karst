@@ -15,6 +15,7 @@ import {
   KARST_SETUP_SESSION_ENV,
   setupAddDirs,
   setupInstructions,
+  setupKickoff,
   type SetupManifest,
 } from '../../setup/instructions.js';
 import { setupOutboxDir } from '../../setup/outbox.js';
@@ -56,6 +57,8 @@ export interface SetupOpsDeps {
   notify: Notify;
   /** Asked before EVERY launch on a core that cannot block edits. Absent = declined. */
   confirmUnsafeCore?: (core: AgentProvider) => Promise<boolean>;
+  /** True when the manifest is the unedited scaffold (first setup). Absent = never a scaffold. */
+  isScaffold?: (current: SetupManifest) => boolean;
   /** Injectable id source for deterministic tests. */
   nextId?: () => string;
   debug?: (message: string) => void;
@@ -133,6 +136,8 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
           id,
           outbox,
         });
+        const firstSetup = manifest === undefined || (deps.isScaffold?.(manifest) ?? false);
+        const kickoff = setupKickoff({ firstSetup });
         const cmd = adapter.buildInteractiveCommand({
           ...mcp,
           cwd,
@@ -141,8 +146,9 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
           addDirs,
           ...(adapter.instructions && adapter.instructions.interactive !== 'n/a' ? { instructions } : {}),
           ...(model ? { model } : {}),
+          initialPrompt: kickoff,
         });
-        const metrics = measureSeed('', undefined, instructions);
+        const metrics = measureSeed(kickoff, undefined, instructions);
         debug(
           `launch ${id}: ${core} ${cmd.command} (cwd ${cwd}, instructions ${metrics.instructionsChars ?? 0}c ` +
             `#${metrics.instructionsHash ?? 'none'} via ${cmd.instructionsChannel ?? 'n/a'})`,

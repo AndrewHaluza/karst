@@ -165,7 +165,21 @@ export function setupInstructions(input: SetupInstructionsInput): string {
   ].join('\n');
 }
 
-/** A setup session opens no ticket, so its kickoff is empty by default. */
-export function setupKickoff(firstMessage?: string): string {
-  return firstMessage?.trim() ?? '';
+/** The kickoff for a first setup: start the discover + checklist loop at once. */
+export const FIRST_SETUP_KICKOFF =
+  'Start the first setup now. Run `setup discover`, then the `setup checklist` loop (instructions steps 1-8). ' +
+  'Ask the user only for decisions the checklist needs.';
+
+/** The kickoff for a re-run: report the open items, then ask what to change. */
+export const RERUN_SETUP_KICKOFF =
+  'Run `setup checklist` and `setup status`. Report the open items in one short list, then ask the user what to change.';
+
+/**
+ * The first user turn of a setup session. An interactive core does not act
+ * before it, so it is never empty: a first setup (no manifest, or the unedited
+ * scaffold) starts the loop, a re-run reports status first. It points to the
+ * instructions file and does not repeat it.
+ */
+export function setupKickoff(state: { firstSetup: boolean }): string {
+  return state.firstSetup ? FIRST_SETUP_KICKOFF : RERUN_SETUP_KICKOFF;
 }
