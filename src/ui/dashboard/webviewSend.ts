@@ -256,6 +256,3 @@ export function createSender(api: WebviewApi) {
     ) => send({ type: 'env-overrides-save', scope, text }, requestId),
   };
 }
-
-/** The dashboard sender surface, as mounted on `karstSend`. */
-export type DashboardSender = ReturnType<typeof createSender>;

@@ -20,9 +20,6 @@ export type SidebarEdgeSetting = 'auto' | 'left' | 'right' | 'none';
 /** The resolved edge line: which side of the view faces the editor. */
 export type SidebarEdge = 'left' | 'right' | 'none';
 
-/** `workbench.sideBar.location` — the only two docked locations VS Code offers. */
-export type SideBarLocation = 'left' | 'right';
-
 /** Coerce an untrusted setting value to a known enum member (default `auto`). */
 export function normalizeEdgeSetting(value: unknown): SidebarEdgeSetting {
   return value === 'left' || value === 'right' || value === 'none' ? value : 'auto';

@@ -171,9 +171,6 @@ export interface DashboardDrain {
   held: number[];
 }
 
-/** The state of a host with no waiting reload. */
-export const IDLE_DASHBOARD_DRAIN: DashboardDrain = { draining: false, live: [], held: [] };
-
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
   ticketId: number;

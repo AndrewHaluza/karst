@@ -90,17 +90,6 @@ export const staleChecks = (): Row['checks'] => ({
   cue: 'checking new commit…',
 });
 
-export const mc = (over: Partial<Check> = {}): Check => ({
-  repo: REPO,
-  state: 'conflicted',
-  headline: 'conflicted · 2 files · vs main',
-  detailsLabel: '2 conflicting files',
-  files: ['src/a.ts', 'src/b.ts'],
-  reason: '',
-  checkedTitle: '',
-  ...over,
-});
-
 export interface StateOpts {
   readonly mergeChecks?: Check[];
   readonly ci?: { available: boolean; repos: string[] };
@@ -225,5 +214,4 @@ export const one = (name: string, extra = ''): HTMLButtonElement => {
 };
 export const text = (sel: string): string => document.querySelector(sel)?.textContent ?? '';
 export const texts = (sel: string): string[] => [...document.querySelectorAll(sel)].map((e) => e.textContent ?? '');
-export const mergeBtn = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('.pacts .mgbtn:last-child')!;
 export const refreshBtn = (): HTMLButtonElement => document.querySelector<HTMLButtonElement>('#prRefresh')!;

@@ -3,7 +3,7 @@ import { configureAccounts, resetAccounts } from '../accounts/registry.js';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { QuotaService, defaultQuotaReaders, DEFAULT_QUOTA_CORES, QUOTA_CORES } from './service.js';
+import { QuotaService, defaultQuotaReaders, QUOTA_CORES } from './service.js';
 import type { QuotaReader, QuotaSnapshot } from './types.js';
 
 function okSnapshot(core: QuotaSnapshot['core'], usedPct: number): QuotaSnapshot {
@@ -126,9 +126,8 @@ describe('defaultQuotaReaders', () => {
     ]);
   });
 
-  it('exports DEFAULT_QUOTA_CORES matching the 4 probed cores', () => {
-    expect(DEFAULT_QUOTA_CORES).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
-    expect(QUOTA_CORES).toEqual(DEFAULT_QUOTA_CORES);
+  it('exports QUOTA_CORES matching the 4 probed cores', () => {
+    expect(QUOTA_CORES).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
   });
 
   it('reports antigravity unknown when language server is unreachable and no cache exists', async () => {

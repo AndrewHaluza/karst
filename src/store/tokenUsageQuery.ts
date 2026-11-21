@@ -31,10 +31,6 @@ export const USAGE_RANGES = [
   { id: 'all', label: 'All time', days: null },
 ] as const;
 
-export type UsageRangeId = (typeof USAGE_RANGES)[number]['id'];
-
-export const DEFAULT_USAGE_RANGE: UsageRangeId = '30d';
-
 export interface UsageQuery {
   /** Scope to one project. NULL is the deliberate all-projects view. */
   projectId: number | null;

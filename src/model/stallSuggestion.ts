@@ -116,8 +116,3 @@ export function withAcceptOption(suggestion: StallSuggestion, openBlocking: numb
   };
   return { ...suggestion, options: [...own, accept] };
 }
-
-/** The suggestion without its host-only options: what the store keeps. */
-export function withoutHostOptions(suggestion: StallSuggestion): StallSuggestion {
-  return { ...suggestion, options: suggestion.options.filter((o) => o.kind === 'agent') };
-}

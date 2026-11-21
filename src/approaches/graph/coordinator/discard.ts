@@ -66,9 +66,6 @@ import { parseGraphDocument } from '../parse.js';
 /** The graph blocker reason a discard writes when the edge can no longer fire. */
 export const GRAPH_TOPOLOGY_DEADLOCK = 'graph-topology-deadlock' as const;
 
-/** The ambiguous node-run statuses the discard operates on. */
-export const AMBIGUOUS_NODE_STATUSES = ['launch-unknown', 'termination-unknown'] as const;
-
 /** The non-terminal node-run statuses that count as live work in the V1
  *  deadlock re-evaluation. Mirrors the quiescence rule: any of these means the
  *  graph can still make progress and must not be read as silently dead. */

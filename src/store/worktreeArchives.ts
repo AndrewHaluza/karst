@@ -194,33 +194,6 @@ export function listActiveWorktreeBranches(store: Store): { repo: string; branch
 }
 
 /**
- * Archive rows whose branch matches a given branch in a given repo, for
- * determining whether a branch is backed by an archive.
- */
-export function findArchivesByBranch(
-  store: Store,
-  repo: string,
-  branch: string,
-): ArchiveRow[] {
-  return (
-    store.db
-      .prepare('SELECT * FROM worktree_archives WHERE repo = ? AND branch = ? ORDER BY id')
-      .all(repo, branch) as Raw[]
-  ).map(toRow);
-}
-
-/**
- * All archive rows (for git-ref cleanup on ticket delete).
- */
-export function listAllArchivesForTicket(store: Store, ticketId: number): ArchiveRow[] {
-  return (
-    store.db
-      .prepare('SELECT * FROM worktree_archives WHERE ticket_id = ?')
-      .all(ticketId) as Raw[]
-  ).map(toRow);
-}
-
-/**
  * Worktrees eligible for bulk archiving: the ticket is archived or terminal
  * (`stage_current = 'done'`) AND its agent is not currently running. Only rows
  * with a branch are returned — archive/restore both need it.

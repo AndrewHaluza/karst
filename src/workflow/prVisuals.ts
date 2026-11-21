@@ -14,11 +14,6 @@ export interface BehaviorStep {
   kind?: BehaviorStepKind;
 }
 
-export interface Behavior {
-  before: BehaviorStep[];
-  after: BehaviorStep[];
-}
-
 /** The visible note under the diagram. */
 export const BEHAVIOR_NOTE = '<sub>Drawn by the agent from the diff.</sub>';
 

@@ -2,7 +2,6 @@ import type { GateResult } from './result.js';
 
 /** A gate's `onResourceKill`: retry once lighter then park (default), park at once, or rerun on the host. */
 export type ResourceKillPolicy = 'retry-then-park' | 'park' | 'host';
-export const RESOURCE_KILL_POLICIES: readonly ResourceKillPolicy[] = ['retry-then-park', 'park', 'host'];
 
 /** The env var the vitest configs read to cap their worker pool for the lighter retry. */
 export const GATE_MAX_WORKERS_ENV = 'KARST_GATE_MAX_WORKERS';
