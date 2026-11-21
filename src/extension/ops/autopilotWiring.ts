@@ -92,6 +92,8 @@ export interface TicketSeams {
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or its resolved merge is being delivered (arch:AC-39). */
   readonly conflictRoundActive: () => boolean;
+  /** The armed round ended on its own: the PR no longer conflicts and carries the round's base head (@arch:AP-01, T1287). */
+  readonly conflictRoundEnded?: () => Promise<boolean>;
   readonly isDraining?: () => boolean;
   /** An armed round that never delivered (arch:AC-39). */
   readonly conflictRoundStalled: () => boolean;
@@ -184,6 +186,7 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         ...(seams.sendGateFailure ? { sendGateFailure: seams.sendGateFailure } : {}),
         sendConflict: seams.sendConflict,
         conflictRoundActive: seams.conflictRoundActive,
+        ...(seams.conflictRoundEnded ? { conflictRoundEnded: seams.conflictRoundEnded } : {}),
         ...(seams.isDraining ? { isDraining: seams.isDraining } : {}),
         conflictRoundStalled: seams.conflictRoundStalled,
         dropConflictRound: seams.dropConflictRound,

@@ -77,6 +77,11 @@ export interface AutopilotDeps {
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or karst delivers its resolved merge now: no other round starts beside it. */
   readonly conflictRoundActive: () => boolean;
+  /**
+   * The armed round ended on its own (@arch:AP-01, T1287): the merge check of its repo names no conflict and the PR head
+   * already carries the round's base head. Absent: a round ends only by delivery, a take-over, a drop or a stop.
+   */
+  readonly conflictRoundEnded?: () => Promise<boolean>;
   /** The host drains for a planned reload (@arch:DRAIN-01): no round starts. Absent: never draining. */
   readonly isDraining?: () => boolean;
   /** True when a conflict round is armed but never delivered; the engine drops it with a note. */
@@ -155,6 +160,15 @@ const queuedNotedByStore = new WeakMap<Store, Set<string>>();
 function queuedNoted(store: Store): Set<string> {
   let set = queuedNotedByStore.get(store);
   if (!set) { set = new Set(); queuedNotedByStore.set(store, set); }
+  return set;
+}
+
+/** Tickets already told that an armed conflict round blocks autopilot: one line per armed state, not one per 2 s tick. */
+const armedNotedByStore = new WeakMap<Store, Set<string>>();
+
+function armedNoted(store: Store): Set<string> {
+  let set = armedNotedByStore.get(store);
+  if (!set) { set = new Set(); armedNotedByStore.set(store, set); }
   return set;
 }
 
@@ -292,19 +306,34 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   // A reload kills the round in memory but not its slot in the store: a finished local merge is delivered with no new round.
   const resumed = await resumeStep(d);
   if (resumed !== null) return resumed;
-  // Only a round the engine sent can stall: the round of a manual Resolve conflicts click is not ours to drop.
-  const engineRound = getConflictRoundAt(d.store, d.ticketId) !== null;
-  if (engineRound && d.conflictRoundStalled()) {
+  // An armed round (manual or engine) ends from observed state (T1287): its PR no longer conflicts and the PR head already
+  // carries the base head the round resolved. A refused auto-deliver while the PR is still conflicted keeps the round alive
+  // (the next Stop/session.idle retries); this is the state no engine stall could ever end for a manual round.
+  const roundActive = d.conflictRoundActive();
+  if (roundActive && d.conflictRoundEnded !== undefined && (await d.conflictRoundEnded())) {
     d.dropConflictRound();
-    d.debug(`${LOG} ticket ${d.key}: the conflict round did not deliver; it is dropped`);
-    clearConflictRound(d.store, d.ticketId);
-    // The probe may read the local merge commit as clean and the CI rollup is of the old head: no round (CI included) may
-    // start on that. Park, so a person sees it; approve one more attempt or resolve it by hand.
-    return park(d, 'conflicts', STALLED_REASON, UNFINISHED_BODY);
-  } else if (d.conflictRoundActive()) {
-    d.debug(`${LOG} ticket ${d.key}: no round, a conflict round is armed or its resolved merge is being delivered`);
-    return { kind: 'busy' };
+    d.debug(`${LOG} ticket ${d.key}: the conflict round ended, the PR is no longer conflicted`);
+  } else {
+    // Only a round the engine sent can stall: the round of a manual Resolve conflicts click is not ours to drop.
+    const engineRound = getConflictRoundAt(d.store, d.ticketId) !== null;
+    if (engineRound && d.conflictRoundStalled()) {
+      d.dropConflictRound();
+      armedNoted(d.store).delete(flightKeyOf(d));
+      d.debug(`${LOG} ticket ${d.key}: the conflict round did not deliver; it is dropped`);
+      clearConflictRound(d.store, d.ticketId);
+      // The probe may read the local merge commit as clean and the CI rollup is of the old head: no round (CI included) may
+      // start on that. Park, so a person sees it; approve one more attempt or resolve it by hand.
+      return park(d, 'conflicts', STALLED_REASON, UNFINISHED_BODY);
+    } else if (roundActive) {
+      if (!armedNoted(d.store).has(flightKeyOf(d))) {
+        armedNoted(d.store).add(flightKeyOf(d));
+        d.debug(`${LOG} ticket ${d.key}: no round, a conflict round is armed or its resolved merge is being delivered`);
+      }
+      return { kind: 'busy' };
+    }
   }
+  // No armed round now: the next arming of a round says its wait once again.
+  armedNoted(d.store).delete(flightKeyOf(d));
   return guardedRound(d, () => runRound(d, cfg, state));
 }
 

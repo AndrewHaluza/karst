@@ -10,7 +10,10 @@ import { markConflictRound, claimAutopilotTicket, getAutopilotSessionOwner, getA
 import { setMergeCheck } from '../store/mergeChecks.js';
 import { rebaseOnBaseAction, sendCiFailureAction } from './ops/ciActionsWiring.js';
 
-vi.mock('./ops/ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn(async () => {}), rebaseOnBaseAction: vi.fn(async () => true) }));
+vi.mock('./ops/ciActionsWiring.js', () => ({
+  sendCiFailureAction: vi.fn(async () => {}), rebaseOnBaseAction: vi.fn(async () => true),
+  gitFor: vi.fn(() => async () => ({ code: 1, stdout: '' })), headShaOf: vi.fn(async () => null),
+}));
 
 const cfg = { enabled: true, ci: { policy: 'auto' as const, maxAttempts: 5, checks: ['build'] }, conflicts: { policy: 'auto' as const, maxRounds: 2 } };
 const FAILING = { state: 'failing', total: 2, passed: 1, failed: 1, pending: 0, failedShown: 1, failing: [{ name: 'build', url: null }] };

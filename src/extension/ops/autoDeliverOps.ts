@@ -202,6 +202,48 @@ export function isConflictRoundStalled(
   return Number.isFinite(at) && now - at > CONFLICT_ROUND_STALL_MS;
 }
 
+/**
+ * The armed round ended on its own (T1287, @arch:AP-01): the stored merge check of its repo names no conflict and the
+ * PR head already carries the base head the round resolved. A clean check of a merge that exists only in the worktree is
+ * not proof (@arch:GH-03): the PR head must contain `round.baseSha`. An auto-deliver in flight owns the round until it ends.
+ */
+export interface RoundEndDeps {
+  readonly store: Store;
+  readonly ticketId: number;
+  readonly rounds: ConflictRounds;
+  /** The stored head sha of the round repo's OPEN PR, or null when the head is not known. */
+  readonly prHead: (repo: string) => string | null;
+  /** The worktree of that repo, or null. */
+  readonly cwd: (repo: string) => string | null;
+  readonly git: Git;
+}
+
+export async function conflictRoundEnded(d: RoundEndDeps): Promise<boolean> {
+  if (isAutoDelivering(d.ticketId)) return false;
+  const round = d.rounds.armed(d.ticketId);
+  if (round === null) return false;
+  const check = getMergeCheck(d.store, d.ticketId, round.repo);
+  if (check !== null && check.state === 'conflicted') return false;
+  const head = d.prHead(round.repo);
+  if (head === null) return false;
+  if (round.baseSha === null) return true;
+  const cwd = d.cwd(round.repo);
+  if (cwd === null) return false;
+  const contained = await d.git(cwd, ['merge-base', '--is-ancestor', round.baseSha, head]);
+  return contained.code === 0;
+}
+
+/**
+ * A push that delivered the merge to the PR ends the armed round (T1287, @arch:AP-01): a manual Deliver after a refused
+ * auto-deliver must not leave `conflictRoundActive` true and block every later CI round's round.
+ */
+export function endConflictRoundOnDeliver(rounds: ConflictRounds, ticketId: number, key: string, log: (message: string) => void): boolean {
+  if (rounds.armed(ticketId) === null) return false;
+  rounds.disarm(ticketId);
+  log(`[ship] ticket ${key}: the conflict round ended, the merge was delivered to the PR`);
+  return true;
+}
+
 /** Run on a Stop/session.idle of a ticket; a no-op unless a Resolve-conflicts round is armed for it. */
 export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void> {
   const round = d.rounds.armed(d.ticketId);
