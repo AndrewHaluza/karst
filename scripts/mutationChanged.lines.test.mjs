@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { linesArgs, mutationLines } from './mutationChanged.mjs';
+import { baseDriftRun, linesArgs, mutationLines } from './mutationChanged.mjs';
 
 const PATTERNS = ['src/extension/**/*.ts', '!src/extension/**/*.test.ts'];
 const DIFF = ['diff --git a/src/extension/a.ts b/src/extension/a.ts', '--- a/src/extension/a.ts', '+++ b/src/extension/a.ts', '@@ -1 +10,2 @@', '@@ -5 +30 @@',
@@ -152,5 +152,26 @@ describe('mutationLines flow', () => {
   it('reads the report even when Stryker exits non-zero', async () => {
     const { d } = deps({ spawnFn: vi.fn(async () => ({ status: 1, out: '' })) });
     expect(await mutationLines(d)).toBe(0);
+  });
+});
+
+describe('baseDriftRun', () => {
+  const via = (status, out) => baseDriftRun('/w', ['a.ts'], vi.fn(async () => ({ status, out })));
+  it('is drift only when vitestGate exits 0 and prints the drift alert', async () => {
+    expect(await via(0, 'KARST-ALERT: develop-red base=abc tests=x')).toBe(0);
+  });
+  it('is not drift when the tests pass here without a drift alert', async () => {
+    expect(await via(0, 'Tests 3 passed')).toBe(1);
+  });
+  it('is not drift when vitestGate fails, even with the alert text', async () => {
+    expect(await via(1, 'KARST-ALERT: develop-red base=abc tests=x')).toBe(1);
+  });
+  it('runs vitestGate in the given directory with the files', async () => {
+    const spawnFn = vi.fn(async () => ({ status: 0, out: '' }));
+    await baseDriftRun('/w', ['a.ts', 'b.ts'], spawnFn);
+    const [cmd, args, opts] = spawnFn.mock.calls[0];
+    expect(cmd).toBe(process.execPath);
+    expect(args.slice(-2)).toEqual(['a.ts', 'b.ts']);
+    expect(opts.cwd).toBe('/w');
   });
 });

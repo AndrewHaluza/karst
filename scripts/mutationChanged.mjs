@@ -230,9 +230,17 @@ export function spawnCapture(cmd, args, { cwd, env }) {
   });
 }
 
-/** Re-judge a failed dry run on the base: vitestGate re-runs the failing files at the merge base (@arch:GATE-OUTPUT). 0 = base drift. */
-export function baseDriftRun(cwd, files) {
-  return runTool(process.execPath, ['scripts/vitestGate.mjs', 'npx', 'vitest', 'related', '--run', '--config', 'vitest.mutation.config.ts', ...files], cwd);
+/** Output line that vitestGate prints only when a failure also fails at the base (alertLine of vitestDrift.mjs). */
+export const DRIFT_MARK = 'KARST-ALERT: develop-red';
+
+/**
+ * Re-judge a failed dry run on the base: vitestGate re-runs the failing files at the merge base (@arch:GATE-OUTPUT).
+ * 0 = base drift. A vitestGate exit 0 without the drift line means the tests pass here (flaky or fixed), which is not drift.
+ */
+export async function baseDriftRun(cwd, files, spawnFn = spawnCapture) {
+  const args = ['scripts/vitestGate.mjs', 'npx', 'vitest', 'related', '--run', '--config', 'vitest.mutation.config.ts', ...files];
+  const run = await spawnFn(process.execPath, args, { cwd, env: process.env });
+  return run.status === 0 && run.out.includes(DRIFT_MARK) ? 0 : 1;
 }
 
 const readGateReport = (cwd) => {
