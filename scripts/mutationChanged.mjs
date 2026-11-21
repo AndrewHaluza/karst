@@ -6,10 +6,16 @@
 // Without a develop report, only a file that is new against the merge base must reach the break score.
 // A modified file prints its score and a warning, because an old low-score file would fail each unrelated change.
 // Exit: 0 with no changed mutate-set file, otherwise the exit code of the gate.
+// `--lines` (npm run -s gate:mutation, @arch:GATE-MUTATION): the review gate. It mutates only the lines the
+// ticket added and fails on an undetected mutant there, offline, with no develop report.
 
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { changedSince, git, mergeBase, runTool, splitZ } from './gateScope.mjs';
+import { availableParallelism } from 'node:os';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { MISSING_TOOL_STATUS, changedSince, git, mergeBase, runTool, splitZ } from './gateScope.mjs';
+import { concurrencyFor, joinNearRanges, linesMarkdown, mutateSpecs, parseDiffRanges, verdictOnAddedLines } from './mutationLines.mjs';
 import { DEFAULT_THRESHOLD, evaluate, loadSide, run as runGate } from './mutationGate.mjs';
 import { loadThreshold } from './mutationSummary.mjs';
 
@@ -171,4 +177,175 @@ export async function mutationChanged({
   return verdict.exitCode;
 }
 
-if (process.argv[1] && process.argv[1].endsWith('mutationChanged.mjs')) process.exitCode = await mutationChanged();
+// --- `--lines`: the review gate on the lines the ticket added (@arch:GATE-MUTATION) ---
+
+export const GATE_REPORT = 'reports/mutation-lines/mutation.json';
+export const GATE_CONFIG_FILE = 'stryker-lines.config.json';
+export const GATE_STATE_FILE = 'stryker-lines.json';
+export const GATE_STATE_DIR = 'karst-gate-state';
+/** Root paths the gate-mode sandbox does not copy (Stryker does not read .gitignore; a leading / anchors at the root). The mutation tests read none of them: they build temp roots. */
+export const GATE_IGNORES = ['/evals', '/eval-results', '/tests/visual', '/media', '/docs', '/scratch', '/spikes', '/sandbox', '/develop', '*.vsix'];
+const NO_TESTS = 'No tests were executed';
+const RUNNER_CRASHED = 'Test runner crashed';
+const INITIAL_FAILED = 'There were failed tests in the initial test run';
+
+/** The `stryker run` args (after the bin) for the gate. The config file sets the gate-only JSON report path (the CLI has no option for it). */
+export function linesArgs({ specs, stateFile, configFile, concurrency, ignorePatterns, full, logLevel }) {
+  return [
+    'run', configFile, '--mutate', specs.join(','),
+    '--incremental', '--incrementalFile', stateFile,
+    '--reporters', 'json,progress-append-only',
+    '--concurrency', String(concurrency),
+    '--ignorePatterns', ignorePatterns.join(','),
+    ...(full ? ['--force'] : []),
+    ...(logLevel ? ['--logLevel', logLevel] : []),
+  ];
+}
+
+/** Resolve the Stryker CLI script from cwd upward (no npx), or null. */
+export function resolveStrykerBin(cwd) {
+  try {
+    const require = createRequire(join(cwd, 'package.json'));
+    const pkg = require.resolve('@stryker-mutator/core/package.json');
+    const bin = JSON.parse(readFileSync(pkg, 'utf8')).bin;
+    return join(dirname(pkg), typeof bin === 'string' ? bin : bin.stryker);
+  } catch {
+    return null;
+  }
+}
+
+/** Run a command, teeing its output to ours while capturing it; a start failure is status 127. */
+export function spawnCapture(cmd, args, { cwd, env }) {
+  return new Promise((done) => {
+    let out = '';
+    const child = spawn(cmd, args, { cwd, env });
+    const sink = (stream) => (chunk) => {
+      out += chunk;
+      stream.write(chunk);
+    };
+    child.stdout.on('data', sink(process.stdout));
+    child.stderr.on('data', sink(process.stderr));
+    child.on('error', (err) => done({ status: MISSING_TOOL_STATUS, out: `${out}${err.message}` }));
+    child.on('close', (status) => done({ status: status ?? 1, out }));
+  });
+}
+
+/** Re-judge a failed dry run on the base: vitestGate re-runs the failing files at the merge base (@arch:GATE-OUTPUT). 0 = base drift. */
+export function baseDriftRun(cwd, files) {
+  return runTool(process.execPath, ['scripts/vitestGate.mjs', 'npx', 'vitest', 'related', '--run', '--config', 'vitest.mutation.config.ts', ...files], cwd);
+}
+
+const readGateReport = (cwd) => {
+  const path = join(cwd, GATE_REPORT);
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return {};
+  }
+};
+
+/** Added ranges per mutate-set file: the tracked diff joined near, plus each untracked file whole. */
+export function addedRanges({ diff, untracked, patterns, exists }) {
+  const ranges = new Map();
+  for (const [path, list] of parseDiffRanges(diff)) ranges.set(path, joinNearRanges(list));
+  for (const path of untracked) ranges.set(path, null);
+  for (const path of [...ranges.keys()]) if (!inMutateSet(path, patterns) || !exists(path)) ranges.delete(path);
+  return ranges;
+}
+
+/** The gate flow. Every effect is a parameter, so a test stubs git, Stryker and the report. */
+export async function mutationLines({
+  cwd = process.cwd(),
+  mergeBaseFn = mergeBase,
+  gitFn = git,
+  patterns = JSON.parse(readFileSync(join(cwd, 'stryker.config.json'), 'utf8')).mutate ?? [],
+  exists = (path) => existsSync(join(cwd, path)),
+  resolveBin = resolveStrykerBin,
+  spawnFn = spawnCapture,
+  driftFn = baseDriftRun,
+  readReport = readGateReport,
+  removeReport = () => rmSync(join(cwd, GATE_REPORT), { force: true }),
+  prepare = (stateDir, configFile) => {
+    mkdirSync(stateDir, { recursive: true });
+    mkdirSync(join(cwd, dirname(GATE_REPORT)), { recursive: true });
+    const base = JSON.parse(readFileSync(join(cwd, 'stryker.config.json'), 'utf8'));
+    writeFileSync(configFile, JSON.stringify({ ...base, jsonReporter: { fileName: GATE_REPORT } }));
+  },
+  cpus = availableParallelism(),
+  env = process.env,
+  ignorePatterns = [...(JSON.parse(readFileSync(join(cwd, 'stryker.config.json'), 'utf8')).ignorePatterns ?? []), ...GATE_IGNORES],
+  log = (line) => console.error(line),
+  print = (text) => process.stdout.write(`${text}\n`),
+} = {}) {
+  const { sha, tried } = await mergeBaseFn(cwd);
+  if (sha === null) {
+    log(`mutation: no merge base for ${tried.join(', ')}`);
+    return 1;
+  }
+  const diff = await gitFn(cwd, ['diff', '-U0', '-M', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', sha]);
+  const untracked = await gitFn(cwd, ['ls-files', '-o', '--exclude-standard', '-z']);
+  if (diff === null || untracked === null) {
+    log('mutation: git diff failed');
+    return 1;
+  }
+  const ranges = addedRanges({ diff, untracked: splitZ(untracked), patterns, exists });
+  const files = [...ranges.keys()].sort();
+  if (files.length === 0) {
+    log('mutation: no changed line in the Stryker mutate set, nothing to run');
+    return 0;
+  }
+  log(`mutation: ${files.length} files, branch diff since ${sha.slice(0, 12)}`);
+  const gitDir = (await gitFn(cwd, ['rev-parse', '--absolute-git-dir']))?.trim();
+  if (!gitDir) {
+    log('mutation: git directory not found');
+    return 1;
+  }
+  const bin = resolveBin(cwd);
+  if (bin === null) {
+    log('@stryker-mutator/core: command not found (not installed)');
+    return MISSING_TOOL_STATUS;
+  }
+  const stateDir = join(gitDir, GATE_STATE_DIR);
+  const configFile = join(stateDir, GATE_CONFIG_FILE);
+  prepare(stateDir, configFile);
+  removeReport();
+  const args = linesArgs({ specs: mutateSpecs(ranges), stateFile: join(stateDir, GATE_STATE_FILE), configFile, concurrency: concurrencyFor(cpus, env), ignorePatterns, full: env.KARST_GATE_FULL === '1', logLevel: env.KARST_GATE_LOG_LEVEL });
+  const run = await spawnFn(process.execPath, [bin, ...args], { cwd, env });
+  const report = readReport(cwd);
+  if (report === null) return noReport(run, files, driftFn, cwd, log);
+  if (typeof report.files !== 'object' || report.files === null) {
+    log('mutation: malformed report (no files)');
+    return 1;
+  }
+  const verdict = verdictOnAddedLines(report, ranges);
+  print(linesMarkdown(verdict));
+  return verdict.failures.length === 0 ? 0 : 1;
+}
+
+/** Stryker left no report: name the known causes, never a bare "missing report". */
+async function noReport(run, files, driftFn, cwd, log) {
+  if (run.out.includes(NO_TESTS)) {
+    log(`mutation: no test imports ${files.join(', ')}`);
+    return 1;
+  }
+  if (run.out.includes(RUNNER_CRASHED)) {
+    const signal = /\((SIG[A-Z0-9]+)\)/.exec(run.out)?.[1] ?? 'unknown signal';
+    log(`mutation: the test runner crashed in the initial test run (${signal})`);
+    return 1;
+  }
+  if (run.out.includes(INITIAL_FAILED)) {
+    if ((await driftFn(cwd, files)) === 0) {
+      log('mutation: the initial test run failed only on tests that also fail at the base (develop drift), so no mutant was judged');
+      return 0;
+    }
+    log('mutation: the initial test run failed');
+    return 1;
+  }
+  log(`mutation: no report (stryker exited ${run.status})`);
+  return 1;
+}
+
+if (process.argv[1] && process.argv[1].endsWith('mutationChanged.mjs')) {
+  process.exitCode = process.argv.includes('--lines') ? await mutationLines() : await mutationChanged();
+}

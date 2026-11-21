@@ -61,6 +61,13 @@ describe('seedMergedState', () => {
     expect(seeded).toEqual({ version: 1, clean: true, base: 'b'.repeat(40), tree: 't1', failed: ['x.test.ts'] });
     expect(() => readFileSync(join(to, 'karst-gate-state', 'red.json'))).toThrow();
   });
+  it('copies the Stryker incremental file as it is, without counting it as a gate state', async () => {
+    const from = gitDir();
+    writeFileSync(join(from, 'karst-gate-state', 'stryker-lines.json'), '{"mutants":[1]}');
+    const to = mkdtempSync(join(tmpdir(), 'base-moved-to-'));
+    expect(await seedMergedState(from, to, 'b'.repeat(40))).toBe(0);
+    expect(readFileSync(join(to, 'karst-gate-state', 'stryker-lines.json'), 'utf8')).toBe('{"mutants":[1]}');
+  });
   it('seeds nothing when the ticket worktree has no gate state', async () => {
     expect(await seedMergedState(mkdtempSync(join(tmpdir(), 'base-moved-')), mkdtempSync(join(tmpdir(), 'base-moved-to-')), 'b'.repeat(40))).toBe(0);
   });
