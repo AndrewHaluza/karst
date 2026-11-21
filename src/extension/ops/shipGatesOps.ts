@@ -1,4 +1,5 @@
 import { probeScripts } from '../../workflow/gates/probe.js';
+import type { GateLiveSink } from '../../workflow/gates/liveGates.js';
 import { runGateList } from '../../workflow/gates/runList.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import { resolveTargetGates } from '../../workflow/stages/uat.js';
@@ -54,6 +55,8 @@ export interface ShipGatesDeps {
   readonly onOutput?: (gateName: string, chunk: GateOutputChunk) => void;
   /** A gate started or finished: the host pushes the dashboard state. */
   readonly onProgress?: () => void;
+  /** The live state of the running gate (running, or waiting for a slot); absent → not reported. */
+  readonly live?: GateLiveSink;
   /**
    * The ticket's rendered arch citations and base branch for one PR, so the
    * `docs:gate` gate reads the same `PR_BODY` and `BASE_REF` it reads in UAT.
@@ -164,9 +167,15 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
     ...(d.onOutput ? { onGateOutput: d.onOutput } : {}),
     onGateStart: (name) => {
       if (store && runId !== null) setDeliverProgress(store, runId, name);
+      d.live?.start(name);
+      d.onProgress?.();
+    },
+    onGateWait: (name, wait) => {
+      d.live?.wait(name, wait);
       d.onProgress?.();
     },
     onGateComplete: (name, exitCode, startedAt, endedAt, _index, output, waitMs) => {
+      d.live?.end(name);
       if (store && runId !== null) {
         const failed = exitCode !== null && exitCode !== 0;
         recordDeliverGate(store, runId, {

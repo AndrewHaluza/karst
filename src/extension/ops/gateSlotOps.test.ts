@@ -60,6 +60,45 @@ describe('withGateSlot', () => {
     expect(second.waitMs).toBeLessThan(5_000);
   });
 
+  it('reports a slot wait once through onSlotWait, then onSlotTaken when the slot frees', async () => {
+    const g = gate();
+    const events: string[] = [];
+    const d = deps(1);
+    const a = withGateSlot(d, 1, g.run)('npm', [], '/wt');
+    await tick();
+    const b = withGateSlot(d, 2, g.run)('npm', [], '/wt', {
+      onSlotWait: (w) => events.push(`wait:${w.kind}:${w.held}/${w.limit}`),
+      onSlotTaken: () => events.push('taken'),
+    });
+    await tick();
+    expect(events).toEqual(['wait:sandbox:1/1']);
+    g.release();
+    await Promise.all([a, b]);
+    expect(events).toEqual(['wait:sandbox:1/1', 'taken']);
+  });
+
+  it('does not call onSlotWait or onSlotTaken for a free slot', async () => {
+    const events: string[] = [];
+    await withGateSlot(deps(2), 1, async () => OK)('npm', [], '/wt', { onSlotWait: () => events.push('wait'), onSlotTaken: () => events.push('taken') });
+    expect(events).toEqual([]);
+  });
+
+  it('does not call onSlotTaken when the wait ends in an abort', async () => {
+    const g = gate();
+    const events: string[] = [];
+    const ctl = new AbortController();
+    const d = deps(1);
+    const a = withGateSlot(d, 1, g.run)('npm', [], '/wt');
+    await tick();
+    const b = withGateSlot(d, 2, g.run)('npm', [], '/wt', { signal: ctl.signal, onSlotWait: () => events.push('wait'), onSlotTaken: () => events.push('taken') });
+    await tick();
+    ctl.abort();
+    await b;
+    expect(events).toEqual(['wait']);
+    g.release();
+    await a;
+  });
+
   it('reports the wait on an outcome aborted while waiting (T1248)', async () => {
     const g = gate();
     const d = deps(1);

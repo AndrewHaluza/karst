@@ -2611,6 +2611,63 @@ describe("the current attempt (round 2 staleness)", () => {
   });
 });
 
+describe("gates process follows the live state per gate", () => {
+  const resolvedGates = [
+    { name: "lint", disabled: false },
+    { name: "test", disabled: false },
+    { name: "build", disabled: false },
+  ];
+  const rowsFor = (extra: Partial<QualityProcessesInput>) =>
+    rowsOf(uatProcesses(qualityInput({ cell: cell("uat", "running"), resolvedGates, ...extra }))[0]!);
+
+  it("a gate that waits for a slot reads wait with the slot text and no timer", () => {
+    const rows = rowsFor({ liveGates: { lint: { kind: "wait", wait: { kind: "gate", held: 2, limit: 2 } } } });
+    expect(rows[0]).toMatchObject({ status: "wait", label: "lint", detail: "waiting for a free slot (2 of 2 in use by other tickets)" });
+    expect(rows[0]!.duration).toBeUndefined();
+    expect(rows[1]).toMatchObject({ status: "pending", detail: "queued" });
+  });
+
+  it("names the sandbox slot and the port slot", () => {
+    expect(rowsFor({ liveGates: { lint: { kind: "wait", wait: { kind: "sandbox", held: 3 } } } })[0]!.detail).toBe("waiting for a gate slot (3 running)");
+    expect(rowsFor({ liveGates: { lint: { kind: "wait", wait: { kind: "port" } } } })[0]!.detail).toBe("waiting for a port slot");
+  });
+
+  it("the slot taken reads running… again", () => {
+    expect(rowsFor({ liveGates: { lint: { kind: "run" } } })[0]).toMatchObject({ status: "run", detail: "running…" });
+  });
+
+  it("two lanes: a waiting gate and a running gate show one row each, not the manifest order", () => {
+    const rows = rowsFor({ liveGates: { lint: { kind: "wait", wait: { kind: "gate", held: 1, limit: 1 } }, build: { kind: "run" } } });
+    expect(rows.map((r) => [r.label, r.status])).toEqual([["lint", "wait"], ["test", "pending"], ["build", "run"]]);
+  });
+
+  it("a recorded gate that waited adds 'waited' beside the run time, and the duration is the run time only", () => {
+    const start = "2026-10-27T10:00:00.000Z";
+    const end = "2026-10-27T10:02:00.000Z";
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell("uat", "passed"),
+        gateRuns: [run("uat", "test", 0, { runAt: NOW, startedAt: start, endedAt: end, waitMs: 90_000 })],
+      }),
+    )[0]!;
+    const row = rowsOf(view)[0]!;
+    expect(row.duration).toBe(formatDuration(start, "2026-10-27T10:00:30.000Z"));
+    expect(row.detail).toBe("exit 0 · waited 1m 30s");
+  });
+
+  it("a recorded gate with no wait keeps its row unchanged", () => {
+    const start = "2026-10-27T10:00:00.000Z";
+    const end = "2026-10-27T10:02:00.000Z";
+    const view = uatProcesses(
+      qualityInput({
+        cell: cell("uat", "passed"),
+        gateRuns: [run("uat", "test", 0, { runAt: NOW, startedAt: start, endedAt: end, waitMs: 0 })],
+      }),
+    )[0]!;
+    expect(rowsOf(view)[0]).toMatchObject({ detail: "exit 0", duration: formatDuration(start, end) });
+  });
+});
+
 describe("gates process lists resolved gates while the stage runs", () => {
   const resolvedGates = [
     { name: "lint", disabled: false },

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
+import type { GateWait } from '../../model/inside/gateWait.js';
 import { prepareCommand } from '../../runtime/command.js';
 import { resolveCommandCwd } from '../../runtime/commandCwd.js';
 import { BoundedOutput } from '../../runtime/boundedOutput.js';
@@ -61,6 +62,12 @@ export interface RunCommandOptions {
    * timed out or aborted) — the host binds it to the live-pid registry.
    */
   onSpawned?: (pid: number) => (() => void) | void;
+  /**
+   * A runner that waits for a sandbox slot calls this once when it finds none free (typed, never parsed from the console note).
+   * `onSlotTaken` follows when the slot is held and the spawn starts. Absent → the wait is unreported.
+   */
+  onSlotWait?: (wait: GateWait) => void;
+  onSlotTaken?: () => void;
 }
 
 /** One decoded chunk of a gate process's live output. */

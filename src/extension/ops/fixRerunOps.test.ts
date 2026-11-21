@@ -59,6 +59,19 @@ describe('makeGateRerun through runGateList', () => {
     expect(a?.exitCode).not.toBe(0);
   });
 
+  it('reports each gate to the live sink: run, wait, and the end of the record', async () => {
+    const events: string[] = [];
+    const sink = { start: (g: string) => events.push(`start:${g}`), wait: (g: string) => events.push(`wait:${g}`), end: (g: string) => events.push(`end:${g}`) };
+    const runGates = vi.fn(async (gates: readonly ResolvedGate[], _cwd: string, opts?: { onGateStart?: (n: string) => void; onGateWait?: (n: string, w: { kind: 'port' }) => void; onGateComplete?: (n: string, e: number | null, s: string, en: string, i: number, o: string) => void }) => {
+      opts?.onGateWait?.('unit', { kind: 'port' });
+      opts?.onGateStart?.('unit');
+      opts?.onGateComplete?.('unit', 0, 'a', 'b', 0, '');
+      return { kind: 'ran' as const, results: [] };
+    });
+    await make(vi.fn(), { runGates: runGates as never, gatesFor: () => [resolved({ name: 'unit' })], liveSinkFor: () => sink })(ticketId, [failed()], 'uat');
+    expect(events).toEqual(['wait:unit', 'start:unit', 'end:unit']);
+  });
+
   it('makes one runGateList call per repo worktree with that repo gates only, at the same time', async () => {
     const calls: { gates: string[]; cwd: string }[] = [];
     const runGates = vi.fn(async (gates: readonly ResolvedGate[], cwd: string) => {
@@ -503,7 +516,7 @@ describe('makeGateRerun exact options, rows and results', () => {
   it('passes only the options it was given, so a bare dependency set adds none', async () => {
     const s = spy(() => undefined);
     await rerun({ runGates: s.runGates })(ticketId, [failed()], 'uat');
-    expect(Object.keys(s.calls[0]!.opts).sort()).toEqual(['now', 'onGateComplete', 'onGateOutput', 'onGateSpawned', 'onGateStart', 'prBody', 'runProcess', 'sandboxed', 'scriptsAvailable']);
+    expect(Object.keys(s.calls[0]!.opts).sort()).toEqual(['now', 'onGateComplete', 'onGateOutput', 'onGateSpawned', 'onGateStart', 'onGateWait', 'prBody', 'runProcess', 'sandboxed', 'scriptsAvailable']);
     expect(s.calls[0]!.opts.sandboxed).toBe(false);
     expect(typeof s.calls[0]!.opts.prBody).toBe('string');
   });

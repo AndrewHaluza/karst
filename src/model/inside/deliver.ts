@@ -21,6 +21,8 @@ export interface DeliverRunningFact {
   readonly gate: string;
   /** The run re-runs the gates a manual Deliver skipped, on the pushed head: no push follows (D540). */
   readonly afterTakeOver?: boolean;
+  /** The gate waits for a concurrency slot and has not started: live host state, never stored. */
+  readonly waiting?: boolean;
 }
 
 export interface DeliverTakeOverFact {
@@ -45,8 +47,16 @@ export const shortSha = (sha: string | null): string => (sha === null ? 'unknown
 /** The one progress line, or null when no auto-deliver runs. */
 export function deliverProgressLine(f: DeliverFacts): string | null {
   if (f.running === null) return null;
-  if (f.running.afterTakeOver === true) return `Running the gates skipped by the manual Deliver: gate ${f.running.n}/${f.running.m} (${f.running.gate})`;
-  return `Delivering resolved merge: gate ${f.running.n}/${f.running.m} (${f.running.gate}), push after the gates`;
+  const at = `gate ${f.running.n}/${f.running.m} (${f.running.gate})`;
+  const wait = f.running.waiting === true;
+  if (f.running.afterTakeOver === true) return `Running the gates skipped by the manual Deliver: ${at}${wait ? ' waits for a slot' : ''}`;
+  return `Delivering resolved merge: ${at}${wait ? ' waits for a slot' : ', push after the gates'}`;
+}
+
+/** The facts with the running gate marked waiting when the live state says it waits for a slot. */
+export function withDeliverWait(f: DeliverFacts | undefined, live: Readonly<Record<string, { readonly kind: string }>> | undefined): DeliverFacts | undefined {
+  if (!f?.running || live?.[f.running.gate]?.kind !== 'wait') return f;
+  return { ...f, running: { ...f.running, waiting: true } };
 }
 
 export function deliverFailureLine(x: DeliverFailureFact): string {

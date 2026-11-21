@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import type { GateLiveSink } from '../../workflow/gates/liveGates.js';
 import type { Store } from '../../store/db.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { summarizeGateFailure } from '../../model/gateSummary.js';
@@ -60,6 +61,8 @@ export interface GateRerunDeps {
   /** The pid of a gate process; the returned disposer runs when it settles. */
   readonly onGateSpawned?: (ticketId: number, gateName: string, pid: number, cwd: string) => (() => void) | void;
   readonly onGateStart?: (ticketId: number, stage: StageKey, gateName: string) => void;
+  /** The live gate state of a ticket and stage (running, or waiting for a slot); absent → not reported. */
+  readonly liveSinkFor?: (ticketId: number, stage: StageKey) => GateLiveSink;
   /** Pool root of the gate slot leases; tests inject a temp dir. */
   readonly gateSlotsDir?: string;
   readonly gateSlotPollMs?: number;
@@ -201,6 +204,7 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
   const run = deps.runGates ?? runGateList;
   const scriptProbe = (deps.probe ?? probeScripts)(group.path, deps.debug);
   const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
+  const liveSink = deps.liveSinkFor?.(ticketId, stage);
   const baseOpts: Omit<NonNullable<Parameters<typeof runGateList>[2]>, 'onGateComplete'> = {
     now,
     scriptsAvailable: (script, derived) => (scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived),
@@ -214,12 +218,14 @@ async function rerunGroup(deps: GateRerunDeps, ticketId: number, stage: StageKey
     ...(deps.gateSlotsDir ? { gateSlotsDir: deps.gateSlotsDir } : {}),
     ...(deps.gateSlotPollMs !== undefined ? { gateSlotPollMs: deps.gateSlotPollMs } : {}),
     ...(deps.debug ? { onDebug: deps.debug } : {}),
-    onGateStart: (name) => deps.onGateStart?.(ticketId, stage, name),
+    onGateStart: (name) => { liveSink?.start(name); deps.onGateStart?.(ticketId, stage, name); },
+    onGateWait: (name, wait) => liveSink?.wait(name, wait),
     onGateOutput: (name, chunk) => deps.onGateOutput?.(ticketId, stage, name, chunk),
     onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(ticketId, name, pid, cwd),
   };
   const record = (rows: readonly number[], name: string, exitCode: number | null, startedAt: string | null, endedAt: string | null, rawOutput: string | undefined, waitMs: number | null | undefined): void => {
     const output = rawOutput ?? '';
+    liveSink?.end(name);
     recordRerunRow(deps, ticketId, stage, attempt, now(), group, { name, exitCode, startedAt, endedAt, output, waitMs: waitMs ?? null, row: rows[0] ?? -1 });
     for (const row of rows) results[row] = resultOf(exitCode, output);
   };

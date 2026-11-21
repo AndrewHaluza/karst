@@ -18,6 +18,7 @@ export interface GateRerunHost {
   readonly hostGateFor: (ticketId: number) => (() => GateProcessRunner) | undefined;
   readonly onGateOutput: GateRerunDeps['onGateOutput'];
   readonly onGateSpawned: GateRerunDeps['onGateSpawned'];
+  readonly liveSinkFor?: GateRerunDeps['liveSinkFor'];
   /** Re-drive a ticket's source stage after a passing re-run. */
   readonly redrive: (ticketId: number) => void;
   readonly debug: (message: string) => void;
@@ -54,6 +55,7 @@ export function bindGateRerunDeps(host: GateRerunHost): GateRerunDeps {
     },
     onGateOutput: host.onGateOutput,
     onGateSpawned: host.onGateSpawned,
+    liveSinkFor: host.liveSinkFor,
     debug: host.debug,
   };
 }

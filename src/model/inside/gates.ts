@@ -30,12 +30,15 @@ import {
   attemptKey,
   type AttemptKey,
 } from './rounds.js';
+import { gateWaitDetail, type GateLiveState } from './gateWait.js';
 import type { CurrentAttempt } from './currentAttempt.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './types.js';
 import {
   formatDuration,
   formatExactDuration,
+  formatSpanMs,
   formatTime,
+  instantMs,
   insideSeverity,
   type EvidenceRow,
   type InsideProcessView,
@@ -162,17 +165,29 @@ function gateOp(run: GateRun): StageOp & { repo: string | null; durationExact: s
       durationExact: '',
     };
   }
+  const waited = waitedOf(run);
   return {
     status: run.exitCode === null ? 'note' : run.exitCode === 0 ? 'pass' : 'fail',
     name: stripRepoDecoration(run.gateName),
     // The row states the gate's name and its exit code. `gate_runs` also
     // carries the argv that produced it now (`run.command`/`run.args`, v21),
     // but this summary line stays terse on purpose.
-    detail: run.exitCode === null ? 'nothing to run' : `exit ${run.exitCode}`,
-    duration: formatDuration(run.startedAt, run.endedAt),
+    detail: run.exitCode === null ? 'nothing to run' : `exit ${run.exitCode}${waited ? ` · waited ${formatSpanMs(waited.waitMs)}` : ''}`,
+    duration: waited ? formatSpanMs(waited.runMs) : formatDuration(run.startedAt, run.endedAt),
     repo: run.repo,
-    durationExact: formatExactDuration(run.startedAt, run.endedAt),
+    durationExact: waited ? `${(waited.runMs / 1000).toFixed(3)}s` : formatExactDuration(run.startedAt, run.endedAt),
   };
+}
+
+/**
+ * A recorded gate that waited for a slot: `endedAt - startedAt` holds the wait (@arch:RESULTS), so the run time is the
+ * rest. Null when no wait was recorded (NULL, 0, or a span that cannot be read), so the row stays as it was.
+ */
+function waitedOf(run: GateRun): { waitMs: number; runMs: number } | null {
+  const waitMs = run.waitMs ?? 0;
+  if (!(waitMs > 0) || !run.startedAt || !run.endedAt) return null;
+  const span = instantMs(run.endedAt) - instantMs(run.startedAt);
+  return Number.isFinite(span) && span >= 0 ? { waitMs, runMs: Math.max(0, span - waitMs) } : null;
 }
 
 /**
@@ -274,6 +289,11 @@ export interface QualityProcessesInput {
   testerBlockingSeverity?: Severity | 'none';
   /** Tester observations — the uat stage's evidence; advisory unless `testerBlockingSeverity` says otherwise. */
   uatFindings: readonly UatFinding[];
+  /**
+   * The live state of the gates in flight, by gate name (host-known, never recorded): a gate that waits for a slot
+   * and a gate that runs. Absent or empty → the first unanswered gate reads running, the rest queued.
+   */
+  liveGates?: Readonly<Record<string, GateLiveState>>;
   /** Every process run recorded for the ticket, ticket-wide. */
   processRuns: readonly ProcessRun[];
   /** Every recovery round recorded for the ticket; filtered to the stage here. */
@@ -525,6 +545,7 @@ function gatesProcess(
   eff: EffectiveAttempt = { key: null, empty: false, historical: false },
   captionInput: GatesCaptionInput = { rounds: [] },
   hostRerunRuns: readonly GateRun[] = [],
+  liveGates?: Readonly<Record<string, GateLiveState>>,
 ): InsideProcessView {
   // One mapping, used by BOTH the per-gate rows and the failure sentence: a
   // row that named the service while the summary above it named the path
@@ -636,7 +657,7 @@ function gatesProcess(
   // While the gates are in flight, the resolved gates with no recorded row yet
   // are listed after the recorded ones. Gates run sequentially, so the first
   // unrecorded enabled gate is the one running now; the rest are queued.
-  const liveGates = running && !gatesDone;
+  const liveGate = running && !gatesDone;
   const usedBatchIndices = new Set<number>();
   const isAnswered = (entry: ResolvedGate): boolean => {
     for (let i = 0; i < batch.length; i++) {
@@ -666,10 +687,19 @@ function gatesProcess(
   const start = (batch.length === 0 ? cell.startedAt : latestEndedAt ?? cell.startedAt) ?? null;
   let runAssigned = false;
   const waitingRows: EvidenceRow[] = [];
-  if (liveGates) {
+  // The live state is consumed once per gate name, so two repositories that run the same gate each take their own.
+  const liveLeft = new Map<string, GateLiveState>(Object.entries(liveGates ?? {}).map(([n, v]) => [stripRepoDecoration(n), v]));
+  const followLive = liveLeft.size > 0;
+  const timerFrom = (from: string | null): Partial<EvidenceRow> =>
+    from
+      ? { time: formatTime(from), duration: formatDuration(from, now), durationExact: formatExactDuration(from, now) }
+      : {};
+  if (liveGate) {
     for (const g of resolved) {
       if (isAnswered(g)) continue;
       const repo = g.repo ? repoLabel(g.repo) : undefined;
+      const live = g.disabled ? undefined : liveLeft.get(g.name);
+      if (live) liveLeft.delete(g.name);
       if (g.disabled) {
         waitingRows.push({
           status: 'skip',
@@ -677,20 +707,17 @@ function gatesProcess(
           detail: g.disabledBy === 'config' ? 'disabled in Settings' : 'disabled for this ticket',
           ...(repo ? { repo } : {}),
         });
-      } else if (!runAssigned) {
+      } else if (live?.kind === 'wait') {
+        // No timer: the wait is not run time (the timer starts when the slot is taken).
+        waitingRows.push({ status: 'wait', label: g.name, detail: gateWaitDetail(live.wait), ...(repo ? { repo } : {}) });
+      } else if (live?.kind === 'run' || (!followLive && !runAssigned)) {
         runAssigned = true;
         waitingRows.push({
           status: 'run',
           label: g.name,
           detail: 'running…',
           ...(repo ? { repo } : {}),
-          ...(start
-            ? {
-                time: formatTime(start),
-                duration: formatDuration(start, now),
-                durationExact: formatExactDuration(start, now),
-              }
-            : {}),
+          ...timerFrom(live?.kind === 'run' && live.since ? live.since : start),
         });
       } else {
         waitingRows.push({
@@ -710,7 +737,7 @@ function gatesProcess(
         ...(g.repo ? { repo: repoLabel(g.repo) } : {}),
       }))
     : [...recordedRows, ...waitingRows];
-  const runIndex = allRows.findIndex((r) => r.status === 'run' && r.detail === 'running…');
+  const runIndex = allRows.findIndex((r) => (r.status === 'run' && r.detail === 'running…') || r.status === 'wait');
   // The running row must never be the one cut off: keep it as the last shown row.
   const boundedRows =
     runIndex >= GATES_EVIDENCE_LIMIT
@@ -743,7 +770,7 @@ function gatesProcess(
   // stable for the whole run instead of growing as each row lands.
   const inFlightTotal = batch.length + waitingRows.length;
   const hasUnrecorded = waitingRows.length > 0 && (batch.length > 0 || enabledResolved > 0);
-  if (liveGates && failed === 0 && hasUnrecorded) {
+  if (liveGate && failed === 0 && hasUnrecorded) {
     detail = `${answered}/${inFlightTotal} command gates passed so far`;
     count = `${answered}/${inFlightTotal}`;
   } else if (batch.length > 0 && failed === 0 && answered > 0) {
@@ -1244,6 +1271,7 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
       eff,
       input,
       input.hostRerunRuns,
+      input.liveGates,
     ),
     servicesProcess(input.cell, input.services),
     testerProcess(input),
@@ -1269,6 +1297,7 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
       eff,
       input,
       input.hostRerunRuns,
+      input.liveGates,
     ),
     reviewProcess(input),
   ];

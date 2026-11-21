@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import type { GateLiveState } from '../../model/inside/gateWait.js';
 import type { AgentProvider, Manifest, TicketProvider } from '../../manifest/types.js';
 import { getTicket } from '../../store/tickets.js';
 import type { GateStageKey } from '../../workflow/fixAttempts.js';
@@ -38,6 +39,8 @@ export interface SnapshotInputs {
   sharedServersFor: (ticketId: number) => SharedServerView[];
   /** The host's waiting reload (@arch:DRAIN-01); absent → none waits. */
   drainFor?: () => DrainInput;
+  /** The gates in flight per gate stage (running or waiting for a slot); absent → none is known. */
+  liveGatesFor?: (ticketId: number) => Readonly<Partial<Record<'uat' | 'review' | 'ship', Readonly<Record<string, GateLiveState>>>>>;
 }
 
 /** Mint this snapshot's action registry and build the state it describes. */
@@ -146,6 +149,7 @@ export function buildSnapshotState(
     (id) => i.sharedServersFor(id),
     i.manifest?.()?.autopilot,
     i.drainFor?.(),
+    i.liveGatesFor?.(ticketId),
   );
   const stored = i.loaders.storedArtifactsFor(ticketId);
   // The ship preview rides ONLY while the ship slot is confirm/retry (D142):

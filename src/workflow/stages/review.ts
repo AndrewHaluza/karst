@@ -1,5 +1,6 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { GateWait } from '../../model/inside/gateWait.js';
 import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest } from '../../manifest/types.js';
@@ -124,6 +125,7 @@ export interface RunReviewOpts {
   onGateComplete?: (gateName: string, exitCode: number | null) => void;
   /** Called before each gate's work begins, with the gate's name. */
   onGateStart?: (gateName: string) => void;
+  onGateWait?: (gateName: string, wait: GateWait) => void;
   /**
    * Live output from the deterministic gate lane, chunk by chunk, tagged with
    * the gate's name — the gates' counterpart of the agent lane's live hook.
@@ -593,6 +595,7 @@ export async function runReview(
         ? { baseDefinesScript: (script: string) => baseDefinesScript(git, target.path, stageBaseRef, script) }
         : {}),
       onGateStart: opts.onGateStart,
+      onGateWait: opts.onGateWait,
       onGateOutput: opts.onGateOutput,
       onGateSpawned: opts.onGateSpawned,
       onDebug: opts.debug,

@@ -40,6 +40,7 @@ export interface InsideSectionInput {
   attach: (target: InsideEvidenceTarget) => TypedInsideAction | undefined;
   assignmentFor: (processId: 'session' | 'tester' | 'review') => SessionConfiguredInput | null;
   resolvedGates?: Parameters<typeof buildInsideViews>[0]['resolvedGates'];
+  liveGates?: Parameters<typeof buildInsideViews>[0]['liveGates'];
   findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>;
   repoNameFor: (repo: string) => string | undefined;
   graphInside?: GraphInsideInput | null;
@@ -69,7 +70,7 @@ export interface InsideSectionInput {
 export function buildInsideSection(store: Store, input: InsideSectionInput) {
   const {
     ticket, stepper, currentStage, rounds, worktrees, prs, mergeChecks, now, evidence, cellOf, attach,
-    assignmentFor, resolvedGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
+    assignmentFor, resolvedGates, liveGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
     findingsBlockingSeverity, displayBlocking, autofix, deliver, ciOpen, ciWaiting, ciNow, liveRunUsage,
   } = input;
   const { marks, gateRuns, hostRerunRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
@@ -154,6 +155,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     rounds,
     services: serviceStatusViews(serverRows, serviceFailureReason),
     resolvedGates,
+    liveGates,
     findingsRepoSelection,
     repoNameFor,
     graphInsideProcessOnce,

@@ -111,6 +111,30 @@ describe('runShipGates evidence (T1018)', () => {
     expect(currentDeliverRun(store, ticketId)?.state).toBe('failed');
   });
 
+  it('reports a gate that waits for a slot to the live sink, then the run, then the end', async () => {
+    const { store, ticketId, pr } = setup();
+    const events: string[] = [];
+    const runProcess: GateProcessRunner = async (_c, _a, _cwd, options) => {
+      options?.onSlotWait?.({ kind: 'sandbox', held: 2, limit: 2 });
+      options?.onSlotTaken?.();
+      return { kind: 'completed', exitCode: 0, output: '' };
+    };
+    const live = { start: (g: string) => events.push(`start:${g}`), wait: (g: string, w: { kind: string }) => events.push(`wait:${g}:${w.kind}`), end: (g: string) => events.push(`end:${g}`) };
+    await runShipGates([pr], { uat: twoGates, runProcess, evidence: { store, ticketId }, headSha: async () => null, live });
+    expect(events).toEqual(['start:unit', 'wait:unit:sandbox', 'start:unit', 'end:unit', 'start:docs', 'wait:docs:sandbox', 'start:docs', 'end:docs']);
+  });
+
+  it('pushes one progress update for each gate start and each gate wait, with no live sink', async () => {
+    const { store, ticketId, pr } = setup();
+    let progress = 0;
+    const runProcess: GateProcessRunner = async (_c, _a, _cwd, options) => {
+      options?.onSlotWait?.({ kind: 'sandbox', held: 1, limit: 1 });
+      return { kind: 'completed', exitCode: 0, output: '' };
+    };
+    await runShipGates([pr], { uat: twoGates, runProcess, evidence: { store, ticketId }, headSha: async () => null, onProgress: () => { progress += 1; } });
+    expect(progress).toBeGreaterThanOrEqual(4);
+  });
+
   it('shows the running gate while it runs', async () => {
     const { store, ticketId, pr } = setup();
     const seen: Array<string | null | undefined> = [];

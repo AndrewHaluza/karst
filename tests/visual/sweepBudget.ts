@@ -31,7 +31,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1217 pr-stale-checks, @ui:UI-R57: the stale CI chip, 3 width tiers x 1 theme (dark) (+3 screenshots); layout runs unchanged.
   // T1266 graph-header (a graph ticket's expert / worker / fast chips), @ui:UI-R57: 2 themes (+2 screenshots); skipLayout, so no layout runs.
   // T1289 inside-uat-gates-skip-reasons (a no-UI-change visual gate and a ticket-disabled gate), @ui:UI-R57: 4 width tiers (+4 screenshots) and their layout runs (+8).
-  dashboard: { screenshots: 612, layout: 722 },
+  // T1293 inside-uat-gates-wait-and-run (one gate waits for a slot, one runs in the other lane), @ui:UI-R57: 4 width tiers (+4 screenshots) and their layout runs (+8).
+  dashboard: { screenshots: 616, layout: 730 },
   diffs: { screenshots: 7, layout: 25 },
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },

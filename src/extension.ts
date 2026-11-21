@@ -421,6 +421,7 @@ import { instrumentAdapter } from './agent/instrumentedAdapter.js';
 import { resilientAdapter, type ModelFallbackEvent } from './agent/resilientAdapter.js';
 import { AgentConsole } from './agent/agentConsole.js';
 import { GateConsole } from './workflow/gates/gateConsole.js';
+import { LiveGateRegistry } from './workflow/gates/liveGates.js';
 import type { GateOutputChunk } from './workflow/gates/run.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager } from './ui/usage/panel.js';
@@ -1250,6 +1251,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id) }); // AC-32
   // The host gate re-run (@arch:AC-45): one dependency set for its three call sites, run through `runGateList`.
   const gateRerunDeps = bindGateRerunDeps({
+    liveSinkFor: (id, stage) => gateLive.sinkFor(id, stage, () => dashboard.pushState(id)),
     store: localStore, manifest: currentManifest, runProcess, gateProcessFor: (id) => sandboxB?.gateProcessFor(id), hostGateFor: (id) => sandboxB?.hostGateFor(id),
     onGateOutput: (id, stage, gateName, chunk) => { if (stage === 'uat' || stage === 'review' || stage === 'ship') gateConsole.append(id, stage, gateName, chunk); },
     onGateSpawned: (id, gateName, pid, cwd) => gateRuns.spawned({ ticketId: id, gateName, pid, cwd }, () => resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName })),
@@ -3077,6 +3079,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   /** The ship gate deps of a ticket: the auto-deliver and the re-run of the gates a manual Deliver skipped share them (D540). */
   const shipGateDeps = (ticketId: number): ShipGatesDeps => ({
+    live: gateLive.sinkFor(ticketId, 'ship', () => dashboard.pushState(ticketId)),
     uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m),
     onOutput: (g: string, c: GateOutputChunk) => gateConsole.append(ticketId, 'ship', g, c),
     gateEnv: (pr: { repo: string }) => { const m = currentManifest(); return { prBody: renderCitationText(listArchCitations(localStore, ticketId)), ...(m ? { baseRef: resolveTicketBaseRef(localStore, ticketId, pr.repo, m) } : {}) }; },
@@ -3115,6 +3118,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await context.workspaceState.update(DASHBOARD_LAYOUT_KEY, layout);
     dashboard.pushLayout();
   };
+  /** The gates in flight (running or waiting for a slot), written by the drivers, read by each dashboard snapshot. */
+  const gateLive = new LiveGateRegistry();
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
     restoreHosts.track('dashboardHost', makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger, readDashboardLayout)),
@@ -3441,6 +3446,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildBaselineRowsLoader({ store: localStore, manifest: currentManifest, storageRoot: baselineReviewRoot(context.globalStorageUri.fsPath) }),
     storedArtifacts.load,
     makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync),
+    (id) => {
+      const uat = gateLive.snapshot(id, 'uat');
+      const review = gateLive.snapshot(id, 'review');
+      const ship = gateLive.snapshot(id, 'ship');
+      return { ...(uat ? { uat } : {}), ...(review ? { review } : {}), ...(ship ? { ship } : {}) };
+    },
   );
   serverLifecycleDeps = {
     store: localStore, manifest: currentManifest,
@@ -3747,6 +3758,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // snapshot right after, which supersedes it. No-op when the panel
           // is closed; validated again at the panel boundary.
           onInsideProgress: (event) => dashboard.postInsideProgress(ticketId, event),
+          gateLive,
           // Live output from the gate-lane AI processes (the UAT Tester and the
           // Review findings lane): bounded + sanitized by the AgentConsole, the
           // retained tail persisted to the ticket's artifact dir, and each

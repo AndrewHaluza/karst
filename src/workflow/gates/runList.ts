@@ -3,6 +3,7 @@ import type { GateResult } from './result.js';
 import type { ResolvedGate } from './resolve.js';
 import { regenerateGateName, runRegenerate, type RegenerateSpec } from './regenerate.js';
 import { GATE_MAX_WORKERS_ENV, isResourceKill, resourceKillReason } from './resourceKill.js';
+import type { GateWait } from '../../model/inside/gateWait.js';
 import { leasePortSlot, PORT_OFFSET_ENV, type PortSlotLease } from '../../runtime/portSlots.js';
 import { GATE_LEASE_HELD_ENV, leaseGateSlot } from './gateLease.js';
 import { isUiGate } from './uiScope.js';
@@ -79,6 +80,12 @@ export interface RunGatesOptions {
    */
   onGateStart?: (gateName: string) => void;
   /**
+   * Called once when a lease finds no free slot (the per-gate host lease, the port slot, the sandbox project slot),
+   * so a live reader shows the gate as waiting and not as running. `onGateStart` is called again when the slot is
+   * taken and the spawn starts. Never called for a free slot, nor after an abort.
+   */
+  onGateWait?: (gateName: string, wait: GateWait) => void;
+  /**
    * Verbose decision-point logging (§ debug logging), prefixed `[gate]`.
    * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
    * unless the manifest's `debug` flag is on). Threaded into `runProcess` so
@@ -150,6 +157,9 @@ interface GateRun {
   readonly now: () => string;
   /** The signal every gate sees: the caller's Stop, or a lane's throw (see `runGateList`). */
   readonly signal: AbortSignal;
+  /** The gate waits for a slot (reported to `onGateWait`); `announceTaken` ends that wait with an `onGateStart`. */
+  readonly announceWait: (gateName: string, wait: GateWait) => void;
+  readonly announceTaken: (gateName: string) => void;
 }
 
 /** What one gate yields: its result, or `undefined` when a Stop landed before it ended. */
@@ -191,7 +201,16 @@ export async function runGateList(
   const follow = (): void => controller.abort();
   if (opts.signal?.aborted) controller.abort();
   else opts.signal?.addEventListener('abort', follow, { once: true });
-  const run: GateRun = { gates, cwd, opts, now, signal: controller.signal };
+  // The wait a running gate sits in now; absent = the gate runs. A survivor is re-announced in its own state.
+  const waiting = new Map<string, GateWait>();
+  const announceWait = (name: string, wait: GateWait): void => {
+    waiting.set(name, wait);
+    opts.onGateWait?.(name, wait);
+  };
+  const announceTaken = (name: string): void => {
+    if (waiting.delete(name)) opts.onGateStart?.(name);
+  };
+  const run: GateRun = { gates, cwd, opts, now, signal: controller.signal, announceWait, announceTaken };
 
   const slots: (GateResult | undefined)[] = gates.map(() => undefined);
   // Gates that started and have not ended, in start order: the label a single-gate reader shows.
@@ -211,6 +230,7 @@ export async function runGateList(
         end = await runOneGate(run, index);
       } finally {
         running.delete(index);
+        waiting.delete(gate.name);
       }
       if (end === undefined) {
         stopped = true;
@@ -220,7 +240,11 @@ export async function runGateList(
       // A reader of one running gate (current_gate, the Inside gates row) must name a gate
       // that still runs once this one has ended, so the survivor is announced again.
       const [survivor] = [...running.values()].reverse();
-      if (survivor !== undefined) opts.onGateStart?.(survivor);
+      if (survivor !== undefined) {
+        const wait = waiting.get(survivor);
+        if (wait) opts.onGateWait?.(survivor, wait);
+        else opts.onGateStart?.(survivor);
+      }
     }
   };
 
@@ -246,7 +270,7 @@ export async function runGateList(
 
 /** Run one gate of the list: leases, spawn, resource-kill retry. `undefined` = a Stop ended it. */
 async function runOneGate(run: GateRun, index: number): Promise<GateEnd> {
-  const { gates, cwd, opts, now, signal } = run;
+  const { gates, cwd, opts, now, signal, announceWait, announceTaken } = run;
   const gate = gates[index]!;
   const onDebug = opts.onDebug;
   const startedAt = now();
@@ -292,6 +316,12 @@ async function runOneGate(run: GateRun, index: number): Promise<GateEnd> {
     onDebug,
     onOutput: opts.onGateOutput ? (chunk: GateOutputChunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,
     onSpawned: opts.onGateSpawned ? (pid: number) => opts.onGateSpawned?.(gate.name, pid, cwd) : undefined,
+    onSlotWait: (wait: GateWait) => {
+      if (!signal.aborted) announceWait(gate.name, wait);
+    },
+    onSlotTaken: () => {
+      if (!signal.aborted) announceTaken(gate.name);
+    },
   };
   const onHost = gate.sandbox === 'host' && opts.hostProcess !== undefined;
   // A gate with `maxConcurrent` waits here for a host-wide slot, before any spawn (arch:GATE-CONCURRENCY).
@@ -304,17 +334,20 @@ async function runOneGate(run: GateRun, index: number): Promise<GateEnd> {
         dir: opts.gateSlotsDir,
         pollMs: opts.gateSlotPollMs,
         signal,
-        onWait: (held) =>
+        onWait: (held) => {
           opts.onGateOutput?.(gate.name, {
             stream: 'stderr',
             text: `${gate.name}: waiting for a free slot (${held} of ${gate.maxConcurrent} in use by other tickets)\n`,
-          }),
+          });
+          if (!signal.aborted) announceWait(gate.name, { kind: 'gate', held, limit: gate.maxConcurrent });
+        },
       });
     } catch (err) {
       if (signal.aborted) return undefined;
       throw err;
     }
     slotWaitMs += Date.now() - leaseFrom;
+    announceTaken(gate.name);
   }
   // Integration suites own fixed port bands; concurrent gates (other tickets'
   // worktrees) must not share one, so each leases a slot and runs shifted.
@@ -322,8 +355,9 @@ async function runOneGate(run: GateRun, index: number): Promise<GateEnd> {
   if (isIntegrationGate(gate)) {
     const portFrom = Date.now();
     try {
-      lease = await leasePortSlot({ signal, onDebug });
+      lease = await leasePortSlot({ signal, onDebug, onWait: () => { if (!signal.aborted) announceWait(gate.name, { kind: 'port' }); } });
       slotWaitMs += Date.now() - portFrom;
+      announceTaken(gate.name);
     } catch (err) {
       // Only a Stop is a stop; any other lease failure is an environment fault
       // and must surface, not masquerade as the user cancelling.

@@ -229,6 +229,8 @@ export class DashboardManager extends DashboardManagerBase {
      * is `confirm`/`retry`. Absent → no preview section, the pre-feature panel.
      */
     private readonly loadShipPreview?: ShipPreviewLoader,
+    /** The gates in flight per gate stage (running, or waiting for a slot); absent → none is known. */
+    private readonly liveGatesFor?: SnapshotPushDeps['liveGatesFor'],
   ) {
     super();
     this.loaders = new SupplementalLoaders(
@@ -262,6 +264,7 @@ export class DashboardManager extends DashboardManagerBase {
       graphInsideFor,
       sharedServersFor: (id) => this.sharedServersFor(id),
       drainFor: drainSnapshot, // @arch:DRAIN-01: the waiting reload, read per snapshot
+      liveGatesFor,
       panelFor: (ticketId) => this.panels.get(ticketId),
       supplementalHost: this.supplementalHost,
       refreshIcon: (ticketId, panel) => this.refreshIcon(ticketId, panel),
