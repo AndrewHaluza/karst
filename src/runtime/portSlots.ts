@@ -50,6 +50,8 @@ export interface LeaseOptions {
   pollMs?: number;
   signal?: AbortSignal;
   onDebug?: (message: string) => void;
+  /** Called once when every slot is held and the lease starts to wait. */
+  onWait?: () => void;
   isAlive?: (pid: number) => boolean;
 }
 
@@ -65,7 +67,10 @@ export async function leasePortSlot(opts: LeaseOptions = {}): Promise<PortSlotLe
     pollMs: opts.pollMs ?? DEFAULT_POLL_MS,
     signal: opts.signal,
     isAlive: opts.isAlive,
-    onWait: () => opts.onDebug?.(`[gate] all ${PORT_SLOT_COUNT} port slots held by concurrent gates — waiting for one`),
+    onWait: () => {
+      opts.onDebug?.(`[gate] all ${PORT_SLOT_COUNT} port slots held by concurrent gates — waiting for one`);
+      opts.onWait?.();
+    },
   }).catch((err: unknown) => {
     if (opts.signal?.aborted) throw new Error('port slot lease aborted');
     throw err;

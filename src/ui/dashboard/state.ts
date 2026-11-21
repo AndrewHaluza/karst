@@ -1,4 +1,5 @@
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
+import type { GateLiveState } from '../../model/inside/gateWait.js';
 import { readAutofix } from './stateAutofix.js';
 import type { Store } from '../../store/db.js';
 import { deriveBriefSource } from '../../model/briefSource.js';
@@ -30,6 +31,7 @@ import { buildAgentState, emptyCapabilityIdentity, buildSandbox, resolveSessionC
 import { buildDashboardRows } from './stateRows.js';
 import { readRelations, readRounds, originLabel } from './stateRelations.js';
 import { buildAttach, buildArtifacts, readEvidence } from './stateEvidence.js';
+import { withDeliverWait } from '../../model/inside/deliver.js';
 import { deliverRowInput, readActionStates, shipActionViews } from './stateActions.js';
 import { implSessionReading } from '../../model/implSessionReading.js';
 import { graphRunIsLive } from '../../model/inside/graph.js';
@@ -221,6 +223,8 @@ export function buildDashboardState(
   autopilotConfig?: AutopilotConfig,
   /** The host's waiting reload (@arch:DRAIN-01); absent → no reload waits. Appended LAST. */
   drain: DrainInput = IDLE_DRAIN_INPUT,
+  /** The gates in flight per gate stage, running or waiting for a slot. Appended LAST. */
+  liveGates?: Readonly<Partial<Record<'uat' | 'review' | 'ship', Readonly<Record<string, GateLiveState>>>>>,
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   const recentByCore = listRecentlyUsedModels(store, ticket.projectId, 5);
@@ -345,6 +349,7 @@ export function buildDashboardState(
     attach,
     assignmentFor,
     resolvedGates: resolved,
+    ...(liveGates ? { liveGates } : {}),
     findingsRepoSelection,
     repoNameFor,
     graphInside,
@@ -353,7 +358,7 @@ export function buildDashboardState(
     findingsBlockingSeverity,
     displayBlocking,
     autofix: autofixReading.row,
-    deliver: deliverRowInput(undelivered, deliverAuto),
+    deliver: deliverRowInput(undelivered, withDeliverWait(deliverAuto, liveGates?.ship) ?? undefined),
     ciOpen: autofixReading.ciOpen,
     ciWaiting: autofixReading.ciWaiting,
     // Only while nothing needs the user: the line says "Nothing for you to do" (T1140).
@@ -444,7 +449,7 @@ export function buildDashboardState(
     rerunGate,
     resetStage,
     prFeedbackFix,
-    ...shipActionViews({ ciFailure, gateFailure, rebase, undelivered, deliverAuto }, ticket.stageCurrent),
+    ...shipActionViews({ ciFailure, gateFailure, rebase, undelivered, deliverAuto: withDeliverWait(deliverAuto, liveGates?.ship) }, ticket.stageCurrent),
     openPrFeedback,
   };
 }

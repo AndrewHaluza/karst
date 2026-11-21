@@ -52,12 +52,18 @@ export function withGateSlot(deps: GateSlotDeps, ticketId: number, run: GateProc
       if (options?.signal?.aborted) return withWait({ kind: 'aborted', output: '' });
       reapStaleGateSlots(deps.store, staleMs, projectId);
       slot = acquireGateSlot(deps.store, { ticketId, projectId, owner: deps.owner, limit });
-      if (slot !== null) { waitedMs = Date.now() - waitStart; break; }
-      const note = waitingForSlotNote(countGateSlots(deps.store, projectId));
+      if (slot !== null) {
+        waitedMs = Date.now() - waitStart;
+        if (noted) options?.onSlotTaken?.();
+        break;
+      }
+      const running = countGateSlots(deps.store, projectId);
+      const note = waitingForSlotNote(running);
       if (!noted) {
         noted = true;
         deps.debug?.(`[gate] ticket ${ticketId}: ${note}`);
         options?.onOutput?.({ stream: 'stderr', text: `${note}\n` });
+        options?.onSlotWait?.({ kind: 'sandbox', held: running, limit });
       }
       await sleep(deps.pollMs ?? GATE_SLOT_POLL_MS, options?.signal);
     }

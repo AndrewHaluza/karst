@@ -1,4 +1,5 @@
 import type { StepperCell } from '../../model/stepper.js';
+import type { GateLiveState } from '../../model/inside/gateWait.js';
 import type { StageKey, StageStatus } from '../../model/types.js';
 import { STAGE_KEYS } from '../../model/types.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
@@ -41,6 +42,8 @@ export interface CaseFacts {
   services?: readonly ServiceStatusView[];
   attemptSelection?: Partial<Record<'uat' | 'review', string>>;
   resolvedGates?: { uat: readonly ResolvedGate[]; review: readonly ResolvedGate[] };
+  /** The gates in flight per stage (a gate that waits for a slot, a gate that runs). */
+  liveGates?: Partial<Record<'uat' | 'review', Readonly<Record<string, GateLiveState>>>>;
   findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>;
   reviewBlockingSeverity?: 'critical' | 'high' | 'medium' | 'low' | 'info' | 'none';
 }
@@ -198,6 +201,7 @@ export function buildCaseViews(facts: CaseFacts): Record<InsideStageKey, InsideS
     rounds,
     services: facts.services ?? [],
     resolvedGates: facts.resolvedGates,
+    ...(facts.liveGates ? { liveGates: facts.liveGates } : {}),
     findingsRepoSelection: facts.findingsRepoSelection,
     repoNameFor: (repo) => (repo === CASE_WEB ? 'web' : repo === CASE_API ? 'api' : undefined),
     graphInsideProcessOnce: null,

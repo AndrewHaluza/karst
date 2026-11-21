@@ -18,7 +18,8 @@ export default defineConfig({
     include: ['src/extension/**/*.test.ts', 'src/agent/quota/**/*.test.ts'],
     environment: 'node',
     // Scrub the KARST_* vars karst-launched terminals inject, so the suite is hermetic.
-    setupFiles: ['./scripts/vitest-setup-env.mjs'],
+    // The second file avoids the worker-thread teardown SIGSEGV (see that file).
+    setupFiles: ['./scripts/vitest-setup-env.mjs', './scripts/vitest-setup-mutation.mjs'],
     pool: 'forks',
     // The fork pool loads better-sqlite3 in every worker. On a loaded host the default
     // (one fork per CPU) makes the Stryker dry run exhaust memory and the worker dies with

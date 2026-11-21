@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { runGateList } from './runList.js';
+import type { GateWait } from '../../model/inside/gateWait.js';
 import { UI_GATE_TIMEOUT_MS } from './run.js';
 
 describe('runGateList', () => {
@@ -664,5 +665,118 @@ describe('runGateList gate timeout', () => {
   });
   it('leaves another gate on the default timeout', async () => {
     expect(await timeoutOf('test')).toBeUndefined();
+  });
+});
+
+describe('runGateList onGateWait', () => {
+  const now = () => '2026-07-30T10:00:00.000Z';
+  const limited = { name: 'sast', command: 'semgrep', args: [], script: null, required: true, maxConcurrent: 1 };
+  const done = { kind: 'completed' as const, exitCode: 0, output: '' };
+  const mkDir = () => mkdtempSync(join(tmpdir(), 'karst-gate-wait-'));
+
+  it('does not fire for a free slot', async () => {
+    const dir = mkDir();
+    try {
+      const waits: string[] = [];
+      await runGateList([limited], process.cwd(), { now, gateSlotsDir: dir, runProcess: async () => done, onGateWait: (n) => waits.push(n) });
+      expect(waits).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fires once for a held lease, then announces the start again when the slot is taken', async () => {
+    const dir = mkDir();
+    try {
+      mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
+      const events: string[] = [];
+      const waits: GateWait[] = [];
+      const pending = runGateList([limited], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        gateSlotPollMs: 5,
+        onGateStart: (n) => events.push(`start:${n}`),
+        onGateWait: (n, w) => (events.push(`wait:${n}`), waits.push(w)),
+        runProcess: async () => (events.push('spawn'), done),
+      });
+      await new Promise((r) => setTimeout(r, 40));
+      expect(events).toEqual(['start:sast', 'wait:sast']);
+      rmSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      await pending;
+      expect(events).toEqual(['start:sast', 'wait:sast', 'start:sast', 'spawn']);
+      expect(waits).toEqual([{ kind: 'gate', held: 1, limit: 1 }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not announce a taken slot after an abort', async () => {
+    const dir = mkDir();
+    try {
+      mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
+      writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
+      const ac = new AbortController();
+      const events: string[] = [];
+      const pending = runGateList([limited], process.cwd(), {
+        now,
+        gateSlotsDir: dir,
+        gateSlotPollMs: 5,
+        signal: ac.signal,
+        onGateStart: (n) => events.push(`start:${n}`),
+        onGateWait: (n) => events.push(`wait:${n}`),
+        runProcess: async () => done,
+      });
+      setTimeout(() => ac.abort(), 20);
+      await pending;
+      expect(events).toEqual(['start:sast', 'wait:sast']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a sandbox slot wait through the runner callbacks, not the console note', async () => {
+    const events: string[] = [];
+    const waits: GateWait[] = [];
+    await runGateList([{ name: 'unit', command: 'npm', args: [], script: null, required: true }], process.cwd(), {
+      now,
+      onGateStart: (n) => events.push(`start:${n}`),
+      onGateWait: (n, w) => (events.push(`wait:${n}`), waits.push(w)),
+      runProcess: async (_c, _a, _w, o) => {
+        o?.onSlotWait?.({ kind: 'sandbox', held: 2, limit: 2 });
+        o?.onSlotTaken?.();
+        return done;
+      },
+    });
+    expect(events).toEqual(['start:unit', 'wait:unit', 'start:unit']);
+    expect(waits).toEqual([{ kind: 'sandbox', held: 2, limit: 2 }]);
+  });
+
+  it('re-announces a surviving gate in its own state, never as running while it waits', async () => {
+    const events: string[] = [];
+    const gates = [
+      { name: 'visual', command: 'npm', args: ['run', 'test:visual:docker'], script: 'test:visual:docker', required: true },
+      { name: 'unit', command: 'npm', args: ['run', 'test'], script: 'test', required: true },
+    ];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    await runGateList(gates, process.cwd(), {
+      now,
+      scriptsAvailable: () => true,
+      onGateStart: (n) => events.push(`start:${n}`),
+      onGateWait: (n) => events.push(`wait:${n}`),
+      runProcess: async (_c, a, _w, o) => {
+        if (a.includes('test:visual:docker')) {
+          o?.onSlotWait?.({ kind: 'sandbox', held: 1 });
+          await gate;
+          return done;
+        }
+        release();
+        return done;
+      },
+    });
+    const afterUnit = events.slice(events.indexOf('wait:visual') + 1);
+    expect(afterUnit).not.toContain('start:visual');
+    expect(afterUnit.filter((e) => e === 'wait:visual')).toHaveLength(1);
   });
 });

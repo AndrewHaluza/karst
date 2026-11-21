@@ -1236,6 +1236,9 @@
   "src/workflow/gates/gateLease.ts#leaseGateSlot": [
     "arch:GATE-CONCURRENCY"
   ],
+  "src/workflow/gates/liveGates.ts#LiveGateRegistry": [
+    "arch:GATE-CONCURRENCY"
+  ],
   "src/workflow/gates/run.ts": [
     "arch:GATE-BASE-MOVED"
   ],

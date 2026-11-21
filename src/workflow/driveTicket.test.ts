@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { LiveGateRegistry } from './gates/liveGates.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -935,6 +936,54 @@ describe('driveTicket', () => {
           { kind: 'active', ticketId: id, stage: 'uat', processId: 'gates', live: { status: 'run', label: 'e2e (web)' } },
           { kind: 'completed', ticketId: id, stage: 'uat', process: { id: 'gates', kind: 'gates', label: 'Gates', status: 'fail', detail: 'gate e2e (web) — exit 3' } },
         ]);
+      });
+
+      it('a gate that waits for a slot reads waiting in the live state and the header, then running, then gone', async () => {
+        const events: unknown[] = [];
+        const gateLive = new LiveGateRegistry();
+        const seen: unknown[] = [];
+        await driveTicket(
+          depsFor({ onInsideProgress: (event) => events.push(event), gateLive }),
+          id,
+          {
+            runUat: async (s, opts) => {
+              opts.onGateWait?.('test (web)', { kind: 'gate', held: 2, limit: 2 });
+              seen.push(gateLive.snapshot(id, 'uat'));
+              opts.onGateStart?.('test (web)');
+              seen.push(gateLive.snapshot(id, 'uat'));
+              opts.onGateComplete?.('test (web)', 0);
+              seen.push(gateLive.snapshot(id, 'uat'));
+              return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+            },
+            runReview: async (s, opts) => ({
+              kind: 'advanced',
+              next: transition(s, opts.ticketId, 'review', { kind: 'passed' }),
+            }),
+          },
+        );
+        expect(seen[0]).toEqual({ 'test (web)': { kind: 'wait', wait: { kind: 'gate', held: 2, limit: 2 } } });
+        expect(seen[1]).toMatchObject({ 'test (web)': { kind: 'run' } });
+        expect(seen[2]).toBeUndefined();
+        expect(events[0]).toEqual({
+          kind: 'active', ticketId: id, stage: 'uat', processId: 'gates',
+          live: { status: 'wait', label: 'test (web)', detail: 'waiting for a free slot (2 of 2 in use by other tickets)' },
+        });
+      });
+
+      it('clears the live gate state when the stage run ends', async () => {
+        const gateLive = new LiveGateRegistry();
+        await driveTicket(depsFor({ gateLive }), id, {
+          runUat: async (s, opts) => {
+            opts.onGateStart?.('test (web)');
+            return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+          },
+          runReview: async (s, opts) => {
+            opts.onGateWait?.('lint', { kind: 'port' });
+            return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
+          },
+        });
+        expect(gateLive.snapshot(id, 'uat')).toBeUndefined();
+        expect(gateLive.snapshot(id, 'review')).toBeUndefined();
       });
 
       it('reads a nothing-to-run gate as a note, never a pass or fail', async () => {

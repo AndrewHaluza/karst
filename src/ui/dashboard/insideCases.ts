@@ -404,6 +404,21 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     }),
   },
   {
+    // T1293: two lanes at once. The e2e gate waits for a slot (amber, no timer); the test gate runs in the other lane.
+    stage: 'uat',
+    id: 'gates-wait-and-run',
+    state: fromFacts('uat', {
+      cells: { uat: { status: 'running' } },
+      resolvedGates: { uat: [{ name: 'test', disabled: false }, { name: 'e2e', disabled: false }], review: [] },
+      liveGates: {
+        uat: {
+          test: { kind: 'run', since: t(57) },
+          e2e: { kind: 'wait', wait: { kind: 'gate', held: 2, limit: 2 } },
+        },
+      },
+    }),
+  },
+  {
     stage: 'uat',
     id: 'passed',
     state: fromFacts('uat', {

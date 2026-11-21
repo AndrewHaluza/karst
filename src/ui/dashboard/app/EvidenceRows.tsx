@@ -72,7 +72,7 @@ export function EvidenceGates({ ev, stage, id }: { readonly ev: Of<'gates'>; rea
           <EvGlyph r={r} />
           {hasRepo ? <span className="gate-repo">{r.repo || ''}</span> : null}
           <span className="gate-name">{r.label}</span>
-          <span className="gate-detail">{r.detail || ''}</span>
+          <span className={`gate-detail${r.status === 'wait' ? ' wait' : ''}`} title={r.status === 'wait' ? r.detail || undefined : undefined} aria-label={r.status === 'wait' ? r.detail || undefined : undefined}>{r.detail || ''}</span>
           <EvTiming r={r} cls="gate-state" stage={stage} id={id} index={index} />
         </div>
       ))}

@@ -10,6 +10,8 @@ describe('deliver wording', () => {
   it('words the progress line only while a gate runs', () => {
     expect(deliverProgressLine(base)).toBeNull();
     expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs' } })).toBe('Delivering resolved merge: gate 2/5 (docs), push after the gates');
+    expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs', waiting: true } })).toBe('Delivering resolved merge: gate 2/5 (docs) waits for a slot');
+    expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs', afterTakeOver: true, waiting: true } })).toBe('Running the gates skipped by the manual Deliver: gate 2/5 (docs) waits for a slot');
   });
   it('a failure on the current head wins over the running hint', () => {
     expect(deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' }, failures: [fail] })).toBe(`Gate unit failed (exit 2) on ${'a'.repeat(9)}. Deliver now pushes it anyway.`);

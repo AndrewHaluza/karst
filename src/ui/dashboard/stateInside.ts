@@ -1,4 +1,5 @@
 import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
+import type { GateLiveState } from '../../model/inside/gateWait.js';
 import { displayStatus, type StepperCell } from '../../model/stepper.js';
 import type { StageKey } from '../../model/types.js';
 import type { GateStage } from '../../store/ticketGates.js';
@@ -97,6 +98,7 @@ export interface InsideViewsInput {
     uat: readonly ResolvedGate[];
     review: readonly ResolvedGate[];
   };
+  liveGates?: Readonly<Partial<Record<'uat' | 'review' | 'ship', Readonly<Record<string, GateLiveState>>>>>;
   findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>;
   repoNameFor: (repo: string) => string | undefined;
   graphInsideProcessOnce: InsideProcessView | null;
@@ -167,6 +169,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     rounds,
     services,
     resolvedGates,
+    liveGates,
     findingsRepoSelection,
     repoNameFor,
     graphInsideProcessOnce,
@@ -254,6 +257,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         ...(tokensForRuns ? { tokensForRuns } : {}),
         attach,
         resolvedGates: resolvedGates?.uat ?? [],
+        ...(liveGates?.uat ? { liveGates: liveGates.uat } : {}),
         // The gate rows name the service the way Settings names it, never the
         // path the evidence table keys by — the same injection ship uses.
         repoNameFor,
@@ -284,6 +288,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         ...(tokensForRuns ? { tokensForRuns } : {}),
         attach,
         resolvedGates: resolvedGates?.review ?? [],
+        ...(liveGates?.review ? { liveGates: liveGates.review } : {}),
         repoNameFor,
         selectedAttempt: reviewSwitch.selectedKey,
         currentAttempt: reviewCurrent,

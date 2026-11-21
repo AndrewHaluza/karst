@@ -59,6 +59,37 @@ describe('makeGateRerun through runGateList', () => {
     expect(a?.exitCode).not.toBe(0);
   });
 
+  it('reports each gate to the live sink: run, wait, and the end of the record', async () => {
+    const events: string[] = [];
+    const sink = { start: (g: string) => events.push(`start:${g}`), wait: (g: string) => events.push(`wait:${g}`), end: (g: string) => events.push(`end:${g}`) };
+    const runGates = vi.fn(async (gates: readonly ResolvedGate[], _cwd: string, opts?: { onGateStart?: (n: string) => void; onGateWait?: (n: string, w: { kind: 'port' }) => void; onGateComplete?: (n: string, e: number | null, s: string, en: string, i: number, o: string) => void }) => {
+      opts?.onGateWait?.('unit', { kind: 'port' });
+      opts?.onGateStart?.('unit');
+      opts?.onGateComplete?.('unit', 0, 'a', 'b', 0, '');
+      return { kind: 'ran' as const, results: [] };
+    });
+    await make(vi.fn(), { runGates: runGates as never, gatesFor: () => [resolved({ name: 'unit' })], liveSinkFor: () => sink })(ticketId, [failed()], 'uat');
+    expect(events).toEqual(['wait:unit', 'start:unit', 'end:unit']);
+  });
+
+  it('clears the live entry of a gate that was stopped, and of a gate whose run threw', async () => {
+    const events: string[] = [];
+    const sink = { start: (g: string) => events.push(`start:${g}`), wait: (g: string) => events.push(`wait:${g}`), end: (g: string) => events.push(`end:${g}`) };
+    const stopped = vi.fn(async (_g: readonly ResolvedGate[], _c: string, opts?: { onGateStart?: (n: string) => void }) => {
+      opts?.onGateStart?.('unit');
+      return { kind: 'stopped' as const, results: [] };
+    });
+    await make(vi.fn(), { runGates: stopped as never, gatesFor: () => [resolved({ name: 'unit' })], liveSinkFor: () => sink })(ticketId, [failed()], 'uat');
+    expect(events).toEqual(['start:unit', 'end:unit']);
+    events.length = 0;
+    const thrown = vi.fn(async (_g: readonly ResolvedGate[], _c: string, opts?: { onGateStart?: (n: string) => void }) => {
+      opts?.onGateStart?.('unit');
+      throw new Error('boom');
+    });
+    await make(vi.fn(), { runGates: thrown as never, gatesFor: () => [resolved({ name: 'unit' })], liveSinkFor: () => sink })(ticketId, [failed()], 'uat');
+    expect(events).toEqual(['start:unit', 'end:unit']);
+  });
+
   it('makes one runGateList call per repo worktree with that repo gates only, at the same time', async () => {
     const calls: { gates: string[]; cwd: string }[] = [];
     const runGates = vi.fn(async (gates: readonly ResolvedGate[], cwd: string) => {
@@ -149,6 +180,17 @@ describe('makeGateRerun through runGateList', () => {
 
     const buildRunGates = () => vi.fn(async (_g: readonly ResolvedGate[], _c: string, _o?: unknown) => ({ kind: 'ran' as const, results: [] }));
     const staleSummary = { exitCode: null, cannotRerun: true, summary: 'service-build (web) is no longer a manifest gate' };
+
+    it('clears the live entry of a service build that was stopped', async () => {
+      const events: string[] = [];
+      const sink = { start: (g: string) => events.push(`start:${g}`), wait: (g: string) => events.push(`wait:${g}`), end: (g: string) => events.push(`end:${g}`) };
+      const runGates = vi.fn(async (_g: readonly ResolvedGate[], _c: string, o?: { onGateStart?: (n: string) => void }) => {
+        o?.onGateStart?.('service-build (web)');
+        return { kind: 'stopped' as const, results: [] };
+      });
+      await make(vi.fn(), { runGates: runGates as never, gatesFor: () => [], manifest: () => withManifest('npm run -s build'), liveSinkFor: () => sink })(ticketId, [build()], 'uat');
+      expect(events).toEqual(['start:service-build (web)', 'end:service-build (web)']);
+    });
 
     it('runs only the build, once, as a required sh -c gate with the service name', async () => {
       const runGates = buildRunGates();
@@ -503,7 +545,7 @@ describe('makeGateRerun exact options, rows and results', () => {
   it('passes only the options it was given, so a bare dependency set adds none', async () => {
     const s = spy(() => undefined);
     await rerun({ runGates: s.runGates })(ticketId, [failed()], 'uat');
-    expect(Object.keys(s.calls[0]!.opts).sort()).toEqual(['now', 'onGateComplete', 'onGateOutput', 'onGateSpawned', 'onGateStart', 'prBody', 'runProcess', 'sandboxed', 'scriptsAvailable']);
+    expect(Object.keys(s.calls[0]!.opts).sort()).toEqual(['now', 'onGateComplete', 'onGateOutput', 'onGateSpawned', 'onGateStart', 'onGateWait', 'prBody', 'runProcess', 'sandboxed', 'scriptsAvailable']);
     expect(s.calls[0]!.opts.sandboxed).toBe(false);
     expect(typeof s.calls[0]!.opts.prBody).toBe('string');
   });
@@ -531,6 +573,17 @@ describe('makeGateRerun exact options, rows and results', () => {
     const byCwd = Object.fromEntries(s.calls.map((c) => [c.cwd, c.opts]));
     expect(byCwd['/wt/web']).toMatchObject({ baseRef: 'origin/web' });
     expect('baseRef' in byCwd['/wt/api']!).toBe(false);
+  });
+
+  it('runs without a pid callback, and records a gate that ended with no output as a failure with no summary text', async () => {
+    const s = spy((o) => {
+      o.onGateSpawned('unit', 7, '/wt/web');
+      (o.onGateComplete as (...a: unknown[]) => void)('unit', 1, 'a', 'b', 0, undefined, null);
+    });
+    const [res] = await rerun({ runGates: s.runGates })(ticketId, [failed()], 'uat');
+    expect(res?.exitCode).toBe(1);
+    expect(String(res?.summary ?? '')).not.toContain('Stryker');
+    expect(rows()[0]?.summary ?? null).toBeNull();
   });
 
   it('binds the stage and the ticket to the start, output and pid callbacks', async () => {

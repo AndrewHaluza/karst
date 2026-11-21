@@ -25,6 +25,7 @@ import type { IntegrateOutcome } from './subtaskIntegration.js';
 import { runUat, type UatSpin, type UatStopServers } from './stages/uat.js';
 import { spinTicket } from '../runtime/spin.js';
 import { stopTicketServers } from '../runtime/supervisor.js';
+import { gateWaitLive, type LiveGateRegistry } from './gates/liveGates.js';
 import { runReview, type OpenDiff } from './stages/review.js';
 import type { ReviewArtifacts } from './review/conformance.js';
 import {
@@ -239,6 +240,11 @@ export interface DriveTicketDeps {
    */
   onInsideProgress?: (event: InsideProgressEvent) => void;
   /**
+   * The live state of the gates in flight (running, or waiting for a slot), read by the Inside gates row.
+   * Absent → the row reads the first unanswered gate as running, as before.
+   */
+  gateLive?: LiveGateRegistry;
+  /**
    * The host seam for a gate-lane AI process's LIVE output (Task 13): the
    * Tester's and findings lane's headless CLI calls stream decoded chunks here
    * as they arrive. RAW untrusted CLI prose — the host that surfaces it (the
@@ -382,15 +388,32 @@ export async function driveTicket(
               contextCommand: deps.contextCommand,
               onGateOutput: (name, chunk) => deps.onGateOutput?.(id, 'uat', name, chunk),
               onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(id, name, pid, cwd),
-              onGateStart: (name) =>
+              onGateStart: (name) => {
+                deps.gateLive?.start(id, 'uat', name);
                 deps.onInsideProgress?.({
                   kind: 'active',
                   ticketId: id,
                   stage: 'uat',
                   processId: 'gates',
                   live: { status: 'run', label: name },
-                }),
+                });
+                // The snapshot that follows names the gate's slot state per row.
+                if (deps.gateLive) deps.onProgress(id, 'uat', 'running');
+              },
+              // A gate that waits for a slot reads 'waiting', never 'running' (@arch:GATE-CONCURRENCY).
+              onGateWait: (name, wait) => {
+                deps.gateLive?.wait(id, 'uat', name, wait);
+                deps.onInsideProgress?.({
+                  kind: 'active',
+                  ticketId: id,
+                  stage: 'uat',
+                  processId: 'gates',
+                  live: gateWaitLive(name, wait),
+                });
+                if (deps.gateLive) deps.onProgress(id, 'uat', 'running');
+              },
               onGateComplete: (name, exitCode) => {
+                deps.gateLive?.end(id, 'uat', name);
                 deps.onProgress(id, 'uat', 'running');
                 deps.onInsideProgress?.({
                   kind: 'completed',
@@ -454,7 +477,7 @@ export async function driveTicket(
               preBriefRerun: deps.preBriefRerun,
               ...deps.userUat,
             },
-          );
+          ).finally(() => deps.gateLive?.clear(id, 'uat'));
         },
         // `runReview` reports its own StageRunResult too, so it is passed
         // through verbatim for the same reason: a park re-labelled 'advanced'
@@ -476,15 +499,32 @@ export async function driveTicket(
               debug: deps.debug,
               onGateOutput: (name, chunk) => deps.onGateOutput?.(id, 'review', name, chunk),
               onGateSpawned: (name, pid, cwd) => deps.onGateSpawned?.(id, name, pid, cwd),
-              onGateStart: (name) =>
+              onGateStart: (name) => {
+                deps.gateLive?.start(id, 'review', name);
                 deps.onInsideProgress?.({
                   kind: 'active',
                   ticketId: id,
                   stage: 'review',
                   processId: 'gates',
                   live: { status: 'run', label: name },
-                }),
+                });
+                // The snapshot that follows names the gate's slot state per row.
+                if (deps.gateLive) deps.onProgress(id, 'review', 'running');
+              },
+              // A gate that waits for a slot reads 'waiting', never 'running' (@arch:GATE-CONCURRENCY).
+              onGateWait: (name, wait) => {
+                deps.gateLive?.wait(id, 'review', name, wait);
+                deps.onInsideProgress?.({
+                  kind: 'active',
+                  ticketId: id,
+                  stage: 'review',
+                  processId: 'gates',
+                  live: gateWaitLive(name, wait),
+                });
+                if (deps.gateLive) deps.onProgress(id, 'review', 'running');
+              },
               onGateComplete: (name, exitCode) => {
+                deps.gateLive?.end(id, 'review', name);
                 deps.onProgress(id, 'review', 'running');
                 deps.onInsideProgress?.({
                   kind: 'completed',
@@ -548,7 +588,7 @@ export async function driveTicket(
               warn: deps.warn,
               loadArtifacts: deps.reviewArtifacts ? () => deps.reviewArtifacts!(id) : undefined,
             },
-          );
+          ).finally(() => deps.gateLive?.clear(id, 'review'));
         },
       },
       ticketId,
