@@ -11,7 +11,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setStage } from '../../store/stages.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { getPlacement, recordPlacement } from '../../store/placement.js';
+import { getPlacement, recordPlacement, GRAPH_RUN_PLACEMENT } from '../../store/placement.js';
+import { createGraphRun } from '../../store/graph/graphRuns.js';
 
 let store: Store;
 let id: number;
@@ -933,6 +934,82 @@ describe('makeSandboxWiring.recordLaunchPlacement (D245)', () => {
     const { w } = wiring({ proc: fakeSbxProcess(), projectRoot: () => '/p/karst.yml', backendOn: () => true, projectId: () => undefined });
     expect(getPlacement(store, t)).toEqual(sbxP);
     expect(w).toBeDefined();
+  });
+});
+
+describe('makeSandboxWiring.recordGraphStartPlacement (T1286)', () => {
+  it('records the host placement when a graph run starts on a ticket with none, keeping session_provider', () => {
+    const t = createTicket(store, { key: 'K-23', title: 'n' }).id;
+    setSessionId(store, t, 's9', 'claude');
+    const { w } = wiring({ owned: new Set([t]) });
+    expect(w.recordGraphStartPlacement(t)).toBe(true);
+    expect(getPlacement(store, t)).toEqual(GRAPH_RUN_PLACEMENT);
+    expect(getTicket(store, t).sessionProvider).toBe('claude');
+  });
+  it('keeps a recorded sandbox placement (a fix session after the graph keeps its own)', () => {
+    const t = createTicket(store, { key: 'K-24', title: 'n' }).id;
+    const sbx = { backend: 'sbx', core: 'claude', sandboxName: 'n', reason: null } as const;
+    recordPlacement(store, t, sbx, 'claude');
+    const { w } = wiring({ owned: new Set([t]) });
+    expect(w.recordGraphStartPlacement(t)).toBe(false);
+    expect(getPlacement(store, t)).toEqual(sbx);
+  });
+  it('a window that does not control the ticket writes nothing (arch:AC-37)', () => {
+    const t = createTicket(store, { key: 'K-25', title: 'n' }).id;
+    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(t);
+    const { w } = wiring({ owned: new Set<number>() });
+    expect(w.recordGraphStartPlacement(t)).toBe(false);
+    expect(getPlacement(store, t)).toBeNull();
+  });
+});
+
+describe('makeSandboxWiring.backfillGraphPlacements (T1286)', () => {
+  const runsGraph = (approachId: string | null): boolean => approachId === 'graph';
+  it('records host for a graph ticket with a graph run, without a sandbox backend', async () => {
+    const projectId = upsertProject(store, { slug: 'gbf' }).id;
+    const t = createTicket(store, { key: 'K-31', title: 'n', projectId }).id;
+    store.db.prepare("UPDATE tickets SET approach = 'graph' WHERE id = ?").run(t);
+    createGraphRun(store.db, { ticketId: t, stageAttempt: 0, approachId: 'graph', now: '2026-11-21T00:00:00.000Z' });
+    const info = vi.fn();
+    const { w } = wiring({ projectId: () => projectId, runsGraph, info });
+    await w.backfillGraphPlacements();
+    expect(getPlacement(store, t)).toEqual(GRAPH_RUN_PLACEMENT);
+    expect(info).toHaveBeenCalledWith('karst: recorded the graph-run placement for 1 ticket(s)');
+  });
+  it('writes nothing without a project scope or without the graph predicate', async () => {
+    const projectId = upsertProject(store, { slug: 'gbf3' }).id;
+    const t = createTicket(store, { key: 'K-34', title: 'n', projectId }).id;
+    store.db.prepare("UPDATE tickets SET approach = 'graph' WHERE id = ?").run(t);
+    createGraphRun(store.db, { ticketId: t, stageAttempt: 0, approachId: 'graph', now: '2026-11-21T00:00:00.000Z' });
+    const logError = vi.fn();
+    await wiring({ projectId: () => undefined, runsGraph, logError }).w.backfillGraphPlacements();
+    expect(getPlacement(store, t)).toBeNull();
+    await wiring({ projectId: () => projectId, logError }).w.backfillGraphPlacements();
+    expect(getPlacement(store, t)).toBeNull();
+    expect(logError).not.toHaveBeenCalled();
+  });
+  it('reports a failed backfill and never throws', async () => {
+    const projectId = upsertProject(store, { slug: 'gbf4' }).id;
+    const t = createTicket(store, { key: 'K-35', title: 'n', projectId }).id;
+    store.db.prepare("UPDATE tickets SET approach = 'graph' WHERE id = ?").run(t);
+    createGraphRun(store.db, { ticketId: t, stageAttempt: 0, approachId: 'graph', now: '2026-11-21T00:00:00.000Z' });
+    const logError = vi.fn();
+    const { w } = wiring({ projectId: () => projectId, logError, runsGraph: () => { throw new Error('boom'); } });
+    await expect(w.backfillGraphPlacements()).resolves.toBeUndefined();
+    expect(logError).toHaveBeenCalledWith('karst: graph placement backfill failed', expect.any(Error));
+    expect(getPlacement(store, t)).toBeNull();
+  });
+  it('leaves a direct ticket and a graph ticket without a run unrecorded', async () => {
+    const projectId = upsertProject(store, { slug: 'gbf2' }).id;
+    const direct = createTicket(store, { key: 'K-32', title: 'n', projectId }).id;
+    const noRun = createTicket(store, { key: 'K-33', title: 'n', projectId }).id;
+    store.db.prepare("UPDATE tickets SET approach = 'graph' WHERE id = ?").run(noRun);
+    const info = vi.fn();
+    const { w } = wiring({ projectId: () => projectId, runsGraph, info });
+    await w.backfillGraphPlacements();
+    expect(getPlacement(store, direct)).toBeNull();
+    expect(getPlacement(store, noRun)).toBeNull();
+    expect(info).not.toHaveBeenCalled();
   });
 });
 

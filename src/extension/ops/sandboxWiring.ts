@@ -11,7 +11,7 @@ import { stageBlock } from '../../store/stageBlocks.js';
 import { resumeBlockedStage } from '../../workflow/stageResume.js';
 import { getTicket, listTickets, setSessionId } from '../../store/tickets.js';
 import type { AgentProvider } from '../../manifest/types.js';
-import { backfillPlacement, getPlacement, recordPlacement, type TicketPlacement } from '../../store/placement.js';
+import { backfillGraphPlacement, backfillPlacement, getPlacement, recordPlacement, recordPlacementIfAbsent, GRAPH_RUN_PLACEMENT, type TicketPlacement } from '../../store/placement.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { doneMergedTicketIds, isDoneMerged } from '../../store/doneMerged.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
@@ -73,6 +73,8 @@ export interface SandboxWiringInput {
   readonly bridgeDirOf?: (ticketId: number) => string | undefined;
   /** The ticket's current launch generation (ends an accepted sandbox session, arch:AC-37). */
   readonly launchIdFor?: (ticketId: number) => string | undefined;
+  /** Whether a ticket's approach runs a graph: the startup backfill records the host placement its graph run leaves (T1286). */
+  readonly runsGraph?: (approachId: string | null) => boolean;
   /** True while the stage driver runs a gate for the ticket; the session ender never stops the sandbox then. */
   readonly gateRunning?: (ticketId: number) => boolean;
   /** Reopen a ticket's sandbox session (after "Carry sandbox commits" recreated the clone). */
@@ -447,6 +449,11 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       recordPlacement(w.store, ticketId, placement, sessionProvider);
       return true;
     },
+    /** A graph run starts: its node sessions run in the host worktree (D170), so record host when the ticket has none (T1286, AC-37). */
+    recordGraphStartPlacement: (ticketId: number): boolean => {
+      if (!controls(ticketId)) return false;
+      return recordPlacementIfAbsent(w.store, ticketId, GRAPH_RUN_PLACEMENT);
+    },
     beforeArchive: async (ticketId: number): Promise<boolean> => { const d = deps(); return d && !recordedHost(ticketId) ? removeGuarded(d, await resolved(ticketId, d.projectRoot)) : true; },
     /** Done: merged → remove (verified), else stop only (arch:AC-37). */
     onDone: (ticketId: number): void => { const d = deps(); if (d && !recordedHost(ticketId)) void resolved(ticketId, d.projectRoot).then(async (t) => { const merged = isDoneMerged(w.store, ticketId); const ok = await onDoneOp(d, t, merged); if (ok && merged) markRemoved(ticketId); }).catch((err: unknown) => w.logError('karst: sandbox stop on done failed', err)); },
@@ -462,6 +469,18 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
         if (n > 0) w.info(`karst: recorded placement for ${n} ticket(s)`);
       } catch (err) {
         w.logError('karst: placement backfill failed', err);
+      }
+    },
+    /** Activation backfill: record the host placement of graph tickets whose run left none (T1286). Runs without a sandbox backend. */
+    backfillGraphPlacements: async (): Promise<void> => {
+      const projectId = w.projectId();
+      const runsGraph = w.runsGraph;
+      if (projectId === undefined || runsGraph === undefined) return;
+      try {
+        const n = backfillGraphPlacement(w.store, runsGraph, projectId);
+        if (n > 0) w.info(`karst: recorded the graph-run placement for ${n} ticket(s)`);
+      } catch (err) {
+        w.logError('karst: graph placement backfill failed', err);
       }
     },
     /** Activation backfill: remove sandboxes that done+merged tickets still hold. Never throws. */

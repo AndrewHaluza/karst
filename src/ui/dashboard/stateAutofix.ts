@@ -31,6 +31,7 @@ import {
 } from '../../store/autopilot.js';
 import type { Store } from '../../store/db.js';
 import { stageBlock } from '../../store/stageBlocks.js';
+import { getPlacement } from '../../store/placement.js';
 import { getTicket } from '../../store/tickets.js';
 
 /** Resolves a recorded repo value (a path) to its manifest name; a value the manifest does not know stays as recorded. */
@@ -258,6 +259,8 @@ export function readAutofix(
     target,
     attempts: readAttempts(store, ticketId),
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
+    // T1286: an old "placement unknown" park gets its Retry once a placement is recorded (the graph run, the backfill).
+    placementReadable: getPlacement(store, ticketId) !== null,
   };
   const ciWaitingPrs = ciWaitingOf(store, ticketId, nameOf);
   return {
