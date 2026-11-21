@@ -400,6 +400,9 @@
   "src/cli/setupCheck.ts#runSetupCheckCommand": [
     "arch:CLI-14"
   ],
+  "src/cli/setupChecklist.ts#renderChecklistText": [
+    "arch:CLI-23"
+  ],
   "src/cli/setupChecklist.ts#runSetupChecklistCommand": [
     "arch:CLI-14"
   ],
@@ -895,6 +898,9 @@
   ],
   "src/setup/changeTarget.ts#resolveChangeDir": [
     "arch:CLI-20"
+  ],
+  "src/setup/checklist/compute.ts#computeChecklist": [
+    "arch:CLI-23"
   ],
   "src/setup/ledger.ts#readLedger": [
     "arch:CLI-19"
