@@ -245,6 +245,27 @@ describe('generated opencode2 bridge — live event fixtures', () => {
     }
   });
 
+  it('maps the live form.created/replied/cancelled question events to permission.asked/replied', async () => {
+    const r = await receiver();
+    try {
+      const { done } = await loadBridge(
+        parseNdjson(fixture('live-form-events.ndjson')),
+        '/wt',
+        r.endpointUrl,
+      );
+      await done;
+      await waitFor(() => r.bodies.length >= 4);
+      expect(r.bodies).toEqual([
+        { hook_event_name: 'permission.asked', cwd: '/wt', session_id: 'ses_e018df296ffejBd0wZtNYITi1T' },
+        { hook_event_name: 'permission.replied', cwd: '/wt', session_id: 'ses_e018df296ffejBd0wZtNYITi1T' },
+        { hook_event_name: 'permission.asked', cwd: '/wt', session_id: 'ses_e018da653ffem8fko5nhg38MfM' },
+        { hook_event_name: 'permission.replied', cwd: '/wt', session_id: 'ses_e018da653ffem8fko5nhg38MfM' },
+      ]);
+    } finally {
+      await r.close();
+    }
+  });
+
   it('maps permission.asked/replied for shell and external_directory', async () => {
     const r = await receiver();
     try {
@@ -335,7 +356,6 @@ describe('generated opencode2 bridge — live event fixtures', () => {
           { type: 'session.usage.updated', data: { sessionID: 'ses_x', tokens: 'garbage' } },
           { type: 'session.text.delta', data: { sessionID: 'ses_x', delta: 'hi' } },
           { type: 'session.created', data: {} },
-          { type: 'form.created', data: { sessionID: 'ses_x' } },
         ],
         '/wt',
         r.endpointUrl,
