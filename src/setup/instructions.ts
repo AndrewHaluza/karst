@@ -58,6 +58,7 @@ export function setupInstructions(input: SetupInstructionsInput): string {
     'FIRST-SETUP CHECKLIST (the fixed list of what you configure; you never guess it):',
     `   Run \`node ${cli} setup checklist ${dbFlags}\`. Each item is {code, section, title, required, status, tool, detail}.`,
     '   Take each `todo` item in order, call its tool, and confirm it with `node ' + cli + ' setup status` and a new checklist run.',
+    `   After each checklist run, also run \`node ${cli} setup checklist --format text ${dbFlags}\` (or \`setup\` with \`format: "text"\`) and print the block to the user unchanged, as its own message. Do not summarize it. Keep the JSON run for the loop decisions.`,
     '   An item is `done` only when its readiness check passes. Calling a tool does not make an item done.',
     '   Only the user skips an item. To propose a skip, send ONE JSON object with',
     `   \`node ${cli} setup skip --file <path>\`: {"subcommand":"skip","code":"ticketing.provider","reason":"why"}. The user decides in a popup.`,

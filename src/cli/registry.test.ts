@@ -174,3 +174,31 @@ describe('toArgv encoders', () => {
     expect(getCommandSpec('graph')!.input.properties?.verb).toMatchObject({ enum: ['submit'] });
   });
 });
+
+describe('setup checklist format schema and encoder', () => {
+  it('accepts format text and json on the checklist subcommand', () => {
+    expect(() => validateCommandInput('setup', { subcommand: 'checklist', format: 'text' })).not.toThrow();
+    expect(() => validateCommandInput('setup', { subcommand: 'checklist', format: 'json' })).not.toThrow();
+  });
+
+  it('rejects an unknown format', () => {
+    expect(() => validateCommandInput('setup', { subcommand: 'checklist', format: 'yaml' })).toThrow(/format/);
+  });
+
+  it('maps format to --format and omits it when absent', () => {
+    const spec = getCommandSpec('setup')!;
+    expect(spec.toArgv!({ subcommand: 'checklist' })).toEqual(['setup', 'checklist']);
+    expect(spec.toArgv!({ subcommand: 'checklist', format: 'text' })).toEqual([
+      'setup',
+      'checklist',
+      '--format',
+      'text',
+    ]);
+    expect(spec.toArgv!({ subcommand: 'checklist', format: 'json' })).toEqual([
+      'setup',
+      'checklist',
+      '--format',
+      'json',
+    ]);
+  });
+});

@@ -874,7 +874,7 @@ export async function runCliAsync(
     if (!manifestPath) throw new Error('missing --manifest <path>');
     // The user's approved skips live next to the store file: without --db the checklist would ignore them.
     if (!db) throw new Error('missing --db <path>');
-    parseSetupChecklistArgs(rest);
+    const { format } = parseSetupChecklistArgs(rest);
     let loaded: ReturnType<typeof loadManifestWithDiagnostics> | undefined;
     let loadError: string | undefined;
     try {
@@ -894,6 +894,7 @@ export async function runCliAsync(
       discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
       verifyServices: loaded?.manifest ? setupVerifyServices(db, loaded.manifest) : undefined,
       skips: readSkips(skipStorePath(db, manifestPath)),
+      format,
     });
   }
   // `setup check` dry-runs everything a first ticket needs. Ticketless; it

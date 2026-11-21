@@ -545,6 +545,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         reason: str,
         code: str,
         target: str,
+        format: { type: 'string', enum: ['text', 'json'] },
       },
       ['subcommand'],
     ),
@@ -563,7 +564,11 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         pushFlag(argv, '--repos', input.repos);
         return argv;
       }
-      if (sub === 'checklist') return ['setup', 'checklist'];
+      if (sub === 'checklist') {
+        const argv = ['setup', 'checklist'];
+        pushFlag(argv, '--format', input.format);
+        return argv;
+      }
       if (sub === 'skip') return ['setup', 'skip'];
       if (sub === 'status') return ['setup', 'status'];
       return ['setup', 'withdraw', requireString(input, 'id')];
