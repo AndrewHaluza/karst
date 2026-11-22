@@ -100,7 +100,7 @@ function copyTree(fromDir, toDir) {
     } else {
       copyFileSync(from, to);
       // The recursive walk visits files of the SAME basename (SKILL.md) at
-      // distinct paths (the package root, graph-planner/, graph-node/) — log
+      // distinct paths (graph-planner/, graph-node/) — log
       // the real path relative to the repo root, not just the basename, or a
       // build log misleadingly reads as the same file copied three times.
       console.log(`copied ${relative(root, to)}`);

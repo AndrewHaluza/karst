@@ -49,7 +49,7 @@ Run:
 1. The test files that you wrote or changed: `npx vitest run <file>` (integration: add `--config vitest.integration.config.ts`).
 2. `npm run -s typecheck`, once. It shares its incremental state with the review `typecheck` gate, so the gate run is fast after it.
 3. Only when the condition holds, once each (seconds long; their review gates run only after all UAT gates, so a failure there costs a full round):
-   - A doc under `docs/` changed: `npm run -s docs:check`.
+   - A doc under `docs/` changed: `npm run -s docs:check`. A block over the cap (`MAX_BLOCK_BYTES` in `scripts/docsKeys.mjs`) in a doc that you changed refuses the impl and fix marker. Split the block as `@arch:DOC-01` (`docs/arch/README.md`) says. Never raise the cap.
    - An import between `src/` layers changed: `npm run -s lint:layers`.
    - A React app under `src/ui/*/app` changed: `npm run -s lint:react`.
 4. The ticket adds or changes a visual variant (`tests/visual/variants.ts`): record its baselines, `KARST_UI_GREP=<view> npm run -s test:visual:docker:update`, with `run_in_background`, then commit them. The user approves them in the dashboard.
@@ -68,6 +68,8 @@ Do not run (a scoped gate does the same work):
 3. Do not rerun the other gates. After the fix marker, karst reruns them on the delta.
 4. A visual failure: follow the baseline rules in `karst guide` (re-record only for an intended change; never to hide a break). Judge a visual failure only from a docker run; a host without Docker prints `SKIPPED` and exits 0, which is not a pass.
 5. A `mutation` failure: use the `killing-mutants` skill.
+6. If your fix changes a doc under `docs/`, run `npm run -s docs:check` once before the fix marker.
+7. The fix brief says when to fire the marker with no new commit (the host then re-runs the failed gates once) and when to stop. Follow the brief. If the brief does not say this, a marker with no new commit is refused.
 
 ## Mutation: karst and CI judge differently
 

@@ -96,6 +96,24 @@ describe('AntigravityAdapter', () => {
       expect(cmd.args).toEqual(['-i', 'hello world']);
     });
 
+    it('adds the absolute-path rule after the instructions pointer', () => {
+      // agy file tools refuse a relative path ("must be an absolute path").
+      const cmd = new AntigravityAdapter().buildInteractiveCommand({
+        cwd: '/test',
+        initialPrompt: 'hello',
+        instructions: { path: '/s/karst-instructions.md', body: 'b' },
+      });
+      const kickoff = cmd.args[cmd.args.indexOf('-i') + 1] ?? '';
+      expect(kickoff).toContain('(/s/karst-instructions.md)');
+      expect(kickoff).toContain('Give an absolute path to every file tool. agy refuses a relative path.');
+      expect(kickoff.indexOf('absolute path to every file tool')).toBeGreaterThan(kickoff.indexOf('/s/karst-instructions.md'));
+    });
+
+    it('adds no absolute-path rule without instructions', () => {
+      const cmd = new AntigravityAdapter().buildInteractiveCommand({ cwd: '/test', initialPrompt: 'hello' });
+      expect(cmd.args.join(' ')).not.toContain('absolute path to every file tool');
+    });
+
     it('appends extraArgs before the prompt', () => {
       const adapter = new AntigravityAdapter();
       const cmd = adapter.buildInteractiveCommand({
