@@ -588,9 +588,6 @@
         </div>
         <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
       </div>
-      <!-- SET-52: a fetch failure belongs right beside the Key the user typed
-           (the #createInErr pattern), not in the page bucket above the title. -->
-      <span class="err fielderr hidden" id="fetchErr" role="alert"></span>
       <div class="searchfilter hidden" id="searchFilterRow">
         <label for="searchStatus">Status</label>
         <div class="k-select"><select class="k-input" id="searchStatus" title="Filters search results">
@@ -598,6 +595,9 @@
         </select><span class="k-select-chev" aria-hidden="true"></span></div>
       </div>
     </div>
+    <!-- SET-52: a fetch failure sits right after the Key/Fetch row (the #createInErr pattern), not in the
+         page bucket. It is outside #keyRow because a bound ticket hides that row and fetches from Re-fetch. -->
+    <span class="err fielderr hidden" id="fetchErr" role="alert"></span>
     <div class="row2">
       <!-- "Create in <provider>" — ONE location for both modes. Create mode: a
            switch (persisting also mints + binds the provider task). Edit mode, a
@@ -887,6 +887,9 @@
     t.style.height = 'auto';
     t.style.height = t.scrollHeight + 'px';
   }
+  // A panel width change wraps the title onto more or fewer lines, so the height is measured again. The
+  // webview window resizes with the panel.
+  window.addEventListener('resize', syncTitleHeight);
   syncActionbarHeight();
   if (el('actionBar') && typeof ResizeObserver !== 'undefined') {
     const actionbarObserver = new ResizeObserver(() => syncActionbarHeight());

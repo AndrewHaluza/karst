@@ -628,14 +628,26 @@ describe('ticket form — honest states (SET-52, SET-53, SET-54)', () => {
     expect(err.getAttribute('role')).toBe('alert');
     expect(err.classList.contains('hidden')).toBe(false);
     expect(err.textContent).toContain('404');
-    // Inside the key row, directly after the Key/Fetch row (the #createInErr pattern).
-    expect(v.query('#keyRow')!.contains(err)).toBe(true);
-    expect(err.previousElementSibling!.classList.contains('row')).toBe(true);
+    // In the Source block, directly after the key row (the #createInErr pattern).
+    expect(v.query('#sourceBlock')!.contains(err)).toBe(true);
+    expect(err.previousElementSibling!.id).toBe('keyRow');
     // The page bucket stays empty: a fetch failure is not a host error.
     expect(v.query('#err')!.classList.contains('hidden')).toBe(true);
 
     v.receive({ type: 'state', state: baseState({ provider: 'clickup' }) });
     expect(v.query('#fetchErr')!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('shows a Re-fetch failure on a bound ticket, where the key row is hidden (SET-52)', () => {
+    const v = open(baseState({ provider: 'clickup', mode: 'edit', ticketId: 7, sourceRef: 'abc123' }));
+    expect(v.query('#keyRow')!.classList.contains('hidden')).toBe(true);
+    v.click('#refetchBtn');
+    v.receive({ type: 'fetch-error', message: 'Could not fetch abc123: the provider returned 404.' });
+    const err = v.query('#fetchErr')!;
+    expect(err.classList.contains('hidden')).toBe(false);
+    // No ancestor hides it: the error is visible beside the Re-fetch control it came from.
+    expect(err.closest('.hidden, [hidden]')).toBeNull();
+    expect(err.textContent).toContain('404');
   });
 
   it('keeps host errors in a danger callout with the alert-triangle icon (SET-52)', () => {
@@ -876,6 +888,15 @@ describe('ticket form — content and settings polish (SET-55/58/59/60/61/62)', 
     });
     title.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('measures the title height again when the panel width changes (SET-61)', () => {
+    const v = open(baseState({ title: 'A long title that wraps when the panel gets narrow' }));
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    // A narrower panel wraps the title onto more lines: jsdom has no layout, so stub the new content height.
+    Object.defineProperty(title, 'scrollHeight', { configurable: true, get: () => 64 });
+    v.window.dispatchEvent(new v.window.Event('resize'));
+    expect(title.style.height).toBe('64px');
   });
 
   it('turns a pasted line break in the title into a space (SET-61)', () => {
