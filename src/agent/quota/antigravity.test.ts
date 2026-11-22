@@ -2395,6 +2395,123 @@ describe('antigravityQuotaReader', () => {
       }
     });
 
+    it('pins the account for the whole read: a setActive during discovery never mixes folders or binaries (@arch:AC-48)', async () => {
+      const workDir = createTempDir();
+      const personalDir = createTempDir();
+      try {
+        const accounts = (active: string) => ({
+          antigravity: {
+            active,
+            list: {
+              work: { kind: 'subscription' as const, source: 'folder' as const, dir: workDir },
+              personal: {
+                kind: 'subscription' as const,
+                source: 'folder' as const,
+                dir: personalDir,
+              },
+            },
+          },
+        });
+        configureAccounts(accounts('work'));
+        const runCliUsage = vi.fn(
+          async (
+            _command: string,
+            _args: readonly string[],
+            _env: NodeJS.ProcessEnv,
+            _timeoutMs: number,
+          ) => usageJson(0.5),
+        );
+
+        const reader = antigravityQuotaReader({
+          homeDir: '/nope',
+          now: () => new Date('2026-01-01T00:00:00.000Z'),
+          listProcesses: () => [],
+          readFile: () => null,
+          // The operator switches the active account while the read is in flight.
+          listDir: () => {
+            configureAccounts(accounts('personal'));
+            return [];
+          },
+          runCliUsage,
+        });
+
+        const snapshot = await reader.read();
+
+        expect(snapshot.state).toBe('ok');
+        const [command, , childEnv] = runCliUsage.mock.calls[0]!;
+        expect(command).toBe('agy');
+        expect(childEnv.ANTIGRAVITY_EXECUTABLE_DATA_DIR).toBe(workDir);
+        expect(existsSync(join(workDir, 'cache', 'quota.json'))).toBe(true);
+        expect(existsSync(join(personalDir, 'cache', 'quota.json'))).toBe(false);
+      } finally {
+        rmSync(workDir, { recursive: true, force: true });
+        rmSync(personalDir, { recursive: true, force: true });
+      }
+    });
+
+    it('ignores an ambient host language-server env while a named account is active (@arch:AC-48)', async () => {
+      const accountDir = createTempDir();
+      try {
+        configureAccounts({
+          antigravity: {
+            active: 'work',
+            list: { work: { kind: 'subscription', source: 'folder', dir: accountDir } },
+          },
+        });
+        const fetchImpl = vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                groups: [
+                  {
+                    displayName: 'Gemini Models',
+                    buckets: [
+                      { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.1 },
+                    ],
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+        ) as unknown as typeof fetch;
+        const runCliUsage = vi.fn(
+          async (
+            _command: string,
+            _args: readonly string[],
+            _env: NodeJS.ProcessEnv,
+            _timeoutMs: number,
+          ) => usageJson(0.5),
+        );
+
+        const reader = antigravityQuotaReader({
+          env: accountReaderEnv(
+            {
+              ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+              ANTIGRAVITY_CSRF_TOKEN: 'ambient-host-token',
+            },
+            {},
+          ),
+          homeDir: '/nope',
+          now: () => new Date('2026-01-01T00:00:00.000Z'),
+          fetchImpl,
+          listProcesses: () => [],
+          readFile: () => null,
+          listDir: () => [],
+          runCliUsage,
+        });
+
+        const snapshot = await reader.read();
+
+        expect(snapshot.state).toBe('ok');
+        if (snapshot.state !== 'ok') throw new Error('unreachable');
+        expect(snapshot.source).toBe(ANTIGRAVITY_CLI_QUOTA_SOURCE);
+        expect(fetchImpl).not.toHaveBeenCalled();
+        expect(runCliUsage).toHaveBeenCalledTimes(1);
+      } finally {
+        rmSync(accountDir, { recursive: true, force: true });
+      }
+    });
+
     it('resolves the active account folder when no env is injected (@arch:AC-55)', async () => {
       const accountDir = createTempDir();
       const fakeHome = createTempDir();

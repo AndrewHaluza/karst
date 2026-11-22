@@ -477,6 +477,28 @@ describe('antigravityDiscovery', () => {
       expect(listProcesses).not.toHaveBeenCalled();
     });
 
+    it('with dataDirOnly ignores the ambient language-server env, which names no account (@arch:AC-48)', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const appDataDir = '/accounts/antigravity/work';
+
+      const result = await discoverAntigravityServer({
+        env: {
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+          ANTIGRAVITY_CSRF_TOKEN: 'ambient-host-token',
+        },
+        homeDir: '/nope',
+        appDataDir,
+        dataDirOnly: true,
+        listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        fetchImpl: fetchMock,
+      });
+
+      expect(result).toEqual({ reason: ANTIGRAVITY_NOT_RUNNING_REASON });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('with dataDirOnly and no record in the data dir reports not running (the CLI fallback answers)', async () => {
       const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
       const appDataDir = '/accounts/antigravity/work';

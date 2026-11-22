@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
-import { accountLaunchFor, accountReaderEnv } from '../accounts/registry.js';
+import { accountLaunchFor } from '../accounts/registry.js';
+import { DEFAULT_ACCOUNT } from '../accounts/types.js';
 import { resolveAgyAppDataDir } from '../agyConversationWatch.js';
 import {
   ANTIGRAVITY_NOT_RUNNING_REASON,
@@ -443,27 +444,51 @@ export interface AntigravityQuotaReaderDeps {
   cliTimeoutMs?: number;
 }
 
+/** A non-empty string, else `undefined` (an empty override is no override). */
+function nonEmpty(value: string | undefined): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * The active account's `agy` launch, resolved ONCE per read (`arch:AC-55`, the
+ * ONE resolver). A `setActive` that lands during the discovery/RPC awaits must
+ * not mix one account's folder and cache with another account's binary/env
+ * (`arch:AC-48`). A deleted active account reads as `default` (a READ has
+ * nothing to find), never as another named account.
+ */
+function pinnedAntigravityLaunch() {
+  try {
+    return accountLaunchFor('antigravity', 'agy');
+  } catch {
+    return accountLaunchFor('antigravity', 'agy', DEFAULT_ACCOUNT);
+  }
+}
+
 export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): QuotaReader {
   return {
     core: 'antigravity',
     async read(): Promise<QuotaSnapshot> {
       const home = deps.homeDir ?? homedir();
-      // `accountReaderEnv()` resolves the home variable of the ACTIVE account at
-      // read time, so a `setActive` reaches this long-lived reader (`arch:AC-55`).
-      const env = deps.env ?? accountReaderEnv();
       const nowFn = deps.now ?? (() => new Date());
       const fetchFn = deps.fetchImpl ?? fetch;
-      // `accountReaderEnv()` traps only `get`, so materialize the data dir here:
-      // a spread would miss a key that is not already in `process.env`.
-      const envDataDir = env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+      // Pin the account BEFORE the first await: everything below (folder, cache,
+      // binary, args, env) comes from this one resolution.
+      const launch = pinnedAntigravityLaunch();
+      const env = deps.env ?? process.env;
+      // The account's owned data dir wins over an operator's ambient override. It
+      // lives on the launch, never in `process.env`, so a spread of the env cannot
+      // carry it (and `accountReaderEnv()` traps only `get`).
+      const envDataDir =
+        nonEmpty(launch.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) ??
+        nonEmpty(env.ANTIGRAVITY_EXECUTABLE_DATA_DIR);
       // A named folder account (or an operator's override) owns this data dir, so
-      // discovery reads ONLY its records: the default `~/.gemini/...` folders and
-      // the machine-wide process scan belong to no named account and would answer
-      // with another account's quota (`arch:AC-48`). The CLI fallback below is
-      // account-scoped and covers a folder with no answering language server.
-      const dataDirOnly =
-        typeof envDataDir === 'string' && envDataDir.length > 0 ? true : false;
-      const appDataDir = deps.appDataDir ?? resolveAgyAppDataDir(env, home);
+      // discovery reads ONLY its records: the ambient language-server env, the
+      // default `~/.gemini/...` folders and the machine-wide process scan belong
+      // to no named account and would answer with another account's quota
+      // (`arch:AC-48`). The CLI fallback below is account-scoped and covers a
+      // folder with no answering language server.
+      const dataDirOnly = envDataDir !== undefined;
+      const appDataDir = deps.appDataDir ?? envDataDir ?? resolveAgyAppDataDir(env, home);
       const cachePath = antigravityQuotaCachePath(appDataDir);
       const ttlMs = deps.cacheTtlMs ?? ANTIGRAVITY_CACHE_TTL_MS;
       const timeoutMs = deps.timeoutMs ?? ANTIGRAVITY_TIMEOUT_MS;
@@ -510,8 +535,8 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
 
       // Headless fallback: `agy -p "/usage" --output-format json` spends zero model
       // turns and reads the ACTIVE account's quota (`arch:AC-48`, `arch:AC-55`).
+      // It uses the launch pinned at the top of this read, never a re-resolution.
       try {
-        const launch = accountLaunchFor('antigravity', 'agy');
         const cliEnv: NodeJS.ProcessEnv = {
           ...env,
           ...(envDataDir ? { ANTIGRAVITY_EXECUTABLE_DATA_DIR: envDataDir } : {}),

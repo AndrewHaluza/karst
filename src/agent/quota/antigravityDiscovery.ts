@@ -37,9 +37,10 @@ export interface AntigravityDiscoveryDeps {
   appDataDir?: string;
   /**
    * `true` when `appDataDir` is the folder of ONE account (`arch:AC-55`): only
-   * that folder's records are trusted. The default `~/.gemini/...` folders and
-   * the machine-wide `ps` scan are then skipped, because neither names the
-   * account a language server belongs to and either could answer with another
+   * that folder's records are trusted. The ambient `ANTIGRAVITY_LS_ADDRESS`/
+   * `CSRF_TOKEN` shortcut, the default `~/.gemini/...` folders and the
+   * machine-wide `ps` scan are then skipped, because none of them names the
+   * account a language server belongs to and each could answer with another
    * account's quota (`arch:AC-48`).
    */
   dataDirOnly?: boolean;
@@ -183,12 +184,20 @@ export async function discoverAntigravityServer(
   const env = deps.env ?? process.env;
   const timeoutMs = deps.timeoutMs ?? 2000;
   const fetchFn = deps.fetchImpl ?? fetch;
+  // A data dir that belongs to ONE account (`arch:AC-55`): only that folder's
+  // records are trusted (`arch:AC-48`).
+  const dataDirOnly = deps.dataDirOnly === true;
 
-  // 1. Env vars (they take priority)
-  const envAddress = env.ANTIGRAVITY_LS_ADDRESS?.trim();
-  const envCsrf = env.ANTIGRAVITY_CSRF_TOKEN?.trim();
-  if (envAddress && envCsrf) {
-    return { address: envAddress, csrfToken: envCsrf };
+  // 1. Env vars (they take priority) — for an UNSCOPED read only. An ambient
+  //    `ANTIGRAVITY_LS_ADDRESS`/`ANTIGRAVITY_CSRF_TOKEN` names NO account (and a
+  //    CSRF token can never be stored on one: `isSecretEnvKey`), so it belongs to
+  //    whatever session exported it; a named account must not be answered by it.
+  if (!dataDirOnly) {
+    const envAddress = env.ANTIGRAVITY_LS_ADDRESS?.trim();
+    const envCsrf = env.ANTIGRAVITY_CSRF_TOKEN?.trim();
+    if (envAddress && envCsrf) {
+      return { address: envAddress, csrfToken: envCsrf };
+    }
   }
 
   // 2. Discovered running server
@@ -205,7 +214,6 @@ export async function discoverAntigravityServer(
 
   // 2a. File-based discovery
   const home = deps.homeDir ?? homedir();
-  const dataDirOnly = deps.dataDirOnly === true;
   const candidateDirs: string[] = [];
   if (deps.appDataDir) {
     candidateDirs.push(deps.appDataDir);
