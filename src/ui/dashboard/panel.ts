@@ -332,6 +332,7 @@ export class DashboardManager extends DashboardManagerBase {
       actionsFor: this.actionsFor,
       labelTemplate: this.labelTemplate,
       onServerLogsDetach: this.onServerLogsDetach,
+      serverLogsMatchCount: (ticketId, count, seq) => this.serverLogsMatchCount(ticketId, count, seq),
       binding: this.binding,
       onViewActivated: this.onViewActivated,
       panels: this.panels,

@@ -57,6 +57,27 @@ describe('DashboardConsole server logs', () => {
     console.closeServerLogs(t.id);
   });
 
+  it('answers a search count with the one shared match text, and no-ops without a panel', () => {
+    const t = createTicket(store, { key: 'T-1', title: 't' });
+    const posted: unknown[] = [];
+    const panel = {
+      postMessage: (m: unknown) => posted.push(m),
+    } as unknown as DashboardPanel;
+    const console = new DashboardConsole(store, () => panel, undefined, undefined, fakeReader());
+
+    console.serverLogsMatchCount(t.id, 0, 1);
+    console.serverLogsMatchCount(t.id, 1, 2);
+    console.serverLogsMatchCount(t.id, 2, 3);
+    expect(posted).toEqual([
+      { type: 'server-logs-match-text', seq: 1, text: 'No matches' },
+      { type: 'server-logs-match-text', seq: 2, text: '1 match' },
+      { type: 'server-logs-match-text', seq: 3, text: '2 matches' },
+    ]);
+
+    const closed = new DashboardConsole(store, () => undefined, undefined, undefined, fakeReader());
+    expect(() => closed.serverLogsMatchCount(t.id, 2, 1)).not.toThrow();
+  });
+
   it('does not list a shared service twice when the ticket also runs that key', () => {
     const t = createTicket(store, { key: 'T-1', title: 't' });
     addServer(t.id, 'web', '/tmp/web.log');

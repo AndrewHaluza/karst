@@ -353,6 +353,12 @@ export type WebviewMessage =
    */
   | { type: 'server-logs-tab'; tab: string }
   /**
+   * The shared logs view's search hit count. The host formats the one match
+   * text (`logMatchText`) and answers with `server-logs-match-text`; the seq
+   * lets a stale answer be dropped.
+   */
+  | { type: 'server-logs-match-count'; count: number; seq: number }
+  /**
    * Ask for the xterm bundle (first console open). Answered by the panel host
    * with an `xterm` message, never by a ticket action — see xtermAssets.ts.
    */

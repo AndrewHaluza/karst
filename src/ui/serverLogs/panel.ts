@@ -1,4 +1,5 @@
 import type { LogError } from '../../logging/logger.js';
+import { logMatchText } from '../../model/notifyText.js';
 import type { ServerLogsResult } from '../dashboard/serverLogsReader.js';
 import {
   parseServerLogsMessage,
@@ -71,6 +72,8 @@ export class ServerLogsManager {
       const actions: ServerLogsActions = {
         request: () => this.requestLogs(ticketId, panel),
         close: () => this.closeLogs(ticketId),
+        matchCount: (count, seq) =>
+          panel.postMessage({ type: 'server-logs-match-text', seq, text: logMatchText(count) }),
       };
       try {
         const result = routeServerLogsAction(msg, actions);

@@ -105,9 +105,42 @@ function actions(): DashboardActions {
     changeBaseRef: vi.fn(),
     requestServerLogs: vi.fn(),
     closeServerLogs: vi.fn(),
+    serverLogsMatchCount: vi.fn(),
     openResources: vi.fn(),
   };
 }
+
+describe('server-logs-match-count', () => {
+  it('parses a non-negative safe count and seq, and drops anything else', () => {
+    expect(parseWebviewMessage({ type: 'server-logs-match-count', count: 0, seq: 2 })).toEqual({
+      type: 'server-logs-match-count',
+      count: 0,
+      seq: 2,
+    });
+    expect(parseWebviewMessage({ type: 'server-logs-match-count', count: 4, seq: 1 })).toEqual({
+      type: 'server-logs-match-count',
+      count: 4,
+      seq: 1,
+    });
+    for (const bad of [
+      { count: -1, seq: 1 },
+      { count: 1.5, seq: 1 },
+      { count: '1', seq: 1 },
+      { seq: 1 },
+      { count: 1, seq: -1 },
+      { count: 1, seq: 1.5 },
+      { count: 1 },
+    ]) {
+      expect(parseWebviewMessage({ type: 'server-logs-match-count', ...bad })).toBeNull();
+    }
+  });
+
+  it('routes the count to the host action', () => {
+    const a = actions();
+    routeAction({ type: 'server-logs-match-count', count: 3, seq: 1 }, a);
+    expect(a.serverLogsMatchCount).toHaveBeenCalledWith(3, 1);
+  });
+});
 
 describe('routeAction', () => {
   it('dispatches stop-server to the supervisor action with the server id', () => {

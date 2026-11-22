@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markerAdvancedText, markerFailedText, plural, reasonText, ticketLabel } from './notifyText.js';
+import { logMatchText, markerAdvancedText, markerFailedText, plural, reasonText, ticketLabel } from './notifyText.js';
 
 describe('ticketLabel', () => {
   it('joins the ref and the quoted title', () => {
@@ -55,6 +55,18 @@ describe('plural', () => {
     expect(plural(1, 'repo', 'repos')).toBe('1 repo');
     expect(plural(0, 'repo', 'repos')).toBe('0 repos');
     expect(plural(2, 'repo', 'repos')).toBe('2 repos');
+  });
+});
+
+describe('logMatchText', () => {
+  it('names no matches at zero', () => {
+    expect(logMatchText(0)).toBe('No matches');
+  });
+  it('uses the one form for 1', () => {
+    expect(logMatchText(1)).toBe('1 match');
+  });
+  it('uses the many form for 2', () => {
+    expect(logMatchText(2)).toBe('2 matches');
   });
 });
 

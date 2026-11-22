@@ -120,6 +120,21 @@ describe('ServerLogsManager', () => {
     expect(panels[1]!.posted).toEqual([]);
   });
 
+  it('answers server-logs-match-count with the one shared match text', () => {
+    const { host, panels } = makeHost();
+    const { reader } = makeReader();
+    const manager = new ServerLogsManager(host, reader, (id) => `Logs ${id}`, () => [WEB]);
+
+    manager.open(41);
+    panels[0]!.emit({ type: 'server-logs-match-count', count: 0, seq: 2 });
+    panels[0]!.emit({ type: 'server-logs-match-count', count: 1, seq: 3 });
+    panels[0]!.emit({ type: 'server-logs-match-count', count: 2, seq: 4 });
+
+    expect(panels[0]!.posted).toContainEqual({ type: 'server-logs-match-text', seq: 2, text: 'No matches' });
+    expect(panels[0]!.posted).toContainEqual({ type: 'server-logs-match-text', seq: 3, text: '1 match' });
+    expect(panels[0]!.posted).toContainEqual({ type: 'server-logs-match-text', seq: 4, text: '2 matches' });
+  });
+
   it('stops polling on server-logs-close', () => {
     const { host, panels } = makeHost();
     const { reader, stopPolling } = makeReader();

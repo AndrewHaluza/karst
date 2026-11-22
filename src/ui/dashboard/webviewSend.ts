@@ -249,6 +249,11 @@ export function createSender(api: WebviewApi) {
     xtermRequest: (requestId?: string) => send({ type: 'xterm-request' }, requestId),
     serverLogsTab: (tab: Msg<'server-logs-tab'>['tab'], requestId?: string) =>
       send({ type: 'server-logs-tab', tab }, requestId),
+    serverLogsMatchCount: (
+      count: Msg<'server-logs-match-count'>['count'],
+      seq: Msg<'server-logs-match-count'>['seq'],
+      requestId?: string,
+    ) => send({ type: 'server-logs-match-count', count, seq }, requestId),
     envOverridesSave: (
       scope: Msg<'env-overrides-save'>['scope'],
       text: Msg<'env-overrides-save'>['text'],

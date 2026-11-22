@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { defaultGitRunner } from '../../integrations/git.js';
+import { plural } from '../../model/notifyText.js';
 import {
   inspectWorktree,
   type DiffTarget,
@@ -36,6 +37,8 @@ export interface WorktreeChangesView {
   unstaged: ChangedFileView[];
   untracked: ChangedFileView[];
   error: string | null;
+  /** The row's count text, built host-side by `worktreeCountText` (@arch:NTF-07). */
+  countText: string;
 }
 
 export interface TicketChangesState {
@@ -44,6 +47,18 @@ export interface TicketChangesState {
   commitCount: number;
   pendingCount: number;
   worktrees: WorktreeChangesView[];
+  /** The header summary, built host-side by `diffsSummaryText` (@arch:NTF-07). */
+  summaryText: string;
+}
+
+/** `1 commit · clean`, `2 commits · 1 pending` — one text for a worktree row. */
+export function worktreeCountText(commitCount: number, pendingCount: number): string {
+  return `${plural(commitCount, 'commit', 'commits')} · ${pendingCount ? `${pendingCount} pending` : 'clean'}`;
+}
+
+/** `1 worktree · 1 commit · 0 pending` — one text for the changes header. */
+export function diffsSummaryText(worktreeCount: number, commitCount: number, pendingCount: number): string {
+  return `${plural(worktreeCount, 'worktree', 'worktrees')} · ${plural(commitCount, 'commit', 'commits')} · ${pendingCount} pending`;
 }
 
 export interface TicketChangesSnapshot {
@@ -140,6 +155,7 @@ export async function buildTicketChangesSnapshot(
         unstaged: [],
         untracked: [],
         error,
+        countText: worktreeCountText(0, 0),
       };
     }
 
@@ -155,6 +171,7 @@ export async function buildTicketChangesSnapshot(
       };
     };
 
+    const pending = inspected.staged.length + inspected.unstaged.length + inspected.untracked.length;
     return {
       label: spec.label,
       branch: spec.branch,
@@ -171,6 +188,7 @@ export async function buildTicketChangesSnapshot(
       unstaged: inspected.unstaged.map(changedFile),
       untracked: inspected.untracked.map(changedFile),
       error: null,
+      countText: worktreeCountText(inspected.commits.length, pending),
     };
   });
 
@@ -181,7 +199,14 @@ export async function buildTicketChangesSnapshot(
   );
 
   return {
-    state: { ticketId, worktreeCount: worktrees.length, commitCount, pendingCount, worktrees: views },
+    state: {
+      ticketId,
+      worktreeCount: worktrees.length,
+      commitCount,
+      pendingCount,
+      worktrees: views,
+      summaryText: diffsSummaryText(worktrees.length, commitCount, pendingCount),
+    },
     targets,
   };
 }

@@ -35,7 +35,7 @@ exports[`usage render > all-sorts > snapshot (was: full document render) 1`] = `
         <tbody id="tbody"><tr><td class="tkt"><button type="button" class="k-btn k-btn--link" data-ticket="900001" title="FEAT-100 — Ticket 1" aria-label="FEAT-100 — Ticket 1">FEAT-100 — Ticket 1</button></td><td class="num">5</td><td class="num">0k</td><td class="num">0.2k</td><td class="num" title="500 tokens">0.5k</td><td class="num">Jan 1</td></tr></tbody>
       </table>
     </div>
-    <div class="pager" id="pager"><span>1–1 of 1</span><span class="spacer"></span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="0" title="No earlier page" disabled="">Previous</button><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="20" title="No further page" disabled="">Next</button></div>
+    <div class="pager" id="pager"><span>1–1 of 1 ticket</span><span class="spacer"></span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="0" title="No earlier page" disabled="">Previous</button><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="20" title="No further page" disabled="">Next</button></div>
   </div>
 </div>
 
@@ -484,7 +484,7 @@ function karstIconInto(el, name, size, cls) {
           \`<span class="pct">\${esc(r.share)}%</span>\` +
         '</div>' +
         \`<div class="bar"><i style="width:\${Number(r.share) || 0}%"></i></div>\` +
-        \`<div class="meta">\${esc(r.calls)} call\${r.calls === 1 ? '' : 's'} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
+        \`<div class="meta">\${esc(r.callsText)} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
           (r.note ? \` · \${esc(r.note)}\` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
@@ -527,8 +527,6 @@ function karstIconInto(el, name, size, cls) {
     }
 
     const p = state.page;
-    const first = p.groups === 0 ? 0 : p.offset + 1;
-    const last = p.offset + state.tickets.length;
     const prevOffset = Math.max(0, p.offset - p.limit);
     const nextOffset = p.offset + p.limit;
     // Disabled means "unavailable" (page bounds), not "loading" — no
@@ -538,9 +536,9 @@ function karstIconInto(el, name, size, cls) {
     const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
     const pager = el('pager');
     pager.innerHTML =
-      \`<span>\${first}–\${last} of \${p.groups}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -1100,7 +1098,7 @@ function karstIconInto(el, name, size, cls) {
           \`<span class="pct">\${esc(r.share)}%</span>\` +
         '</div>' +
         \`<div class="bar"><i style="width:\${Number(r.share) || 0}%"></i></div>\` +
-        \`<div class="meta">\${esc(r.calls)} call\${r.calls === 1 ? '' : 's'} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
+        \`<div class="meta">\${esc(r.callsText)} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
           (r.note ? \` · \${esc(r.note)}\` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
@@ -1143,8 +1141,6 @@ function karstIconInto(el, name, size, cls) {
     }
 
     const p = state.page;
-    const first = p.groups === 0 ? 0 : p.offset + 1;
-    const last = p.offset + state.tickets.length;
     const prevOffset = Math.max(0, p.offset - p.limit);
     const nextOffset = p.offset + p.limit;
     // Disabled means "unavailable" (page bounds), not "loading" — no
@@ -1154,9 +1150,9 @@ function karstIconInto(el, name, size, cls) {
     const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
     const pager = el('pager');
     pager.innerHTML =
-      \`<span>\${first}–\${last} of \${p.groups}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -1716,7 +1712,7 @@ function karstIconInto(el, name, size, cls) {
           \`<span class="pct">\${esc(r.share)}%</span>\` +
         '</div>' +
         \`<div class="bar"><i style="width:\${Number(r.share) || 0}%"></i></div>\` +
-        \`<div class="meta">\${esc(r.calls)} call\${r.calls === 1 ? '' : 's'} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
+        \`<div class="meta">\${esc(r.callsText)} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
           (r.note ? \` · \${esc(r.note)}\` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
@@ -1759,8 +1755,6 @@ function karstIconInto(el, name, size, cls) {
     }
 
     const p = state.page;
-    const first = p.groups === 0 ? 0 : p.offset + 1;
-    const last = p.offset + state.tickets.length;
     const prevOffset = Math.max(0, p.offset - p.limit);
     const nextOffset = p.offset + p.limit;
     // Disabled means "unavailable" (page bounds), not "loading" — no
@@ -1770,9 +1764,9 @@ function karstIconInto(el, name, size, cls) {
     const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
     const pager = el('pager');
     pager.innerHTML =
-      \`<span>\${first}–\${last} of \${p.groups}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -1883,7 +1877,7 @@ exports[`usage render > hostile > snapshot (was: full document render) 1`] = `
         <tbody id="tbody"><tr><td class="tkt"><button type="button" class="k-btn k-btn--link" data-ticket="900001" title="<script>alert(1)</script>" aria-label="<script>alert(1)</script>">&lt;script&gt;alert(1)&lt;/script&gt;</button></td><td class="num">5</td><td class="num">0k</td><td class="num">0.2k</td><td class="num" title="500 tokens">0.5k</td><td class="num">Jan 1</td></tr><tr><td class="tkt"><span class="plain">YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY</span></td><td class="num">6</td><td class="num">0.3k</td><td class="num">0.4k</td><td class="num" title="1000 tokens">1k</td><td class="num">Jan 2</td></tr></tbody>
       </table>
     </div>
-    <div class="pager" id="pager"><span>1–2 of 2</span><span class="spacer"></span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="0" title="No earlier page" disabled="">Previous</button><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="20" title="No further page" disabled="">Next</button></div>
+    <div class="pager" id="pager"><span>1–2 of 2 tickets</span><span class="spacer"></span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="0" title="No earlier page" disabled="">Previous</button><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="20" title="No further page" disabled="">Next</button></div>
   </div>
 </div>
 
@@ -2332,7 +2326,7 @@ function karstIconInto(el, name, size, cls) {
           \`<span class="pct">\${esc(r.share)}%</span>\` +
         '</div>' +
         \`<div class="bar"><i style="width:\${Number(r.share) || 0}%"></i></div>\` +
-        \`<div class="meta">\${esc(r.calls)} call\${r.calls === 1 ? '' : 's'} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
+        \`<div class="meta">\${esc(r.callsText)} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
           (r.note ? \` · \${esc(r.note)}\` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
@@ -2375,8 +2369,6 @@ function karstIconInto(el, name, size, cls) {
     }
 
     const p = state.page;
-    const first = p.groups === 0 ? 0 : p.offset + 1;
-    const last = p.offset + state.tickets.length;
     const prevOffset = Math.max(0, p.offset - p.limit);
     const nextOffset = p.offset + p.limit;
     // Disabled means "unavailable" (page bounds), not "loading" — no
@@ -2386,9 +2378,9 @@ function karstIconInto(el, name, size, cls) {
     const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
     const pager = el('pager');
     pager.innerHTML =
-      \`<span>\${first}–\${last} of \${p.groups}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -2499,7 +2491,7 @@ exports[`usage render > paged-middle > snapshot (was: full document render) 1`] 
         <tbody id="tbody"><tr><td class="tkt"><button type="button" class="k-btn k-btn--link" data-ticket="900001" title="FEAT-100 — Ticket 1" aria-label="FEAT-100 — Ticket 1">FEAT-100 — Ticket 1</button></td><td class="num">5</td><td class="num">0k</td><td class="num">0.2k</td><td class="num" title="500 tokens">0.5k</td><td class="num">Jan 1</td></tr><tr><td class="tkt"><button type="button" class="k-btn k-btn--link" data-ticket="900002" title="FEAT-101 — Ticket 2" aria-label="FEAT-101 — Ticket 2">FEAT-101 — Ticket 2</button></td><td class="num">6</td><td class="num">0.3k</td><td class="num">0.4k</td><td class="num" title="1000 tokens">1k</td><td class="num">Jan 2</td></tr><tr><td class="tkt"><button type="button" class="k-btn k-btn--link" data-ticket="900003" title="FEAT-102 — Ticket 3" aria-label="FEAT-102 — Ticket 3">FEAT-102 — Ticket 3</button></td><td class="num">7</td><td class="num">0.6k</td><td class="num">0.6000000000000001k</td><td class="num" title="1500 tokens">1.5k</td><td class="num">Jan 3</td></tr></tbody>
       </table>
     </div>
-    <div class="pager" id="pager"><span>21–23 of 60</span><span class="spacer"></span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="0" title="Show the previous page of tickets">Previous</button><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="40" title="Show the next page of tickets">Next</button></div>
+    <div class="pager" id="pager"><span>21–23 of 60 tickets</span><span class="spacer"></span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="0" title="Show the previous page of tickets">Previous</button><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="40" title="Show the next page of tickets">Next</button></div>
   </div>
 </div>
 
@@ -2948,7 +2940,7 @@ function karstIconInto(el, name, size, cls) {
           \`<span class="pct">\${esc(r.share)}%</span>\` +
         '</div>' +
         \`<div class="bar"><i style="width:\${Number(r.share) || 0}%"></i></div>\` +
-        \`<div class="meta">\${esc(r.calls)} call\${r.calls === 1 ? '' : 's'} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
+        \`<div class="meta">\${esc(r.callsText)} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
           (r.note ? \` · \${esc(r.note)}\` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
@@ -2991,8 +2983,6 @@ function karstIconInto(el, name, size, cls) {
     }
 
     const p = state.page;
-    const first = p.groups === 0 ? 0 : p.offset + 1;
-    const last = p.offset + state.tickets.length;
     const prevOffset = Math.max(0, p.offset - p.limit);
     const nextOffset = p.offset + p.limit;
     // Disabled means "unavailable" (page bounds), not "loading" — no
@@ -3002,9 +2992,9 @@ function karstIconInto(el, name, size, cls) {
     const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
     const pager = el('pager');
     pager.innerHTML =
-      \`<span>\${first}–\${last} of \${p.groups}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -3564,7 +3554,7 @@ function karstIconInto(el, name, size, cls) {
           \`<span class="pct">\${esc(r.share)}%</span>\` +
         '</div>' +
         \`<div class="bar"><i style="width:\${Number(r.share) || 0}%"></i></div>\` +
-        \`<div class="meta">\${esc(r.calls)} call\${r.calls === 1 ? '' : 's'} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
+        \`<div class="meta">\${esc(r.callsText)} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
           (r.note ? \` · \${esc(r.note)}\` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
@@ -3607,8 +3597,6 @@ function karstIconInto(el, name, size, cls) {
     }
 
     const p = state.page;
-    const first = p.groups === 0 ? 0 : p.offset + 1;
-    const last = p.offset + state.tickets.length;
     const prevOffset = Math.max(0, p.offset - p.limit);
     const nextOffset = p.offset + p.limit;
     // Disabled means "unavailable" (page bounds), not "loading" — no
@@ -3618,9 +3606,9 @@ function karstIconInto(el, name, size, cls) {
     const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
     const pager = el('pager');
     pager.innerHTML =
-      \`<span>\${first}–\${last} of \${p.groups}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
@@ -3731,7 +3719,7 @@ exports[`usage render > single-page > snapshot (was: full document render) 1`] =
         <tbody id="tbody"><tr><td class="tkt"><button type="button" class="k-btn k-btn--link" data-ticket="900001" title="FEAT-100 — Ticket 1" aria-label="FEAT-100 — Ticket 1">FEAT-100 — Ticket 1</button></td><td class="num">5</td><td class="num">0k</td><td class="num">0.2k</td><td class="num" title="500 tokens">0.5k</td><td class="num">Jan 1</td></tr><tr><td class="tkt"><button type="button" class="k-btn k-btn--link" data-ticket="900002" title="FEAT-101 — Ticket 2" aria-label="FEAT-101 — Ticket 2">FEAT-101 — Ticket 2</button></td><td class="num">6</td><td class="num">0.3k</td><td class="num">0.4k</td><td class="num" title="1000 tokens">1k</td><td class="num">Jan 2</td></tr></tbody>
       </table>
     </div>
-    <div class="pager" id="pager"><span>1–2 of 2</span><span class="spacer"></span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="0" title="No earlier page" disabled="">Previous</button><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="20" title="No further page" disabled="">Next</button></div>
+    <div class="pager" id="pager"><span>1–2 of 2 tickets</span><span class="spacer"></span><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="0" title="No earlier page" disabled="">Previous</button><button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="20" title="No further page" disabled="">Next</button></div>
   </div>
 </div>
 
@@ -4180,7 +4168,7 @@ function karstIconInto(el, name, size, cls) {
           \`<span class="pct">\${esc(r.share)}%</span>\` +
         '</div>' +
         \`<div class="bar"><i style="width:\${Number(r.share) || 0}%"></i></div>\` +
-        \`<div class="meta">\${esc(r.calls)} call\${r.calls === 1 ? '' : 's'} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
+        \`<div class="meta">\${esc(r.callsText)} · in \${esc(r.inputDisplay)} · out \${esc(r.outputDisplay)}\` +
           (r.note ? \` · \${esc(r.note)}\` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
@@ -4223,8 +4211,6 @@ function karstIconInto(el, name, size, cls) {
     }
 
     const p = state.page;
-    const first = p.groups === 0 ? 0 : p.offset + 1;
-    const last = p.offset + state.tickets.length;
     const prevOffset = Math.max(0, p.offset - p.limit);
     const nextOffset = p.offset + p.limit;
     // Disabled means "unavailable" (page bounds), not "loading" — no
@@ -4234,9 +4220,9 @@ function karstIconInto(el, name, size, cls) {
     const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
     const pager = el('pager');
     pager.innerHTML =
-      \`<span>\${first}–\${last} of \${p.groups}</span><span class="spacer"></span>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${prevOffset}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
-      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${nextOffset}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
+      \`<span>\${esc(p.summary)}</span><span class="spacer"></span>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(prevOffset)}" title="\${prevTitle}"\${p.hasPrev ? '' : ' disabled'}>Previous</button>\` +
+      \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }

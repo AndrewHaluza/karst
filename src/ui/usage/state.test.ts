@@ -62,6 +62,7 @@ describe('buildUsageState', () => {
     expect(state.byModel).toEqual([]);
     expect(state.tickets).toEqual([]);
     expect(state.sorts.length).toBeGreaterThan(0);
+    expect(state.page.summary).toBe('No tickets');
   });
 
   it('renders overall totals as formatted strings, not raw numbers', () => {
@@ -84,6 +85,16 @@ describe('buildUsageState', () => {
       ['pr-description', 'PR description', 70],
       ['ticket-analysis', 'Ticket classify', 30],
     ]);
+  });
+
+  it('prints each call count with the shared plural helper', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ callSite: 'pr-description' });
+    const one = buildUsageState(store, { projectId: 1, now: NOW });
+    expect(one.byStage[0]!.callsText).toBe('1 call');
+    seed({ callSite: 'pr-description' });
+    const two = buildUsageState(store, { projectId: 1, now: NOW });
+    expect(two.byStage[0]!.callsText).toBe('2 calls');
   });
 
   it('names an unreported model instead of showing a blank row', () => {
@@ -165,11 +176,14 @@ describe('buildUsageState', () => {
     }
     const first = buildUsageState(store, { projectId: 1, limit: 2, now: NOW });
     expect(first.tickets.map((t) => t.ticketId)).toEqual([4, 3]);
-    expect(first.page).toMatchObject({ offset: 0, groups: 4, hasPrev: false, hasNext: true });
+    expect(first.page).toMatchObject({ offset: 0, groups: 4, hasPrev: false, hasNext: true, summary: '1–2 of 4 tickets' });
 
     const second = buildUsageState(store, { projectId: 1, limit: 2, offset: 2, now: NOW });
     expect(second.tickets.map((t) => t.ticketId)).toEqual([2, 1]);
-    expect(second.page).toMatchObject({ hasPrev: true, hasNext: false });
+    expect(second.page).toMatchObject({ hasPrev: true, hasNext: false, summary: '3–4 of 4 tickets' });
+
+    const single = buildUsageState(store, { projectId: 1, limit: 4, now: NOW });
+    expect(single.page.summary).toBe('1–4 of 4 tickets');
   });
 
   it('states a rejected query instead of rendering it as zero spend', () => {
@@ -177,6 +191,7 @@ describe('buildUsageState', () => {
     expect(state.error).toMatch(/limit/);
     expect(state.empty).toBe(true);
     expect(state.tickets).toEqual([]);
+    expect(state.page.summary).toBe('No tickets');
   });
 
   it('counts errored calls in the totals — the tokens were spent', () => {

@@ -1,8 +1,10 @@
 /**
  * The Tickets pane: the filter funnel and `+` in the header, the "N need you ·
- * M blocked" shortcut under it (All only, only when a count is above zero), and
- * the ticket list as the scrolling body.
+ * M failed" shortcut under it (All only, only when a count is above zero; one
+ * input reads "1 needs you", and a zero part is hidden), and the ticket list as
+ * the scrolling body.
  */
+import { plural } from '../../../model/notifyText.js';
 import { ActButton } from './action.js';
 import { FilterMenu } from './FilterMenu.js';
 import { allRows } from './format.js';
@@ -17,9 +19,12 @@ function AttentionLine() {
   const input = state.counts?.input ?? 0;
   const failed = state.counts?.failed ?? 0;
   if (activePreset(state.facets || ['all'])?.id !== 'all' || (input === 0 && failed === 0)) return null;
+  const parts: string[] = [];
+  if (input > 0) parts.push(plural(input, 'needs you', 'need you'));
+  if (failed > 0) parts.push(`${failed} failed`);
   return (
     <button type="button" className="pane-attention" data-attention="1" onClick={() => applyPreset('attention')}>
-      {input} need you · {failed} blocked
+      {parts.join(' · ')}
     </button>
   );
 }

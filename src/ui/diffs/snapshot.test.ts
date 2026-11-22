@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DiffTarget, InspectedFile, InspectedWorktree, WorktreeSpec } from './git.js';
-import { buildTicketChangesSnapshot } from './snapshot.js';
+import { buildTicketChangesSnapshot, diffsSummaryText, worktreeCountText } from './snapshot.js';
 
 const firstSpec: WorktreeSpec = {
   label: 'API',
@@ -76,6 +76,7 @@ describe('buildTicketChangesSnapshot', () => {
       worktreeCount: 2,
       commitCount: 1,
       pendingCount: 3,
+      summaryText: '2 worktrees · 1 commit · 3 pending',
       worktrees: [
         {
           label: 'API',
@@ -93,6 +94,7 @@ describe('buildTicketChangesSnapshot', () => {
           unstaged: [{ changeId: 'generation-a:3', status: 'modified', path: 'src/unstaged.ts', oldPath: null, absolutePath: '/worktrees/api/src/unstaged.ts' }],
           untracked: [],
           error: null,
+          countText: '1 commit · 2 pending',
         },
         {
           label: 'Web',
@@ -103,6 +105,7 @@ describe('buildTicketChangesSnapshot', () => {
           unstaged: [],
           untracked: [{ changeId: 'generation-a:4', status: 'added', path: 'src/new.ts', oldPath: null, absolutePath: '/worktrees/web/src/new.ts' }],
           error: null,
+          countText: '0 commits · 1 pending',
         },
       ],
     });
@@ -121,7 +124,7 @@ describe('buildTicketChangesSnapshot', () => {
       () => 'generation-b',
     );
 
-    expect(snapshot.state).toMatchObject({ worktreeCount: 2, commitCount: 0, pendingCount: 1 });
+    expect(snapshot.state).toMatchObject({ worktreeCount: 2, commitCount: 0, pendingCount: 1, summaryText: '2 worktrees · 0 commits · 1 pending' });
     expect(snapshot.state.worktrees[0]).toMatchObject({ label: 'API', staged: [{ path: 'src/kept.ts' }], error: null });
     expect(snapshot.state.worktrees[1]).toEqual({
       label: 'Web',
@@ -132,6 +135,7 @@ describe('buildTicketChangesSnapshot', () => {
       unstaged: [],
       untracked: [],
       error: 'Git inspection failed',
+      countText: '0 commits · clean',
     });
   });
 
@@ -171,6 +175,18 @@ describe('buildTicketChangesSnapshot', () => {
     expect(first.state.worktrees[0]!.staged[0]!.changeId).toBe('first-generation:1');
     expect(second.state.worktrees[0]!.staged[0]!.changeId).toBe('second-generation:1');
     expect(second.targets.has(first.state.worktrees[0]!.staged[0]!.changeId)).toBe(false);
+  });
+
+  it('builds the worktree row text with one plural helper', () => {
+    expect(worktreeCountText(0, 0)).toBe('0 commits · clean');
+    expect(worktreeCountText(1, 0)).toBe('1 commit · clean');
+    expect(worktreeCountText(2, 1)).toBe('2 commits · 1 pending');
+  });
+
+  it('builds the changes header with one plural helper', () => {
+    expect(diffsSummaryText(0, 0, 0)).toBe('0 worktrees · 0 commits · 0 pending');
+    expect(diffsSummaryText(1, 1, 0)).toBe('1 worktree · 1 commit · 0 pending');
+    expect(diffsSummaryText(2, 3, 1)).toBe('2 worktrees · 3 commits · 1 pending');
   });
 
   it('propagates cancellation instead of rendering it as a repository error', async () => {

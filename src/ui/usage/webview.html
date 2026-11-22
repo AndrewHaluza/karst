@@ -277,7 +277,7 @@
           `<span class="pct">${esc(r.share)}%</span>` +
         '</div>' +
         `<div class="bar"><i style="width:${Number(r.share) || 0}%"></i></div>` +
-        `<div class="meta">${esc(r.calls)} call${r.calls === 1 ? '' : 's'} · in ${esc(r.inputDisplay)} · out ${esc(r.outputDisplay)}` +
+        `<div class="meta">${esc(r.callsText)} · in ${esc(r.inputDisplay)} · out ${esc(r.outputDisplay)}` +
           (r.note ? ` · ${esc(r.note)}` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
@@ -320,8 +320,6 @@
     }
 
     const p = state.page;
-    const first = p.groups === 0 ? 0 : p.offset + 1;
-    const last = p.offset + state.tickets.length;
     const prevOffset = Math.max(0, p.offset - p.limit);
     const nextOffset = p.offset + p.limit;
     // Disabled means "unavailable" (page bounds), not "loading" — no
@@ -331,9 +329,9 @@
     const nextTitle = p.hasNext ? 'Show the next page of tickets' : 'No further page';
     const pager = el('pager');
     pager.innerHTML =
-      `<span>${first}–${last} of ${p.groups}</span><span class="spacer"></span>` +
-      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${prevOffset}" title="${prevTitle}"${p.hasPrev ? '' : ' disabled'}>Previous</button>` +
-      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${nextOffset}" title="${nextTitle}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
+      `<span>${esc(p.summary)}</span><span class="spacer"></span>` +
+      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${esc(prevOffset)}" title="${prevTitle}"${p.hasPrev ? '' : ' disabled'}>Previous</button>` +
+      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${esc(nextOffset)}" title="${nextTitle}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }

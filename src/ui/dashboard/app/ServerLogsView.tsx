@@ -24,6 +24,7 @@ interface LogsView {
   close(): void;
   handleInitial(servers: readonly ServerLogEntry[]): void;
   handleOutput(service: string, text: string): void;
+  handleMatchText(seq: number, text: string): void;
 }
 type LogsFactory = (options: { post: (msg: { type?: string } | null) => void; onClose: () => void; drillHead?: boolean }) => LogsView;
 
@@ -64,6 +65,14 @@ export function ServerLogsView() {
     const post = (msg: { type?: string } | null): void => {
       if (msg && msg.type === 'server-logs-detach') send.serverLogsDetach();
       else if (msg && msg.type === 'server-logs-close') send.serverLogsClose();
+      else if (
+        msg &&
+        msg.type === 'server-logs-match-count' &&
+        typeof (msg as { count?: unknown }).count === 'number' &&
+        typeof (msg as { seq?: unknown }).seq === 'number'
+      ) {
+        send.serverLogsMatchCount((msg as { count: number }).count, (msg as { seq: number }).seq);
+      }
     };
     const acquired = acquire(post);
     if (!acquired) return undefined;
@@ -88,6 +97,7 @@ export function ServerLogsView() {
   useHostMessage((m) => {
     if (m.type === 'server-logs') view.current?.handleInitial(m.servers || []);
     else if (m.type === 'server-log-output') view.current?.handleOutput(m.service, m.text);
+    else if (m.type === 'server-logs-match-text') view.current?.handleMatchText(m.seq, m.text);
   });
 
   useEffect(() => {

@@ -60,6 +60,8 @@
   // The standalone panel has no second window to open: `detached: true` omits
   // the "Open in Window" control, and `close()` posts `server-logs-close`
   // itself (there is no dashboard open-flag to clear).
+  const restored = typeof vscode.getState === 'function' ? vscode.getState() : null;
+  let initialQuery = typeof restored?.query === 'string' ? restored.query : '';
   const view = window.createServerLogsView({ post, detached: true });
   view.open();
   post({ type: 'server-logs-request' });
@@ -67,7 +69,18 @@
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'server-logs') view.handleInitial(msg.servers || []);
-    else if (msg.type === 'server-log-output') view.handleOutput(msg.service, msg.text);
+    if (msg.type === 'server-logs') {
+      view.handleInitial(msg.servers || []);
+      if (initialQuery) {
+        const search = document.getElementById('logsSearch');
+        const q = initialQuery;
+        initialQuery = '';
+        if (search) {
+          search.value = q;
+          search.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    } else if (msg.type === 'server-log-output') view.handleOutput(msg.service, msg.text);
+    else if (msg.type === 'server-logs-match-text') view.handleMatchText(msg.seq, msg.text);
   });
 </script>

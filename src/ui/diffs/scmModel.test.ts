@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { FileChangeStatus } from './git.js';
-import type { TicketChangesSnapshot, WorktreeChangesView } from './snapshot.js';
+import { diffsSummaryText, worktreeCountText, type TicketChangesSnapshot, type WorktreeChangesView } from './snapshot.js';
 import { buildScmGroups, disambiguateLabels, type ScmGroupModel } from './scmModel.js';
 
 function makeWorktreeChangesView(overrides: Partial<WorktreeChangesView> = {}): WorktreeChangesView {
-  return {
+  const base = {
     label: 'repo',
     branch: 'main',
     baseRef: 'develop',
@@ -15,6 +15,8 @@ function makeWorktreeChangesView(overrides: Partial<WorktreeChangesView> = {}): 
     error: null,
     ...overrides,
   };
+  const pending = base.staged.length + base.unstaged.length + base.untracked.length;
+  return { ...base, countText: worktreeCountText(base.commits.length, pending) };
 }
 
 function makeChangedFileView(overrides: { changeId: string; status: FileChangeStatus; path: string; oldPath?: string | null } = { changeId: 'a', status: 'added', path: 'file.ts' }) {
@@ -28,13 +30,16 @@ function makeChangedFileView(overrides: { changeId: string; status: FileChangeSt
 }
 
 function makeSnapshot(views: WorktreeChangesView[]): TicketChangesSnapshot {
+  const commitCount = views.reduce((c, v) => c + v.commits.length, 0);
+  const pendingCount = views.reduce((c, v) => c + v.staged.length + v.unstaged.length + v.untracked.length, 0);
   return {
     state: {
       ticketId: 1,
       worktreeCount: views.length,
-      commitCount: views.reduce((c, v) => c + v.commits.length, 0),
-      pendingCount: views.reduce((c, v) => c + v.staged.length + v.unstaged.length + v.untracked.length, 0),
+      commitCount,
+      pendingCount,
       worktrees: views,
+      summaryText: diffsSummaryText(views.length, commitCount, pendingCount),
     },
     targets: new Map(),
   };

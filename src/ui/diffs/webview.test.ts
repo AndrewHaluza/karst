@@ -4,12 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { injectDesignSystem } from '../../model/designSystem.js';
-import type {
-  ChangedFileView,
-  CommitView,
-  TicketChangesState,
-  WorktreeChangesView,
-} from './snapshot.js';
+import { diffsSummaryText, worktreeCountText, type ChangedFileView, type CommitView, type TicketChangesState, type WorktreeChangesView } from './snapshot.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
 
@@ -348,7 +343,7 @@ function commitView(overrides: Partial<CommitView> = {}): CommitView {
 }
 
 function worktreeView(overrides: Partial<WorktreeChangesView> = {}): WorktreeChangesView {
-  return {
+  const base = {
     label: 'api',
     branch: 'karst/feat/gates',
     baseRef: 'origin/main',
@@ -359,6 +354,8 @@ function worktreeView(overrides: Partial<WorktreeChangesView> = {}): WorktreeCha
     error: null,
     ...overrides,
   };
+  const pending = base.staged.length + base.unstaged.length + base.untracked.length;
+  return { ...base, countText: worktreeCountText(base.commits.length, pending) };
 }
 
 function stateOf(
@@ -371,6 +368,7 @@ function stateOf(
     commitCount: counts.commitCount,
     pendingCount: counts.pendingCount,
     worktrees,
+    summaryText: diffsSummaryText(worktrees.length, counts.commitCount, counts.pendingCount),
   };
 }
 
@@ -823,7 +821,7 @@ describe('ticket changes webview protocol', () => {
 
     const reloaded = boot({ state, loading: true, viewMode: 'flat' });
     expect(reloaded.refresh.disabled).toBe(true);
-    expect(reloaded.summary.textContent).toBe('1 worktrees · 0 commits · 0 pending');
+    expect(reloaded.summary.textContent).toBe('1 worktree · 0 commits · 0 pending');
     expect(reloaded.repos.innerHTML).toContain('<strong>api</strong>');
   });
 
@@ -971,7 +969,29 @@ describe('ticket changes webview tree view', () => {
   });
 });
 
+describe('diffs count text', () => {
+  it('renders the host-built summaryText and countText, not its own plural code', () => {
+    const harness = boot();
+    const worktree = worktreeView({
+      label: 'api',
+      commits: [{ hash: 'h1', shortHash: 'h1', subject: 'One', author: 'Ada', authoredAt: 'now', files: [] }],
+    });
+    const state = stateOf([worktree], { commitCount: 1, pendingCount: 0 });
+    harness.render(state, false);
+    expect(harness.summary.textContent).toBe('1 worktree · 1 commit · 0 pending');
+    expect(harness.repos.innerHTML).toContain('1 commit · clean');
+    const script = scriptBlock();
+    expect(script).not.toContain('commits.length} commits');
+    expect(script).not.toContain('state.worktreeCount} worktrees');
+  });
+});
+
 describe('diffs webview design-system conformance', () => {
+  it('carries the status palette as the last style block (UI-R03)', () => {
+    const styles = [...HTML.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]!.trim());
+    expect(styles.at(-1)).toBe('/*KARST_PALETTE*/');
+  });
+
   it('carries the design-system markers ahead of any file-local rule (UI-R03)', () => {
     const style = styleBlock();
     expect(style.trimStart().startsWith('/*KARST_DS_CSS*/')).toBe(true);
@@ -1096,12 +1116,13 @@ describe('diffs webview design-system conformance', () => {
     expect(script).toContain('aria-label="Copy commit hash" title="Copy commit hash"');
   });
 
-  it('colours the change markers with the GitHub default palette (A green, D red, M amber, R gray)', () => {
+  it('colours the change markers with the GitHub default palette (A green, D red, M amber, R neutral)', () => {
     const style = styleBlock();
     expect(style).toContain('.status-added { color: var(--k-success); }');
     expect(style).toContain('.status-deleted { color: var(--k-danger); }');
-    expect(style).toContain('.status-modified { color: var(--k-warning); }');
-    expect(style).toContain('.status-renamed { color: var(--k-pending); }');
+    // UI-R29: the fill colours (--k-attention 3.12:1 in light, --k-pending 3.63:1 in dark) are not text tones.
+    expect(style).toContain('.status-modified { color: var(--k-attention-fg); }');
+    expect(style).toContain('.status-renamed { color: var(--k-text-dim); }');
   });
 
   it('every title attribute is non-empty, period-free, and no longer than 80 characters (UI-R20)', () => {

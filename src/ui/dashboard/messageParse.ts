@@ -389,6 +389,11 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
         ? { type: 'server-logs-tab', tab }
         : null;
     }
+    case 'server-logs-match-count': {
+      if (typeof m.count !== 'number' || !Number.isSafeInteger(m.count) || m.count < 0) return null;
+      if (typeof m.seq !== 'number' || !Number.isSafeInteger(m.seq) || m.seq < 0) return null;
+      return { type: 'server-logs-match-count', count: m.count, seq: m.seq };
+    }
     // The scope is a manifest repository name (or `*`) and the body is
     // `.env`-shaped text, both bounded here. Neither is trimmed into meaning:
     // an empty body is the legitimate way to CLEAR a scope, and the host still

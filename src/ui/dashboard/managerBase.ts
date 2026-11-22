@@ -71,6 +71,11 @@ export abstract class DashboardManagerBase {
     this.console.closeServerLogs(ticketId);
   }
 
+  /** Answer a `server-logs-match-count` with the one shared match text. */
+  serverLogsMatchCount(ticketId: number, count: number, seq: number): void {
+    this.console.serverLogsMatchCount(ticketId, count, seq);
+  }
+
   /**
    * Push one sanitized live chunk of a server's log output to the ticket's
    * panel; no-op if the panel is not open.

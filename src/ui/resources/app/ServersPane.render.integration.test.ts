@@ -31,10 +31,17 @@ describe('Servers tab — structure', () => {
     const page = await mount('servers-mixed');
     const stats = q(page, '.stat').map((s) => [s.querySelector('.k')!.textContent, s.querySelector('.v')!.textContent, s.querySelector('.n')!.textContent]);
     expect(stats).toEqual([
-      ['Running', '4', '2 ticket · 2 shared'],
+      ['Running', '4', '2 tickets · 2 shared'],
       ['Idle shared', '1', 'no live ticket, not kept running'],
       ['Finished tickets', '1', 'with servers still running'],
     ]);
+  });
+
+  it('summary strip pluralizes the ticket count: 0 tickets, 1 ticket, 2 tickets', async () => {
+    const runningLine = async (scenario: string) => one(await mount(scenario), '.stat .n').textContent;
+    expect(await runningLine('servers-shared-only')).toBe('0 tickets · 2 shared');
+    expect(await runningLine('servers-archived')).toBe('1 ticket · 1 shared');
+    expect(await runningLine('servers-mixed')).toBe('2 tickets · 2 shared');
   });
 
   it('Shared services group: status word, service, base-branch chip, port, dependents (done marked), kept running', async () => {

@@ -90,4 +90,6 @@ export type HostMessage =
    * interleaves it into the chronological view.
    */
   | { type: 'server-log-output'; service: string; text: string }
+  /** The finished search match text, from `logMatchText` (@arch:NTF-07). */
+  | { type: 'server-logs-match-text'; seq: number; text: string }
   | ActionResultMessage;

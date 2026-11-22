@@ -15,6 +15,7 @@ import {
 import { aiCallSiteLabel } from '../../agent/aiCallSites.js';
 import { formatExactTokens, formatTokens, shareOfTotal } from '../../model/tokenFormat.js';
 import { formatId } from '../../model/entityId.js';
+import { plural } from '../../model/notifyText.js';
 import { buildQuotaView, type AccountOf, type QuotaView } from './quotaState.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
 import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../manifest/validate/quota.js';
@@ -39,6 +40,8 @@ export interface UsageBreakdownRow {
   key: string;
   label: string;
   calls: number;
+  /** The call count as the view prints it, from `plural` (@arch:NTF-07). */
+  callsText: string;
   totalTokens: number;
   totalDisplay: string;
   totalExact: string;
@@ -116,7 +119,15 @@ export interface UsageState {
   /** Graph spend rolled up per profile (Slice-6 T2); empty when none. */
   byProfile: UsageProfileRowView[];
   tickets: UsageTicketRowView[];
-  page: { offset: number; limit: number; groups: number; hasPrev: boolean; hasNext: boolean };
+  page: {
+    offset: number;
+    limit: number;
+    groups: number;
+    hasPrev: boolean;
+    hasNext: boolean;
+    /** The pager label, from `pageSummary` (@arch:NTF-07). */
+    summary: string;
+  };
   /** Per-core subscription quota, independent of the spend query. */
   quota: QuotaView;
   /** A rejected query, stated. Null when the query was well-formed. */
@@ -196,6 +207,7 @@ function breakdown(
       key: row.key,
       label: label(row.key),
       calls: row.calls,
+      callsText: plural(row.calls, 'call', 'calls'),
       totalTokens: fresh,
       totalDisplay: formatTokens(fresh),
       totalExact: formatExactTokens(fresh),
@@ -244,6 +256,7 @@ function profileRows(rows: UsageProfileRow[], freshTotal: number): UsageProfileR
       key: row.profile,
       label: profileLabel(row.profile),
       calls: row.calls,
+      callsText: plural(row.calls, 'call', 'calls'),
       totalTokens: fresh,
       totalDisplay: formatTokens(fresh),
       totalExact: formatExactTokens(fresh),
@@ -255,6 +268,11 @@ function profileRows(rows: UsageProfileRow[], freshTotal: number): UsageProfileR
       note: row.provider === null ? 'provider unknown' : row.provider,
     };
   });
+}
+
+/** `No tickets`, `1–1 of 1 ticket`, `1–2 of 4 tickets` — one text for the pager. */
+function pageSummary(offset: number, rowCount: number, groups: number): string {
+  return groups === 0 ? 'No tickets' : `${offset + 1}–${offset + rowCount} of ${plural(groups, 'ticket', 'tickets')}`;
 }
 
 /** The shell every state shares — also what an error or empty state renders. */
@@ -276,7 +294,7 @@ function base(
     byModel: [],
     byProfile: [],
     tickets: [],
-    page: { offset, limit, groups: 0, hasPrev: offset > 0, hasNext: false },
+    page: { offset, limit, groups: 0, hasPrev: offset > 0, hasNext: false, summary: pageSummary(offset, 0, 0) },
     quota,
     error: null,
   };
@@ -344,6 +362,7 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
       groups: stats.ticketGroups,
       hasPrev: offset > 0,
       hasNext: offset + stats.byTicket.length < stats.ticketGroups,
+      summary: pageSummary(offset, stats.byTicket.length, stats.ticketGroups),
     },
   };
 }

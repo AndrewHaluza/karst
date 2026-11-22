@@ -239,13 +239,14 @@
     /* One meaning, one token. The GitHub default palette for change markers:
        A green, D red, M amber, and gray for a rename — a rename is a path
        change, not a content change, so it reads as the neutral "unchanged"
-       tone rather than borrowing a change colour. --k-pending is the ramp's
-       gray (idle/skipped), exactly the neutral GitHub reserves for
-       non-content changes. */
+       tone rather than borrowing a change colour. Amber and the neutral tone
+       take their readable TEXT values: --k-attention is a fill/border colour
+       (3.12:1 in light) and --k-pending is the idle-dot fill (3.63:1 in dark),
+       both below the UI-R29 floor as 12px text. */
     .status-added { color: var(--k-success); }
-    .status-modified { color: var(--k-warning); }
+    .status-modified { color: var(--k-attention-fg); }
     .status-deleted { color: var(--k-danger); }
-    .status-renamed { color: var(--k-pending); }
+    .status-renamed { color: var(--k-text-dim); }
     /* File row actions — small icon buttons shown on hover like the commit
        copy-hash button. Full-width grid so the actions sit at the end. */
     .file-actions {
@@ -351,6 +352,7 @@
       .chev, .copy-hash { transition: none; }
     }
   </style>
+  <style>/*KARST_PALETTE*/</style>
 </head>
 <body>
   <header>
@@ -538,7 +540,7 @@
       return `<details class="repo"${changed ? ' open' : ''}>`
         + `<summary>${CHEV}<span><strong>${esc(worktree.label)}</strong>`
         + `<small>${esc(subtitle)}</small></span>`
-        + `<span>${worktree.commits.length} commits · ${pending ? `${pending} pending` : 'clean'}</span>`
+        + `<span>${esc(worktree.countText)}</span>`
         + `</summary>`
         + `${worktree.commits.length
           ? `<details class="group" open><summary>${CHEV}COMMITS<span>${worktree.commits.length}</span></summary>`
@@ -555,9 +557,7 @@
       loading = isLoading;
       const needle = filter.value.trim().toLowerCase();
       activeNeedle = needle;
-      summary.textContent = state
-        ? `${state.worktreeCount} worktrees · ${state.commitCount} commits · ${state.pendingCount} pending`
-        : 'No worktrees';
+      summary.textContent = state ? state.summaryText : 'No worktrees';
       const visible = state
         ? state.worktrees.filter((worktree) => !needle || worktreeMatches(worktree, needle))
         : [];

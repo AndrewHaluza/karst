@@ -89,6 +89,14 @@ karstTest.describe('full-page screenshots', () => {
         }
         if (v.click !== undefined) await page.locator(v.click).first().click();
         for (const sel of v.clicks ?? []) await page.locator(sel).first().click();
+        if (v.fill !== undefined) {
+          // The shot is the resting state: a focused search field draws its focus ring and the native cancel button.
+          await page.locator(v.fill.selector).fill(v.fill.text);
+          await page.locator(v.fill.selector).blur();
+        }
+        for (const msg of v.replies ?? []) {
+          await page.evaluate((m) => window.dispatchEvent(new MessageEvent('message', { data: m })), msg);
+        }
         if (v.hover !== undefined) await page.locator(v.hover).first().hover();
         await waitForPopoversSettled(page);
         if (v.id.startsWith('drill-')) {

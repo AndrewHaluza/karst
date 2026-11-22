@@ -4,6 +4,7 @@
  * stacks) and `footer` (legend and the project-wide actions). There is NO
  * project-wide "Start all": a start has a target, and each group owns its own.
  */
+import { plural } from '../../../model/notifyText.js';
 import type { ServersState } from '../serversState.js';
 import { Button } from '../../settings/app/primitives/Button.js';
 import { useResourcesApp } from './ResourcesAppContext.js';
@@ -19,7 +20,7 @@ function Summary({ state }: { state: ServersState }) {
       <div className="stat">
         <div className="k">Running</div>
         <div className="v">{running}</div>
-        <div className="n">{s.runningTickets} ticket · {s.runningShared} shared</div>
+        <div className="n">{plural(s.runningTickets, 'ticket', 'tickets')} · {s.runningShared} shared</div>
       </div>
       <div className="stat">
         <div className="k">Idle shared</div>

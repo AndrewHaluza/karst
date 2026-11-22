@@ -92,8 +92,15 @@ describe('diffs render fixtures', () => {
     expect(a).not.toBe(b);
   });
 
+  it('one-commit has singular count texts: one worktree, one commit, clean', () => {
+    const one = fixtures.find((f) => f.scenario === 'one-commit')!;
+    expect(one.state.worktrees).toHaveLength(1);
+    expect(one.state.summaryText).toBe('1 worktree · 1 commit · 0 pending');
+    expect(one.state.worktrees[0]!.countText).toBe('1 commit · clean');
+  });
+
   it('DIFFS_SCENARIOS type covers every DiffsScenario member', () => {
     const check: readonly DiffsScenario[] = DIFFS_SCENARIOS;
-    expect(check.length).toBe(4);
+    expect(check.length).toBe(5);
   });
 });

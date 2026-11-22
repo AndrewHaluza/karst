@@ -35,8 +35,9 @@ describe('gettingStarted webview.html', () => {
     expect(HTML).toContain('<!--KARST_CSP-->');
   });
 
-  it('injects the status palette, so the k-dot marks and the progress fill have a colour', () => {
-    expect(HTML).toContain('<style>/*KARST_PALETTE*/</style>');
+  it('injects the status palette as the last style block, so the k-dot marks and the progress fill have a colour', () => {
+    const styles = [...HTML.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]!.trim());
+    expect(styles.at(-1)).toBe('/*KARST_PALETTE*/');
   });
 
   it('wraps a long unbroken name inside its column', () => {
