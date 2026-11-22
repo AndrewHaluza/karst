@@ -13,7 +13,7 @@
  */
 import { createSender, type SettingsSender, type WebviewApi } from '../webviewSend.js';
 import type { AgentPickerRoutes } from '../../../model/agentPicker.js';
-import type { SettingsHostMessage, SettingsWebviewMessage } from '../messages.js';
+import type { SettingsHostMessage } from '../messages.js';
 
 export type { AgentPickerRoutes };
 
@@ -145,17 +145,4 @@ export function pageAgentPicker(scope: PageGlobals = globalThis as PageGlobals):
 /** The host-supplied route identity map, or `{}` when the picker blob is absent. */
 export function pageRoutes(scope: PageGlobals = globalThis as PageGlobals): AgentPickerRoutes {
   return scope.AP_ROUTES ?? {};
-}
-
-/**
- * Post one message with no async lifecycle of its own. Reserved for the two
- * cases that are not mutations: the debounced tab-scoped `validate`, and the
- * single-fetch asks whose lifecycle is owned by the tab that triggers them.
- * Anything with a result goes through `useHostMutation` (R11–R15).
- */
-export function postValidation(
-  send: SettingsSender,
-  message: Extract<SettingsWebviewMessage, { type: 'validate' }>,
-): void {
-  send.validate(message.manifest);
 }
