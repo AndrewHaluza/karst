@@ -18,6 +18,7 @@ import {
   planningBriefSection,
   proposalPayloadEquals,
   setProposalWarnings,
+  setProposalBaseShas,
   setProposalPriorityOverride,
   effectiveProposalPriority,
   validateProposalDependsOn,
@@ -73,6 +74,26 @@ describe('planning proposals', () => {
     discardProposal(store, id);
     expect(() => updateProposalPayload(store, id, payload)).toThrow(/not pending/);
     expect(getProposal(store, id)?.payload.title).toBe('Revised');
+  });
+
+  it('counts revisions: only updateProposalPayload increments revisionCount', () => {
+    const id = insertProposal(store, sessionId, payload, 'u1', ['w'], { api: 'abc' });
+    expect(getProposal(store, id)!.revisionCount).toBe(0);
+    setProposalWarnings(store, id, ['late']);
+    setProposalBaseShas(store, id, { api: 'def' });
+    setProposalPriorityOverride(store, id, 'high');
+    expect(getProposal(store, id)!.revisionCount).toBe(0);
+    updateProposalPayload(store, id, { ...payload, title: 'r1' });
+    updateProposalPayload(store, id, { ...payload, title: 'r2' }, 'u2');
+    expect(getProposal(store, id)!.revisionCount).toBe(2);
+    const t = createTicket(store, { key: 'RC-1', title: 't', projectId });
+    markProposalAccepted(store, id, t.id);
+    expect(getProposal(store, id)).toMatchObject({ status: 'accepted', revisionCount: 2 });
+
+    const d = insertProposal(store, sessionId, payload);
+    updateProposalPayload(store, d, { ...payload, title: 'r1' });
+    discardProposal(store, d);
+    expect(getProposal(store, d)).toMatchObject({ status: 'discarded', revisionCount: 1 });
   });
 
   it('persists sourceUuid on insert and on an in-place revise', () => {
@@ -156,7 +177,7 @@ describe('planning proposals', () => {
          id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL,
          payload_json TEXT NOT NULL, base_shas TEXT NOT NULL DEFAULT '{}', depends_on TEXT NOT NULL DEFAULT '[]',
          depends_on_tickets TEXT NOT NULL DEFAULT '[]', depends_dropped TEXT NOT NULL DEFAULT '[]',
-         priority_override TEXT,
+         priority_override TEXT, revision_count INTEGER NOT NULL DEFAULT 0,
          status TEXT NOT NULL DEFAULT 'pending',
          ticket_id INTEGER, source_uuid TEXT NOT NULL DEFAULT '',
          created_at TEXT NOT NULL DEFAULT (datetime('now')),

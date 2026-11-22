@@ -118,9 +118,11 @@ describe('karst stats — report', () => {
       .prepare("INSERT INTO planning_proposals (session_id, payload_json, status, ticket_id) VALUES (?, ?, 'accepted', ?)")
       .run(sid, JSON.stringify({ title: 'My draft', description: 'SECRET', summary: 's', repos: ['a'] }), t.id);
     const out = runStatsCommand(store, parseStatsArgs(['stats', '--planning']), 'demo');
-    for (const h of ['Funnel:', 'Outcome of draft-born tickets', 'Split by core/model', 'Split by repos', 'Stuck', 'My draft', 'LOW', 'pending']) {
+    for (const h of ['Funnel:', 'Outcome of draft-born tickets', 'Split by core/model', 'Split by repos', 'Split by revised', 'Stuck', 'My draft', 'LOW', 'pending']) {
       expect(out).toContain(h);
     }
+    expect(out).toContain('revised before accept: 0 of 1 accepted (0.0%;');
+    expect(out).toContain('pre-v135 drafts count as 0');
     expect(out).not.toContain('SECRET');
     expect(JSON.parse(runStatsCommand(store, parseStatsArgs(['stats', '--planning', '--json']), 'demo')).funnel.total.accepted).toBe(1);
   });

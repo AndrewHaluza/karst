@@ -203,7 +203,8 @@ function renderPlanning(r: PlanningReport): string {
   for (const s of f.bySession) {
     lines.push(`  session ${s.sessionId} (${s.core}/${s.model ?? 'unknown'}): pending=${s.pending}, accepted=${s.accepted}, discarded=${s.discarded}`);
   }
-  lines.push(`  revised before accept: pending — ${f.revisedBeforeAccept.missing}`);
+  const rba = f.revisedBeforeAccept;
+  lines.push(`  revised before accept: ${rba.revised} of ${rba.accepted} accepted (${rate(rba.rate)}; pre-v135 drafts count as 0)`);
   lines.push('', 'Outcome of draft-born tickets:');
   lines.push(...table(OUTCOME_HEADERS, [outcomeCells(r.outcome)]));
   for (const split of r.splits) {

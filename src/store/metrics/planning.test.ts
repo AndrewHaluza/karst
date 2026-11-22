@@ -28,6 +28,7 @@ describe('collectPlanning', () => {
     stage?: string;
     merged?: string;
     createdAt?: string;
+    revisions?: number;
   }): { proposalId: number; ticketId: number | null } {
     const payload =
       typeof opts.payload === 'string'
@@ -44,7 +45,7 @@ describe('collectPlanning', () => {
     }
     const { lastInsertRowid } = store.db
       .prepare(
-        'INSERT INTO planning_proposals (session_id, payload_json, depends_on, status, ticket_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO planning_proposals (session_id, payload_json, depends_on, status, ticket_id, created_at, updated_at, revision_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         opts.session ?? sessionId,
@@ -54,6 +55,7 @@ describe('collectPlanning', () => {
         ticketId,
         opts.createdAt ?? '2026-01-01 00:00:00',
         '2026-01-01 00:00:00',
+        opts.revisions ?? 0,
       );
     return { proposalId: Number(lastInsertRowid), ticketId };
   }
@@ -79,8 +81,24 @@ describe('collectPlanning', () => {
     expect(r.funnel.total).toEqual({ pending: 1, accepted: 2, discarded: 1, total: 4 });
     expect(r.funnel.bySession).toHaveLength(2);
     expect(r.funnel.bySession.find((s) => s.sessionId === other)).toMatchObject({ core: 'codex', model: null, accepted: 1, total: 1 });
-    expect(r.funnel.revisedBeforeAccept.value).toBeNull();
-    expect(r.funnel.revisedBeforeAccept.missing).toMatch(/revised_at/);
+    expect(r.funnel.revisedBeforeAccept).toEqual({ revised: 0, accepted: 2, rate: 0 });
+  });
+
+  it('counts accepted drafts revised before accept, ignoring pending and discarded revisions', () => {
+    draft({ status: 'accepted', ticketKey: 'A', revisions: 2 });
+    draft({ status: 'accepted', ticketKey: 'B' });
+    draft({ status: 'accepted', ticketKey: 'C' });
+    draft({ status: 'pending', revisions: 3 });
+    draft({ status: 'discarded', revisions: 1 });
+    const r = collectPlanning(store, {}, NOW);
+    expect(r.funnel.revisedBeforeAccept).toEqual({ revised: 1, accepted: 3, rate: 1 / 3 });
+    const split = r.splits.find((s) => s.name === 'revised')!.buckets;
+    expect(split.map((b) => [b.bucket, b.drafts])).toEqual([['0', 2], ['1+', 1]]);
+  });
+
+  it('reports a null revise rate when no draft was accepted', () => {
+    draft({ status: 'pending', revisions: 1 });
+    expect(collectPlanning(store, {}, NOW).funnel.revisedBeforeAccept).toEqual({ revised: 0, accepted: 0, rate: null });
   });
 
   it('reports missing sources as null, not 0, and merged time from proposal creation', () => {
