@@ -692,6 +692,54 @@ describe('ticket form — Cancel asks only when the form was edited (SET-54, Q13
     expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
   });
 
+  describe('a create-mode pick that is not a native change event still makes Cancel ask', () => {
+    const repos = [
+      { service: 'api', selected: true, score: 3 },
+      { service: 'web', selected: false, score: 0 },
+    ];
+    const repoBases = [{ repo: 'api', default: 'main', value: '', candidates: ['main', 'epic/x'] }];
+    const approaches = [
+      { id: 'direct', label: 'Direct', description: 'd' },
+      { id: 'rpi', label: 'RPI', description: 'r' },
+    ];
+    const st = () => baseState({ repos, repoBases, approaches, selectedApproach: 'direct' });
+    const cancelPosts = (v: RenderHandle) => {
+      v.click('#cancelBtn');
+      return v.posted.at(-1);
+    };
+
+    it('a core pick from the agent menu', () => {
+      const v = open(st());
+      v.click('[data-ap-trigger="core"]');
+      const option = v.query<HTMLElement>('#agentIdentityPicker [data-ap-core]')!;
+      expect(option).toBeTruthy();
+      option.click();
+      expect(v.posted.some((m) => (m as { type: string }).type === 'set-provider')).toBe(true);
+      expect(cancelPosts(v)).toEqual({ type: 'close-form', dirty: true });
+    });
+
+    it('a repository chip toggle', () => {
+      const v = open(st());
+      v.click('[data-repo="web"]');
+      expect(cancelPosts(v)).toEqual({ type: 'close-form', dirty: true });
+    });
+
+    it('a base-branch pick', () => {
+      const v = open(st());
+      v.click('[data-base-caret="api"]');
+      v.click('[data-base-pick="epic/x"]');
+      expect(cancelPosts(v)).toEqual({ type: 'close-form', dirty: true });
+    });
+
+    it('an approach pick', () => {
+      const v = open(st());
+      v.click('#approachBtn');
+      v.click('[data-approach="rpi"]');
+      expect(v.posted).toContainEqual(expect.objectContaining({ type: 'set-approach', id: 'rpi' }));
+      expect(cancelPosts(v)).toEqual({ type: 'close-form', dirty: true });
+    });
+  });
+
   it('in edit mode a settings pick posts a plain close-form: the host already stored it', () => {
     const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T' }));
     v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
