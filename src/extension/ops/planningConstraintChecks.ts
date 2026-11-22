@@ -207,3 +207,127 @@ export async function commitExistsViaGit(repoPath: string, hash: string, runGit:
     throw e;
   }
 }
+
+/** A distinct repository checkout and the base branch its draft is planned against. */
+export interface PathRepoTarget {
+  repoPath: string;
+  baseBranch: string;
+}
+/** One async `git cat-file --batch-check` in `repoPath`, `input` on stdin; resolves to stdout. */
+export type GitBatch = (repoPath: string, input: string) => Promise<string>;
+
+export const MAX_CHECKED_PATHS = 50;
+export const MAX_MISSING_PATH_WARNINGS = 3;
+const GIT_BATCH_TIMEOUT_MS = 5000;
+const GIT_BATCH_MAX_BUFFER = 1024 * 1024;
+const OBJECT_LINE = /^[0-9a-f]{40,64} \S+ \d+$/;
+const MISSING_PREFIX = 'missing path at base: ';
+
+/** The distinct repoPaths of the named repositories, each with its base branch (BASE-PER). */
+export function repoTargetsOf(manifest: Manifest | undefined, names: readonly string[]): PathRepoTarget[] {
+  if (!manifest) return [];
+  const byPath = new Map<string, PathRepoTarget>();
+  for (const name of names) {
+    const repository = manifest.repositories[name];
+    if (!repository?.repoPath || byPath.has(repository.repoPath)) continue;
+    byPath.set(repository.repoPath, { repoPath: repository.repoPath, baseBranch: resolveBaselineBranch(manifest, repository) });
+  }
+  return [...byPath.values()];
+}
+
+/** The spellings that count as `path` at base: an ESM `.js` specifier also matches its `.ts`/`.tsx` source. */
+export function pathVariants(path: string): string[] {
+  if (!path.endsWith('.js')) return [path];
+  const stem = path.slice(0, -'.js'.length);
+  return [path, `${stem}.ts`, `${stem}.tsx`];
+}
+
+/**
+ * The paths missing at the planned base of `target`, from ONE `cat-file
+ * --batch-check`: the input holds `<ref>^{commit}` for `origin/<base>`,
+ * `<base>` and `HEAD`, then `<ref>:<path>` for every ref and path variant.
+ * The first ref that resolves wins. Undefined when none resolves.
+ */
+export async function missingPathsViaGitBatch(
+  target: PathRepoTarget,
+  paths: readonly string[],
+  batch: GitBatch,
+): Promise<string[] | undefined> {
+  const refs = [`origin/${target.baseBranch}`, target.baseBranch, 'HEAD'];
+  const variants = paths.map(pathVariants);
+  const perRef = variants.reduce((n, v) => n + v.length, 0);
+  const lines = [
+    ...refs.map((r) => `${r}^{commit}`),
+    ...refs.flatMap((r) => variants.flatMap((vs) => vs.map((v) => `${r}:${v}`))),
+  ];
+  const out = (await batch(target.repoPath, `${lines.join('\n')}\n`)).split('\n');
+  const found = (i: number): boolean => OBJECT_LINE.test(out[i] ?? '');
+  const refIndex = refs.findIndex((_, i) => found(i));
+  if (refIndex === -1) return undefined;
+  let cursor = refs.length + refIndex * perRef;
+  const missing: string[] = [];
+  variants.forEach((vs, i) => {
+    if (!vs.some((_, j) => found(cursor + j))) missing.push(paths[i]!);
+    cursor += vs.length;
+  });
+  return missing;
+}
+
+/**
+ * `missing path at base: <path>` for each path that no checked target has at
+ * its planned base (at most 3, then `+N more missing paths at base`). One batch
+ * per target, all in parallel. A target whose git fails or whose base does not
+ * resolve is skipped with a `[planning]` debug line; with no checked target,
+ * nothing is reported.
+ */
+export async function missingPathWarnings(
+  paths: readonly string[],
+  targets: readonly PathRepoTarget[],
+  batch: GitBatch,
+  debug: Debug,
+): Promise<string[]> {
+  const wanted = [...new Set(paths.filter((p) => !/[\r\n]/.test(p)))].slice(0, MAX_CHECKED_PATHS);
+  if (wanted.length === 0 || targets.length === 0) return [];
+  const results = await Promise.all(
+    targets.map((t) =>
+      missingPathsViaGitBatch(t, wanted, batch).then(
+        (missing) => {
+          if (missing === undefined) debug(`[planning] path check in ${t.repoPath}: no base ref — paths not verified`);
+          return missing;
+        },
+        (e: unknown) => {
+          debug(`[planning] path check in ${t.repoPath} skipped: ${e instanceof Error ? e.message : String(e)}`);
+          return undefined;
+        },
+      ),
+    ),
+  );
+  const checked = results.filter((r): r is string[] => r !== undefined);
+  if (checked.length === 0) return [];
+  const missing = wanted.filter((p) => checked.every((m) => m.includes(p)));
+  const shown = missing
+    .slice(0, MAX_MISSING_PATH_WARNINGS)
+    .map((p) => `${MISSING_PREFIX}${clipToken(p, MAX_WARNING_CHARS - MISSING_PREFIX.length)}`);
+  const rest = missing.length - shown.length;
+  return rest > 0 ? [...shown, `+${rest} more missing paths at base`] : shown;
+}
+
+/**
+ * The default GitBatch: async `git -C <repoPath> cat-file --batch-check` with
+ * `input` on stdin. ASYNC on purpose: it runs in the extension host, whose event
+ * loop must never block on a child process. `execFile` kills it on timeout and
+ * caps its output.
+ */
+export function gitCatFileBatch(repoPath: string, input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      'git',
+      ['-C', repoPath, 'cat-file', '--batch-check'],
+      { encoding: 'utf8', timeout: GIT_BATCH_TIMEOUT_MS, maxBuffer: GIT_BATCH_MAX_BUFFER },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)),
+    );
+    // A stdin failure (EPIPE when git exits early) rejects; a later reject is a no-op.
+    child.stdin?.on('error', reject);
+    child.stdin?.end(input);
+  });
+}

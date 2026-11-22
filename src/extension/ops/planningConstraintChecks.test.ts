@@ -10,7 +10,14 @@ import {
   commitExistsViaGit,
   commitWarnings,
   sensitivePathWarning,
+  missingPathWarnings,
+  missingPathsViaGitBatch,
+  pathVariants,
+  repoTargetsOf,
+  MAX_CHECKED_PATHS,
+  type GitBatch,
 } from './planningConstraintChecks.js';
+import type { Manifest } from '../../manifest/types.js';
 
 const dirs: string[] = [];
 function repoWithDocs(doc: string | undefined): string {
@@ -276,5 +283,122 @@ describe('@ui design keys', () => {
     for (const x of w) expect(x.length).toBeLessThanOrEqual(60);
     expect(w[0]).toMatch(/^malformed design key …a+$/);
     expect(w[1]).toMatch(/^unknown design key …A+$/);
+  });
+});
+
+const SHA = 'a'.repeat(40);
+/** A fake `cat-file --batch-check`: `known` lines resolve, every other line is missing. */
+function fakeBatch(known: (line: string) => boolean): GitBatch & { calls: { repoPath: string; lines: string[] }[] } {
+  const calls: { repoPath: string; lines: string[] }[] = [];
+  const fn = async (repoPath: string, input: string): Promise<string> => {
+    const lines = input.split('\n').filter((l) => l !== '');
+    calls.push({ repoPath, lines });
+    return lines.map((l) => (known(l) ? `${SHA} blob 12` : `${l} missing`)).join('\n') + '\n';
+  };
+  return Object.assign(fn, { calls });
+}
+
+describe('repoTargetsOf', () => {
+  it('dedupes by repoPath and resolves the base branch of the first name', () => {
+    const manifest = {
+      baselineBranch: 'develop',
+      repositories: { a: { repoPath: '/x' }, b: { repoPath: '/x', baselineBranch: 'other' }, c: { repoPath: '/y', baselineBranch: 'main' } },
+    } as unknown as Manifest;
+    expect(repoTargetsOf(manifest, ['a', 'b', 'c', 'zz'])).toEqual([
+      { repoPath: '/x', baseBranch: 'develop' },
+      { repoPath: '/y', baseBranch: 'main' },
+    ]);
+    expect(repoTargetsOf(undefined, ['a'])).toEqual([]);
+  });
+});
+
+describe('pathVariants', () => {
+  it('adds .ts and .tsx for a .js specifier only', () => {
+    expect(pathVariants('src/a.js')).toEqual(['src/a.js', 'src/a.ts', 'src/a.tsx']);
+    expect(pathVariants('src/a.ts')).toEqual(['src/a.ts']);
+    expect(pathVariants('src/a.json')).toEqual(['src/a.json']);
+  });
+});
+
+describe('missingPathsViaGitBatch', () => {
+  const target = { repoPath: '/r', baseBranch: 'develop' };
+  it('sends every ref and every path in ONE batch and uses origin/<base> first', async () => {
+    const batch = fakeBatch((l) => l === 'origin/develop^{commit}' || l === 'develop^{commit}' || l === 'origin/develop:src/a.ts' || l === 'develop:src/b.ts');
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], batch)).toEqual(['src/b.ts']);
+    expect(batch.calls).toHaveLength(1);
+    expect(batch.calls[0]!.lines.slice(0, 3)).toEqual(['origin/develop^{commit}', 'develop^{commit}', 'HEAD^{commit}']);
+  });
+  it('falls back to the local branch, then HEAD', async () => {
+    const local = fakeBatch((l) => l === 'develop^{commit}' || l === 'develop:src/a.ts');
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], local)).toEqual(['src/b.ts']);
+    const head = fakeBatch((l) => l === 'HEAD^{commit}' || l === 'HEAD:src/b.ts');
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], head)).toEqual(['src/a.ts']);
+  });
+  it('is undefined when no ref resolves', async () => {
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts'], fakeBatch(() => false))).toBeUndefined();
+  });
+  it('a .js path counts as present when its .ts or .tsx source exists', async () => {
+    const batch = fakeBatch((l) => l === 'origin/develop^{commit}' || l === 'origin/develop:src/a.ts' || l === 'origin/develop:src/b.tsx');
+    expect(await missingPathsViaGitBatch(target, ['src/a.js', 'src/b.js', 'src/c.js'], batch)).toEqual(['src/c.js']);
+  });
+  it('reads a line as present only when it is "<sha> <type> <size>"', async () => {
+    const batch: GitBatch = async () => `${SHA} commit 200\n${SHA} commit 200\n${SHA} commit 200\nsrc/a.ts ambiguous\n\n`;
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts'], batch)).toEqual(['src/a.ts']);
+  });
+});
+
+describe('missingPathWarnings', () => {
+  const t1 = { repoPath: '/r1', baseBranch: 'main' };
+  const t2 = { repoPath: '/r2', baseBranch: 'main' };
+  const resolves = (l: string) => l.endsWith('^{commit}');
+  it('runs one batch per target and warns on a path missing in every target', async () => {
+    const batch = fakeBatch((l) => resolves(l) || l === 'origin/main:src/a.ts');
+    const w = await missingPathWarnings(['src/a.ts', 'src/b.ts'], [t1, t2], batch, vi.fn());
+    expect(w).toEqual(['missing path at base: src/b.ts']);
+    expect(batch.calls.map((c) => c.repoPath)).toEqual(['/r1', '/r2']);
+  });
+  it('caps the output at 3 paths and one "+N more" line', async () => {
+    const paths = ['src/1.ts', 'src/2.ts', 'src/3.ts', 'src/4.ts', 'src/5.ts'];
+    expect(await missingPathWarnings(paths, [t1], fakeBatch(resolves), vi.fn())).toEqual([
+      'missing path at base: src/1.ts',
+      'missing path at base: src/2.ts',
+      'missing path at base: src/3.ts',
+      '+2 more missing paths at base',
+    ]);
+    expect(await missingPathWarnings(paths.slice(0, 3), [t1], fakeBatch(resolves), vi.fn())).toHaveLength(3);
+  });
+  it('checks at most 50 distinct paths and drops paths with a line break', async () => {
+    const batch = fakeBatch(resolves);
+    const paths = Array.from({ length: 60 }, (_, i) => `src/f${i}.ts`);
+    await missingPathWarnings([...paths, 'src/f0.ts', 'src/x\n.ts', 'src/y\r.ts'], [t1], batch, vi.fn());
+    const pathLines = batch.calls[0]!.lines.filter((l) => l.startsWith('HEAD:'));
+    expect(pathLines).toHaveLength(MAX_CHECKED_PATHS);
+    expect(pathLines.some((l) => /[\r\n]/.test(l))).toBe(false);
+  });
+  it('is silent with no paths or no targets, and spawns nothing', async () => {
+    const batch = fakeBatch(resolves);
+    expect(await missingPathWarnings([], [t1], batch, vi.fn())).toEqual([]);
+    expect(await missingPathWarnings(['src/a.ts'], [], batch, vi.fn())).toEqual([]);
+    expect(batch.calls).toHaveLength(0);
+  });
+  it('skips a target whose git fails or whose base does not resolve, with a [planning] debug line', async () => {
+    const debug = vi.fn();
+    const batch: GitBatch = async (repoPath, input) => {
+      if (repoPath === '/r1') throw new Error('spawn git ENOENT');
+      return fakeBatch(() => false)(repoPath, input);
+    };
+    expect(await missingPathWarnings(['src/a.ts'], [t1, t2], batch, debug)).toEqual([]);
+    expect(debug).toHaveBeenCalledWith(expect.stringMatching(/^\[planning\] .*\/r1.*spawn git ENOENT/));
+    expect(debug).toHaveBeenCalledWith(expect.stringMatching(/^\[planning\] .*\/r2.*no base ref/));
+  });
+  it('a path present in one checked target and missing in another is not reported', async () => {
+    const batch: GitBatch = async (repoPath, input) => fakeBatch((l) => resolves(l) || (repoPath === '/r2' && l === 'origin/main:src/a.ts'))(repoPath, input);
+    expect(await missingPathWarnings(['src/a.ts'], [t1, t2], batch, vi.fn())).toEqual([]);
+  });
+  it('clips a long path to keep the warning at 60 chars', async () => {
+    const long = `src/${'deep/'.repeat(20)}file.ts`;
+    const [w] = await missingPathWarnings([long], [t1], fakeBatch(resolves), vi.fn());
+    expect(w!.length).toBeLessThanOrEqual(60);
+    expect(w).toMatch(/^missing path at base: ….*file\.ts$/);
   });
 });
