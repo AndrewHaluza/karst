@@ -829,6 +829,31 @@ describe('buildDashboardState', () => {
     expect(state.capabilityIdentity.graphFast).toEqual({ provider: 'claude', model: 'claude-sonnet-5', effort: 'low' });
   });
 
+  it('ignores a stale ticket core on a graph ticket: expert/worker/fast stay preset/approach (arch:AC-63)', () => {
+    const m = manifest({ extention: repo() }, {
+      approaches: [graphApproach({ enabled: true })],
+      agentPresets: { lean: { slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol' } } } },
+      agentProvider: 'claude',
+      defaultModel: 'claude-sonnet-5',
+    });
+    const t = createTicket(store, { key: 'GRAPH-STALE', title: 'graph' });
+    updateTicketFields(store, t.id, { agentPreset: 'lean', approach: 'karst-graph-engineering' });
+    updateTicketFields(store, t.id, { agentProvider: 'opencode', model: 'opencode-go/kimi-k2', effort: 'max' });
+    const rec = getTicket(store, t.id)!;
+    expect(rec.agentProvider).toBe('opencode');
+    expect(rec.agentPreset).toBe('lean');
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined,
+      agentContextFor({ defaultModel: null, defaultEffort: null }, m, rec.agentPreset, rec.agentProvider, {
+        approach: rec.approach,
+        fields: ticketLaunchFields(rec),
+      }),
+    );
+    expect(state.capabilityIdentity.graphExpert).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', effort: null });
+    expect(state.capabilityIdentity.graphWorker).toEqual({ provider: 'claude', model: 'claude-sonnet-5', effort: 'low' });
+    expect(state.capabilityIdentity.graphFast).toEqual({ provider: 'claude', model: 'claude-sonnet-5', effort: 'low' });
+  });
+
   it('names no graph role for a classic ticket whose preset has graph slots (T1266 fix)', () => {
     const m = manifest({ extention: repo() }, {
       approaches: [graphApproach({ enabled: true })],

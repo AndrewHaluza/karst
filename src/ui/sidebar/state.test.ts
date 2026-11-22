@@ -46,6 +46,22 @@ describe('buildSidebarState', () => {
     expect(byLabel['C-1 — classic']).toBeUndefined();
   });
 
+  it('ignores a stale ticket core on a graph ticket: the roles stay preset/approach (arch:AC-63)', () => {
+    const m = buildManifest({ extention: repoFixture() }, {
+      approaches: [graphApproach({ enabled: true })],
+      agentPresets: { lean: { slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol' } } } },
+    });
+    const graph = createTicket(store, { key: 'G-3', title: 'stale' });
+    updateTicketFields(store, graph.id, { approach: 'karst-graph-engineering', agentPreset: 'lean' });
+    updateTicketFields(store, graph.id, { agentProvider: 'opencode', model: 'opencode-go/kimi-k2', effort: 'max' });
+    const rows = buildSidebarState(store, { facets: ['all'], filter: '', manifest: m }).sections.current;
+    expect(rows.find((r) => r.label === 'G-3 — stale')?.graphRoles).toEqual([
+      { role: 'expert', text: 'Codex · GPT-5.6 Sol', source: 'preset' },
+      { role: 'worker', text: 'Claude Code · Sonnet 5 · low', source: 'approach' },
+      { role: 'fast', text: 'Claude Code · Sonnet 5 · low', source: 'approach' },
+    ]);
+  });
+
   it('gives the packaged Dynamic Graph approach its approach fallback although the raw manifest never names it (T1266)', () => {
     const m = buildManifest({ extention: repoFixture() }, {});
     const graph = createTicket(store, { key: 'G-2', title: 'packaged' });
