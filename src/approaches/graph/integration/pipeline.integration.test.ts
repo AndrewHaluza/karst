@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync, mkdirSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore, type Store } from '../../../store/db.js';
@@ -21,7 +21,7 @@ import { domainKeyOf } from './domains.js';
 import { canonicalPath } from '../../../runtime/pathScope.js';
 import { acquireLease } from '../../../store/graph/leases.js';
 import type { AgentTransport, SupervisedAgentSession } from '../transport/supervisedCliTransport.js';
-import type { GitRunner } from '../../../integrations/git.js';
+import { defaultGitRunner, GIT_MAX_OUTPUT_BYTES, type GitRunner } from '../../../integrations/git.js';
 import { cleanupTerminalNodeWorkspace } from '../workspace/cleanup.js';
 import { nodeWorkspaceDir } from '../workspace/provider.js';
 import { formatIntegrationNonce, reclaimNodeRunIntegrating, workspacesForNode } from '../../../store/graph/nodeRuns.js';
@@ -1283,5 +1283,80 @@ describe('runCompletionPipeline — Slice 5 Task 5: deterministic integration un
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(h.graphRunId) as { status: string };
     expect(graph.status).toBe('blocked');
+  });
+});
+
+describe('runCompletionPipeline — workspace patch bytes (T1304)', () => {
+  /** Commit everything in a workspace clone. The clone has no user config. */
+  function commitAll(cwd: string, message: string): void {
+    git(cwd, ['add', '-A']);
+    git(cwd, ['-c', 'user.email=t@karst', '-c', 'user.name=T', 'commit', '-qm', message]);
+  }
+
+  it('lands a binary workspace diff larger than the 1 MiB stdout cap (T1301)', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    mkdirSync(join(h.worktree, 'bin'), { recursive: true });
+    writeFileSync(join(h.worktree, 'bin/mod.bin'), randomBytes(256 * 1024));
+    writeFileSync(join(h.worktree, 'bin/del.bin'), randomBytes(256 * 1024));
+    git(h.worktree, ['add', '-A']);
+    git(h.worktree, ['commit', '-qm', 'binary base']);
+    const baseSha = git(h.worktree, ['rev-parse', 'HEAD']);
+
+    insertNodeRun(h, 71, 'completing');
+    const ws = makeWorkspaceClone(h.worktree, baseSha);
+    const modified = randomBytes(512 * 1024);
+    const added = randomBytes(1024 * 1024);
+    writeFileSync(join(ws, 'bin/mod.bin'), modified);
+    writeFileSync(join(ws, 'bin/new.bin'), added);
+    rmSync(join(ws, 'bin/del.bin'));
+    commitAll(ws, 'node work');
+
+    // The fixture must exceed the runner cap, or it proves nothing.
+    const raw = spawnSync('git', ['diff', '--binary', baseSha], { cwd: ws, maxBuffer: 64 * 1024 * 1024 });
+    expect(raw.stdout.byteLength).toBeGreaterThan(GIT_MAX_OUTPUT_BYTES);
+
+    const domain = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    recordBaseHead(h, 71, domain, baseSha);
+    const deps = makeDeps(h, {
+      git: defaultGitRunner,
+      declaredWritesOf: () => [{ domainKey: domain, paths: ['bin'] }],
+      workspaceCwdOf: (nodeRunId) => (nodeRunId === 71 ? ws : undefined),
+    });
+
+    const result = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 71 });
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
+    expect(readFileSync(join(h.worktree, 'bin/mod.bin')).equals(modified)).toBe(true);
+    expect(readFileSync(join(h.worktree, 'bin/new.bin')).equals(added)).toBe(true);
+    expect(existsSync(join(h.worktree, 'bin/del.bin'))).toBe(false);
+  });
+
+  it('lands a diff whose last line is a blank context line without corrupt patch (T1297)', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    writeFileSync(join(h.worktree, 'a.ts'), 'l1\nl2\nl3\nl4\n\n');
+    git(h.worktree, ['commit', '-qam', 'trailing blank line']);
+    const baseSha = git(h.worktree, ['rev-parse', 'HEAD']);
+
+    insertNodeRun(h, 72, 'completing');
+    const ws = makeWorkspaceClone(h.worktree, baseSha);
+    const edited = 'l1\nl2\nl3\nL4\n\n';
+    writeFileSync(join(ws, 'a.ts'), edited);
+
+    // The fixture must end on a blank context line: " \n".
+    const raw = spawnSync('git', ['diff', '--binary', baseSha], { cwd: ws, encoding: 'utf8' });
+    expect(raw.stdout.endsWith('\n \n')).toBe(true);
+
+    const domain = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    recordBaseHead(h, 72, domain, baseSha);
+    const deps = makeDeps(h, {
+      workspaceCwdOf: (nodeRunId) => (nodeRunId === 72 ? ws : undefined),
+    });
+
+    const result = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 72 });
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe(edited);
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
   });
 });
