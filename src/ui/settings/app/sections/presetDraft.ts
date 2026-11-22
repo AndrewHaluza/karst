@@ -33,7 +33,7 @@ import type { AgentPreset, Manifest } from '../../../../manifest/types.js';
 import type { AgentProvider } from '../../../../manifest/types.js';
 import { KNOWN_AGENT_PROVIDERS, AGENT_PROVIDER_LABELS } from '../../../../model/agentProviders.js';
 import { bundledModelCatalog } from '../../../../agent/modelCatalog.js';
-import type { PresetCapabilityGroupView, PresetInheritance } from '../../presetMatrix.js';
+import type { PresetInheritance } from '../../presetMatrix.js';
 
 /**
  * The core's display name, from the one browser-safe registry (SET-35).
@@ -115,29 +115,6 @@ export function activePresetName(manifest: Manifest | undefined): string {
   return manifest?.activeAgentPreset || manifest?.defaultAgentPreset || '';
 }
 
-/** The preset the matrix is editing, or `null` when none is selected. */
-export function currentPreset(
-  manifest: Manifest | undefined,
-  editing: string | null,
-): MaybeLegacyPreset | null {
-  if (editing === null) return null;
-  const presets = presetMap(manifest);
-  return Object.prototype.hasOwnProperty.call(presets, editing)
-    ? (presets[editing] as MaybeLegacyPreset)
-    : null;
-}
-
-/** Every capability id in host order, deduplicated across groups. */
-export function presetCapabilityIds(groups: readonly PresetCapabilityGroupView[]): readonly string[] {
-  const ids: string[] = [];
-  for (const group of groups) {
-    for (const row of group?.rows ?? []) {
-      if (row?.capability && ids.indexOf(row.capability) === -1) ids.push(row.capability);
-    }
-  }
-  return ids;
-}
-
 /**
  * The preset in `slots:` form. A legacy flat record becomes ONE slot on every
  * capability; an untouched one is only ever passed through this on a write.
@@ -159,14 +136,6 @@ export function slotsFormPreset(
   if (preset.effort !== undefined) slot.effort = preset.effort;
   for (const capability of capabilityIds) out.slots[capability] = { ...slot };
   return out;
-}
-
-/** How many rows a preset pins — the `n/total overridden` count in the list. */
-export function overriddenCount(
-  preset: MaybeLegacyPreset | null | undefined,
-  capabilityIds: readonly string[],
-): number {
-  return Object.keys(slotsFormPreset(preset, capabilityIds).slots).length;
 }
 
 /**

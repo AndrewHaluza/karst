@@ -246,15 +246,6 @@ export function canDeleteApproach(
 /** The drawer's Delete note, which only applies while the approach is installed. */
 export const DELETE_BLOCKED_NOTE = 'Uninstall before deleting';
 
-/** Set `enabled`, defaulting to true when the field is absent. */
-export function setApproachEnabled(
-  list: readonly ApproachDef[],
-  id: string,
-  enabled: boolean,
-): ApproachDef[] {
-  return list.map((a) => (a.id === id ? ({ ...a, enabled } as ApproachDef) : a));
-}
-
 /**
  * Write one graph profile's identity. A cleared key is DELETED, matching the
  * drawer's rule for optional fields: leaving `provider: ''` would write an empty

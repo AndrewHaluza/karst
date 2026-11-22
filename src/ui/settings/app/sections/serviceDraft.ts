@@ -201,17 +201,6 @@ export function inheritedConvention(
   return global !== undefined && global !== '' ? global : fallback;
 }
 
-/**
- * Set `enabled` explicitly.
- *
- * Absent means enabled on disk, so the toggle writes a literal boolean rather
- * than flipping `enabled === false` — that would turn an absent field into a
- * literal `true` and churn the file.
- */
-export function setRepositoryEnabled(draft: Manifest, name: string, enabled: boolean): Manifest {
-  return writeRepositoryField(draft, name, { enabled });
-}
-
 /** Whether a repository declares a service in either shape — i.e. whether runtime fields render. */
 export function isRunnable(repo: RepositoryDef | undefined): boolean {
   return serviceDefsOf(repo).length > 0;
@@ -257,14 +246,6 @@ export function portDefault(value: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/** Parse the dependency's bind list out of a newline-separated textarea. */
-export function parseLines(text: string): readonly string[] {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '');
-}
-
 /**
  * The EMPTY-PORT fallback line.
  *
@@ -276,11 +257,6 @@ export function emptyPortsNotice(def: ServiceDef | undefined): string {
   return def?.docker
     ? 'No ports declared — a container service publishes only the ports this list declares, so none are published.'
     : "No ports declared — Karst probes this repository's package.json scripts instead. Not a Node project? Declare the port explicitly.";
-}
-
-/** The EMPTY-DEPENDENCY notice, which differs when nothing else is runnable. */
-export function emptyDependencyNotice(otherRunnable: readonly string[]): string | null {
-  return otherRunnable.length === 0 ? 'No other runnable repositories to depend on.' : null;
 }
 
 /** Write one port on a service definition, spreading the array. A blank name removes the port. */

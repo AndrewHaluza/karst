@@ -129,13 +129,3 @@ export const HOST_MESSAGE_FIXTURES: ReadonlyArray<{
     message: { type: 'action-result', requestId: 'm2', ok: false, message: 'nope' },
   },
 ];
-
-/**
- * The `SettingsHostMessage` variant names, derived from the fixtures.
- *
- * Compared against the union at runtime so a NEW variant with no fixture fails
- * here too. (The compile-time half lives in the test: `Extract` over the union
- * would resolve to `never`, and the round-trip loop is only meaningful while the
- * fixture list is the whole union.)
- */
-export const FIXTURE_VARIANT_NAMES = HOST_MESSAGE_FIXTURES.map((f) => f.message.type);

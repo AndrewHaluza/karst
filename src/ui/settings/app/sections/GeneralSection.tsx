@@ -21,7 +21,6 @@
  */
 import { useMemo, useRef, useState } from 'react';
 import type {
-  AgentProvider,
   Manifest,
   StopServersOnDone,
   SubtaskLimits,
@@ -34,7 +33,6 @@ import {
   renderTicketLabel,
   type TicketLabelFields,
 } from '../../../../store/ticketLabelTemplate.js';
-import { KNOWN_AGENT_PROVIDERS } from '../../../../model/agentProviders.js';
 import { TRANSFORM_NAMES } from '../../../../template/transforms.js';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
 import { Field } from '../primitives/Field.js';
@@ -465,11 +463,6 @@ export function GeneralSection() {
       </div>
     </div>
   );
-}
-
-/** The provider ids the picker offers, for a host that only knows some of them. */
-export function offeredProviders(implemented: readonly AgentProvider[]): readonly AgentProvider[] {
-  return KNOWN_AGENT_PROVIDERS.filter((provider) => implemented.includes(provider));
 }
 
 /**
