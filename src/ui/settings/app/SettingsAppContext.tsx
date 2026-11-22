@@ -298,11 +298,19 @@ export function SettingsAppProvider({
     () => Object.values(localErrors).reduce((sum, n) => sum + (n ?? 0), 0),
     [localErrors],
   );
-  // The host has only ever reported ONE fault; when it has none, the first tab
-  // with a local field error is the one Save is blocked on (SET-5).
+  // The host has only ever reported ONE fault. A local field error on the
+  // shown tab comes FIRST: it is what blocks this tab's Save and what the user
+  // can fix right now, so a host message naming another tab must not steal the
+  // attribution (it used to render the blocking Quality errors as "Unsaved
+  // changes"). With no local error, the host fault (verdict or action error)
+  // still names its tab and marks the nav as before.
+  const localErrorSection = useMemo(
+    () => firstSectionWithLocalError(localErrors, SETTINGS_SECTIONS),
+    [localErrors],
+  );
   const errorSection = useMemo(
-    () => sectionForError(fault) ?? firstSectionWithLocalError(localErrors, SETTINGS_SECTIONS),
-    [fault, localErrors],
+    () => localErrorSection ?? sectionForError(fault),
+    [localErrorSection, fault],
   );
   // A fault belonging to a DIFFERENT tab is prefixed with that tab's label, so
   // the banner says whose problem it is. Standing ON the owning tab, the message

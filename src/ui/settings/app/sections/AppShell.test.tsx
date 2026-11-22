@@ -398,6 +398,18 @@ describe('AppShell — an invalid file blocks Save in the save bar', () => {
     expect(qualityNav?.className).not.toContain('has-error');
   });
 
+  it('names the blocking local error, not a transient host error on another tab', () => {
+    const { bridge } = mount();
+    fireEvent.click(document.querySelector('.nav-btn[data-section="quality"]')!);
+    fireEvent.click(screen.getByText('break quality'));
+    // A rejected action names Repositories; validation itself is still ok.
+    act(() => bridge.push({ type: 'error', message: 'Invalid karst.yml: repositories[1].path must be a string' }));
+    const bar = document.getElementById('saveState');
+    expect(bar?.textContent).toBe('Fix 2 fields on Quality to save');
+    expect(bar?.getAttribute('data-compact')).toBe('2 errors');
+    expect(document.querySelector('.nav-btn[data-section="quality"]')?.className).toContain('has-error');
+  });
+
   it('does not present a transient host error as a blocking field fault', () => {
     const { bridge } = mount();
     act(() => bridge.push({ type: 'error', message: 'Token & usage panel unavailable' }));

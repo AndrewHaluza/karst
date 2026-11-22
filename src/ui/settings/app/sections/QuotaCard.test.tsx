@@ -187,6 +187,38 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
     expect(screen.queryByText('Saved')).toBeNull();
   });
 
+  it('keeps in-progress text and its inline error when another quota control saves', () => {
+    const manifest = { ...BASE, quota: { warnThresholdPct: 90 } } as unknown as Manifest;
+    const { bridge } = mount(manifest);
+    const field = threshold();
+    fireEvent.change(field, { target: { value: '150' } });
+    fireEvent.blur(field);
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    // A sibling checkbox's save pushes a new state + quota-saved; the threshold
+    // value did not change, so the local text and its error must survive.
+    act(() => {
+      bridge.push({
+        type: 'state',
+        state: buildSettingsState(manifest, null, [], true, ['claude'], [], {}, undefined, '/repo/karst.yml'),
+      });
+      bridge.push({ type: 'quota-saved', patch: { claudeOauthUsageApi: true } });
+    });
+    expect(threshold().value).toBe('150');
+    expect(screen.getByText('Enter a whole number from 1 to 100.')).toBeTruthy();
+  });
+
+  it('does not claim "Saved" on a control whose request timed out', () => {
+    vi.useFakeTimers();
+    const { bridge } = mount();
+    const toggle = screen.getByLabelText('Install for all Claude sessions') as HTMLInputElement;
+    fireEvent.click(toggle);
+    const sent = bridge.last('set-quota')!;
+    act(() => vi.advanceTimersByTime(30_000)); // useHostMutation default timeout → unknown
+    act(() => bridge.push({ type: 'action-result', requestId: sent.requestId!, ok: true }));
+    expect(screen.queryByText('Saved')).toBeNull();
+    expect(toggle.disabled).toBe(true);
+  });
+
   it('does not write the quota into the draft — the host owns it (no lost update)', () => {
     const { bridge, probe } = mount();
     fireEvent.change(threshold(), { target: { value: '90' } });

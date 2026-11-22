@@ -1007,7 +1007,10 @@
        accessibility tree (clipped, not display:none), so the status region
        keeps the tab attribution and the error count for screen readers. */
     .save-state .save-state-full{position:absolute;width:var(--k-border-w);height:var(--k-border-w);padding:0;margin:calc(var(--k-border-w) * -1);overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-    .save-state::after{content:attr(data-compact)}
+    /* The generated short label is visual only: the "/ ''" alternative text
+       keeps it out of the status region's accessible text, which is the full
+       sentence above (UI-R27). */
+    .save-state::after{content:attr(data-compact) / ""}
     .mobile-project-btn{display:grid;place-items:center}
     .content{padding:var(--k-space-5) var(--k-space-5) calc(var(--k-space-8) * 3)}
     .page-actions{margin-top:var(--k-space-3)}

@@ -425,6 +425,11 @@
   #section-agents .accounts-table tr { border: 1px solid var(--vscode-panel-border, transparent); margin-block: var(--k-space-3, 8px); }
   #section-agents .accounts-table td::before { content: attr(data-label) ': '; font-weight: 600; }
   #section-agents .accounts-table td:has(> .accounts-empty) { display: none; }
+  /* UI-R43/R45: in the stacked card the ⋯ trigger sits near the card's left
+     edge, so a right-anchored 130px+ menu would run off the viewport's left
+     side and clip its first items. Anchor the menu to the trigger's start at
+     this tier so it opens inward. */
+  #section-agents .accounts-menu-list { inset-inline-start: 0; inset-inline-end: auto; max-width: calc(100vw - var(--k-space-8)); }
 }
 
 /* Sandbox tab (SET-46..48): one form-grid row per core — the display name and

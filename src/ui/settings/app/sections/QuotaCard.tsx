@@ -20,7 +20,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
-import type { Manifest, QuotaConfig } from '../../../../manifest/types.js';
+import type { QuotaConfig } from '../../../../manifest/types.js';
 import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../../../manifest/validate/quota.js';
 import type { QuotaPatch } from '../../messages.js';
 import { Field } from '../primitives/Field.js';
@@ -40,14 +40,17 @@ export function QuotaCard() {
   const draftThreshold = quota?.warnThresholdPct;
   const draftText = draftThreshold === undefined ? '' : String(draftThreshold);
 
-  // The text is local until commit. An EXTERNAL draft change (the host's ack, a
-  // Discard, a save elsewhere) replaces it — typing never touches the draft, so
-  // no keystroke can reset the caret.
+  // The text is local until commit. A THRESHOLD change from the host (its ack,
+  // a Discard, a save elsewhere) replaces it — typing never touches the draft,
+  // so no keystroke can reset the caret. Key on the VALUE, not the draft
+  // object: a sibling checkbox's save creates a new draft with the same
+  // threshold, and that must not wipe in-progress typing or its inline error
+  // (UI-R14b).
   const [text, setText] = useState(draftText);
   const [error, setError] = useState<string | null>(null);
-  const [seen, setSeen] = useState<{ draft: Manifest; text: string }>({ draft: state.draft, text: draftText });
-  if (seen.draft !== state.draft) {
-    setSeen({ draft: state.draft, text: draftText });
+  const [seenThreshold, setSeenThreshold] = useState(draftThreshold);
+  if (seenThreshold !== draftThreshold) {
+    setSeenThreshold(draftThreshold);
     setText(draftText);
     setError(null);
   }
@@ -82,6 +85,10 @@ export function QuotaCard() {
       const receipt = id === undefined ? undefined : state.receipts[id];
       if (id === undefined || receipt === undefined || settled.current.has(id)) continue;
       settled.current = new Set(settled.current).add(id);
+      // A request that already timed out is `unknown`, not pending: `settle`
+      // would be a no-op and its control stays disabled, so a late ok receipt
+      // must not claim "Saved" beside an inert control (UI-R14/R15).
+      if (!mutation.pending) continue;
       if (receipt.ok) {
         mutation.settle({ requestId: id, result: 'success' });
         setAck({ control, requestId: id });

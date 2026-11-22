@@ -777,8 +777,10 @@ function saveStateText(facts: SaveStateFacts): string {
 function compactSaveStateText(facts: SaveStateFacts): string {
   if (!facts.hydrated) return '';
   if (facts.saving) return 'Saving…';
-  const local = Object.values(facts.localErrors).reduce((sum, n) => sum + (n ?? 0), 0);
-  const errors = local > 0 ? local : facts.hostFault ? 1 : 0;
+  // Count the tab the sentence names, exactly like the full form: the compact
+  // "2 errors" and the full "Fix 2 fields on Quality" must never disagree.
+  const owned = facts.errorSection === null ? 0 : (facts.localErrors[facts.errorSection] ?? 0);
+  const errors = owned > 0 ? owned : facts.hostFault ? 1 : 0;
   if (errors > 0) return plural(errors, 'error', 'errors');
   return facts.dirty ? 'Unsaved' : 'Saved';
 }

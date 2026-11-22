@@ -217,7 +217,9 @@ describe('settings responsive tiers (SET-1, SET-2, SET-3)', () => {
     // from the accessibility tree — clip it, never display:none.
     expect(HTML).not.toContain('.save-state .save-state-full{display:none}');
     expect(HTML).toMatch(/\.save-state \.save-state-full\{[^}]*clip:rect\(0,0,0,0\)/);
-    expect(HTML).toContain('.save-state::after{content:attr(data-compact)}');
+    // The generated short label is visual only: the "/ ''" alt keeps it out of
+    // the live region's accessible text, which carries the full sentence.
+    expect(HTML).toContain('.save-state::after{content:attr(data-compact) / ""}');
     // The topbar wraps rather than overflowing.
     expect(HTML).toMatch(/@media \(max-width: 40em\)\{[\s\S]*?\.topbar\{[^}]*flex-wrap:wrap/);
   });
