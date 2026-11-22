@@ -20,35 +20,12 @@
       background: var(--k-bg);
       font: var(--vscode-font-weight) var(--k-text-base)/var(--k-leading-normal) var(--k-font-ui);
     }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--k-space-6);
-      padding-bottom: var(--k-space-6);
-      border-bottom: var(--k-border-w) solid var(--k-border);
-    }
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: var(--k-space-3);
-    }
-    /* The tree/list switcher, the same shape as usage's range selector: two
-       `.k-chip` toggle buttons; `aria-pressed` carries the engaged mode
-       (UI-R26). "Tree" is the default (folders first, then files); "List" is
-       the flat all-files view. */
-    .view-toggle { display: flex; gap: var(--k-space-2); }
-    h1 {
-      margin: 0;
-      font-size: var(--k-text-xl);
-      font-weight: var(--k-weight-semibold);
-      letter-spacing: -0.01em;
-    }
+    /* The page title, subtitle and actions are the shared .k-pagehead
+       primitive (DF-17); only the summary's numeric type stays local. The
+       ticket label and the host summary share one subtitle line, and only
+       #summary is the live region. */
     #summary {
-      margin-top: var(--k-space-1);
-      color: var(--k-text-dim);
       font-family: var(--k-font-mono);
-      font-size: var(--k-text-sm);
       font-variant-numeric: tabular-nums;
     }
     .filter { display: block; margin-block: var(--k-space-6); }
@@ -141,6 +118,7 @@
       font-size: var(--k-text-xs);
       font-weight: var(--k-weight-semibold);
       letter-spacing: 0.055em;
+      text-transform: uppercase;
     }
     .group > summary span {
       min-width: 2ch;
@@ -156,9 +134,12 @@
          undocumented opacity-of-a-token concept. */
       border-top: var(--k-border-w) solid var(--k-border);
     }
+    /* Three columns only: the hash, the subject (which wraps inside its own
+       column) and the count, which stays at the end of the subject row at
+       every tier (DF-25). The chevron is absolutely positioned. */
     .commit > summary {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       gap: var(--k-space-3);
       align-items: baseline;
       padding: var(--k-space-3) var(--k-space-4) var(--k-space-3) var(--k-space-8);
@@ -178,16 +159,16 @@
       user-select: text;
       cursor: text;
     }
-    /* Row action, shown on hover like VS Code's own list rows — and on focus, so
-       it is reachable without a pointer. It carries the FULL hash, not the
-       abbreviation on screen. Appearance (background/border/padding/radius) is
-       entirely the .k-iconbtn primitive's; only the show-on-hover visibility is
-       screen-local layout. */
+    /* Row action beside author · date (DF-10): shown on the commit's hover and
+       on focus, so it is reachable without a pointer. It carries the FULL hash,
+       not the abbreviation on screen. Appearance (background/border/padding/
+       radius) is entirely the .k-iconbtn primitive's; only the show-on-hover
+       visibility is screen-local layout. */
     .copy-hash {
-      align-self: center;
+      flex: none;
       opacity: 0;
     }
-    .commit > summary:hover .copy-hash,
+    .commit:hover .copy-hash,
     .copy-hash:focus-visible,
     .copy-hash[data-copied] { opacity: 1; }
     .commit > summary > span {
@@ -197,10 +178,22 @@
       font-variant-numeric: tabular-nums;
     }
     .commit-meta {
+      display: flex;
+      align-items: center;
+      gap: var(--k-space-3);
       padding: 0 var(--k-space-4) var(--k-space-3) var(--k-space-8);
       color: var(--k-text-dim);
       font-size: var(--k-text-md);
       overflow-wrap: anywhere;
+    }
+    /* One line per file (DF-5): the row button takes the free column and the
+       actions keep the end column instead of wrapping onto a line of their
+       own. */
+    .file-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--k-space-2);
     }
     /* A real interactive treatment from the ghost button variant plus the row
        modifier (full width, left-aligned, and a success flash that is the row's
@@ -217,20 +210,30 @@
       gap: var(--k-space-3);
       margin-top: var(--k-space-1);
     }
-    /* The primitive's own ::before spinner is a flex-model leading icon; on a
-       grid row it would otherwise insert itself as a THIRD column ahead of the
-       status cell. Pin it into the status's cell instead, where the status
-       glyph — which it temporarily stands in for — already lives. */
-    .file[aria-busy="true"]::before { grid-column: 1; grid-row: 1; justify-self: end; }
+    /* The primitive's own ::before spinner is a flex-model leading icon, so on
+       a grid row it would insert itself as a third column. It overlays the
+       status cell instead, where the status glyph — which it temporarily
+       stands in for — already lives, so status then path stay the grid's two
+       natural columns (DF-19). */
+    .file[aria-busy="true"]::before {
+      position: absolute;
+      top: 50%;
+      left: var(--k-space-6);
+      transform: translateY(-50%);
+    }
     .file[aria-busy="true"] .status { visibility: hidden; }
     .file-path {
-      grid-column: 2;
+      min-width: 0;
       overflow-wrap: anywhere;
       font-family: var(--k-font-mono);
     }
+    /* List mode (DF-6): the directory part stays dim, the name carries the
+       text colour; a rename is `old` on one line and `→ new` on the next. */
+    .file-dir { color: var(--k-text-dim); }
+    .file-path--rename { display: grid; gap: 0; }
+    .file-old,
+    .file-new { display: block; min-width: 0; overflow-wrap: anywhere; }
     .status {
-      grid-column: 1;
-      grid-row: 1;
       min-width: 2ch;
       font-family: var(--k-font-mono);
       font-weight: var(--k-weight-semibold);
@@ -246,9 +249,10 @@
     .status-added { color: var(--k-success); }
     .status-modified { color: var(--k-attention-fg); }
     .status-deleted { color: var(--k-danger); }
-    .status-renamed { color: var(--k-text-dim); }
+    .status-renamed { color: var(--k-text-dim); font-weight: bolder; }
     /* File row actions — small icon buttons shown on hover like the commit
-       copy-hash button. Full-width grid so the actions sit at the end. */
+       copy-hash button. The hit area comes entirely from .k-iconbtn (DF-20);
+       no local padding or minimum-size override. */
     .file-actions {
       display: flex;
       gap: var(--k-space-1);
@@ -256,12 +260,6 @@
     }
     .file-row:hover .file-actions,
     .file-actions:focus-within { opacity: 1; }
-    .file-actions button {
-      padding: 0;
-      min-width: auto;
-      font-size: var(--k-text-md);
-      line-height: 1;
-    }
     /* Directory rows (tree mode): a native <details>/<summary> disclosure
        (UI-R09), so aria-expanded and keyboard operation come from the browser.
        Indentation is recursive — every nesting level adds one --k-space-5 to
@@ -336,16 +334,11 @@
          read a custom property at all, so no --k-* token applies here — this
          440px has no token-based alternative. */
       body { padding: var(--k-space-5); }
-      header { align-items: flex-start; }
       .repo > summary { grid-template-columns: 1fr; gap: var(--k-space-1); }
       .repo > summary > span:last-child { text-align: left; }
       .group { margin-right: var(--k-space-3); margin-left: var(--k-space-4); }
-      .commit > summary {
-        grid-template-columns: auto minmax(0, 1fr) auto;
-      }
-      /* The count drops under the subject; the copy action stays on the hash's
-         own row, where the thing it copies is. */
-      .commit > summary > span { grid-column: 2; grid-row: 2; }
+      /* The count stays on the subject row at every width (DF-25); only the
+         meta line needs the tighter padding. */
       .commit-meta { padding-left: var(--k-space-8); }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -355,17 +348,19 @@
   <style>/*KARST_PALETTE*/</style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>Ticket changes</h1>
-      <div id="summary" aria-live="polite"></div>
-    </div>
-    <div class="header-actions">
-      <div class="view-toggle">
-        <button id="viewTree" type="button" class="k-chip" aria-pressed="true">Tree</button>
-        <button id="viewFlat" type="button" class="k-chip" aria-pressed="false">List</button>
+  <header class="k-pagehead">
+    <div class="k-pagehead-main">
+      <div>
+        <h1 class="k-pagehead-title">Ticket changes</h1>
+        <p class="k-pagehead-sub"><span id="ticketLabel"></span><span id="summary" aria-live="polite"></span></p>
       </div>
-      <button id="refresh" type="button" class="k-btn k-btn--secondary">Refresh</button>
+    </div>
+    <div class="k-pagehead-actions">
+      <div class="k-segmented" role="radiogroup" aria-label="View">
+        <button id="viewTree" type="button" class="k-btn k-btn--sm k-btn--secondary" role="radio" aria-checked="true">Tree</button>
+        <button id="viewFlat" type="button" class="k-btn k-btn--sm k-btn--ghost" role="radio" aria-checked="false">List</button>
+      </div>
+      <button id="refresh" type="button" class="k-btn k-btn--secondary k-btn--sm">Refresh</button>
     </div>
   </header>
   <label class="filter">
@@ -379,12 +374,18 @@
 
     const vscode = acquireVsCodeApi();
     const summary = document.getElementById('summary');
+    const ticketLabel = document.getElementById('ticketLabel');
     const refresh = document.getElementById('refresh');
     const filter = document.getElementById('filter');
     const repos = document.getElementById('repos');
     const notice = document.getElementById('notice');
     const viewTree = document.getElementById('viewTree');
     const viewFlat = document.getElementById('viewFlat');
+    // Shared Tabler glyphs (DF-13, DF-20): the runtime injects karstIcon(), so
+    // every name here is a catalog entry and no hand-rolled sprite is possible.
+    viewTree.insertAdjacentHTML('afterbegin', karstIcon('list-tree', 16));
+    viewFlat.insertAdjacentHTML('afterbegin', karstIcon('layout-list', 16));
+    refresh.insertAdjacentHTML('afterbegin', karstIcon('refresh', 16));
     const restored = vscode.getState();
     let lastState = restored?.state || null;
     // Panel identity for a window reload: the host names the ticket on its first
@@ -432,20 +433,79 @@
     const STATUS_LABEL = { added: 'Added', modified: 'Modified', deleted: 'Deleted', renamed: 'Renamed' };
     const CHEV = '<span class="chev" aria-hidden="true">›</span>';
 
-    function fileRow(file, isStaged) {
-      const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
-      const label = STATUS_LABEL[file.status] || 'Modified';
-      const actions = `<span class="file-actions">`
-        + `<button type="button" class="k-iconbtn" data-open-file="${esc(file.changeId)}" aria-label="Open file" title="Open file">↗</button>`
-        + `<button type="button" class="k-iconbtn" data-discard="${esc(file.changeId)}" aria-label="Discard changes" title="Discard changes">↩</button>`
-        + (isStaged ? `<button type="button" class="k-iconbtn" data-unstage="${esc(file.changeId)}" aria-label="Unstage" title="Unstage">⊖</button>` : '')
+    /** The list-mode split: a dim directory part and the file's own name. */
+    function splitPath(path) {
+      const cut = path.lastIndexOf('/');
+      return cut < 0
+        ? { dir: '', name: path }
+        : { dir: path.slice(0, cut + 1), name: path.slice(cut + 1) };
+    }
+
+    function listPath(path) {
+      const parts = splitPath(path);
+      return (parts.dir ? `<span class="file-dir">${esc(parts.dir)}</span>` : '') + esc(parts.name);
+    }
+
+    // Tree mode shows the leaf (the directory row already names the path); list
+    // mode dims the directory part. A rename is two lines (DF-6).
+    function filePathHtml(file, mode) {
+      const display = (path) => (mode === 'list' ? listPath(path) : esc(splitPath(path).name));
+      if (!file.oldPath) return `<span class="file-path">${display(file.path)}</span>`;
+      return `<span class="file-path file-path--rename">`
+        + `<span class="file-old">${display(file.oldPath)}</span>`
+        + `<span class="file-new">→ ${display(file.path)}</span>`
         + `</span>`;
+    }
+
+    function rowAction(kind, changeId, label, glyph, danger) {
+      return `<button type="button" class="k-iconbtn${danger ? ' k-iconbtn--danger' : ''}" data-${kind}="${esc(changeId)}"`
+        + ` aria-label="${esc(label)}" title="${esc(label)}">${glyph}</button>`;
+    }
+
+    // A row offers only actions that can work on its group (DF-4): a committed
+    // file is not a pending change, a staged file cannot be cleaned from the
+    // worktree, and a deleted file has nothing to open.
+    function fileActions(file, group, fullPath) {
+      const buttons = [];
+      if (file.status !== 'deleted') {
+        buttons.push(group === 'commit'
+          ? rowAction('open-file', file.changeId, 'Open current file', karstIcon('external-link', 16))
+          : rowAction('open-file', file.changeId, 'Open file', karstIcon('external-link', 16)));
+      }
+      if (group === 'staged') {
+        buttons.push(rowAction('unstage', file.changeId, 'Unstage', karstIcon('minus', 16)));
+      }
+      if (group === 'unstaged' || group === 'untracked') {
+        buttons.push(rowAction(
+          'discard',
+          file.changeId,
+          `Discard changes to ${fullPath}`,
+          karstIcon('arrow-back-up', 16),
+          true,
+        ));
+      }
+      return `<span class="file-actions">${buttons.join('')}</span>`;
+    }
+
+    function fileRow(file, group, display) {
+      const where = group || 'unstaged';
+      const mode = display === 'list' ? 'list' : 'tree';
+      const fullPath = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
+      const label = STATUS_LABEL[file.status] || 'Modified';
+      const rename = file.status === 'renamed' && file.oldPath
+        ? ` title="Renamed from ${esc(file.oldPath)}"`
+        : '';
+      // In tree mode the visible label is the leaf name, so the full path rides
+      // in the row's title AND in an explicitly hidden span: `title` is pointer
+      // help, not the accessible name.
+      const full = mode === 'tree' ? `<span class="sr">Full path: ${esc(fullPath)}</span>` : '';
       return `<div class="file-row">`
-        + `<button type="button" class="k-btn k-btn--ghost k-btn--row file" data-change-id="${esc(file.changeId)}">`
-        + `<span class="file-path">${esc(shown)}</span>`
-        + `<span class="status status-${esc(file.status)}" role="img" aria-label="${esc(label)}">${STATUS[file.status] || 'M'}</span>`
+        + `<button type="button" class="k-btn k-btn--ghost k-btn--row file" data-change-id="${esc(file.changeId)}" title="${esc(fullPath)}">`
+        + `<span class="status status-${esc(file.status)}" role="img" aria-label="${esc(label)}"${rename}>${STATUS[file.status] || 'M'}</span>`
+        + filePathHtml(file, mode)
+        + full
         + `</button>`
-        + actions
+        + fileActions(file, where, fullPath)
         + `</div>`;
     }
 
@@ -461,27 +521,44 @@
       return dir.files.length + childTotal;
     }
 
-    function dirHtml(dir, groupKey, parentPath, isStaged) {
-      const path = parentPath ? `${parentPath}/${dir.name}` : dir.name;
+    // A directory whose only child is another directory is one row, not a
+    // staircase (DF-6): walk down while there is exactly one child and no files
+    // of its own, then name the row by the whole joined path.
+    function foldDirChain(dir, parentPath) {
+      let node = dir;
+      let path = parentPath ? `${parentPath}/${dir.name}` : dir.name;
+      while (node.files.length === 0 && node.children.size === 1) {
+        const child = [...node.children.values()][0];
+        node = child;
+        path = `${path}/${child.name}`;
+      }
+      return { node, path };
+    }
+
+    function dirHtml(dir, groupKey, parentPath, group) {
+      const folded = foldDirChain(dir, parentPath);
+      const node = folded.node;
+      const path = folded.path;
       const key = `${groupKey}:${path}`;
       const open = !collapsedDirs.has(key);
-      const subdirs = [...dir.children.values()].sort((a, b) => compareNames(a.name, b.name));
-      const files = [...dir.files].sort((a, b) => compareNames(a.path, b.path));
+      const subdirs = [...node.children.values()].sort((a, b) => compareNames(a.name, b.name));
+      const files = [...node.files].sort((a, b) => compareNames(a.path, b.path));
       const count = files.length + subdirs.reduce((total, child) => total + dirCount(child), 0);
+      const name = parentPath ? path.slice(parentPath.length + 1) : path;
       return `<details class="dir" data-dir="${esc(key)}"${open ? ' open' : ''}>`
-        + `<summary>${CHEV}<span class="dir-name">${esc(dir.name)}</span>`
-        + `<span class="dir-count">${count}</span></summary>`
+        + `<summary>${CHEV}<span class="dir-name">${esc(name)}</span>`
+        + `<span class="dir-count" title="Files: ${count}" aria-label="Files: ${count}">${count}</span></summary>`
         + `<div class="dir-body">`
-        + subdirs.map((child) => dirHtml(child, groupKey, path, isStaged)).join('')
-        + files.map((f) => fileRow(f, isStaged)).join('')
+        + subdirs.map((child) => dirHtml(child, groupKey, path, group)).join('')
+        + files.map((file) => fileRow(file, group, 'tree')).join('')
         + `</div></details>`;
     }
 
-    function treeHtml(files, groupKey, isStaged) {
+    function treeHtml(files, groupKey, group) {
       const root = { name: '', children: new Map(), files: [] };
       for (const file of files) {
         const parts = file.path.split('/');
-        const leaf = parts.pop() ?? '';
+        parts.pop();
         let node = root;
         for (const part of parts) {
           let child = node.children.get(part);
@@ -491,41 +568,44 @@
           }
           node = child;
         }
-        // The full path stays on the row: fileRow renders a rename as
-        // `old → new`, which needs both parts. Sorting by full path is the
-        // same as sorting by leaf within one directory.
         node.files.push(file);
       }
       const subdirs = [...root.children.values()].sort((a, b) => compareNames(a.name, b.name));
       const filesAtRoot = [...root.files].sort((a, b) => compareNames(a.path, b.path));
-      return subdirs.map((dir) => dirHtml(dir, groupKey, '', isStaged)).join('')
-        + filesAtRoot.map((f) => fileRow(f, isStaged)).join('');
+      return subdirs.map((dir) => dirHtml(dir, groupKey, '', group)).join('')
+        + filesAtRoot.map((file) => fileRow(file, group, 'tree')).join('');
     }
 
-    function filesList(files, groupKey, isStaged) {
-      if (viewMode !== 'tree' || activeNeedle) return files.map((f) => fileRow(f, isStaged)).join('');
-      return treeHtml(files, groupKey, isStaged);
+    function filesList(files, groupKey, group) {
+      if (viewMode !== 'tree' || activeNeedle) {
+        return files.map((file) => fileRow(file, group, 'list')).join('');
+      }
+      return treeHtml(files, groupKey, group);
     }
 
-    function pendingGroup(label, files, key, isStaged) {
+    function pendingGroup(label, files, key, group) {
       if (!files.length) return '';
       return `<details class="group" open><summary>${CHEV}${esc(label)}`
-        + `<span>${files.length}</span></summary>${filesList(files, key || label, isStaged)}</details>`;
+        + `<span title="Files: ${files.length}" aria-label="Files: ${files.length}">${files.length}</span></summary>`
+        + `${filesList(files, key || label, group)}</details>`;
     }
 
-    const COPY_GLYPH = '⧉';
+    const COPY_GLYPH = karstIcon('copy', 16);
 
     // No literal space between the hash and the subject: they are separate grid
     // items, so the gap is the layout's, and a stray text node would print as a
-    // second one after the hash.
+    // second one after the hash. The copy action sits in the meta line, never
+    // inside the summary (no nested interactive control). The count stays in
+    // the summary's third column at every width (DF-25).
     function commitRow(commit, index) {
+      const fileCount = commit.files.length;
       return `<details class="commit"${index === 0 ? ' open' : ''}>`
         + `<summary>${CHEV}<code data-hash>${esc(commit.shortHash)}</code>${esc(commit.subject)}`
+        + `<span title="Files: ${fileCount}" aria-label="Files: ${fileCount}">${fileCount}</span></summary>`
+        + `<div class="commit-meta">${esc(commit.author)} · ${esc(commit.authoredAt)}`
         + `<button type="button" class="k-iconbtn copy-hash" data-copy-hash="${esc(commit.hash)}"`
-        + ` aria-label="Copy commit hash" title="Copy commit hash">${COPY_GLYPH}</button>`
-        + `<span>${commit.files.length}</span></summary>`
-        + `<div class="commit-meta">${esc(commit.author)} · ${esc(commit.authoredAt)}</div>`
-        + `${filesList(commit.files, `commit:${commit.hash}`)}</details>`;
+        + ` aria-label="Copy commit hash" title="Copy commit hash">${COPY_GLYPH}</button></div>`
+        + `${filesList(commit.files, `commit:${commit.hash}`, 'commit')}</details>`;
     }
 
     function worktreeRow(worktree) {
@@ -536,19 +616,21 @@
       }
       const pending = worktree.staged.length + worktree.unstaged.length + worktree.untracked.length;
       const changed = worktree.commits.length + pending > 0;
-      const subtitle = `${worktree.branch || 'detached'} ↔ ${worktree.baseRef || 'unknown base'}`;
+      const subtitle = `${worktree.branch || 'detached'} · base ${worktree.baseRef || 'unknown base'}`;
+      const commitCount = worktree.commits.length;
       return `<details class="repo"${changed ? ' open' : ''}>`
         + `<summary>${CHEV}<span><strong>${esc(worktree.label)}</strong>`
         + `<small>${esc(subtitle)}</small></span>`
         + `<span>${esc(worktree.countText)}</span>`
         + `</summary>`
-        + `${worktree.commits.length
-          ? `<details class="group" open><summary>${CHEV}COMMITS<span>${worktree.commits.length}</span></summary>`
+        + `${commitCount
+          ? `<details class="group" open><summary>${CHEV}Commits`
+            + `<span title="Files: ${commitCount}" aria-label="Files: ${commitCount}">${commitCount}</span></summary>`
             + `${worktree.commits.map(commitRow).join('')}</details>`
           : ''}`
-        + pendingGroup('STAGED CHANGES', worktree.staged, 'staged', true)
-        + pendingGroup('CHANGES', worktree.unstaged, 'unstaged', false)
-        + pendingGroup('UNTRACKED FILES', worktree.untracked, 'untracked', false)
+        + pendingGroup('Staged changes', worktree.staged, 'staged', 'staged')
+        + pendingGroup('Changes', worktree.unstaged, 'unstaged', 'unstaged')
+        + pendingGroup('Untracked files', worktree.untracked, 'untracked', 'untracked')
         + `</details>`;
     }
 
@@ -557,6 +639,10 @@
       loading = isLoading;
       const needle = filter.value.trim().toLowerCase();
       activeNeedle = needle;
+      // The shared page header carries the ticket before the host summary
+      // (DF-17); only #summary is the live region, so the ticket label sits
+      // outside it and a refresh does not re-announce the ticket name.
+      ticketLabel.textContent = state && state.ticketLabel ? `${state.ticketLabel} · ` : '';
       summary.textContent = state ? state.summaryText : 'No worktrees';
       const visible = state
         ? state.worktrees.filter((worktree) => !needle || worktreeMatches(worktree, needle))
@@ -585,9 +671,17 @@
       vscode.setState({ state: lastState, loading, viewMode, ...(panelTicketId !== null ? { karstPanel: { ticketId: panelTicketId } } : {}) });
     }
 
+    // The selected option is --secondary, the other --ghost (DF-13); the
+    // shared .k-segmented frame is what makes the pair read as one control.
+    function setViewOption(button, selected) {
+      button.setAttribute('aria-checked', selected ? 'true' : 'false');
+      button.classList.toggle('k-btn--secondary', selected);
+      button.classList.toggle('k-btn--ghost', !selected);
+    }
+
     function applyViewToggle() {
-      viewTree.setAttribute('aria-pressed', viewMode === 'tree' ? 'true' : 'false');
-      viewFlat.setAttribute('aria-pressed', viewMode === 'flat' ? 'true' : 'false');
+      setViewOption(viewTree, viewMode === 'tree');
+      setViewOption(viewFlat, viewMode === 'flat');
     }
 
     // Purely presentational: nothing posts to the host, so no pending state
@@ -627,13 +721,13 @@
     const COPIED_MS = 1200; // matches --k-dur-flash-copy
     function flashCopied(button) {
       if (button.dataset.flash) clearTimeout(Number(button.dataset.flash));
-      button.textContent = '✓';
+      button.innerHTML = karstIcon('check', 16);
       button.classList.add('is-success'); // tier 3 (confirm): in-place check, no colour change
       button.dataset.copied = '1';
       button.setAttribute('aria-label', 'Copied');
       if (typeof karstToast === 'function') karstToast('success', 'Copied');
       button.dataset.flash = String(setTimeout(() => {
-        button.textContent = COPY_GLYPH;
+        button.innerHTML = COPY_GLYPH;
         button.classList.remove('is-success');
         delete button.dataset.copied;
         button.setAttribute('aria-label', 'Copy commit hash');
@@ -641,11 +735,21 @@
       }, COPIED_MS));
     }
 
+    /**
+     * Uniform row-action send (DF-2, DF-22): every action carries a requestId
+     * and enters pending on its own button, so the host's action-result settles
+     * exactly that control. A repeat click while pending is dropped (UI-R12).
+     */
+    function beginAction(button) {
+      if (karstIsPending(button) || button.disabled) return false;
+      const requestId = karstRequestId();
+      karstBeginPending(button, requestId);
+      return requestId;
+    }
+
     document.addEventListener('click', (event) => {
       const copy = event.target.closest('[data-copy-hash]');
       if (copy) {
-        // The button sits inside a <summary>: without this the copy would also
-        // collapse the commit it belongs to.
         event.preventDefault();
         vscode.postMessage({ type: 'copy-hash', hash: copy.dataset.copyHash });
         flashCopied(copy);
@@ -654,19 +758,25 @@
       const openFileBtn = event.target.closest('[data-open-file]');
       if (openFileBtn) {
         event.preventDefault();
-        vscode.postMessage({ type: 'open-file', changeId: openFileBtn.dataset.openFile });
+        const requestId = beginAction(openFileBtn);
+        if (requestId === false) return;
+        vscode.postMessage({ type: 'open-file', changeId: openFileBtn.dataset.openFile, requestId });
         return;
       }
       const discardBtn = event.target.closest('[data-discard]');
       if (discardBtn) {
         event.preventDefault();
-        vscode.postMessage({ type: 'discard', changeId: discardBtn.dataset.discard });
+        const requestId = beginAction(discardBtn);
+        if (requestId === false) return;
+        vscode.postMessage({ type: 'discard', changeId: discardBtn.dataset.discard, requestId });
         return;
       }
       const unstageBtn = event.target.closest('[data-unstage]');
       if (unstageBtn) {
         event.preventDefault();
-        vscode.postMessage({ type: 'unstage', changeId: unstageBtn.dataset.unstage });
+        const requestId = beginAction(unstageBtn);
+        if (requestId === false) return;
+        vscode.postMessage({ type: 'unstage', changeId: unstageBtn.dataset.unstage, requestId });
         return;
       }
       // A drag that ends on the hash is a selection, not a click on the
