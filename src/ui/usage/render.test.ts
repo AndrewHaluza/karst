@@ -327,19 +327,24 @@ describe('usage render', () => {
       } finally { h.close(); }
     });
 
-    it('places the level word and glyph before the percent, in one right-aligned end group (US-19)', () => {
+    it('puts the level word and glyph on the meta line, before the reset text, with the percent alone on the value line (US-19)', () => {
       for (const scenario of ['quota-near', 'quota-exhausted'] as const) {
         const { h } = open(scenario);
         try {
-          const end = Array.from(h.queryAll('#qrows .qwin .qend')).find((n) => n.querySelector('.qbadge'));
-          expect(end, scenario).toBeTruthy();
-          const badge = end!.querySelector('.qbadge')!;
-          const pct = end!.querySelector('.qpct')!;
+          const win = Array.from(h.queryAll('#qrows .qwin')).find((n) => n.querySelector('.qbadge'))!;
+          expect(win, scenario).toBeTruthy();
+          const badge = win.querySelector('.qfoot .qbadge')!;
+          const meta = win.querySelector('.qfoot .qmeta')!;
+          const pct = win.querySelector('.qline .qpct')!;
           expect(badge, scenario).not.toBeNull();
+          expect(meta, scenario).not.toBeNull();
           expect(pct, scenario).not.toBeNull();
-          expect([...end!.children].indexOf(badge), scenario).toBeLessThan([...end!.children].indexOf(pct));
-          // The badge is not a direct child of the line, so the window label stays at the start.
-          expect(h.queryAll('#qrows .qline > .qbadge').length, scenario).toBe(0);
+          // The badge leads the meta line; the reset/age text keeps the right.
+          expect([...win.querySelector('.qfoot')!.children].indexOf(badge), scenario).toBeLessThan(
+            [...win.querySelector('.qfoot')!.children].indexOf(meta),
+          );
+          // The status is not on the value line, so the percent is not crowded by it.
+          expect(win.querySelector('.qline .qbadge'), scenario).toBeNull();
         } finally { h.close(); }
       }
     });
