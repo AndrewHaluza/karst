@@ -36,15 +36,22 @@ export function ctaSpec(cta: RailCta, id: number): { spec: ActionSpec; label: st
   }
 }
 
+/** The rail cta tone: ready-to-ship and merge are routine, so they wear the sunken wash (SB-10). */
+function ctaTone(cta: RailCta): 'attention' | 'neutral' {
+  return cta.kind === 'ship-confirm' || cta.kind === 'merge' || cta.kind === 'merge-panel' ? 'neutral' : 'attention';
+}
+
 /** The one action strip: the rail's detail and its button, or the peek-only CI strip. */
 function ActionStrip({ peek, row }: { readonly peek: TicketPeek; readonly row: TicketRow }) {
   const id = row.ticketId;
   const needs = peek.needs;
   if (needs) {
     const btn = ctaSpec(needs.cta, id);
+    // A detail that only repeats the headline adds nothing (RD-7).
+    const repeat = needs.detail.trim().toLowerCase() === peek.title.trim().toLowerCase();
     return (
-      <div className="peek-strip">
-        <span className="peek-strip-text">{needs.detail}</span>
+      <div className={`peek-strip ${ctaTone(needs.cta)}`}>
+        {repeat ? null : <span className="peek-strip-text">{needs.detail}</span>}
         {btn ? (
           <ActButton spec={btn.spec} className="k-btn k-btn--primary" title={btn.label}>
             {btn.label}
@@ -56,7 +63,7 @@ function ActionStrip({ peek, row }: { readonly peek: TicketPeek; readonly row: T
   const next: PeekNext | null = peek.next;
   if (next && next.kind === 'send-ci-failure') {
     return (
-      <div className="peek-strip">
+      <div className="peek-strip attention">
         <span className="peek-strip-text">CI is failing</span>
         <ActButton spec={{ act: next.kind, id }} className="k-btn k-btn--primary" title={next.label}>
           {next.label}
@@ -92,7 +99,7 @@ function PeekRepos({ repos }: { readonly repos: NonNullable<TicketPeek['repos']>
       {repos.map((r) => (
         <span className="peek-repo" key={r.repo}>
           {r.number != null ? `#${r.number} ` : ''}
-          {r.repo} · <span className={`peek-repo-state ${r.state}`}>{r.state === 'conflict' ? 'conflict' : 'ready'}</span>
+          {r.repo} · <span className={`peek-repo-state ${r.state}`}>{r.state}</span>
         </span>
       ))}
     </div>
@@ -106,7 +113,7 @@ function AgentLine({ agent }: { readonly agent: NonNullable<TicketPeek['agent']>
   return (
     <div className="peek-line peek-agentline">
       <AgentIdentity provider={agent.provider} model={agent.model} />
-      {tail ? <span className="peek-agent-tail"> · {tail}</span> : null}
+      {tail ? <span className="peek-agent-tail">· {tail}</span> : null}
     </div>
   );
 }

@@ -318,7 +318,7 @@
   .peek-gates.ok{color:var(--k-passed)}
   .peek-gates.running{color:var(--k-running)}
   .peek-gates.failed{color:var(--k-failed)}
-  .peek-agentline{display:flex;align-items:center;flex-wrap:wrap}
+  .peek-agentline{display:flex;align-items:center;flex-wrap:wrap;column-gap:var(--k-space-1)}
   .peek-agent{margin-top:0}
   .peek-where{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
   .peek-where-text{font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
@@ -340,6 +340,9 @@
   .peek-strip{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3);
     margin-top:var(--k-space-3);padding:var(--k-space-2) var(--k-space-3);border-radius:var(--k-radius-md);
     background:color-mix(in srgb,var(--k-attention) 14%,transparent)}
+  /* Ready-to-ship and merge are routine asks, not a warning: the sunken wash (SB-10). */
+  .peek-strip.neutral{background:var(--k-surface-sunken)}
+  .peek-strip .k-btn{white-space:nowrap}
   .peek-strip-text{font-size:var(--k-text-xs);color:var(--k-text);min-width:0}
 
   .meta{font-size:var(--k-text-2xs);color:var(--k-text-dim);

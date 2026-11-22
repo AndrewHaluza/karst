@@ -186,7 +186,31 @@ describe('buildPeek — gate facts', () => {
       }),
     );
     expect(peek.title).toBe('UAT failed');
-    expect(peek.gates).toEqual({ text: '3 passed · 2 failed: lint, test', tone: 'failed' });
+    // Failed gates lead, then passed, then running (SB-14).
+    expect(peek.gates).toEqual({ text: '2 failed: lint, test · 3 passed', tone: 'failed' });
+  });
+
+  it('lists a failure before its passing siblings (SB-14)', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'uat',
+        current: stage({ stageKey: 'uat', status: 'failed' }),
+        gateRuns: [gateRun({ id: 1, gateName: 'unit (api)' }), gateRun({ id: 2, gateName: 'docs (api)', exitCode: 1 })],
+      }),
+    );
+    expect(peek.gates).toEqual({ text: '1 failed: docs · 1 passed', tone: 'failed' });
+  });
+
+  it('a pass under a failed stage reads in the dim neutral tone, not green (SB-14)', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'review',
+        current: stage({ stageKey: 'review', status: 'failed' }),
+        gateRuns: [gateRun({ id: 1, stageKey: 'review', gateName: 'unit (api)' })],
+      }),
+    );
+    expect(peek.title).toBe('Review failed');
+    expect(peek.gates).toEqual({ text: '1 passed', tone: 'neutral' });
   });
 
   it('a running gate stage counts running gates', () => {
@@ -252,9 +276,9 @@ describe('buildPeek — gate facts', () => {
     expect(peek.gates).toEqual({ text: 'build broke', tone: 'failed' });
   });
 
-  it('a failed stage with neither rows nor verdict has no gate line', () => {
+  it('a failed stage with neither rows nor verdict says no reason was recorded (RD-7)', () => {
     const peek = buildPeek(input({ stageCurrent: 'impl', current: stage({ status: 'failed' }) }));
-    expect(peek.gates).toBeNull();
+    expect(peek.gates).toEqual({ text: 'No reason was recorded', tone: 'neutral' });
   });
 });
 
@@ -341,6 +365,26 @@ describe('buildPeek — ship family', () => {
     expect(peek.needs?.cta).toEqual({ kind: 'resolve-conflicts', repo: 'api' });
   });
 
+  it('a closed PR reads "PR closed" and lists the closed repo, not ready to ship (RD-3)', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'running', blockedKind: 'awaiting-merge' }),
+        mergeGate: { kind: 'closed', repos: ['app'], pending: ['web'] },
+        prs: [
+          { repo: 'app', number: 497, status: 'closed' },
+          { repo: 'web', number: 498, status: 'open' },
+        ],
+        needs: { detail: 'app PR #497 is closed', action: 'Open dashboard', cta: { kind: 'merge-panel' } },
+      }),
+    );
+    expect(peek.title).toBe('PR closed');
+    expect(peek.repos).toEqual([
+      { repo: 'app', number: 497, state: 'closed' },
+      { repo: 'web', number: 498, state: 'ready' },
+    ]);
+  });
+
   it('a failed ship reads "Ship failed" with the retry needs and the verdict line', () => {
     const peek = buildPeek(
       input({
@@ -352,6 +396,18 @@ describe('buildPeek — ship family', () => {
     expect(peek.title).toBe('Ship failed');
     expect(peek.gates).toEqual({ text: 'push rejected', tone: 'failed' });
     expect(peek.needs?.cta).toEqual({ kind: 'retry-ship' });
+  });
+
+  it('a failed ship with no verdict says no reason was recorded (RD-7)', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'failed' }),
+        needs: { detail: 'ship failed', action: 'Retry ship', cta: { kind: 'retry-ship' } },
+      }),
+    );
+    expect(peek.title).toBe('Ship failed');
+    expect(peek.gates).toEqual({ text: 'No reason was recorded', tone: 'neutral' });
   });
 
   it('failing CI on an awaiting ship keeps the send-ci-failure strip', () => {
@@ -400,6 +456,63 @@ describe('buildPeek — done, closed and scope', () => {
   it('impl with no live session reads "No active session"; idle reads "Session idle"', () => {
     expect(buildPeek(input({ stageCurrent: 'impl', current: stage() })).title).toBe('No active session');
     expect(buildPeek(input({ stageCurrent: 'impl', agentState: 'idle', current: stage() })).title).toBe('Session idle');
+  });
+});
+
+describe('buildPeek — a stage block names why it waits (RD-4)', () => {
+  it('a review-stalled block reads "Review stalled" with the block reason as the red line', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'fix',
+        current: stage({
+          stageKey: 'fix',
+          status: 'passed',
+          blockedKind: 'review-stalled',
+          blockedReason: 'review keeps finding the same file',
+        }),
+      }),
+    );
+    expect(peek.title).toBe('Review stalled');
+    expect(peek.gates).toEqual({ text: 'review keeps finding the same file', tone: 'failed' });
+  });
+
+  it('an unmapped-repository block reads "Repository not mapped" with the block reason', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'uat',
+        current: stage({
+          stageKey: 'uat',
+          status: 'running',
+          blockedKind: 'unmapped-repository',
+          blockedReason: 'app matches no karst.yml repository',
+        }),
+      }),
+    );
+    expect(peek.title).toBe('Repository not mapped');
+    expect(peek.gates).toEqual({ text: 'app matches no karst.yml repository', tone: 'failed' });
+  });
+
+  it('an awaiting-merge block still reads the ship family', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'running', blockedKind: 'awaiting-merge', blockedReason: '1 PR open' }),
+        mergeGate: { kind: 'awaiting', repos: ['api'] },
+        prs: [{ repo: 'api', number: 9, status: 'open' }],
+      }),
+    );
+    expect(peek.title).toBe('Awaiting merge');
+  });
+
+  it('an approach-graph-failed block keeps "Waiting for you"', () => {
+    const peek = buildPeek(
+      input({
+        stageCurrent: 'impl',
+        current: stage({ stageKey: 'impl', status: 'running', blockedKind: 'approach-graph-failed' }),
+        needs: { detail: 'the graph needs a recovery decision', action: 'Open graph', cta: { kind: 'graph-panel' } },
+      }),
+    );
+    expect(peek.title).toBe('Waiting for you');
   });
 });
 

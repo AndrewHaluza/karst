@@ -273,6 +273,24 @@ describe('expanded mini-dashboard', () => {
     }
   });
 
+  it('gives ready-to-ship and merge the neutral wash and leaves a call to action on the attention wash (SB-10)', async () => {
+    const ship = await mount(stateWith({ current: [peeked({ needs: { detail: 'why', action: 'Confirm ship', cta: { kind: 'ship-confirm' } } })] }));
+    expect(ship.query('.peek-strip')!.classList.contains('neutral')).toBe(true);
+    const merge = await mount(stateWith({ current: [peeked({ needs: { detail: 'why', action: 'Merge', cta: { kind: 'merge', repo: 'api' } } })] }));
+    expect(merge.query('.peek-strip')!.classList.contains('neutral')).toBe(true);
+    const retry = await mount(stateWith({ current: [peeked({ needs: { detail: 'why', action: 'Retry ship', cta: { kind: 'retry-ship' } } })] }));
+    expect(retry.query('.peek-strip')!.classList.contains('attention')).toBe(true);
+    expect(retry.query('.peek-strip')!.classList.contains('neutral')).toBe(false);
+  });
+
+  it('omits a strip detail that only repeats the headline, case ignored (RD-7)', async () => {
+    const h = await mount(stateWith({ current: [peeked({ title: 'Ship failed', needs: { detail: 'ship failed', action: 'Retry ship', cta: { kind: 'retry-ship' } } })] }));
+    expect(h.queryAll('.peek-strip-text')).toHaveLength(0);
+    expect(text(h.query('.peek-strip .k-btn--primary'))).toBe('Retry ship');
+    const kept = await mount(stateWith({ current: [peeked({ title: 'Ship failed', needs: { detail: 'push rejected', action: 'Retry ship', cta: { kind: 'retry-ship' } } })] }));
+    expect(text(kept.query('.peek-strip-text'))).toBe('push rejected');
+  });
+
   it('keeps the peek-only strips: Send CI failure, and Create follow-up on the where line', async () => {
     const ci = await mount(stateWith({ current: [peeked({ next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' } })] }));
     await ci.click('.peek-strip .k-btn--primary');
@@ -292,9 +310,24 @@ describe('expanded mini-dashboard', () => {
     })] }));
     expect(text(h.query('.peek-gates.failed'))).toBe('3 passed · 2 failed: lint, test');
     expect(h.query('.peek-agent .agent-identity.compact')!.getAttribute('data-provider')).toBe('claude');
-    expect(text(h.query('.peek-agent-tail'))).toBe(' · working');
+    expect(text(h.query('.peek-agent-tail'))).toBe('· working');
     expect(h.queryAll('.peek-repo').map(text)).toEqual(['#12 api · ready', 'web · conflict']);
     expect(text(h.query('.peek-paused'))).toBe('No stage starts until you resume');
+  });
+
+  it('prints the agent tail as "· idle", separated from the identity (SB-14)', async () => {
+    const h = await mount(stateWith({ current: [peeked({
+      agent: { provider: 'claude', model: 'opus', activity: 'idle', activeAt: null },
+    })] }));
+    expect(text(h.query('.peek-agent-tail'))).toBe('· idle');
+  });
+
+  it('renders a closed PR row with the word "closed" (RD-3)', async () => {
+    const h = await mount(stateWith({ current: [peeked({
+      title: 'PR closed',
+      repos: [{ repo: 'app', number: 497, state: 'closed' }, { repo: 'web', number: 498, state: 'ready' }],
+    })] }));
+    expect(h.queryAll('.peek-repo').map(text)).toEqual(['#497 app · closed', '#498 web · ready']);
   });
 
   it('draws the graph role line for a graph ticket, with the rung that supplied each role (T1266)', async () => {
