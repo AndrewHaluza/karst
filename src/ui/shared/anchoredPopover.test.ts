@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { attachAnchoredPopover, computePlacement, type Box } from './anchoredPopover.js';
+import { attachAnchoredPopover, computePlacement, POPOVER_GUTTER, type Box } from './anchoredPopover.js';
 
 const VIEW = { width: 400, height: 600 };
 const box = (left: number, top: number, width: number, height: number): Box => ({ left, top, width, height });
@@ -291,6 +291,33 @@ describe('attachAnchoredPopover', () => {
     notify();
     frame();
     expect(popover.style.top).toBe(`${450 - 4 - 200}px`);
+    restore();
+  });
+
+  // RD-AGENT-MENU: the top of a sticky footer is the real bottom of the free area. A tall menu attached to a low
+  // trigger ends above that edge instead of covering the footer's buttons.
+  it('ends a tall popover above the bottom edge, not at the viewport bottom', () => {
+    stubFrames();
+    const { trigger, popover } = setup(100);
+    Object.defineProperty(popover, 'offsetHeight', { configurable: true, value: 900 });
+    const edge = 400;
+    attachAnchoredPopover({ popover, trigger, width: 200, bottomEdge: () => edge, onTriggerHidden: () => undefined });
+    const top = Number.parseInt(popover.style.top, 10);
+    const cap = Number.parseInt(popover.style.maxHeight, 10);
+    // Below the trigger is the larger side, so it opens there and caps exactly at the edge minus the gutter.
+    expect(top + cap).toBe(edge - POPOVER_GUTTER);
+    expect(top + cap).toBeLessThan(VIEW.height - POPOVER_GUTTER);
+    restore();
+  });
+
+  it('keeps the viewport as the boundary when bottomEdge is absent', () => {
+    stubFrames();
+    const { trigger, popover } = setup(100);
+    Object.defineProperty(popover, 'offsetHeight', { configurable: true, value: 900 });
+    attachAnchoredPopover({ popover, trigger, width: 200, onTriggerHidden: () => undefined });
+    const top = Number.parseInt(popover.style.top, 10);
+    const cap = Number.parseInt(popover.style.maxHeight, 10);
+    expect(top + cap).toBe(VIEW.height - POPOVER_GUTTER);
     restore();
   });
 

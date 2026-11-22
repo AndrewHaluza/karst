@@ -342,7 +342,9 @@
      header / content | settings / actions. `.shell` is the width container for
      the tiers; the regions carry the page gutters so the tiers measure the full
      viewport. Tier CSS follows the base rules (UI-R49, R50). */
-  html{scroll-padding-bottom:calc(var(--k-space-8) * 3)}
+  /* The sticky action bar's measured height (written by syncActionbarHeight) reserves room for focus so a focused
+     field never lands under the bar; zero when the bar is static at the tight tier (SET-49). */
+  html{scroll-padding-bottom:var(--tf-actionbar-h, calc(var(--k-space-8) * 3))}
   .shell{container-type:inline-size;min-width:0}
   /* One frame (prototype .mock): hairline border, small radius, header strip on top,
      content | settings in the middle, the actions bar as its footer. The bar is
@@ -352,11 +354,15 @@
     background:var(--k-bg);overflow:clip;min-width:0;margin-inline:var(--k-space-7)}
   .pghead{background:var(--k-surface);border-bottom:var(--k-border-w) solid var(--k-border);
     padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-sm);color:var(--k-text-dim)}
-  .cols{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 16);gap:var(--k-space-0);align-items:stretch}
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 16);gap:var(--k-space-0);align-items:stretch;
+    min-height:0}
   .cols > .content{padding:var(--k-space-8) var(--k-space-9)}
   .content{container-type:inline-size;container-name:content;min-width:0}
+  /* The settings column is the right pane's ONE scroll region (UI-R45) and pads by the bar height, so its last
+     rows ("Pull base first", the third Graph roles row) scroll fully above the sticky bar (SET-50). */
   .settings{min-width:0;background:var(--k-surface);border-left:var(--k-border-w) solid var(--k-border);
-    padding:var(--k-space-8) var(--k-space-7)}
+    padding:var(--k-space-8) var(--k-space-7);overflow-y:auto;
+    padding-bottom:var(--tf-actionbar-h, calc(var(--k-space-8) * 3))}
   /* Agent trigger identity truncates inside its button; the ancestor
      .ap-trigger-label clips it (UI-R44), same as the Settings agents table. */
   .settings .agent-identity{flex-wrap:nowrap;min-width:0}
@@ -423,15 +429,25 @@
     .settings{border-left:0;border-top:var(--k-border-w) solid var(--k-border)}
     .cols > .content{padding-inline:var(--k-space-7)}
     .pghead,.actionbar{padding-inline:var(--k-space-7)}
-    /* Footer stacks: full-width buttons, primary first, reason above them. */
-    .actionbar{flex-direction:column-reverse;align-items:stretch}
-    .actionbar .k-btn{width:100%}
+    /* Footer: the reason, then Cancel as a link on its own row, then Save draft and the primary sharing one row
+       (SET-49). The bar stays sticky at this tier. */
+    .actionbar .reason{flex:1 0 100%;text-align:center}
     .actionbar .sp{display:none}
-    .actionbar .reason{text-align:center}
+    /* The link look keeps a real hit area: the smallest text control height (22 px), above the layout gate's 20 px
+       floor (min-hit-area, UI-R45). */
+    .actionbar #cancelBtn{flex:1 0 100%;background:transparent;border-color:transparent;color:var(--k-link);
+      min-height:var(--k-control-h-sm);padding:0;justify-content:flex-start}
+    .actionbar #cancelBtn:hover{background:transparent;color:var(--k-link-active);text-decoration:underline}
+    .actionbar #saveBtn,.actionbar #submitBtn{flex:1 1 0;min-width:0}
   }
   @container (max-width: 399px){
     .frame{margin-inline:var(--k-space-5)}
     .cols > .content,.pghead,.actionbar{padding-inline:var(--k-space-5)}
+    /* Static at tight, so the bar never covers a field (@ui:RD-VIEWS); the primary is last and full width. A
+       column flex overrides the narrow row's flex-basis with flex:none, so no control loses its height. */
+    .actionbar{position:static;flex-direction:column;align-items:stretch}
+    .actionbar .reason,.actionbar #cancelBtn{flex:none}
+    .actionbar #saveBtn,.actionbar #submitBtn{flex:none;width:100%}
   }
 </style>
 
@@ -781,6 +797,27 @@
   const el = (id) => document.getElementById(id);
   const esc = karstEsc;
 
+  // The sticky action bar's height, written to --tf-actionbar-h so the page's scroll padding and the settings
+  // column reserve exactly the room the bar takes. At tight the bar is static, so the value is 0px (SET-49).
+  function syncActionbarHeight() {
+    const bar = el('actionBar');
+    if (!bar) return;
+    const sticky = getComputedStyle(bar).position === 'sticky';
+    document.documentElement.style.setProperty('--tf-actionbar-h', sticky ? bar.offsetHeight + 'px' : '0px');
+  }
+  // The lowest edge an open menu may use (RD-AGENT-MENU): the top of the sticky bar, so the menu flips above its
+  // trigger or caps above the bar instead of covering the footer buttons. A static bar takes no room.
+  const tfBottomEdge = () => {
+    const bar = el('actionBar');
+    if (!bar) return window.innerHeight;
+    return getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().top : window.innerHeight;
+  };
+  syncActionbarHeight();
+  if (el('actionBar') && typeof ResizeObserver !== 'undefined') {
+    const actionbarObserver = new ResizeObserver(() => syncActionbarHeight());
+    actionbarObserver.observe(el('actionBar'));
+  }
+
   // Builds the shared `.k-ticket-ref` chip with DOM nodes only — the state
   // crosses postMessage, so no HTML from it is ever parsed. The text, classes
   // and accessible name mirror TicketRefChip / renderTicketRefHtml, so the
@@ -1098,6 +1135,8 @@
     // edit-mode reopen — analysis rewrites the prompt, so it only auto-runs
     // right after a fetch (the `brief` handler triggers it).
     syncAnalyzeBtn();
+    // Labels change the bar's height: re-measure it so the reserved space stays exact (SET-49).
+    syncActionbarHeight();
   }
 
   // A persisted brief is rendered markdown ("# Title\n\n…"): the card shows it
@@ -1517,10 +1556,10 @@
   // (karstAnchoredPopover, src/ui/shared/anchoredPopover.ts): below its trigger, above when it does not fit,
   // clamped in the viewport, and it follows the trigger on scroll and resize. One detach per surface key.
   const popDetach = {};
-  function anchorPop(key, popover, trigger, width, onHidden) {
+  function anchorPop(key, popover, trigger, width, onHidden, attachOpts) {
     if (popDetach[key]) { popDetach[key](); delete popDetach[key]; }
     if (!popover || !trigger) return;
-    popDetach[key] = karstAnchoredPopover.attach({ popover, trigger, width, onTriggerHidden: onHidden });
+    popDetach[key] = karstAnchoredPopover.attach({ ...(attachOpts || {}), popover, trigger, width, onTriggerHidden: onHidden });
   }
   function unanchorPop(key) {
     if (popDetach[key]) { popDetach[key](); delete popDetach[key]; }
@@ -1596,7 +1635,7 @@
     if (openBasePop && !el('repoList').querySelector('[data-base-pop]')) openBasePop = null;
     // The base-branch popover holds a filter input: when its caret scrolls out of view it stays (pinned in the
     // viewport) until the user closes it, so a typed branch is never lost.
-    if (openBasePop) anchorPop('base', el('repoList').querySelector('[data-base-pop]'), caretFor(openBasePop), undefined, () => undefined);
+    if (openBasePop) anchorPop('base', el('repoList').querySelector('[data-base-pop]'), caretFor(openBasePop), undefined, () => undefined, { bottomEdge: tfBottomEdge });
     else unanchorPop('base');
     syncStepper();
   }
@@ -1714,7 +1753,7 @@
       + '<div id="approachListbox" role="listbox" tabindex="-1" aria-labelledby="approachHeading" aria-activedescendant="' + activeId + '"'
       + (approachOpen ? '' : ' class="hidden"') + '>' + opts + '</div>'
       + '<button type="button" class="k-btn k-btn--link k-btn--sm approach-manage' + (approachActive === approaches.length ? ' is-active' : '') + '" id="approachManage">Manage approaches…</button></div>';
-    if (approachOpen) anchorPop('approach', el('approachPop'), el('approachBtn'), 'trigger', () => closeApproach(false));
+    if (approachOpen) anchorPop('approach', el('approachPop'), el('approachBtn'), 'trigger', () => closeApproach(false), { bottomEdge: tfBottomEdge });
     else unanchorPop('approach');
     syncStepper();
   }
@@ -1860,6 +1899,9 @@
       },
       showEffort: true,
       disabled: !!sessionOpen,
+      // RD-AGENT-MENU: the open core/model menu ends above the sticky bar, never over the footer buttons. The
+      // typeof guard keeps this function extractable by the unit tests that run it without the page around it.
+      bottomEdge: typeof tfBottomEdge === 'function' ? tfBottomEdge : undefined,
       onChange: ({ mode, preset, core, model: m, effort: e }) => {
         if (mode === 'preset') {
           // A preset GOVERNs: '' on the trio is the explicit clear (never null,
@@ -2380,7 +2422,7 @@
     el('searchMenu').classList.remove('hidden');
     el('ref').setAttribute('aria-expanded', 'true');
     // Results only: nothing typed in the menu itself, so it closes when the key field scrolls out of view.
-    anchorPop('search', el('searchMenu'), el('ref'), 'trigger', closeSearchMenu);
+    anchorPop('search', el('searchMenu'), el('ref'), 'trigger', closeSearchMenu, { bottomEdge: tfBottomEdge });
   }
   function closeSearchMenu() {
     unanchorPop('search');

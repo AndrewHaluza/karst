@@ -1303,6 +1303,13 @@ const ticketFormVariants = (): Variant[] => {
       capture: 'viewport',
       click: '[data-ap-trigger="core"]',
     }),
+    // T1301 (RD-AGENT-MENU): the open agent-core menu at the wide 799-tall window must end above the sticky
+    // action bar (or open above its trigger), leaving all three footer buttons visible.
+    variant('ticketForm', 'agent-picker-open', editCoreModel, {
+      viewportHeight: 799,
+      capture: 'viewport',
+      click: '[data-ap-trigger="core"]',
+    }),
     variant('ticketForm', 'manual-provider', () => withState({ ...REALISTIC_TICKET_FORM, provider: 'manual', sourceRef: '' })),
     variant('ticketForm', 'attachments', () =>
       withState({

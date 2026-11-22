@@ -55,7 +55,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1298 attention-one (the "1 needs you · 1 failed" attention line), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because it opens the populated page.
   sidebar: { screenshots: 42, layout: 95 },
   // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
-  ticketForm: { screenshots: 31, layout: 95 },
+  // T1301 agent-picker-open (the open agent-core menu at the wide 799-tall window, RD-AGENT-MENU), @ui:UI-R57: 1 theme (dark) (+1 screenshot); the page shares the edit-core-model layout run, so no layout tests are added.
+  ticketForm: { screenshots: 32, layout: 95 },
   usage: { screenshots: 10, layout: 40 },
 };
 
