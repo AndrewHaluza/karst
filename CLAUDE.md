@@ -4,7 +4,7 @@
 **Output discipline (binding — ~1,500 test files; keep command output small):**
 - Run `npm run -s <script>` (silences the npm banner and pre-script echo). Scripts: `package.json`.
 - vitest 4 picks its compact reporter itself from `AI_AGENT`/`CLAUDECODE` (no config needed). Never pass `--reporter=default|verbose|dot`. Passing tests' console output is hidden; a new test that leaks stderr outside the worker (child process, `process.stderr.write`) must spy it.
-- Scope first: run the single changed file (`npx vitest run src/path/to.test.ts`), or `npx vitest related <files>`. In a karst ticket, do not run the full suite: the gates run it, scoped to the diff. Outside a ticket, run the full suite once, at the end.
+- Scope first: run the single changed file (`npx vitest run src/path/to.test.ts`), or `npx vitest related <files>`. In a karst ticket (`KARST_TICKET_ID` is set), do not run the full suite: the gates run it, scoped to the diff. Outside a ticket, run the full suite once, at the end.
 - On failure, rerun only the failing file. Do not rerun the whole suite to re-read the error.
 - Coverage: `npm run -s test:coverage -- --coverage.reporter=text-summary` (default `text` prints a row per file).
 - Mutation: `npx stryker run --mutate <changed files>`, then `node scripts/mutationSummary.mjs` (config: `stryker.config.json`, silent by design).
@@ -16,9 +16,9 @@
 ## Gates and CI (binding)
 - **Naming rule (binding):** a test file that spawns a real child/git process, binds or connects a real network port, or renders a full settings/dashboard jsdom document is named `*.integration.test.*`; a headless end-to-end file is `*.e2e.test.*`; everything else stays `*.test.*`. A file must never match two suites — the unit config excludes both suffixes.
 - **A gate passes only when its exact command (`npm run -s <script>`, as the gate runs it) exits 0 in the ticket worktree.** Never substitute another invocation (absolute `tsc` path, `npx`, a parent checkout) and report it as passing. If the gate command itself is broken (MODULE_NOT_FOUND, command not found), say so in the done report or a note; do not route around it.
-- Karst runs the gates itself (UAT, then review), scoped to the diff and to the delta since the last run; CI is the full backstop. Never duplicate a gate: before the impl marker, run only the tests you wrote or changed (`npx vitest run <file>`) and `npm run -s typecheck`.
+- In a karst ticket (env `KARST_TICKET_ID` is set), karst runs the gates itself (UAT, then review), scoped to the diff and to the delta since the last run; CI is the full backstop. Never duplicate a heavy gate run: before the impl marker, run the tests you wrote or changed (`npx vitest run <file>`), `npm run -s typecheck`, and only the cheap checks that the skill lists.
 - In a fix session, read the fix brief first (`karst fix-brief <key>`) and repair only the failing gate.
-- **Read `.claude/skills/gates-and-ci/SKILL.md` (skill `gates-and-ci`) before the impl marker, in a fix session, or when a gate or CI job fails.** It has the stage-to-gate map, the per-role steps, the mutation rules and the CI job list.
+- **Read `.claude/skills/gates-and-ci/SKILL.md` (skill `gates-and-ci`) before the impl marker, in a fix session, or when a gate or CI job fails.** It has the gate map, the implementer and fixer steps, the mutation rules and the CI job list.
 
 ## Native ABI split (better-sqlite3)
 Native addon; ABI must match the runtime: **Electron** for F5, **Node** for tests.

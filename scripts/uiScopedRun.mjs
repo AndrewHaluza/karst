@@ -1,4 +1,5 @@
-// `npm run test:ui:docker -- <view>`: THE scoped pre-UAT check for a webview change.
+// `npm run test:ui:docker -- <view>`: THE scoped check of one webview. In a karst ticket the UAT `visual`
+// gate runs it per changed view, so an agent runs this only to reproduce a failure (skill `gates-and-ci`).
 //
 // (a) the screenshot projects scoped to the view, then
 // (b) the FULL authoritative layout run. A view-scoped layout run is sound for the

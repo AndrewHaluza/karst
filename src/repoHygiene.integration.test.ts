@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
@@ -39,22 +39,28 @@ describe('repo hygiene: dependency dirs are ignored even as symlinks', () => {
   it('tracked symlinks are only AGENTS.md -> CLAUDE.md and .agents/skills mirrors of .claude/skills', () => {
     const r = spawnSync('git', ['ls-files', '-s'], { cwd: repoRoot, encoding: 'utf8' });
     expect(r.status).toBe(0);
-    const links = r.stdout
+    const entries = r.stdout
       .split('\n')
       .filter((line) => line.startsWith('120000'))
       .map((line) => {
         const [meta = '', path = ''] = line.split('\t');
-        const sha = meta.split(' ')[1] ?? '';
-        const target = spawnSync('git', ['cat-file', '-p', sha], { cwd: repoRoot, encoding: 'utf8' });
-        expect(target.status).toBe(0);
-        return { path, target: target.stdout };
+        return { path, sha: meta.split(' ')[1] ?? '' };
       });
-    expect(links.map((l) => l.path)).toContain('AGENTS.md');
-    for (const { path, target } of links) {
-      const skill = /^\.agents\/skills\/([a-z0-9-]+)$/.exec(path)?.[1];
+    expect(entries.map((e) => e.path)).toContain('AGENTS.md');
+    for (const { path, sha } of entries) {
+      const blob = spawnSync('git', ['cat-file', '-p', sha], { cwd: repoRoot, encoding: 'utf8' });
+      expect(blob.status, `git cat-file failed for ${path}`).toBe(0);
+      const target = blob.stdout;
+      const skill = /^\.agents\/skills\/([a-z0-9][a-z0-9._-]*)$/.exec(path)?.[1];
       const expected = path === 'AGENTS.md' ? 'CLAUDE.md' : skill ? `../../.claude/skills/${skill}` : undefined;
       expect(expected, `unexpected tracked symlink ${path} -> ${target}`).toBeDefined();
       expect(target, `${path} must point at ${expected}`).toBe(expected);
+      if (skill) {
+        expect(
+          existsSync(join(repoRoot, '.claude', 'skills', skill, 'SKILL.md')),
+          `${path} mirrors a skill with no .claude/skills/${skill}/SKILL.md`,
+        ).toBe(true);
+      }
     }
   });
 });
