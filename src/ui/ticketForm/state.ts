@@ -168,6 +168,12 @@ export interface TicketFormState {
   description: string;
   /** Board ref the ticket was (or will be) fetched from. */
   sourceRef: string;
+  /**
+   * Placeholder for the Key field, built by the host from `provider` (the host
+   * supplies the fact, UI-R31): ClickUp ids look like `869e889uh`, every other
+   * board like `PROJ-142`.
+   */
+  keyPlaceholder: string;
   /** Synthesized context brief, or null before a fetch. */
   brief: string | null;
   /** Where `brief` came from; drives the brief header label. */
@@ -416,6 +422,9 @@ export function buildTicketFormState(
   const agents = listAgents();
   const unclassified = unclassifiedRepos(manifest);
   const provider: TicketProvider = manifest.ticketing?.provider ?? 'manual';
+  // The Key field's example id follows the provider's own format (SET-62).
+  // ClickUp ids are opaque 9-character strings; every other board is PROJ-142.
+  const keyPlaceholder = provider === 'clickup' ? 'e.g. 869e889uh' : 'e.g. PROJ-142';
   const agentPresetNames = Object.keys(manifest.agentPresets ?? {}).sort();
   // Same resolution as the launch, so the form's backend label follows the core a preset would run.
   const presetCores = Object.fromEntries(
@@ -501,6 +510,7 @@ export function buildTicketFormState(
       title: '',
       description: '',
       sourceRef: '',
+      keyPlaceholder,
       brief: null,
       briefSource: { kind: 'manual' },
       briefFetchedAt: null,
@@ -571,6 +581,7 @@ export function buildTicketFormState(
     title: ticket.title ?? '',
     description: ticket.description ?? '',
     sourceRef: ticket.sourceRef ?? '',
+    keyPlaceholder,
     brief: ticket.brief,
     briefSource: briefSourceOf(store, ticket, provider),
     briefFetchedAt: ticket.sourceFetchedAt,

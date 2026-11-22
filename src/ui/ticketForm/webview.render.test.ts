@@ -58,7 +58,7 @@ describe('ticket form — regions + title-gated primary', () => {
     expect(err.getAttribute('role')).toBe('alert');
     expect(err.classList.contains('hidden')).toBe(false);
     expect(err.textContent).toContain('Title is required');
-    const title = v.query<HTMLInputElement>('#title')!;
+    const title = v.query<HTMLTextAreaElement>('#title')!;
     expect(title.nextElementSibling).toBe(err);
     expect(title.getAttribute('aria-invalid')).toBe('true');
     expect(title.getAttribute('aria-describedby')).toBe('titleErr');
@@ -109,7 +109,11 @@ describe('ticket form — field order and headings', () => {
     const ref = v.query('#ref')!;
     expect(title.compareDocumentPosition(ref) & 4).toBe(4); // ref follows title
     expect(title.getAttribute('placeholder')).toBe('Title (required)');
-    expect(v.query('label[for="title"]')).toBeNull();
+    // SET-58: a real visible label carries the requirement; the `*` is decorative.
+    const label = v.query('label[for="title"]')!;
+    expect(label.textContent).toContain('Title');
+    expect(label.querySelector('.req')!.getAttribute('aria-hidden')).toBe('true');
+    expect(title.getAttribute('aria-required')).toBe('true');
     expect(v.query('label[for="ref"]')!.textContent).toContain('(optional)');
     expect(ref.getAttribute('placeholder')).toBe('e.g. PROJ-142');
     expect(v.query('[data-region="content"] #title')).toBeTruthy();
@@ -146,7 +150,8 @@ describe('ticket form — edit header, callout, empty states', () => {
     const v = open(baseState({ refLabel: 'D88', subtaskOf: 'Sub-task of T12' }));
     expect(v.query('#keyChip')!.textContent).toBe('D88');
     expect(v.query('#keyChip')!.classList.contains('hidden')).toBe(false);
-    expect(v.query('#subhead')!.textContent).toBe('Sub-task of T12');
+    // SET-62: a separator, not "New ticket Sub-task of T12".
+    expect(v.query('#subhead')!.textContent).toBe(' · Sub-task of T12');
   });
 
   it('create mode hides the key chip and shows no subtitle', () => {
@@ -617,7 +622,7 @@ describe('ticket form — Cancel asks only when the form was edited (SET-54, Q13
 
   it('a typed field posts dirty: true', () => {
     const v = open(baseState());
-    const title = v.query<HTMLInputElement>('#title')!;
+    const title = v.query<HTMLTextAreaElement>('#title')!;
     title.value = 'Typed but not saved';
     title.dispatchEvent(new v.window.Event('input', { bubbles: true }));
     v.click('#cancelBtn');
@@ -629,5 +634,92 @@ describe('ticket form — Cancel asks only when the form was edited (SET-54, Q13
     v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
     v.click('#cancelBtn');
     expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+});
+
+describe('ticket form — content and settings polish (SET-55/58/59/60/61/62)', () => {
+  it('hides the base-branch hint when no repository can offer a ▾ (SET-58)', () => {
+    const v = open(baseState());
+    const hint = v.query<HTMLElement>('#repoHint')!;
+    expect(hint.classList.contains('hidden')).toBe(true);
+    expect(hint.textContent).toBe('Click ▾ on a repository to pick its base branch.');
+  });
+
+  it('shows the base-branch hint once repository chips render (SET-58)', () => {
+    const v = open(baseState({ repos: [{ service: 'api', selected: false, score: 0 }] }));
+    expect(v.query('#repoHint')!.classList.contains('hidden')).toBe(false);
+  });
+
+  it('makes the selected-chip branch text contrast-safe and the override underlined (SET-59)', () => {
+    const v = open(baseState());
+    const branch = v
+      .cssRules()
+      .find((r) => r.selectorText === '.repochip[aria-pressed="true"] .repo-branch');
+    expect(branch?.style.color.toLowerCase()).toBe('currentcolor');
+    const overridden = v
+      .cssRules()
+      .find((r) => r.selectorText === '.repo-branch.is-overridden');
+    expect(overridden?.style.color).toBe('var(--k-warning)');
+    expect(overridden?.style.textDecoration).toContain('underline');
+  });
+
+  it('shows one honest line and the show-session primary while a session runs (SET-60)', () => {
+    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'P-1', title: 'T', sessionOpen: true }));
+    const hint = v.query<HTMLElement>('#sessionHint')!;
+    expect(hint.classList.contains('hidden')).toBe(false);
+    expect(hint.textContent).toBe('Changes apply on the next start.');
+    expect(v.query('#submitBtn')!.textContent).toBe('Save & show session');
+  });
+
+  it('keeps the ordinary labels and hides the session line without a session (SET-60)', () => {
+    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'P-1', title: 'T' }));
+    expect(v.query('#sessionHint')!.classList.contains('hidden')).toBe(true);
+    expect(v.query('#submitBtn')!.textContent).toBe('Save & start');
+  });
+
+  it('keeps the create labels even if a session flag leaked into a create state (SET-60)', () => {
+    const v = open(baseState({ sessionOpen: true }));
+    expect(v.query('#submitBtn')!.textContent).toBe('Create & start');
+  });
+
+  it('grows the title in a one-row textarea and blocks Enter (SET-61)', () => {
+    const v = open(baseState({ title: 'A long title' }));
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    expect(title.tagName).toBe('TEXTAREA');
+    expect(title.getAttribute('rows')).toBe('1');
+    expect(title.value).toBe('A long title');
+    const ev = new v.window.KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    });
+    title.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('turns a pasted line break in the title into a space (SET-61)', () => {
+    const v = open(baseState());
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    title.value = 'First line\nsecond line';
+    title.dispatchEvent(new v.window.Event('input', { bubbles: true }));
+    expect(title.value).toBe('First line second line');
+  });
+
+  it('renders the host-built Key placeholder (SET-62)', () => {
+    const v = open(baseState({ keyPlaceholder: 'e.g. 869e889uh' }));
+    expect(v.query('#ref')!.getAttribute('placeholder')).toBe('e.g. 869e889uh');
+  });
+
+  it('names the effort field "Effort" in this page (SET-62)', () => {
+    const v = open(baseState());
+    expect(
+      v.query('#agentIdentityPicker .ap-effort-field .ap-label')!.textContent,
+    ).toBe('Effort');
+  });
+
+  it('keeps one "Acceptance check" label (SET-62)', () => {
+    const v = open(baseState());
+    const labels = v.queryAll('label[for="intent"]');
+    expect(labels.map((l) => l.textContent)).toEqual(['Acceptance check']);
   });
 });

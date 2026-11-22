@@ -232,7 +232,14 @@
   .repo-caret{border-top-left-radius:0;border-bottom-left-radius:0;padding-left:var(--k-space-3);padding-right:var(--k-space-3)}
   .repochip:focus-visible,.repo-caret:focus-visible,.repo-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .repo-branch{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .repo-branch.is-overridden{color:var(--k-warning)}
+  /* An override is marked by colour AND an underline, so the cue survives a
+     colour-blind reader and the AA text check (SET-59). */
+  .repo-branch.is-overridden{color:var(--k-warning);text-decoration:underline}
+  /* On the selected fill the dim branch text fell below AA: inherit the chip's
+     own (contrast-safe) colour. The override keeps its warning colour through
+     the more specific rule below (SET-59). */
+  .repochip[aria-pressed="true"] .repo-branch{color:currentColor;opacity:1}
+  .repochip[aria-pressed="true"] .repo-branch.is-overridden{color:var(--k-warning)}
   .repo-pop{position:fixed;z-index:var(--k-z-drawer);
     min-width:calc(var(--k-space-8) * 7);max-width:calc(100vw - var(--k-space-8));
     background:var(--vscode-dropdown-background,var(--k-bg));
@@ -429,11 +436,14 @@
     max-height:calc(var(--k-space-8) * 12)}
   #desc{min-height:calc(var(--k-space-8) * 4)}
   #codePointers{min-height:var(--k-space-9)}
-  /* Prototype .m-title: heading input, transparent, bottom border only. */
-  input.k-input#title{font-size:var(--k-text-xl);font-weight:var(--k-weight-semibold);background:transparent;
+  /* Prototype .m-title: heading field, transparent, bottom border only. A
+     textarea grows to show the whole title instead of scrolling it out of view
+     (SET-61); the height is written from scrollHeight in syncTitleHeight. */
+  textarea.k-input#title{font-size:var(--k-text-xl);font-weight:var(--k-weight-semibold);background:transparent;
     border:0;border-bottom:var(--k-border-w) solid var(--k-border);border-radius:0;
-    padding:var(--k-space-2) var(--k-space-0)}
-  input.k-input#title:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+    padding:var(--k-space-2) var(--k-space-0);resize:none;overflow:hidden;max-height:none;min-height:0;
+    line-height:var(--k-leading-tight)}
+  textarea.k-input#title:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   @container (max-width: 999px){
     .cols{grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 14)}
@@ -492,8 +502,13 @@
   <div class="callout callout--danger hidden" id="err" role="alert"><span class="callout-icon" aria-hidden="true"></span><div class="callout-msg" id="errMsg"></div></div>
 
   <div class="field">
+    <!-- SET-58: a real visible label carries the requirement; the asterisk is
+         decorative and aria-hidden, so the label text alone says it. -->
+    <label for="title">Title <span class="req" aria-hidden="true">*</span></label>
     <div>
-      <input type="text" class="k-input" id="title" aria-label="Title" placeholder="Title (required)" />
+      <!-- SET-61: a one-row textarea grows to show a long title instead of
+           scrolling it out of view; Enter never inserts a line break. -->
+      <textarea class="k-input" id="title" rows="1" aria-required="true" placeholder="Title (required)"></textarea>
       <div class="err fielderr hidden" id="titleErr" role="alert"></div>
     </div>
   </div>
@@ -602,7 +617,7 @@
   <div class="setblock">
     <h2>Repositories<span class="stcount" id="repoCount"></span></h2>
     <div class="chips" id="repoList"></div>
-    <p class="chip-hint" id="repoHint">▾ on a chip picks its base branch</p>
+    <p class="chip-hint" id="repoHint">Click ▾ on a repository to pick its base branch.</p>
   </div>
 
   <div class="setblock">
@@ -649,6 +664,8 @@
     <h2>Relations</h2>
     <div id="dependenciesList" class="chips"></div>
   </div>
+  <!-- SET-60: the honest footer for a form locked by a running session. -->
+  <div class="sub hidden" id="sessionHint">Changes apply on the next start.</div>
 </aside>
 </div>
 
@@ -846,6 +863,14 @@
     if (!bar) return window.innerHeight;
     return getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().top : window.innerHeight;
   };
+  // The title is a one-row textarea (SET-61): its height follows the content so the whole title shows on two
+  // or more lines instead of scrolling out of a one-line input. No transition.
+  function syncTitleHeight() {
+    const t = el('title');
+    if (!t) return;
+    t.style.height = 'auto';
+    t.style.height = t.scrollHeight + 'px';
+  }
   syncActionbarHeight();
   if (el('actionBar') && typeof ResizeObserver !== 'undefined') {
     const actionbarObserver = new ResizeObserver(() => syncActionbarHeight());
@@ -986,7 +1011,9 @@
   // renders beside whichever control is visible.
   function renderCreateIn(state) {
     const creatable = state.canCreateProviderTicket === true;
-    const showCheck = creatable && state.mode === 'create';
+    // A ticket that already carries a provider ref (sourceRef) already exists on
+    // the board — offering to create it again is wrong (SET-55).
+    const showCheck = creatable && state.mode === 'create' && !(state.sourceRef || '').trim();
     const showBtn = creatable && state.mode === 'edit' && !(state.sourceRef || '').trim();
     // Name + mark come from the injected provider identity, never a literal
     // (UI-R31): a new provider needs no edit here. Titles are plain text, so
@@ -1052,12 +1079,16 @@
     el('heading').textContent = isEdit ? (refLabel ? 'Edit ' + refLabel : 'Edit ticket') : 'New ticket';
     el('keyChip').textContent = refLabel;
     el('keyChip').classList.toggle('hidden', isEdit || !refLabel);
-    el('subhead').textContent = state.subtaskOf || '';
+    // SET-62: the header reads "New ticket · Sub-task of T12", not "New ticket Sub-task of T12".
+    el('subhead').textContent = state.subtaskOf ? ' · ' + state.subtaskOf : '';
     // The label text is set here, once per state push, and NEVER touched while
     // busy (UI-R18) — setSubmitBusy only toggles aria-busy/disabled. The
     // create-mode pair matches the static markup.
     const labels = ACTION_LABELS[isEdit ? 'edit' : 'create'];
-    submitLabel = labels.submit;
+    // With a live session the primary only re-opens the terminal (src/ui/session.ts),
+    // so an edit form says what it actually does; create mode keeps its labels (SET-60).
+    const sessionOpen = state.sessionOpen === true;
+    submitLabel = isEdit && sessionOpen ? 'Save & show session' : labels.submit;
     if (!submitBusy) el('submitBtn').textContent = submitLabel;
     if (!saveBusy) el('saveBtn').textContent = labels.save;
     renderProvider(state.provider);
@@ -1070,6 +1101,7 @@
     // what the user is typing on a re-push). The single #ref field IS the key —
     // seed it from the identity (key), falling back to the board ref only if the
     // ticket has no key yet.
+    el('ref').placeholder = state.keyPlaceholder || 'e.g. PROJ-142';
     if (!el('ref').value && !formPersist.isDirty('ref')) el('ref').value = state.key || state.sourceRef || '';
     // A key that came from the state is the ticket's real identity — the Title
     // must never overwrite it on the next keystroke. A key this page derived
@@ -1166,12 +1198,16 @@
     lastPresetCores = state.presetCores || {};
     lastBackendSelection = state.selectedBackend ?? null;
     renderBackendPicker(state.mode, state.selectedBackend, state.sessionOpen === true);
+    // SET-60: one line under the settings says why the fields are locked.
+    el('sessionHint').classList.toggle('hidden', !sessionOpen);
     renderGraphRoles();
     syncSubmitGate();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
     // edit-mode reopen — analysis rewrites the prompt, so it only auto-runs
     // right after a fetch (the `brief` handler triggers it).
     syncAnalyzeBtn();
+    // The title may have been seeded or replaced by this push: re-measure its height (SET-61).
+    syncTitleHeight();
     // Labels change the bar's height: re-measure it so the reserved space stays exact (SET-49).
     syncActionbarHeight();
   }
@@ -1647,12 +1683,16 @@
   function renderRepos(repos, repoBases) {
     lastRepos = repos || [];
     lastRepoBases = repoBases || [];
+    // SET-58: the ▾ hint is meaningful only when there are chips to click.
+    const repoHint = el('repoHint');
     if (!repos || !repos.length) {
       unanchorPop('base');
+      if (repoHint) repoHint.classList.add('hidden');
       el('repoList').innerHTML = '<p class="setempty">No repositories. Add one in <a href="#" data-act="open-settings" data-section="repositories">Settings → Repositories</a>.</p>';
       syncStepper();
       return;
     }
+    if (repoHint) repoHint.classList.remove('hidden');
     // Toggle chips: real buttons carrying aria-pressed (UI-R09, R26) — `data-repo`
     // drives the delegated click handler (flips `draft.repos`, posts `set-repos`).
     // Only a SELECTED repo gets the split caret (§ per-repo base branch).
@@ -1935,6 +1975,9 @@
         effort: defaultEffort ? 'Inherit (settings: ' + esc(defaultEffort) + ')' : 'No effort (agent picks)',
       },
       showEffort: true,
+      // SET-62: this page calls the field "Effort"; the shared default stays
+      // "Effort / variant" for Settings and the dashboard.
+      labels: { effort: 'Effort' },
       disabled: !!sessionOpen,
       // RD-AGENT-MENU: the open core/model menu ends above the sticky bar, never over the footer buttons. The
       // typeof guard keeps this function extractable by the unit tests that run it without the page around it.
@@ -2399,6 +2442,7 @@
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
     // lastIntent/lastPointers stay at the host values, so a restored edit still counts as changed on save.
     el('codePointersRow').hidden = !el('codePointers').value;
+    syncTitleHeight();
     syncSubmitGate();
     syncAnalyzeBtn();
   }
@@ -2410,11 +2454,24 @@
     syncSubmitGate();
     scheduleSearch();
   });
+  // SET-61: the title is one line of text. Enter never inserts a line break and
+  // a pasted break becomes a space, so the derived key and the page title stay
+  // single-line while the control still grows to show a long title.
+  el('title').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') e.preventDefault();
+  });
   el('title').addEventListener('input', () => {
-    if (!refTouched) el('ref').value = deriveKey(el('title').value);
+    const t = el('title');
+    if (/[\r\n]/.test(t.value)) {
+      const at = t.selectionStart;
+      t.value = t.value.replace(/[\r\n]+/g, ' ');
+      if (at !== null) t.selectionStart = t.selectionEnd = Math.min(at, t.value.length);
+    }
+    syncTitleHeight();
+    if (!refTouched) el('ref').value = deriveKey(t.value);
     // Typing again is the retry — clear the field error the moment it's
     // no longer blank, rather than waiting for the next submit attempt.
-    if (el('title').value.trim() !== '') setTitleInvalid(false);
+    if (t.value.trim() !== '') setTitleInvalid(false);
     syncSubmitGate();
   });
 
@@ -3127,7 +3184,7 @@
         // Prefill the Prompt from the fetched brief's short summary, only when
         // empty so live typing is never clobbered. The #ref field the user
         // fetched from IS the key — no separate copy needed.
-        if (!el('title').value && b.title) el('title').value = b.title;
+        if (!el('title').value && b.title) { el('title').value = b.title; syncTitleHeight(); }
         if (!el('desc').value && b.description) el('desc').value = b.description;
         // Show the card expanded, flip the fetch button to done, and bind the
         // header to the id just fetched.
