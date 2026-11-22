@@ -66,6 +66,15 @@ describe('GitSection — the four template controls', () => {
     expect(document.querySelector('.page-desc')?.textContent).toContain('Existing human-authored');
   });
 
+  it('keeps the preset row in the shared form grid, with the action fixed (SET-22)', () => {
+    mountGit();
+    const select = screen.getByLabelText('Preset');
+    const field = select.closest('.k-field');
+    expect(field?.parentElement?.classList.contains('form-grid')).toBe(true);
+    expect(field?.querySelector('label')?.textContent).toBe('Preset');
+    expect(screen.getByRole('button', { name: 'Apply preset' }).className).toContain('fixed');
+  });
+
   it('labels every control and wires a real help target (UI-R25)', () => {
     mountGit();
     for (const control of Array.from(
@@ -213,7 +222,7 @@ describe('GitSection — clearing', () => {
 describe('GitSection — the vocabulary is imported, not mirrored (R-X1)', () => {
   it('offers exactly the branch vocabulary the host validates', () => {
     mountGit();
-    const vars = document.querySelector('.template-meta')?.textContent ?? '';
+    const vars = document.querySelector('.git-template-row .template-meta')?.textContent ?? '';
     expect(vars).toContain('{type}');
     expect(vars).toContain('{slug}');
     // `{repo}` and `{scope}` are deliberately absent from a BRANCH template: two
@@ -223,7 +232,7 @@ describe('GitSection — the vocabulary is imported, not mirrored (R-X1)', () =>
 
   it('offers the description vocabulary on the PR body only', () => {
     mountGit();
-    const metas = Array.from(document.querySelectorAll('.template-meta')).map((n) => n.textContent ?? '');
+    const metas = Array.from(document.querySelectorAll('.git-template-row .template-meta')).map((n) => n.textContent ?? '');
     const description = metas.find((text) => text.includes('{description}'));
     expect(description).toBeTruthy();
     expect(description).toContain('{sessionId}');
@@ -234,7 +243,7 @@ describe('GitSection — the vocabulary is imported, not mirrored (R-X1)', () =>
 
   it('offers the imported transform names', () => {
     mountGit();
-    const meta = document.querySelector('.template-meta')?.textContent ?? '';
+    const meta = document.querySelector('.git-template-row .template-meta')?.textContent ?? '';
     expect(meta).toContain('slice');
     expect(meta).toContain('truncate');
     expect(meta).toContain('{key|slice:-4}');
@@ -281,7 +290,7 @@ describe('GitSection — the transform helper operates on the caret (R-X1)', () 
 
   it('lists exactly the host transform names', () => {
     mountGit();
-    const metas = Array.from(document.querySelectorAll('.template-meta'));
+    const metas = Array.from(document.querySelectorAll('.git-template-row .template-meta'));
     // Non-vacuity: four template rows, each with its own transform list.
     expect(metas).toHaveLength(4);
     for (const meta of metas) {

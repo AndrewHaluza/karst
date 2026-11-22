@@ -148,58 +148,63 @@ describe('browse-repo-path', () => {
   });
 });
 
+function spies(): SettingsActions & { calls: Record<string, unknown[]> } {
+  const calls: Record<string, unknown[]> = {
+    browseRepoPath: [],
+    openManifest: [],
+    setQuota: [],
+    openQuota: [],
+    save: [],
+    validate: [],
+    validateProcessAssignments: [],
+    requestState: [],
+    installApproach: [],
+    uninstallApproach: [],
+    resolvePendingOutputs: [],
+    setToken: [],
+    clearToken: [],
+    checkBackends: [],
+    setApproachEnabled: [],
+    setAgentEnabled: [],
+    saveAgentFile: [],
+    createAgent: [],
+    deleteAgent: [],
+    getApproachCommandBody: [],
+    fetchTicketStatuses: [],
+    fetchTicketLists: [],
+    openGraphPrompt: [],
+    accounts: [],
+  };
+  return {
+    calls,
+    save: (m, section) => { calls['save']!.push({ manifest: m, section }); },
+    validate: (m) => { calls['validate']!.push(m); },
+    validateProcessAssignments: (m) => { calls['validateProcessAssignments']!.push(m); },
+    requestState: () => { calls['requestState']!.push(true); },
+    installApproach: (id) => { calls['installApproach']!.push(id); },
+    uninstallApproach: (id) => { calls['uninstallApproach']!.push(id); },
+    resolvePendingOutputs: (id, accepted) => { calls['resolvePendingOutputs']!.push({ id, accepted }); },
+    setToken: () => { calls['setToken']!.push(true); },
+    clearToken: () => { calls['clearToken']!.push(true); },
+    checkBackends: (want) => { calls['checkBackends']!.push(want); },
+    setApproachEnabled: (id, enabled) => { calls['setApproachEnabled']!.push({ id, enabled }); },
+    setAgentEnabled: (name, enabled) => { calls['setAgentEnabled']!.push({ name, enabled }); },
+    saveAgentFile: (name, body) => { calls['saveAgentFile']!.push({ name, body }); },
+    createAgent: (name) => { calls['createAgent']!.push(name); },
+    deleteAgent: (name) => { calls['deleteAgent']!.push(name); },
+    getApproachCommandBody: (approachId, command) => { calls['getApproachCommandBody']!.push({ approachId, command }); },
+    fetchTicketStatuses: (listId, teamId) => { calls['fetchTicketStatuses']!.push({ listId, teamId }); },
+    fetchTicketLists: (teamId) => { calls['fetchTicketLists']!.push(teamId); },
+    openGraphPrompt: (identity) => { calls['openGraphPrompt']!.push(identity); },
+    accounts: (m) => { calls['accounts']!.push(m); },
+    browseRepoPath: (name) => { calls['browseRepoPath']!.push(name); },
+    openManifest: () => { calls['openManifest']!.push(true); },
+    setQuota: (patch) => { calls['setQuota']!.push(patch); },
+    openQuota: () => { calls['openQuota']!.push(true); },
+  };
+}
+
 describe('routeSettingsAction', () => {
-  function spies(): SettingsActions & { calls: Record<string, unknown[]> } {
-    const calls: Record<string, unknown[]> = {
-      browseRepoPath: [],
-      openManifest: [],
-      save: [],
-      validate: [],
-      validateProcessAssignments: [],
-      requestState: [],
-      installApproach: [],
-      uninstallApproach: [],
-      resolvePendingOutputs: [],
-      setToken: [],
-      clearToken: [],
-      checkBackends: [],
-      setApproachEnabled: [],
-      setAgentEnabled: [],
-      saveAgentFile: [],
-      createAgent: [],
-      deleteAgent: [],
-      getApproachCommandBody: [],
-      fetchTicketStatuses: [],
-      fetchTicketLists: [],
-      openGraphPrompt: [],
-      accounts: [],
-    };
-    return {
-      calls,
-      save: (m, section) => { calls['save']!.push({ manifest: m, section }); },
-      validate: (m) => { calls['validate']!.push(m); },
-      validateProcessAssignments: (m) => { calls['validateProcessAssignments']!.push(m); },
-      requestState: () => { calls['requestState']!.push(true); },
-      installApproach: (id) => { calls['installApproach']!.push(id); },
-      uninstallApproach: (id) => { calls['uninstallApproach']!.push(id); },
-      resolvePendingOutputs: (id, accepted) => { calls['resolvePendingOutputs']!.push({ id, accepted }); },
-      setToken: () => { calls['setToken']!.push(true); },
-      clearToken: () => { calls['clearToken']!.push(true); },
-      checkBackends: (want) => { calls['checkBackends']!.push(want); },
-      setApproachEnabled: (id, enabled) => { calls['setApproachEnabled']!.push({ id, enabled }); },
-      setAgentEnabled: (name, enabled) => { calls['setAgentEnabled']!.push({ name, enabled }); },
-      saveAgentFile: (name, body) => { calls['saveAgentFile']!.push({ name, body }); },
-      createAgent: (name) => { calls['createAgent']!.push(name); },
-      deleteAgent: (name) => { calls['deleteAgent']!.push(name); },
-      getApproachCommandBody: (approachId, command) => { calls['getApproachCommandBody']!.push({ approachId, command }); },
-      fetchTicketStatuses: (listId, teamId) => { calls['fetchTicketStatuses']!.push({ listId, teamId }); },
-      fetchTicketLists: (teamId) => { calls['fetchTicketLists']!.push(teamId); },
-      openGraphPrompt: (identity) => { calls['openGraphPrompt']!.push(identity); },
-      accounts: (m) => { calls['accounts']!.push(m); },
-      browseRepoPath: (name) => { calls['browseRepoPath']!.push(name); },
-      openManifest: () => { calls['openManifest']!.push(true); },
-    };
-  }
 
   it('routes resolve-pending-outputs with the accepted entries', () => {
     const a = spies();
@@ -241,6 +246,8 @@ describe('routeSettingsAction', () => {
     routeSettingsAction({ type: 'get-approach-command-body', approachId: 'rpi', command: '/rpi:research' }, a);
     routeSettingsAction({ type: 'browse-repo-path', name: 'backend' }, a);
     routeSettingsAction({ type: 'open-manifest' }, a);
+    routeSettingsAction({ type: 'set-quota', patch: { warnThresholdPct: 90 } }, a);
+    routeSettingsAction({ type: 'open-quota' }, a);
     routeSettingsAction({ type: 'open-graph-prompt', identity: 'karst-graph-planner' }, a);
     expect(a.calls.save).toEqual([{ manifest: draft, section: undefined }]);
     expect(a.calls.validate).toEqual([draft]);
@@ -260,6 +267,8 @@ describe('routeSettingsAction', () => {
     expect(a.calls.getApproachCommandBody).toEqual([{ approachId: 'rpi', command: '/rpi:research' }]);
     expect(a.calls.browseRepoPath).toEqual(['backend']);
     expect(a.calls.openManifest).toEqual([true]);
+    expect(a.calls.setQuota).toEqual([{ warnThresholdPct: 90 }]);
+    expect(a.calls.openQuota).toEqual([true]);
     expect(a.calls.openGraphPrompt).toEqual(['karst-graph-planner']);
   });
 
@@ -283,6 +292,77 @@ describe('routeSettingsAction', () => {
     const returned = routeSettingsAction({ type: 'request-state' }, a);
     expect(returned).toBeInstanceOf(Promise);
     await returned;
+  });
+});
+
+describe('set-quota (Q4-SAVE)', () => {
+  it('accepts a whole threshold at either bound and null', () => {
+    expect(parseSettingsMessage({ type: 'set-quota', patch: { warnThresholdPct: 1 } })).toEqual({
+      type: 'set-quota',
+      patch: { warnThresholdPct: 1 },
+    });
+    expect(parseSettingsMessage({ type: 'set-quota', patch: { warnThresholdPct: 100 } })).toEqual({
+      type: 'set-quota',
+      patch: { warnThresholdPct: 100 },
+    });
+    expect(parseSettingsMessage({ type: 'set-quota', patch: { warnThresholdPct: null } })).toEqual({
+      type: 'set-quota',
+      patch: { warnThresholdPct: null },
+    });
+  });
+
+  it('accepts the two opt-in booleans', () => {
+    expect(
+      parseSettingsMessage({
+        type: 'set-quota',
+        patch: { claudeGlobalStatusline: true, claudeOauthUsageApi: false },
+      }),
+    ).toEqual({
+      type: 'set-quota',
+      patch: { claudeGlobalStatusline: true, claudeOauthUsageApi: false },
+    });
+  });
+
+  it('drops 0, 101, 1.5, "90" and NaN', () => {
+    for (const warnThresholdPct of [0, 101, 1.5, '90', Number.NaN]) {
+      expect(
+        parseSettingsMessage({ type: 'set-quota', patch: { warnThresholdPct } }),
+        String(warnThresholdPct),
+      ).toBeNull();
+    }
+  });
+
+  it('drops a non-boolean opt-in', () => {
+    expect(
+      parseSettingsMessage({ type: 'set-quota', patch: { claudeOauthUsageApi: 'yes' } }),
+    ).toBeNull();
+  });
+
+  it('drops unknown keys, an empty patch and a non-record patch', () => {
+    expect(
+      parseSettingsMessage({ type: 'set-quota', patch: { warnThreshold: 90 } }),
+    ).toBeNull();
+    expect(
+      parseSettingsMessage({ type: 'set-quota', patch: { warnThresholdPct: 90, extra: 1 } }),
+    ).toBeNull();
+    expect(parseSettingsMessage({ type: 'set-quota', patch: {} })).toBeNull();
+    expect(parseSettingsMessage({ type: 'set-quota' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'set-quota', patch: [] })).toBeNull();
+  });
+
+  it('routes the patch to setQuota', () => {
+    const a = spies();
+    routeSettingsAction({ type: 'set-quota', patch: { warnThresholdPct: 90 } }, a);
+    expect(a.calls.setQuota).toEqual([{ warnThresholdPct: 90 }]);
+  });
+});
+
+describe('open-quota (US-30-QC)', () => {
+  it('parses and routes open-quota', () => {
+    expect(parseSettingsMessage({ type: 'open-quota' })).toEqual({ type: 'open-quota' });
+    const a = spies();
+    routeSettingsAction({ type: 'open-quota' }, a);
+    expect(a.calls.openQuota).toEqual([true]);
   });
 });
 

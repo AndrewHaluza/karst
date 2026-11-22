@@ -247,6 +247,9 @@ describe('scroller', () => {
   it('ignores overflow:auto that does not overflow', () => {
     expect(checksOf(snap([pane, scroller({ scrollH: 300 }), scroller({ scrollH: 300 })]), 'scroller')).toEqual([]);
   });
+  it("ignores a textarea's own scrollbar", () => {
+    expect(checksOf(snap([pane, scroller(), scroller({ tag: 'textarea' })]), 'scroller')).toEqual([]);
+  });
 });
 
 describe('section-spacing', () => {

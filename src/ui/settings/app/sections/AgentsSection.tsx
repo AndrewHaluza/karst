@@ -47,7 +47,7 @@ function readHash(): AgentsRoute {
 }
 
 export function AgentsSection() {
-  const { state, send, setLeaveGuard } = useSettingsApp();
+  const { state, send, setLeaveGuard, setInstantApply } = useSettingsApp();
   const [route, setRoute] = useState<AgentsRoute>(readHash);
   // Profile text being edited, by profile name. Owned HERE so it survives tab and
   // item switches; only a successful Save (or Discard) clears an entry.
@@ -101,6 +101,13 @@ export function AgentsSection() {
     },
     [dirtyHere, ask],
   );
+
+  // Q4-SAVE: only the Accounts tab saves each control at once, so the shell
+  // hides Save and Discard there. Leaving the tab (or page) restores them.
+  useEffect(() => {
+    setInstantApply(route.tab === 'accounts');
+    return () => setInstantApply(false);
+  }, [route.tab, setInstantApply]);
 
   // The section-leave guard: while a profile buffer is dirty, a Settings-section
   // switch must not unmount this page and silently drop it. The guard shows the
@@ -216,10 +223,7 @@ export function AgentsSection() {
       <div className="page-header" data-region="header">
         <div>
           <div className="page-title">Agents</div>
-          <div className="page-desc">
-            Which agent runs each role, and the profiles behind them. An edit lands in the layer
-            that wins: the pin if the role is pinned, otherwise the selected preset.
-          </div>
+          <div className="page-desc">Which agent runs each role.</div>
         </div>
       </div>
 

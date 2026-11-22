@@ -73,7 +73,7 @@ export function PresetToolbar({
                 name: 'agents-preset',
                 value: selected ?? '',
                 ariaDescription: isActive ? 'active' : undefined,
-                options: names.length === 0 ? [{ value: '', label: 'No presets yet' }] : options,
+                options: names.length === 0 ? [{ value: '', label: 'None' }] : options,
                 disabled: names.length === 0,
                 onChange: (value) => {
                   setFault(null);
@@ -100,19 +100,21 @@ export function PresetToolbar({
             New
           </Button>
           <Button
-            variant="ghost"
+            variant="secondary"
             size="lg"
             disabled={selected === null}
             onClick={() => selected !== null && apply(duplicatePreset(draft, selected), true)}
           >
             Duplicate
           </Button>
-          <Button variant="ghost" size="lg" disabled={selected === null} onClick={() => setRenaming(true)}>
+          <Button variant="secondary" size="lg" disabled={selected === null} onClick={() => setRenaming(true)}>
             Rename
           </Button>
         </div>
         {compareSlot}
-        <div className="agents-tgroup agents-tgroup--end" role="group" aria-label="Delete preset">
+        {/* SET-38: the Delete group sits in the SAME row as the other preset
+            actions — no `margin-left: auto` stranding it at the far edge. */}
+        <div className="agents-tgroup" role="group" aria-label="Delete preset">
           <Button
             variant={selected === null ? 'ghost' : 'danger'}
             size="lg"

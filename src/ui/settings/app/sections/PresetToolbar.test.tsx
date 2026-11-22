@@ -135,10 +135,47 @@ describe('PresetToolbar', () => {
     expect(newBtn.className).toContain('k-btn--secondary');
     expect(newBtn.className).toContain('k-btn--lg');
 
-    expect(dupBtn.className).toContain('k-btn--ghost');
+    // SET-38: Duplicate and Rename are secondary too — one visual weight for the
+    // preset actions, so none of them reads as the primary action of the page.
+    expect(dupBtn.className).toContain('k-btn--secondary');
     expect(dupBtn.className).toContain('k-btn--lg');
 
-    expect(renBtn.className).toContain('k-btn--ghost');
+    expect(renBtn.className).toContain('k-btn--secondary');
     expect(renBtn.className).toContain('k-btn--lg');
+  });
+
+  it('keeps the Delete group in the same row, without the far-edge class (SET-38)', () => {
+    render(
+      <PresetToolbar
+        draft={EMPTY_MANIFEST}
+        lastSaved={EMPTY_MANIFEST}
+        names={['default-preset', 'secondary']}
+        selected="secondary"
+        activeName="default-preset"
+        roleLabelOf={() => undefined}
+        onSelect={vi.fn()}
+        edit={vi.fn()}
+      />,
+    );
+    const deleteGroup = screen.getByRole('group', { name: 'Delete preset' });
+    expect(deleteGroup.className).not.toContain('agents-tgroup--end');
+    expect(deleteGroup.parentElement!.className).toContain('agents-toolbar-row');
+  });
+
+  it('reads "None" when no preset exists (SET-39)', () => {
+    render(
+      <PresetToolbar
+        draft={EMPTY_MANIFEST}
+        lastSaved={EMPTY_MANIFEST}
+        names={[]}
+        selected={null}
+        activeName=""
+        roleLabelOf={() => undefined}
+        onSelect={vi.fn()}
+        edit={vi.fn()}
+      />,
+    );
+    expect((screen.getByRole('combobox') as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.getByRole('option').textContent).toBe('None');
   });
 });

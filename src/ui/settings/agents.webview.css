@@ -46,7 +46,9 @@
 #section-agents .agents-compare-bar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  /* SET-38: one baseline for every control in the bar, so the Delete group needs
+     no margin trick to line up and no button floats away from its neighbours. */
+  align-items: center;
   gap: var(--k-space-4) var(--k-space-6);
   margin-bottom: var(--k-space-3);
 }
@@ -55,19 +57,14 @@
   display: flex;
   flex-wrap: nowrap;
   gap: var(--k-space-2);
-  align-items: flex-end;
+  align-items: center;
 }
-
-#section-agents .agents-tgroup--end {
-  margin-left: auto;
-}
-
-#section-agents .agents-tgroup--end .k-btn--danger {
-  border-color: transparent;
-}
-#section-agents .agents-tgroup--end .k-btn--danger:hover:not(:disabled) {
-  border-color: var(--k-danger);
-}
+/* The compare chip group is nowrap so its pair reads as one control; it may sit
+   in a toolbar row narrower than its intrinsic width (320 px), so the group
+   wraps and its field shrinks instead of overhanging the row (T1297 / UI-R43). */
+#section-agents .agents-compare-bar { flex-wrap: wrap; max-width: 100%; min-width: 0; }
+#section-agents .agents-compare-bar > .k-field,
+#section-agents .agents-compare-bar .k-input { min-width: 0; }
 
 #section-agents .agents-tgroup select,
 #section-agents .agents-tgroup input,
@@ -217,6 +214,20 @@
 #section-agents .agents-role-hint { flex-basis: 100%; font-size: var(--k-text-xs); color: var(--k-text-dim); }
 #section-agents .agents-inherited { font-size: var(--k-text-xs); }
 
+/* SET-37: the inherited line is a second line under the picker; give the row room
+   so it never collides with the next row's top border. */
+#section-agents .agents-row:has(.agents-inherited) { padding-bottom: var(--k-space-3); }
+
+/* Q4: the "Enabled" caption beside a list item's switch. The wide table has an
+   "Enabled" column header, the mid card has none — so the caption is shown only
+   where the header is gone. It is decorative; the switch's own aria-label names
+   the action (Enable/Disable <role>). */
+#section-agents .agents-switch-text {
+  display: none;
+  font-size: var(--k-text-xs);
+  color: var(--k-text-dim);
+}
+
 /* The status line under the table (UI-R27): announcements and the selected
    row's Source reason. Kept mounted so a later message is announced; it takes
    no space while it is empty. */
@@ -323,11 +334,15 @@
   #section-agents .agents-head { display: none; }
   /* Card: top line = switch | Role | Source | Actions, then Agent profile | Core | Model | Effort. */
   #section-agents .agents-row {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* SET-36: the switch track sizes to the switch and its visible "Enabled"
+       caption, so the role name sits next to its switch instead of far away. */
+    grid-template-columns: minmax(var(--k-space-9), auto) minmax(0, 1fr) auto auto;
     grid-template-areas: 'sw role src act' 'f f f f';
     row-gap: var(--k-space-2);
     padding: var(--k-space-3);
   }
+  #section-agents .agents-cell-switch { gap: var(--k-space-1); }
+  #section-agents .agents-switch-text { display: inline; }
   #section-agents .agents-cell-switch  { grid-area: sw; justify-content: flex-start; }
   #section-agents .agents-cell-role    { grid-area: role; }
   #section-agents .agents-cell-source  { grid-area: src; justify-content: flex-end; }
@@ -353,6 +368,9 @@
     padding-block: var(--k-space-1);
   }
   /* Line 2: '<profile> · <core> · <model>' + the expand button. The pickers stay closed until it opens. */
+  /* The narrow track is the switch's own width: the caption would push the role
+     name out of its column, so it stays with the mid card only. */
+  #section-agents .agents-switch-text { display: none; }
   #section-agents .agents-cell-summary { display: flex; grid-area: sum; justify-content: space-between; gap: var(--k-space-2); }
   #section-agents .agents-summary-line { min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--k-text-dim); }
   #section-agents .agents-cell-summary .k-iconbtn { flex: none; }
@@ -401,10 +419,58 @@
 #section-agents .accounts-quota .field-label, #section-agents .accounts-quota .k-switch label { color: var(--vscode-foreground); }
 #section-agents .accounts-quota-threshold input { width: 10ch; min-width: 0; box-sizing: border-box; } /* 6 digits of text plus the padding and the number spinner */
 #section-agents .accounts-actions { display: flex; gap: var(--k-space-3, 8px); }
+
+/* Accounts row actions (SET-41): ONE row that never wraps into a ragged second
+   line (UI-R54). The lower-priority actions live behind the ⋯ menu. These base
+   rules sit BEFORE the narrow-tier block so that block's overrides win by
+   source order (UI-R49). */
+#section-agents .accounts-row-actions { flex-wrap: nowrap; align-items: center; }
+#section-agents .accounts-menu { position: relative; display: inline-flex; }
+#section-agents .accounts-menu-list {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(100% + var(--k-space-1));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: calc(var(--k-space-9) * 5);
+  padding: var(--k-space-1);
+  background: var(--vscode-menu-background, var(--k-surface));
+  border: var(--k-border-w) solid var(--vscode-menu-border, var(--k-border));
+  border-radius: var(--k-radius-md);
+  box-shadow: 0 var(--k-space-1) var(--k-space-3) var(--vscode-widget-shadow, rgb(0 0 0 / 30%));
+}
+#section-agents .accounts-menu-list .k-btn { justify-content: flex-start; text-align: start; }
+
 @media (max-width: 699px) {
   #section-agents .accounts-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   #section-agents .accounts-table, #section-agents .accounts-table tbody, #section-agents .accounts-table tr, #section-agents .accounts-table td { display: block; }
   #section-agents .accounts-table tr { border: 1px solid var(--vscode-panel-border, transparent); margin-block: var(--k-space-3, 8px); }
   #section-agents .accounts-table td::before { content: attr(data-label) ': '; font-weight: 600; }
   #section-agents .accounts-table td:has(> .accounts-empty) { display: none; }
+  /* UI-R43/R45: in the stacked card the ⋯ trigger sits near the card's left
+     edge, so a right-anchored 130px+ menu would run off the viewport's left
+     side and clip its first items. Anchor the menu to the trigger's start at
+     this tier so it opens inward. */
+  #section-agents .accounts-menu-list { inset-inline-start: 0; inset-inline-end: auto; max-width: calc(100vw - var(--k-space-8)); }
 }
+
+/* Sandbox tab (SET-46..48): one form-grid row per core — the display name and
+   mark in the label track, the segmented control in the control track, and the
+   readiness of the SELECTED backend directly under its own row. */
+#section-agents .backend-core { display: inline-flex; align-items: center; gap: var(--k-space-2); }
+#section-agents .backend-core-icon { display: inline-flex; flex: none; }
+#section-agents .backend-control { display: flex; flex-direction: column; align-items: flex-start; gap: var(--k-space-1); }
+#section-agents .backend-status { font-size: var(--k-text-sm); }
+#section-agents .backend-status.is-error { color: var(--vscode-errorForeground, var(--k-danger)); }
+#section-agents .backend-status code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  padding: 0 var(--k-space-1);
+  border-radius: var(--k-radius-sm, 2px);
+  background: var(--vscode-textCodeBlock-background, transparent);
+}
+#section-agents .backend-recheck { margin-block-start: var(--k-space-3); }
+
+/* Quota card (Q4-SAVE): the "Saved" acknowledgement beside the control it saved. */
+#section-agents .accounts-quota-saved { font-size: var(--k-text-xs); color: var(--k-text-dim); }

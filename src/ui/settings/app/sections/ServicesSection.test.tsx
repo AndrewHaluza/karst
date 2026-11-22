@@ -126,9 +126,52 @@ describe('ServicesSection — the roster', () => {
     expect(card('api')).toBeTruthy();
     expect(card('docs')).toBeTruthy();
     // `docs` declares no service, so it is a worktree and its runtime fields are
-    // not rendered at all.
-    expect(card('docs').textContent).toContain('worktree only');
+    // not rendered at all. One chip says it (SET-24): the old pair of
+    // "worktree only" + "no service" was two labels for one fact.
+    expect(card('docs').textContent).toContain('Worktree only');
+    expect(card('docs').textContent).not.toContain('no service');
     expect(card('api').textContent).toContain('service');
+  });
+
+  it('describes the page by what the tab configures (SET-10)', () => {
+    mount();
+    expect(document.querySelector('.page-desc')?.textContent).toBe(
+      'The repositories Karst opens worktrees in, and how each one runs.',
+    );
+  });
+
+  it('labels the enable switch in words and draws the chevron as an icon (SET-24)', () => {
+    mount();
+    const toggle = card('api').querySelector('[data-switch="repo-enabled-api"]') as HTMLElement;
+    expect(toggle.textContent).toContain('Enabled');
+    // The disclosure glyph is the shared Tabler icon, not a text "▸".
+    const disclosure = card('api').querySelector('[data-toggle]') as HTMLElement;
+    expect(disclosure.querySelector('.icon-island')).not.toBeNull();
+    expect(disclosure.textContent).not.toContain('▸');
+  });
+
+  it('keeps both ends of a long repository path, with the full path reachable (SET-25)', () => {
+    const longPath = `/Users/you/code/${'nested/'.repeat(20)}the-repo`;
+    mount({
+      ...BASE,
+      repositories: {
+        ...(BASE.repositories as object),
+        api: {
+          ...(BASE.repositories as unknown as Record<string, Record<string, unknown>>).api,
+          repoPath: longPath,
+        },
+      } as unknown as Manifest['repositories'],
+    });
+    const cell = card('api').querySelector('.cell-path') as HTMLElement;
+    const shown = cell.querySelector('.path-text')?.textContent ?? '';
+    expect(cell.getAttribute('title')).toBe(longPath);
+    // The ellipsized form is visual only: assistive tech must read the full path
+    // once (the sr-only sibling), not the truncated string and then the path.
+    expect(cell.querySelector('.path-text')?.getAttribute('aria-hidden')).toBe('true');
+    expect(cell.querySelector('.sr-only')?.textContent).toBe(longPath);
+    expect(shown).toContain('…');
+    expect(shown.startsWith('/Users/you')).toBe(true);
+    expect(shown.endsWith('the-repo')).toBe(true);
   });
 
   it('shows the Draft marker only for a disabled repository', () => {

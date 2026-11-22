@@ -71,6 +71,8 @@ function make(
       fetchTicketLists: () => {},
       browseRepoPath: () => {},
       openManifest: () => {},
+      setQuota: () => {},
+      openQuota: () => {},
       openGraphPrompt: () => {},
       accounts: () => {},
     }),
@@ -246,8 +248,10 @@ describe('SettingsManager', () => {
           fetchTicketLists: () => {},
           browseRepoPath: () => {},
           openManifest: () => {},
+          setQuota: () => {},
+          openQuota: () => {},
           openGraphPrompt: () => {},
-      accounts: () => {},
+          accounts: () => {},
         }),
       );
       await mgr.open();

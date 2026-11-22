@@ -37,7 +37,7 @@ import type { BackendStatuses, SettingsState } from '../state.js';
 import type { AccountsCoreView, AccountsHostMessage } from '../accountsMessages.js';
 import type { SettingsHostMessage } from '../messages.js';
 import { clone, dirtySectionsOf, overlaySections, sectionsToKeep } from './draft.js';
-import { pickDefaultStartStatus } from './diagnostics.js';
+import { applyQuotaPatch, pickDefaultStartStatus } from './diagnostics.js';
 
 /** One terminal `action-result` receipt, keyed by its correlation id (UI-R13). */
 export interface ActionReceipt {
@@ -74,6 +74,17 @@ export interface SettingsAppState {
   /** The section a Save is writing; a `state` push drops its edits. */
   readonly pendingSaveSection: SettingsSection | null;
   readonly dirtySections: readonly SettingsSection[];
+  /**
+   * A Discard that can still be undone (Q11): the section and the draft as it
+   * stood. Non-null for DISCARD_UNDO_MS after the topbar Discard; a new edit, a
+   * Save, a section switch or a second Discard clears it.
+   */
+  readonly undo: { readonly section: SettingsSection; readonly draft: Manifest } | null;
+  /**
+   * A counter bumped by every `quota-saved` (Q4-SAVE), so the Accounts note can
+   * acknowledge the same patch twice and still re-render.
+   */
+  readonly quotaSavedSeq: number;
   /** The last `state` push, verbatim (UI-R31). `null` before the first one. */
   readonly host: SettingsState | null;
   /** A model-catalog refresh (`models`), which arrives without a `state` push. */
@@ -133,6 +144,8 @@ export const INITIAL_SETTINGS_APP_STATE: SettingsAppState = {
   lastSaved: EMPTY_DRAFT,
   pendingSaveSection: null,
   dirtySections: [],
+  undo: null,
+  quotaSavedSeq: 0,
   host: null,
   models: null,
   processAssignments: null,
@@ -205,6 +218,14 @@ function applyState(state: SettingsAppState, host: SettingsState): SettingsAppSt
       },
       processAssignments: host.processAssignments,
       validation,
+      // An authoritative push supersedes a transient action error: otherwise a
+      // failed open-quota/install kept its banner and its "1 error" claim long
+      // after the next successful action (it is not a Save-blocking fault).
+      hostError: null,
+      // Q11: a push means the host just wrote the file (an agent or approach
+      // toggle, an install, a quota change). Restoring a pre-push draft snapshot
+      // would silently revert that write, so the Undo window ends here.
+      undo: null,
       // The script cleared the confirm-install latch on every push; the drawer's
       // "Delete" is guarded by "Uninstall before deleting", and a push that
       // re-opens a drawer for an already-uninstalled approach would offer a
@@ -294,7 +315,8 @@ export function settingsAppReducer(
       return { ...state, processAssignments: message.rows };
 
     case 'validation':
-      return { ...state, validation: { ok: message.ok, error: message.ok ? null : message.error } };
+      // A fresh verdict supersedes any earlier transient error.
+      return { ...state, validation: { ok: message.ok, error: message.ok ? null : message.error }, hostError: null };
 
     case 'error':
       return { ...state, hostError: message.message };
@@ -305,8 +327,30 @@ export function settingsAppReducer(
       return {
         ...state,
         saved: { section: message.section ?? null },
+        // A Save settles the edits a Discard would have restored (Q11).
+        undo: null,
         dirtySections: dirtySectionsOf(state.draft, state.lastSaved),
       };
+
+    case 'quota-saved': {
+      // Apply the patch to BOTH halves of the dirty comparison: quota is saved
+      // out of band (Q4-SAVE), and updating only the draft would leave the tab
+      // dirty while an unrelated Agents Save would write the OLD threshold back
+      // from the stale baseline.
+      const draft = applyQuotaPatch(state.draft, message.patch);
+      const lastSaved = applyQuotaPatch(state.lastSaved, message.patch);
+      return {
+        ...state,
+        draft,
+        lastSaved,
+        dirtySections: dirtySectionsOf(draft, lastSaved),
+        quotaSavedSeq: state.quotaSavedSeq + 1,
+        // Q11: the quota write already landed; an Undo that restored the old
+        // snapshot would revert it in the draft and the next Save would write
+        // the old value back to disk.
+        undo: null,
+      };
+    }
 
     case 'approach-command-body':
       return {
@@ -384,7 +428,15 @@ export function beginSave(state: SettingsAppState, section: SettingsSection): Se
   // failure that had nothing to do with Save — would settle the NEXT save the
   // instant it was requested, before the host had replied. There is exactly one
   // place a Save is requested from, so this is exactly one place to clear it.
-  return { ...state, pendingSaveSection: section, saved: null, hostError: null };
+  return {
+    ...state,
+    pendingSaveSection: section,
+    saved: null,
+    hostError: null,
+    // Starting a Save retires the undo action (Q11): the edits it would restore
+    // are on their way to disk, so restoring them would be a second write.
+    undo: null,
+  };
 }
 
 /**
@@ -400,8 +452,44 @@ export function setDraftManifest(state: SettingsAppState, draft: Manifest): Sett
   return {
     ...state,
     draft: clone(draft),
+    // Any replacement of the draft invalidates a stored Discard snapshot (Q11):
+    // a new edit means the user moved on, and restoring the old draft would
+    // silently discard that edit.
+    undo: null,
     dirtySections: dirtySectionsOf(draft, state.lastSaved),
   };
+}
+
+/**
+ * Discard one tab's edits, keeping the draft a 5 s Undo can restore (Q11).
+ *
+ * The snapshot is the WHOLE draft, not just the discarded tab: `undo` restores
+ * the state the user was looking at, and the tab's fields are all that changed
+ * between the two. `sectionsToKeep` semantics are unchanged — other tabs' edits
+ * survive the discard.
+ */
+export function discardWithUndo(
+  state: SettingsAppState,
+  section: SettingsSection,
+): SettingsAppState {
+  const next = setDraftManifest(
+    state,
+    overlaySections(state.draft, state.lastSaved, [section]),
+  );
+  return { ...next, undo: { section, draft: clone(state.draft) } };
+}
+
+/** Put back the draft a Discard replaced, then forget it (Q11). */
+export function undoDiscard(state: SettingsAppState): SettingsAppState {
+  const undo = state.undo;
+  if (undo === null) return state;
+  // `setDraftManifest` recomputes the dirty markers and clears `undo` itself.
+  return setDraftManifest(state, undo.draft);
+}
+
+/** Drop a pending Undo without restoring anything (timer, Save, section switch). */
+export function clearUndo(state: SettingsAppState): SettingsAppState {
+  return state.undo === null ? state : { ...state, undo: null };
 }
 
 /**

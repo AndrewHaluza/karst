@@ -182,11 +182,8 @@ export function TicketingSection() {
 
         <ProviderPicker value={cfg.provider} onPick={pickProvider} />
 
-        <div className="section-block" id="clickupFields">
-          <div className="field-label" id="teamIdLabel">
-            Team ID
-          </div>
-          <div className="field-control">
+        {providerIsClickup ? (
+          <div className="form-grid" id="clickupFields">
             <Field
               label="Team ID"
               help="The ClickUp workspace that owns the list. Needed when task ids are custom."
@@ -203,58 +200,59 @@ export function TicketingSection() {
                 },
               }}
             />
-          </div>
 
-          <div className="field-label" id="listLabel">
-            List
-          </div>
-          <div className="field-control">
-            <div className="row">
-              <Field
-                label="List"
-                help="The ClickUp list to advance tickets in."
-                control={{
-                  kind: 'select',
-                  name: 'listId',
-                  value: cfg.listId ?? '',
-                  disabled: listView.controlDisabled,
-                  options: listView.options,
-                  onChange: (value) => {
-                    // Changing the list invalidates the statuses the previous one
-                    // offered; they are re-fetched, never reused across lists.
-                    setCfg({ listId: value || undefined });
-                    listsRequested.current = true;
-                  },
-                }}
-              />
-              <ReloadButton
-                label="Reload lists from ClickUp"
-                busy={lists.busy}
-                disabled={!listPrereqsMet}
-                onClick={requestLists}
-              />
-            </div>
-            <Hint role="status">{listView.hint}</Hint>
-          </div>
+            <Field
+              label="List"
+              help="The ClickUp list to advance tickets in."
+              control={{
+                kind: 'select',
+                name: 'listId',
+                value: cfg.listId ?? '',
+                disabled: listView.controlDisabled,
+                options: listView.options,
+                onChange: (value) => {
+                  // Changing the list invalidates the statuses the previous one
+                  // offered; they are re-fetched, never reused across lists.
+                  setCfg({ listId: value || undefined });
+                  listsRequested.current = true;
+                },
+              }}
+              meta={
+                <div className="template-meta">
+                  <div className="row">
+                    <ReloadButton
+                      label="Reload lists from ClickUp"
+                      busy={lists.busy}
+                      disabled={!listPrereqsMet}
+                      onClick={requestLists}
+                    />
+                  </div>
+                  <Hint role="status">{listView.hint}</Hint>
+                </div>
+              }
+            />
 
-          <div className="field-label" id="tokenLabel">
-            API token
-          </div>
-          <div className="field-control">
-            <div className="row">
-              <span className={tokenConfigured ? 'status-pill ok' : 'status-pill off'}>
-                <span className="dot" />
-                <span className="txt">{tokenConfigured ? 'Token set' : 'No token'}</span>
-              </span>
-              {tokenConfigured ? (
-                <ClearTokenButton />
-              ) : (
-                <SetTokenButton />
-              )}
+            <div className="field-label" id="tokenLabel">
+              API token
             </div>
-            <Help>Stored in your OS keychain — never in karst.yml.</Help>
+            <div className="field-control">
+              <div className="row">
+                <span className={tokenConfigured ? 'status-pill ok' : 'status-pill off'}>
+                  <span className="dot" />
+                  <span className="txt">{tokenConfigured ? 'Token set' : 'No token'}</span>
+                </span>
+                {tokenConfigured ? (
+                  <ClearTokenButton />
+                ) : (
+                  <SetTokenButton />
+                )}
+              </div>
+              <Help>Stored in your OS keychain — never in karst.yml.</Help>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="k-empty-hint">A manual board needs no connection.</div>
+        )}
       </div>
 
       {providerIsClickup ? (
@@ -305,95 +303,97 @@ export function TicketingSection() {
         </div>
       ) : null}
 
-      <div className="section-block" id="advanceCards">
-        <div className="section-title">Status updates</div>
-        <div className="section-desc">Board statuses Karst sets when work starts and when it ships.</div>
+      {providerIsClickup ? (
+        <div className="section-block" id="advanceCards">
+          <div className="section-title">Status updates</div>
+          <div className="section-desc">Board statuses Karst sets when work starts and when it ships.</div>
 
-        <div className="lifecycle-row">
-          <div className="lifecycle-copy">
-            <Field
-              label="Set the ticket status when work starts"
-              control={{
-                kind: 'checkbox',
-                name: 'advanceOnStart',
-                checked: Boolean(cfg.advanceOnStart),
-                onChange: (checked) => setCfg({ advanceOnStart: checked }),
-              }}
-            />
-          </div>
-          {cfg.advanceOnStart ? (
-            <div className="lifecycle-status" id="startAdvanceStatusRow">
-              <div className="row">
-                <Field
-                  label="Status at start of work"
-                  control={{
-                    kind: 'select',
-                    name: 'startStatus',
-                    value: statusView.options.some((o) => o.value === (cfg.startStatus ?? ''))
-                      ? (cfg.startStatus ?? '')
-                      : (statusView.options[0]?.value ?? ''),
-                    disabled: statusView.controlDisabled,
-                    options: statusView.options,
-                    onChange: (value) =>
-                      setCfg({
-                        startStatus: value || undefined,
-                        advanceOnStart: true,
-                      }),
-                  }}
-                />
-                <ReloadButton
-                  label="Reload statuses for this list"
-                  busy={statuses.busy}
-                  disabled={!statusPrereqsMet}
-                  onClick={requestStatuses}
-                />
-              </div>
-              <Hint role="status">{statusView.hint}</Hint>
+          <div className="lifecycle-row">
+            <div className="lifecycle-copy">
+              <Field
+                label="Set the ticket status when work starts"
+                control={{
+                  kind: 'checkbox',
+                  name: 'advanceOnStart',
+                  checked: Boolean(cfg.advanceOnStart),
+                  onChange: (checked) => setCfg({ advanceOnStart: checked }),
+                }}
+              />
             </div>
-          ) : null}
-        </div>
+            {cfg.advanceOnStart ? (
+              <div className="lifecycle-status" id="startAdvanceStatusRow">
+                <div className="row">
+                  <Field
+                    label="Status at start of work"
+                    control={{
+                      kind: 'select',
+                      name: 'startStatus',
+                      value: statusView.options.some((o) => o.value === (cfg.startStatus ?? ''))
+                        ? (cfg.startStatus ?? '')
+                        : (statusView.options[0]?.value ?? ''),
+                      disabled: statusView.controlDisabled,
+                      options: statusView.options,
+                      onChange: (value) =>
+                        setCfg({
+                          startStatus: value || undefined,
+                          advanceOnStart: true,
+                        }),
+                    }}
+                  />
+                  <ReloadButton
+                    label="Reload statuses for this list"
+                    busy={statuses.busy}
+                    disabled={!statusPrereqsMet}
+                    onClick={requestStatuses}
+                  />
+                </div>
+                <Hint role="status">{statusView.hint}</Hint>
+              </div>
+            ) : null}
+          </div>
 
-        <div className="lifecycle-row">
-          <div className="lifecycle-copy">
-            <Field
-              label="Set the ticket status when karst ships"
-              control={{
-                kind: 'checkbox',
-                name: 'advanceOnShip',
-                checked: Boolean(cfg.advanceOnShip),
-                onChange: (checked) => setCfg({ advanceOnShip: checked }),
-              }}
-            />
-          </div>
-          {cfg.advanceOnShip ? (
-            <div className="lifecycle-status" id="advanceStatusRow">
-              <div className="row">
-                <Field
-                  label="Status after ship"
-                  control={{
-                    kind: 'select',
-                    name: 'shipStatus',
-                    value: statusView.options.some((o) => o.value === (cfg.shipStatus ?? ''))
-                      ? (cfg.shipStatus ?? '')
-                      : (statusView.options[0]?.value ?? ''),
-                    disabled: statusView.controlDisabled,
-                    options: statusView.options,
-                    onChange: (value) =>
-                      setCfg({ advanceOnShip: Boolean(value), shipStatus: value || undefined }),
-                  }}
-                />
-                <ReloadButton
-                  label="Reload statuses for this list"
-                  busy={statuses.busy}
-                  disabled={!statusPrereqsMet}
-                  onClick={requestStatuses}
-                />
-              </div>
-              <Hint role="status">{statusView.hint}</Hint>
+          <div className="lifecycle-row">
+            <div className="lifecycle-copy">
+              <Field
+                label="Set the ticket status when Karst ships"
+                control={{
+                  kind: 'checkbox',
+                  name: 'advanceOnShip',
+                  checked: Boolean(cfg.advanceOnShip),
+                  onChange: (checked) => setCfg({ advanceOnShip: checked }),
+                }}
+              />
             </div>
-          ) : null}
+            {cfg.advanceOnShip ? (
+              <div className="lifecycle-status" id="advanceStatusRow">
+                <div className="row">
+                  <Field
+                    label="Status after ship"
+                    control={{
+                      kind: 'select',
+                      name: 'shipStatus',
+                      value: statusView.options.some((o) => o.value === (cfg.shipStatus ?? ''))
+                        ? (cfg.shipStatus ?? '')
+                        : (statusView.options[0]?.value ?? ''),
+                      disabled: statusView.controlDisabled,
+                      options: statusView.options,
+                      onChange: (value) =>
+                        setCfg({ advanceOnShip: Boolean(value), shipStatus: value || undefined }),
+                    }}
+                  />
+                  <ReloadButton
+                    label="Reload statuses for this list"
+                    busy={statuses.busy}
+                    disabled={!statusPrereqsMet}
+                    onClick={requestStatuses}
+                  />
+                </div>
+                <Hint role="status">{statusView.hint}</Hint>
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -601,13 +601,15 @@ function ProviderPicker({
           className="provselect-trigger"
           id="providerTrigger"
           ref={triggerRef}
-          aria-label="Ticketing provider"
           aria-haspopup="listbox"
           aria-expanded={open}
-          aria-labelledby="ticketProviderLabel"
+          aria-labelledby="ticketProviderLabel providerTriggerValue"
           onClick={() => setOpen((was) => !was)}
         >
           <ProviderBadgeIsland provider={value} />
+          <span id="providerTriggerValue" className="sr-only">
+            {providerLabel(value)}
+          </span>
           <span className="chev" aria-hidden="true">
             <TablerIcon name="chevron-down" size={12} />
           </span>
@@ -624,7 +626,7 @@ function ProviderPicker({
               key={id}
               className={id === value ? 'provselect-opt selected' : 'provselect-opt'}
               role="option"
-              tabIndex={0}
+              tabIndex={id === value ? 0 : -1}
               data-value={id}
               aria-selected={id === value}
               onClick={() => pick(id)}
@@ -635,6 +637,10 @@ function ProviderPicker({
                 } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                   event.preventDefault();
                   moveFocus(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1);
+                } else if (event.key === 'Home' || event.key === 'End') {
+                  event.preventDefault();
+                  const list = options();
+                  (event.key === 'Home' ? list[0] : list[list.length - 1])?.focus();
                 }
               }}
             >
@@ -669,7 +675,7 @@ function SetTokenButton() {
   }, [state.tokenConfigured, token]);
 
   return (
-    <Button variant="secondary" busy={token.busy} onClick={() => token.trigger()}>
+    <Button variant="secondary" className="fixed" busy={token.busy} onClick={() => token.trigger()}>
       Set token
     </Button>
   );
@@ -691,7 +697,7 @@ function ClearTokenButton() {
   }, [state.tokenConfigured, token]);
 
   return (
-    <Button variant="secondary" busy={token.busy} onClick={() => token.trigger()}>
+    <Button variant="secondary" className="fixed" busy={token.busy} onClick={() => token.trigger()}>
       Clear token
     </Button>
   );

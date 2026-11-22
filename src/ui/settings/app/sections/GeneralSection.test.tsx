@@ -244,10 +244,30 @@ describe('GeneralSection — edits land on exactly one claimed key', () => {
     expect(perParent.getAttribute('aria-invalid')).toBeNull();
   });
 
-  it('explains the cost of high or unlimited sub-task caps', () => {
+  it('explains sub-tasks in one sentence, with the unlimited rule on each cap', () => {
     mountGeneral();
-    expect(document.querySelector('#section-general')?.textContent).toContain(
-      'Each running sub-task is a full agent session with its own worktree, servers/ports and token spend. Higher limits finish wide work faster but multiply API cost and rate-limit risk, CPU/RAM and port usage, and raise merge conflicts between siblings on the same parent branch. Nesting multiplies sessions, which is what the project-wide limit bounds. 0 = unlimited — not recommended.',
+    const section = document.querySelector('#section-general')!;
+    expect(section.textContent).toContain(
+      'Each running sub-task is a full agent session with its own worktree, ports and token spend.',
+    );
+    // The multi-sentence cost rationale is gone from the page (SET-19).
+    expect(section.textContent).not.toContain('Higher limits finish wide work faster');
+    expect(
+      screen
+        .getByLabelText('Running sub-tasks per parent')
+        .closest('.k-field')?.textContent,
+    ).toContain('0 = unlimited');
+    expect(
+      screen
+        .getByLabelText('Running sub-tasks per project')
+        .closest('.k-field')?.textContent,
+    ).toContain('0 = unlimited');
+  });
+
+  it('hints the default host rather than showing a bare empty input (SET-20)', () => {
+    mountGeneral();
+    expect((screen.getByLabelText('Host') as HTMLInputElement).placeholder).toBe(
+      'Default: localhost',
     );
   });
 

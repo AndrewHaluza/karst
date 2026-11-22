@@ -41,6 +41,7 @@ const UNION_VARIANTS = [
   'ticket-lists',
   'ticket-lists-error',
   'token-state',
+  'quota-saved',
   'repo-path-picked',
   'action-result',
 ] as const;

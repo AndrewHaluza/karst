@@ -19,7 +19,9 @@ import { SECTION_LABELS, type SettingsSection } from '../../sections.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
 import { Button } from '../primitives/Button.js';
+import { TablerIcon } from '../primitives/TablerIcon.js';
 import { useDismiss } from '../primitives/useDismiss.js';
+import { plural } from '../../../../model/notifyText.js';
 import { useFocusTrap } from '../primitives/useFocusTrap.js';
 
 /** The left-nav grouping, in the order the vanilla sidebar renders it. */
@@ -27,13 +29,27 @@ const NAV_GROUPS: ReadonlyArray<{
   readonly caption: string;
   readonly sections: readonly SettingsSection[];
 }> = [
-  { caption: 'Project', sections: ['general', 'git', 'services'] },
+  { caption: 'Setup', sections: ['general', 'git', 'services'] },
   { caption: 'Workflow', sections: ['approaches', 'agents', 'quality', 'autopilot'] },
   { caption: 'Integrations', sections: ['ticketing'] },
 ];
 
-/** How long the "Saved" acknowledgement stays up, as in the vanilla view. */
-const SAVED_ACK_MS = 2000;
+/**
+ * How long the "Saved" acknowledgement stays up, as in the vanilla view.
+ *
+ * Exported so the rendered tests and the visual fixtures can advance the same
+ * clock the shell uses rather than guessing a duration.
+ */
+export const SAVED_ACK_MS = 2000;
+
+/**
+ * How long a Discard stays undoable (Q11).
+ *
+ * Long enough to catch a slip, short enough that the topbar returns to its
+ * normal state without another click. Deliberately longer than the Saved ack:
+ * an acknowledgement is read, an undo has to be reached.
+ */
+export const DISCARD_UNDO_MS = 5000;
 
 /** ⌘S / Ctrl+S saves the tab on screen — the same scope the button has. */
 function isSaveChord(event: KeyboardEvent): boolean {
@@ -49,14 +65,25 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     runLeaveGuard,
     isDirty,
     errorSection,
+    bannerSection,
     valid,
     send,
     saveCandidate,
     markSaveStarted,
+    localErrors,
+    instantApply,
+    undoDiscard,
+    clearUndo,
   } = app;
   const [leaveTarget, setPendingSection] = useState<SettingsSection | null>(null);
   const [navigateAfterAck, setNavigateAfterSave] = useState<SettingsSection | null>(null);
   const [acknowledged, setAcknowledged] = useState<string | null>(null);
+  // Q11: a Discard acts at once and then offers a 5 s Undo. `undoAck` is the
+  // visible half; the draft snapshot itself lives in the reducer (`state.undo`).
+  const [undoAck, setUndoAck] = useState(false);
+  const undoBtnRef = useRef<HTMLButtonElement>(null);
+  const discardBtnRef = useRef<HTMLButtonElement>(null);
+  const focusDiscardRef = useRef(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const infoBtnRef = useRef<HTMLButtonElement>(null);
   const mobileInfoBtnRef = useRef<HTMLButtonElement>(null);
@@ -154,7 +181,24 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   }, [acknowledged]);
 
   const saving = save.pending;
-  const saveBlocked = !valid || !dirty || saving || !state.hydrated;
+  const saveBlocked = !valid || !dirty || saving || !state.hydrated || instantApply;
+  // ONLY the validation verdict blocks a Save. `state.hostError` is a transient
+  // action failure (open-quota, a rejected toggle) and must never present as a
+  // blocking field fault — it used to keep "Fix 1 field to save" on a clean,
+  // valid tab until the next Save.
+  const hostFault = !state.validation.ok;
+  const stateFacts: SaveStateFacts = {
+    hydrated: state.hydrated,
+    saving,
+    dirty,
+    hostFault,
+    errorSection,
+    localErrors,
+    instantApply,
+    section,
+  };
+  const fullState = saveStateText(stateFacts);
+  const compactState = compactSaveStateText(stateFacts);
 
   // The plain switch, after every gate has had its say.
   const switchSection = useCallback(
@@ -180,10 +224,17 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     [section, runLeaveGuard, switchSection],
   );
 
-  const saveNow = useCallback(() => {
-    if (!valid || !dirty || !state.hydrated) return;
+  const saveNow = useCallback((explicit = false): boolean => {
+    if (!valid || !dirty || !state.hydrated) return false;
+    // On the instant-apply tab (Agents › Accounts) Save/Discard are hidden, so
+    // the Ctrl/Cmd+S chord must not write the OTHER Agents tabs' hidden edits.
+    // The LeaveModal's "Save Agents" is an explicit choice about exactly those
+    // edits, so it is allowed through; otherwise that button silently did
+    // nothing and left a navigation intent waiting for a later save.
+    if (instantApply && !explicit) return false;
     save.trigger(section);
-  }, [valid, dirty, save, section, state.hydrated]);
+    return true;
+  }, [valid, dirty, save, section, state.hydrated, instantApply]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -202,7 +253,42 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     return () => globalThis.removeEventListener('keydown', onKeyDown);
   }, [leaveTarget, saveNow]);
 
-  const onDiscard = useCallback(() => app.discard(section), [app, section]);
+  // The Undo affordance follows the reducer's snapshot: it appears on a
+  // Discard, focuses itself (so a keyboard user can act without hunting), and
+  // disappears after DISCARD_UNDO_MS or the moment the snapshot clears (an
+  // edit, a Save, or a section switch).
+  useEffect(() => {
+    if (!undoAck) return undefined;
+    if (state.undo === null) {
+      setUndoAck(false);
+      return undefined;
+    }
+    undoBtnRef.current?.focus();
+    const timer = setTimeout(() => {
+      setUndoAck(false);
+      clearUndo();
+    }, DISCARD_UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [undoAck, state.undo, clearUndo]);
+
+  const onDiscard = useCallback(() => {
+    app.discard(section);
+    setAcknowledged(null);
+    setUndoAck(true);
+  }, [app, section]);
+  const onUndo = useCallback(() => {
+    undoDiscard();
+    setUndoAck(false);
+    // Focus is moved by the effect below, once the restored draft has made the
+    // (previously disabled) Discard button focusable again.
+    focusDiscardRef.current = true;
+  }, [undoDiscard]);
+
+  useEffect(() => {
+    if (!focusDiscardRef.current || undoAck) return;
+    focusDiscardRef.current = false;
+    discardBtnRef.current?.focus();
+  }, [dirty, undoAck]);
 
   // Read-only project facts for the sidebar footer (handoff §5.2): host-pushed,
   // rendered verbatim, never derived here (UI-R31).
@@ -214,7 +300,11 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     : 'karst.yml';
 
   return (
-    <div className="app">
+    // The app mount marker lives on the shell, not only on AppSections: SET-7
+    // replaces the tabs with the loading placeholder until the first state push,
+    // so a render harness that only waits for `data-karst-ready` must still see
+    // the app it mounted (T1297 integration).
+    <div className="app" data-karst-settings-app="true">
       <nav className="sidebar" aria-label="Settings sections" data-region="nav">
         <div className="brand">
           <ProjectGlyph idPrefix="set" className="brandmark" />
@@ -241,7 +331,6 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             kept out of the editable pages. Full details open on demand; the
             manifest opens through the shared pending-action runtime. */}
         <div className="sidebar-foot">
-          <div className="sidebar-project-label">Project</div>
           <button
             type="button"
             className="project-identity"
@@ -254,13 +343,15 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             <ProjectGlyph idPrefix="foot" className="project-icon" />
             <span className="project-copy">
               <span className="project-id" id="footProjectId">
-                {slug?.value || '(unresolved)'}
+                {slug?.value || 'Not set'}
               </span>
               <span className="project-version" id="footProjectVersion">
                 {version ? `v${version}` : ''}
               </span>
             </span>
-            <span className="project-more" aria-hidden="true">⋮</span>
+            <span className="project-more" aria-hidden="true">
+              <TablerIcon name="dots" size={14} />
+            </span>
           </button>
           <button
             type="button"
@@ -270,7 +361,9 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             aria-busy={openManifest.pending || undefined}
             onClick={() => openManifest.trigger()}
           >
-            <span className="manifest-icon" aria-hidden="true">Y</span>
+            <span className="manifest-icon" aria-hidden="true">
+              <TablerIcon name="file-text" size={12} />
+            </span>
             <span className="manifest-name" id="footManifestName">{manifestName}</span>
             <span className="manifest-open">Open ↗</span>
           </button>
@@ -289,7 +382,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           <div className="project-info-title">Project information</div>
           <div className="project-info-row">
             <span>Project ID</span>
-            <strong className="mono" id="popProjectId">{slug?.value || '(unresolved)'}</strong>
+            <strong className="mono" id="popProjectId">{slug?.value || 'Not set'}</strong>
           </div>
           <div className="project-info-row">
             <span>ID source</span>
@@ -303,7 +396,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           </div>
           <div className="project-info-row">
             <span>Manifest</span>
-            <strong className="mono" id="popManifestPath">{manifestPath || '(unresolved)'}</strong>
+            <strong className="mono" id="popManifestPath">{manifestPath || 'Not set'}</strong>
           </div>
         </div>
       </nav>
@@ -325,59 +418,118 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             id="dirtyDot"
             className={dirty ? 'dirty-dot' : 'dirty-dot hidden'}
             title="Unsaved changes on this tab"
+            aria-hidden="true"
           />
           {/* Names the tab Save now acts on — the scope of the button is not
               obvious from a bare "Settings" heading. */}
           <h1>
             Settings{' '}
-            <span className="topbar-section" id="topbarSection">› {SECTION_LABELS[section]}</span>
+            <span
+              className="topbar-section"
+              id="topbarSection"
+              // The section name can ellipsize beside a long fault; the label keeps
+              // the full text available to assistive tech (T1297 / UI-R44).
+              aria-label={`› ${SECTION_LABELS[section]}`}
+            >
+              › {SECTION_LABELS[section]}
+            </span>
           </h1>
           <span className="spacer" />
+          {/* SET-3: the save-state region is never hidden. The full sentence is
+              the live text; the compact form is a CSS `attr()` label shown on a
+              second topbar row below 640 px, where the sentence would wrap three
+              lines. */}
           <span
             id="saveState"
             className={!valid ? 'save-state is-error' : 'save-state'}
             role="status"
             aria-live="polite"
+            data-compact={compactState}
           >
-            {saveStateText(dirty, saving, valid)}
+            <span className="save-state-full">{fullState}</span>
           </span>
           <span
             id="savedMsg"
-            className={acknowledged ? 'saved-msg' : 'saved-msg hidden'}
-            role="status"
-            aria-live="polite"
+            className={undoAck || acknowledged ? 'saved-msg' : 'saved-msg hidden'}
           >
-            {acknowledged ?? 'Saved'}
+            {undoAck ? (
+              <>
+                <span role="status" aria-live="polite">Changes discarded · </span>
+                <Button
+                  ref={undoBtnRef}
+                  variant="text"
+                  className="undo-discard"
+                  onClick={onUndo}
+                >
+                  Undo
+                </Button>
+              </>
+            ) : (
+              <span role="status" aria-live="polite">{acknowledged ?? 'Saved'}</span>
+            )}
           </span>
           <UnsavedHint current={section} />
-          <Button
-            id="discardBtn"
-            variant="secondary"
-            disabled={!dirty}
-            title={`Discard the unsaved changes on ${SECTION_LABELS[section]}`}
-            onClick={onDiscard}
-          >
-            Discard
-          </Button>
-          <Button
-            id="saveBtn"
-            variant="primary"
-            busy={saving}
-            disabled={saveBlocked}
-            title={saveTitle(dirty, valid, section)}
-            onClick={saveNow}
-          >
-            Save {SECTION_LABELS[section]}
-          </Button>
+          {instantApply ? (
+            // Q4-SAVE: Accounts applies immediately, so Save and Discard would
+            // both be lies there. The note names the behavior instead.
+            <span className="instant-apply-note">Changes here apply at once.</span>
+          ) : (
+            <>
+              <Button
+                id="discardBtn"
+                ref={discardBtnRef}
+                variant="secondary"
+                disabled={!dirty}
+                title={`Discard the unsaved changes on ${SECTION_LABELS[section]}`}
+                onClick={onDiscard}
+              >
+                Discard
+              </Button>
+              <Button
+                id="saveBtn"
+                variant="primary"
+                busy={saving}
+                disabled={saveBlocked}
+                title={saveTitle(dirty, valid, section)}
+                aria-label={`Save ${SECTION_LABELS[section]}`}
+                onClick={() => saveNow()}
+              >
+                Save<span className="save-section-name">{` ${SECTION_LABELS[section]}`}</span>
+              </Button>
+            </>
+          )}
         </div>
 
         <div className="content">
-          {app.bannerText === null ? null : (
-            <div className="err-banner" role="alert">
-              {app.bannerText}
+          {!state.hydrated ? (
+            // SET-7 / UI-R46: the nav and topbar keep their geometry while the
+            // first state push is in flight; only the page body is a placeholder.
+            <div className="k-empty" role="status">
+              <div className="k-empty-title">Loading settings…</div>
             </div>
+          ) : (
+            <>
+              {app.bannerText === null ? null : (
+                <div className="err-banner" role="alert">
+                  <TablerIcon name="alert-triangle" size={16} />
+                  <span className="err-banner-text">{app.bannerText}</span>
+                  {bannerSection !== null && bannerSection !== section ? (
+                    // SET-5: the banner names its fault's owning tab; the link
+                    // goes to THAT tab, never to `errorSection` (which prefers
+                    // the shown tab's local errors for which Save is blocked).
+                    <Button
+                      variant="text"
+                      className="err-banner-goto"
+                      onClick={() => requestSection(bannerSection)}
+                    >
+                      {`Go to ${SECTION_LABELS[bannerSection]}`}
+                    </Button>
+                  ) : null}
+                </div>
+              )}
+              {children}
+            </>
           )}
-          {children}
         </div>
       </div>
 
@@ -394,9 +546,12 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             goTo(target);
           }}
           onSave={() => {
+            // Only arm the post-save navigation when the save actually starts;
+            // a save that cannot run must leave the modal open and no stale
+            // target behind (it would navigate on some later, unrelated save).
+            if (!saveNow(true)) return;
             setNavigateAfterSave(leaveTarget);
             setPendingSection(null);
-            saveNow();
           }}
         />
       )}
@@ -489,6 +644,12 @@ function NavButton({
       onClick={() => onSelect(target)}
     >
       {label}
+      {/* SET-13: the dot is decoration; the state must be in the name. */}
+      {hasError ? (
+        <span className="sr-only">, has an error</span>
+      ) : hasChanges ? (
+        <span className="sr-only">, unsaved changes</span>
+      ) : null}
     </button>
   );
 }
@@ -552,7 +713,7 @@ function LeaveModal({
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="secondary" onClick={onDiscard}>
+          <Button variant="danger" onClick={onDiscard}>
             Discard changes
           </Button>
           <Button variant="primary" disabled={!canSave} onClick={onSave}>
@@ -564,12 +725,67 @@ function LeaveModal({
   );
 }
 
-/** One sentence for the whole topbar: saved / unsaved / in flight / blocked. */
-function saveStateText(dirty: boolean, saving: boolean, valid: boolean): string {
-  if (!valid) return 'Fix 1 field to save';
-  if (!dirty && !saving) return 'All changes saved';
-  if (saving) return 'Saving…';
+/** The facts the save-state sentence is derived from. */
+interface SaveStateFacts {
+  readonly hydrated: boolean;
+  readonly saving: boolean;
+  readonly dirty: boolean;
+  /** A host verdict or host error exists (`valid` also covers local errors). */
+  readonly hostFault: boolean;
+  readonly errorSection: SettingsSection | null;
+  /** Local (webview-side) field counts, keyed by the tab that owns them. */
+  readonly localErrors: Partial<Record<SettingsSection, number>>;
+  /** The shown tab applies at once, so Save/Discard are not on screen. */
+  readonly instantApply: boolean;
+  readonly section: SettingsSection;
+}
+
+/**
+ * One sentence for the whole topbar: saved / unsaved / in flight / blocked.
+ *
+ * SET-4 + SET-12: the local field errors are counted, so the bar can say how
+ * many and where. SET-5: a host fault names its tab — validation reports one
+ * fault at a time, so a count would be a lie there.
+ */
+function saveStateText(facts: SaveStateFacts): string {
+  if (!facts.hydrated) return '';
+  // In flight outranks validity: the user needs to know the Save is running.
+  if (facts.saving) return 'Saving…';
+  // The count belongs to the tab the sentence names. A host fault on another
+  // tab must never borrow the local count of the tab the user is editing (the
+  // count is per-tab, so pairing it with `errorSection` blindly said
+  // "2 fields on Repositories" for Quality's errors).
+  const ownedLocal = facts.errorSection === null ? 0 : (facts.localErrors[facts.errorSection] ?? 0);
+  if (ownedLocal > 0) {
+    return `Fix ${plural(ownedLocal, 'field', 'fields')} on ${SECTION_LABELS[facts.errorSection!]} to save`;
+  }
+  if (facts.hostFault) {
+    return facts.errorSection === null
+      ? 'Fix 1 field to save'
+      : `Fix the error on ${SECTION_LABELS[facts.errorSection]} to save`;
+  }
+  if (!facts.dirty) return 'All changes saved';
+  // On the instant-apply tab the dirty Agents slice belongs to a Different
+  // Agents tab whose Save is not on screen; name it rather than showing
+  // "Unsaved changes" beside "Changes here apply at once.".
+  if (facts.instantApply) return `Unsaved changes on another ${SECTION_LABELS[facts.section]} tab`;
   return 'Unsaved changes';
+}
+
+/**
+ * The short form `#saveState` shows on a second topbar row below 640 px
+ * (SET-3). It reaches the page through `data-compact` + `content: attr()`, so
+ * the full sentence stays the region's text and live announcement.
+ */
+function compactSaveStateText(facts: SaveStateFacts): string {
+  if (!facts.hydrated) return '';
+  if (facts.saving) return 'Saving…';
+  // Count the tab the sentence names, exactly like the full form: the compact
+  // "2 errors" and the full "Fix 2 fields on Quality" must never disagree.
+  const owned = facts.errorSection === null ? 0 : (facts.localErrors[facts.errorSection] ?? 0);
+  const errors = owned > 0 ? owned : facts.hostFault ? 1 : 0;
+  if (errors > 0) return plural(errors, 'error', 'errors');
+  return facts.dirty ? 'Unsaved' : 'Saved';
 }
 
 function saveTitle(dirty: boolean, valid: boolean, section: SettingsSection): string {

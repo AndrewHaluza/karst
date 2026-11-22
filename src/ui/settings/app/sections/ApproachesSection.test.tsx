@@ -288,6 +288,28 @@ describe('toApproachDeltas — the built-in delta rule (UI-R34)', () => {
 });
 
 describe('ApproachesSection — the roster', () => {
+  it('describes the page by what the tab configures (SET-10)', () => {
+    mount();
+    expect(document.querySelector('.page-desc')?.textContent).toBe(
+      'How Karst plans and runs a ticket.',
+    );
+  });
+
+  it('shows the display name only, with the raw id on the title (SET-27)', () => {
+    mount();
+    const row = card('tdd');
+    expect(row.querySelector('.approach-id')).toBeNull();
+    expect(row.querySelector('.approach-label')?.textContent).toBe('TDD');
+    expect(row.querySelector('.approach-head')?.getAttribute('title')).toBe('tdd');
+    expect(row.textContent).not.toContain('tdd TDD');
+  });
+
+  it('labels the list-item switch in words (Q4)', () => {
+    mount();
+    const toggle = card('tdd').querySelector('[role="switch"]') as HTMLElement;
+    expect(toggle.textContent).toContain('Enabled');
+  });
+
   it('groups by Installed / Available / Built-in', () => {
     mount();
     const headers = Array.from(document.querySelectorAll('.approach-group-header')).map((n) => n.textContent);
@@ -562,6 +584,13 @@ describe('ApproachesSection — the graph configuration surface', () => {
     expect(surface!.querySelector('[data-open-graph-prompt="karst-graph-planner"]')).not.toBeNull();
   });
 
+  it('links the planner prompt by its full artifact path, not a mouse-only title (SET-27, UI-R44)', () => {
+    mountGraph();
+    const link = document.querySelector('[data-open-graph-prompt]') as HTMLElement;
+    expect(link.textContent?.trim()).toBe('prompts/graph-planner.md');
+    expect(link.getAttribute('title')).toBe('prompts/graph-planner.md');
+  });
+
   it('shows the packaged default and hard ceiling beside every wall-time budget', () => {
     mountGraph();
     const rows = Array.from(document.querySelectorAll('[data-gf-limit]'));
@@ -625,6 +654,8 @@ describe('ApproachesSection — graph profile identity (R-X3)', () => {
       // never reconciles children into it.
       expect(picker.querySelector('[data-picker-owned="true"]')).not.toBeNull();
     }
+    // SET-26: every profile row asks for the one-line picker, as Roles does.
+    expect(pickerMounts.every((m) => m.opts.compact === true)).toBe(true);
     // A fresh state push re-renders the tab. The islands must survive it —
     // same DOM, no re-mount of the runtime (R-X3).
     const mountsBefore = pickerMounts.length;

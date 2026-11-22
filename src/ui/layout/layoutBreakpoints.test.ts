@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { INSIDE_EXTRA_WIDTHS, LAYOUT_WIDTHS, NARROW_MAX, TIGHT_MAX, USAGE_EXTRA_WIDTHS, WIDE_MIN, layoutWidthsFor, tierFor } from './layoutBreakpoints.js';
+import { INSIDE_EXTRA_WIDTHS, LAYOUT_WIDTHS, NARROW_MAX, SETTINGS_LAYOUT_WIDTHS, TIGHT_MAX, USAGE_EXTRA_WIDTHS, WIDE_MIN, layoutWidthsFor, tierFor } from './layoutBreakpoints.js';
 
 /**
  * CSS files whose `@media` widths are pinned to the tiers. Empty today: the
@@ -71,6 +71,12 @@ describe('layoutWidthsFor', () => {
 
   it('matches the inside- prefix only, not a name that merely contains it', () => {
     expect(layoutWidthsFor('dashboard', 'outside-inside-x')).toEqual(LAYOUT_WIDTHS);
+  });
+
+  it('adds the Settings tight probes on top of the shared widths (Q12)', () => {
+    expect(SETTINGS_LAYOUT_WIDTHS).toEqual([...LAYOUT_WIDTHS, 399, 320]);
+    expect(new Set(SETTINGS_LAYOUT_WIDTHS.map(tierFor))).toEqual(new Set(['wide', 'mid', 'narrow', 'tight']));
+    expect(new Set(SETTINGS_LAYOUT_WIDTHS).size).toBe(SETTINGS_LAYOUT_WIDTHS.length);
   });
 });
 

@@ -38,9 +38,13 @@ interface KarstFixtures {
  * in-page hash. The outer section is not hash-driven, so there is no deep link.
  */
 async function openRoute(page: Page, route: SettingsRoute): Promise<void> {
+  // SET-13 gives a dirty or faulty tab an sr-only suffix (", unsaved changes" / ", has an error"),
+  // so the accessible name is the label plus an optional suffix — match the label as a prefix.
+  // The suffix appends after a text node, so the computed name keeps a space before the comma.
+  const label = SECTION_LABELS[route.section].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   await page
     .getByRole('navigation', { name: 'Settings sections' })
-    .getByRole('button', { name: SECTION_LABELS[route.section], exact: true })
+    .getByRole('button', { name: new RegExp(`^${label}\\s*(?:,|$)`) })
     .click();
   if (route.hash !== undefined) {
     await page.evaluate((hash) => {

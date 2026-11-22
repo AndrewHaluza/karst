@@ -86,6 +86,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     modelCatalog: () => REMOTE_MODELS,
     browseForFolder: async () => undefined,
     openManifest: () => { order.push('openManifest'); },
+    openQuota: () => { order.push('openQuota'); },
     revealGraphPrompt: async () => { order.push('revealGraphPrompt'); },
     ...overrides,
   };
@@ -1274,6 +1275,135 @@ describe('settings actions — openManifest', () => {
     });
     await actions.openManifest();
     expect(posted).toContainEqual({ type: 'error', message: 'no active editor' });
+  });
+});
+
+describe('settings actions — setQuota (Q4-SAVE)', () => {
+  it('writes the patched threshold at once, then acks with the patch', async () => {
+    let written: Manifest | undefined;
+    const { actions, order, posted } = harness({
+      writeManifest: (_p, m) => { written = m; },
+    });
+    await actions.setQuota({ warnThresholdPct: 90 });
+    expect(written?.quota).toEqual({ warnThresholdPct: 90 });
+    // The same write pipeline every out-of-band setting uses: reload, refresh
+    // the sidebar/dashboard, and push state so the webview's baseline agrees.
+    expect(order).toEqual(['reload', 'change']);
+    expect(posted.some((m) => m.type === 'state')).toBe(true);
+    expect(posted).toContainEqual({ type: 'quota-saved', patch: { warnThresholdPct: 90 } });
+  });
+
+  it('keeps the other quota keys and re-fills the validator default on null', async () => {
+    let written: Manifest | undefined;
+    const { actions } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, quota: { warnThresholdPct: 90, claudeGlobalStatusline: true } },
+        error: null,
+      }),
+      writeManifest: (_p, m) => { written = m; },
+    });
+    await actions.setQuota({ warnThresholdPct: null });
+    // `warnThresholdPct` is required by `QuotaConfig`, so deleting it means
+    // "back to the validator's default", not "absent from the file".
+    expect(written?.quota).toEqual({ warnThresholdPct: 80, claudeGlobalStatusline: true });
+  });
+
+  it('patches the two opt-ins without touching the threshold', async () => {
+    let written: Manifest | undefined;
+    const { actions } = harness({
+      loadState: () => ({ manifest: { ...VALID, quota: { warnThresholdPct: 70 } }, error: null }),
+      writeManifest: (_p, m) => { written = m; },
+    });
+    await actions.setQuota({ claudeOauthUsageApi: true });
+    expect(written?.quota).toEqual({ warnThresholdPct: 70, claudeOauthUsageApi: true });
+  });
+
+  it('pushes the newest manifest when two out-of-band writes overlap', async () => {
+    const releases: Array<() => void> = [];
+    let current: Manifest = { ...VALID };
+    const { actions, posted } = harness({
+      loadState: () => ({ manifest: current, error: null }),
+      writeManifest: (_p, m) => { current = m; },
+      hasToken: () => new Promise<boolean>((resolve) => releases.push(() => resolve(false))),
+    });
+    const first = actions.setQuota({ warnThresholdPct: 70 });
+    const second = actions.setQuota({ claudeOauthUsageApi: true });
+    // The SECOND write's token read resolves first; the first (older) push then
+    // lands last. It must read the manifest after its await, not the snapshot
+    // from before it.
+    releases[1]!();
+    await second;
+    releases[0]!();
+    await first;
+    const states = posted.filter((m) => m.type === 'state') as Array<{
+      state: { manifest: Manifest };
+    }>;
+    expect(states.at(-1)!.state.manifest.quota).toMatchObject({
+      warnThresholdPct: 70,
+      claudeOauthUsageApi: true,
+    });
+  });
+
+  it('posts an error, rejects for the receipt, and writes nothing when the merged block is invalid', async () => {
+    let written: Manifest | undefined;
+    const { actions, order, posted } = harness({
+      writeManifest: (_p, m) => { written = m; },
+    });
+    // The rejection is what makes reportAction send ok:false, so the control
+    // settles failed rather than claiming "Saved" (UI-R15).
+    await expect(actions.setQuota({ warnThresholdPct: 150 })).rejects.toThrow();
+    expect(written).toBeUndefined();
+    expect(order).toEqual([]);
+    expect(posted.some((m) => m.type === 'quota-saved')).toBe(false);
+    expect(posted.some((m) => m.type === 'error')).toBe(true);
+  });
+});
+
+describe('settings actions — manifest writers refuse an unreadable karst.yml', () => {
+  const broken = (order: string[] = []) => harness({
+    loadState: () => ({ manifest: VALID, error: 'Invalid karst.yml: bad indent' }),
+    writeManifest: () => { order.push('write'); },
+  });
+
+  it('setQuota: no write, one error, rejects so the receipt fails', async () => {
+    const order: string[] = [];
+    const { actions, posted } = broken(order);
+    await expect(actions.setQuota({ claudeGlobalStatusline: true })).rejects.toThrow(/errors on disk/);
+    expect(order).not.toContain('write');
+    expect(posted.filter((m) => m.type === 'error')).toHaveLength(1);
+    expect(posted.some((m) => m.type === 'quota-saved')).toBe(false);
+  });
+
+  it('setApproachEnabled: no write, one error, rejects', async () => {
+    const order: string[] = [];
+    const { actions, posted } = broken(order);
+    await expect(actions.setApproachEnabled('a', false)).rejects.toThrow(/errors on disk/);
+    expect(order).not.toContain('write');
+    expect(posted.filter((m) => m.type === 'error')).toHaveLength(1);
+  });
+
+  it('setAgentEnabled: no write, one error, rejects', async () => {
+    const order: string[] = [];
+    const { actions, posted } = broken(order);
+    await expect(actions.setAgentEnabled('reviewer', false)).rejects.toThrow(/errors on disk/);
+    expect(order).not.toContain('write');
+    expect(posted.filter((m) => m.type === 'error')).toHaveLength(1);
+  });
+});
+
+describe('settings actions — openQuota (US-30-QC)', () => {
+  it('delegates to the injected opener', async () => {
+    const { actions, order } = harness();
+    await actions.openQuota();
+    expect(order).toEqual(['openQuota']);
+  });
+
+  it('posts a panel error when the opener rejects', async () => {
+    const { actions, posted } = harness({
+      openQuota: async () => { throw new Error('usage panel unavailable'); },
+    });
+    await actions.openQuota();
+    expect(posted).toContainEqual({ type: 'error', message: 'usage panel unavailable' });
   });
 });
 

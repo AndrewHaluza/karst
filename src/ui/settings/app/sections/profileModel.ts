@@ -72,9 +72,14 @@ export function filterEntries(entries: readonly ProfileEntry[], query: string): 
   return entries.filter((e) => e.name.toLowerCase().includes(q) || (e.approachId ?? '').toLowerCase().includes(q));
 }
 
-/** The list sections in display order; approach profiles group by approach id. */
+/**
+ * The list sections in display order; approach profiles group by approach id.
+ * SET-40: the heading names the approach by its DISPLAY name, falling back to
+ * the id only when the host list has no entry for it.
+ */
 export function groupEntries(
   entries: readonly ProfileEntry[],
+  approachName: (id: string) => string = (id) => id,
 ): ReadonlyArray<{ readonly key: string; readonly title: string; readonly entries: readonly ProfileEntry[] }> {
   const groups: Array<{ key: string; title: string; entries: ProfileEntry[] }> = [];
   const add = (key: string, title: string, entry: ProfileEntry): void => {
@@ -84,9 +89,10 @@ export function groupEntries(
   };
   for (const e of entries.filter((x) => x.group === 'local')) add('local', 'Local (.karst/agents)', e);
   for (const e of entries.filter((x) => x.group === 'approach')) {
-    add(`approach:${e.approachId ?? ''}`, `From approach: ${e.approachId ?? ''}`, e);
+    const id = e.approachId ?? '';
+    add(`approach:${id}`, `From approach: ${approachName(id)}`, e);
   }
-  for (const e of entries.filter((x) => x.group === 'builtin')) add('builtin', 'Built-in prompts', e);
+  for (const e of entries.filter((x) => x.group === 'builtin')) add('builtin', 'Built-in profiles', e);
   return groups;
 }
 

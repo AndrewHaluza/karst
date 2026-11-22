@@ -81,13 +81,21 @@ describe('settings webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'browse-repo-path', name: 'api' });
     sender.openManifest();
     expect(posted.at(-1)).toEqual({ type: 'open-manifest' });
+    sender.setQuota({ warnThresholdPct: 90 }, 'r4');
+    expect(posted.at(-1)).toEqual({
+      type: 'set-quota',
+      patch: { warnThresholdPct: 90 },
+      requestId: 'r4',
+    });
+    sender.openQuota();
+    expect(posted.at(-1)).toEqual({ type: 'open-quota' });
     sender.openGraphPrompt('karst-graph-planner');
     expect(posted.at(-1)).toEqual({
       type: 'open-graph-prompt',
       identity: 'karst-graph-planner',
     });
 
-    expect(posted).toHaveLength(19);
+    expect(posted).toHaveLength(21);
   });
 
   it('rejects a wrong argument type at compile time', () => {

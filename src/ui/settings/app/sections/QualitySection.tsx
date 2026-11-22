@@ -111,10 +111,7 @@ export function QualitySection() {
     <div className="section" id="section-quality">
       <div className="page-header">
         <div className="page-title">Quality</div>
-        <div className="page-desc">
-          Deterministic gates and the policies that decide when a ticket passes, parks, or recovers.
-          AI process assignments live on the Agents page, not here.
-        </div>
+        <div className="page-desc">The checks a ticket must pass before it ships.</div>
       </div>
 
       <div className="section-block">
@@ -232,7 +229,7 @@ export function QualitySection() {
             <div className="q-row">
               <Field
                 label="Stall detection"
-                help="Park the ticket as needs-you when review keeps finding new blocking problems in the same files."
+                help="Park the ticket as Needs you when review keeps finding new blocking problems in the same files."
                 control={{
                   kind: 'checkbox',
                   name: 'reviewStallEnabled',
@@ -372,7 +369,7 @@ export function QualitySection() {
             <div className="section-title">Gates</div>
             <div className="section-desc">
               One editor for UAT and Review gates. A repository override{' '}
-              <strong>replaces</strong> the global list for that repository.
+              <strong>replaces</strong> the global list.
             </div>
           </div>
         </div>
@@ -416,13 +413,13 @@ function GateBlock({
         block={base}
         gates={gates}
         repositories={repositories}
-        emptyCopy="No gates declared — karst probes the repository's package.json scripts instead. Not a Node project? Add a Command gate (e.g. pytest, cargo test) — it runs no npm script."
+        emptyCopy="No gates declared — Karst probes the repository's package.json scripts instead. Not a Node project? Add a Command gate (e.g. pytest, cargo test) — it runs no npm script."
       />
       {gates.length === 0 ? null : (
         <div className="gate-probe">
           <Field
             label="When every gate is off, probe package.json scripts"
-            help="Off (default): nothing runs and the stage is bypassed. On: karst probes package.json scripts as it does for an empty list."
+            help="Off (default): nothing runs and the stage is bypassed. On: Karst probes package.json scripts as it does for an empty list."
             control={{
               kind: 'checkbox',
               name: `${base}ProbeWhenAllDisabled`,
@@ -431,7 +428,10 @@ function GateBlock({
             }}
           />
           {allOff && !probe ? (
-            <div className="gate-bypass-note">Every gate is off — this stage will be bypassed.</div>
+            <div className="callout" role="status">
+              <TablerIcon name="alert-triangle" size={16} />
+              <div className="callout-msg">Every gate is off — this stage will be bypassed.</div>
+            </div>
           ) : null}
         </div>
       )}
@@ -614,7 +614,7 @@ function GateList({
         );
       })}
       <div className="gate-actions">
-        <Button variant="secondary" size="sm" onClick={() => change((current) => [...current, emptyGate()])}>
+        <Button variant="secondary" onClick={() => change((current) => [...current, emptyGate()])}>
           + Add gate
         </Button>
       </div>

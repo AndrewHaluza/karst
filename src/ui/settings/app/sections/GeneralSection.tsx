@@ -84,7 +84,7 @@ function set<K extends keyof Manifest>(key: K, value: Manifest[K] | undefined): 
 
 /** The help copy under the sub-task caps — the cost of raising them. */
 const SUBTASK_CAPS_DESC =
-  'Each running sub-task is a full agent session with its own worktree, servers/ports and token spend. Higher limits finish wide work faster but multiply API cost and rate-limit risk, CPU/RAM and port usage, and raise merge conflicts between siblings on the same parent branch. Nesting multiplies sessions, which is what the project-wide limit bounds. 0 = unlimited — not recommended.';
+  'Each running sub-task is a full agent session with its own worktree, ports and token spend.';
 
 const SUBTASK_CAP_ERROR = 'Enter a whole number, 0 or more (0 = unlimited).';
 
@@ -210,7 +210,7 @@ export function GeneralSection() {
               kind: 'input',
               name: 'host',
               value: readField<string>(draft, 'host', ''),
-              placeholder: 'localhost',
+              placeholder: 'Default: localhost',
               onChange: (value) => edit(set('host', value)),
             }}
           />
@@ -352,7 +352,7 @@ export function GeneralSection() {
           <Field
             label="Running sub-tasks per parent"
             error={subtaskErrors.maxConcurrentPerParent}
-            help="Blank = 2. Extra sub-tasks wait, queued, until a slot frees."
+            help="Blank = 2. Extra sub-tasks wait, queued, until a slot frees. 0 = unlimited."
             control={{
               kind: 'input',
               name: 'subtasksMaxConcurrentPerParent',
@@ -367,7 +367,7 @@ export function GeneralSection() {
           <Field
             label="Running sub-tasks per project"
             error={subtaskErrors.maxConcurrentTotal}
-            help="Blank = 4. Counts every level of nesting."
+            help="Blank = 4. Counts every level of nesting. 0 = unlimited."
             control={{
               kind: 'input',
               name: 'subtasksMaxConcurrentTotal',

@@ -173,7 +173,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
 
       {preset === null ? (
         <div className="agents-empty">
-          No presets yet. Roles run on the Default row below; add a preset to give roles their own agent.
+          None. Roles run on the Default row below; add a preset to give roles their own agent.
         </div>
       ) : null}
 

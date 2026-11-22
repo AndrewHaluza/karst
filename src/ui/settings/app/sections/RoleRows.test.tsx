@@ -216,6 +216,24 @@ describe('RoleRows — CompareRow semantics', () => {
     expect(copyBtn.querySelector('.icon-island')).not.toBeNull();
     expect(copyBtn.textContent).toContain('Copy from PresetB');
   });
+
+  it('joins display names in the A and B cells, never raw ids (SET-35)', () => {
+    const { container } = render(
+      <CompareRow
+        capability="planning"
+        label="Planner"
+        a={{ source: 'preset', core: 'claude', model: 'claude-opus-5', effort: 'low' }}
+        b={{ source: 'preset', core: 'antigravity', model: 'gemini-3.8-flash', effort: '' }}
+        differs={true}
+        aName="PresetA"
+        bName="PresetB"
+        onCopy={vi.fn()}
+      />,
+    );
+    expect(container.querySelector('.agents-a')!.textContent).toBe('Claude Code · Opus 5 · low');
+    // Unknown ids still render honestly (the raw value is better than a blank).
+    expect(container.querySelector('.agents-b')!.textContent).toBe('Antigravity CLI · gemini-3.8-flash');
+  });
 });
 
 describe('RoleRows — narrow summary row (T1239)', () => {
@@ -241,11 +259,25 @@ describe('RoleRows — narrow summary row (T1239)', () => {
     ...over,
   });
 
-  it('summarises profile, core name and model on one line', () => {
+  it('summarises profile, core name and model DISPLAY name on one line (SET-35)', () => {
     const { container } = wrap(<RoleRow {...rowProps()} />);
     expect(container.querySelector('.agents-summary-line')!.textContent).toBe(
-      'tdd-implementer · Claude Code · claude-opus-5',
+      'tdd-implementer · Claude Code · Opus 5',
     );
+  });
+
+  it('shows an unknown model id unchanged rather than hiding it', () => {
+    const { container } = wrap(<RoleRow {...rowProps({ effective: { ...effective, model: 'house-model-7' } })} />);
+    expect(container.querySelector('.agents-summary-line')!.textContent).toBe(
+      'tdd-implementer · Claude Code · house-model-7',
+    );
+  });
+
+  it('carries the visible Enabled caption beside the switch (Q4)', () => {
+    const { container } = wrap(<RoleRow {...rowProps()} />);
+    const caption = container.querySelector('.agents-cell-switch .agents-switch-text')!;
+    expect(caption.textContent).toBe('Enabled');
+    expect(caption.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('says "No model" and "default" when nothing is set', () => {

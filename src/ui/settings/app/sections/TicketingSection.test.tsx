@@ -87,7 +87,7 @@ const cfgOf = (probe: () => AppProbeShape): Record<string, unknown> =>
 
 describe('TicketingSection — the page', () => {
   it('gives the page a header and the board-connection block', () => {
-    mountTicketing();
+    mountTicketing(stateWith({ provider: 'clickup' }));
     expect(document.querySelector('#section-ticketing')).not.toBeNull();
     expect(document.querySelector('.page-title')?.textContent).toBe('Ticketing');
     expect(document.getElementById('clickupFields')).not.toBeNull();
@@ -107,16 +107,69 @@ describe('TicketingSection — the page', () => {
     expect(trigger.querySelector('.provbadge')?.textContent).toBe('badge:manual');
   });
 
-  it('hides the ClickUp-only cards for a manual provider', () => {
+  it('hides every ClickUp-only block for a manual provider, and says why', () => {
     mountTicketing(stateWith({ provider: 'manual' }));
+    expect(document.getElementById('clickupFields')).toBeNull();
+    expect(document.getElementById('advanceCards')).toBeNull();
     expect(document.getElementById('searchCard')).toBeNull();
-    expect(document.getElementById('advanceCards')).not.toBeNull();
+    expect(document.querySelector('.k-empty-hint')?.textContent).toBe(
+      'A manual board needs no connection.',
+    );
   });
 
   it('shows the search card for ClickUp, defaulting ON', () => {
     mountTicketing(stateWith({ provider: 'clickup' }));
     expect(document.getElementById('searchCard')).not.toBeNull();
     expect(byLabel('Search tickets in the Add/Edit ticket page').checked).toBe(true);
+  });
+});
+
+describe('TicketingSection — labels and the provider trigger (SET-29, SET-30)', () => {
+  it('puts the ClickUp controls in the form grid with one visible label each', () => {
+    mountTicketing(stateWith({ provider: 'clickup' }));
+    const block = document.getElementById('clickupFields')!;
+    expect(block.classList.contains('form-grid')).toBe(true);
+    expect([...block.querySelectorAll('.field-label')].map((n) => n.textContent)).toEqual([
+      'API token',
+    ]);
+    expect(
+      [...block.querySelectorAll('label')].filter((n) => n.textContent === 'Team ID'),
+    ).toHaveLength(1);
+    expect(
+      [...block.querySelectorAll('label')].filter((n) => n.textContent === 'List'),
+    ).toHaveLength(1);
+    // The token action keeps its natural width in the control track (SET-29).
+    expect(screen.getByRole('button', { name: 'Clear token' }).className).toContain('fixed');
+  });
+
+  it('names the trigger with the provider label and keeps one tab stop (SET-30)', () => {
+    mountTicketing(stateWith({ provider: 'clickup' }));
+    const trigger = document.getElementById('providerTrigger') as HTMLElement;
+    expect(trigger.getAttribute('aria-label')).toBeNull();
+    expect(trigger.textContent).toContain('ClickUp');
+    expect(screen.getByRole('button', { name: 'Provider ClickUp' })).toBe(trigger);
+    fireEvent.click(trigger);
+    const opts = [
+      ...document.getElementById('providerMenu')!.querySelectorAll<HTMLElement>('[role="option"]'),
+    ];
+    // One tab stop: Tab leaves the listbox instead of walking every option.
+    expect(opts.filter((o) => o.tabIndex === 0)).toHaveLength(1);
+    expect(opts.find((o) => o.getAttribute('data-value') === 'clickup')!.tabIndex).toBe(0);
+  });
+
+  it('Home and End move focus to the first and last option (SET-30)', () => {
+    mountTicketing(stateWith({ provider: 'manual' }));
+    fireEvent.click(document.getElementById('providerTrigger')!);
+    const opts = [
+      ...document.getElementById('providerMenu')!.querySelectorAll<HTMLElement>('[role="option"]'),
+    ];
+    const first = opts[0]!;
+    const last = opts[opts.length - 1]!;
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Home' });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'End' });
+    expect(document.activeElement).toBe(last);
   });
 });
 
@@ -430,7 +483,7 @@ describe('TicketingSection — the two advance rows', () => {
     mountTicketing(stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1' }));
     expect(document.getElementById('advanceStatusRow')).toBeNull();
     expect(document.getElementById('startAdvanceStatusRow')).toBeNull();
-    fireEvent.click(byLabel('Set the ticket status when karst ships'));
+    fireEvent.click(byLabel('Set the ticket status when Karst ships'));
     expect(document.getElementById('advanceStatusRow')).not.toBeNull();
     expect(document.getElementById('startAdvanceStatusRow')).toBeNull();
   });

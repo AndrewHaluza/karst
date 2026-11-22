@@ -10,7 +10,7 @@ import {
   isBuiltInApproachId,
   withBuiltInApproaches,
 } from '../../approaches/withBuiltInApproaches.js';
-import type { SettingsActions, SettingsHostMessage } from './messages.js';
+import type { QuotaPatch, SettingsActions, SettingsHostMessage } from './messages.js';
 import { buildSettingsState, type BackendStatuses, type SettingsState } from './state.js';
 import { buildProcessAssignmentViews } from './processAssignmentViews.js';
 import type { LoadedManifest } from './panel.js';
@@ -21,6 +21,14 @@ import { assertProfileEffort, EffortError } from '../../agent/effort.js';
 import type { AccountsWebviewMessage } from './accountsMessages.js';
 import type { AccountsHost } from './accountsHost.js';
 import { mergeSection, type SettingsSection } from './sections.js';
+import { validateQuota } from '../../manifest/validate/quota.js';
+
+/**
+ * The refusal every agent-initiated manifest write shares when karst.yml did not
+ * load: `loadState` falls back to the last good in-memory copy (or an empty
+ * manifest), so writing it would overwrite the user's hand-edited file.
+ */
+const LOAD_ERROR_REFUSAL = 'karst.yml has errors on disk — fix them or reload before saving';
 
 /** Per-panel context: how to post to this webview + which file it edits. */
 export interface SettingsActionsCtx {
@@ -120,6 +128,8 @@ export interface SettingsActionsDeps {
   browseForFolder(): Promise<string | undefined>;
   /** Open this window's karst.yml in an editor (runs `karst.openManifest`). */
   openManifest(): void | Promise<void>;
+  /** Open the Token & usage panel on its Quota tab (US-30-QC). */
+  openQuota(): void | Promise<void>;
   /**
    * Reveal the effective prompt file for a graph prompt identity (project
    * override wins over the packaged bytes).
@@ -256,8 +266,12 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
      * SecretStorage via `deps.hasToken`.
      */
     async function pushStateWithInstalled(): Promise<void> {
-      const loaded = deps.loadState();
+      // Read the manifest AFTER the await: overlapping out-of-band writes (the
+      // three quota controls save independently) each push state, and a
+      // snapshot taken before the await lets the slower, OLDER push land last
+      // and visually revert the newer write.
       const tokenConfigured = await deps.hasToken();
+      const loaded = deps.loadState();
       ctx.post({
         type: 'state',
         state: buildSettingsState(
@@ -401,10 +415,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         // so a Save would overwrite the on-disk file just the same (T638 ruling).
         const loaded = deps.loadState();
         if (loaded.error) {
-          ctx.post({
-            type: 'error',
-            message: 'karst.yml has errors on disk — fix them or reload before saving',
-          });
+          ctx.post({ type: 'error', message: LOAD_ERROR_REFUSAL });
           return;
         }
         const next = section
@@ -578,6 +589,13 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
 
       async setApproachEnabled(id: string, enabled: boolean): Promise<void> {
         const loaded = deps.loadState();
+        // A parse/schema failure leaves the stale in-memory copy, not the file:
+        // overlaying the flag onto it would write that fallback over the user's
+        // hand edits. Refuse, and reject so the caller's receipt is a failure.
+        if (loaded.error) {
+          ctx.post({ type: 'error', message: LOAD_ERROR_REFUSAL });
+          throw new Error(LOAD_ERROR_REFUSAL);
+        }
         // Resolve through the built-in seam: a packaged built-in absent from
         // the raw manifest (absence = packaged defaults) must be findable, or
         // enabling it errors `Unknown approach` and silently no-ops.
@@ -611,8 +629,14 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       },
 
       async setAgentEnabled(name: string, enabled: boolean): Promise<void> {
+        const loaded = deps.loadState();
+        // Same write-seam rule as `save`/`setApproachEnabled`: never overlay a
+        // toggle onto the stale fallback and write it over an unreadable file.
+        if (loaded.error) {
+          ctx.post({ type: 'error', message: LOAD_ERROR_REFUSAL });
+          throw new Error(LOAD_ERROR_REFUSAL);
+        }
         try {
-          const loaded = deps.loadState();
           const next: Manifest = {
             ...loaded.manifest,
             agents: {
@@ -626,6 +650,50 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           await pushStateWithInstalled();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      /**
+       * Save one partial `quota:` write at once (Q4-SAVE).
+       *
+       * Built from the manifest ON DISK, not from the draft: the threshold and
+       * the two opt-ins live on the Accounts tab, which applies immediately, and
+       * merging onto the file is what keeps an unrelated in-progress Agents edit
+       * out of the write. `validateQuota` is the same validator Save runs, so an
+       * accepted patch can never make the file invalid.
+       */
+      async setQuota(patch: QuotaPatch): Promise<void> {
+        const loaded = deps.loadState();
+        // Same write-seam rule as `save`: a load failure means `loaded.manifest`
+        // is the stale fallback (or empty), so merging the patch onto it and
+        // writing would destroy the user's hand-edited file. Reject as well, so
+        // the control's receipt is a failure and it never claims "Saved".
+        if (loaded.error) {
+          ctx.post({ type: 'error', message: LOAD_ERROR_REFUSAL });
+          throw new Error(LOAD_ERROR_REFUSAL);
+        }
+        try {
+          const nextQuota: Record<string, unknown> = { ...(loaded.manifest.quota ?? {}) };
+          for (const key of ['warnThresholdPct', 'claudeGlobalStatusline', 'claudeOauthUsageApi'] as const) {
+            if (!Object.hasOwn(patch, key)) continue;
+            const value = patch[key];
+            if (value === null) delete nextQuota[key];
+            else nextQuota[key] = value;
+          }
+          const next: Manifest = { ...loaded.manifest };
+          if (Object.keys(nextQuota).length === 0) delete next.quota;
+          else next.quota = validateQuota(nextQuota);
+          writeManifestDelta(next);
+          deps.reloadManifest();
+          deps.onChange();
+          await pushStateWithInstalled();
+          ctx.post({ type: 'quota-saved', patch });
+        } catch (e) {
+          // No write and no ack. Post the prose for the banner AND rethrow: the
+          // rejection is what makes `reportAction` send an `ok:false` receipt,
+          // so the control settles failed instead of claiming "Saved" (R15).
+          ctx.post({ type: 'error', message: errorMessage(e) });
+          throw e;
         }
       },
 
@@ -707,6 +775,14 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       async openManifest(): Promise<void> {
         try {
           await deps.openManifest();
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      async openQuota(): Promise<void> {
+        try {
+          await deps.openQuota();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

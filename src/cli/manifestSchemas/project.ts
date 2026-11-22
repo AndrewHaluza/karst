@@ -13,14 +13,23 @@ import {
 const MEMORY: JsonSchema = { type: 'string', pattern: DOCKER_MEMORY_PATTERN.source };
 
 /**
- * Manifest keys no Settings section claims (`SECTION_FIELDS`): the project `id`
- * and the keys Settings never edits. They get a schema so a typed setup tool
- * can still reach every field.
+ * Manifest keys no Settings section claims (`SECTION_FIELDS`): the project `id`,
+ * the keys Settings never edits, and `quota` (the Accounts card writes it out of
+ * band through `set-quota`, so no tab-scoped Save merges it). They get a schema
+ * so a typed setup tool can still reach every field.
  */
 export const PROJECT_SCHEMA: JsonSchema = {
   type: 'object',
   properties: {
     id: STRING,
+    // Q4-SAVE: written by the Accounts quota card at once, never by a Save.
+    quota: orNull(
+      strictObject({
+        warnThresholdPct: integer(1, 100),
+        claudeGlobalStatusline: BOOLEAN,
+        claudeOauthUsageApi: BOOLEAN,
+      }),
+    ),
     resilience: lenientObject({
       retries: integer(0, 5),
       backoffMs: integer(0, 60000),

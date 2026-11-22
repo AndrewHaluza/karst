@@ -229,6 +229,22 @@ export function runtimeBadge(repo: RepositoryDef | undefined): 'docker' | 'servi
   return defs.some((d) => d.docker) ? 'docker' : 'service';
 }
 
+/**
+ * Cut a long repository path from the MIDDLE, keeping both its root and its
+ * leaf visible (SET-25). A plain end ellipsis hides the repository name — the
+ * one part of the path a reader is looking for — while the root is what tells
+ * them which checkout it is. The full path is still rendered as the cell's
+ * `title` and an `.sr-only` copy (UI-R44).
+ */
+export function middleEllipsis(text: string, max = 56): string {
+  if (text.length <= max) return text;
+  if (max <= 1) return '…';
+  const keep = max - 1;
+  const head = Math.ceil(keep / 2);
+  const tail = keep - head;
+  return `${text.slice(0, head)}…${text.slice(text.length - tail)}`;
+}
+
 /** The baseline a repository uses: its own, else the project default. */
 export function baselineFor(repo: RepositoryDef | undefined, projectBaseline: string | undefined): string {
   return repo?.baselineBranch || projectBaseline || 'main';

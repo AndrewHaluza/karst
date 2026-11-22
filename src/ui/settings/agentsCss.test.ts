@@ -57,3 +57,24 @@ describe('agents.webview.css — roles table', () => {
     expect(css).not.toMatch(/\.agents-table\s*\{[^}]*overflow-x:\s*(auto|scroll)/);
   });
 });
+
+describe('agents.webview.css — Accounts row menu anchoring', () => {
+  it('anchors the wide menu to the trigger’s end', () => {
+    expect(css).toMatch(/#section-agents \.accounts-menu-list\s*\{[^}]*inset-inline-end:\s*0/);
+  });
+
+  it('flips to the inline start when the table stacks, so it cannot clip off the left edge (UI-R43/R45)', () => {
+    // The stacked card puts the ⋯ trigger near the left edge; a right-anchored
+    // 130px+ menu would extend to negative x and lose its first items.
+    expect(css).toMatch(
+      /@media \(max-width: 699px\)[\s\S]*?#section-agents \.accounts-menu-list\s*\{[^}]*inset-inline-start:\s*0[^}]*inset-inline-end:\s*auto/,
+    );
+  });
+
+  it('puts the narrow override after the base rule in source order (UI-R49)', () => {
+    const base = css.indexOf('#section-agents .accounts-menu-list {');
+    const override = css.indexOf('#section-agents .accounts-menu-list { inset-inline-start: 0;');
+    expect(base, 'base rule').toBeGreaterThan(-1);
+    expect(override, 'narrow override').toBeGreaterThan(base);
+  });
+});

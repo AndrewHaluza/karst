@@ -10,6 +10,7 @@ import {
   addService,
   dependencyTargetsFor,
   isValidServiceName,
+  middleEllipsis,
   nextServiceName,
   portsOfTarget,
   removeService,
@@ -139,5 +140,24 @@ describe('portsOfTarget', () => {
     });
     expect(portsOfTarget(draft, 'mono')).toEqual([]);
     expect(portsOfTarget(draft, 'nope')).toEqual([]);
+  });
+});
+
+describe('middleEllipsis', () => {
+  it('leaves a short path untouched', () => {
+    expect(middleEllipsis('/Users/you/code/api')).toBe('/Users/you/code/api');
+  });
+
+  it('keeps the start and the end of a long path at the cap', () => {
+    const path = `/Users/you/code/${'nested/'.repeat(20)}the-repo`;
+    const cut = middleEllipsis(path, 40);
+    expect(cut).toHaveLength(40);
+    expect(cut.startsWith('/Users/you')).toBe(true);
+    expect(cut.endsWith('the-repo')).toBe(true);
+    expect(cut).toContain('…');
+  });
+
+  it('degrades to a single ellipsis when the cap cannot hold two ends', () => {
+    expect(middleEllipsis('abcdef', 1)).toBe('…');
   });
 });

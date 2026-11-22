@@ -111,6 +111,19 @@ function byLabelIn(scope: ParentNode, label: string): Element {
 }
 
 describe('QualitySection — the defaults it shows are the defaults ship applies', () => {
+  it('describes the page without pointing at Agents (SET-10)', () => {
+    mountQuality();
+    const desc = document.querySelector('.page-desc')?.textContent ?? '';
+    expect(desc).toBe('The checks a ticket must pass before it ships.');
+    expect(desc).not.toContain('Agents');
+  });
+
+  it('names the parking outcome Needs you (SET-32)', () => {
+    mountQuality();
+    expect(document.body.textContent).toContain('Park the ticket as Needs you');
+    expect(document.body.textContent).not.toContain('needs-you');
+  });
+
   it('shows the validator defaults for both blocks when the manifest declares none', () => {
     mountQuality();
     expect(field('uatMaxFixAttempts').value).toBe(String(UAT_MAX_FIX_ATTEMPTS));
@@ -722,6 +735,23 @@ describe('QualitySection — per-gate enabled switch', () => {
     expect(document.body.textContent).not.toContain('this stage will be bypassed');
     fireEvent.click(field('uatProbeWhenAllDisabled'));
     expect('probeWhenAllDisabled' in uatOf(probe)).toBe(false);
+  });
+
+  it('renders the every-gate-off notice as a warning callout (SET-31)', () => {
+    mountQuality(
+      withGate({ gates: [{ name: 'unit', kind: 'script', script: 'test', enabled: false }] }),
+    );
+    const note = document.querySelector('.callout');
+    expect(note).not.toBeNull();
+    expect(note?.getAttribute('role')).toBe('status');
+    expect(note?.querySelector('.icon-island')).not.toBeNull();
+    expect(note?.textContent).toContain('Every gate is off');
+  });
+
+  it('keeps Add gate at the hit minimum instead of the small size (SET-32)', () => {
+    mountQuality(withGate({}));
+    const add = screen.getAllByRole('button', { name: '+ Add gate' })[0]!;
+    expect(add.className).not.toContain('k-btn--sm');
   });
 });
 

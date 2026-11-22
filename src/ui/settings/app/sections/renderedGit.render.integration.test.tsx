@@ -198,7 +198,10 @@ describe('rendered Settings — Git faults are attributed by the shared selector
       error: 'Invalid karst.yml: portRange min exceeds max',
     });
     // The fault belongs to General; the user is on Git.
-    expect(root(view).querySelector('.err-banner')?.textContent).toBe(
+    // The banner also carries the alert icon and the "Go to General" link, so
+    // the message itself is asserted on its own text node.
+    expect(root(view).querySelector('.err-banner')?.getAttribute('role')).toBe('alert');
+    expect(root(view).querySelector('.err-banner-text')?.textContent).toBe(
       'General: portRange min exceeds max',
     );
   });

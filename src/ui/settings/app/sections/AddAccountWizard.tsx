@@ -16,7 +16,7 @@ type Step = 'source' | 'copy' | 'signin';
 type SourceKind = 'managed' | 'folder' | 'command';
 
 const SOURCE_OPTIONS = [
-  { value: 'managed', label: 'New account (karst creates a folder)' },
+  { value: 'managed', label: 'New account (Karst creates a folder)' },
   { value: 'folder', label: 'Existing folder' },
   { value: 'command', label: 'Command / shell alias' },
 ] as const;

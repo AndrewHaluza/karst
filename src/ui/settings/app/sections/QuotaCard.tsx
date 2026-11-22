@@ -1,68 +1,152 @@
 /**
- * The Subscription quota card of the Accounts tab (D707). The three fields are
- * manifest edits through `edit()`, so the Agents Save writes them and Discard
- * reverts them. This differs from the accounts list above it, which is
- * machine-local and applies at once, so the card says which model it uses.
+ * The Subscription quota card of the Accounts tab (D707, Q4-SAVE).
  *
- * The warn threshold is blankable like `archiveDoneAfterDays`: a value outside
- * 1-100 clears the block (it then loads as the default) and is flagged inline,
- * so the snap-back is never silent.
+ * These three settings apply AT ONCE through the host's `set-quota` message —
+ * they are not part of the Agents Save, and the Accounts tab hides Save and
+ * Discard for exactly this reason. The host answers `quota-saved` with the same
+ * patch; the reducer then updates both the draft and the last-saved manifest, so
+ * an unrelated Agents Save can never write the old quota back.
+ *
+ * The threshold text is LOCAL while it is being typed: nothing is sent until the
+ * user leaves the field or presses Enter (`Field`'s `onCommit`). A blank value
+ * deletes the key (the loader default applies); a value outside 1-100 is flagged
+ * inline and sends nothing, so the file never takes a value the schema refuses.
+ *
+ * Each control owns its own `useHostMutation` (UI-R11/R12): pending begins on
+ * activation, a second activation while it is in flight is dropped, and the
+ * "Saved" note is placed by THAT control's correlated `action-result` receipt —
+ * never by a shared "last sent" guess, which mis-attributed the note when two
+ * quota writes overlapped (UI-R15).
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
-import type { Manifest, QuotaConfig } from '../../../../manifest/types.js';
+import type { QuotaConfig } from '../../../../manifest/types.js';
 import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../../../manifest/validate/quota.js';
+import type { QuotaPatch } from '../../messages.js';
 import { Field } from '../primitives/Field.js';
+import { Button } from '../primitives/Button.js';
+import { useHostMutation } from '../useHostMutation.js';
+import { SAVED_ACK_MS } from './AppShell.js';
 
 const QUOTA_THRESHOLD_ERROR = 'Enter a whole number from 1 to 100.';
 
-const setQuota = (patch: Partial<QuotaConfig>) => (d: Manifest): Manifest => {
-  const nextQuota: Record<string, unknown> = { ...d.quota };
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) delete nextQuota[key];
-    else nextQuota[key] = value;
-  }
-  const next = { ...d };
-  if (Object.keys(nextQuota).length === 0) delete next.quota;
-  else next.quota = nextQuota as unknown as QuotaConfig;
-  return next;
-};
+/** The controls that save out of band, in render order. */
+type SavedControl = 'threshold' | 'statusline' | 'usage';
 
+/** Post one patch through the host; the host acks each control separately. */
 export function QuotaCard() {
-  const { state, edit } = useSettingsApp();
+  const { state, send } = useSettingsApp();
   const quota = readField<Partial<QuotaConfig> | undefined>(state.draft, 'quota', undefined);
-  // The error belongs to the draft value the snap-back produced (always blank).
-  // Once the draft threshold differs (a Discard restored the saved value, or the
-  // user typed again) the error no longer applies and is not shown.
-  // The error is pinned to the draft object that the snap-back produced. Any later
-  // draft (a Discard restoring the saved value, even a blank one, or another edit)
-  // is a different object, so the error then stops showing. `pinned: null` means
-  // "flagged, waiting for the draft that the edit is about to produce".
-  const [flag, setFlag] = useState<{ readonly pinned: Manifest | null } | null>(null);
-  if (flag !== null && flag.pinned === null) setFlag({ pinned: state.draft });
-  const setThreshold = (raw: string): void => {
-    const blank = raw.trim() === '';
-    const parsed = Number(raw);
-    const valid = !blank && Number.isInteger(parsed) && parsed >= 1 && parsed <= 100;
-    setFlag(!blank && !valid ? { pinned: null } : null);
-    edit(setQuota({ warnThresholdPct: valid ? parsed : undefined }));
+  const draftThreshold = quota?.warnThresholdPct;
+  const draftText = draftThreshold === undefined ? '' : String(draftThreshold);
+
+  // The text is local until commit. A THRESHOLD change from the host (its ack,
+  // a Discard, a save elsewhere) replaces it — typing never touches the draft,
+  // so no keystroke can reset the caret. Key on the VALUE, not the draft
+  // object: a sibling checkbox's save creates a new draft with the same
+  // threshold, and that must not wipe in-progress typing or its inline error
+  // (UI-R14b).
+  const [text, setText] = useState(draftText);
+  const [error, setError] = useState<string | null>(null);
+  const [seenThreshold, setSeenThreshold] = useState(draftThreshold);
+  if (seenThreshold !== draftThreshold) {
+    setSeenThreshold(draftThreshold);
+    setText(draftText);
+    setError(null);
+  }
+
+  // One mutation per control: each owns its pending/dedup guard, so a toggle on
+  // one field cannot swallow or mis-acknowledge another field's write.
+  const thresholdSave = useHostMutation<[QuotaPatch]>({
+    kind: 'Save the quota threshold',
+    send: (requestId, patch) => send.setQuota(patch, requestId),
+  });
+  const statuslineSave = useHostMutation<[QuotaPatch]>({
+    kind: 'Install for all Claude sessions',
+    send: (requestId, patch) => send.setQuota(patch, requestId),
+  });
+  const usageSave = useHostMutation<[QuotaPatch]>({
+    kind: 'Use the Claude usage API',
+    send: (requestId, patch) => send.setQuota(patch, requestId),
+  });
+
+  // Settle each request once from its own receipt, and place the acknowledgement
+  // beside the control whose request it answers (UI-R15).
+  const settled = useRef<ReadonlySet<string>>(new Set());
+  const [ack, setAck] = useState<{ control: SavedControl; requestId: string } | null>(null);
+  useEffect(() => {
+    const requests = [
+      { control: 'threshold' as const, mutation: thresholdSave },
+      { control: 'statusline' as const, mutation: statuslineSave },
+      { control: 'usage' as const, mutation: usageSave },
+    ];
+    for (const { control, mutation } of requests) {
+      const id = mutation.requestId;
+      const receipt = id === undefined ? undefined : state.receipts[id];
+      if (id === undefined || receipt === undefined || settled.current.has(id)) continue;
+      settled.current = new Set(settled.current).add(id);
+      // A request that already timed out is `unknown`, not pending: `settle`
+      // would be a no-op and its control stays disabled, so a late ok receipt
+      // must not claim "Saved" beside an inert control (UI-R14/R15).
+      if (!mutation.pending) continue;
+      if (receipt.ok) {
+        mutation.settle({ requestId: id, result: 'success' });
+        setAck({ control, requestId: id });
+      } else {
+        mutation.settle({ requestId: id, result: 'failure', message: receipt.message ?? undefined });
+      }
+    }
+  }, [state.receipts, thresholdSave, statuslineSave, usageSave]);
+  useEffect(() => {
+    if (ack === null) return undefined;
+    const timer = window.setTimeout(() => setAck((current) => (current === ack ? null : current)), SAVED_ACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [ack]);
+
+  const post = (control: SavedControl, patch: QuotaPatch): void => {
+    if (control === 'threshold') thresholdSave.trigger(patch);
+    else if (control === 'statusline') statuslineSave.trigger(patch);
+    else usageSave.trigger(patch);
   };
-  const text = quota?.warnThresholdPct === undefined ? '' : String(quota.warnThresholdPct);
-  const quotaError = flag !== null && flag.pinned === state.draft ? QUOTA_THRESHOLD_ERROR : undefined;
+
+  const commitThreshold = (raw: string): void => {
+    const trimmed = raw.trim();
+    if (trimmed === '') {
+      setError(null);
+      if (draftThreshold !== undefined) post('threshold', { warnThresholdPct: null });
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+      setError(QUOTA_THRESHOLD_ERROR);
+      return;
+    }
+    setError(null);
+    if (parsed === draftThreshold) return;
+    post('threshold', { warnThresholdPct: parsed });
+  };
+
+  const savedNote = (control: SavedControl): ReactNode =>
+    ack !== null && ack.control === control ? (
+      <span className="accounts-quota-saved" role="status">Saved</span>
+    ) : null;
 
   return (
     <section className="accounts-quota" data-region="accounts-quota" aria-labelledby="accounts-quota-title">
       <h3 id="accounts-quota-title">Subscription quota</h3>
-      <p className="accounts-note">Saved with Save Agents.</p>
       <p className="accounts-hint">
         Warn before a launch whose agent core is near its provider subscription limit. View-only: a
         warning never blocks a launch and never switches cores.
       </p>
+      <p className="accounts-hint">
+        <Button variant="text" onClick={() => send.openQuota()}>See current quota</Button>
+      </p>
       <Field
-        label="Warn at used %"
+        label="Warn at % used"
         className="accounts-quota-threshold"
-        error={quotaError}
-        help={`Blank = ${DEFAULT_QUOTA_WARN_THRESHOLD_PCT}. The tightest window across the launched core's subscription is compared against this.`}
+        error={error ?? undefined}
+        meta={savedNote('threshold')}
+        help={`Blank = ${DEFAULT_QUOTA_WARN_THRESHOLD_PCT}. Karst compares the tightest window of the launched core's subscription with this value. Saves when you leave the field or press Enter.`}
         control={{
           kind: 'input',
           name: 'quotaWarnThresholdPct',
@@ -72,19 +156,30 @@ export function QuotaCard() {
           step: 1,
           value: text,
           placeholder: String(DEFAULT_QUOTA_WARN_THRESHOLD_PCT),
-          onChange: setThreshold,
+          busy: thresholdSave.busy,
+          // Unknown after a missed receipt: inert until reset, and it must LOOK
+          // inert (UI-R14/R17) instead of silently no-oping on the next commit.
+          disabled: thresholdSave.disabled,
+          onChange: (next) => {
+            setText(next);
+            setError(null);
+          },
+          onCommit: commitThreshold,
         }}
       />
       <Field
         label="Install for all Claude sessions"
-        help="Adds karst's statusline wrapper to your global Claude settings, so Claude sessions karst did not launch report quota too. Your own statusline command is kept and chained; turning this off restores it."
+        help="Adds Karst's statusline wrapper to your global Claude settings, so Claude sessions Karst did not launch report quota too. Your own statusline command is kept and chained; turning this off restores it."
         control={{
           kind: 'checkbox',
           name: 'quotaClaudeGlobalStatusline',
           checked: quota?.claudeGlobalStatusline === true,
-          onChange: (on) => edit(setQuota({ claudeGlobalStatusline: on })),
+          busy: statuslineSave.busy,
+          disabled: statuslineSave.disabled,
+          onChange: (on) => post('statusline', { claudeGlobalStatusline: on }),
         }}
       />
+      {savedNote('statusline')}
       <Field
         label="Use the Claude usage API"
         help="When the statusline cache is missing or stale, read the 5-hour and 7-day windows from Anthropic's usage API using the OAuth token Claude Code already stored. The token stays in memory for the request — never logged, stored or refreshed — and a failure keeps the last value or shows unknown."
@@ -92,9 +187,13 @@ export function QuotaCard() {
           kind: 'checkbox',
           name: 'quotaClaudeOauthUsageApi',
           checked: quota?.claudeOauthUsageApi === true,
-          onChange: (on) => edit(setQuota({ claudeOauthUsageApi: on })),
+          busy: usageSave.busy,
+          disabled: usageSave.disabled,
+          onChange: (on) => post('usage', { claudeOauthUsageApi: on }),
         }}
       />
+      {savedNote('usage')}
     </section>
   );
 }
+
