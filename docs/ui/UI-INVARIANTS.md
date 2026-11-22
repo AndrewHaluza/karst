@@ -237,9 +237,11 @@ persisted state) shows the dot and no checked item. "N need you · M failed" ("1
 under the Tickets header on All when a count is above zero and applies Needs
 attention. Presets affect Tickets only: `state.planning` now always carries live
 and archived sessions and the Planning pane filters archived ones with its toggle.
-Pending drafts always show; accepted ones sit behind an "N accepted" button on the
+Each session starts collapsed (`planIsOpen`); the twistie, the arrow keys or a
+dependency chip expand it, and that choice is in-memory view state that survives
+re-renders. In an expanded session, pending drafts always show; accepted ones sit behind an "N accepted" button on the
 session row (its own tab stop, outside the tree's roving tabindex), and a search
-that matches an accepted draft reveals its session's accepted drafts. Collapsed
+that matches an accepted draft reveals its session's accepted drafts and expands it. Collapsed
 panes and the archived toggle are pure view state kept in the webview state API
 (`view` beside the snapshot) and never posted.
 A priority chip (`PriorityChip.tsx`: URG / HIGH / LOW, no chip for normal or none)

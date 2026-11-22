@@ -1004,6 +1004,9 @@ const openActivity = (corpus: () => ViewCorpus): (() => ViewCorpus) => () => ({
   viewState: { view: { collapsed: { activity: false } } },
 });
 
+/** T1312: a Planning session starts collapsed; a draft-row shot opens its session first (view state, never posted). */
+const openPlan = (sessionId: number): readonly string[] => [`.pt-twistie[data-plan-toggle="${sessionId}"]`];
+
 const sidebarVariants = (): Variant[] => {
   const s = fixtureCorpus.bind(null, 'sidebar', sidebarRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
   return [
@@ -1012,10 +1015,10 @@ const sidebarVariants = (): Variant[] => {
     variant('sidebar', 'attention-one', s('all-sections'), { skipLayout: true }),
     variant('sidebar', 'empty', s('empty')),
     variant('sidebar', 'loading', LOADING),
-    variant('sidebar', 'error', s('hostile')),
+    variant('sidebar', 'error', s('hostile'), { clicks: openPlan(91) }),
     variant('sidebar', 'long-content', s('multi-facet')),
-    variant('sidebar', 'planning-deps', s('planning-deps')),
-    variant('sidebar', 'priority', s('priority')),
+    variant('sidebar', 'planning-deps', s('planning-deps'), { clicks: openPlan(17) }),
+    variant('sidebar', 'priority', s('priority'), { clicks: openPlan(17) }),
     variant('sidebar', 'queue-empty', openQueue(s('empty'))),
     variant('sidebar', 'queue-populated', openQueue(s('queue'))),
     variant('sidebar', 'queue-long-content', openQueue(s('queue-long'))),
@@ -1031,7 +1034,7 @@ const sidebarVariants = (): Variant[] => {
     ),
     variant('sidebar', 'subtasks', s('subtasks')),
     ...CHIP_TIERS.map(([tier, width]) =>
-      variant('sidebar', `stage-chip-${tier}`, s('planning-deps'), { width, themes: CHIP_THEMES }),
+      variant('sidebar', `stage-chip-${tier}`, s('planning-deps'), { width, themes: CHIP_THEMES, clicks: openPlan(17) }),
     ),
     // T1103: a row with 3 references (Waits on + one chip + +N) at a full-word and a short-word host (@ui:UI-R57).
     ...CHIP_TIERS.map(([tier, width]) =>
