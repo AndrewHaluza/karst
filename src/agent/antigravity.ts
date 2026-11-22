@@ -60,6 +60,8 @@ import { isFileChannel, writeBridgeScripts } from './hookBridgeFiles.js';
 import { ensureAntigravityWorkspaceTrusted } from './workspaceTrust.js';
 
 const AGY_BIN = 'agy';
+/** agy file tools refuse a relative path ("must be an absolute path"); the other cores accept one. */
+export const AGY_ABSOLUTE_PATH_RULE = 'Give an absolute path to every file tool. agy refuses a relative path.';
 
 function assertSafeAgentName(name: string): void {
   if (
@@ -294,7 +296,7 @@ export class AntigravityAdapter implements AgentAdapter {
     const kickoff = opts.instructions
       ? withInstructionsPointer(
           opts.initialPrompt,
-          renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions.path),
+          `${renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions.path)} ${AGY_ABSOLUTE_PATH_RULE}`,
         )
       : opts.initialPrompt;
     // `-i` takes the kickoff as one argv entry; spill an oversized one to a

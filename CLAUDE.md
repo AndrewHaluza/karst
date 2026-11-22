@@ -8,6 +8,7 @@
 - On failure, rerun only the failing file. Do not rerun the whole suite to re-read the error.
 - Coverage: `npm run -s test:coverage -- --coverage.reporter=text-summary` (default `text` prints a row per file).
 - Mutation: `npx stryker run --mutate <changed files>`, then `node scripts/mutationSummary.mjs` (config: `stryker.config.json`, silent by design).
+- Do not use `sed -i`. GNU sed (Linux, sandboxes, CI) and BSD sed (macOS) read its argument differently, so one form fails on the other OS. To change a file, use your file-edit tool. In a shell command, use `perl -pi -e 's/a/b/' file`. For a change across lines, use `perl -0777 -pi -e 's/a\nb/c/' file`. Both commands work on GNU and BSD.
 - Never dump logs or reports whole: pipe through `tail -n`/`grep`.
 - After editing or adding tests, also run `npm run -s typecheck` (vitest does not typecheck).
 - `test:*` scripts `pretest:*`-rebuild better-sqlite3 for the Node ABI; a bare `npx vitest run` bypasses that, so if the ABI is not built run `npm run -s rebuild:node` first. Unit vs integration split: `vitest.config.ts` / `vitest.integration.config.ts`. Unit stores use `openStore(':memory:')`.
