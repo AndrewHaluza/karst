@@ -50,10 +50,11 @@ describe('Accounts tab', () => {
     expect(bridge.last('accounts-load')).toBeTruthy();
   });
 
-  it('says accounts apply at once and are not part of Save', () => {
+  it('says the list is shared, the choice is per project, and this tab applies at once', () => {
     mount();
     expect(screen.getByText(/apply at once/i)).toBeTruthy();
-    expect(screen.getByText(/not on Save/i)).toBeTruthy();
+    // Q4-SAVE: the old "not on Save" sentence is gone — the topbar says it once.
+    expect(screen.queryByText(/not on Save/i)).toBeNull();
   });
 
   it('shows a row per core, default first and without a delete button', () => {
@@ -238,11 +239,12 @@ describe('Accounts tab sbx token cell (D651)', () => {
     expect(document.querySelector('th')?.parentElement?.textContent).toContain('sbx token');
   });
 
-  it("shows '—' and no action for default, command and non-claude rows", () => {
+  it("shows a blank cell with sr-only 'none' and no action for default, command and non-claude rows", () => {
     mountTokens();
     for (const name of ['Default', 'cmd', 'cw']) {
       const cell = cellOf(name);
-      expect(cell.textContent).toBe('—');
+      expect(cell.textContent).toBe('none');
+      expect(cell.querySelector('.sr-only')).not.toBeNull();
       expect(within(cell).queryAllByRole('button').length).toBe(0);
     }
   });
@@ -342,10 +344,15 @@ describe('Accounts table readability (D707)', () => {
     expect(row.querySelector('[data-col="source"]')!.textContent).toBe('Managed');
   });
 
-  it('renders Log in as a secondary button', () => {
+  it('keeps Log in in the row overflow, and only for an account that is not signed in', () => {
     mount();
-    const btn = screen.getAllByRole('button', { name: /log in/i })[0]!;
-    expect(btn.className).toContain('secondary');
+    // The first core's rows: default (signed in) has no Log in; work (not signed in) has it.
+    const first = document.querySelector('[data-region="accounts-core-row"]') as HTMLElement;
+    fireEvent.click(within(first).getByRole('button', { name: 'More actions for work' }));
+    const login = within(first).getByRole('menuitem', { name: 'Log in work' });
+    expect(login.className).toContain('k-btn');
+    fireEvent.click(login);
+    expect(screen.queryByRole('menuitem')).toBeNull();
   });
 });
 
@@ -370,12 +377,99 @@ describe('Accounts tab: active account per project', () => {
   });
   it('a row control makes that account the machine default', () => {
     const { bridge } = mount();
-    fireEvent.click(screen.getByRole('button', { name: /make work the machine default/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for work' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /make work the machine default/i }));
     expect(bridge.last('accounts-set-machine-default')).toMatchObject({ core: 'claude', name: 'work' });
   });
   it('the set-active control still sets the choice of this project', () => {
     const { bridge } = mount();
     fireEvent.click(screen.getByRole('button', { name: /set work active/i }));
     expect(bridge.last('accounts-set-active')).toMatchObject({ core: 'claude', name: 'work' });
+  });
+});
+
+describe('Accounts row actions (SET-41, UI-R54)', () => {
+  const menuOf = (name: string): HTMLElement => {
+    fireEvent.click(screen.getByRole('button', { name: `More actions for ${name}` }));
+    return screen.getByRole('menu', { name: `More actions for ${name}` });
+  };
+
+  it('keeps the primary actions in one row and hides the rest behind ⋯', () => {
+    mount();
+    const row = document.querySelector('tr.is-active') as HTMLElement;
+    const actions = row.querySelector('[data-col="actions"]') as HTMLElement;
+    expect(actions.className).toContain('accounts-row-actions');
+    // The active, signed-in, machine-default row needs no action at all: no Set
+    // active, no Delete, and no empty ⋯ trigger either.
+    expect(within(actions).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('renders the visible row actions as secondary, and Delete as danger', () => {
+    mount();
+    const work = screen.getByRole('button', { name: 'Set work active' });
+    expect(work.className).toContain('secondary');
+    expect(screen.getByRole('button', { name: 'Delete work' }).className).toContain('danger');
+    // A project-scoped core offers "Use machine default" at the same weight.
+    cleanup();
+    mount([CORE('claude', [{ ...WORK, active: true }], 'work', 'project')]);
+    expect(screen.getByRole('button', { name: /use the machine default for claude/i }).className).toContain('secondary');
+  });
+
+  it('moves focus into the menu and closes it with Escape, returning to the trigger', () => {
+    mount();
+    const trigger = screen.getByRole('button', { name: 'More actions for work' });
+    trigger.focus();
+    const menu = menuOf('work');
+    const items = within(menu).getAllByRole('menuitem');
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1]!, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('opens with aria-expanded and closes after an item runs', () => {
+    const { bridge } = mount();
+    const trigger = screen.getByRole('button', { name: 'More actions for work' });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Log in work' }));
+    expect(bridge.last('accounts-login')).toMatchObject({ core: 'claude', name: 'work' });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+});
+
+describe('Accounts table copy and status (SET-43, SET-44)', () => {
+  it('names the core by its display name in the delete question', () => {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete work' }));
+    const box = document.querySelector('[data-region="accounts-delete-confirm"]') as HTMLElement;
+    expect(box.textContent).toContain('Delete the Claude Code account work?');
+  });
+
+  it('does not repeat "(machine default)" in the name cell', () => {
+    mount();
+    const row = document.querySelector('tr.is-active') as HTMLElement;
+    expect(row.textContent).not.toContain('(machine default)');
+  });
+
+  it('shows the status as a tone chip', () => {
+    mount();
+    const statusOf = (name: string): HTMLElement => {
+      const tr = [...document.querySelectorAll('tbody tr')].find((r) => r.querySelector('[data-col="name"]')?.textContent?.startsWith(name));
+      return tr!.querySelector('[data-col="status"] [class*="k-chip"]') as HTMLElement;
+    };
+    expect(statusOf('work').textContent).toBe('not signed in');
+    expect(statusOf('work').className).toContain('is-warning');
+    expect(statusOf('fold').className).not.toContain('is-warning');
+  });
+
+  it('offers no Log in for a signed-in account', () => {
+    mount([CORE('codex', [{ ...WORK, status: 'signed-in' }])]);
+    expect(screen.queryByRole('button', { name: 'More actions for work' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for work' }));
+    expect(screen.queryByRole('menuitem', { name: /log in/i })).toBeNull();
   });
 });

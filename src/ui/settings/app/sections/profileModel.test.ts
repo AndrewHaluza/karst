@@ -32,8 +32,16 @@ describe('profile entries', () => {
     expect(filterEntries(entries, 'SPEC').map((e) => e.id)).toEqual(['plan']);
     expect(filterEntries(entries, ' ')).toBe(entries);
     expect(groupEntries(entries).map((g) => g.title)).toEqual([
-      'Local (.karst/agents)', 'From approach: speckit', 'Built-in prompts',
+      'Local (.karst/agents)', 'From approach: speckit', 'Built-in profiles',
     ]);
+  });
+  it('names an approach group by its display name, falling back to the id (SET-40)', () => {
+    expect(groupEntries(entries, (id) => (id === 'speckit' ? 'Spec Kit' : id)).map((g) => g.title)).toEqual([
+      'Local (.karst/agents)', 'From approach: Spec Kit', 'Built-in profiles',
+    ]);
+    // No callback = the id, the pre-SET-40 behaviour, so a caller that has no
+    // host list still groups rather than crashing.
+    expect(groupEntries(entries).map((g) => g.title)[1]).toBe('From approach: speckit');
   });
   it('names a customised profile without clashing', () => {
     expect(customProfileName('review', new Set(['reviewer']))).toBe('review');

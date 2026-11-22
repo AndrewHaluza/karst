@@ -143,6 +143,8 @@ describe('rendered Agents tab — the roster and matrix mount', () => {
     const mine = tab(view);
     expect(mine.querySelectorAll('[data-role]')).toHaveLength(12);
     expect(mine.querySelector('[data-role="review"]')?.textContent).toContain('Review Agent');
+    // SET-10: one clause, no design note.
+    expect(mine.querySelector('.page-desc')?.textContent).toBe('Which agent runs each role.');
     // The Agent profiles tab counts every entry the list shows (2 profiles + 8 built-in).
     expect(tab(view).textContent).toContain('Agent profiles (10)');
   });

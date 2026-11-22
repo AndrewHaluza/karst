@@ -7,7 +7,7 @@
  * already named (UI-R24) — a missing `label` is a `tsc` error, not a review
  * catch.
  */
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
 export interface IconButtonProps
   extends Omit<
@@ -25,6 +25,8 @@ export interface IconButtonProps
   className?: string;
   /** The decorative glyph. */
   children: ReactNode;
+  /** The rendered `<button>`, so an owner (an overflow menu) can return focus to it. */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 export function IconButton({
@@ -36,6 +38,7 @@ export function IconButton({
   className,
   type = 'button',
   children,
+  ref,
   ...rest
 }: IconButtonProps) {
   const classes = ['k-iconbtn', danger ? 'k-iconbtn--danger' : null, spinning ? 'is-spinning' : null, className]
@@ -44,6 +47,7 @@ export function IconButton({
   return (
     <button
       {...rest}
+      ref={ref}
       type={type}
       className={classes}
       aria-label={label}

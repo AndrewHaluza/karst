@@ -10,23 +10,33 @@
  * in its own masked input box and sends back only `set` / `not-set` (@arch:AC-51). Below 700px the rows
  * stack into cards (agents.webview.css).
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
-import { Chip } from '../primitives/Chip.js';
+import { Chip, type ChipTone } from '../primitives/Chip.js';
 import { Field } from '../primitives/Field.js';
+import { IconButton } from '../primitives/IconButton.js';
+import { TablerIcon } from '../primitives/TablerIcon.js';
+import { useDismiss } from '../primitives/useDismiss.js';
 import { AGENT_PROVIDER_LABELS } from '../../../../model/agentProviders.js';
 import type { AccountCore } from '../../../../agent/accounts/types.js';
 import type { AccountRowView, AccountsCoreView, AccountStatusView } from '../../accountsMessages.js';
 import type { AgentsRoute } from './agentsRoute.js';
 import { AddAccountWizard } from './AddAccountWizard.js';
 import { QuotaCard } from './QuotaCard.js';
+import { providerLabel } from './presetDraft.js';
 
 const SOURCE_TEXT = { managed: 'Managed', folder: 'Folder', command: 'Command' } as const;
 const STATUS_TEXT: Readonly<Record<AccountStatusView, string>> = {
   'signed-in': 'signed in',
   'not-signed-in': 'not signed in',
   unknown: 'unknown',
+};
+/** SET-44: the status is a tone chip, so colour is never the only carrier. */
+const STATUS_TONE: Readonly<Record<AccountStatusView, ChipTone>> = {
+  'signed-in': 'success',
+  'not-signed-in': 'warning',
+  unknown: 'neutral',
 };
 
 interface DeleteRequest {
@@ -122,7 +132,7 @@ export function AccountsTab({ route }: AccountsTabProps) {
   return (
     <div className="accounts-tab" data-region="accounts-tabs" ref={rootRef}>
       <p className="accounts-note">
-        The account list is shared. The active account is per project. Add, set active and delete apply at once, not on Save.
+        The account list is shared. The active account is per project. Changes here apply at once.
       </p>
       {activeError !== null ? <p className="accounts-error" role="alert">{activeError}</p> : null}
       {cores === null ? <p>Loading accounts…</p> : (
@@ -198,7 +208,7 @@ function CoreRow(p: CoreRowProps) {
         />
         <span className="accounts-source-chip" data-source={view.source}>{SOURCE_CHIP[view.source]}</span>
         {view.source === 'project' ? (
-          <Button variant="ghost" size="sm" aria-label={`Use the machine default for ${view.core}`} onClick={() => send.accounts({ type: 'accounts-clear-project-choice', core: view.core })}>Use machine default</Button>
+          <Button variant="secondary" size="sm" aria-label={`Use the machine default for ${view.core}`} onClick={() => send.accounts({ type: 'accounts-clear-project-choice', core: view.core })}>Use machine default</Button>
         ) : null}
         <Button variant="secondary" size="sm" onClick={p.onAdd}>Add account</Button>
       </div>
@@ -223,23 +233,58 @@ function CoreRow(p: CoreRowProps) {
         <tbody>
           {view.rows.map((row) => (
             <tr key={row.name} className={row.active ? 'is-active' : undefined}>
-              <td data-col="name" data-label="Name"><span>{row.label}</span>{row.active ? <> <Chip tone="success">Active</Chip></> : null}{row.name === view.machineDefault ? <span className="accounts-default-mark"> (machine default)</span> : null}</td>
+              <td data-col="name" data-label="Name"><span>{row.label}</span>{row.active ? <> <Chip tone="success">Active</Chip></> : null}</td>
               <td data-col="source" data-label="Source"><Cell value={row.source ? SOURCE_TEXT[row.source] : undefined} /></td>
               <td data-col="dir" data-label="Folder"><Cell value={row.dir} /></td>
               <td data-col="command" data-label="Command"><Cell value={row.command} /></td>
-              <td data-col="status" data-label="Status">{STATUS_TEXT[row.status]}</td>
+              <td data-col="status" data-label="Status"><Chip tone={STATUS_TONE[row.status]}>{STATUS_TEXT[row.status]}</Chip></td>
               <td data-col="sbx-token" data-label="sbx token" data-sbx-token-row={`${view.core}/${row.name}`}><SbxTokenCell row={row} {...p} /></td>
               <td data-col="actions" data-label="Actions" className="accounts-row-actions">
-                <Button variant="secondary" size="sm" aria-label={`Log in ${row.name}`} onClick={() => send.accounts({ type: 'accounts-login', core: view.core, name: row.name })}>Log in</Button>
+                {/* SET-41 / UI-R54: one row, never a ragged second line. The two
+                    primary actions stay visible; the rest move into ⋯. */}
                 {!row.active ? (
-                  <Button variant="ghost" size="sm" aria-label={`Set ${row.name} active`} onClick={() => p.onSetActive(row.name)}>Set active</Button>
-                ) : null}
-                {row.name !== view.machineDefault ? (
-                  <Button variant="ghost" size="sm" aria-label={`Make ${row.name} the machine default`} onClick={() => send.accounts({ type: 'accounts-set-machine-default', core: view.core, name: row.name })}>Make machine default</Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    data-priority="primary"
+                    aria-label={`Set ${row.name} active`}
+                    onClick={() => p.onSetActive(row.name)}
+                  >
+                    Set active
+                  </Button>
                 ) : null}
                 {!row.builtIn ? (
-                  <Button variant="danger" size="sm" aria-label={`Delete ${row.name}`} onClick={() => p.onAskDelete(row)}>Delete</Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    data-priority="primary"
+                    aria-label={`Delete ${row.name}`}
+                    onClick={() => p.onAskDelete(row)}
+                  >
+                    Delete
+                  </Button>
                 ) : null}
+                <RowMenu
+                  row={row.name}
+                  items={[
+                    ...(row.status !== 'signed-in'
+                      ? [{
+                        key: 'login',
+                        label: 'Log in',
+                        ariaLabel: `Log in ${row.name}`,
+                        onClick: () => send.accounts({ type: 'accounts-login', core: view.core, name: row.name }),
+                      }]
+                      : []),
+                    ...(row.name !== view.machineDefault
+                      ? [{
+                        key: 'machine-default',
+                        label: 'Make machine default',
+                        ariaLabel: `Make ${row.name} the machine default`,
+                        onClick: () => send.accounts({ type: 'accounts-set-machine-default', core: view.core, name: row.name }),
+                      }]
+                      : []),
+                  ]}
+                />
               </td>
             </tr>
           ))}
@@ -252,7 +297,7 @@ function CoreRow(p: CoreRowProps) {
       ) : null}
       {p.confirm !== null ? (
         <div className="accounts-delete" data-region="accounts-delete-confirm" role="group" aria-label={`Delete ${p.confirm.row.name}`}>
-          <p>Delete the {view.core} account {p.confirm.row.name}?</p>
+          <p>Delete the {providerLabel(view.core)} account {p.confirm.row.name}?</p>
           {p.confirm.row.source === 'managed' ? (
             <Field label="Also remove its folder" control={{ kind: 'checkbox', checked: p.removeFolder, onChange: p.onRemoveFolder }} />
           ) : (
@@ -273,6 +318,89 @@ function CoreRow(p: CoreRowProps) {
   );
 }
 
+/** One lower-priority row action behind the ⋯ trigger (SET-41, UI-R54). */
+interface RowMenuItem {
+  readonly key: string;
+  readonly label: string;
+  readonly ariaLabel: string;
+  readonly onClick: () => void;
+}
+
+/**
+ * The ⋯ overflow of a row's action cell: the actions that do not fit stay
+ * reachable without wrapping the row into a ragged second line (UI-R54).
+ *
+ * It is a real menu — `role="menu"` with `menuitem` children, one roving focus
+ * owner (arrow keys / Home / End), Escape closes through the shared `useDismiss`
+ * and returns focus to the trigger. An empty menu renders nothing at all, so a
+ * row that needs only its visible actions has no dead control.
+ */
+function RowMenu({ row, items }: { readonly row: string; readonly items: readonly RowMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useDismiss({
+    active: open,
+    onClose: () => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    },
+    refs: [triggerRef, menuRef],
+  });
+  useEffect(() => {
+    if (!open) return;
+    const first = menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]');
+    first?.focus();
+  }, [open]);
+  if (items.length === 0) return null;
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const nodes = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const at = nodes.indexOf(event.target as HTMLButtonElement);
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      nodes[event.key === 'Home' ? 0 : nodes.length - 1]?.focus();
+      return;
+    }
+    const step = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+    if (step === 0 || at < 0) return;
+    event.preventDefault();
+    nodes[(at + step + nodes.length) % nodes.length]?.focus();
+  };
+  return (
+    <span className="accounts-menu">
+      <IconButton
+        ref={triggerRef}
+        label={`More actions for ${row}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <TablerIcon name="dots" />
+      </IconButton>
+      {open ? (
+        <div className="accounts-menu-list" role="menu" aria-label={`More actions for ${row}`} ref={menuRef} onKeyDown={onKeyDown}>
+          {items.map((item) => (
+            <Button
+              key={item.key}
+              role="menuitem"
+              variant="ghost"
+              size="sm"
+              aria-label={item.ariaLabel}
+              data-priority="overflow"
+              onClick={() => {
+                setOpen(false);
+                item.onClick();
+              }}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+    </span>
+  );
+}
+
 /** An empty cell shows nothing visible; a screen reader hears 'none'. */
 function Cell({ value }: { readonly value: string | undefined }) {
   return value === undefined ? <span className="accounts-empty sr-only">none</span> : <>{value}</>;
@@ -284,7 +412,7 @@ type SbxTokenCellProps = Pick<CoreRowProps, 'tokenOp' | 'removing' | 'onSetToken
 
 /** The sbx token state of one row: '—' without a token action, else set / not set / saving / invalid. */
 function SbxTokenCell({ row, tokenOp, removing, onSetToken, onAskRemoveToken, onCancelRemoveToken, onRemoveToken }: SbxTokenCellProps) {
-  if (row.sbxToken === undefined) return <>—</>;
+  if (row.sbxToken === undefined) return <Cell value={undefined} />;
   const mine = tokenOp?.name === row.name ? tokenOp : null;
   if (mine !== null && mine.error === null) return <span role="status">Saving…</span>;
   if (removing === row.name) {

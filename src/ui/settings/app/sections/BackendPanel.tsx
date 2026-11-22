@@ -1,13 +1,21 @@
 /**
  * The sandbox backend selector on the Agents page (arch:AC-32): one row per core
  * with only the values that core can use, what each core actually resolves to,
- * and the readiness of the backends some core selects. Opt-in; host is the
+ * and the readiness of the selected backend in that row. Opt-in; host is the
  * default and choosing it deletes the core's key.
+ *
+ * SET-46: the row names the core by its display name and mark, never the raw id
+ * (`agy` is `Antigravity CLI`), and the segments read `Host` / `sbx` / `Docker`.
+ * SET-47: each non-host selection explains itself in ITS row — the command the
+ * operator must run is rendered as code — instead of in one block after the
+ * table. SET-48: the segments are the shared radio-group primitive, so arrow
+ * keys move the choice and the focus together.
  */
-import { useEffect } from 'react';
+import { Fragment, type ReactNode, useEffect } from 'react';
 import type { Manifest } from '../../../../manifest/types.js';
 import {
   allowedBackends,
+  BACKEND_CORE_PROVIDER,
   BACKEND_CORES,
   wantedBackends,
   type AgentBackends,
@@ -17,8 +25,18 @@ import {
 import type { BackendStatus } from '../../../../agent/effectiveBackend.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
+import { SegmentedControl, type SegmentedOption } from '../primitives/SegmentedControl.js';
+import { AgentCoreIcon } from './AgentCoreIcon.js';
+import { providerLabel } from './presetDraft.js';
 
 const NO_SANDBOX_NOTE = 'no sandbox yet';
+
+/** The segment copy: `sbx` stays lowercase because that is the product's name. */
+const BACKEND_TEXT: Readonly<Record<CoreBackend, string>> = {
+  host: 'Host',
+  sbx: 'sbx',
+  docker: 'Docker',
+};
 
 function setCoreBackend(core: BackendCore, value: CoreBackend): (draft: Manifest) => Manifest {
   return (draft) => {
@@ -30,9 +48,30 @@ function setCoreBackend(core: BackendCore, value: CoreBackend): (draft: Manifest
   };
 }
 
-function statusText(status: BackendStatus | undefined): string {
-  if (status === undefined) return 'not checked';
-  return status.ok ? 'ready' : status.reason;
+/**
+ * A backend's readiness for one row. A command inside backticks (`sbx login`)
+ * renders as `<code>`; the split is pure React — never raw HTML.
+ */
+function statusNode(core: BackendCore, backend: 'sbx' | 'docker', status: BackendStatus | undefined): ReactNode {
+  const testId = `backend-status-${core}`;
+  if (status === undefined) {
+    return <span className="field-help backend-status" data-testid={testId}>not checked</span>;
+  }
+  if (status.ok) {
+    return <span className="field-help backend-status" data-testid={testId}>ready</span>;
+  }
+  return (
+    <span className="backend-status is-error" data-testid={testId} role="alert">
+      <span className="backend-status-name">{backend}: </span>
+      {status.reason.split(/(`[^`]*`)/).map((part) =>
+        part.startsWith('`') && part.endsWith('`') && part.length > 1 ? (
+          <code key={`${testId}:${part}`}>{part.slice(1, -1)}</code>
+        ) : (
+          <Fragment key={`${testId}:${part}`}>{part}</Fragment>
+        ),
+      )}
+    </span>
+  );
 }
 
 export function BackendPanel() {
@@ -57,36 +96,44 @@ export function BackendPanel() {
           </div>
         </div>
       </div>
-      {BACKEND_CORES.map((core) => {
-        const allowed = allowedBackends(core);
-        const current = backends?.[core] ?? 'host';
-        return (
-          <div key={core} className="field-row" data-testid={`backend-row-${core}`}>
-            <span className="field-label" id={`backend-label-${core}`}>{core}</span>
-            <div role="radiogroup" aria-labelledby={`backend-label-${core}`} className="k-segmented">
-              {allowed.map((value) => (
-                <Button
-                  key={value}
-                  role="radio"
-                  aria-checked={current === value}
-                  variant={current === value ? 'secondary' : 'ghost'}
-                  size="sm"
+      <div className="form-grid">
+        {BACKEND_CORES.map((core) => {
+          const allowed = allowedBackends(core);
+          const current = backends?.[core] ?? 'host';
+          const options: readonly SegmentedOption[] = allowed.map((value) => ({
+            value,
+            label: BACKEND_TEXT[value],
+          }));
+          return (
+            <Fragment key={core}>
+              <span className="field-label" id={`backend-label-${core}`}>
+                <span className="backend-core">
+                  <AgentCoreIcon provider={BACKEND_CORE_PROVIDER[core]} />
+                  <span>{providerLabel(BACKEND_CORE_PROVIDER[core])}</span>
+                </span>
+              </span>
+              <div className="field-control backend-control" data-testid={`backend-row-${core}`}>
+                <SegmentedControl
+                  labelId={`backend-label-${core}`}
+                  value={current}
+                  options={options}
                   disabled={allowed.length === 1}
-                  onClick={() => edit(setCoreBackend(core, value))}
-                >
-                  {value}
-                </Button>
-              ))}
-            </div>
-            {allowed.length === 1 ? <span className="field-help">{NO_SANDBOX_NOTE}</span> : null}
-          </div>
-        );
-      })}
-      <div className="field-help">
-        {want.sbx ? <div data-testid="backend-status-sbx">sbx: {statusText(status?.sbx)}</div> : null}
-        {want.docker ? <div data-testid="backend-status-docker">docker: {statusText(status?.docker)}</div> : null}
+                  onChange={(value) => edit(setCoreBackend(core, value as CoreBackend))}
+                />
+                {allowed.length === 1 ? <span className="field-help">{NO_SANDBOX_NOTE}</span> : null}
+                {current === 'sbx' ? statusNode(core, 'sbx', status?.sbx) : null}
+                {current === 'docker' ? statusNode(core, 'docker', status?.docker) : null}
+              </div>
+            </Fragment>
+          );
+        })}
       </div>
-      <Button className="backend-recheck" variant="secondary" size="sm" onClick={() => send.checkBackends({ sbx: want.sbx, docker: want.docker })}>
+      <Button
+        className="backend-recheck"
+        variant="secondary"
+        size="sm"
+        onClick={() => send.checkBackends({ sbx: want.sbx, docker: want.docker })}
+      >
         Re-check
       </Button>
     </div>

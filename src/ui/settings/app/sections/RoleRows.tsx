@@ -17,6 +17,7 @@ import { Switch } from '../primitives/Switch.js';
 import { TablerIcon } from '../primitives/TablerIcon.js';
 import { NO_INHERIT, usePickerInputs } from './usePickerInputs.js';
 import { pinKeyOf, type EffectiveRole, type RoleValue } from './rolesModel.js';
+import { modelLabel, providerLabel } from './presetDraft.js';
 
 export const SOURCE_TEXT: Readonly<Record<EffectiveRole['source'], { chip: string; label: string; why: string }>> = {
   pin: { chip: 'pinned', label: 'Pinned', why: 'Pinned: the same in all presets, and it beats the preset.' },
@@ -77,8 +78,14 @@ export const NO_PROFILE_TEXT = 'No profile';
 const DEFAULT_PROFILE_TEXT = 'default';
 const NO_MODEL_TEXT = 'No model';
 
+/**
+ * Core · Model · Effort with DISPLAY names (SET-35): "Claude Code · Opus 5 · high".
+ * A compare cell must never show a raw provider or model id.
+ */
 export const roleText = (v: RoleValue): string =>
-  [v.core, v.model, v.effort].filter((part) => part !== '').join(' · ') || '—';
+  [providerLabel(v.core), v.model ? modelLabel(v.core, v.model) : '', v.effort]
+    .filter((part) => part !== '')
+    .join(' · ') || '—';
 
 export interface RoleRowProps {
   readonly capability: string;
@@ -174,7 +181,11 @@ export function RoleRow(props: RoleRowProps) {
   }
   const coreName = cores.find((c) => c.id === effective.core)?.label ?? effective.core;
   const profileText = !pinnable ? NO_PROFILE_TEXT : props.profile === '' ? DEFAULT_PROFILE_TEXT : props.profile;
-  const summary = [profileText, coreName || 'No core', effective.model || NO_MODEL_TEXT].join(' · ');
+  const summary = [
+    profileText,
+    coreName || 'No core',
+    effective.model ? modelLabel(effective.core, effective.model) : NO_MODEL_TEXT,
+  ].join(' · ');
   const classes = [
     'agents-row',
     open ? 'is-open' : '',
@@ -190,12 +201,18 @@ export function RoleRow(props: RoleRowProps) {
     <div className={classes} data-role={capability} role="row">
       <div className="agents-cell agents-cell-switch" role="cell">
         {pinnable ? (
-          <Switch
-            name={`role-${capability}-enabled`}
-            checked={props.enabled}
-            label={props.enabled ? `Disable ${label}` : `Enable ${label}`}
-            onChange={props.onEnabled}
-          />
+          <>
+            <Switch
+              name={`role-${capability}-enabled`}
+              checked={props.enabled}
+              label={props.enabled ? `Disable ${label}` : `Enable ${label}`}
+              onChange={props.onEnabled}
+            />
+            {/* Q4: a list item keeps the switch, and says what it means where the
+                header is gone (the mid card tier). Decorative: the switch itself
+                carries the accessible name (Enable/Disable <role>). */}
+            <span className="agents-switch-text" aria-hidden="true">Enabled</span>
+          </>
         ) : null}
       </div>
       <div className="agents-cell agents-cell-role" role="cell">

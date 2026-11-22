@@ -10,7 +10,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Manifest } from '../../../../manifest/types.js';
 import { AnnouncerProvider } from '../primitives/LiveRegion.js';
 import { SettingsAppProvider } from '../SettingsAppContext.js';
@@ -195,6 +195,31 @@ describe('Agents page — tabs and location', () => {
   });
 });
 
+describe('Agents page — page description and instant-apply tab (SET-10, Q4-SAVE)', () => {
+  it('describes the page in one clause', () => {
+    mount();
+    expect(document.querySelector('.page-desc')!.textContent).toBe('Which agent runs each role.');
+  });
+
+  it('hides Save and Discard on Accounts only, and says why', () => {
+    mountWithShell();
+    expect(document.querySelector('#saveBtn')).not.toBeNull();
+    fireEvent.click(screen.getAllByRole('tab')[2]!);
+    expect(document.querySelector('#saveBtn')).toBeNull();
+    expect(document.querySelector('#discardBtn')).toBeNull();
+    expect(document.querySelector('.instant-apply-note')!.textContent).toBe('Changes here apply at once.');
+    fireEvent.click(screen.getAllByRole('tab')[0]!);
+    expect(document.querySelector('#saveBtn')).not.toBeNull();
+    expect(document.querySelector('#discardBtn')).not.toBeNull();
+  });
+
+  it('keeps Save on the Sandbox tab, whose controls edit the draft', () => {
+    mountWithShell();
+    fireEvent.click(screen.getAllByRole('tab')[3]!);
+    expect(document.querySelector('#saveBtn')).not.toBeNull();
+  });
+});
+
 describe('Agents page — roles table', () => {
   it('shows every role with where its value comes from', () => {
     mount({ ...BASE, processes: { ...BASE.processes, uatTester: { provider: 'codex', model: 'gpt-5.6-sol', pinned: true } } } as unknown as Manifest);
@@ -289,7 +314,7 @@ describe('Agents page — agent profiles', () => {
     mount();
     openProfiles();
     const titles = [...document.querySelectorAll('.agents-group-title')].map((n) => n.textContent);
-    expect(titles).toEqual(['Local (.karst/agents)', 'From approach: speckit', 'Built-in prompts']);
+    expect(titles).toEqual(['Local (.karst/agents)', 'From approach: speckit', 'Built-in profiles']);
     expect(screen.getByText('reviewer').closest('button')!.textContent).toContain('used by 1');
     expect(screen.getByText('plan').closest('button')!.textContent).toContain('unused');
   });
@@ -588,70 +613,93 @@ describe('Agents page — sandbox backend', () => {
   const radio = (core: string, value: string) => group(core).getByRole('radio', { name: value });
   const checkedOf = (core: string) =>
     group(core).getAllByRole('radio').filter((r) => r.getAttribute('aria-checked') === 'true').map((r) => r.textContent);
+  const labelOf = (core: string) => document.getElementById(`backend-label-${core}`)!.textContent;
   const lastWant = (bridge: { posted: readonly unknown[] }) =>
     (bridge.posted.filter((m) => (m as { type: string }).type === 'check-backends').at(-1) as { want: unknown }).want;
 
-  it('all host: one row per core, each offering only its allowed values', () => {
+  it('names each core by its display name and offers only its allowed values (SET-46)', () => {
     mount();
     const values = (core: string) => group(core).getAllByRole('radio').map((r) => r.textContent);
-    expect(values('claude')).toEqual(['host', 'sbx']);
-    expect(values('codex')).toEqual(['host', 'sbx']);
-    expect(values('opencode')).toEqual(['host', 'docker']);
-    expect(values('opencode2')).toEqual(['host', 'docker']);
-    expect(values('agy')).toEqual(['host', 'docker']);
-    for (const core of ['claude', 'codex', 'opencode', 'opencode2', 'agy']) expect(checkedOf(core)).toEqual(['host']);
+    expect(values('claude')).toEqual(['Host', 'sbx']);
+    expect(values('codex')).toEqual(['Host', 'sbx']);
+    expect(values('opencode')).toEqual(['Host', 'Docker']);
+    expect(values('opencode2')).toEqual(['Host', 'Docker']);
+    expect(values('agy')).toEqual(['Host', 'Docker']);
+    for (const core of ['claude', 'codex', 'opencode', 'opencode2', 'agy']) expect(checkedOf(core)).toEqual(['Host']);
+    expect(labelOf('claude')).toBe('Claude Code');
+    expect(labelOf('agy')).toBe('Antigravity CLI');
+    expect(labelOf('opencode2')).toBe('OpenCode v2');
+    expect(document.body.textContent).not.toContain('antigravity');
+  });
+
+  it('mounts the core icon into an opaque island, never a mirrored SVG (R-X6)', () => {
+    const into = vi.fn();
+    (globalThis as unknown as Record<string, unknown>).agentIconInto = into;
+    try {
+      mount();
+      expect(into).toHaveBeenCalled();
+      expect(into.mock.calls.some((call) => call[1] === 'antigravity')).toBe(true);
+    } finally {
+      delete (globalThis as unknown as Record<string, unknown>).agentIconInto;
+    }
   });
 
   it('the agy row offers host and docker enabled without a "no sandbox yet" note', () => {
     mount();
-    expect((radio('agy', 'host') as HTMLButtonElement).disabled).toBe(false);
-    expect((radio('agy', 'docker') as HTMLButtonElement).disabled).toBe(false);
+    expect((radio('agy', 'Host') as HTMLButtonElement).disabled).toBe(false);
+    expect((radio('agy', 'Docker') as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByTestId('backend-row-agy').textContent).not.toContain('no sandbox yet');
   });
 
   it('choosing a backend edits only that core in the draft map', () => {
     const { probe } = mount();
     fireEvent.click(radio('claude', 'sbx'));
-    fireEvent.click(radio('opencode', 'docker'));
+    fireEvent.click(radio('opencode', 'Docker'));
     expect(draftOf(probe).agentBackends).toEqual({ claude: 'sbx', opencode: 'docker' });
     expect('agentBackend' in draftOf(probe)).toBe(false);
   });
 
   it('choosing host again deletes the core key, and the map when empty, so the yml stays clean', () => {
     const { probe } = mount({ ...BASE, agentBackends: { claude: 'sbx', opencode: 'docker' } } as Manifest);
-    fireEvent.click(radio('claude', 'host'));
+    fireEvent.click(radio('claude', 'Host'));
     expect(draftOf(probe).agentBackends).toEqual({ opencode: 'docker' });
-    fireEvent.click(radio('opencode', 'host'));
+    fireEvent.click(radio('opencode', 'Host'));
     expect('agentBackends' in draftOf(probe)).toBe(false);
   });
 
-  it('mixed sbx + docker: each core shows its choice and both statuses show', () => {
+  it('mixed sbx + docker: each core shows its choice and its OWN row says ready (SET-47)', () => {
     withStatus(
       { ...BASE, agentBackends: { claude: 'sbx', opencode: 'docker' } } as Manifest,
       { sbx: { ok: true }, docker: { ok: true } },
     );
     expect(checkedOf('claude')).toEqual(['sbx']);
-    expect(checkedOf('opencode')).toEqual(['docker']);
-    expect(checkedOf('codex')).toEqual(['host']);
+    expect(checkedOf('opencode')).toEqual(['Docker']);
+    expect(checkedOf('codex')).toEqual(['Host']);
     expect(screen.queryByTestId('effective-backend')).toBeNull();
-    expect(screen.getByTestId('backend-status-sbx').textContent).toContain('ready');
-    expect(screen.getByTestId('backend-status-docker').textContent).toContain('ready');
+    expect(screen.getByTestId('backend-status-claude').textContent).toContain('ready');
+    expect(screen.getByTestId('backend-status-opencode').textContent).toContain('ready');
+    // The status lives inside the row it belongs to, not in one block below.
+    expect(within(screen.getByTestId('backend-row-claude')).getByTestId('backend-status-claude')).toBeTruthy();
+    expect(screen.queryByTestId('backend-status-codex')).toBeNull();
   });
 
-  it('preflight fail: the core falls back to host with the reason and the fix hint shows', () => {
+  it('preflight fail: the row carries the reason, and a command renders as code (SET-47)', () => {
     withStatus(
       { ...BASE, agentBackends: { claude: 'sbx' } } as Manifest,
       { sbx: { ok: false, reason: 'sbx not signed in (run `sbx login`)' }, docker: { ok: true } },
     );
     expect(screen.queryByTestId('effective-backend')).toBeNull();
-    expect(screen.getByTestId('backend-status-sbx').textContent).toContain('sbx not signed in');
-    expect(screen.queryByTestId('backend-status-docker')).toBeNull();
+    const status = screen.getByTestId('backend-status-claude');
+    expect(status.textContent).toContain('sbx not signed in');
+    expect(status.querySelector('code')!.textContent).toBe('sbx login');
+    expect(status.className).toContain('is-error');
+    expect(screen.queryByTestId('backend-status-opencode')).toBeNull();
   });
 
   it('shows no backend status while every core is on host', () => {
     mount();
-    expect(screen.queryByTestId('backend-status-sbx')).toBeNull();
-    expect(screen.queryByTestId('backend-status-docker')).toBeNull();
+    expect(screen.queryByTestId('backend-status-claude')).toBeNull();
+    expect(screen.queryByTestId('backend-status-opencode')).toBeNull();
   });
 
   it('asks the host to probe only the backends some core selects, on mount, on change and on Re-check', () => {
@@ -659,7 +707,7 @@ describe('Agents page — sandbox backend', () => {
     const checks = () => bridge.posted.filter((m) => (m as { type: string }).type === 'check-backends').length;
     expect(checks()).toBe(1);
     expect(lastWant(bridge)).toEqual({ sbx: false, docker: false });
-    fireEvent.click(radio('opencode2', 'docker'));
+    fireEvent.click(radio('opencode2', 'Docker'));
     expect(checks()).toBe(2);
     expect(lastWant(bridge)).toEqual({ sbx: false, docker: true });
     fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
@@ -668,6 +716,17 @@ describe('Agents page — sandbox backend', () => {
 
   it('says status is not checked when the host has not reported', () => {
     mount({ ...BASE, agentBackends: { codex: 'sbx' } } as Manifest);
-    expect(screen.getByTestId('backend-status-sbx').textContent).toContain('not checked');
+    expect(screen.getByTestId('backend-status-codex').textContent).toContain('not checked');
+  });
+
+  it('ArrowRight changes the backend and moves focus with it (SET-48)', () => {
+    const { probe } = mount();
+    const host = radio('codex', 'Host');
+    host.focus();
+    fireEvent.keyDown(host, { key: 'ArrowRight' });
+    expect(draftOf(probe).agentBackends).toEqual({ codex: 'sbx' });
+    expect(document.activeElement).toBe(radio('codex', 'sbx'));
+    expect(radio('codex', 'sbx').getAttribute('tabindex')).toBe('0');
+    expect(radio('codex', 'Host').getAttribute('tabindex')).toBe('-1');
   });
 });

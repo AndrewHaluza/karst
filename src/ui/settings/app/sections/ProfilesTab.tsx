@@ -67,6 +67,12 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer, focusTick }: 
     () => buildProfileEntries(state.host?.agents ?? [], state.draft, labels, state.host?.builtInPrompts ?? {}, capabilities),
     [state.host?.agents, state.host?.builtInPrompts, state.draft, labels, capabilities],
   );
+  // SET-40: an approach group is named by the approach's display name; the id is
+  // only the fallback when the host list does not carry that approach.
+  const approachName = useMemo(() => {
+    const byId = new Map((state.host?.packagedApproaches ?? []).map((a) => [a.id, a.label]));
+    return (id: string): string => byId.get(id) ?? id;
+  }, [state.host?.packagedApproaches]);
   const visible = filterEntries(entries, query);
   const selected = entries.find((e) => e.id === route.selected) ?? null;
   const roleLabel = (cap: string): string => labels[cap as ProcessKey] ?? cap;
@@ -140,7 +146,7 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer, focusTick }: 
           control={{ kind: 'input', type: 'search', name: 'agents-profile-search', value: query, placeholder: 'Search profiles', onChange: setQuery }}
         />
         {entries.length === 0 ? <div className="agents-empty">No agent profiles yet.</div> : null}
-        {groupEntries(visible).map((group) => (
+        {groupEntries(visible, approachName).map((group) => (
           <div key={group.key} className="agents-group">
             <div className="agents-group-title">{group.title}</div>
             {group.entries.map((entry) => (
@@ -165,7 +171,9 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer, focusTick }: 
 
       <div className="agents-detail" data-region="detail">
         {selected === null ? (
-          <div className="agents-empty">Select a profile to read its text.</div>
+          <div className="k-empty" role="status">
+            <div className="k-empty-title">Select a profile to read its text.</div>
+          </div>
         ) : (
           <>
             <Button variant="text" size="sm" className="agents-back" onClick={() => navigate({ tab: 'profiles' })}>
@@ -290,7 +298,7 @@ function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert,
       <div className="agents-text">
         <PromptPreview key={entry.id} label={`${entry.name} text`} text={entry.text ?? 'The text could not be read.'} />
         <div className="agents-text-foot" data-region="toolbar">
-          <span className="agents-muted">Provided by approach {entry.approachId} — manage in approach</span>
+          <span className="agents-muted">Provided by approach {entry.approachId}</span>
           <Button variant="text" size="sm" onClick={onManage}>
             manage in approach ↗
           </Button>

@@ -32,7 +32,32 @@
 import type { AgentPreset, Manifest } from '../../../../manifest/types.js';
 import type { AgentProvider } from '../../../../manifest/types.js';
 import { KNOWN_AGENT_PROVIDERS, AGENT_PROVIDER_LABELS } from '../../../../model/agentProviders.js';
+import { bundledModelCatalog } from '../../../../agent/modelCatalog.js';
 import type { PresetCapabilityGroupView, PresetInheritance } from '../../presetMatrix.js';
+
+/**
+ * The core's display name, from the one browser-safe registry (SET-35).
+ *
+ * This is the webview twin of `labelForProvider` (`src/model/inside/agent.ts`):
+ * that module reads the icon assets with `node:fs`, so importing it here would
+ * break the webview bundle. Both read `AGENT_PROVIDER_LABELS`, so the names
+ * cannot drift; an unknown provider still degrades to its title-cased id.
+ */
+export function providerLabel(provider: string): string {
+  const labels = AGENT_PROVIDER_LABELS as Readonly<Record<string, string | undefined>>;
+  return labels[provider] ?? (provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : '');
+}
+
+/**
+ * The model's display name from the bundled catalog, else the raw id (SET-35).
+ * The webview twin of `labelForModel`; an absent model reads as "Agent default",
+ * exactly as the picker's inherit row does.
+ */
+export function modelLabel(provider: string, model: string | null | undefined): string {
+  if (!model) return 'Agent default';
+  const catalog = bundledModelCatalog()[provider as AgentProvider];
+  return catalog?.find((option) => option.id === model)?.label ?? model;
+}
 
 /**
  * The host's cap on the preset map, mirrored from
@@ -172,7 +197,12 @@ export function inheritedText(
 ): string {
   const inherited = inheritance?.[capability as keyof PresetInheritance];
   if (!inherited) return 'Inherited: project defaults';
-  return `Inherited: ${[inherited.provider, inherited.model, inherited.effort]
+  // Display names, never raw ids (SET-35): "Inherited: Claude Code · Sonnet 5.5".
+  return `Inherited: ${[
+    inherited.provider ? providerLabel(inherited.provider) : '',
+    inherited.model ? modelLabel(inherited.provider, inherited.model) : '',
+    inherited.effort,
+  ]
     .filter(Boolean)
     .join(' · ')}`;
 }
