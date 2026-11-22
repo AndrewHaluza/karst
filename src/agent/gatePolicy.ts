@@ -16,7 +16,7 @@
  *
  * Pure data: no store, no spawn.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { accountReaderEnv, accountsConfig } from './accounts/registry.js';
@@ -146,6 +146,13 @@ export function opencodeAttendedEdit(
  * The opencode-family `permission` additions for the gate profile: shell denies,
  * and edits limited to `cwd` + `tmp` (last-match-wins, so protected paths deny
  * last even when they sit under an allowed root).
+ *
+ * The CLI normalizes any file INSIDE `cwd` to a relative resource string (e.g.
+ * `src/a.ts`, even when the tool was given an absolute path), so a `${cwd}/**`
+ * allow alone never matches. `'*': 'allow'` first lets relative paths through;
+ * `'/**'`, `'..'` and `'../**'` deny all absolute and parent-traversal paths
+ * until a root below re-allows them (last-match-wins; `opencode2`'s glob only
+ * knows `*` and `?`, so a leading-slash test is the only absolute marker).
  */
 export function opencodeGatePermission(
   cwd: string,
@@ -159,13 +166,39 @@ export function opencodeGatePermission(
   return {
     bash: Object.fromEntries(gateDeniedCommands(policy, gateScripts).map((c) => [c, 'deny' as const])),
     edit: {
-      '*': 'deny',
+      '*': 'allow',
+      '/**': 'deny',
+      '..': 'deny',
+      '../**': 'deny',
       [`${cwd}/**`]: 'allow',
-      [`${tmp}/**`]: 'allow',
+      ...Object.fromEntries(tmpRoots(tmp).map((d) => [`${d}/**`, 'allow' as const])),
       ...Object.fromEntries(extraRoots.map((d) => [`${d}/**`, 'allow' as const])),
-      ...Object.fromEntries(gateProtectedPaths(env, home).map((p) => [p, 'deny' as const])),
+      ...Object.fromEntries(withCwdRelative(cwd, gateProtectedPaths(env, home)).map((p) => [p, 'deny' as const])),
     },
   };
+}
+
+/**
+ * Each path plus its cwd-relative form when it sits inside `cwd`: the CLI
+ * matches a file inside `cwd` by its relative string, which `'*': 'allow'`
+ * would otherwise let through past an absolute-only deny.
+ */
+function withCwdRelative(cwd: string, paths: readonly string[]): string[] {
+  const prefix = `${cwd}/`;
+  return paths.flatMap((p) => (p.startsWith(prefix) && p.length > prefix.length ? [p, p.slice(prefix.length)] : [p]));
+}
+
+/**
+ * `tmp` plus its real path when they differ: macOS `os.tmpdir()` is
+ * `/var/folders/...` while the CLI resolves it to `/private/var/folders/...`.
+ */
+function tmpRoots(tmp: string): string[] {
+  try {
+    const real = realpathSync(tmp);
+    return real === tmp ? [tmp] : [tmp, real];
+  } catch {
+    return [tmp];
+  }
 }
 
 /**
