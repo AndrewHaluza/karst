@@ -551,15 +551,17 @@ describe('buildTicketFormActions', () => {
     expect(listTickets(store)).toHaveLength(0);
   });
 
-  it('fetchSource posts an error when the provider rejects', async () => {
+  it('fetchSource posts a fetch-error when the provider rejects', async () => {
     deps.provider = fakeProvider({ fetchTicket: vi.fn(async () => { throw new Error('boom'); }) });
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.fetchSource('CU-9');
-    const err = posted.find((m) => m.type === 'error') as { message: string } | undefined;
+    // SET-52: the failure goes to the Key-row surface, not the page bucket.
+    const err = posted.find((m) => m.type === 'fetch-error') as { message: string } | undefined;
     expect(err?.message).toMatch(/boom/);
+    expect(posted.some((m) => m.type === 'error')).toBe(false);
   });
 
   describe('onSourceRefBound', () => {
@@ -3212,6 +3214,113 @@ describe('buildTicketFormActions', () => {
       const types = ctx.posted.map((m) => m.type);
       expect(ctx.posted).toContainEqual({ type: 'busy', what: 'submit', on: false });
       expect(types.indexOf('busy')).toBeLessThan(types.indexOf('error'));
+    });
+  });
+
+  // SET-54 (Q13, @ui:UI-R33): the confirmation stays on the host. The page only
+  // reports that it holds edits; the host asks and only "Discard" closes.
+  describe('Cancel with edits (SET-54)', () => {
+    it('a clean form closes at once and never asks', async () => {
+      const confirmDiscard = vi.fn(async () => true);
+      deps.confirmDiscard = confirmDiscard;
+      const ctx = mkCtx();
+      await buildTicketFormActions(deps)(ctx).closeForm();
+      expect(confirmDiscard).not.toHaveBeenCalled();
+      expect(ctx.closes).toBe(1);
+    });
+
+    it('a dirty create asks "Discard this ticket?" and stays open on Cancel', async () => {
+      const confirmDiscard = vi.fn(async () => false);
+      deps.confirmDiscard = confirmDiscard;
+      const ctx = mkCtx();
+      await buildTicketFormActions(deps)(ctx).closeForm(true);
+      expect(confirmDiscard).toHaveBeenCalledWith('Discard this ticket?');
+      expect(ctx.closes).toBe(0);
+    });
+
+    it('a dirty edit asks "Discard the changes to this ticket?" and closes on Discard', async () => {
+      const t = createTicket(store, { key: 'T-CLOSE', title: 'typed' });
+      const confirmDiscard = vi.fn(async () => true);
+      deps.confirmDiscard = confirmDiscard;
+      const ctx = mkCtx(t.id);
+      await buildTicketFormActions(deps)(ctx).closeForm(true);
+      expect(confirmDiscard).toHaveBeenCalledWith('Discard the changes to this ticket?');
+      expect(ctx.closes).toBe(1);
+    });
+
+    it('a missing dialog is a bug: it reports and keeps the form open', async () => {
+      const ctx = mkCtx();
+      await buildTicketFormActions(deps)(ctx).closeForm(true);
+      expect(ctx.closes).toBe(0);
+      expect(ctx.posted).toContainEqual({
+        type: 'error',
+        message: 'Internal: confirmDiscard dialog not injected. This is a bug — please report it.',
+      });
+    });
+  });
+
+  // SET-52: the fetch failure has its own message (so the page can place it
+  // under Key), and a quota sentence leads with the product name, not a raw id.
+  describe('failure surfaces (SET-52)', () => {
+    it('fetchSource posts a fetch-error, not the page-level error', async () => {
+      deps.provider = fakeProvider({
+        fetchTicket: vi.fn(async () => { throw new Error('the provider returned 404 (check the list id)'); }),
+      });
+      const ctx = mkCtx();
+      await buildTicketFormActions(deps)(ctx).fetchSource('FEAT-9999');
+      expect(ctx.posted).toContainEqual({
+        type: 'fetch-error',
+        message: 'the provider returned 404 (check the list id)',
+      });
+      expect(ctx.posted.some((m) => m.type === 'error')).toBe(false);
+    });
+
+    it('a usage-limit failure shows the provider label, never the raw id', async () => {
+      const t = createTicket(store, { key: 'T-QUOTA-LABEL', title: 't' });
+      deps.adapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => {
+          throw new UsageLimitError(
+            'claude usage limit reached — monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
+            { tool: 'claude', provider: 'claude' },
+          );
+        },
+      };
+      const ctx = mkCtx(t.id);
+      await buildTicketFormActions(deps)(ctx).suggestSignals('fe');
+      const err = ctx.posted.find((m) => m.type === 'error') as { message: string } | undefined;
+      expect(err?.message).toBe(
+        'Claude Code usage limit reached — monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
+      );
+    });
+
+    it('a usage-limit failure whose sentence does not lead with the tool is not reworded', async () => {
+      const t = createTicket(store, { key: 'T-QUOTA-PREFIX', title: 't' });
+      deps.adapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => {
+          throw new UsageLimitError('Rate limit hit by the proxy in front of the API.', {
+            tool: 'claude',
+            provider: 'claude',
+          });
+        },
+      };
+      const ctx = mkCtx(t.id);
+      await buildTicketFormActions(deps)(ctx).suggestSignals('fe');
+      const err = ctx.posted.find((m) => m.type === 'error') as { message: string } | undefined;
+      expect(err?.message).toBe('Rate limit hit by the proxy in front of the API.');
+    });
+
+    it('a non-usage-limit failure keeps its message verbatim', async () => {
+      const t = createTicket(store, { key: 'T-PLAIN-LABEL', title: 't' });
+      deps.adapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => { throw new Error('claude crashed for an unrelated reason'); },
+      };
+      const ctx = mkCtx(t.id);
+      await buildTicketFormActions(deps)(ctx).suggestSignals('fe');
+      const err = ctx.posted.find((m) => m.type === 'error') as { message: string } | undefined;
+      expect(err?.message).toBe('claude crashed for an unrelated reason');
     });
   });
 });

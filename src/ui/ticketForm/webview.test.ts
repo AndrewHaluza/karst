@@ -1059,7 +1059,10 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const start = HTML.indexOf("el('cancelBtn').addEventListener");
     const end = HTML.indexOf("el('analyzeBtn').addEventListener");
     const cancel = HTML.slice(start, end);
-    expect(cancel).toContain("post({ type: 'close-form' })");
+    // SET-54 (Q13): the dirty flag rides the close so the HOST can ask; the
+    // question itself never runs here (@ui:UI-R33).
+    expect(cancel).toContain("post({ type: 'close-form', ...(dirty ? { dirty: true } : {}) })");
+    expect(cancel).toContain('formPersist.anyDirty()');
     expect(cancel).not.toContain('request-state');
   });
 

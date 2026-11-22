@@ -46,6 +46,8 @@ import { suggestSignals as suggestSignalsAI } from '../../workflow/classify/sugg
 import type { AnalyzeServiceInput } from '../../workflow/classify/analyze.js';
 import { runAnalysis, type RunAnalysisResult } from '../../workflow/classify/runAnalysis.js';
 import { codePointersEnabled } from '../../manifest/validate/analysis.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
+import { labelForProvider } from '../../model/inside/agent.js';
 import type { TicketFormActions, TicketDraftFields, FormDraft } from './messages.js';
 import type { TicketFormActionsCtx, TicketFormActionsFactory } from './panel.js';
 import {
@@ -175,6 +177,14 @@ export interface TicketFormActionsDeps {
   onAgentChoiceChanged?: (ticketId: number) => void;
   confirmBlockedStart?: (message: string) => Promise<boolean>;
   /**
+   * SET-54 (Q13, @ui:UI-R33): confirm discarding an edited form on Cancel. The
+   * confirmation stays HOST-side, exactly like `confirmBlockedStart` above — a
+   * crafted webview message can say "close" but cannot skip the question.
+   * Absent → the close is refused with an internal-bug error, never silently
+   * discarded.
+   */
+  confirmDiscard?: (message: string) => Promise<boolean>;
+  /**
    * Kick off a just-finished ticket: create worktrees for its selected repos,
    * arm the scope stage, and open the agent session seeded with its chosen
    * approach. Injected because it needs git + a terminal (vscode). Resolves only
@@ -254,6 +264,22 @@ export type WritebackDeps = Pick<TicketFormActionsDeps, 'store' | 'provider'>;
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * SET-52: the sentence an error surface shows. `describeHeadlessFailure` writes
+ * `${tool} …`, and one quota path builds that failure from a raw PROVIDER id
+ * (`interactiveQuota.isInteractiveQuota` passes the provider as `tool`), so a
+ * usage-limit error could lead with "claude:" instead of the product name. Swap
+ * that leading token for the shared label when the error is a `UsageLimitError`
+ * and the sentence really starts with its tool. Everything else keeps the plain
+ * message — a generic failure is never reworded.
+ */
+function displayFailureMessage(e: unknown): string {
+  const message = errorMessage(e);
+  if (!(e instanceof UsageLimitError)) return message;
+  if (!message.startsWith(`${e.tool} `)) return message;
+  return labelForProvider(e.tool) + message.slice(e.tool.length);
 }
 
 /** Whether a provider error means the dependency edge already exists. */
@@ -987,7 +1013,9 @@ export function buildTicketFormActions(
         ctx.pushState();
         ctx.post({ type: 'brief', brief });
       } catch (e) {
-        ctx.post({ type: 'error', message: errorMessage(e) });
+        // SET-52: a fetch failure belongs next to the Key/Fetch row it came
+        // from, not in the page-level bucket above the title.
+        ctx.post({ type: 'fetch-error', message: errorMessage(e) });
       } finally {
         ctx.post({ type: 'busy', what: 'fetch', on: false });
       }
@@ -1082,7 +1110,9 @@ export function buildTicketFormActions(
         }
         ctx.post({
           type: 'error',
-          message: errorMessage(e),
+          // SET-52: the usage-limit sentence leads with the product name, never
+          // the raw core id the failure was built from.
+          message: displayFailureMessage(e),
           ...(parkId !== null ? { usageLimitParkId: parkId } : {}),
         });
       } finally {
@@ -1455,7 +1485,7 @@ export function buildTicketFormActions(
       } catch (e) {
         ctx.post({
           type: 'error',
-          message: errorMessage(e),
+          message: displayFailureMessage(e),
           ...(parkId !== null ? { usageLimitParkId: parkId } : {}),
         });
       } finally {
@@ -1709,8 +1739,25 @@ export function buildTicketFormActions(
     // (the webview cannot dispose itself); ctx.close disposes the panel, which
     // drops every later post via the disposed guard — the same path submit's
     // handoff uses.
-    closeForm(): void {
-      ctx.close();
+    //
+    // SET-54 (Q13, @ui:UI-R33): a form the user edited asks FIRST. The question
+    // is the HOST's (an injected VS Code modal), so a crafted page can post
+    // `close-form` but cannot skip the confirmation; a missing dep is a bug and
+    // keeps the form open rather than dropping the edits. A clean form closes at
+    // once — no question about nothing.
+    async closeForm(dirty?: boolean): Promise<void> {
+      if (dirty !== true) {
+        ctx.close();
+        return;
+      }
+      if (!deps.confirmDiscard) {
+        ctx.post({ type: 'error', message: 'Internal: confirmDiscard dialog not injected. This is a bug — please report it.' });
+        return;
+      }
+      const question = ctx.ticketId === undefined
+        ? 'Discard this ticket?'
+        : 'Discard the changes to this ticket?';
+      if (await deps.confirmDiscard(question)) ctx.close();
     },
     };
     return actions;

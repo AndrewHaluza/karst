@@ -1166,10 +1166,12 @@ const ticketFormVariants = (): Variant[] => {
     variant('ticketForm', 'populated', () => getCorpus('ticketForm'), { baseline: 'ticketForm', themes: ALL_THEMES }),
     variant('ticketForm', 'empty', () => withState({})),
     variant('ticketForm', 'loading', LOADING),
+    // SET-52: a fetch failure has its own message and renders under the Key row,
+    // not in the page-level bucket above the title.
     variant('ticketForm', 'error', () => ({
       messages: [
         ...withState({}).messages,
-        { type: 'error', message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).' },
+        { type: 'fetch-error', message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).' },
       ],
     })),
     // D159: an op that died on quota carries its park id, so the error notification
@@ -1179,7 +1181,9 @@ const ticketFormVariants = (): Variant[] => {
         ...withState({}).messages,
         {
           type: 'error',
-          message: 'anthropic: monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
+          // SET-52: the real shape of a quota failure — the product name, never a
+          // raw provider id ("anthropic: …").
+          message: 'Claude Code usage limit reached — monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
           usageLimitParkId: 7,
         },
       ],

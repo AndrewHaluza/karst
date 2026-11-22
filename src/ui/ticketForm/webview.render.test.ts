@@ -530,3 +530,104 @@ describe('ticket form — a title-derived key is not a user-owned key', () => {
     expect(sub.keyAutoDerived).toBe(false);
   });
 });
+
+describe('ticket form — honest states (SET-52, SET-53, SET-54)', () => {
+  it('shows only the loading blocks and no active control before the first state (SET-53)', () => {
+    h = renderWebview('ticketForm');
+    const v = h;
+    expect(v.query('#loadingContent')!.getAttribute('role')).toBe('status');
+    expect(v.query('#loadingContent')!.textContent).toBe('Loading the ticket…');
+    expect(v.query('#loadingSettings')!.getAttribute('role')).toBe('status');
+    expect(v.query('#loadingSettings')!.textContent).toBe('Loading the ticket…');
+    // Each block is the FIRST child of its region — the layout gate reads the regions in DOM order.
+    expect(v.query('[data-region="content"]')!.firstElementChild).toBe(v.query('#loadingContent'));
+    expect(v.query('[data-region="settings"]')!.firstElementChild).toBe(v.query('#loadingSettings'));
+    // Nothing invites typing before anything loaded.
+    expect(v.query<HTMLButtonElement>('#analyzeBtn')!.disabled).toBe(true);
+    expect(v.document.body.classList.contains('is-ready')).toBe(false);
+    // The hiding is declared CSS (jsdom cannot cascade it): every other child of
+    // both regions is hidden until `is-ready`.
+    const selectors = v.cssRules().map((rule) => rule.selectorText).join('\n');
+    expect(selectors).toContain('body:not(.is-ready) [data-region="content"] > :not(#loadingContent)');
+    expect(selectors).toContain('body:not(.is-ready) [data-region="settings"] > :not(#loadingSettings)');
+  });
+
+  it('replaces the loading state with the real regions on the first state (SET-53)', () => {
+    const v = open(baseState());
+    expect(v.document.body.classList.contains('is-ready')).toBe(true);
+  });
+
+  it('renders a fetch failure under the Key row and clears it on the next state (SET-52)', () => {
+    const v = open(baseState({ provider: 'clickup' }));
+    v.receive({
+      type: 'fetch-error',
+      message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).',
+    });
+    const err = v.query('#fetchErr')!;
+    expect(err.getAttribute('role')).toBe('alert');
+    expect(err.classList.contains('hidden')).toBe(false);
+    expect(err.textContent).toContain('404');
+    // Inside the key row, directly after the Key/Fetch row (the #createInErr pattern).
+    expect(v.query('#keyRow')!.contains(err)).toBe(true);
+    expect(err.previousElementSibling!.classList.contains('row')).toBe(true);
+    // The page bucket stays empty: a fetch failure is not a host error.
+    expect(v.query('#err')!.classList.contains('hidden')).toBe(true);
+
+    v.receive({ type: 'state', state: baseState({ provider: 'clickup' }) });
+    expect(v.query('#fetchErr')!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('keeps host errors in a danger callout with the alert-triangle icon (SET-52)', () => {
+    const v = open(baseState());
+    v.receive({ type: 'error', message: 'Could not save the draft.' });
+    const box = v.query('#err')!;
+    expect(box.getAttribute('role')).toBe('alert');
+    expect(box.classList.contains('callout')).toBe(true);
+    expect(box.classList.contains('callout--danger')).toBe(true);
+    expect(box.classList.contains('hidden')).toBe(false);
+    expect(v.query('#errMsg')!.textContent).toBe('Could not save the draft.');
+    expect(v.query('#err .callout-icon svg')).not.toBeNull();
+  });
+
+  it('keeps the three usage-limit park actions inside the callout (SET-52, D159)', () => {
+    const v = open(baseState());
+    v.receive({
+      type: 'error',
+      message: 'Claude Code usage limit reached — monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
+      usageLimitParkId: 7,
+    });
+    const acts = v.queryAll('#errMsg [data-act]').map((b) => b.getAttribute('data-act'));
+    expect(acts).toEqual([
+      'usage-limit-park-pick',
+      'usage-limit-park-retry',
+      'usage-limit-park-dismiss',
+    ]);
+    expect(v.query('#errMsg')!.textContent).toContain('Claude Code usage limit reached');
+    v.click('#errMsg [data-act="usage-limit-park-retry"]');
+    expect(v.posted).toContainEqual({ type: 'usage-limit-park-retry', parkId: 7 });
+  });
+});
+
+describe('ticket form — Cancel asks only when the form was edited (SET-54, Q13)', () => {
+  it('a clean form posts a plain close-form', () => {
+    const v = open(baseState());
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form' });
+  });
+
+  it('a typed field posts dirty: true', () => {
+    const v = open(baseState());
+    const title = v.query<HTMLInputElement>('#title')!;
+    title.value = 'Typed but not saved';
+    title.dispatchEvent(new v.window.Event('input', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+
+  it('a settings change posts dirty: true', () => {
+    const v = open(baseState());
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+});

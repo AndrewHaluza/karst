@@ -71,6 +71,16 @@
     background:var(--k-surface);border-radius:var(--k-radius-md);
     padding:var(--k-space-4) var(--k-space-6);margin-bottom:var(--k-space-7);font-size:var(--k-text-md)}
   .callout-msg{font-weight:var(--k-weight-semibold)}
+  /* SET-52: the page-level failure bucket keeps its warning shape for the
+     classify gate, and carries the danger tone plus the alert-triangle icon for
+     host errors. Tokens only — the tone comes from --k-danger. */
+  .callout--danger{border-color:var(--k-danger)}
+  .callout-icon{display:inline-flex;flex:none;color:var(--k-danger);margin-top:var(--k-space-1)}
+  /* SET-53: before the first state push the regions show the honest loading
+     block and nothing else. An empty editable form reads as "ready" and invites
+     typing into a page that has not loaded yet. */
+  body:not(.is-ready) [data-region="content"] > :not(#loadingContent),
+  body:not(.is-ready) [data-region="settings"] > :not(#loadingSettings){display:none}
   /* Local layout modifiers replacing what used to be inline `style="…"`
      attributes (UI-R04 applies to the whole document, not only the
      stylesheet — an inline style is the same defect wearing a different hat). */
@@ -80,7 +90,11 @@
      field itself via aria-invalid/aria-describedby (§ DESIGN-SYSTEM 4.5). */
   .analysis-warning{color:var(--k-warning,var(--k-text-dim));font-size:var(--k-text-md);margin-top:var(--k-space-4)}
   .err{color:var(--k-danger);font-size:var(--k-text-md);margin-top:var(--k-space-4)}
-  #err:not(.hidden){display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4)}
+  /* The danger callout puts the icon beside the message; the message row itself
+     wraps the usage-limit park buttons beside the text (SET-52). */
+  #err:not(.hidden){display:flex;align-items:flex-start;gap:var(--k-space-4)}
+  #errMsg{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4);font-weight:var(--k-weight-normal)}
+  #errMsg:empty{display:none}
   .field input.k-input,#title,#ref{text-overflow:ellipsis}
 
   #designConstraintsCard{margin-top:var(--k-space-7)}
@@ -464,12 +478,18 @@
 <div class="cols">
 <!-- Content region: what the agent is asked to do. -->
 <main class="content" data-region="content">
+  <!-- SET-53: until the first state push this is the whole region — the fields
+       below are hidden (body:not(.is-ready)) so nothing invites typing into a
+       form that has not loaded. -->
+  <div class="k-empty" id="loadingContent" role="status">Loading the ticket…</div>
   <!-- Notifications: classify gate, then fetch/attach/host errors. -->
   <div class="callout hidden" id="gateCard" role="region" aria-labelledby="gateMsg">
     <div class="callout-msg" id="gateMsg"></div>
     <div id="gateList"></div>
   </div>
-  <div class="err hidden" id="err" role="alert"></div>
+  <!-- SET-52: host errors keep their one page-level bucket, now a danger callout
+       with the alert-triangle icon; the fetch failure has its own place under Key. -->
+  <div class="callout callout--danger hidden" id="err" role="alert"><span class="callout-icon" aria-hidden="true"></span><div class="callout-msg" id="errMsg"></div></div>
 
   <div class="field">
     <div>
@@ -493,7 +513,7 @@
       </span>
       <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="revertBtn" hidden
               title="Restore the form to how it was before the last Improve with AI">Revert</button>
-      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="analyzeBtn"
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="analyzeBtn" disabled
               title="Improve the prompt with AI — also suggests the approach and repositories"><span aria-hidden="true">✦</span> <span id="analyzeLbl">Improve with AI</span></button>
     </span>
   </div>
@@ -524,6 +544,9 @@
 
 <!-- Settings region: how the ticket runs. Labels always sit above their fields. -->
 <aside class="settings" data-region="settings" aria-label="Ticket settings">
+  <!-- SET-53: same honest loading state as the content region; the settings
+       fields stay hidden until the first state push. -->
+  <div class="k-empty" id="loadingSettings" role="status">Loading the ticket…</div>
   <!-- Source: the header (provider, id, copy, open, Re-fetch) is rendered by
        renderSourceHeader; the key row is the fetch entry before an id exists. -->
   <div class="setblock" id="sourceBlock">
@@ -543,6 +566,9 @@
         </div>
         <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
       </div>
+      <!-- SET-52: a fetch failure belongs right beside the Key the user typed
+           (the #createInErr pattern), not in the page bucket above the title. -->
+      <span class="err fielderr hidden" id="fetchErr" role="alert"></span>
       <div class="searchfilter hidden" id="searchFilterRow">
         <label for="searchStatus">Status</label>
         <div class="k-select"><select class="k-input" id="searchStatus" title="Filters search results">
@@ -750,6 +776,11 @@
       },
       /** True when the user changed the field and has not saved it: the host render must not refill it. */
       isDirty(field) { return dirty.has(field); },
+      /**
+       * SET-54: any text field still holds an unsaved edit. Cancel asks the host
+       * before dropping it; per-field `isDirty` keeps its existing meaning.
+       */
+      anyDirty() { return dirty.size > 0; },
       /** Catch text that code wrote without an input event (brief, improve, analysis). */
       scan() {
         if (!overlaid) return;
@@ -796,6 +827,9 @@
   const liveDraft = () => ({ title: el('title').value, description: el('desc').value });
   const el = (id) => document.getElementById(id);
   const esc = karstEsc;
+  // SET-52: the page-level error bucket is a danger callout with an inline icon.
+  // The CSP forbids an external SVG, so it comes from the shared icon set.
+  karstIconInto(el('err').querySelector('.callout-icon'), 'alert-triangle', 16);
 
   // The sticky action bar's height, written to --tf-actionbar-h so the page's scroll padding and the settings
   // column reserve exactly the room the bar takes. At tight the bar is static, so the value is 0px (SET-49).
@@ -1006,6 +1040,9 @@
   };
 
   function render(state) {
+    // SET-53: the honest loading block is replaced by the real regions on the
+    // first state push; the fields were hidden until exactly here.
+    document.body.classList.add('is-ready');
     draft.mode = state.mode;
     // Edit header: an "Editing" eyebrow, the ticket's title as the h1 and its
     // human label (key, else #id — mirrors ticketLabel(), so the chip and the
@@ -2760,7 +2797,20 @@
   // request-state — but render() refuses to clobber non-empty fields, so the
   // re-push visibly did NOTHING in both modes. The webview cannot dispose its
   // own panel, so this is the host's job (close-form → ctx.close).
-  el('cancelBtn').addEventListener('click', () => post({ type: 'close-form' }));
+  //
+  // SET-54 (Q13): a form with edits asks first. The page only REPORTS that it is
+  // dirty; the question and the decision stay on the host (@ui:UI-R33), so a
+  // crafted page cannot skip the confirmation. A settings pick is an edit too,
+  // but it is not form text, so formPersist cannot see it — a delegated
+  // `change` on the region covers every control, including re-mounted ones.
+  let settingsTouched = false;
+  document.querySelector('[data-region="settings"]').addEventListener('change', () => {
+    settingsTouched = true;
+  });
+  el('cancelBtn').addEventListener('click', () => {
+    const dirty = formPersist.anyDirty() || settingsTouched;
+    post({ type: 'close-form', ...(dirty ? { dirty: true } : {}) });
+  });
 
   el('analyzeBtn').addEventListener('click', () => {
     // Explicit run: analyze the current prompt/brief. The result overwrites the
@@ -2942,18 +2992,26 @@
     else if (e.key === 'Tab') closeApproach(false);
   });
 
-  function showErr(msg) { usageLimitPending = false; const e = el('err'); e.textContent = msg; e.classList.remove('hidden'); }
+  // SET-52: a fetch failure stays beside the Key/Fetch row it came from. Cleared
+  // when the next fetch starts, when its brief arrives, and on the next state —
+  // the error describes an attempt, not the form.
+  function showFetchErr(msg) {
+    const e = el('fetchErr');
+    e.textContent = msg;
+    e.classList.toggle('hidden', !msg);
+  }
+  function clearFetchErr() { showFetchErr(''); }
+  function showErr(msg) { usageLimitPending = false; el('errMsg').textContent = msg; el('err').classList.remove('hidden'); }
   // D159: a usage-limit op park's error carries the park id and offers the
   // SAME three actions the dashboard banner offers. Rendered with buttons
   // (never `textContent`), each posting an `usage-limit-park-*` message.
   function showUsageLimitErr(msg, parkId) {
     usageLimitPending = false;
-    const e = el('err');
-    e.innerHTML = '<span>' + esc(msg) + '</span> '
+    el('errMsg').innerHTML = '<span>' + esc(msg) + '</span> '
       + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-park-pick" data-parkid="' + esc(String(parkId)) + '">Pick agent/model\u2026</button> '
       + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-park-retry" data-parkid="' + esc(String(parkId)) + '">Retry same</button> '
       + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-park-dismiss" data-parkid="' + esc(String(parkId)) + '">Dismiss</button>';
-    e.classList.remove('hidden');
+    el('err').classList.remove('hidden');
   }
   // UI-R11/R12: the re-run takes minutes and the park is claimed by the FIRST
   // click. A second click would post again and be answered with the false
@@ -2982,7 +3040,7 @@
     if (target.dataset.act === 'usage-limit-park-retry') post({ type: 'usage-limit-park-retry', parkId });
     if (target.dataset.act === 'usage-limit-park-dismiss') post({ type: 'usage-limit-park-dismiss', parkId });
   });
-  function clearErr() { usageLimitPending = false; el('err').classList.add('hidden'); }
+  function clearErr() { usageLimitPending = false; el('errMsg').textContent = ''; el('err').classList.add('hidden'); }
   /**
    * Watchdogs for the LEGACY `busy` channel (UI-R14).
    *
@@ -3016,6 +3074,8 @@
     // The fetch button carries its own busy state; a failed fetch (on→false with
     // no brief) resets it to idle so the user can retry.
     if (what === 'fetch') { fetchInFlight = on; renderSourceHeader(lastState); }
+    // A retry starts clean: the previous fetch failure no longer describes it (SET-52).
+    if (what === 'fetch' && on) clearFetchErr();
     if (what === 'fetch' && !on && !briefText) setFetchState('idle');
     // Submit runs worktree creation + the session launch, which take a beat.
     // Lock the button for the duration so it can't be fired twice, and say what
@@ -3054,6 +3114,9 @@
     if (!msg) return;
     switch (msg.type) {
       case 'state': {
+        // The state describes the form as it is now, so a fetch error from an
+        // earlier attempt no longer applies (SET-52).
+        clearFetchErr();
         render(msg.state);
         // First push after a reload: the saved draft fields go over the fresh data.
         if (formPersist.onHostState(msg.state)) applyRestoredDraft();
@@ -3075,6 +3138,7 @@
         openComments.clear();
         srcFetched = { id: pendingFetchRef || b.sourceRef || '', url: b.url || '' };
         fetchInFlight = false;
+        clearFetchErr();
         applyBrief();
         renderSourceHeader(lastState);
         // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
@@ -3187,6 +3251,10 @@
         }
         break;
       }
+      case 'fetch-error':
+        // SET-52: rendered under the Key field, not in the page bucket.
+        showFetchErr(msg.message);
+        break;
       case 'error':
         formPersist.commitErrored();
         if (msg.usageLimitParkId) showUsageLimitErr(msg.message, msg.usageLimitParkId);
