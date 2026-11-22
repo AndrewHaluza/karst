@@ -762,6 +762,12 @@
     "arch:DRAFT-CONSTRAINTS",
     "arch:PLANNING-PRIORITY"
   ],
+  "src/planning/proposalIndex.ts#waitForProposalResult": [
+    "arch:CLI-24"
+  ],
+  "src/planning/proposalIndex.ts#writeOutboxRejection": [
+    "arch:CLI-24"
+  ],
   "src/project/bind.ts#bindProject": [
     "arch:PROJECTS"
   ],
