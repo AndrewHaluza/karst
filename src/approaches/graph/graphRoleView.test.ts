@@ -7,7 +7,7 @@ import {
   GRAPH_ROLES,
   type GraphRoleView,
 } from './graphRoleView.js';
-import { resolveGraphNodeProfile, type ResolvedGraphProfile } from './profileResolver.js';
+import { resolveGraphNodeProfile, ticketLaunchFields, type ResolvedGraphProfile } from './profileResolver.js';
 
 const config: GraphApproachConfig = {
   planner: { profile: 'expert', prompt: { artifact: 'x' } },
@@ -40,19 +40,16 @@ describe('graphRoleView', () => {
     const m = manifest({
       agentPresets: { p: { slots: { graphExpert: { provider: 'claude', model: 'claude-sonnet-5' } } } },
     } as unknown as Partial<Manifest>);
-    const view = graphRoleView(m, config, { agentPreset: 'p', provider: null, model: null, effort: null });
+    const view = graphRoleView(m, config, { agentPreset: 'p' });
     expect(view.expert).toMatchObject({ model: 'claude-sonnet-5', source: 'preset' });
     expect(view.worker?.source).toBe('approach');
   });
 
-  it('reports the ticket rung', () => {
-    const view = graphRoleView(manifest(), config, {
-      agentPreset: null,
-      provider: 'claude',
-      model: 'claude-sonnet-5',
-      effort: null,
-    });
-    expect(view.expert?.source).toBe('ticket');
+  it('reports the approach rung for a ticket with no preset, whatever core the ticket row holds (AC-63)', () => {
+    const row = { agentPreset: null, agentProvider: 'codex', model: 'gpt-5.5', effort: 'max' };
+    const view = graphRoleView(manifest(), config, ticketLaunchFields(row));
+    for (const role of GRAPH_ROLES) expect(view[role]?.source).toBe('approach');
+    expect(view.expert).toMatchObject({ provider: 'claude', model: 'claude-opus-5', effort: 'high' });
   });
 
   it('matches the launch resolver for every role', () => {
