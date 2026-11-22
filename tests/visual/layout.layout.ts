@@ -1,6 +1,6 @@
 /**
  * Layout-sanity gate (project `layout`): opens EVERY settings route at each
- * LAYOUT_WIDTHS with the `realistic` corpus, plus every other registered view x
+ * SETTINGS_LAYOUT_WIDTHS (both sides of the 700 px collapse and the 320 floor) with the `realistic` corpus, plus every other registered view x
  * variant (tests/visual/variants.ts, ui:UI-R57), runs checks a–h
  * (src/ui/layout/layoutChecks.ts) and writes one shard per route x width. These
  * tests NEVER fail on geometry — the ledger verdict lives in layout.teardown.ts —
@@ -12,7 +12,7 @@
  * never --grep: that title filter can drop the layout-teardown test.
  */
 import { test } from './fixtures.js';
-import { LAYOUT_HEIGHT, LAYOUT_WIDTHS, layoutWidthsFor, tierFor } from '../../src/ui/layout/layoutBreakpoints.js';
+import { LAYOUT_HEIGHT, SETTINGS_LAYOUT_WIDTHS, layoutWidthsFor, tierFor } from '../../src/ui/layout/layoutBreakpoints.js';
 import { runChecks, stateSurvivesResize, type ResizeState } from '../../src/ui/layout/layoutChecks.js';
 import { collectSnapshot } from './layoutSnapshot.js';
 import { readExpectations, writeShard } from './layoutShards.js';
@@ -25,7 +25,7 @@ const RESIZE_WIDE = 1280;
 for (const route of settingsRoutes()) {
   const openRoute = { section: route.section, ...(route.hash === undefined ? {} : { hash: route.hash }) };
 
-  for (const width of LAYOUT_WIDTHS) {
+  for (const width of SETTINGS_LAYOUT_WIDTHS) {
     test(`${route.id} @${width}`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width, height: LAYOUT_HEIGHT });
       await gotoView('settings', { scenario: 'realistic', route: openRoute });

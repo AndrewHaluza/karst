@@ -7,9 +7,9 @@
  * Counts come from the registry alone (no Playwright run), the same way the specs build their tests:
  * - screenshots: one per variant x declared theme project (`pages.visual.ts`; a test in another project is a skip);
  * - layout: one per layout target x width (`layout.layout.ts`, shared pages counted once, see `layoutPlan()`),
- *   plus the settings routes x LAYOUT_WIDTHS and one resize test per Agents route.
+ *   plus the settings routes x SETTINGS_LAYOUT_WIDTHS and one resize test per Agents route.
  */
-import { LAYOUT_WIDTHS, layoutWidthsFor } from '../../src/ui/layout/layoutBreakpoints.js';
+import { SETTINGS_LAYOUT_WIDTHS, layoutWidthsFor } from '../../src/ui/layout/layoutBreakpoints.js';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 import { settingsRoutes } from './settingsRoutes.js';
 import { extraLayoutTargets, VARIANTS, type ViewId } from './variants.js';
@@ -45,7 +45,11 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1239 roles-narrow-collapsed / roles-narrow-expanded / roles-tight-collapsed (the summary row, one row open, and 320 px), @ui:UI-R57: 3 variants x 1 theme (dark) (+3 screenshots); skipLayout, because the roles route layout runs already cover every width.
   // T1241 accounts-quota (the Subscription quota card with saved values), @ui:UI-R57: 3 themes (+3 screenshots); skipLayout, because accounts-several already runs the same route.
   // T1266 roles-graph / roles-graph-narrow / roles-graph-tight (the graph role rows with hint and inherited text, wide, 630 and 320 px), @ui:UI-R57: 3 variants x 1 theme (dark) (+3 screenshots); skipLayout, because the roles route layout runs already cover every width.
-  settings: { screenshots: 84, layout: 124 },
+  // T1297 SET-63 Settings routes capture light and HC too (14 routes x 2 themes, +28 screenshots).
+  // T1297 new variants, @ui:UI-R57: discard-undo, ticketing-manual, ticketing-clickup, repositories-long-path,
+  //   roles-no-presets, roles-mid, approaches-graph(-mid/-narrow) — 9 x 1 theme (dark) (+9 screenshots); all skipLayout.
+  // T1297 SET-1 the settings routes also open 399 and 320 px (16 routes x 2 widths, +32 layout runs).
+  settings: { screenshots: 115, layout: 156 },
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
   // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
@@ -61,7 +65,7 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
 
 /** The settings layout tests of `layout.layout.ts`: every route at every width, plus the Agents resize test. */
 function settingsRouteTests(): number {
-  return settingsRoutes().reduce((n, r) => n + LAYOUT_WIDTHS.length + (r.section === 'agents' ? 1 : 0), 0);
+  return settingsRoutes().reduce((n, r) => n + SETTINGS_LAYOUT_WIDTHS.length + (r.section === 'agents' ? 1 : 0), 0);
 }
 
 export function sweepCounts(): Readonly<Record<ViewId, SweepCount>> {

@@ -9,9 +9,10 @@
  * a 60+ char model id and a 40+ char preset name — the content that breaks
  * layouts.
  */
-import { buildSettingsState, type SettingsAgentRow } from '../../src/ui/settings/state.js';
+import { buildSettingsState, type SettingsAgentRow, type SettingsState } from '../../src/ui/settings/state.js';
 import { manifest, runnableRepo, slot, repo } from '../../src/manifest/fixtures.js';
-import type { AgentPreset, Manifest } from '../../src/manifest/types.js';
+import { DEFAULT_GRAPH_LIMITS } from '../../src/manifest/graphConfig.js';
+import type { AgentPreset, ApproachDef, Manifest } from '../../src/manifest/types.js';
 
 export const LONG_MODEL_ID =
   'opencode-go/very-long-vendor-model-identifier-with-many-segments-2026-05-01-preview';
@@ -95,24 +96,93 @@ const AGENT_ROWS: SettingsAgentRow[] = [
   { name: APPROACH_PROFILE, source: 'approach', approachId: 'tdd', enabled: true, body: '# TDD implementer\nWrite the failing test first.' },
 ];
 
-export const REALISTIC_SETTINGS = {
-  ...buildSettingsState(
-    MANIFEST,
-    null,
-    ['tdd'],
-    true,
-    ['claude', 'codex', 'antigravity', 'opencode'],
-    AGENT_ROWS,
-    { tdd: ['karst-tdd'] },
-    undefined,
-    '/work/project/karst.yml',
-    { value: 'realistic-project', derived: false },
-    '1.2.3',
-    [{ id: 'tdd', label: 'TDD', recommended: true }],
-    { claude: ['claude-sonnet-5-5'] },
-  ),
-  currentSection: 'general',
+/** The host state these fixtures share: a SettingsState pinned to the General tab. */
+export type RealisticSettings = SettingsState & { readonly currentSection: 'general' };
+
+/** The host state shape for one manifest, with the realistic presets and agent rows. */
+function realisticState(m: Manifest): RealisticSettings {
+  return {
+    ...buildSettingsState(
+      m,
+      null,
+      ['tdd'],
+      true,
+      ['claude', 'codex', 'antigravity', 'opencode'],
+      AGENT_ROWS,
+      { tdd: ['karst-tdd'] },
+      undefined,
+      '/work/project/karst.yml',
+      { value: 'realistic-project', derived: false },
+      '1.2.3',
+      [{ id: 'tdd', label: 'TDD', recommended: true }],
+      { claude: ['claude-sonnet-5-5'] },
+    ),
+    currentSection: 'general' as const,
+  };
+}
+
+export const REALISTIC_SETTINGS = realisticState(MANIFEST);
+
+/**
+ * T1297: the same realistic page over one patched manifest (a ticketing
+ * provider state, a long repository path, General's own display flags). The
+ * host builds the state from the manifest, so a variant cannot drift from the
+ * shape the panel pushes.
+ */
+export function settingsWithManifest(over: Partial<Manifest>): RealisticSettings {
+  return realisticState({ ...MANIFEST, ...over });
+}
+
+/** A 120-character repository path: the middle-ellipsis case (@ui:UI-R44, SET-25). */
+export const LONG_REPO_PATH = `${'../deep/directory/'.repeat(6)}web-frontend`;
+
+/** T1297 SET-25: the Repositories page with a path too long for its cell. */
+export const LONG_PATH_SETTINGS = settingsWithManifest({
+  repositories: {
+    ...MANIFEST.repositories,
+    backend: { ...MANIFEST.repositories['backend']!, repoPath: LONG_REPO_PATH },
+  },
+});
+
+/** T1297 Q11: General's display flags on, so a discarded edit still reads as checked. */
+export const DISCARD_SETTINGS = settingsWithManifest({
+  debug: true,
+  closeDoneTerminalsWithTicket: true,
+  diffsInSourceControl: true,
+});
+
+/** T1297 SET-28: a manual board, which has no connection fields. */
+export const MANUAL_SETTINGS = settingsWithManifest({ ticketing: { provider: 'manual' } });
+
+/**
+ * T1297 SET-29: a saved ClickUp board whose list is present in the fetched
+ * lists. Search starts off so the variant's one click makes the topbar dirty
+ * without hiding a field the shot must show.
+ */
+export const CLICKUP_SETTINGS = settingsWithManifest({
+  ticketing: { provider: 'clickup', teamId: '9001', listId: '901', searchEnabled: false },
+});
+
+/** T1297 SET-26: the graph approach card, with the planner and the three execution profiles. */
+const GRAPH_APPROACH: ApproachDef = {
+  id: 'karst-graph-engineering',
+  label: 'Dynamic Graph',
+  description: 'Plans the ticket as a graph of bounded nodes, then runs them in dependency order.',
+  recommended: false,
+  enabled: true,
+  graph: {
+    planner: { profile: 'expert', prompt: { artifact: 'prompts/karst-planner.md' } },
+    profiles: {
+      expert: { provider: 'claude', model: 'claude-opus-5-5', effort: 'high' },
+      worker: { provider: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' },
+      fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+    },
+    commands: {},
+    limits: { ...DEFAULT_GRAPH_LIMITS },
+  },
 };
+
+export const GRAPH_SETTINGS = settingsWithManifest({ approaches: [GRAPH_APPROACH] });
 
 /** UX-10: the same host shape with 0 presets and 0 local/approach profiles. */
 export const EMPTY_SETTINGS = {

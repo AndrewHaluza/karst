@@ -38,8 +38,13 @@ import { settingsRoutes } from './settingsRoutes.js';
 import { PANEL_TIERS, PANEL_VARIANTS } from './panelVariants.js';
 import { BASELINE_VARIANTS, baselineState } from './baselineVariants.js';
 import {
+  CLICKUP_SETTINGS,
+  DISCARD_SETTINGS,
   EMPTY_SETTINGS,
+  GRAPH_SETTINGS,
   LONG_BODY_PROFILE,
+  LONG_PATH_SETTINGS,
+  MANUAL_SETTINGS,
   REALISTIC_SETTINGS,
 } from './realisticSettings.js';
 import {
@@ -646,7 +651,8 @@ function settingsRouteVariants(): Variant[] {
     return {
       ...variant('settings', id, () => stateMessage(REALISTIC_SETTINGS), {
         baseline: legacy ?? `settings--${id}`,
-        themes: legacy === undefined ? DARK_ONLY : ALL_THEMES,
+        // T1297 SET-63: light and HC capture every Settings route, not only the legacy four.
+        themes: ALL_THEMES,
       }),
       route,
       layoutRouteId: r.id,
@@ -763,6 +769,25 @@ const rolesGraphVariants = (): Variant[] =>
     route: { section: 'agents', hash: formatAgentsHash(route) },
   }));
 
+/** T1297 SET-26: the graph approach card at the wide, mid and narrow tiers (@ui:UI-R57). */
+const APPROACHES_GRAPH = [
+  ['approaches-graph', 1100],
+  ['approaches-graph-mid', 800],
+  ['approaches-graph-narrow', 630],
+] as const;
+
+const approachesGraphVariants = (): Variant[] =>
+  APPROACHES_GRAPH.map(([id, width]) => ({
+    ...variant('settings', id, () => stateMessage(GRAPH_SETTINGS), {
+      baseline: `settings--${id}`,
+      themes: DARK_ONLY,
+      // The approaches route layout run already covers the page at every width.
+      skipLayout: true,
+      width,
+    }),
+    route: { section: 'approaches' },
+  }));
+
 const AUTOPILOT_FAULT = 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1';
 const AUTOPILOT_TIERS = [['mid', 800], ['narrow', 480]] as const;
 const MANY_CHECKS = ['lint', 'typecheck', 'test:unit', 'test:integration', 'test:e2e', 'build', 'docs-gate', 'docs-graph', 'mutation-score', 'visual-regression', 'layout-sanity', 'a-very-long-check-name-for-wrapping'];
@@ -868,6 +893,60 @@ const settingsVariants = (): Variant[] => [
   ...navNarrowVariants(),
   ...rolesNarrowVariants(),
   ...rolesGraphVariants(),
+  ...approachesGraphVariants(),
+  // T1297 Q11: the General tab discarded at once, with the 5 s "Changes discarded · Undo" offer. One
+  // click toggles a saved checkbox (the Discard button is disabled while clean), the second discards it.
+  {
+    ...variant('settings', 'discard-undo', () => stateMessage(DISCARD_SETTINGS), {
+      themes: DARK_ONLY,
+      skipLayout: true,
+      clicks: ['#section-general input[name="diffsInSourceControl"]', '#discardBtn'],
+    }),
+    route: { section: 'general' },
+  },
+  // T1297 SET-28: a manual board renders no ClickUp connection fields.
+  {
+    ...variant('settings', 'ticketing-manual', () => stateMessage(MANUAL_SETTINGS), {
+      themes: DARK_ONLY,
+      skipLayout: true,
+    }),
+    route: { section: 'ticketing' },
+  },
+  // T1297 SET-29: a saved ClickUp board with its list in the host's reply; one toggle makes the topbar dirty.
+  {
+    ...variant('settings', 'ticketing-clickup', () => stateMessage(CLICKUP_SETTINGS), {
+      themes: DARK_ONLY,
+      skipLayout: true,
+      click: 'input[name="searchEnabled"]',
+      replies: [{ type: 'ticket-lists', lists: [{ id: '901', name: 'Sprint 41', space: 'Engineering' }] }],
+    }),
+    route: { section: 'ticketing' },
+  },
+  // T1297 SET-25: a 120-character repository path in its middle-ellipsis form (@ui:UI-R44).
+  {
+    ...variant('settings', 'repositories-long-path', () => stateMessage(LONG_PATH_SETTINGS), {
+      themes: DARK_ONLY,
+      skipLayout: true,
+    }),
+    route: { section: 'services' },
+  },
+  // T1297 SET-39: no presets, so the Roles tab reads "None".
+  {
+    ...variant('settings', 'roles-no-presets', () => stateMessage(EMPTY_SETTINGS), {
+      themes: DARK_ONLY,
+      skipLayout: true,
+    }),
+    route: { section: 'agents', hash: formatAgentsHash({ tab: 'roles' }) },
+  },
+  // T1297 SET-36: the Roles rows at the 700-999 px mid tier (1000 px viewport minus the sidebar).
+  {
+    ...variant('settings', 'roles-mid', () => stateMessage(REALISTIC_SETTINGS), {
+      themes: DARK_ONLY,
+      skipLayout: true,
+      width: 1000,
+    }),
+    route: { section: 'agents', hash: formatAgentsHash({ tab: 'roles' }) },
+  },
   qualityStallVariant('quality-stall-invalid', { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 }),
   // T1091: the provider select near the bottom edge of a short window.
   {

@@ -62,6 +62,18 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     expect(stale).toEqual([]);
   });
 
+  it('has no Settings baseline PNG in a theme project that does not record Settings (SET-64)', () => {
+    // The name-only stale check above cannot see a project-vs-theme mismatch: `settings.png`
+    // is a known baseline in dark/light/hc, so a leftover copy in dark-grayscale or
+    // dark-reduced-motion (projects that run only status.visual.ts) would slip through.
+    const orphans = VARIANTS.settings.flatMap((variant) =>
+      VIEW_THEME_DIRS.filter((theme) => !variant.themes.includes(theme))
+        .filter((theme) => existsSync(join(BASELINES, theme, `${variant.baseline}.png`)))
+        .map((theme) => `${theme}/${variant.baseline}.png`),
+    );
+    expect(orphans).toEqual([]);
+  });
+
   it('runs layout geometry for every variant that does not opt out, once per distinct page', () => {
     const settingsIds = new Set(settingsRoutes().map((r) => r.id));
     const { targets, sharedWith } = layoutPlan();

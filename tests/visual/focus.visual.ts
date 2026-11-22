@@ -153,19 +153,26 @@ karstTest.describe('UI-R23 keyboard focus presentation', () => {
     karstTest(`${viewId}: focused elements have visible focus indicators`, async ({ gotoView, page }) => {
       const pg = await gotoView(viewId);
 
-      // Enumerate focusable elements in DOM order.
+      // Enumerate focusable elements in DOM order. `nth` is the element's position among
+      // the elements that share its selector string: repeated controls (the Settings nav)
+      // share one selector, and resolving the first match would read a different element's
+      // style than the one Tab focused (T1297).
       const focusable = await pg.evaluate(() => {
         const selector = [
           'a[href]', 'button:not([disabled])', 'input:not([disabled]):not([type="hidden"])',
           'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
         ].join(', ');
+        const seen = new Map<string, number>();
         return [...document.querySelectorAll(selector)].map((el) => {
           const tag = el.tagName.toLowerCase();
           const id = el.id ? `#${el.id}` : '';
           const cls = el.className && typeof el.className === 'string'
             ? '.' + el.className.split(/\s+/).filter(Boolean).join('.')
             : '';
-          return `${tag}${id}${cls}`;
+          const name = `${tag}${id}${cls}`;
+          const nth = seen.get(name) ?? 0;
+          seen.set(name, nth + 1);
+          return { selector: name, nth };
         });
       });
 
@@ -181,11 +188,12 @@ karstTest.describe('UI-R23 keyboard focus presentation', () => {
       // Test the first FOCUS_CAP focusable elements.
       const toTest = focusable.slice(0, FOCUS_CAP);
       for (let i = 0; i < toTest.length; i++) {
-        const selector = toTest[i]!;
+        const target = toTest[i]!;
+        const selector = target.selector;
 
         // Get the element's computed focus styles when NOT focused.
-        const unfocusedStyles = await pg.evaluate((sel) => {
-          const el = document.querySelector(sel);
+        const unfocusedStyles = await pg.evaluate(({ selector: sel, nth }) => {
+          const el = document.querySelectorAll(sel)[nth];
           if (!el) return null;
           const cs = getComputedStyle(el);
           return {
@@ -193,7 +201,7 @@ karstTest.describe('UI-R23 keyboard focus presentation', () => {
             outlineWidth: cs.outlineWidth,
             boxShadow: cs.boxShadow,
           };
-        }, selector);
+        }, target);
 
         if (!unfocusedStyles) continue;
 
@@ -208,8 +216,8 @@ karstTest.describe('UI-R23 keyboard focus presentation', () => {
         await pg.waitForTimeout(50);
 
         // Get the focused element's computed styles.
-        const focusedStyles = await pg.evaluate((sel) => {
-          const el = document.querySelector(sel);
+        const focusedStyles = await pg.evaluate(({ selector: sel, nth }) => {
+          const el = document.querySelectorAll(sel)[nth];
           if (!el) return null;
           const cs = getComputedStyle(el);
           return {
@@ -217,7 +225,7 @@ karstTest.describe('UI-R23 keyboard focus presentation', () => {
             outlineWidth: cs.outlineWidth,
             boxShadow: cs.boxShadow,
           };
-        }, selector);
+        }, target);
 
         if (!focusedStyles) continue;
 
