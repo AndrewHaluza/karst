@@ -41,6 +41,7 @@ export const PRIMITIVES = [
   '.k-drawer',
   '.k-toast',
   '.k-empty',
+  '.k-pagehead',
 ] as const;
 
 /**

@@ -161,3 +161,42 @@ describe('agent identity injection (B1)', () => {
     }
   });
 });
+
+
+describe('page header primitive conformance (@ui:11.22)', () => {
+  /**
+   * Panels that have adopted the shared page header. Empty in this ticket:
+   * each per-page draft appends its name here as it lands, so the contract is
+   * enforced from the moment a panel opts in. An empty `it.each` table fails
+   * in Vitest, so the list is iterated inside one test instead.
+   */
+  const PAGEHEAD_PANELS: readonly string[] = [];
+
+  it('gives every adopting panel one page header and one page title', () => {
+    expect(Array.isArray(PAGEHEAD_PANELS)).toBe(true);
+    for (const name of PAGEHEAD_PANELS) {
+      const html = read(name);
+      expect(html, `${name} is missing <header class="k-pagehead">`).toContain('class="k-pagehead"');
+      expect(
+        html.match(/<h1 class="k-pagehead-title">/g)?.length ?? 0,
+        `${name} must carry exactly one .k-pagehead-title`,
+      ).toBe(1);
+    }
+  });
+
+  /**
+   * The catalog carries its own hard-coded palette, so a token it copies from
+   * the design system but never defines falls back to the browser default:
+   * `.k-pagehead-title` rendered at weight 400 instead of 600, and the
+   * baseline bakes that in. The catalog is the visual proof for a primitive
+   * no panel uses yet (@ui:UI-R07), so its palette must cover every property
+   * its rules reference.
+   */
+  it('defines every custom property the catalog references (@ui:UI-R07)', () => {
+    const catalog = readFileSync(join(HERE, '..', '..', 'docs', 'ui', 'KARST-UI-CATALOG.html'), 'utf8');
+    const defined = new Set([...catalog.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]!));
+    const used = [...catalog.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!);
+    const missing = [...new Set(used)].filter((name) => !defined.has(name)).sort();
+    expect(missing, `catalog rules reference undefined custom properties: ${missing.join(', ')}`).toEqual([]);
+  });
+});

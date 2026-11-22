@@ -1124,6 +1124,42 @@ END_DOC_BLOCK: [@ui:11.21]
 
 ---
 
+## [@ui:11.22] Page header — `.k-pagehead`
+
+One shared page header primitive for the simple panels (Getting Started, Diffs,
+Usage, Resources, Doctor): a title, an optional one-line subtitle, an optional
+brand mark on Getting Started, and page-level actions on the right. Delivered
+through `/*KARST_DS_CSS*/` (`src/model/designComponents.webview.css`).
+
+Markup contract:
+
+```html
+<header class="k-pagehead">
+  <div class="k-pagehead-main">
+    <svg class="k-pagehead-mark" aria-hidden="true">…</svg>   <!-- optional; Getting Started only (Q6-A) -->
+    <div>
+      <h1 class="k-pagehead-title">Ticket changes</h1>
+      <p class="k-pagehead-sub">…</p>                         <!-- optional -->
+    </div>
+  </div>
+  <div class="k-pagehead-actions">…</div>                      <!-- optional; .k-btn, .k-chip only -->
+</header>
+```
+
+- **Structure**: one `<header class="k-pagehead">` and one `<h1 class="k-pagehead-title">` per page, at the top of the body. The editor tab title uses the same words as `.k-pagehead-title`.
+- **Mark (`.k-pagehead-mark`)**: optional (`flex: none`), decorative (`aria-hidden="true"`, no `title`), used on Getting Started only.
+- **Subtitle (`.k-pagehead-sub`)**: optional single line of context (scope, ticket, run time) in `--k-text-dim` (`--k-text-sm`, 4.5:1 AA contrast, `@ui:UI-R29`, `@ui:12.3`), never a paragraph. May carry `aria-live="polite"` when it shows a changing summary (such as Diffs `#summary`); not a live region by default.
+- **Actions (`.k-pagehead-actions`)**: optional container for page-level actions only (Refresh, view toggle, Run again) built from shared primitives (`.k-btn`, `.k-chip`). Tabs sit below `<header class="k-pagehead">`, never inside it.
+- **Breakpoint tiers (`@ui:RD-TIERS`, `@ui:UI-R43`)**:
+  - Wide (≥1000 px) and mid (700–999 px): one row; `.k-pagehead-main` on the left, `.k-pagehead-actions` on the right (`margin-left: auto`), wrapping via `flex-wrap` if a long title forces it.
+  - Narrow (400–699 px) and tight (320–399 px): `@media (max-width: 699px)` gives `.k-pagehead-actions` `flex-basis: 100%; margin-left: 0; justify-content: flex-start` so actions always take their own start-aligned row below the title.
+  - Title and subtitle set `overflow-wrap: anywhere` so long unbroken tokens wrap without horizontal scroll.
+- **High-contrast boundary**: `border-bottom` uses `--k-border-strong` (`--vscode-contrastBorder` with fallback to `--vscode-panel-border`), never `--k-border`, so the header boundary is visible in high-contrast themes.
+- **Accessibility**: no focusable element in the header except controls inside `.k-pagehead-actions`, which follow the title in DOM order before the page body and use the shared focus ring (`@ui:UI-R23`). The primitive has no transitions or animations.
+END_DOC_BLOCK: [@ui:11.22]
+
+---
+
 ## [@ui:LAYOUT-PRIMITIVES] Layout primitives
 
 Layout vocabulary for UI-RULES group L. Names only existing classes and tokens;
