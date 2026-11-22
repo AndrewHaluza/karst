@@ -21,7 +21,7 @@ import {
   type CommitExists,
 } from './planningConstraintChecks.js';
 import { formatId } from '../../model/entityId.js';
-import { refreshProposalIndex } from './planningIndex.js';
+import { recordOutboxRejection, refreshProposalIndex } from './planningIndex.js';
 import type { Notify } from './notify.js';
 
 /**
@@ -65,6 +65,12 @@ export interface PlanningOutboxDeps {
 
 export interface PlanningOutbox {
   scan(): void;
+  /**
+   * The proposal ids whose async host checks still run. Every index refresh
+   * (also an accept or a discard of a sibling draft) must pass this set, or
+   * it strips `checking: true` and `draft propose` returns too early.
+   */
+  checkingIds(): ReadonlySet<number>;
 }
 
 type Read = { ok: true; value: Proposal } | { ok: false; reason: string };
@@ -74,6 +80,13 @@ const errCode = (e: unknown): string | undefined => (e as NodeJS.ErrnoException 
 export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   const fs = deps.fs ?? nodeFs;
   const debug = (line: string): void => deps.debug?.(`[planning] ${line}`);
+  /**
+   * In-flight async checks: proposal id → the outbox uuid they check. Only the
+   * check of the CURRENT uuid may clear the latch, so a late answer for a
+   * revised draft does not clear the latch of the newer check.
+   */
+  const checking = new Map<number, string>();
+  const checkingIds = (): ReadonlySet<number> => new Set(checking.keys());
 
   /**
    * Base shas need git, so they land on the stored row once the async resolve
@@ -182,11 +195,24 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     return v;
   }
 
-  /** Unlink and warn about a claimed file the host refused, naming the reason. */
-  function reject(sessionId: number, claimed: string, proposal: string, reason: string): void {
+  /** Unlink and warn about a claimed file the host refused, naming the reason; tell the CLI why. */
+  function reject(sessionId: number, scratch: string, claimed: string, proposal: string, reason: string): void {
     remove(claimed);
+    safeRecordRejection(sessionId, scratch, proposal.replace(/\.json$/, ''), reason);
     debug(`session ${sessionId}: ${proposal} rejected (${reason})`);
     deps.notify.warn(`A draft of planning session ${formatId('plan', sessionId)} was rejected (${reason}).`);
+  }
+
+  /**
+   * Write the rejection file `draft propose` polls, swallowing a failure: the
+   * rejection itself stands, and the CLI then falls back to its timeout.
+   */
+  function safeRecordRejection(sessionId: number, scratch: string, uuid: string, reason: string): void {
+    try {
+      recordOutboxRejection(scratch, uuid, reason, deps.now(), { fs });
+    } catch (e) {
+      debug(`session ${sessionId}: rejection record for ${uuid} failed (${e instanceof Error ? e.message : String(e)})`);
+    }
   }
 
   /**
@@ -197,7 +223,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
    */
   function safeRefresh(sessionId: number, scratch: string): void {
     try {
-      refreshProposalIndex(deps.store, sessionId, scratch, { fs });
+      refreshProposalIndex(deps.store, sessionId, scratch, { fs, checkingIds: checkingIds() });
     } catch (e) {
       debug(`session ${sessionId}: proposal index refresh failed (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -212,8 +238,18 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     ];
   }
 
-  /** Unknown-commit warnings need git; they land on the stored row once the probe answers. */
-  function verifyCommits(id: number, uuid: string, p: Proposal): void {
+  /** True when the async commit probe will run for this draft (a probe and repo paths exist). */
+  function willVerifyCommits(p: Proposal): boolean {
+    return deps.commitExists !== undefined && (deps.repoPaths?.(p.repos) ?? []).length > 0;
+  }
+
+  /**
+   * Unknown-commit warnings need git; they land on the stored row once the
+   * probe answers. The `finally` ALWAYS clears this uuid's latch and refreshes
+   * the index (also with no extra warning, and on an error), so `checking:
+   * true` never sticks.
+   */
+  function verifyCommits(sessionId: number, scratch: string, id: number, uuid: string, p: Proposal): void {
     const paths = deps.repoPaths?.(p.repos) ?? [];
     if (!deps.commitExists || paths.length === 0) return;
     void commitWarnings(p.constraints ?? [], paths, deps.commitExists, debug)
@@ -226,13 +262,18 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         const row = getProposal(deps.store, id);
         if (row) deps.onWarnings?.(row);
       })
-      .catch((e: unknown) => debug(`commit check for proposal ${id} failed (${e instanceof Error ? e.message : String(e)})`));
+      .catch((e: unknown) => debug(`commit check for proposal ${id} failed (${e instanceof Error ? e.message : String(e)})`))
+      .finally(() => {
+        if (checking.get(id) !== uuid) return;
+        checking.delete(id);
+        safeRefresh(sessionId, scratch);
+      });
   }
 
   function ingest(sessionId: number, scratch: string, claimed: string, proposal: string): void {
     const read = readBounded(claimed);
     if (!read.ok) {
-      reject(sessionId, claimed, proposal, read.reason);
+      reject(sessionId, scratch, claimed, proposal, read.reason);
       return;
     }
     const { id: requestedId, ...payload } = read.value;
@@ -249,7 +290,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       read.value.dependsOn ?? [],
     );
     if (depReason) {
-      reject(sessionId, claimed, proposal, depReason);
+      reject(sessionId, scratch, claimed, proposal, depReason);
       return;
     }
 
@@ -267,16 +308,20 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
               ? `draft ${formatId('draft', requestedId)} is ${existing.status}`
               : undefined;
       if (reason) {
-        reject(sessionId, claimed, proposal, reason);
+        reject(sessionId, scratch, claimed, proposal, reason);
         return;
       }
       updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value));
+      // A revise owns the latch: drop the old uuid's latch first, then set it
+      // again only when this revision runs its own async check.
+      checking.delete(requestedId);
+      if (willVerifyCommits(read.value)) checking.set(requestedId, uuid);
       safeRefresh(sessionId, scratch);
       remove(claimed);
       const row = getProposal(deps.store, requestedId);
       if (row) deps.onProposal(row, 'updated');
       resolveBaseShasLate(requestedId, uuid, read.value);
-      verifyCommits(requestedId, uuid, read.value);
+      verifyCommits(sessionId, scratch, requestedId, uuid, read.value);
       debug(`session ${sessionId}: ${proposal} → proposal ${requestedId} updated`);
       return;
     }
@@ -286,6 +331,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     if (countPending(deps.store, sessionId) >= PLANNING_OUTBOX_RATE_CAP) {
       reject(
         sessionId,
+        scratch,
         claimed,
         proposal,
         `session already has ${PLANNING_OUTBOX_RATE_CAP} pending proposals`,
@@ -293,12 +339,15 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       return;
     }
     const id = insertProposal(deps.store, sessionId, payload, uuid, quickWarnings(read.value));
+    // Set the latch BEFORE the first index write, so `draft propose` never
+    // sees this entry without `checking` while the probe still runs.
+    if (willVerifyCommits(read.value)) checking.set(id, uuid);
     safeRefresh(sessionId, scratch);
     remove(claimed);
     const row = getProposal(deps.store, id);
     if (row) deps.onProposal(row);
     resolveBaseShasLate(id, uuid, read.value);
-    verifyCommits(id, uuid, read.value);
+    verifyCommits(sessionId, scratch, id, uuid, read.value);
     debug(`session ${sessionId}: ${proposal} → proposal ${id}`);
   }
 
@@ -341,5 +390,6 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         }
       }
     },
+    checkingIds,
   };
 }

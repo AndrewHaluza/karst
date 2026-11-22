@@ -777,8 +777,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (m) => logger.debug(m), planningHistory: (m) => gatherPlanningHistory(m, { runGit: execGit, debug: (msg) => logger.debug(msg) }),
     onChange: () => provider.refresh(), offerRestart: offerPlannerRestart,
   });
+  // The outbox is created later in activate; until then no async check runs.
+  let planningCheckingIds: () => ReadonlySet<number> = () => new Set();
   const refreshPlanningIndex = (sessionId: number): void =>
-    refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId)));
+    refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId)), { checkingIds: planningCheckingIds() });
   const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
     choose: async (text) => ({ Review: 'review', Discard: 'discard' } as Record<string, ProposalChoice>)[
       (await ask.info(text, 'Review', 'Discard')) ?? ''],
@@ -7506,6 +7508,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     windowId: randomUUID(), now: () => Date.now(), notify, debug: (m) => logger.debug(m),
     onProposal: (p, change) => { provider.refresh(); void proposalOps.announce(p, change); },
     repoPaths: (names) => repoPathsOf(currentManifest(), names), resolveBaseShas: (names) => resolveBaseShasOf(currentManifest(), names), commitExists: (r, h) => commitExistsViaGit(r, h, execGit), onWarnings: () => provider.refresh() });
+  planningCheckingIds = () => outbox.checkingIds();
   let planScanTimer: NodeJS.Timeout | undefined;
   const planScan = (): void => { clearTimeout(planScanTimer); planScanTimer = setTimeout(() => { try { outbox.scan(); } catch (e) { logError('planning: outbox scan failed', e); } }, 200); };
   let planWatcher: { close(): void } | undefined;

@@ -17,7 +17,7 @@ import {
 } from '../../store/planningProposals.js';
 import { createTicket, getTicket } from '../../store/tickets.js';
 import { MAX_PROPOSAL_BYTES } from '../../planning/proposal.js';
-import { readProposalIndex } from '../../planning/proposalIndex.js';
+import { readOutboxRejection, readProposalIndex } from '../../planning/proposalIndex.js';
 import {
   createPlanningOutbox,
   PLANNING_OUTBOX_RATE_CAP,
@@ -93,6 +93,29 @@ describe('planning outbox', () => {
     expect(lines.some((l) => l.includes('→ proposal'))).toBe(true);
     expect(lines.some((l) => l.includes(`session ${sessionId}`))).toBe(true);
     expect(warns).toEqual([]);
+  });
+
+  it('writes the rejection reason for the CLI under outbox-rejections/<uuid>.json', () => {
+    put(`${UUID(1)}.json`, { ...good, repos: ['nope'] });
+    make().scan();
+    expect(readOutboxRejection(scratch, UUID(1))).toMatchObject({ uuid: UUID(1), reason: 'unknown repositories nope' });
+    expect(warns).toHaveLength(1);
+  });
+
+  it('records a revise rejection with the same reason as the warning', () => {
+    put(`${UUID(2)}.json`, { ...good, id: 999 });
+    make().scan();
+    expect(readOutboxRejection(scratch, UUID(2))!.reason).toBe('no draft D999');
+  });
+
+  it('still rejects and warns when the rejection cannot be recorded', () => {
+    writeFileSync(join(scratch, 'outbox-rejections'), 'not a dir');
+    const debug = vi.fn();
+    put(`${UUID(1)}.json`, { ...good, repos: ['nope'] });
+    make({ debug }).scan();
+    expect(readdirSync(outbox)).toEqual([]);
+    expect(warns).toHaveLength(1);
+    expect(debug.mock.calls.some(([l]) => String(l).includes('rejection record'))).toBe(true);
   });
 
   it('writes the session proposal index on ingest, carrying the file uuid', () => {
@@ -748,6 +771,75 @@ describe('planning outbox', () => {
       release();
       await flush();
       expect(getProposal(store, id)!.warnings).toEqual([]);
+    });
+
+    it('marks the index entry checking until the commit probe answers, then clears it', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      const ob = withRepo({ commitExists: async () => { await gate; return false; } });
+      ob.scan();
+      const id = pending()[0]!.id;
+      expect(readProposalIndex(scratch)[0]).toMatchObject({ id, checking: true });
+      expect(ob.checkingIds().has(id)).toBe(true);
+      release();
+      await flush();
+      const entry = readProposalIndex(scratch)[0]!;
+      expect('checking' in entry).toBe(false);
+      expect(entry.warnings).toEqual(['unknown commit abc1234']);
+      expect(ob.checkingIds().size).toBe(0);
+    });
+
+    it('clears checking when the probe adds no warning', async () => {
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      withRepo({ commitExists: async () => true }).scan();
+      expect(readProposalIndex(scratch)[0]!.checking).toBe(true);
+      await flush();
+      const entry = readProposalIndex(scratch)[0]!;
+      expect('checking' in entry).toBe(false);
+      expect('warnings' in entry).toBe(false);
+    });
+
+    it('clears checking when the probe fails', async () => {
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      withRepo({ commitExists: async () => { throw new Error('no git'); } }).scan();
+      await flush();
+      expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+    });
+
+    it('does not mark checking when no async check runs', () => {
+      put(`${UUID(1)}.json`, good);
+      make().scan();
+      expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+    });
+
+    it('a revise without async checks drops a stale checking flag', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      let paths = [repo];
+      const ob = make({ repoPaths: () => paths, commitExists: async () => { await gate; return false; } });
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      ob.scan();
+      const id = pending()[0]!.id;
+      expect(readProposalIndex(scratch)[0]!.checking).toBe(true);
+      paths = [];
+      put(`${UUID(2)}.json`, { ...good, id });
+      ob.scan();
+      expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+      expect(ob.checkingIds().size).toBe(0);
+      release();
+      await flush();
+      expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+    });
+
+    it('a revise with async checks marks the new uuid checking', () => {
+      const ob = withRepo({ commitExists: () => new Promise<boolean>(() => {}) });
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, constraints: ['abc1234'] });
+      ob.scan();
+      expect(readProposalIndex(scratch)[0]).toMatchObject({ id, uuid: UUID(2), checking: true });
     });
 
     it('revise recomputes warnings', () => {
