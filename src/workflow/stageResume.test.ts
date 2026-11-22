@@ -5,6 +5,7 @@ import { setStage } from '../store/stages.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { createSubtask } from './stages/subtask.js';
 import { resumeBlockedStage } from './stageResume.js';
+import { fireGraphImplMarkerFromHost } from './graphMarkerGuard.js';
 
 /**
  * The host-side decision behind the dashboard's Resume button (§ blocked
@@ -186,6 +187,39 @@ describe('resumeBlockedStage', () => {
     const result = resumeBlockedStage(store, id, id, 'impl');
     expect(result).toEqual({ kind: 'graph-mark-impl', ticketId: id, graphRunId: runId });
     expect(stageBlock(store, id, 'impl')?.kind).toBe('awaiting-impl-marker');
+  });
+
+  it('Resume on an awaiting-impl-marker block fires the marker and moves the ticket from impl to uat', () => {
+    const id = blockedTicket('RB-13', 'impl', 'awaiting-impl-marker');
+    const at = '2026-08-12T00:00:00.000Z';
+    const runId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', 0, 'karst-graph-engineering', 'completed-awaiting-impl-marker', ?)`,
+        )
+        .run(id, at).lastInsertRowid,
+    );
+    const revisionId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, '{}', 'fp', 'active', ?)`,
+        )
+        .run(runId, at).lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_tokens
+           (revision_id, source_node_run_id, is_entry, edge_id, destination_node_id,
+            destination_end, fork_instance, fork_lineage, status, created_at)
+         VALUES (?, NULL, 1, 'e1', 'END', 1, 0, 'root', 'consumed', ?)`,
+      )
+      .run(revisionId, at);
+    expect(resumeBlockedStage(store, id, id, 'impl')).toEqual({ kind: 'graph-mark-impl', ticketId: id, graphRunId: runId });
+    expect(fireGraphImplMarkerFromHost(store, id)).toMatchObject({ ok: true });
+    const stage = store.db.prepare('SELECT stage_current FROM tickets WHERE id = ?').get(id) as { stage_current: string };
+    expect(stage.stage_current).toBe('uat');
   });
 
   it('clears an awaiting-impl-marker block whose run is no longer awaiting marker', () => {

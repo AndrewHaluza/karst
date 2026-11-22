@@ -290,21 +290,20 @@ const TRANSIENT_LOCK = /SQLITE_BUSY|database is (locked|busy)/i;
 
 /**
  * The impl marker's third caller: the graph coordinator (`@arch:IMPLUAT`).
- * When a run is marker-ready it fires the SAME guarded marker as the button,
- * through `fireGraphImplMarkerFromHost`, so the waiting-agent refusal holds.
- * The CLI's sub-task gate applies too (`openGatingSubtasks`), and a caller
- * that ran an async pre-check (the docs block cap) passes its refusal as
- * `preRefusal`. A paused ticket is not fired (`@arch:PAUSE`). A refusal leaves
- * the `awaiting-impl-marker` block, with the reason in its text, so the button
- * stays as the manual fallback. `firstTime` is false when the block already
- * carries the same text, so a sweep reports one refusal per run, not per tick.
+ * When a run is marker-ready it fires the SAME guarded marker as the stage-rail
+ * Resume, through `fireGraphImplMarkerFromHost`, so the waiting-agent refusal
+ * holds. The CLI's sub-task gate applies too (`openGatingSubtasks`). A paused
+ * ticket is not fired (`@arch:PAUSE`). A refusal leaves the
+ * `awaiting-impl-marker` block, with the reason in its text; the next sweep
+ * fires the marker when the refusal clears. `firstTime` is false when the
+ * block already carries the same text, so a sweep reports one refusal per run,
+ * not per tick.
  */
 export function tryAutoFireGraphImplMarker(
   store: Store,
   ticketId: number,
   graphRunId: number,
   now: () => string,
-  preRefusal?: string,
 ): AutoFireOutcome {
   if (getTicket(store, ticketId).pausedAt !== null) {
     const firstTime = parkAwaitingMarker(
@@ -317,8 +316,8 @@ export function tryAutoFireGraphImplMarker(
     return { kind: 'paused', firstTime };
   }
   const open = openGatingSubtasks(store, ticketId, 'leave-impl');
-  let reason: string | undefined = preRefusal;
-  if (reason === undefined && open.length > 0) {
+  let reason: string | undefined;
+  if (open.length > 0) {
     reason = `open blocking sub-tasks: ${open.map((o) => `${o.key} (${o.stage})`).join(', ')}`;
   }
   if (reason === undefined) {

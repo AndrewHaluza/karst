@@ -551,14 +551,13 @@ describe('graphInsideProcess', () => {
       kind: 'graph-stop',
     });
     expect(blockedTargets).toContainEqual({ kind: 'graph-stop', graphRunId: 7 });
-    // Awaiting the impl marker is not actionless: it carries its own
-    // mark-impl control (asserted in its own test below) — never the
-    // 'stop graph' action a still-live run carries.
+    // Awaiting the impl marker is actionless: the coordinator fires the
+    // marker by itself (@arch:IMPLUAT), and the run is no longer stoppable.
     const awaitingMarker = graphInsideProcess(
       input({ graphRun: { id: 7, runNumber: 7, status: 'completed-awaiting-impl-marker', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;
     if (awaitingMarker.evidence?.kind !== 'rows') return;
-    expect(awaitingMarker.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-mark-impl' });
+    expect(awaitingMarker.evidence.rows[0]!.action).toBeUndefined();
   });
 
   it('words the raw completed-awaiting-impl-marker status for both the aggregate chip and the graph row detail, keeping the raw key only as the aggregate title', () => {
@@ -631,7 +630,7 @@ describe('graphInsideProcess', () => {
     });
   });
 
-  it('attaches a mark-impl control to a run awaiting the implementation marker', () => {
+  it('attaches no action to a run awaiting the implementation marker (no Mark done button)', () => {
     const targets: GraphActionTarget[] = [];
     const process = graphInsideProcess(
       input({
@@ -649,9 +648,11 @@ describe('graphInsideProcess', () => {
         },
       }),
     )!;
+    expect(process.evidence?.kind).toBe('rows');
     if (process.evidence?.kind !== 'rows') return;
-    expect(targets).toContainEqual({ kind: 'graph-mark-impl', graphRunId: 9 });
-    expect(process.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-mark-impl' });
+    // Only the node row's Open stays; nothing targets the run itself.
+    expect(targets.filter((t) => 'graphRunId' in t)).toEqual([]);
+    expect(process.evidence.rows[0]!.action).toBeUndefined();
   });
 
   it('attaches the discard exit to an ambiguous node run and Open to a live one, never both', () => {

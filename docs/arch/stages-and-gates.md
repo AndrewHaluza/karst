@@ -56,14 +56,19 @@ The marker is REFUSED while `tickets.agent_state = 'waiting'` — the agent aske
 the user a question and is blocked on their input, so the stage is not done.
 `cli/stage.ts`'s `assertMarkerNotWhileWaiting` is the choke point: the CLI is the
 entry for an agent's marker (impl and fix both), so the guard lives there.
-A graph ticket's impl marker has two more entries under the same guard
-(`fireGraphImplMarkerFromHost`, which keeps the waiting-agent refusal): the host
-button, and the graph coordinator. When a run reaches END quiescence, and on each
-sweep for a run already parked at `completed-awaiting-impl-marker`, the coordinator
-fires the marker (`tryAutoFireGraphImplMarker`). A paused ticket is not fired. An
-open blocking sub-task or an oversize `docs/**` block refuses it, like the CLI. A
-refusal keeps the `awaiting-impl-marker` block with the reason, and the button
-stays as the manual fallback (`@arch:GRAPH-AUTORECOVERY` is the sibling sweep).
+A graph ticket's impl marker has more entries under the same guard
+(`fireGraphImplMarkerFromHost`, which keeps the waiting-agent refusal): the graph
+coordinator, the stage-rail Resume at the `awaiting-impl-marker` block, and
+`karst.openSession`. The dashboard has no Mark done button. When a run reaches END
+quiescence, and on each sweep for a run already parked at
+`completed-awaiting-impl-marker`, the coordinator fires the marker
+(`tryAutoFireGraphImplMarker`). A paused ticket is not fired. An open blocking
+sub-task or a waiting agent refuses it. A refusal keeps the `awaiting-impl-marker`
+block with the reason; the next sweep fires the marker when the refusal clears, and
+Resume on the block also fires it (`@arch:GRAPH-AUTORECOVERY` is the sibling sweep).
+The coordinator does not run the docs block cap check, because a completed run has
+no live agent to split the block: the run advances to `uat`, where a failing `docs`
+gate opens a fix round.
 The CLI marker path also refuses (`cannot mark this stage done`) when a `docs/**`
 file the ticket changed holds a block over the `@arch:DOC-01` cap
 (`workflow/docsBlockGuard.ts`, fed by `scripts/docsKeys.mjs lint`). Warnings and
