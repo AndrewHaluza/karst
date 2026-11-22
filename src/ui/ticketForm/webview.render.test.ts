@@ -740,6 +740,30 @@ describe('ticket form — Cancel asks only when the form was edited (SET-54, Q13
     });
   });
 
+  describe('a form switch the host never stores makes Cancel ask, in both modes', () => {
+    const modes = [
+      ['create', baseState()],
+      ['edit', baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T' })],
+    ] as const;
+    for (const [mode, state] of modes) {
+      for (const id of ['pullBase', 'autoImprove']) {
+        it(`${mode}: #${id}`, () => {
+          const v = open(state);
+          v.click(`#${id}`);
+          v.click('#cancelBtn');
+          expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+        });
+      }
+    }
+
+    it('create: #createIn', () => {
+      const v = open(baseState({ provider: 'clickup', canCreateProviderTicket: true }));
+      v.click('#createIn');
+      v.click('#cancelBtn');
+      expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+    });
+  });
+
   it('in edit mode a settings pick posts a plain close-form: the host already stored it', () => {
     const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T' }));
     v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));

@@ -131,11 +131,17 @@ body.vscode-light{--k-action-2-bg:var(--vscode-editorWidget-background);--k-acti
 .k-input{
   font-family:inherit;font-size:var(--k-text-md);color:var(--k-text);
   background:var(--k-surface);
-  /* The theme's own input edge when it has one (light needs it for 3:1), else the shared border (SET-57). */
-  border:var(--k-border-w) solid var(--vscode-input-border, var(--k-border));border-radius:var(--k-radius-sm);
+  /* --k-input-edge is set only where the theme's own input edge is too faint (light, below); else the
+     theme's input edge, else the shared border (SET-57). */
+  border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border, var(--k-border)));border-radius:var(--k-radius-sm);
   padding:var(--k-space-2) var(--k-space-4);
   transition:border-color var(--k-dur-fast) var(--k-ease-standard)}
-.k-input:hover:not(:disabled){border-color:var(--k-border-strong)}
+/* Light: --vscode-input-border in Light Modern is 1.57:1 on white, under the 3:1 non-text minimum (C5).
+   The placeholder grey is a theme colour that VS Code keeps at 4.5:1 on the input; theme variables only, no raw
+   colour. Hover goes to the foreground, so it never fades the edge to the faint panel border. */
+body.vscode-light{--k-input-edge:var(--vscode-input-placeholderForeground, var(--k-text-dim));
+  --k-input-edge-hover:var(--k-text)}
+.k-input:hover:not(:disabled){border-color:var(--k-input-edge-hover, var(--k-border-strong))}
 .k-input:disabled{opacity:.45;color:var(--k-text-faint);cursor:default}
 .k-input[aria-busy="true"]{cursor:progress}
 .k-input[aria-invalid="true"]{border-color:var(--k-danger)}

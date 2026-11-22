@@ -148,7 +148,7 @@
   .agentselect{position:relative;width:100%}
   .agentselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
     text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border,var(--vscode-panel-border)));border-radius:var(--k-radius-sm);
     padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base);cursor:pointer}
   .agentselect-trigger:hover{background:var(--vscode-input-background)}
   .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
@@ -2852,11 +2852,15 @@
 
   // Auto-improve switch (default on). A real <button role="switch"> gets
   // Enter/Space activation natively — no custom keydown handler needed.
-  el('autoImprove').addEventListener('click', () => setAutoImprove(!autoImproveOn));
+  // SET-54: the host never stores this switch (in either mode), so a flip is an unsaved
+  // edit for Cancel even on a form bound to a ticket row.
+  el('autoImprove').addEventListener('click', () => { formPersist.touchSettings(); setAutoImprove(!autoImproveOn); });
 
   // The create-mode "Also create in <provider>" switch (default off). Same native
   // button activation as Auto-improve; the value rides submit/save.
   el('createIn').addEventListener('click', () => {
+    // SET-54: the value rides submit/save only, so a flip is an unsaved edit for Cancel.
+    formPersist.touchSettings();
     createInOn = !createInOn;
     el('createIn').setAttribute('aria-checked', String(createInOn));
   });
@@ -2873,7 +2877,8 @@
 
   // Pull-the-base switch (default on). Same native-button activation as
   // Auto-improve above.
-  el('pullBase').addEventListener('click', () => setPullBase(!pullBaseOn));
+  // SET-54: a submit-time option the host never stores; a flip is an unsaved edit for Cancel.
+  el('pullBase').addEventListener('click', () => { formPersist.touchSettings(); setPullBase(!pullBaseOn); });
 
   // Cancel discards the form and closes the panel. It used to post
   // request-state — but render() refuses to clobber non-empty fields, so the
