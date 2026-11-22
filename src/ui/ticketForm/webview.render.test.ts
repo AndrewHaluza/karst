@@ -581,6 +581,43 @@ describe('ticket form — honest states (SET-52, SET-53, SET-54)', () => {
     expect(hideRule?.style.display).toBe('none');
   });
 
+  it('shows a host error that lands before the first state instead of the loading blocks (SET-53)', () => {
+    h = renderWebview('ticketForm');
+    const v = h;
+    v.receive({ type: 'error', message: 'Could not build the ticket form: boom' });
+    const err = v.query('#err')!;
+    expect(err.classList.contains('hidden')).toBe(false);
+    expect(v.query('#errMsg')!.textContent).toBe('Could not build the ticket form: boom');
+    expect(v.document.body.classList.contains('is-ready')).toBe(false);
+    expect(v.document.body.classList.contains('load-failed')).toBe(true);
+    // jsdom cannot cascade: the pre-ready hide rule must spare #err, and a
+    // failed load must stop the loading blocks from claiming "Loading…".
+    const rules = v.cssRules();
+    const selectors = rules.map((rule) => rule.selectorText).join('\n');
+    expect(selectors).toContain('body:not(.is-ready) [data-region="content"] > :not(#loadingContent):not(#err)');
+    const failRule = rules.find(
+      (rule) =>
+        rule.selectorText.includes('body.load-failed #loadingContent') &&
+        rule.selectorText.includes('body.load-failed #loadingSettings'),
+    );
+    expect(failRule?.style.display).toBe('none');
+  });
+
+  it('drops the load-failed state when a state finally lands (SET-53)', () => {
+    h = renderWebview('ticketForm');
+    const v = h;
+    v.receive({ type: 'error', message: 'boom' });
+    v.receive({ type: 'state', state: baseState() });
+    expect(v.document.body.classList.contains('load-failed')).toBe(false);
+    expect(v.document.body.classList.contains('is-ready')).toBe(true);
+  });
+
+  it('an error after the form is ready does not mark the load as failed (SET-53)', () => {
+    const v = open(baseState());
+    v.receive({ type: 'error', message: 'Save failed' });
+    expect(v.document.body.classList.contains('load-failed')).toBe(false);
+  });
+
   it('renders a fetch failure under the Key row and clears it on the next state (SET-52)', () => {
     const v = open(baseState({ provider: 'clickup' }));
     v.receive({
@@ -651,6 +688,36 @@ describe('ticket form — Cancel asks only when the form was edited (SET-54, Q13
   it('a settings change posts dirty: true', () => {
     const v = open(baseState());
     v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+
+  it('a settings change that Save draft stored posts a plain close-form', () => {
+    const v = open(baseState({ title: 'Saved title' }));
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#saveBtn');
+    v.receive({ type: 'draft-saved' });
+    v.receive({ type: 'busy', what: 'save', on: false });
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form' });
+  });
+
+  it('a settings change while the save runs stays dirty', () => {
+    const v = open(baseState({ title: 'Saved title' }));
+    v.click('#saveBtn');
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.receive({ type: 'draft-saved' });
+    v.receive({ type: 'busy', what: 'save', on: false });
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+
+  it('a settings change stays dirty when the save fails', () => {
+    const v = open(baseState({ title: 'Saved title' }));
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#saveBtn');
+    v.receive({ type: 'error', message: 'Save failed' });
+    v.receive({ type: 'busy', what: 'save', on: false });
     v.click('#cancelBtn');
     expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
   });

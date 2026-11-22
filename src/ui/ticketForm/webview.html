@@ -79,11 +79,15 @@
   /* SET-53: before the first state push the regions show the honest loading
      block and nothing else. An empty editable form reads as "ready" and invites
      typing into a page that has not loaded yet. Once `is-ready` lands, the
-     loading blocks hide so only the real fields show. */
-  body:not(.is-ready) [data-region="content"] > :not(#loadingContent),
+     loading blocks hide so only the real fields show. A host error before the
+     first state (the state build failed) must stay visible: #err is spared, and
+     `load-failed` hides the loading blocks, because nothing is loading now. */
+  body:not(.is-ready) [data-region="content"] > :not(#loadingContent):not(#err),
   body:not(.is-ready) [data-region="settings"] > :not(#loadingSettings),
   body.is-ready #loadingContent,
-  body.is-ready #loadingSettings{display:none}
+  body.is-ready #loadingSettings,
+  body.load-failed #loadingContent,
+  body.load-failed #loadingSettings{display:none}
   /* Local layout modifiers replacing what used to be inline `style="…"`
      attributes (UI-R04 applies to the whole document, not only the
      stylesheet — an inline style is the same defect wearing a different hat). */
@@ -739,6 +743,10 @@
     let timer = null;
     let commitPending = false;
     let commitFailed = false;
+    // SET-54: settings picks since the last successful save, and the count when Save/Submit started.
+    // A pick made while the save runs is not in that save, so it stays an edit.
+    let settingsEdits = 0;
+    let settingsEditsAtCommit = 0;
     let overlaid = false;
     const write = () => {
       timer = null;
@@ -800,7 +808,9 @@
        * SET-54: any text field still holds an unsaved edit. Cancel asks the host
        * before dropping it; per-field `isDirty` keeps its existing meaning.
        */
-      anyDirty() { return dirty.size > 0; },
+      anyDirty() { return dirty.size > 0 || settingsEdits > 0; },
+      /** A settings pick: not form text, so only Cancel's dirty check reads it. */
+      touchSettings() { settingsEdits += 1; },
       /** Catch text that code wrote without an input event (brief, improve, analysis). */
       scan() {
         if (!overlaid) return;
@@ -817,6 +827,7 @@
         commitFailed = false;
         commitSnapshot = {};
         for (const f of FIELDS) commitSnapshot[f] = el(f).value;
+        settingsEditsAtCommit = settingsEdits;
       },
       /** The host reported an error: the pending save did not succeed, so the draft stays. */
       commitErrored() { commitFailed = true; },
@@ -838,6 +849,8 @@
           baseline[f] = el(f).value;
         }
         commitSnapshot = null;
+        settingsEdits -= settingsEditsAtCommit;
+        settingsEditsAtCommit = 0;
         if (timer !== null) { clearTimeout(timer); timer = null; }
         write();
       },
@@ -1073,6 +1086,7 @@
     // SET-53: the honest loading block is replaced by the real regions on the
     // first state push; the fields were hidden until exactly here.
     document.body.classList.add('is-ready');
+    document.body.classList.remove('load-failed');
     draft.mode = state.mode;
     // Edit header: an "Editing" eyebrow, the ticket's title as the h1 and its
     // human label (key, else #id — mirrors ticketLabel(), so the chip and the
@@ -2867,12 +2881,13 @@
   // crafted page cannot skip the confirmation. A settings pick is an edit too,
   // but it is not form text, so formPersist cannot see it — a delegated
   // `change` on the region covers every control, including re-mounted ones.
-  let settingsTouched = false;
+  // formPersist owns the settings edit too, so a successful save clears it
+  // with the text fields.
   document.querySelector('[data-region="settings"]').addEventListener('change', () => {
-    settingsTouched = true;
+    formPersist.touchSettings();
   });
   el('cancelBtn').addEventListener('click', () => {
-    const dirty = formPersist.anyDirty() || settingsTouched;
+    const dirty = formPersist.anyDirty();
     post({ type: 'close-form', ...(dirty ? { dirty: true } : {}) });
   });
 
@@ -3320,6 +3335,8 @@
         showFetchErr(msg.message);
         break;
       case 'error':
+        // SET-53: an error before the first state means the form did not load.
+        if (!document.body.classList.contains('is-ready')) document.body.classList.add('load-failed');
         formPersist.commitErrored();
         if (msg.usageLimitParkId) showUsageLimitErr(msg.message, msg.usageLimitParkId);
         else showErr(msg.message);
