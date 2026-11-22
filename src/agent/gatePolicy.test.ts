@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -29,13 +29,59 @@ describe('gatePolicy', () => {
     expect(claudeGateDeny({}, '/h')).toContain('Bash(pkill *)');
   });
 
-  it('opencode edit is deny-by-default, worktree+tmp allowed, home config denied last', () => {
+  it('allows cwd-relative edits, denies absolute and parent traversal, home config denied last', () => {
     const p = opencodeGatePermission('/wt', '/tmp', {}, '/h');
-    expect(Object.keys(p.edit).slice(0, 3)).toEqual(['*', '/wt/**', '/tmp/**']);
-    expect(p.edit['*']).toBe('deny');
+    expect(Object.keys(p.edit).slice(0, 4)).toEqual(['*', '/**', '..', '../**']);
+    expect(p.edit['*']).toBe('allow');
+    expect(p.edit['/**']).toBe('deny');
+    expect(p.edit['..']).toBe('deny');
+    expect(p.edit['../**']).toBe('deny');
     expect(p.edit['/wt/**']).toBe('allow');
+    expect(p.edit['/tmp/**']).toBe('allow');
     expect(p.edit['/h/.claude.json']).toBe('deny');
     expect(p.bash['pkill *']).toBe('deny');
+  });
+
+  it('resolves paths as opencode2 does: only * and ? globs, last match wins', () => {
+    // Emulates the opencode2 matcher: `*` -> `.*`, `?` -> `.`, anchored, last match wins.
+    const decide = (rules: Record<string, string>, resource: string): string | undefined => {
+      let verdict: string | undefined;
+      for (const [glob, action] of Object.entries(rules)) {
+        const body = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+        if (new RegExp(`^${body}$`, 's').test(resource)) verdict = action;
+      }
+      return verdict;
+    };
+    const p = opencodeGatePermission('/wt', '/tmp', { CLAUDE_CONFIG_DIR: '/wt/.cfg' }, '/h');
+    const cases: Array<[string, string]> = [
+      ['src/a.ts', 'allow'],
+      ['package.json', 'allow'],
+      ['.', 'allow'],
+      ['/wt/src/a.ts', 'allow'],
+      ['/tmp/x', 'allow'],
+      ['/etc/passwd', 'deny'],
+      ['/other-repo/a.ts', 'deny'],
+      ['..', 'deny'],
+      ['../other/x', 'deny'],
+      ['/h/.claude.json', 'deny'],
+      ['/h/.codex/auth.json', 'deny'],
+      ['/wt/.cfg/settings.json', 'deny'],
+      ['.cfg/settings.json', 'deny'],
+    ];
+    for (const [resource, expected] of cases) expect(decide(p.edit, resource), resource).toBe(expected);
+  });
+
+  it('also allows the realpath of tmp when it differs (macOS /var vs /private/var)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'karst-tmp-root-'));
+    try {
+      const link = join(root, 'link');
+      symlinkSync(root, link, 'dir');
+      const p = opencodeGatePermission('/wt', link, {}, '/h');
+      expect(p.edit[`${link}/**`]).toBe('allow');
+      expect(p.edit[`${realpathSync(root)}/**`]).toBe('allow');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
