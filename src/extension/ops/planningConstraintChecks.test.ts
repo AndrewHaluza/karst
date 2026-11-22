@@ -10,7 +10,15 @@ import {
   commitExistsViaGit,
   commitWarnings,
   sensitivePathWarning,
+  missingPathWarnings,
+  missingPathsViaGitBatch,
+  pathVariants,
+  repoTargetsOf,
+  MAX_CHECKED_PATHS,
+  overlapWarnings,
+  type GitBatch,
 } from './planningConstraintChecks.js';
+import type { Manifest } from '../../manifest/types.js';
 
 const dirs: string[] = [];
 function repoWithDocs(doc: string | undefined): string {
@@ -44,6 +52,26 @@ describe('archWarnings', () => {
   it('does nothing without arch constraints or repos', () => {
     expect(archWarnings(['#1'], [repoWithDocs(doc)], vi.fn())).toEqual([]);
     expect(archWarnings(['@arch:X'], [], vi.fn())).toEqual([]);
+  });
+});
+
+describe('archWarnings gating and repo sets', () => {
+  const docA = '## [@arch:KA] a\nEND_DOC_BLOCK: [@arch:KA]\n';
+  const docB = '## [@arch:KB] b\nEND_DOC_BLOCK: [@arch:KB]\n';
+  it('a key must be known to be accepted, and is unknown when only another repo defines a different key', () => {
+    expect(archWarnings(['@arch:KA'], [repoWithDocs(docA), repoWithDocs(docB)], vi.fn())).toEqual([]);
+    expect(archWarnings(['@arch:KA', '@arch:KB', '@arch:KC'], [repoWithDocs(docA), repoWithDocs(docB)], vi.fn())).toEqual([
+      'unknown design key @arch:KC',
+    ]);
+  });
+  it('does not log when there is nothing to verify', () => {
+    const debug = vi.fn();
+    expect(archWarnings([], [repoWithDocs(undefined)], debug)).toEqual([]);
+    expect(archWarnings(['@arch:KA'], [], debug)).toEqual([]);
+    expect(debug).not.toHaveBeenCalled();
+  });
+  it('archDocFiles ignores a malformed key without throwing', () => {
+    expect(archDocFiles(['@arch:x', '@arch:'], [repoWithDocs(docA)])).toEqual({});
   });
 });
 
@@ -220,5 +248,250 @@ describe('resolveBaseShasOf', () => {
 
   it('accepts exactly 7 characters', async () => {
     expect(await resolveBaseShasOf(manifest, ['web'], async () => 'abcdef1')).toEqual({ web: 'abcdef1' });
+  });
+});
+
+function repoWithUiDocs(doc: string): string {
+  const root = repoWithDocs(undefined);
+  mkdirSync(join(root, 'docs', 'ui'), { recursive: true });
+  writeFileSync(join(root, 'docs', 'ui', 'UI-INVARIANTS.md'), doc);
+  return root;
+}
+
+describe('@ui design keys', () => {
+  const uiDoc = '## [@ui:TITLE-KEY] T\n## [@ui:1.1] N\n## [@ui:UI-R09b] R\n';
+  it('verifies @ui keys against docs/ui, including dotted and lowercase-suffix keys', () => {
+    const repo = repoWithUiDocs(uiDoc);
+    expect(archWarnings(['@ui:TITLE-KEY', '@ui:1.1', '@ui:UI-R09b', '@ui:NOPE'], [repo], vi.fn())).toEqual([
+      'unknown design key @ui:NOPE',
+    ]);
+  });
+  it('does not accept an @ui key from docs/arch or an @arch key from docs/ui', () => {
+    const repo = repoWithUiDocs('## [@ui:ONLYUI] x\n');
+    mkdirSync(join(repo, 'docs', 'arch'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'arch', 'a.md'), '## [@arch:ONLYARCH] x\n');
+    expect(archWarnings(['@ui:ONLYARCH', '@arch:ONLYUI'], [repo], vi.fn())).toEqual([
+      'unknown design key @ui:ONLYARCH',
+      'unknown design key @arch:ONLYUI',
+    ]);
+  });
+  it('flags a malformed @ui key and keeps @arch strict', () => {
+    expect(archWarnings(['@ui:', '@ui:a b', '@arch:1.1', '@arch:x'], [], vi.fn())).toEqual([
+      'malformed design key @ui:',
+      'malformed design key @ui:a b',
+      'malformed design key @arch:1.1',
+      'malformed design key @arch:x',
+    ]);
+  });
+  it('skips @ui keys with a debug line when no repo has docs/ui, and still checks @arch keys', () => {
+    const debug = vi.fn();
+    const repo = repoWithDocs('## [@arch:A] t\n');
+    expect(archWarnings(['@ui:X', '@arch:A', '@arch:B'], [repo], debug)).toEqual(['unknown design key @arch:B']);
+    expect(debug).toHaveBeenCalledWith(expect.stringMatching(/^\[planning\] .*docs\/ui.*@ui keys not verified/));
+  });
+  it('archDocFiles names the docs/ui file of an @ui key', () => {
+    const repo = repoWithUiDocs(uiDoc);
+    expect(archDocFiles(['@ui:1.1', '@ui:NOPE', 'free text'], [repo])).toEqual({ '@ui:1.1': 'UI-INVARIANTS.md' });
+  });
+  it('an @ui citation does not count for the prompt-sensitive check', () => {
+    expect(sensitivePathWarning({ description: 'src/agent/seed.ts', summary: '', constraints: ['@ui:TITLE-KEY'] })).toHaveLength(1);
+  });
+  it('clips every design-key warning to 60 chars', () => {
+    const long = `@arch:${'A'.repeat(190)}`;
+    const bad = `@arch:${'a'.repeat(190)}`;
+    const w = archWarnings([long, bad], [repoWithDocs('## [@arch:Z] t\n')], vi.fn());
+    expect(w).toHaveLength(2);
+    for (const x of w) expect(x.length).toBeLessThanOrEqual(60);
+    expect(w[0]).toMatch(/^malformed design key …a+$/);
+    expect(w[1]).toMatch(/^unknown design key …A+$/);
+  });
+});
+
+const SHA = 'a'.repeat(40);
+/** A fake `cat-file --batch-check`: `known` lines resolve, every other line is missing. */
+function fakeBatch(known: (line: string) => boolean): GitBatch & { calls: { repoPath: string; lines: string[] }[] } {
+  const calls: { repoPath: string; lines: string[] }[] = [];
+  const fn = async (repoPath: string, input: string): Promise<string> => {
+    const lines = input.split('\n').filter((l) => l !== '');
+    calls.push({ repoPath, lines });
+    return lines.map((l) => (known(l) ? `${SHA} blob 12` : `${l} missing`)).join('\n') + '\n';
+  };
+  return Object.assign(fn, { calls });
+}
+
+describe('repoTargetsOf', () => {
+  it('dedupes by repoPath and resolves the base branch of the first name', () => {
+    const manifest = {
+      baselineBranch: 'develop',
+      repositories: { a: { repoPath: '/x' }, b: { repoPath: '/x', baselineBranch: 'other' }, c: { repoPath: '/y', baselineBranch: 'main' } },
+    } as unknown as Manifest;
+    expect(repoTargetsOf(manifest, ['a', 'b', 'c', 'zz'])).toEqual([
+      { repoPath: '/x', baseBranch: 'develop' },
+      { repoPath: '/y', baseBranch: 'main' },
+    ]);
+    expect(repoTargetsOf(undefined, ['a'])).toEqual([]);
+  });
+});
+
+describe('pathVariants', () => {
+  it('adds .ts and .tsx for a .js specifier only', () => {
+    expect(pathVariants('src/a.js')).toEqual(['src/a.js', 'src/a.ts', 'src/a.tsx']);
+    expect(pathVariants('src/a.ts')).toEqual(['src/a.ts']);
+    expect(pathVariants('src/a.json')).toEqual(['src/a.json']);
+  });
+});
+
+describe('missingPathsViaGitBatch', () => {
+  const target = { repoPath: '/r', baseBranch: 'develop' };
+  it('sends every ref and every path in ONE batch and uses origin/<base> first', async () => {
+    const batch = fakeBatch((l) => l === 'origin/develop^{commit}' || l === 'develop^{commit}' || l === 'origin/develop:./src/a.ts' || l === 'develop:./src/b.ts');
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], batch)).toEqual(['src/b.ts']);
+    expect(batch.calls).toHaveLength(1);
+    expect(batch.calls[0]!.lines.slice(0, 3)).toEqual(['origin/develop^{commit}', 'develop^{commit}', 'HEAD^{commit}']);
+  });
+  it('falls back to the local branch, then HEAD', async () => {
+    const local = fakeBatch((l) => l === 'develop^{commit}' || l === 'develop:./src/a.ts');
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], local)).toEqual(['src/b.ts']);
+    const head = fakeBatch((l) => l === 'HEAD^{commit}' || l === 'HEAD:./src/b.ts');
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], head)).toEqual(['src/a.ts']);
+  });
+  it('is undefined when no ref resolves', async () => {
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts'], fakeBatch(() => false))).toBeUndefined();
+  });
+  it('a .js path counts as present when its .ts or .tsx source exists', async () => {
+    const batch = fakeBatch((l) => l === 'origin/develop^{commit}' || l === 'origin/develop:./src/a.ts' || l === 'origin/develop:./src/b.tsx');
+    expect(await missingPathsViaGitBatch(target, ['src/a.js', 'src/b.js', 'src/c.js'], batch)).toEqual(['src/c.js']);
+  });
+  it('reads a line as present only when it is "<sha> <type> <size>"', async () => {
+    const batch: GitBatch = async () => `${SHA} commit 200\n${SHA} commit 200\n${SHA} commit 200\nsrc/a.ts ambiguous\n\n`;
+    expect(await missingPathsViaGitBatch(target, ['src/a.ts'], batch)).toEqual(['src/a.ts']);
+  });
+});
+
+describe('missingPathWarnings', () => {
+  const t1 = { repoPath: '/r1', baseBranch: 'main' };
+  const t2 = { repoPath: '/r2', baseBranch: 'main' };
+  const resolves = (l: string) => l.endsWith('^{commit}');
+  it('runs one batch per target and warns on a path missing in every target', async () => {
+    const batch = fakeBatch((l) => resolves(l) || l === 'origin/main:./src/a.ts');
+    const w = await missingPathWarnings(['src/a.ts', 'src/b.ts'], [t1, t2], batch, vi.fn());
+    expect(w).toEqual(['missing path at base: src/b.ts']);
+    expect(batch.calls.map((c) => c.repoPath)).toEqual(['/r1', '/r2']);
+  });
+  it('caps the output at 3 paths and one "+N more" line', async () => {
+    const paths = ['src/1.ts', 'src/2.ts', 'src/3.ts', 'src/4.ts', 'src/5.ts'];
+    expect(await missingPathWarnings(paths, [t1], fakeBatch(resolves), vi.fn())).toEqual([
+      'missing path at base: src/1.ts',
+      'missing path at base: src/2.ts',
+      'missing path at base: src/3.ts',
+      '+2 more missing paths at base',
+    ]);
+    expect(await missingPathWarnings(paths.slice(0, 3), [t1], fakeBatch(resolves), vi.fn())).toHaveLength(3);
+  });
+  it('checks at most 50 distinct paths and drops paths with a line break', async () => {
+    const batch = fakeBatch(resolves);
+    const paths = Array.from({ length: 60 }, (_, i) => `src/f${i}.ts`);
+    await missingPathWarnings([...paths, 'src/f0.ts', 'src/x\n.ts', 'src/y\r.ts'], [t1], batch, vi.fn());
+    const pathLines = batch.calls[0]!.lines.filter((l) => l.startsWith('HEAD:./'));
+    expect(pathLines).toHaveLength(MAX_CHECKED_PATHS);
+    expect(pathLines.some((l) => /[\r\n]/.test(l))).toBe(false);
+  });
+  it('is silent with no paths or no targets, and spawns nothing', async () => {
+    const batch = fakeBatch(resolves);
+    expect(await missingPathWarnings([], [t1], batch, vi.fn())).toEqual([]);
+    expect(await missingPathWarnings(['src/a.ts'], [], batch, vi.fn())).toEqual([]);
+    expect(batch.calls).toHaveLength(0);
+  });
+  it('skips a target whose git fails or whose base does not resolve, with a [planning] debug line', async () => {
+    const debug = vi.fn();
+    const batch: GitBatch = async (repoPath, input) => {
+      if (repoPath === '/r1') throw new Error('spawn git ENOENT');
+      return fakeBatch(() => false)(repoPath, input);
+    };
+    expect(await missingPathWarnings(['src/a.ts'], [t1, t2], batch, debug)).toEqual([]);
+    expect(debug).toHaveBeenCalledWith(expect.stringMatching(/^\[planning\] .*\/r1.*spawn git ENOENT/));
+    expect(debug).toHaveBeenCalledWith(expect.stringMatching(/^\[planning\] .*\/r2.*no base ref/));
+  });
+  it('a path present in one checked target and missing in another is not reported', async () => {
+    const batch: GitBatch = async (repoPath, input) => fakeBatch((l) => resolves(l) || (repoPath === '/r2' && l === 'origin/main:./src/a.ts'))(repoPath, input);
+    expect(await missingPathWarnings(['src/a.ts'], [t1, t2], batch, vi.fn())).toEqual([]);
+  });
+  it('clips a long path to keep the warning at 60 chars', async () => {
+    const long = `src/${'deep/'.repeat(20)}file.ts`;
+    const [w] = await missingPathWarnings([long], [t1], fakeBatch(resolves), vi.fn());
+    expect(w!.length).toBeLessThanOrEqual(60);
+    expect(w).toMatch(/^missing path at base: ….*file\.ts$/);
+  });
+});
+
+describe('missingPathWarnings input hygiene', () => {
+  const t1 = { repoPath: '/r1', baseBranch: 'main' };
+  it('sends no path with a line break, even when it comes first, and stays silent when the base resolves', async () => {
+    const calls: string[] = [];
+    const debug = vi.fn();
+    const batch: GitBatch = async (_r, input) => {
+      calls.push(input);
+      return input
+        .split('\n')
+        .filter(Boolean)
+        .map(() => `${'a'.repeat(40)} blob 1`)
+        .join('\n');
+    };
+    await expect(missingPathWarnings(['src/x\n.ts', 'src/y\r.ts', 'src/ok.ts'], [t1], batch, debug)).resolves.toEqual([]);
+    const pathLines = calls[0]!.split('\n').filter((l) => l.startsWith('HEAD:./'));
+    expect(pathLines).toEqual(['HEAD:./src/ok.ts']);
+    expect(calls[0]!.split('\n')).not.toContain('.ts');
+    expect(debug).not.toHaveBeenCalled();
+  });
+});
+
+describe('overlapWarnings', () => {
+  const incoming = { title: 'Retry token refresh in session store', description: 'Edit src/auth/session.ts and src/auth/token.ts.' };
+  const c = (ref: string, title: string, description = '') => ({ ref, title, description });
+  it('warns on 2 or more shared source files, not on 1', () => {
+    expect(overlapWarnings(incoming, [c('D4', 'x', 'src/auth/session.ts src/auth/token.ts')])).toEqual(['overlaps files with D4 (add dependsOn?)']);
+    expect(overlapWarnings(incoming, [c('T9', 'x', 'src/auth/session.ts only')])).toEqual([]);
+  });
+  it('created paths count as shared files too', () => {
+    expect(overlapWarnings({ title: 'a', description: '[NEW] src/n.ts\n[NEW] src/m.ts' }, [c('D1', 'b', 'src/n.ts src/m.ts')])).toHaveLength(1);
+  });
+  it('does not count docs/** or *.md files', () => {
+    const docs = { title: 'a', description: 'docs/arch/cli.md docs/x.ts src/README.md src/a.ts' };
+    expect(overlapWarnings(docs, [c('D1', 'b', 'docs/arch/cli.md docs/x.ts src/README.md src/a.ts')])).toEqual([]);
+  });
+  it('warns on a title Jaccard of 0.65 or more, with 3+ meaningful tokens on both sides', () => {
+    const tokens = Array.from({ length: 17 }, (_, i) => `tok${i}`);
+    const a = { title: [...tokens.slice(0, 13), 'aaa1', 'aaa2', 'aaa3'].join(' '), description: '' };
+    // 13 shared, 3 own + 4 own: 13/20 = 0.65
+    expect(overlapWarnings(a, [c('T2', [...tokens.slice(0, 13), 'bbb1', 'bbb2', 'bbb3', 'bbb4'].join(' '))])).toEqual(['title closely matches T2']);
+    // 13 shared, 3 own + 5 own: 13/21 < 0.65
+    expect(overlapWarnings(a, [c('T2', [...tokens.slice(0, 13), 'bbb1', 'bbb2', 'bbb3', 'bbb4', 'bbb5'].join(' '))])).toEqual([]);
+  });
+  it('needs 3 tokens of length 3+ that are not stopwords on both sides', () => {
+    expect(overlapWarnings({ title: 'Fix auth', description: '' }, [c('D1', 'Fix auth')])).toEqual([]);
+    expect(overlapWarnings({ title: 'feat: fix the auth flow', description: '' }, [c('D1', 'feat: fix the auth flow')])).toEqual([]);
+    expect(overlapWarnings({ title: 'go to db ui', description: '' }, [c('D1', 'go to db ui')])).toEqual([]);
+    expect(overlapWarnings({ title: 'Token refresh retry', description: '' }, [c('D1', 'token REFRESH retry')])).toEqual(['title closely matches D1']);
+  });
+  it('a file overlap wins over a title match for the same candidate', () => {
+    expect(overlapWarnings(incoming, [c('D4', incoming.title, incoming.description)])).toEqual(['overlaps files with D4 (add dependsOn?)']);
+  });
+  it('caps at 3 warnings, each at most 60 chars', () => {
+    const many = Array.from({ length: 5 }, (_, i) => c(`T${100000 + i}`, 'x', incoming.description));
+    const w = overlapWarnings(incoming, many);
+    expect(w).toHaveLength(3);
+    for (const x of w) expect(x.length).toBeLessThanOrEqual(60);
+  });
+  it('counts 3-letter words as title tokens', () => {
+    expect(overlapWarnings({ title: 'api web sdk', description: '' }, [c('D1', 'api web sdk')])).toEqual(['title closely matches D1']);
+  });
+  it('counts only the files that both drafts name, not all of the candidate files', () => {
+    const own = { title: 'zz', description: 'src/a.ts' };
+    expect(overlapWarnings(own, [c('D1', 'zz', 'src/a.ts src/b.ts src/c.ts')])).toEqual([]);
+  });
+  it('requires 3 tokens on BOTH sides for a title match', () => {
+    expect(overlapWarnings({ title: 'alpha beta gamma', description: '' }, [c('D1', 'alpha beta')])).toEqual([]);
+    expect(overlapWarnings({ title: 'alpha beta', description: '' }, [c('D1', 'alpha beta gamma')])).toEqual([]);
+    expect(overlapWarnings({ title: 'alpha beta', description: '' }, [c('D1', 'alpha beta')])).toEqual([]);
   });
 });

@@ -33,8 +33,6 @@ export interface EffectiveRole extends RoleValue {
   readonly source: RoleSource;
 }
 
-const EMPTY: RoleValue = { core: '', model: '', effort: '' };
-
 /** The process key a capability pins on, or undefined (implementation, graph roles). */
 export function pinKeyOf(capability: string): ProcessKey | undefined {
   return (PROCESS_KEYS as readonly string[]).includes(capability) ? (capability as ProcessKey) : undefined;
@@ -220,8 +218,6 @@ export function copyRoleFrom(draft: Manifest, a: string, b: string, capability: 
   if (from.core === '' || from.model === '') return clearRole(draft, a, capability);
   return withSlot(draft, a, capability, from);
 }
-
-export { EMPTY as NO_ROLE_VALUE };
 
 /** Assign an agent profile to a process role ('' = Role default). Identity only; never touches pin/slot. */
 export function setRoleProfile(draft: Manifest, capability: string, profile: string): Manifest {

@@ -9,8 +9,9 @@
  * row) resolves live, as before.
  *
  * Pure and host-agnostic: it resolves each role through the one live resolver
- * (`resolveGraphNodeProfile`), so the ticket's own core, model and effort are
- * part of the snapshot and a ticket change is detected like a Settings change.
+ * (`resolveGraphNodeProfile`), so the ticket's `agentPreset` is part of the
+ * snapshot and a ticket preset change is detected like a Settings change. A
+ * stored `source: 'ticket'` is legacy only: a snapshot written before AC-63.
  */
 
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
@@ -27,13 +28,16 @@ export type GraphRole = (typeof GRAPH_ROLES)[number];
 /** The version stamp of the stored JSON; a different value is read as "no snapshot". */
 const SNAPSHOT_VERSION = 1;
 
+/** A stored rung: a live one, or `'ticket'` in a snapshot written before AC-63 (legacy only). */
+export type StoredGraphProfileSource = GraphProfileSource | 'ticket';
+
 /** One launch identity: the same three fields a launch reads, plus where they came from. */
 export interface RoleIdentity {
   provider: string;
   model?: string;
   effort?: string;
-  /** The rung that supplied it: the ticket, a preset slot or the approach's graph profile. */
-  source: GraphProfileSource;
+  /** The rung that supplied it: a preset slot, the approach's graph profile, or the legacy ticket rung. */
+  source: StoredGraphProfileSource;
 }
 
 export interface GraphRunIdentities {
@@ -43,7 +47,7 @@ export interface GraphRunIdentities {
 
 const PROFILE_SOURCES: readonly string[] = ['ticket', 'preset', 'approach'];
 
-function isProfileSource(value: unknown): value is GraphProfileSource {
+function isProfileSource(value: unknown): value is StoredGraphProfileSource {
   return typeof value === 'string' && PROFILE_SOURCES.includes(value);
 }
 

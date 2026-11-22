@@ -36,10 +36,10 @@ export function shownDrafts(p: PlanningRow, revealed: boolean): PlanningProposal
   return (p.proposals || []).filter((d) => d.status !== 'accepted' || revealed);
 }
 
-/** A session with pending drafts (or a search-revealed accepted one) starts expanded until the user chooses otherwise. */
+/** A session starts collapsed until the user expands it; only a search that matches one of its accepted drafts opens it by default. */
 export function planIsOpen(p: PlanningRow, chosen: ReadonlyMap<number, boolean>, searchRevealed = false): boolean {
   const c = chosen.get(p.sessionId);
-  return c !== undefined ? c : pendingOf(p).length > 0 || searchRevealed;
+  return c !== undefined ? c : searchRevealed;
 }
 
 /** One action of a tree item. `link` is the text link on an accepted draft; the rest are icon buttons. */

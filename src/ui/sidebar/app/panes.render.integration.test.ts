@@ -88,6 +88,8 @@ describe('pane headers', () => {
 
   it('Planning keeps Collapse all', async () => {
     const h = await mount(fixture('all-sections'));
+    await h.expandPlans();
+    expect(h.query('[role="treeitem"][data-node="s90"]')!.getAttribute('aria-expanded')).toBe('true');
     await h.click('[data-pane="planning"] [data-plan-collapse-all]');
     expect(h.query('[role="treeitem"][data-node="s90"]')!.getAttribute('aria-expanded')).toBe('false');
   });
@@ -230,6 +232,8 @@ describe('accepted drafts', () => {
 
   it('keeps pending drafts visible and hides accepted ones behind an "N accepted" toggle', async () => {
     const h = await mount(state());
+    expect(h.query('[data-node="d11"]')).toBeNull();
+    await h.expandPlans();
     expect(h.query('[data-node="d11"]')).not.toBeNull();
     expect(h.query('[data-node="d12"]')).toBeNull();
     const toggle = h.query('[data-node="s3"] .pt-row [data-accepted-toggle]')!;

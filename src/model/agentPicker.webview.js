@@ -622,18 +622,25 @@ function apInheritLabels(inherit, inheritCore, core) {
   };
 }
 
-/** presetMode opening tab: the preset tab when a preset is selected, else core + model. */
+/**
+ * presetMode opening tab: the preset tab when a preset is selected, else core +
+ * model. `presetMode.only` (opt-in, a graph approach) pins the preset tab.
+ */
 function apInitialMode(pm) {
-  return pm && pm.selected ? 'preset' : 'core';
+  return pm && (pm.only || pm.selected) ? 'preset' : 'core';
 }
 
-/** Segmented Preset | Core + model control (ui:UI-R26 radiogroup, aria-checked). */
+/**
+ * Segmented Preset | Core + model control (ui:UI-R26 radiogroup, aria-checked).
+ * Under `presetMode.only` renderMode hides it but keeps it in the DOM, so a later
+ * state push can show it again without a rebuild (no node is added or removed).
+ */
 function apModeBarHtml(mode) {
   function btn(id, label) {
     return '<button type="button" role="radio" class="k-btn k-btn--secondary k-btn--sm ap-seg-btn" data-ap-mode="'
       + id + '" aria-checked="' + (mode === id ? 'true' : 'false') + '">' + label + '</button>';
   }
-  return '<div class="ap-seg" role="radiogroup" aria-label="Agent source">'
+  return '<div class="ap-seg" role="radiogroup" aria-label="Agent source" data-ap-seg>'
     + btn('preset', 'Preset') + btn('core', 'Core + model') + '</div>';
 }
 
@@ -1114,6 +1121,7 @@ function mountAgentPicker(root, opts) {
   /** presetMode only: tab state, which fields show, the preset select + missing warning. */
   function renderMode() {
     if (!pm) return;
+    $('[data-ap-seg]').hidden = !!pm.only;
     var bars = root.querySelectorAll('[data-ap-mode]');
     for (var i = 0; i < bars.length; i++) {
       bars[i].setAttribute('aria-checked', bars[i].getAttribute('data-ap-mode') === mode ? 'true' : 'false');
@@ -1134,6 +1142,8 @@ function mountAgentPicker(root, opts) {
 
   function setMode(next, quiet) {
     if (!pm || (next !== 'preset' && next !== 'core') || next === mode) return;
+    // presetMode.only: the preset tab is the one source; the core tab is never entered.
+    if (pm.only) return;
     mode = next;
     renderMode();
     if (!quiet) emit();
@@ -1514,8 +1524,12 @@ function mountAgentPicker(root, opts) {
       if (pm && next && next.presetMode) {
         // The host's selected preset drives the tab only when IT changed; a tab
         // the user flipped by hand survives a same-value state push.
+        var wasOnly = !!pm.only;
         pm = next.presetMode;
         var nextSel = pm.selected || '';
+        // A change of `only` (the host's approach changed) re-picks the tab:
+        // into `only` pins the preset tab, out of it opens the usual tab.
+        if (!!pm.only !== wasOnly) mode = apInitialMode(pm);
         if (nextSel !== presetSeen) {
           presetSeen = nextSel;
           preset = nextSel;

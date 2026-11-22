@@ -285,6 +285,7 @@ describe('ticket-form webview.html', () => {
       post: () => {},
       rerenderBackendPicker: () => {},
       inheritPresetLabel: () => 'Inherit (active preset)',
+      currentApproachHasGraph: () => false,
       mountAgentPicker: (_root: unknown, opts: { onChange: (v: unknown) => void }) => {
         (sandbox as { capturedOnChange?: (v: unknown) => void }).capturedOnChange = opts.onChange;
         return { setDisabled: () => {} };
@@ -318,11 +319,18 @@ describe('ticket-form webview.html', () => {
   // for a null). `?? cache` then `|| null` keeps an explicit '' pick as null.
   it('falls back to the cached identity on submit and save when the picker is untouched', () => {
     for (const [kind, re] of [
-      ['submit', /const model = \(draft\.selectedModel \?\? lastSelectedModel\) \|\| null;/],
-      ['effort', /const effort = \(draft\.selectedEffort \?\? lastSelectedEffort\) \|\| null;/],
+      // A graph approach sends a null trio, so each fallback sits behind `singleAgent`.
+      [
+        'submit',
+        /const model = singleAgent \? \(draft\.selectedModel \?\? lastSelectedModel\) \|\| null : null;/,
+      ],
+      [
+        'effort',
+        /const effort = singleAgent \? \(draft\.selectedEffort \?\? lastSelectedEffort\) \|\| null : null;/,
+      ],
       [
         'provider',
-        /const agentProvider = \(draft\.selectedAgentProvider \?\? lastSelectedAgentProvider\) \|\| null;/,
+        /const agentProvider = singleAgent \? \(draft\.selectedAgentProvider \?\? lastSelectedAgentProvider\) \|\| null : null;/,
       ],
     ] as const) {
       const hits = HTML.match(new RegExp(re.source, 'g')) ?? [];

@@ -1907,6 +1907,12 @@
   function currentApproach() {
     return draft.approach ?? lastSelectedApproach;
   }
+  // A graph approach launches every role from the preset or the approach
+  // profile, never the ticket core + model (arch:AC-63). The host pushes the
+  // graph roles only for an approach with a graph: the same source as renderGraphRoles.
+  function currentApproachHasGraph() {
+    return !!lastGraphRoles[currentApproach() || ''];
+  }
 
   function renderAgentPicker(agents, selectedAgent) {
     lastAgents = agents || [];
@@ -1974,7 +1980,13 @@
   // switch use (model/agentPicker.ts). Idempotent: a state push re-renders the
   // mounted picker in place rather than rebuilding it.
   let agentPickerInst = null;
+  let lastAgentIdentityArgs = null;
+  // Re-mount the picker with the last pushed state (an approach pick changes presetMode.only).
+  function rerenderAgentIdentityPicker() {
+    if (lastAgentIdentityArgs) renderAgentIdentityPicker.apply(null, lastAgentIdentityArgs);
+  }
   function renderAgentIdentityPicker(providers, selectedProvider, defaultProvider, selectedModel, defaultModel, selectedEffort, defaultEffort, sessionOpen) {
+    lastAgentIdentityArgs = [providers, selectedProvider, defaultProvider, selectedModel, defaultModel, selectedEffort, defaultEffort, sessionOpen];
     const root = el('agentIdentityPicker');
     if (!root || typeof mountAgentPicker !== 'function') {
       el('providerLockHint').classList.toggle('hidden', !sessionOpen);
@@ -1991,8 +2003,9 @@
     const apCores = (providers || []).map((p) => ({ id: p, label: AGENT_PROVIDER_LABELS[p] || p }));
     const presetSel = draft.agentPreset ?? lastSelectedAgentPreset ?? '';
     const picker = mountAgentPicker(root, {
-      // Preset XOR core + model (+ effort): the picker owns the switch.
-      presetMode: { names: lastAgentPresetNames, selected: presetSel || null, inheritLabel: inheritPresetLabel() },
+      // Preset XOR core + model (+ effort): the picker owns the switch. A graph
+      // approach shows the preset only: a core pick would be ignored (arch:AC-63).
+      presetMode: { names: lastAgentPresetNames, selected: presetSel || null, inheritLabel: inheritPresetLabel(), only: currentApproachHasGraph() },
       cores: apCores,
       catalog: lastModelCatalog,
       routes: AP_ROUTES,
@@ -2113,17 +2126,13 @@
     // A named preset the manifest lacks launches on the approach profile, not the active preset.
     const lines = byPreset[preset] || (preset ? byPreset['\u0000dangling'] : byPreset['']) || [];
     if (!lines.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
-    const SOURCE = { ticket: 'ticket', preset: 'preset', approach: 'approach' };
-    // An explicit core on this ticket wins over every role (AC-04 ticket rung), so the table
-    // would be stale: say so instead of showing models the launch will not use.
-    const ticketCore = draft.selectedAgentProvider ?? lastSelectedAgentProvider ?? '';
-    // The hint names the rung the chips show (SET-51): with no ticket core and no preset
-    // slot in play every line comes from the approach, so the preset text would contradict them.
-    const hint = ticketCore
-      ? 'This ticket sets its own core above. Every graph role runs on it; a preset slot for that same core keeps its model.'
-      : lines.every((l) => l.source === 'approach')
-        ? 'The approach sets these models. To change them for this ticket only, choose Core + model above.'
-        : 'The preset sets these models. To change them for this ticket only, choose Core + model above.';
+    const SOURCE = { preset: 'preset', approach: 'approach' };
+    // The hint names the rung the chips show (SET-51): with no preset slot in play every
+    // line comes from the approach, so the preset text would contradict them. A graph
+    // launch never reads the ticket core + model (arch:AC-63), so only a preset changes them.
+    const hint = lines.every((l) => l.source === 'approach')
+      ? 'The approach sets these models. To change them for this ticket, choose a Preset above.'
+      : 'The preset sets these models. To change them for this ticket, choose a Preset above.';
     box.innerHTML = '<label>Graph roles</label>' +
       '<div class="graph-roles-grid" role="list">' + lines.map((l) =>
         '<div class="graph-role-row" role="listitem" data-graph-role="' + esc(l.role) + '">' +
@@ -2419,9 +2428,11 @@
     // `approach` falls back to lastSelectedApproach — without it, persistDraft
     // would read null as "Inherit" and clear the saved pick. '' is the explicit
     // Inherit pick and correctly survives `??` to become null here.
-    const model = (draft.selectedModel ?? lastSelectedModel) || null;
-    const effort = (draft.selectedEffort ?? lastSelectedEffort) || null;
-    const agentProvider = (draft.selectedAgentProvider ?? lastSelectedAgentProvider) || null;
+    // A graph approach sends a null trio: its launches read the preset only (arch:AC-63).
+    const singleAgent = !currentApproachHasGraph();
+    const model = singleAgent ? (draft.selectedModel ?? lastSelectedModel) || null : null;
+    const effort = singleAgent ? (draft.selectedEffort ?? lastSelectedEffort) || null : null;
+    const agentProvider = singleAgent ? (draft.selectedAgentProvider ?? lastSelectedAgentProvider) || null : null;
     const agentPreset = (draft.agentPreset ?? lastSelectedAgentPreset) || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     // Enter pending LOCALLY, before the round trip (UI-R11) — the host's `busy`
@@ -2453,9 +2464,11 @@
         : null;
     // Same fallback as submit: an untouched picker must not clear the saved
     // core/model/effort of a reopened draft.
-    const model = (draft.selectedModel ?? lastSelectedModel) || null;
-    const effort = (draft.selectedEffort ?? lastSelectedEffort) || null;
-    const agentProvider = (draft.selectedAgentProvider ?? lastSelectedAgentProvider) || null;
+    // A graph approach sends a null trio: its launches read the preset only (arch:AC-63).
+    const singleAgent = !currentApproachHasGraph();
+    const model = singleAgent ? (draft.selectedModel ?? lastSelectedModel) || null : null;
+    const effort = singleAgent ? (draft.selectedEffort ?? lastSelectedEffort) || null : null;
+    const agentProvider = singleAgent ? (draft.selectedAgentProvider ?? lastSelectedAgentProvider) || null : null;
     const agentPreset = (draft.agentPreset ?? lastSelectedAgentPreset) || null;
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     formPersist.commitStarted();
@@ -2975,6 +2988,8 @@
     const btn = el('approachBtn');
     if (btn) btn.focus();
     renderAgentPicker(lastAgents, lastSelectedAgent);
+    // A graph approach hides the core + model switch (arch:AC-63): re-mount on the new approach.
+    rerenderAgentIdentityPicker();
   }
 
   // Pick a subagent from the dropdown: record it, post the same way approach

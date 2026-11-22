@@ -516,11 +516,62 @@ describe('ticket form — graph role preview (T1266)', () => {
     expect(v.query('#graphRolesPreview [data-graph-role="expert"]')!.textContent).toContain('expert-deep');
   });
 
-  it('tells how to change the models for this ticket only, and says when the ticket core replaces them', () => {
-    const preset = open(st());
-    expect(hintOf(preset)).toBe('The preset sets these models. To change them for this ticket only, choose Core + model above.');
-    const own = open(st({ selectedAgentProvider: 'claude' }));
-    expect(hintOf(own)).toContain('keeps its model');
+  it('tells to choose a Preset to change the models for this ticket (arch:AC-63)', () => {
+    expect(hintOf(open(st()))).toBe('The preset sets these models. To change them for this ticket, choose a Preset above.');
+  });
+
+  it('a stale ticket core shows no single-agent text: the chips and hint stay preset/approach', () => {
+    const v = open(st({ mode: 'edit', selectedAgentProvider: 'opencode2', selectedModel: 'kimi-k2', selectedEffort: 'max' }));
+    expect(hintOf(v)).toBe('The preset sets these models. To change them for this ticket, choose a Preset above.');
+    const chips = [...preview(v).querySelectorAll('.k-chip')].map((c) => c.textContent);
+    expect(chips).toEqual(['preset', 'approach', 'approach']);
+    expect(preview(v).textContent).not.toContain('sets its own core');
+  });
+
+  const pickerOf = (v: RenderHandle) => v.query<HTMLElement>('#agentIdentityPicker')!;
+  const segOf = (v: RenderHandle) => pickerOf(v).querySelector<HTMLElement>('[role="radiogroup"]')!;
+  const fieldHidden = (v: RenderHandle, sel: string) =>
+    (pickerOf(v).querySelector(sel)!.closest('.ap-field') as HTMLElement).hidden;
+
+  it('a graph approach shows the preset only: no Core + model switch, core and model hidden', () => {
+    const v = open(st({ mode: 'edit', selectedAgentProvider: 'opencode2' }));
+    expect(segOf(v).hidden).toBe(true);
+    expect(fieldHidden(v, '[data-ap-preset]')).toBe(false);
+    expect(fieldHidden(v, '[data-ap-shell="core"]')).toBe(true);
+    expect(fieldHidden(v, '[data-ap-shell="model"]')).toBe(true);
+  });
+
+  it('a non-graph approach keeps the Preset | Core + model switch', () => {
+    const v = open(st({ selectedApproach: 'classic' }));
+    expect(segOf(v).hidden).toBe(false);
+    const radios = [...segOf(v).querySelectorAll('[role="radio"]')];
+    expect(radios.map((r) => r.textContent?.trim())).toEqual(['Preset', 'Core + model']);
+  });
+
+  it('an approach pick re-mounts the picker: graph hides the switch, classic shows it again', () => {
+    const v = open(st({ selectedApproach: 'classic' }));
+    v.click('[data-approach="dyn"]');
+    expect(segOf(v).hidden).toBe(true);
+    v.click('[data-approach="classic"]');
+    expect(segOf(v).hidden).toBe(false);
+  });
+
+  type AgentPayload = { agentProvider: unknown; model: unknown; effort: unknown; agentPreset: unknown };
+  it('submit and save send a null core/model/effort for a graph approach and keep the preset', () => {
+    const over = { title: 'fix: graph', selectedAgentProvider: 'opencode2', selectedModel: 'kimi-k2', selectedEffort: 'max', selectedAgentPreset: 'deep' };
+    for (const btn of ['#submitBtn', '#saveBtn']) {
+      const v = open(st(over));
+      v.click(btn);
+      const sent = v.posted.find((m) => ['submit', 'save'].includes((m as { type: string }).type)) as AgentPayload;
+      expect(sent, btn).toMatchObject({ agentProvider: null, model: null, effort: null, agentPreset: 'deep' });
+    }
+  });
+
+  it('submit keeps the core/model/effort for a non-graph approach', () => {
+    const v = open(st({ title: 'fix: classic', selectedApproach: 'classic', selectedAgentProvider: 'claude', selectedModel: 'claude-sonnet-5', selectedEffort: 'high' }));
+    v.click('#submitBtn');
+    const sent = v.posted.find((m) => (m as { type: string }).type === 'submit') as AgentPayload;
+    expect(sent).toMatchObject({ agentProvider: 'claude', model: 'claude-sonnet-5', effort: 'high' });
   });
 
   it('says the approach sets the models when every role comes from the approach (SET-51)', () => {
@@ -530,7 +581,7 @@ describe('ticket form — graph role preview (T1266)', () => {
       { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
     ];
     const v = open(st({ graphRoles: { dyn: { '': fromApproach('inherit'), deep: fromApproach('deep') } } }));
-    expect(hintOf(v)).toBe('The approach sets these models. To change them for this ticket only, choose Core + model above.');
+    expect(hintOf(v)).toBe('The approach sets these models. To change them for this ticket, choose a Preset above.');
   });
 
   it('is hidden for an approach with no graph', () => {

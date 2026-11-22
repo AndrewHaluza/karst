@@ -22,16 +22,16 @@ export function resolveProfileFor(
   return { provider: p.provider, model: p.model, effort: p.effort };
 }
 
-/** The ticket fields a graph launch reads (AC-04 ticket rungs). */
+/**
+ * The ONE ticket field a graph launch reads (AC-63). A graph launch never reads
+ * the ticket's own core, model or effort: one core cannot fit three roles.
+ */
 export interface GraphLaunchTicketFields {
   agentPreset: string | null;
-  provider: string | null;
-  model: string | null;
-  effort: string | null;
 }
 
 /** The rung that supplied a graph launch's identity. */
-export type GraphProfileSource = 'ticket' | 'preset' | 'approach';
+export type GraphProfileSource = 'preset' | 'approach';
 
 export interface ResolvedGraphProfile {
   provider: string;
@@ -40,16 +40,13 @@ export interface ResolvedGraphProfile {
   source: GraphProfileSource;
 }
 
-export const NO_TICKET_FIELDS: GraphLaunchTicketFields = { agentPreset: null, provider: null, model: null, effort: null };
+export const NO_TICKET_FIELDS: GraphLaunchTicketFields = { agentPreset: null };
 
 const GRAPH_CAPABILITY_BY_PROFILE: Readonly<Record<string, 'graphExpert' | 'graphWorker' | 'graphFast'>> = {
   expert: 'graphExpert',
   worker: 'graphWorker',
   fast: 'graphFast',
 };
-
-const nonBlank = (v: string | null | undefined): string | undefined =>
-  v !== null && v !== undefined && v.trim() !== '' ? v : undefined;
 
 /** True when `model` may launch on `provider` (undefined model → true; unknown core → true, the adapter lookup refuses it). */
 function modelFits(provider: string, model: string | undefined): boolean {
@@ -58,13 +55,13 @@ function modelFits(provider: string, model: string | undefined): boolean {
 }
 
 /**
- * The ONE resolver of a graph agent launch (planner and node), AC-04 order:
- * the ticket's own core/model/effort → the preset slot (ticket `agentPreset` →
- * active preset) for `expert`/`worker`/`fast` → the approach profile. A slot
- * is an atomic triple: a model the slot's core cannot run drops the WHOLE slot,
- * and a ticket core that differs from the slot's drops it too. The catalog gate
- * and the effort gate then run on the result, so nothing unchecked reaches an
- * adapter. `source` names the rung for logs. Own-property lookups only.
+ * The ONE resolver of a graph agent launch (planner and node), AC-63 order:
+ * the preset slot (ticket `agentPreset` → active preset) for
+ * `expert`/`worker`/`fast` → the approach profile. It never reads the ticket's
+ * own core, model or effort. A slot is an atomic triple: a model the slot's
+ * core cannot run drops the WHOLE slot. The catalog gate and the effort gate
+ * then run on the result, so nothing unchecked reaches an adapter. `source`
+ * names the rung for logs. Own-property lookups only.
  */
 export function resolveGraphNodeProfile(
   manifest: Manifest,
@@ -97,20 +94,7 @@ export function resolveGraphNodeProfile(
       }
     }
   }
-
-  const ticketProvider = nonBlank(ticket.provider);
-  if (ticketProvider && base?.provider !== ticketProvider) {
-    base = { provider: ticketProvider, source: 'ticket' };
-  } else if (ticketProvider && base) {
-    base = { ...base, source: 'ticket' };
-  }
   if (!base) return undefined;
-  const ticketModel = nonBlank(ticket.model);
-  const ticketEffort = nonBlank(ticket.effort);
-  if (ticketModel && modelFits(base.provider, ticketModel)) {
-    base = { ...base, model: ticketModel, source: 'ticket' };
-  }
-  if (ticketEffort) base = { ...base, effort: ticketEffort, source: 'ticket' };
 
   const effort = isKnownProvider(base.provider)
     ? resolveEffortForProvider(base.provider, base.effort, undefined, base.model)
@@ -124,7 +108,7 @@ export function resolveGraphNodeProfile(
     ...(effort !== undefined ? { effort } : {}),
     source: base.source,
   };
-  const label = { ticket: 'ticket', preset: 'preset slot', approach: 'config' }[resolved.source];
+  const label = { preset: 'preset slot', approach: 'config' }[resolved.source];
   onDebug?.(
     resolved.source === 'preset'
       ? `[process] graph node profile "${profile}" → preset slot (${resolved.provider})`
@@ -133,12 +117,7 @@ export function resolveGraphNodeProfile(
   return resolved;
 }
 
-/** The launch fields of a ticket row (AC-04 ticket rungs). */
-export function ticketLaunchFields(t: {
-  agentPreset: string | null;
-  agentProvider: string | null;
-  model: string | null;
-  effort: string | null;
-}): GraphLaunchTicketFields {
-  return { agentPreset: t.agentPreset, provider: t.agentProvider, model: t.model, effort: t.effort };
+/** The launch field of a ticket row (AC-63: the ticket `agentPreset` only). */
+export function ticketLaunchFields(t: { agentPreset: string | null }): GraphLaunchTicketFields {
+  return { agentPreset: t.agentPreset };
 }

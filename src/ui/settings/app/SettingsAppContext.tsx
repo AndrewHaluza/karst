@@ -28,7 +28,6 @@ import {
 } from 'react';
 import type { Manifest } from '../../../manifest/types.js';
 import {
-  SECTION_FIELDS,
   SECTION_LABELS,
   SETTINGS_SECTIONS,
   type SettingsSection,
@@ -405,9 +404,4 @@ export function useSettingsApp(): SettingsApp & SettingsAppActions {
 export function readField<T>(manifest: Manifest, key: keyof Manifest, fallback: T): T {
   const value = manifest[key];
   return (value === undefined ? fallback : value) as T;
-}
-
-/** Whether a field belongs to `section` — anything else is never editable here. */
-export function ownsField(section: SettingsSection, field: keyof Manifest): boolean {
-  return SECTION_FIELDS[section].some((owned) => owned === field);
 }

@@ -65,6 +65,11 @@ export interface PlanningProposal {
    */
   priorityOverride: PriorityLevel | null;
   /**
+   * How many times the planner revised this draft in place (v135 `revision_count`). Host-owned;
+   * only `updateProposalPayload` increments it. A pre-v135 row reads 0 (no backfill).
+   */
+  revisionCount: number;
+  /**
    * Host-owned check results (unknown design key/commit, sensitive code with no
    * rule). Stored under the reserved `hostWarnings` key of `payload_json` — no
    * column — and stripped from `payload`, so callers see agent content and host
@@ -89,6 +94,7 @@ interface ProposalRow {
   depends_on_tickets?: string | null;
   depends_dropped: string;
   priority_override?: string | null;
+  revision_count?: number | null;
   status: ProposalStatus;
   ticket_id: number | null;
   source_uuid: string;
@@ -100,7 +106,7 @@ interface ProposalRow {
 }
 
 const COLUMNS =
-  'p.id, p.session_id, p.payload_json, p.base_shas, p.depends_on, p.depends_on_tickets, p.depends_dropped, p.priority_override, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
+  'p.id, p.session_id, p.payload_json, p.base_shas, p.depends_on, p.depends_on_tickets, p.depends_dropped, p.priority_override, p.revision_count, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
 
 /** A JSON column holding a positive-integer id array, decoded defensively —
  *  a corrupt or non-array value reads as none. */
@@ -165,6 +171,7 @@ function toProposal(r: ProposalRow): PlanningProposal {
     baseShas: parseBaseShas(r.base_shas),
     droppedDepends: parseIdArray(r.depends_dropped),
     priorityOverride: asPriorityLevel(r.priority_override) ?? null,
+    revisionCount: r.revision_count ?? 0,
     warnings,
     sourceUuid: r.source_uuid,
     createdAt: r.created_at,
@@ -325,7 +332,8 @@ function requirePending(store: Store, id: number): PlanningProposal {
 
 /**
  * Replace a pending proposal's payload IN PLACE (a planning agent revising a
- * draft), stamping `updated_at`. The caller has already authorized the update
+ * draft), stamping `updated_at` and incrementing `revision_count` (the ONLY
+ * writer of that counter). The caller has already authorized the update
  * (same session, still pending); `requirePending` is the last-line guard.
  */
 export function updateProposalPayload(
@@ -343,14 +351,14 @@ export function updateProposalPayload(
   if (sourceUuid === undefined) {
     store.db
       .prepare(
-        "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_on_tickets = ?, depends_dropped = '[]', updated_at = datetime('now') WHERE id = ?",
+        "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_on_tickets = ?, depends_dropped = '[]', revision_count = revision_count + 1, updated_at = datetime('now') WHERE id = ?",
       )
       .run(body, shasJson, dependsOn, dependsOnTickets, id);
     return;
   }
   store.db
     .prepare(
-      "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_on_tickets = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
+      "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_on_tickets = ?, depends_dropped = '[]', source_uuid = ?, revision_count = revision_count + 1, updated_at = datetime('now') WHERE id = ?",
     )
     .run(body, shasJson, dependsOn, dependsOnTickets, sourceUuid, id);
 }
@@ -462,13 +470,13 @@ export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): b
 }
 
 /** Stages a ticket never leaves: nothing can unblock a draft that waits on one of them. */
-const FINISHED_STAGES: readonly string[] = ['done', 'closed'];
+export const FINISHED_STAGES: readonly string[] = ['done', 'closed'];
 
 const nodeOfDraft = (id: number): string => `D${id}`;
 const nodeOfTicket = (id: number): string => `T${id}`;
 const nodeOfDep = (d: ProposalDependency): string => (isTicketDep(d) ? d : nodeOfDraft(d));
 /** Sentinel for a create: the draft has no id yet, and no real node is called `new`. */
-const NEW_NODE = 'new';
+export const NEW_NODE = 'new';
 
 /** A ticket dependency problem, or undefined when the ticket is an open one of the project. */
 function ticketDepProblem(store: Store, projectId: number, ticketId: number): string | undefined {
@@ -486,8 +494,9 @@ function ticketDepProblem(store: Store, projectId: number, ticketId: number): st
 }
 
 /** The project's dependency graph: every non-discarded proposal's edges, an
- *  accepted proposal's link to its ticket, and every `blocked-by` relation row. */
-function projectGraph(
+ *  accepted proposal's link to its ticket, and every `blocked-by` relation row.
+ *  Also read by the overlap check (`store/draftOverlap.ts`) for draft connectivity. */
+export function projectGraph(
   store: Store,
   projectId: number,
   incomingId: number | undefined,

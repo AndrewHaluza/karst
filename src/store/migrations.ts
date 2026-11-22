@@ -3116,10 +3116,18 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 135) {
-    // v135: `usage_limit_parks.reset_at`, `carry_provider`, `carry_model`, `carry_until` — the parsed reset instant and the opt-in carried pick (T1313, @arch:AC-65). Additive; NULL = unknown reset / one-shot pick (no backfill).
-    const parkCols135 = tableColumns(db, 'usage_limit_parks');
+    // v135: `planning_proposals.revision_count` — how many times a planner revised a pending draft in place (only `updateProposalPayload` increments it; @arch:PLANNING). Additive; 0 for every pre-v135 row: no backfill from `updated_at`, which accept, discard and late warnings/base shas also bump.
+    const proposalCols135 = tableColumns(db, 'planning_proposals');
+    if (proposalCols135.size > 0 && !proposalCols135.has('revision_count')) {
+      db.exec('ALTER TABLE planning_proposals ADD COLUMN revision_count INTEGER NOT NULL DEFAULT 0');
+    }
+  }
+
+  if (current < 136) {
+    // v136: `usage_limit_parks.reset_at`, `carry_provider`, `carry_model`, `carry_until` — the parsed reset instant and the opt-in carried pick (T1313, @arch:AC-65). Additive; NULL = unknown reset / one-shot pick (no backfill).
+    const parkCols136 = tableColumns(db, 'usage_limit_parks');
     for (const col of ['reset_at', 'carry_provider', 'carry_model', 'carry_until']) {
-      if (parkCols135.size > 0 && !parkCols135.has(col)) db.exec(`ALTER TABLE usage_limit_parks ADD COLUMN ${col} TEXT`);
+      if (parkCols136.size > 0 && !parkCols136.has(col)) db.exec(`ALTER TABLE usage_limit_parks ADD COLUMN ${col} TEXT`);
     }
   }
 

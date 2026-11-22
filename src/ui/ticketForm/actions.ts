@@ -1261,17 +1261,12 @@ export function buildTicketFormActions(
 
     setPreset(id: string): void {
       // An empty id is "Inherit (settings)" — persisted as '' which the store
-      // maps to NULL. A real preset GOVERNs, so explicit core/model/effort are
-      // cleared; otherwise they would win by precedence and the pick would look
-      // ignored. The next state push re-renders the picker onto the preset.
+      // maps to NULL. ANY preset pick, Inherit included, clears the explicit
+      // core/model/effort: a graph launch never reads them (arch:AC-63), and a
+      // stale trio must not survive to win a non-graph launch by precedence.
+      // The next state push re-renders the picker onto the preset.
       if (ctx.ticketId === undefined) return;
-      updateTicketFields(
-        deps.store,
-        ctx.ticketId,
-        id === ''
-          ? { agentPreset: '' }
-          : { agentPreset: id, agentProvider: '', model: '', effort: '' },
-      );
+      updateTicketFields(deps.store, ctx.ticketId, { agentPreset: id, agentProvider: '', model: '', effort: '' });
       deps.onAgentChoiceChanged?.(ctx.ticketId);
       ctx.pushState();
     },

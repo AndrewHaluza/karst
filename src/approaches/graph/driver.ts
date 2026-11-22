@@ -50,7 +50,13 @@ import {
 } from '../../store/graph/graphRuns.js';
 import { graphRunAgentIdentity, graphRunById } from '../../store/graph/graphRuns.js';
 import { runModelDifference } from './modelChange.js';
-import { parseRunIdentities, pinnedProfile, resolveRunIdentities, serializeRunIdentities } from './runIdentity.js';
+import {
+  parseRunIdentities,
+  pinnedProfile,
+  resolveRunIdentities,
+  serializeRunIdentities,
+  type RoleIdentity,
+} from './runIdentity.js';
 import { beginBootstrapPlannerRun, finishPlanning, relaunchBootstrapPlannerRun } from './coordinator/plannerRun.js';
 import { emitGraphDiagnostic } from './diagnostics.js';
 import {
@@ -279,7 +285,7 @@ export type { GraphLaunchTicketFields, GraphProfileSource, ResolvedGraphProfile 
  * The identity a launch of this graph run uses for `profile` (T1258): the run's
  * snapshot for a graph role it holds, else the live resolution — a pre-v133 run
  * has no snapshot. Planner, replan, node, retry and autorecovery launches all
- * read it, so the ticket's own fields are part of the snapshot too.
+ * read it, so the ticket's agentPreset is part of the snapshot too.
  */
 function launchProfileOfRun(
   deps: GraphDriverDeps,
@@ -287,7 +293,7 @@ function launchProfileOfRun(
   config: GraphApproachConfig,
   profile: string,
   ticketId: number,
-): ResolvedGraphProfile | undefined {
+): RoleIdentity | undefined {
   const pinned = pinnedProfile(parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId)), profile);
   if (!pinned) return resolveLaunchProfile(deps, config, profile, ticketId);
   deps.debug?.(
@@ -299,7 +305,10 @@ function launchProfileOfRun(
 /** Read the launching ticket's fields through the narrow dep, then resolve once. */
 /** The identity a launch records and hands the transport: the profile id plus
  *  the resolver's provider, model and effort. */
-function launchIdentityOf(profile: string, resolved: ResolvedGraphProfile): LaunchIdentity {
+function launchIdentityOf(
+  profile: string,
+  resolved: Pick<RoleIdentity, 'provider' | 'model' | 'effort'>,
+): LaunchIdentity {
   return {
     profile,
     provider: resolved.provider,
@@ -872,7 +881,7 @@ async function launchClaimedAgentNode(
   row: RunnableNodeRow,
   node: AgentNode,
   document: GraphDocument,
-  resolved: ResolvedGraphProfile,
+  resolved: RoleIdentity,
   config: NonNullable<ReturnType<GraphDriverDeps['graphConfigOf']>>,
   claim: { capability: string; generation: string; ownerNonce: string },
 ): Promise<ReadyNodeOutcome> {

@@ -480,6 +480,39 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'priority_override')).toHaveLength(1);
   });
 
+  it('migrates a pre-v135 database by adding planning_proposals.revision_count as 0, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE planning_proposals (id INTEGER PRIMARY KEY, created_at TEXT, updated_at TEXT)');
+    // A row touched after creation (accept, warnings): the migration must NOT read that as a revision.
+    legacy.exec("INSERT INTO planning_proposals (id, created_at, updated_at) VALUES (1, '2026-01-01 00:00:00', '2026-01-02 00:00:00')");
+    legacy.pragma('user_version = 134');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('planning_proposals')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('revision_count');
+    expect(migrated.db.prepare('SELECT revision_count AS n FROM planning_proposals WHERE id = 1').get()).toEqual({ n: 0 });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'revision_count')).toHaveLength(1);
+  });
+
+  it('a fresh database defaults planning_proposals.revision_count to 0', () => {
+    const fresh = openStore(':memory:');
+    cleanups.push(() => fresh.close());
+    const col = (fresh.db.prepare("PRAGMA table_info('planning_proposals')").all() as { name: string; notnull: number; dflt_value: string | null }[])
+      .find((c) => c.name === 'revision_count');
+    expect(col).toMatchObject({ notnull: 1, dflt_value: '0' });
+  });
+
   it('migrates a pre-v112 database by adding recovery_rounds.host_rerun_requested_at, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -632,14 +665,14 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'agent_identity')).toHaveLength(1);
   });
 
-  it('migrates a pre-v135 database by adding the usage_limit_parks reset and carry columns, idempotently, without a backfill', () => {
+  it('migrates a pre-v136 database by adding the usage_limit_parks reset and carry columns, idempotently, without a backfill', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');
     const legacy = new Database(path);
     legacy.exec('CREATE TABLE usage_limit_parks (id INTEGER PRIMARY KEY, ticket_id INTEGER, provider TEXT, resolved_at TEXT)');
     legacy.exec("INSERT INTO usage_limit_parks (ticket_id, provider) VALUES (1, 'claude')");
-    legacy.pragma('user_version = 134');
+    legacy.pragma('user_version = 135');
     legacy.close();
 
     const added = ['reset_at', 'carry_provider', 'carry_model', 'carry_until'];

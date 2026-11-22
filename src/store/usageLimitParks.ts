@@ -116,9 +116,9 @@ export interface UsageLimitParkRow {
   parkedAt: string;
   resolvedAt: string | null;
   resolution: string | null;
-  /** The instant the limit resets (v135, T1313); null = unknown. */
+  /** The instant the limit resets (v136, T1313); null = unknown. */
   resetAt: string | null;
-  /** The carried pick (v135, @arch:AC-65): the core/model later lanes use; null = one-shot. */
+  /** The carried pick (v136, @arch:AC-65): the core/model later lanes use; null = one-shot. */
   carryProvider: string | null;
   carryModel: string | null;
   /** The carry ends at this instant; null = no carry. */
