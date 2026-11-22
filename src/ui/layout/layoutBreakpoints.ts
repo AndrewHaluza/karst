@@ -18,6 +18,13 @@ export const LAYOUT_WIDTHS: readonly number[] = [1280, 900, 700, 699, 480];
 export const LAYOUT_HEIGHT = 900;
 
 /**
+ * The Settings page's form grid collapses its label/control columns below 700 px (Q12,
+ * `@ui:RD-VIEWS`), so the settings routes also open both sides of the tight boundary and the
+ * 320 px floor. Other views keep the shared 480 px floor until their own ticket.
+ */
+export const SETTINGS_LAYOUT_WIDTHS: readonly number[] = [...LAYOUT_WIDTHS, 399, 320];
+
+/**
  * The extra probes of the Inside block: both sides of the tight boundary, plus the 320 floor (ui:RD-GATE item 1).
  * This departs from the global widening on purpose: other regions keep the 480 floor until their own ticket.
  */

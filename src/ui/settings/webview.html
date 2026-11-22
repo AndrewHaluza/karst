@@ -355,6 +355,7 @@
   .callout > .icon-island{color:var(--k-warning);flex:0 0 auto;margin-top:var(--k-space-1)}
   .callout-msg{font-weight:var(--k-weight-semibold)}
   .err-banner-text{flex:1 1 auto;min-width:0}
+  .err-banner-goto{min-height:var(--k-hit-min);display:inline-flex;align-items:center}
   .approach-install{margin-left:var(--k-space-0);flex-shrink:0}
   .builtin-tag{font-size:var(--k-text-xs);opacity:.6}
   /* Ticketing token row: the status text grows so its buttons keep their natural
@@ -631,9 +632,11 @@
   .nav-btn.active{
     background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
     color:var(--vscode-list-activeSelectionForeground,var(--k-text));
-    /* SET-9: the selected tab keeps a shape in HC, where the wash may be flat. */
-    outline:var(--k-border-w) solid var(--vscode-contrastActiveBorder,transparent);
-    outline-offset:calc(var(--k-border-w) * -1);
+    /* SET-9: the selected tab keeps a shape in HC, where the wash may be flat.
+       Inset shadow, not outline: an outline on the selected tab wins at equal
+       specificity over `.nav-btn:focus-visible`, so the keyboard ring would not
+       change any computed outline property (T1297 / UI-R23). */
+    box-shadow:inset 0 0 0 var(--k-border-w) var(--vscode-contrastActiveBorder,transparent);
   }
   .nav-btn.has-changes::after,.nav-btn.has-error::after{
     content:'';position:absolute;right:var(--k-space-5);top:50%;transform:translateY(-50%);
@@ -659,7 +662,11 @@
   .project-copy{min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
   .project-id{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm);overflow-wrap:anywhere}
   .project-version{font-size:var(--k-text-2xs);color:var(--k-text-dim)}
-  .project-more{color:var(--k-text-dim);font-size:var(--k-text-2xs);letter-spacing:.1em}
+  .project-more{color:var(--k-text-dim);font-size:var(--k-text-2xs);letter-spacing:.1em;display:inline-flex;align-items:center;line-height:1}
+  /* A 14px SVG in a text-sized span overflows it at some line heights; the island
+     and its child are boxes of the icon's own size (T1297 / UI-R43 containment). */
+  .project-more > .icon-island,.manifest-icon > .icon-island{display:inline-flex;align-items:center;line-height:0}
+  .project-more svg,.manifest-icon svg{display:block}
   .manifest-btn{
     width:100%;display:grid;grid-template-columns:var(--k-space-6) minmax(0,1fr) auto;gap:var(--k-space-3);align-items:center;
     margin-top:var(--k-space-2);padding:var(--k-space-3);border-radius:var(--k-radius-sm);text-align:left;
@@ -667,7 +674,7 @@
   }
   .manifest-btn:hover{background:var(--k-surface-hover)}
   .manifest-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .manifest-icon{color:var(--k-text-dim);font-size:var(--k-text-xs)}
+  .manifest-icon{color:var(--k-text-dim);font-size:var(--k-text-xs);display:inline-flex;align-items:center;line-height:1}
   .manifest-name{font-family:var(--k-font-mono);font-size:var(--k-text-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text-dim)}
   .manifest-open{font-size:var(--k-text-2xs);color:var(--k-link);white-space:nowrap}
   /* In-place edit input (preset rename): sized by its row, not the form grid.
@@ -700,6 +707,9 @@
   .topbar{position:sticky;top:var(--k-space-0);z-index:var(--k-z-scrim);background:var(--vscode-sideBar-background,var(--k-bg))}
   .topbar h1{display:flex;align-items:center;gap:var(--k-space-3);min-width:0;flex:1 1 auto;font-size:var(--k-text-xl)}
   .save-state{font-size:var(--k-text-sm);color:var(--k-text-dim);white-space:nowrap;flex:0 0 auto}
+  /* A long fault ("Fix the error on Repositories to save") must not push the title
+     item outside the topbar; the section name ellipsizes instead (T1297 / UI-R43). */
+  #topbarSection{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .save-state.is-error{color:var(--k-danger)}
   /* Q4-SAVE: Accounts saves at once, so the topbar says so where Save/Discard
      would otherwise sit. */
@@ -712,6 +722,7 @@
   #section-autopilot .k-input.autopilot-number{width:9ch;justify-self:start}
   #section-autopilot .k-input.autopilot-select{max-width:38ch}
   #section-autopilot .k-switch,#section-autopilot .k-switch label{color:var(--k-text)}
+  #section-approaches .k-switch,#section-services .k-switch{min-height:var(--k-hit-min)}
   #section-autopilot .autopilot-check-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3)}
   #section-autopilot .autopilot-checks{display:contents;list-style:none;margin:var(--k-space-0);padding:var(--k-space-0)}
   #section-autopilot .autopilot-checks > li{list-style:none}
@@ -758,12 +769,14 @@
   .template-help-link{
     flex:0 0 auto;background:none;border:none;color:var(--k-link);cursor:pointer;font:inherit;
     font-size:var(--k-text-xs);padding:var(--k-space-1) var(--k-space-0);text-decoration:none;
+    min-height:var(--k-hit-min);display:inline-flex;align-items:center;
   }
   .template-help-link:hover{text-decoration:underline}
   .template-help-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .template-reset-link{
     flex:0 0 auto;background:none;border:none;color:var(--k-text-dim);cursor:pointer;font:inherit;
     font-size:var(--k-text-xs);padding:var(--k-space-1) var(--k-space-0);text-decoration:none;
+    min-height:var(--k-hit-min);display:inline-flex;align-items:center;
   }
   .template-reset-link:hover{color:var(--k-text);text-decoration:underline}
   .template-reset-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
@@ -1021,7 +1034,9 @@
     .content{padding-inline:var(--k-space-5)}
     #saveBtn .save-section-name{display:none}
     .topbar .unsaved-hint{display:none}
-    .sidebar{max-height:calc(var(--k-space-8) * 4.2);overflow-y:auto;overflow-x:visible}
+    /* The chip row wraps in full: a capped, internally scrolling nav would be a
+       second scroll container beside .content (T1297 / UI-R38). */
+    .sidebar{overflow-x:visible}
     .roster-row .cell-path{display:none}
     .approach-actions{flex-wrap:wrap}
     .footer-row{flex-wrap:wrap;justify-content:stretch}

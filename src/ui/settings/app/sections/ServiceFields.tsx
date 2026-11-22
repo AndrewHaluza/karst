@@ -79,7 +79,7 @@ export function ServiceFields({
     <>
       <Field
         label="Run a Docker image"
-        help="On, karst runs a container instead of a command in the worktree, publishes your allocated port onto it, and removes it when the ticket is torn down."
+        help="On, Karst runs a container instead of a command in the worktree, publishes your allocated port onto it, and removes it when the ticket is torn down."
         control={{
           kind: 'checkbox',
           name: `f-svc-docker-mode-${scope}`,

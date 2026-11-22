@@ -287,7 +287,11 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     : 'karst.yml';
 
   return (
-    <div className="app">
+    // The app mount marker lives on the shell, not only on AppSections: SET-7
+    // replaces the tabs with the loading placeholder until the first state push,
+    // so a render harness that only waits for `data-karst-ready` must still see
+    // the app it mounted (T1297 integration).
+    <div className="app" data-karst-settings-app="true">
       <nav className="sidebar" aria-label="Settings sections" data-region="nav">
         <div className="brand">
           <ProjectGlyph idPrefix="set" className="brandmark" />
@@ -345,7 +349,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             onClick={() => openManifest.trigger()}
           >
             <span className="manifest-icon" aria-hidden="true">
-              <TablerIcon name="file-text" size={14} />
+              <TablerIcon name="file-text" size={12} />
             </span>
             <span className="manifest-name" id="footManifestName">{manifestName}</span>
             <span className="manifest-open">Open ↗</span>
@@ -407,7 +411,15 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
               obvious from a bare "Settings" heading. */}
           <h1>
             Settings{' '}
-            <span className="topbar-section" id="topbarSection">› {SECTION_LABELS[section]}</span>
+            <span
+              className="topbar-section"
+              id="topbarSection"
+              // The section name can ellipsize beside a long fault; the label keeps
+              // the full text available to assistive tech (T1297 / UI-R44).
+              aria-label={`› ${SECTION_LABELS[section]}`}
+            >
+              › {SECTION_LABELS[section]}
+            </span>
           </h1>
           <span className="spacer" />
           {/* SET-3: the save-state region is never hidden. The full sentence is

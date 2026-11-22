@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
   SETTINGS_SECTIONS,
@@ -23,6 +26,30 @@ const BASE: Manifest = buildManifest(
     conventions: { branchName: 'karst/{slug}' },
   },
 );
+
+describe('settings copy — Karst is capitalised (SET-11)', () => {
+  it('writes Karst, never lowercase karst, in the section JSX prose', () => {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), 'app', 'sections');
+    const offenders: string[] = [];
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.tsx') && !f.endsWith('.test.tsx'))) {
+      const source = readFileSync(join(dir, file), 'utf8')
+        // Comments and module specifiers are not user-facing prose.
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '')
+        .replace(/\bfrom\s+['"][^'"]+['"]/g, '')
+        .replace(/\bimport\s+['"][^'"]+['"]/g, '')
+        .replace(/https?:\/\/\S+/g, '')
+        // The file names, paths and identifier fragments SET-11 keeps lowercase.
+        .replace(/\.?karst\//g, '')
+        .replace(/karst\.yml/g, '')
+        .replace(/karst-/g, '');
+      source.split('\n').forEach((line, index) => {
+        if (/\bkarst\b/.test(line)) offenders.push(`${file}:${index + 1}: ${line.trim()}`);
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+});
 
 describe('settings sections — vocabulary', () => {
   it('gives every section a label', () => {

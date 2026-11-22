@@ -59,6 +59,12 @@
   gap: var(--k-space-2);
   align-items: center;
 }
+/* The compare chip group is nowrap so its pair reads as one control; it may sit
+   in a toolbar row narrower than its intrinsic width (320 px), so the group
+   wraps and its field shrinks instead of overhanging the row (T1297 / UI-R43). */
+#section-agents .agents-compare-bar { flex-wrap: wrap; max-width: 100%; min-width: 0; }
+#section-agents .agents-compare-bar > .k-field,
+#section-agents .agents-compare-bar .k-input { min-width: 0; }
 
 #section-agents .agents-tgroup select,
 #section-agents .agents-tgroup input,

@@ -242,9 +242,9 @@ function RepositoryCard({
           <span className="chevron" aria-hidden="true">
             <TablerIcon name="chevron-right" size={14} />
           </span>
-          <span className="card-title">{name}</span>
+          <span className="card-title" aria-label={name}>{name}</span>
         </button>
-        <span className="cell-path" title={repo.repoPath || ''}>
+        <span className="cell-path" title={repo.repoPath || ''} aria-label={repo.repoPath || undefined}>
           {repo.repoPath ? (
             <>
               <span className="path-text">{middleEllipsis(repo.repoPath)}</span>
