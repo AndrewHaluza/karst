@@ -132,7 +132,10 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
  - \`draft propose\` — ONLY inside a planning session (read-only
     investigation before any ticket exists). Reads ONE JSON object on stdin,
     \`{"title":…,"description":…,"summary":…,"repos":[…]}\`, and writes it as a
-    proposal into the session's \`$KARST_OUTBOX\`; it takes no flags. No ticket
+    proposal into the session's \`$KARST_OUTBOX\`. To avoid shell quoting, put the
+    same object in a file and run \`karst draft propose --file <path>\` (a regular
+    file, not a symlink), or pipe it with \`--stdin\`; the MCP \`draft\` tool takes
+    the same object. No other flag is accepted. No ticket
     exists yet: karst shows the user the full proposal and they confirm (or
     discard) it. The summary holds the decisions reached and the options
     rejected; it becomes the ticket's brief. Propose once per ticket when the
@@ -153,8 +156,15 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     set. Add \`"constraints":[…]\` (max 20 strings of ≤200 chars:
     \`@arch:KEY\`, a commit hash, a \`D<n>\`/\`T<n>\` ref, or free text) to cite the design rules
     and prior work the draft builds on; the user sees them on review, they are
-    appended to the ticket brief, and the host warns on unknown keys/commits. On success it prints \`{"ok":true,"file":…,"id":N}\` — the draft's #id;
-    if the host has not answered within ~10s it prints \`{"ok":true,"file":…,"id":null}\` with
+    appended to the ticket brief, and the host warns on unknown keys/commits. On success it prints \`{"ok":true,"file":…,"id":N,"ref":"D<n>"}\` — the draft's #id.
+    When the host flags the draft, the output also has \`"warnings":[…]\` and a
+    \`hint\`: fix the warnings and revise the draft with its \`id\`, or leave them
+    for the reviewer. The host finishes its commit checks first; when they still
+    run at the deadline, the output adds \`"checksPending":true\` (read \`draft list\`
+    later for the final warnings). When the host REJECTS the
+    draft (an unknown repository, a bad dependency, the pending cap, a draft that
+    is not yours), the command exits non-zero and names the reason: fix it and
+    propose again. If the host has not answered within ~10s it prints \`{"ok":true,"file":…,"id":null}\` with
     a hint, and \`draft list\` will show the id once the host has ingested it.
     To REVISE a draft you already filed, add an integer \`id\` to the same JSON
     object: the host replaces that draft's content in place (only while it is
@@ -169,7 +179,8 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     ids to put in a draft's \`dependsOn\`. A planning session reads it through
     \`KARST_DB_READONLY\`, scoped by \`KARST_PROJECT\`.
  - \`draft list\` — ONLY inside a planning session. Reads the session's proposal
-    index and prints its drafts as JSON \`[{"id":N,"status":…,"title":…}]\`; use
+    index and prints its drafts as JSON \`[{"id":N,"ref":"D<n>","status":…,"title":…}]\`
+    (plus \`"warnings":[…]\` on a draft the host flagged); use
     it to re-read the ids and statuses (a draft a human already accepted or
     discarded cannot be revised). It opens no store. The one flag, \`--pending\`,
     keeps only the drafts still pending; without it the output is unchanged.
