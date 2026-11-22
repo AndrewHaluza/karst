@@ -2811,12 +2811,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     coreLabel: (core) => AGENT_PROVIDER_LABELS[core] ?? core,
     accountOf: activeAccountLabel,
     status: {
-      set: (text, tooltip, warning) => {
+      set: (text, tooltip, level) => {
         quotaStatus.text = text;
         quotaStatus.tooltip = tooltip;
-        quotaStatus.backgroundColor = warning
-          ? new vscode.ThemeColor('statusBarItem.warningBackground')
-          : undefined;
+        quotaStatus.backgroundColor =
+          level === 'exhausted'
+            ? new vscode.ThemeColor('statusBarItem.errorBackground')
+            : level === 'near'
+              ? new vscode.ThemeColor('statusBarItem.warningBackground')
+              : undefined;
         quotaStatus.show();
       },
       hide: () => quotaStatus.hide(),

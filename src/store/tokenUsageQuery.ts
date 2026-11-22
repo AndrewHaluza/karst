@@ -23,14 +23,6 @@ export type UsageSort = (typeof USAGE_SORTS)[number];
 export const MAX_USAGE_LIMIT = 200;
 export const DEFAULT_USAGE_LIMIT = 50;
 
-/** The time ranges the view offers. `days: null` means "everything". */
-export const USAGE_RANGES = [
-  { id: '24h', label: 'Last 24 hours', days: 1 },
-  { id: '7d', label: 'Last 7 days', days: 7 },
-  { id: '30d', label: 'Last 30 days', days: 30 },
-  { id: 'all', label: 'All time', days: null },
-] as const;
-
 export interface UsageQuery {
   /** Scope to one project. NULL is the deliberate all-projects view. */
   projectId: number | null;
@@ -48,8 +40,6 @@ export interface UsageQuery {
 export type UsageQueryResult =
   | { ok: true; query: UsageQuery }
   | { ok: false; error: string };
-
-const MS_PER_DAY = 86_400_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -153,18 +143,4 @@ export function parseUsageQuery(raw: unknown): UsageQueryResult {
       sort,
     },
   };
-}
-
-/**
- * Turn a range preset into query bounds. An unknown id resolves to all-time
- * rather than throwing: the presets are a display convenience, and the query
- * they produce is validated by `parseUsageQuery` regardless.
- */
-export function resolveUsageRange(
-  id: string,
-  now: Date,
-): { from: string | null; to: string | null } {
-  const range = USAGE_RANGES.find((r) => r.id === id);
-  if (!range || range.days === null) return { from: null, to: null };
-  return { from: new Date(now.getTime() - range.days * MS_PER_DAY).toISOString(), to: null };
 }

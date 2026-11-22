@@ -2,6 +2,7 @@ import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import { join } from 'node:path';
 import { accountReaderEnv, claudeAccountConfigDirs } from '../../agent/accounts/registry.js';
 import { buildQuotaIndicator } from '../../ui/quotaStatus.js';
+import type { QuotaLevel } from '../../model/quotaText.js';
 import { quotaLaunchWarning } from '../../agent/quota/warn.js';
 import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../manifest/validate/quota.js';
 import type { QuotaService } from '../../agent/quota/service.js';
@@ -25,7 +26,7 @@ import { resolveNodeExecutable } from '../../agent/nodeExecutable.js';
 
 /** The status-bar sink the binding implements over one `vscode.StatusBarItem`. */
 export interface QuotaStatusSink {
-  set(text: string, tooltip: string, warning: boolean): void;
+  set(text: string, tooltip: string, level: QuotaLevel): void;
   hide(): void;
 }
 
@@ -109,7 +110,7 @@ export class QuotaOps {
       this.deps.status.hide();
       return;
     }
-    this.deps.status.set(indicator.text, indicator.tooltip, indicator.warning);
+    this.deps.status.set(indicator.text, indicator.tooltip, indicator.level);
   }
 
   /**

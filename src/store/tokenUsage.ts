@@ -8,9 +8,9 @@ import type { UsageQuery, UsageSort } from './tokenUsageQuery.js';
  * Writing is one INSERT — deliberately the cheapest thing in the module, because
  * it happens on the AI call's own path and must never be worth skipping.
  *
- * Reading is FIVE aggregate queries (overall, by call site, by model, by ticket,
- * by graph profile), each a GROUP BY. The first four SQLite answers off the v17
- * indexes; the profile rollup rides LEFT JOINs to `approach_node_runs`/
+ * Reading is the aggregate queries (overall, first recorded instant, by call
+ * site, by model, by provider, by ticket, by graph profile), each a GROUP BY.
+ * The index-backed ones ride the v17 indexes; the profile rollup rides LEFT JOINs to `approach_node_runs`/
  * `approach_planner_runs` by primary key instead, since a profile is a fact of
  * the RUN a usage row was attributed to, not of the row's own range. None of
  * them selects a row: the alternative — pull the range into JS and reduce it — is an
@@ -75,6 +75,8 @@ export interface TokenUsageStats {
   totals: UsageTotals;
   byCallSite: UsageGroupRow[];
   byModel: UsageGroupRow[];
+  /** Spend per provider id. `''` = the core never named a provider (US-4). */
+  byProvider: UsageGroupRow[];
   /** One page of the per-ticket table, ordered by the query's `sort`. */
   byTicket: UsageTicketRow[];
   /** Distinct tickets in range — the page's denominator. */
@@ -86,6 +88,12 @@ export interface TokenUsageStats {
    */
   byProfile: UsageProfileRow[];
   range: { from: string | null; to: string | null };
+  /**
+   * The earliest `recorded_at` in range (`MIN(recorded_at)`), or null when the
+   * range holds no rows. The "All time · since <date>" scope label reads it
+   * (US-1), so it is scoped by the same WHERE as the totals.
+   */
+  firstAt: string | null;
 }
 
 /** The zero every empty range reports. Not an error — nothing was spent yet. */
@@ -144,6 +152,22 @@ INSERT INTO token_usage (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`;
 
 /**
+ * Subscribers that observe every successfully recorded row (US-11).
+ *
+ * A module-level set rather than a store column: a live view only needs to know
+ * that the ledger changed, and it re-reads through the same aggregate queries as
+ * any other caller. The returned unsubscribe is idempotent.
+ */
+const tokenUsageListeners = new Set<() => void>();
+
+export function onTokenUsageRecorded(listener: () => void): () => void {
+  tokenUsageListeners.add(listener);
+  return () => {
+    tokenUsageListeners.delete(listener);
+  };
+}
+
+/**
  * Append one call to the ledger. Throws only on a genuine store failure — the
  * caller (`instrumentedAdapter`) swallows and logs, because a bookkeeping fault
  * must never surface as a failure of the AI feature it was measuring.
@@ -172,6 +196,15 @@ export function recordTokenUsage(store: Store, entry: TokenUsageEntry): void {
       entry.approachPlannerRunId ?? null,
       entry.approachNodeRunId ?? null,
     );
+  // Only after the INSERT succeeded: a listener observes a durable row. Each
+  // listener is isolated — bookkeeping must never fail the call it measures.
+  for (const listener of tokenUsageListeners) {
+    try {
+      listener();
+    } catch (err) {
+      console.error('karst: token-usage listener failed', err);
+    }
+  }
 }
 
 /**
@@ -345,6 +378,10 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
     .prepare(`SELECT ${aggregates()} FROM token_usage ${where.clause}`)
     .get(...where.params) as TotalsRow | undefined;
 
+  const firstRow = store.db
+    .prepare(`SELECT MIN(recorded_at) AS first_at FROM token_usage ${where.clause}`)
+    .get(...where.params) as { first_at: string | null } | undefined;
+
   const ticketGroupsRow = store.db
     .prepare(
       `SELECT COUNT(*) AS n FROM (
@@ -403,6 +440,7 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
     totals: totalsRow ? toTotals(totalsRow) : EMPTY_USAGE_TOTALS,
     byCallSite: groupBy(store, 'call_site', where),
     byModel: groupBy(store, 'model', where),
+    byProvider: groupBy(store, 'provider', where),
     byTicket: ticketRows.map((row) => ({
       ticketId: row.ticket_id,
       ticketKey: row.ticket_key,
@@ -417,6 +455,7 @@ export function queryTokenUsageStats(store: Store, query: UsageQuery): TokenUsag
     })),
     ticketGroups: ticketGroupsRow?.n ?? 0,
     range: { from: query.from, to: query.to },
+    firstAt: firstRow?.first_at ?? null,
   };
 }
 
