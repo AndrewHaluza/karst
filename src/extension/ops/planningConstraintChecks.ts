@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import { PROMPT_SENSITIVE_PATHS } from '../../planning/proposal.js';
+import { clipToken, MAX_WARNING_CHARS } from '../../planning/draftQualityChecks.js';
 
 /**
  * Host-side checks of a draft's `constraints` at ingest. They only ever produce
@@ -13,19 +14,45 @@ import { PROMPT_SENSITIVE_PATHS } from '../../planning/proposal.js';
 
 const ARCH_CONSTRAINT = /^@arch:([A-Z0-9_-]+)$/;
 const COMMIT_CONSTRAINT = /^[0-9a-f]{7,40}$/;
-const ARCH_DIR = join('docs', 'arch');
 
 type Debug = (line: string) => void;
 type RunGit = (args: string[]) => Promise<string>;
 export type CommitExists = (repoPath: string, hash: string) => Promise<boolean>;
 
-/** Every `[@arch:KEY]` named in a repo's docs/arch/*.md; undefined when unreadable. */
-function archKeysOf(repoPath: string): Set<string> | undefined {
+type DesignNamespace = 'arch' | 'ui';
+/**
+ * The design-key namespaces. Keys are bare tokens (`^…$`). `@ui` allows the
+ * dotted (`@ui:1.1`) and lowercase-suffix (`@ui:UI-R09b`) keys that docs/ui
+ * uses; `@arch` keeps its upper-case class.
+ */
+const DESIGN_NAMESPACES: Record<DesignNamespace, { key: RegExp; ref: RegExp; dir: string }> = {
+  arch: { key: /^[A-Z0-9_-]+$/, ref: /\[@arch:([A-Z0-9_-]+)\]/g, dir: join('docs', 'arch') },
+  ui: { key: /^[A-Za-z0-9._-]+$/, ref: /\[@ui:([A-Za-z0-9._-]+)\]/g, dir: join('docs', 'ui') },
+};
+const DESIGN_ORDER: readonly DesignNamespace[] = ['ui', 'arch'];
+const DESIGN_PREFIX = /^@(arch|ui):/;
+const MALFORMED_PREFIX = 'malformed design key ';
+const UNKNOWN_PREFIX = 'unknown design key ';
+
+type DesignKey = { ns: DesignNamespace; key: string } | 'malformed' | undefined;
+
+/** A `@arch:KEY` / `@ui:KEY` constraint, `'malformed'` for a bad key, undefined for any other entry. */
+function parseDesignKey(c: string): DesignKey {
+  const m = DESIGN_PREFIX.exec(c);
+  if (!m) return undefined;
+  const ns = m[1] as DesignNamespace;
+  const key = c.slice(m[0].length);
+  return DESIGN_NAMESPACES[ns].key.test(key) ? { ns, key } : 'malformed';
+}
+
+/** Every `[@<ns>:KEY]` named in a repo's docs/<ns>/*.md; undefined when unreadable. */
+function designKeysOf(repoPath: string, ns: DesignNamespace): Set<string> | undefined {
+  const { dir, ref } = DESIGN_NAMESPACES[ns];
   try {
-    const dir = join(repoPath, ARCH_DIR);
+    const abs = join(repoPath, dir);
     const keys = new Set<string>();
-    for (const f of readdirSync(dir).filter((n) => n.endsWith('.md'))) {
-      for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/\[@arch:([A-Z0-9_-]+)\]/g)) keys.add(m[1]!);
+    for (const f of readdirSync(abs).filter((n) => n.endsWith('.md'))) {
+      for (const m of readFileSync(join(abs, f), 'utf8').matchAll(ref)) keys.add(m[1]!);
     }
     return keys;
   } catch {
@@ -86,16 +113,19 @@ function defaultAsyncGit(repoPath: string, args: string[]): Promise<string> {
   });
 }
 
-/** For each `@arch:KEY` constraint, the docs/arch file (by name) that defines it. */
+/** For each `@arch:KEY` / `@ui:KEY` constraint, the docs/<ns> file (by name) that defines it. */
 export function archDocFiles(constraints: readonly string[], repoPaths: readonly string[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const c of constraints) {
-    const key = ARCH_CONSTRAINT.exec(c)?.[1];
-    if (!key) continue;
+    const parsed = parseDesignKey(c);
+    if (parsed === undefined || parsed === 'malformed') continue;
+    const { dir } = DESIGN_NAMESPACES[parsed.ns];
     for (const repo of repoPaths) {
-      const dir = join(repo, ARCH_DIR);
+      const abs = join(repo, dir);
       try {
-        const file = readdirSync(dir).filter((n) => n.endsWith('.md')).find((n) => readFileSync(join(dir, n), 'utf8').includes(`[@arch:${key}]`));
+        const file = readdirSync(abs)
+          .filter((n) => n.endsWith('.md'))
+          .find((n) => readFileSync(join(abs, n), 'utf8').includes(`[@${parsed.ns}:${parsed.key}]`));
         if (file) {
           out[c] = file;
           break;
@@ -108,18 +138,33 @@ export function archDocFiles(constraints: readonly string[], repoPaths: readonly
   return out;
 }
 
+/** The well-formed keys of one namespace, as their full constraint text. */
+function keysIn(constraints: readonly string[], ns: DesignNamespace): string[] {
+  return constraints.filter((c) => {
+    const p = parseDesignKey(c);
+    return p !== undefined && p !== 'malformed' && p.ns === ns;
+  });
+}
+
 export function archWarnings(constraints: readonly string[], repoPaths: readonly string[], debug: Debug): string[] {
   const malformed = constraints
-    .filter((c) => c.startsWith('@arch:') && !ARCH_CONSTRAINT.test(c))
-    .map((c) => `malformed design key ${c}`);
-  const wanted = constraints.flatMap((c) => ARCH_CONSTRAINT.exec(c)?.[1] ?? []);
-  if (wanted.length === 0 || repoPaths.length === 0) return malformed;
-  const sets = repoPaths.map(archKeysOf).filter((s): s is Set<string> => s !== undefined);
-  if (sets.length === 0) {
-    debug(`[planning] constraint check: no readable docs/arch in ${repoPaths.length} repo(s) — @arch keys not verified`);
-    return malformed;
+    .filter((c) => parseDesignKey(c) === 'malformed')
+    .map((c) => `${MALFORMED_PREFIX}${clipToken(c, MAX_WARNING_CHARS - MALFORMED_PREFIX.length)}`);
+  const unknown: string[] = [];
+  for (const ns of DESIGN_ORDER) {
+    const wanted = keysIn(constraints, ns);
+    if (wanted.length === 0 || repoPaths.length === 0) continue;
+    const sets = repoPaths.map((r) => designKeysOf(r, ns)).filter((s): s is Set<string> => s !== undefined);
+    if (sets.length === 0) {
+      debug(`[planning] constraint check: no readable docs/${ns} in ${repoPaths.length} repo(s) — @${ns} keys not verified`);
+      continue;
+    }
+    for (const c of wanted) {
+      const key = c.slice(`@${ns}:`.length);
+      if (!sets.some((s) => s.has(key))) unknown.push(`${UNKNOWN_PREFIX}${clipToken(c, MAX_WARNING_CHARS - UNKNOWN_PREFIX.length)}`);
+    }
   }
-  return [...malformed, ...wanted.filter((k) => !sets.some((s) => s.has(k))).map((k) => `unknown design key @arch:${k}`)];
+  return [...malformed, ...unknown];
 }
 
 export function sensitivePathWarning(p: { description: string; summary: string; constraints?: readonly string[] }): string[] {

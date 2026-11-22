@@ -222,3 +222,59 @@ describe('resolveBaseShasOf', () => {
     expect(await resolveBaseShasOf(manifest, ['web'], async () => 'abcdef1')).toEqual({ web: 'abcdef1' });
   });
 });
+
+function repoWithUiDocs(doc: string): string {
+  const root = repoWithDocs(undefined);
+  mkdirSync(join(root, 'docs', 'ui'), { recursive: true });
+  writeFileSync(join(root, 'docs', 'ui', 'UI-INVARIANTS.md'), doc);
+  return root;
+}
+
+describe('@ui design keys', () => {
+  const uiDoc = '## [@ui:TITLE-KEY] T\n## [@ui:1.1] N\n## [@ui:UI-R09b] R\n';
+  it('verifies @ui keys against docs/ui, including dotted and lowercase-suffix keys', () => {
+    const repo = repoWithUiDocs(uiDoc);
+    expect(archWarnings(['@ui:TITLE-KEY', '@ui:1.1', '@ui:UI-R09b', '@ui:NOPE'], [repo], vi.fn())).toEqual([
+      'unknown design key @ui:NOPE',
+    ]);
+  });
+  it('does not accept an @ui key from docs/arch or an @arch key from docs/ui', () => {
+    const repo = repoWithUiDocs('## [@ui:ONLYUI] x\n');
+    mkdirSync(join(repo, 'docs', 'arch'), { recursive: true });
+    writeFileSync(join(repo, 'docs', 'arch', 'a.md'), '## [@arch:ONLYARCH] x\n');
+    expect(archWarnings(['@ui:ONLYARCH', '@arch:ONLYUI'], [repo], vi.fn())).toEqual([
+      'unknown design key @ui:ONLYARCH',
+      'unknown design key @arch:ONLYUI',
+    ]);
+  });
+  it('flags a malformed @ui key and keeps @arch strict', () => {
+    expect(archWarnings(['@ui:', '@ui:a b', '@arch:1.1', '@arch:x'], [], vi.fn())).toEqual([
+      'malformed design key @ui:',
+      'malformed design key @ui:a b',
+      'malformed design key @arch:1.1',
+      'malformed design key @arch:x',
+    ]);
+  });
+  it('skips @ui keys with a debug line when no repo has docs/ui, and still checks @arch keys', () => {
+    const debug = vi.fn();
+    const repo = repoWithDocs('## [@arch:A] t\n');
+    expect(archWarnings(['@ui:X', '@arch:A', '@arch:B'], [repo], debug)).toEqual(['unknown design key @arch:B']);
+    expect(debug).toHaveBeenCalledWith(expect.stringMatching(/^\[planning\] .*docs\/ui.*@ui keys not verified/));
+  });
+  it('archDocFiles names the docs/ui file of an @ui key', () => {
+    const repo = repoWithUiDocs(uiDoc);
+    expect(archDocFiles(['@ui:1.1', '@ui:NOPE', 'free text'], [repo])).toEqual({ '@ui:1.1': 'UI-INVARIANTS.md' });
+  });
+  it('an @ui citation does not count for the prompt-sensitive check', () => {
+    expect(sensitivePathWarning({ description: 'src/agent/seed.ts', summary: '', constraints: ['@ui:TITLE-KEY'] })).toHaveLength(1);
+  });
+  it('clips every design-key warning to 60 chars', () => {
+    const long = `@arch:${'A'.repeat(190)}`;
+    const bad = `@arch:${'a'.repeat(190)}`;
+    const w = archWarnings([long, bad], [repoWithDocs('## [@arch:Z] t\n')], vi.fn());
+    expect(w).toHaveLength(2);
+    for (const x of w) expect(x.length).toBeLessThanOrEqual(60);
+    expect(w[0]).toMatch(/^malformed design key …a+$/);
+    expect(w[1]).toMatch(/^unknown design key …A+$/);
+  });
+});
