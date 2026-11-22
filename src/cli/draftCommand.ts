@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { realpathSync, renameSync, statSync, writeFileSync, unlinkSync } from 'node:fs';
 import { formatId } from '../model/entityId.js';
 import { MAX_PROPOSAL_BYTES, validateProposal } from '../planning/proposal.js';
-import { readProposalIndex, waitForProposalId } from '../planning/proposalIndex.js';
+import { readProposalIndex, waitForProposalResult } from '../planning/proposalIndex.js';
 
 /**
  * `karst draft propose` / `karst draft list` — how a PLANNING session works
@@ -12,8 +12,10 @@ import { readProposalIndex, waitForProposalId } from '../planning/proposalIndex.
  * `propose` reads one JSON object from stdin, validates it with the shared
  * `validateProposal` (an optional integer `id` revises an existing draft), and
  * writes it atomically (tmp file, then rename) as `$KARST_OUTBOX/<uuid>.json`.
- * It then waits briefly for the host to ingest the file and publish the id in
- * the session's proposal index. `list` reads that index (no store) and prints
+ * It then waits briefly for the host's answer: the id and warnings in the
+ * session's proposal index, or the reason in `outbox-rejections/<uuid>.json`.
+ * A rejection throws (exit 1, or `isError` in MCP) so no core can miss it.
+ * `list` reads that index (no store) and prints
  * the session's drafts with their id, status and title.
  *
  * Neither opens a store, takes flags at all (`--db`/`--manifest`/`--session`
@@ -62,6 +64,11 @@ function readProposal(stdin: string): unknown {
   }
 }
 
+/** What a planner does with host warnings: fix and revise, or leave them for the reviewer. */
+function reviseHint(id: number): string {
+  return `the host flagged this draft; fix the warnings and propose it again with "id":${id}, or leave them for the reviewer`;
+}
+
 function runPropose(deps: DraftProposeDeps): string {
   const dir = outboxDir(deps.outboxEnv);
   const checked = validateProposal(readProposal(deps.readStdin(MAX_PROPOSAL_BYTES)));
@@ -78,27 +85,43 @@ function runPropose(deps: DraftProposeDeps): string {
     throw e;
   }
 
-  const id = waitForProposalId(scratchOf(dir), uuid, {
+  const result = waitForProposalResult(scratchOf(dir), uuid, {
     now: deps.now,
     sleep: deps.sleep,
     timeoutMs: deps.timeoutMs,
   });
-  if (id === undefined) {
+  if (result.kind === 'rejected') throw new Error(`karst draft propose: rejected by host (${result.reason})`);
+  if (result.kind === 'timeout') {
     return JSON.stringify({
       ok: true,
       file,
       id: null,
-      hint: 'the host has not ingested it yet (or rejected it); run `karst draft list` to see its id',
+      hint: 'the host has not ingested it yet; run `karst draft list` to see its id',
     });
   }
-  return JSON.stringify({ ok: true, file, id, ref: formatId('draft', id) });
+  return JSON.stringify({
+    ok: true,
+    file,
+    id: result.id,
+    ref: formatId('draft', result.id),
+    ...(result.warnings.length > 0 ? { warnings: result.warnings, hint: reviseHint(result.id) } : {}),
+    ...(result.checksPending ? { checksPending: true } : {}),
+  });
 }
 
 function runList(deps: DraftProposeDeps, pendingOnly: boolean): string {
   const dir = outboxDir(deps.outboxEnv);
   const all = readProposalIndex(scratchOf(dir));
   const entries = pendingOnly ? all.filter((e) => e.status === 'pending') : all;
-  return JSON.stringify(entries.map(({ id, status, title }) => ({ id, ref: formatId('draft', id), status, title })));
+  return JSON.stringify(
+    entries.map(({ id, status, title, warnings }) => ({
+      id,
+      ref: formatId('draft', id),
+      status,
+      title,
+      ...(warnings && warnings.length > 0 ? { warnings } : {}),
+    })),
+  );
 }
 
 export function runDraftCommand(argv: string[], deps: DraftProposeDeps): string {

@@ -53,6 +53,14 @@ describe('karst guide — content', () => {
     expect(AGENT_GUIDE).toMatch(/confirm/);
   });
 
+  it('documents draft propose --file, the returned warnings and host rejections', () => {
+    expect(AGENT_GUIDE).toContain('karst draft propose --file <path>');
+    expect(AGENT_GUIDE).toContain('"warnings":[…]');
+    expect(AGENT_GUIDE).toContain('"checksPending":true');
+    expect(AGENT_GUIDE).toMatch(/REJECTS the\s+draft/);
+    expect(AGENT_GUIDE).not.toContain('it takes no flags');
+  });
+
   it('documents the subtask create flags', () => {
     for (const flag of ['--title', '--description', '--blocking', '--repos']) {
       expect(AGENT_GUIDE).toContain(flag);
