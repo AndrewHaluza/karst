@@ -340,7 +340,9 @@ function RowMenu({ row, items }: { readonly row: string; readonly items: readonl
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   useDismiss({
-    active: open,
+    // A menu with no items cannot be open: disarm the dismiss listeners even
+    // before the closing effect runs.
+    active: open && items.length > 0,
     onClose: () => {
       setOpen(false);
       triggerRef.current?.focus();
@@ -352,6 +354,11 @@ function RowMenu({ row, items }: { readonly row: string; readonly items: readonl
     const first = menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]');
     first?.focus();
   }, [open]);
+  // An `accounts-state` push can empty the row's actions while the menu is
+  // open; close it so a later push cannot make it pop open by itself.
+  useEffect(() => {
+    if (open && items.length === 0) setOpen(false);
+  }, [open, items.length]);
   if (items.length === 0) return null;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     const nodes = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
@@ -389,6 +396,9 @@ function RowMenu({ row, items }: { readonly row: string; readonly items: readonl
               data-priority="overflow"
               onClick={() => {
                 setOpen(false);
+                // Keyboard users land back on the trigger; the item's own
+                // action may move focus (e.g. a host dialog) after this.
+                triggerRef.current?.focus();
                 item.onClick();
               }}
             >

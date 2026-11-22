@@ -165,6 +165,20 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
     expect(note.previousElementSibling?.textContent).toContain('Install for all Claude sessions');
   });
 
+  it('shows the resolved default after clearing, not a blank that snaps back later', () => {
+    const { bridge } = mount({ ...BASE, quota: { warnThresholdPct: 90 } } as unknown as Manifest);
+    fireEvent.change(threshold(), { target: { value: '' } });
+    fireEvent.blur(threshold());
+    const sent = bridge.last('set-quota')!;
+    act(() => {
+      bridge.push({ type: 'quota-saved', patch: { warnThresholdPct: null } });
+      bridge.push({ type: 'action-result', requestId: sent.requestId!, ok: true });
+    });
+    // The file drops the block but the host's manifest resolves 80; the input
+    // must show that now, not stay blank until the next state push.
+    expect(threshold().value).toBe('80');
+  });
+
   it('never claims "Saved" when the host refuses the write', () => {
     const { bridge } = mount();
     fireEvent.click(screen.getByLabelText('Install for all Claude sessions'));

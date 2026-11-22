@@ -150,6 +150,9 @@ export function QuotaCard() {
           value: text,
           placeholder: String(DEFAULT_QUOTA_WARN_THRESHOLD_PCT),
           busy: thresholdSave.busy,
+          // Unknown after a missed receipt: inert until reset, and it must LOOK
+          // inert (UI-R14/R17) instead of silently no-oping on the next commit.
+          disabled: thresholdSave.disabled,
           onChange: (next) => {
             setText(next);
             setError(null);
@@ -165,6 +168,7 @@ export function QuotaCard() {
           name: 'quotaClaudeGlobalStatusline',
           checked: quota?.claudeGlobalStatusline === true,
           busy: statuslineSave.busy,
+          disabled: statuslineSave.disabled,
           onChange: (on) => post('statusline', { claudeGlobalStatusline: on }),
         }}
       />
@@ -177,6 +181,7 @@ export function QuotaCard() {
           name: 'quotaClaudeOauthUsageApi',
           checked: quota?.claudeOauthUsageApi === true,
           busy: usageSave.busy,
+          disabled: usageSave.disabled,
           onChange: (on) => post('usage', { claudeOauthUsageApi: on }),
         }}
       />

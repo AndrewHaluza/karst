@@ -531,14 +531,16 @@ describe('settingsAppReducer — quota-saved (Q4-SAVE)', () => {
     expect(next.lastSaved.quota).toEqual({ warnThresholdPct: 80, claudeGlobalStatusline: true });
   });
 
-  it('drops the block when null clears the only key', () => {
+  it('resolves a cleared only key to the validator default, not a blank that snaps back', () => {
     const withQuota = push({
       type: 'state',
       state: { ...FIXTURE_STATE_PUSH, manifest: { ...FIXTURE_MANIFEST, quota: { warnThresholdPct: 70 } } },
     });
     const next = push({ type: 'quota-saved', patch: { warnThresholdPct: null } }, withQuota);
-    expect(next.draft.quota).toBeUndefined();
-    expect(next.lastSaved.quota).toBeUndefined();
+    // The file drops the block, but the host's manifest (and therefore the
+    // draft) carries validateManifest's resolved default.
+    expect(next.draft.quota).toEqual({ warnThresholdPct: 80 });
+    expect(next.lastSaved.quota).toEqual({ warnThresholdPct: 80 });
   });
 
   it('bumps the sequence even when the same patch arrives twice', () => {

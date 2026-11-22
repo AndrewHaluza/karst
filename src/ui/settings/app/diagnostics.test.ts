@@ -92,14 +92,16 @@ describe('localFieldErrors (SET-4 + SET-12)', () => {
 });
 
 describe('applyQuotaPatch (Q4-SAVE)', () => {
-  it('sets a key, deletes on null and drops an emptied block', () => {
+  it('sets a key, deletes on null and resolves an emptied block to the default', () => {
     const base = manifest({ host: 'localhost', quota: { warnThresholdPct: 70 } });
     expect(applyQuotaPatch(base, { claudeOauthUsageApi: true }).quota).toEqual({
       warnThresholdPct: 70,
       claudeOauthUsageApi: true,
     });
-    // Deleting the only key leaves no block at all.
-    expect(applyQuotaPatch(base, { warnThresholdPct: null }).quota).toBeUndefined();
+    // The host writes no quota block, but validateManifest resolves the
+    // default in the manifest it pushes; the draft must agree or the field
+    // snaps from blank back to 80 on the next push.
+    expect(applyQuotaPatch(base, { warnThresholdPct: null }).quota).toEqual({ warnThresholdPct: 80 });
     expect(applyQuotaPatch(manifest({ host: 'localhost' }), { warnThresholdPct: 90 }).quota).toEqual({
       warnThresholdPct: 90,
     });

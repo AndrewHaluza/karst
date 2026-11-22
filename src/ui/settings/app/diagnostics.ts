@@ -73,11 +73,13 @@ export function hasInlineFieldFault(raw: string | null, section: SettingsSection
  * the patch has to land on BOTH the draft and the baseline — otherwise the next
  * unrelated Agents Save would write the old threshold back.
  *
- * The merge goes through the SAME `validateQuota` the host runs before writing
- * (R-X1: import the rule, never mirror it). Clearing `warnThresholdPct` with a
- * sibling key present therefore re-fills the default exactly as the file on
- * disk does; a local "delete the key" left the baseline disagreeing with disk
- * and snapped the field back on the next state push.
+ * The merge goes through the SAME `validateQuota` the host runs (R-X1: import
+ * the rule, never mirror it). `validateManifest` always resolves
+ * `quota.warnThresholdPct` (default 80) even when the file has no `quota:`
+ * block, and the host's `state` pushes that validated manifest. The draft and
+ * baseline must therefore carry the same RESOLVED block, not an absent one —
+ * clearing the only key used to leave the input blank until the next state push
+ * snapped it back to the default.
  */
 export function applyQuotaPatch(manifest: Manifest, patch: QuotaPatch): Manifest {
   const nextQuota: Record<string, unknown> = { ...(manifest.quota ?? {}) };
@@ -88,8 +90,7 @@ export function applyQuotaPatch(manifest: Manifest, patch: QuotaPatch): Manifest
     else nextQuota[key] = value;
   }
   const next = { ...manifest } as Record<string, unknown>;
-  if (Object.keys(nextQuota).length === 0) delete next.quota;
-  else next.quota = validateQuota(nextQuota);
+  next.quota = validateQuota(nextQuota);
   return next as unknown as Manifest;
 }
 

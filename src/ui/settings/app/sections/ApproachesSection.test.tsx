@@ -584,10 +584,10 @@ describe('ApproachesSection — the graph configuration surface', () => {
     expect(surface!.querySelector('[data-open-graph-prompt="karst-graph-planner"]')).not.toBeNull();
   });
 
-  it('links the planner prompt by its file name only (SET-27)', () => {
+  it('links the planner prompt by its full artifact path, not a mouse-only title (SET-27, UI-R44)', () => {
     mountGraph();
     const link = document.querySelector('[data-open-graph-prompt]') as HTMLElement;
-    expect(link.textContent?.trim()).toBe('graph-planner.md');
+    expect(link.textContent?.trim()).toBe('prompts/graph-planner.md');
     expect(link.getAttribute('title')).toBe('prompts/graph-planner.md');
   });
 

@@ -452,6 +452,18 @@ describe('AppShell — the instant-apply Accounts tab', () => {
     expect(bridge.all('save')).toHaveLength(0);
   });
 
+  it('LeaveModal Save Agents saves the hidden edits and then navigates', () => {
+    const { bridge } = mount();
+    openInstantApply(bridge);
+    // Ask to leave Agents for General: the modal offers to save the hidden edits.
+    fireEvent.click(document.querySelector('.nav-btn[data-section="general"]')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Save Agents' }));
+    expect(bridge.all('save')).toHaveLength(1);
+    // The navigation is armed only by that save; it runs on its ack.
+    act(() => bridge.push({ type: 'saved', section: 'agents' }));
+    expect(document.querySelector('.nav-btn.active')?.getAttribute('data-section')).toBe('general');
+  });
+
   it('entering the instant-apply tab ends a pending Discard/Undo', () => {
     const { bridge } = mount();
     fireEvent.click(screen.getByText('edit agents'));

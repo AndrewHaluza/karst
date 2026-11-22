@@ -223,11 +223,16 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     [section, runLeaveGuard, switchSection],
   );
 
-  const saveNow = useCallback(() => {
+  const saveNow = useCallback((explicit = false): boolean => {
+    if (!valid || !dirty || !state.hydrated) return false;
     // On the instant-apply tab (Agents › Accounts) Save/Discard are hidden, so
-    // the chord must not write the OTHER Agents tabs' hidden edits either.
-    if (!valid || !dirty || !state.hydrated || instantApply) return;
+    // the Ctrl/Cmd+S chord must not write the OTHER Agents tabs' hidden edits.
+    // The LeaveModal's "Save Agents" is an explicit choice about exactly those
+    // edits, so it is allowed through; otherwise that button silently did
+    // nothing and left a navigation intent waiting for a later save.
+    if (instantApply && !explicit) return false;
     save.trigger(section);
+    return true;
   }, [valid, dirty, save, section, state.hydrated, instantApply]);
 
   useEffect(() => {
@@ -486,7 +491,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
                 disabled={saveBlocked}
                 title={saveTitle(dirty, valid, section)}
                 aria-label={`Save ${SECTION_LABELS[section]}`}
-                onClick={saveNow}
+                onClick={() => saveNow()}
               >
                 Save<span className="save-section-name">{` ${SECTION_LABELS[section]}`}</span>
               </Button>
@@ -538,9 +543,12 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             goTo(target);
           }}
           onSave={() => {
+            // Only arm the post-save navigation when the save actually starts;
+            // a save that cannot run must leave the modal open and no stale
+            // target behind (it would navigate on some later, unrelated save).
+            if (!saveNow(true)) return;
             setNavigateAfterSave(leaveTarget);
             setPendingSection(null);
-            saveNow();
           }}
         />
       )}

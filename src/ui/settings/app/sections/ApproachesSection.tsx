@@ -639,7 +639,10 @@ function ApproachCard({
                   openPrompt.trigger();
                 }}
               >
-                {graph.planner?.prompt?.artifact?.split('/').pop() || FALLBACK_PROMPT_TEXT}
+                {/* The full artifact path, not its basename: it is the visible
+                    resource identifier (UI-R09c) and must be readable before the
+                    file opens, never only in a mouse-only title (UI-R44). */}
+                {graph.planner?.prompt?.artifact || FALLBACK_PROMPT_TEXT}
               </a>
             </div>
             {/* Execution profiles: each profile row hosts the UNIFIED agent

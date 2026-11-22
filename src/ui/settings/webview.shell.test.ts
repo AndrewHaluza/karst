@@ -213,7 +213,10 @@ describe('settings responsive tiers (SET-1, SET-2, SET-3)', () => {
 
   it('never hides the save-state region; it shows a compact form instead (SET-3)', () => {
     expect(HTML).not.toMatch(/\.save-state\{display:none\}/);
-    expect(HTML).toContain('.save-state .save-state-full{display:none}');
+    // UI-R27: the visual compact form must not remove the full status sentence
+    // from the accessibility tree — clip it, never display:none.
+    expect(HTML).not.toContain('.save-state .save-state-full{display:none}');
+    expect(HTML).toMatch(/\.save-state \.save-state-full\{[^}]*clip:rect\(0,0,0,0\)/);
     expect(HTML).toContain('.save-state::after{content:attr(data-compact)}');
     // The topbar wraps rather than overflowing.
     expect(HTML).toMatch(/@media \(max-width: 40em\)\{[\s\S]*?\.topbar\{[^}]*flex-wrap:wrap/);

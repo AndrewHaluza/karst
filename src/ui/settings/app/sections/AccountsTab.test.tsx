@@ -439,6 +439,33 @@ describe('Accounts row actions (SET-41, UI-R54)', () => {
     expect(bridge.last('accounts-login')).toMatchObject({ core: 'claude', name: 'work' });
     expect(screen.queryByRole('menu')).toBeNull();
   });
+
+  it('returns focus to the trigger after an item runs (UI-R23)', () => {
+    const { bridge } = mount();
+    const trigger = screen.getByRole('button', { name: 'More actions for work' });
+    trigger.focus();
+    menuOf('work');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Log in work' }));
+    expect(bridge.last('accounts-login')).toBeTruthy();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('closes when its items disappear and does not reopen when they return', () => {
+    const { push } = mount();
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for work' }));
+    expect(screen.getByRole('menu')).toBeTruthy();
+    // Work becomes signed-in AND the machine default: no overflow action is left.
+    push({
+      type: 'accounts-state',
+      cores: [CORE('claude', [{ ...WORK, status: 'signed-in', active: true }], 'work', 'project', 'work')],
+    });
+    expect(screen.queryByRole('menu')).toBeNull();
+    // The row is still there; a later push that restores the actions must not
+    // make the menu pop open by itself.
+    push({ type: 'accounts-state', cores: [CORE('claude', [WORK, FOLDER])] });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('button', { name: 'More actions for work' }).getAttribute('aria-expanded')).toBe('false');
+  });
 });
 
 describe('Accounts table copy and status (SET-43, SET-44)', () => {
