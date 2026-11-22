@@ -90,7 +90,6 @@ describe('settings sections — vocabulary', () => {
         'host',
         'portRange',
         'processes',
-        'quota',
         'repositories',
         'review',
         'stopServersOnDone',
@@ -106,11 +105,16 @@ describe('settings sections — vocabulary', () => {
 
   it('owns the agent identity fields on the one Agents page, not General', () => {
     expect(SECTION_FIELDS.agents).toEqual(
-      expect.arrayContaining(['agentProvider', 'defaultModel', 'defaultEffort', 'processes', 'agentPresets', 'activeAgentPreset', 'defaultAgentPreset', 'agents', 'quota']),
+      expect.arrayContaining(['agentProvider', 'defaultModel', 'defaultEffort', 'processes', 'agentPresets', 'activeAgentPreset', 'defaultAgentPreset', 'agents']),
     );
     expect(SECTION_FIELDS.general).not.toContain('agentProvider');
-    expect(SECTION_FIELDS.general).not.toContain('quota');
     expect((SETTINGS_SECTIONS as readonly string[]).includes('presets')).toBe(false);
+  });
+
+  it('claims `quota` in no section: it is written out of band (Q4-SAVE)', () => {
+    // If a section claimed quota, its tab-scoped Save would overlay the stale
+    // draft block and could revert a just-written set-quota value on disk.
+    for (const section of SETTINGS_SECTIONS) expect(SECTION_FIELDS[section]).not.toContain('quota');
   });
 
   it('redirects the retired presets section to agents', () => {

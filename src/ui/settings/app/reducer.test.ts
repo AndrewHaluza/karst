@@ -213,6 +213,13 @@ describe('settingsAppReducer — independent refresh messages', () => {
     expect(s.validation.ok).toBe(true);
   });
 
+  it('an authoritative state or validation push clears a transient host error', () => {
+    const failed = push({ type: 'error', message: 'Token & usage panel unavailable' }, hydrated());
+    expect(failed.hostError).toBe('Token & usage panel unavailable');
+    expect(push({ type: 'state', state: FIXTURE_STATE_PUSH }, failed).hostError).toBeNull();
+    expect(push({ type: 'validation', ok: true, error: null }, failed).hostError).toBeNull();
+  });
+
   it('token-state reports the secret status without carrying the secret', () => {
     // Deliberately NOT a `state` push: state carries the manifest and replaces the
     // draft, so reporting the token that way discarded whatever the user had

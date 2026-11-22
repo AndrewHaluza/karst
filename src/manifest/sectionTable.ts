@@ -47,7 +47,10 @@ export const SECTION_OF: Readonly<Record<keyof Manifest, ManifestSection>> = {
   activeAgentPreset: 'agents',
   defaultAgentPreset: 'agents',
   agentBackends: 'agents',
-  quota: 'agents',
+  // Q4-SAVE: the Accounts quota card writes through `set-quota`, outside every
+  // tab-scoped Save. No Settings section claims it, so it is a project key here
+  // too — a Save can never overlay a stale quota block onto the file.
+  quota: 'project',
   ticketing: 'ticketing',
   uat: 'quality',
   review: 'quality',

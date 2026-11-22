@@ -218,6 +218,10 @@ function applyState(state: SettingsAppState, host: SettingsState): SettingsAppSt
       },
       processAssignments: host.processAssignments,
       validation,
+      // An authoritative push supersedes a transient action error: otherwise a
+      // failed open-quota/install kept its banner and its "1 error" claim long
+      // after the next successful action (it is not a Save-blocking fault).
+      hostError: null,
       // Q11: a push means the host just wrote the file (an agent or approach
       // toggle, an install, a quota change). Restoring a pre-push draft snapshot
       // would silently revert that write, so the Undo window ends here.
@@ -311,7 +315,8 @@ export function settingsAppReducer(
       return { ...state, processAssignments: message.rows };
 
     case 'validation':
-      return { ...state, validation: { ok: message.ok, error: message.ok ? null : message.error } };
+      // A fresh verdict supersedes any earlier transient error.
+      return { ...state, validation: { ok: message.ok, error: message.ok ? null : message.error }, hostError: null };
 
     case 'error':
       return { ...state, hostError: message.message };

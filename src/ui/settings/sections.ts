@@ -68,9 +68,13 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
   // the preset vocabulary (the map, the active selection and the deprecated
   // alias it renames on Save) and the agent profiles. An edit there always lands
   // in the layer that wins, so nothing is claimed by General or a Presets tab.
-  // `quota` rides here too: the per-core subscription-quota warn threshold is an
-  // agent-core setting, and the Agents page is the only place agent-core knobs
-  // are edited.
+  //
+  // `quota` is deliberately NOT here (Q4-SAVE): the quota card applies each
+  // control at once through `set-quota`, and the host validates and writes the
+  // merged block itself. A section that claimed it would let a Save of an
+  // unrelated Roles/Sandbox edit overlay the stale `draft.quota` onto the file
+  // and silently revert an out-of-band quota write. No section claims it, so
+  // every tab-scoped merge keeps the file's value untouched.
   agents: [
     'agentProvider',
     'defaultModel',
@@ -81,7 +85,6 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'activeAgentPreset',
     'defaultAgentPreset',
     'agentBackends',
-    'quota',
   ],
   ticketing: ['ticketing'],
   quality: ['uat', 'review'],

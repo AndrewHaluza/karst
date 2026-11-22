@@ -180,8 +180,12 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   }, [acknowledged]);
 
   const saving = save.pending;
-  const saveBlocked = !valid || !dirty || saving || !state.hydrated;
-  const hostFault = !state.validation.ok || state.hostError !== null;
+  const saveBlocked = !valid || !dirty || saving || !state.hydrated || instantApply;
+  // ONLY the validation verdict blocks a Save. `state.hostError` is a transient
+  // action failure (open-quota, a rejected toggle) and must never present as a
+  // blocking field fault — it used to keep "Fix 1 field to save" on a clean,
+  // valid tab until the next Save.
+  const hostFault = !state.validation.ok;
   const stateFacts: SaveStateFacts = {
     hydrated: state.hydrated,
     saving,
@@ -189,6 +193,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     hostFault,
     errorSection,
     localErrors,
+    instantApply,
     section,
   };
   const fullState = saveStateText(stateFacts);
@@ -219,9 +224,11 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   );
 
   const saveNow = useCallback(() => {
-    if (!valid || !dirty || !state.hydrated) return;
+    // On the instant-apply tab (Agents › Accounts) Save/Discard are hidden, so
+    // the chord must not write the OTHER Agents tabs' hidden edits either.
+    if (!valid || !dirty || !state.hydrated || instantApply) return;
     save.trigger(section);
-  }, [valid, dirty, save, section, state.hydrated]);
+  }, [valid, dirty, save, section, state.hydrated, instantApply]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -717,6 +724,8 @@ interface SaveStateFacts {
   readonly errorSection: SettingsSection | null;
   /** Local (webview-side) field counts, keyed by the tab that owns them. */
   readonly localErrors: Partial<Record<SettingsSection, number>>;
+  /** The shown tab applies at once, so Save/Discard are not on screen. */
+  readonly instantApply: boolean;
   readonly section: SettingsSection;
 }
 
@@ -745,6 +754,10 @@ function saveStateText(facts: SaveStateFacts): string {
       : `Fix the error on ${SECTION_LABELS[facts.errorSection]} to save`;
   }
   if (!facts.dirty) return 'All changes saved';
+  // On the instant-apply tab the dirty Agents slice belongs to a Different
+  // Agents tab whose Save is not on screen; name it rather than showing
+  // "Unsaved changes" beside "Changes here apply at once.".
+  if (facts.instantApply) return `Unsaved changes on another ${SECTION_LABELS[facts.section]} tab`;
   return 'Unsaved changes';
 }
 

@@ -7,9 +7,7 @@ import {
   NON_EMPTY_STRING,
   STRING,
   enumOf,
-  integer,
   lenientObject,
-  orNull,
   strictObject,
 } from './shared.js';
 
@@ -79,7 +77,7 @@ const BACKEND_PROPERTIES: Record<string, JsonSchema> = Object.fromEntries(
   BACKEND_CORES.map((core) => [core, enumOf(allowedBackends(core))]),
 );
 
-/** Agents tab: the Default row, per-role pins, presets, agent profiles, backends and quota. */
+/** Agents tab: the Default row, per-role pins, presets, agent profiles and backends. `quota` is out of band (project schema). */
 export const AGENTS_SCHEMA: JsonSchema = {
   type: 'object',
   properties: {
@@ -103,13 +101,6 @@ export const AGENTS_SCHEMA: JsonSchema = {
     activeAgentPreset: STRING,
     defaultAgentPreset: STRING,
     agentBackends: strictObject(BACKEND_PROPERTIES),
-    quota: orNull(
-      strictObject({
-        warnThresholdPct: integer(1, 100),
-        claudeGlobalStatusline: BOOLEAN,
-        claudeOauthUsageApi: BOOLEAN,
-      }),
-    ),
   },
 };
 

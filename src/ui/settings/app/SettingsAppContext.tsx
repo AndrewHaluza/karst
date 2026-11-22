@@ -202,14 +202,21 @@ export function SettingsAppProvider({
   );
   const [section, setSectionState] = useState<SettingsSection>(initialSection ?? FIRST_SECTION);
   // Q4-SAVE: only the Accounts tab applies at once. Owned here so the shell and
-  // the section cannot disagree; leaving the tab (or Agents) resets it.
-  const [instantApply, setInstantApply] = useState(false);
+  // the section cannot disagree; leaving the tab (or Agents) resets it. Entering
+  // it also ends a pending Discard/Undo: the Undo banner's controls are hidden
+  // there, and restoring the hidden Roles/Sandbox draft would be invisible and
+  // would drop focus on the unmounted Discard button (Q11).
+  const [instantApply, setInstantApplyState] = useState(false);
+  const setInstantApply = useCallback((on: boolean) => {
+    setInstantApplyState(on);
+    if (on) dispatch({ kind: 'clear-undo' });
+  }, []);
   const setSection = useCallback((target: SettingsSection) => {
     setSectionState(target);
     // Q11: an Undo belongs to the tab that was discarded, and a switch is a
     // deliberate move on — restoring another tab's old draft would be a surprise.
     dispatch({ kind: 'clear-undo' });
-    setInstantApply(false);
+    setInstantApplyState(false);
   }, []);
   const { send } = host;
 

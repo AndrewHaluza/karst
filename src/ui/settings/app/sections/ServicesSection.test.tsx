@@ -165,6 +165,9 @@ describe('ServicesSection — the roster', () => {
     const cell = card('api').querySelector('.cell-path') as HTMLElement;
     const shown = cell.querySelector('.path-text')?.textContent ?? '';
     expect(cell.getAttribute('title')).toBe(longPath);
+    // The ellipsized form is visual only: assistive tech must read the full path
+    // once (the sr-only sibling), not the truncated string and then the path.
+    expect(cell.querySelector('.path-text')?.getAttribute('aria-hidden')).toBe('true');
     expect(cell.querySelector('.sr-only')?.textContent).toBe(longPath);
     expect(shown).toContain('…');
     expect(shown.startsWith('/Users/you')).toBe(true);

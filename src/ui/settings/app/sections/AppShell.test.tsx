@@ -54,6 +54,8 @@ function mount(): { bridge: TestBridge } {
           <div data-testid="tab-content">
             <HostEditor />
             <QualityEditor />
+            <AgentsEditor />
+            <InstantApplyToggle />
           </div>
         </AppShell>
       </SettingsAppProvider>
@@ -62,6 +64,22 @@ function mount(): { bridge: TestBridge } {
   );
   act(() => bridge.push({ type: 'state', state: FIXTURE_STATE_PUSH }));
   return { bridge };
+}
+
+/** Makes the Agents section dirty without leaving General. */
+function AgentsEditor() {
+  const app = useSettingsApp();
+  return (
+    <button onClick={() => app.edit((draft) => ({ ...draft, agentProvider: 'codex' }))}>
+      edit agents
+    </button>
+  );
+}
+
+/** Stands in for AgentsSection's Accounts sub-tab turning instant-apply on. */
+function InstantApplyToggle() {
+  const app = useSettingsApp();
+  return <button onClick={() => app.setInstantApply(true)}>instant apply</button>;
 }
 
 /** Parks an invalid Quality edit (two local field errors) without leaving General. */
@@ -380,6 +398,21 @@ describe('AppShell — an invalid file blocks Save in the save bar', () => {
     expect(qualityNav?.className).not.toContain('has-error');
   });
 
+  it('does not present a transient host error as a blocking field fault', () => {
+    const { bridge } = mount();
+    act(() => bridge.push({ type: 'error', message: 'Token & usage panel unavailable' }));
+    const bar = document.getElementById('saveState');
+    // The save bar is about saving: an action failure is not a field fault.
+    expect(bar?.textContent).toBe('All changes saved');
+    expect(bar?.classList.contains('is-error')).toBe(false);
+    // It still reports the failure in the banner, and the next authoritative
+    // state push clears it instead of leaving it stuck across tabs.
+    expect(document.querySelector('.err-banner')?.textContent).toContain('Token & usage panel unavailable');
+    act(() => bridge.push({ type: 'state', state: FIXTURE_STATE_PUSH }));
+    expect(document.querySelector('.err-banner')).toBeNull();
+    expect(bar?.textContent).toBe('All changes saved');
+  });
+
   it('never borrows a local count for a host fault on another tab', () => {
     const { bridge } = mount();
     fireEvent.click(screen.getByText('break quality'));
@@ -393,6 +426,41 @@ describe('AppShell — an invalid file blocks Save in the save bar', () => {
     // The sentence names the host fault's tab; Quality's two local errors must
     // not become "Fix 2 fields on Repositories".
     expect(document.getElementById('saveState')?.textContent).toBe('Fix the error on Repositories to save');
+  });
+});
+
+describe('AppShell — the instant-apply Accounts tab', () => {
+  /** Dirty the Agents section, show it, then stand in for the Accounts sub-tab. */
+  const openInstantApply = (bridge: TestBridge): void => {
+    fireEvent.click(screen.getByText('edit agents'));
+    act(() => bridge.push({ type: 'navigate', hash: '#agents' }));
+    act(() => screen.getByText('instant apply').click());
+  };
+
+  it('hides Save/Discard without hiding the fact that another Agents tab is dirty', () => {
+    const { bridge } = mount();
+    openInstantApply(bridge);
+    expect(document.getElementById('saveBtn')).toBeNull();
+    expect(document.getElementById('discardBtn')).toBeNull();
+    expect(document.getElementById('saveState')?.textContent).toBe('Unsaved changes on another Agents tab');
+  });
+
+  it('Ctrl+S on the instant-apply tab does not save the hidden Agents edits', () => {
+    const { bridge } = mount();
+    openInstantApply(bridge);
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true });
+    expect(bridge.all('save')).toHaveLength(0);
+  });
+
+  it('entering the instant-apply tab ends a pending Discard/Undo', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getByText('edit agents'));
+    act(() => bridge.push({ type: 'navigate', hash: '#agents' }));
+    fireEvent.click(document.getElementById('discardBtn')!);
+    expect(document.getElementById('savedMsg')?.className).not.toContain('hidden');
+    act(() => screen.getByText('instant apply').click());
+    // Undo's controls are hidden here; the window must not outlive them.
+    expect(document.getElementById('savedMsg')?.className).toContain('hidden');
   });
 });
 

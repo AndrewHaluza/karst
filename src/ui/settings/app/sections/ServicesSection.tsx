@@ -244,10 +244,12 @@ function RepositoryCard({
           </span>
           <span className="card-title" aria-label={name}>{name}</span>
         </button>
-        <span className="cell-path" title={repo.repoPath || ''} aria-label={repo.repoPath || undefined}>
+        <span className="cell-path" title={repo.repoPath || ''}>
           {repo.repoPath ? (
             <>
-              <span className="path-text">{middleEllipsis(repo.repoPath)}</span>
+              {/* The ellipsized form is visual only; the sr-only sibling is what
+                  assistive tech reads, so the path is announced once (@ui:UI-R44). */}
+              <span className="path-text" aria-hidden="true">{middleEllipsis(repo.repoPath)}</span>
               <span className="sr-only">{repo.repoPath}</span>
             </>
           ) : (

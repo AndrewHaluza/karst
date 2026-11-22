@@ -183,7 +183,7 @@ const NODES: readonly Node[] = [
   { name: 'ProcessAssignmentConfig', section: 'agents', path: 'processes.uatTester', keys: Object.keys(PROCESS) },
   { name: 'AgentPreset', section: 'agents', path: 'agentPresets.*', keys: Object.keys(PRESET) },
   { name: 'PresetSlot', section: 'agents', path: `agentPresets.*.slots.${PRESET_CAPABILITIES[0]}`, keys: Object.keys(SLOT) },
-  { name: 'QuotaConfig', section: 'agents', path: 'quota', keys: Object.keys(QUOTA) },
+  { name: 'QuotaConfig', section: 'project', path: 'quota', keys: Object.keys(QUOTA) },
   { name: 'TicketingConfig', section: 'ticketing', path: 'ticketing', keys: Object.keys(TICKETING) },
   { name: 'UatConfig', section: 'quality', path: 'uat', keys: Object.keys(UAT) },
   { name: 'UatGateDef', section: 'quality', path: 'uat.gates.*', keys: Object.keys(UAT_GATE) },
