@@ -168,6 +168,16 @@ describe('column-alignment', () => {
     expect(f).toHaveLength(1);
     expect(f[0]?.detail).toContain('column 2');
   });
+  it('skips a table whose header is hidden by the sr-only 1x1 pattern (the tight-tier card layout)', () => {
+    const thead = el({ parentId: table.id, tag: 'thead', rect: { x: 0, y: 0, w: 1, h: 1 } });
+    const head = el({ parentId: thead.id, tag: 'tr', role: 'row', rect: { y: 0, w: 400, h: 20 } });
+    const body = row(20);
+    const s = snap([
+      table, thead, head, cell(head, 0, 'columnheader'), cell(head, 100, 'columnheader'),
+      body, cell(body, 0), cell(body, 39),
+    ]);
+    expect(checksOf(s, 'column-alignment')).toEqual([]);
+  });
   it('passes when aligned and skips colspan rows', () => {
     const head = row(0);
     const body = row(20);
@@ -254,6 +264,28 @@ describe('section-spacing', () => {
     const f = checksOf(snap([parent, a, item(a, 0), item(a, 20), b, item(b, 110)]), 'section-spacing');
     expect(f).toHaveLength(1);
     expect(f[0]?.detail).toContain('not larger');
+  });
+  it('does not compare sections placed side by side in a grid', () => {
+    const a = section(0, 100);
+    const b = el({ tag: 'section', parentId: parent.id, rect: { x: 200, y: 0, w: 200, h: 140 } });
+    expect(checksOf(snap([parent, a, item(a, 0), item(a, 20), b, item(b, 0)]), 'section-spacing')).toEqual([]);
+  });
+  it('still measures the vertical rhythm inside each column of a grid', () => {
+    // Two columns: row 1 (left, right) and row 2 (left, right). Each column's rows are too close, so both fail.
+    const a = section(0, 100);
+    const b = el({ tag: 'section', parentId: parent.id, rect: { x: 200, y: 0, w: 200, h: 100 } });
+    const c = el({ tag: 'section', parentId: parent.id, rect: { y: 110, w: 200, h: 100 } });
+    const d = el({ tag: 'section', parentId: parent.id, rect: { x: 200, y: 110, w: 200, h: 100 } });
+    const f = checksOf(
+      snap([
+        parent, a, item(a, 0), item(a, 20),
+        b, c, item(c, 0), item(c, 20),
+        d, item(d, 0), item(d, 20),
+      ]),
+      'section-spacing',
+    );
+    expect(f).toHaveLength(2);
+    expect(f.every((x) => x.detail.includes('not larger'))).toBe(true);
   });
 });
 

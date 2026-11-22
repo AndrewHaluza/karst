@@ -2,17 +2,18 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { configureAccounts, resetAccounts } from '../../agent/accounts/registry.js';
 import { QuotaOps, makeClaudeGlobalStatuslineSync, type ClaudeGlobalStatuslineSyncDeps, type QuotaOpsDeps, type QuotaStatusSink } from './quotaOps.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
+import type { QuotaLevel } from '../../model/quotaText.js';
 import type { Manifest } from '../../manifest/types.js';
 
-function sink(): QuotaStatusSink & { sets: Array<[string, string, boolean]>; hides: number } {
-  const sets: Array<[string, string, boolean]> = [];
+function sink(): QuotaStatusSink & { sets: Array<[string, string, QuotaLevel]>; hides: number } {
+  const sets: Array<[string, string, QuotaLevel]> = [];
   let hides = 0;
   return {
     sets,
     get hides() {
       return hides;
     },
-    set: (text, tooltip, warning) => sets.push([text, tooltip, warning]),
+    set: (text, tooltip, level) => sets.push([text, tooltip, level]),
     hide: () => {
       hides++;
     },
@@ -100,14 +101,26 @@ describe('QuotaOps.applyStatus', () => {
     expect(status.sets).toHaveLength(0);
   });
 
-  it('sets the badge text, tooltip and warning from the snapshots', () => {
+  it('sets the badge text, tooltip and level from the snapshots', () => {
     const { ops, status } = make({ snapshots: [ok('codex', 90)] });
     ops.applyStatus();
     expect(status.sets).toHaveLength(1);
-    const [text, tooltip, warning] = status.sets[0]!;
+    const [text, tooltip, level] = status.sets[0]!;
     expect(text).toContain('codex 90%');
-    expect(tooltip).toContain('Warn threshold 80%');
-    expect(warning).toBe(true);
+    expect(tooltip).toContain('Warn at 80% used');
+    expect(level).toBe('near');
+  });
+
+  it('passes the ok level when every open window is below the threshold', () => {
+    const { ops, status } = make({ snapshots: [ok('codex', 20)] });
+    ops.applyStatus();
+    expect(status.sets[0]![2]).toBe('ok');
+  });
+
+  it('passes the exhausted level at 100% so the binding can paint it red', () => {
+    const { ops, status } = make({ snapshots: [ok('codex', 100)] });
+    ops.applyStatus();
+    expect(status.sets[0]![2]).toBe('exhausted');
   });
 
   it('uses the snapshots passed in rather than re-reading the service', () => {
@@ -119,7 +132,7 @@ describe('QuotaOps.applyStatus', () => {
   it('defaults the threshold to 80 when the manifest carries none', () => {
     const { ops, status } = make({ snapshots: [ok('codex', 80)], thresholdPct: () => undefined });
     ops.applyStatus();
-    expect(status.sets[0]![2]).toBe(true);
+    expect(status.sets[0]![2]).toBe('near');
   });
 
   it('hides the badge when the only readable window has already expired (real clock)', () => {
@@ -134,7 +147,7 @@ describe('QuotaOps.applyStatus', () => {
     ops.applyStatus();
     expect(status.sets).toHaveLength(1);
     expect(status.sets[0]![0]).toContain('codex 95%');
-    expect(status.sets[0]![2]).toBe(true);
+    expect(status.sets[0]![2]).toBe('near');
   });
 });
 
@@ -337,6 +350,43 @@ describe('QuotaOps.accountsChanged (T1076)', () => {
     ops.dispose();
     vi.advanceTimersByTime(1000);
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('does not clear a timer on the first change, because none is pending', () => {
+    vi.useFakeTimers();
+    const clear = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const { ops } = make({ refresh: vi.fn(async () => []) });
+      ops.accountsChanged();
+      expect(clear).not.toHaveBeenCalled();
+      ops.dispose();
+    } finally {
+      clear.mockRestore();
+    }
+  });
+
+  it('clears the pending timer when a second change arrives', () => {
+    vi.useFakeTimers();
+    const clear = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const { ops } = make({ refresh: vi.fn(async () => []) });
+      ops.accountsChanged();
+      ops.accountsChanged();
+      expect(clear).toHaveBeenCalledOnce();
+      ops.dispose();
+    } finally {
+      clear.mockRestore();
+    }
+  });
+
+  it('dispose clears nothing when no change is pending', () => {
+    const clear = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      make({}).ops.dispose();
+      expect(clear).not.toHaveBeenCalled();
+    } finally {
+      clear.mockRestore();
+    }
   });
 });
 

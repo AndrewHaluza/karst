@@ -1,7 +1,7 @@
 .k-focusable:focus-visible,
 .k-btn:focus-visible,.k-iconbtn:focus-visible,.k-link:focus-visible,
 .k-input:focus-visible,.k-switch:focus-visible,.k-chip:focus-visible,
-.k-ticket-ref:focus-visible,
+.k-ticket-ref:focus-visible,.k-tab:focus-visible,.k-sort:focus-visible,
 .k-toast-close:focus-visible{
   outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 .k-input:focus{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
@@ -347,6 +347,23 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
 .k-pagehead-title{margin:0;color:var(--k-text);font-size:var(--k-text-xl);font-weight:var(--k-weight-semibold);overflow-wrap:anywhere}
 .k-pagehead-sub{margin:var(--k-space-1) 0 0;color:var(--k-text-dim);font-size:var(--k-text-sm);overflow-wrap:anywhere}
 .k-pagehead-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin-left:auto}
+/* Tabs (US-21): the Resources tab strip's grammar, now shared. The selected underline falls back to the link colour,
+   but a high-contrast theme supplies contrastActiveBorder so the selection is never just another dim label. */
+.k-tabs{display:flex;gap:var(--k-space-1);
+  border-bottom:var(--k-border-w) solid var(--k-border);margin-bottom:var(--k-space-6)}
+.k-tab{background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-md);
+  font-weight:var(--k-weight-medium);cursor:pointer;min-height:var(--k-control-h-md);
+  padding:var(--k-space-2) var(--k-space-6);border:0;border-radius:var(--k-radius-sm) var(--k-radius-sm) 0 0;
+  border-bottom:calc(var(--k-border-w) * 2) solid transparent}
+.k-tab:hover{color:var(--k-text);background:var(--k-surface-hover)}
+.k-tab[aria-selected="true"]{color:var(--k-text);border-bottom-color:var(--vscode-contrastActiveBorder,var(--k-link))}
+/* A sortable table header (US-25): inherits the th's colour and carries the header's uppercase type, so the control
+   reads as part of the header rather than as a button in a cell. */
+.k-sort{background:transparent;border:0;padding:var(--k-space-0);margin:var(--k-space-0);font:inherit;
+  font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);text-transform:uppercase;
+  letter-spacing:var(--k-chip-tracking);color:inherit;cursor:pointer;display:inline-flex;align-items:center;
+  gap:var(--k-space-1);border-radius:var(--k-radius-xs);min-height:var(--k-control-h-sm)}
+.k-sort:hover{color:var(--k-text)}
 @media (max-width: 699px){.k-pagehead-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (prefers-reduced-motion: reduce){
   .k-btn,.k-iconbtn,.k-input,.k-chip,.k-ticket-ref,.k-switch,.k-switch-track,

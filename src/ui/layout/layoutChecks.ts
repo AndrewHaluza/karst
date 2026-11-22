@@ -213,12 +213,28 @@ function cellsOf(s: LayoutSnapshot, row: ElementSnap): ElementSnap[] {
   return s.elements.filter((e) => e.parentId === row.id && e.role !== null && CELL_ROLES.has(e.role));
 }
 
+/**
+ * A header hidden with the sr-only pattern (a 1x1 clipping box) renders no columns to align: the view shows the
+ * rows as cards instead, each with its own `data-label`. Comparing card boxes with the invisible header cells
+ * would report a phantom mismatch for every field.
+ */
+function headerIsHidden(s: LayoutSnapshot, header: ElementSnap): boolean {
+  const byId = new Map(s.elements.map((e) => [e.id, e]));
+  for (let id = header.parentId; id !== null; ) {
+    const el = byId.get(id);
+    if (el === undefined || el.tag === 'table') return false;
+    if (el.rect.w <= VISUALLY_HIDDEN_PX && el.rect.h <= VISUALLY_HIDDEN_PX) return true;
+    id = el.parentId;
+  }
+  return false;
+}
+
 function columnAlignment(s: LayoutSnapshot): Found[] {
   const out: Found[] = [];
   for (const table of s.elements.filter((e) => e.role !== null && TABLE_ROLES.has(e.role))) {
     const rows = descendants(s, table.id, (e) => e.role === 'row');
     const header = rows.find((r) => cellsOf(s, r).some((c) => c.role === 'columnheader'));
-    if (!header) continue;
+    if (!header || headerIsHidden(s, header)) continue;
     const head = cellsOf(s, header);
     for (const row of rows.filter((r) => r.id !== header.id)) {
       const cells = cellsOf(s, row);
@@ -337,8 +353,15 @@ function sectionSpacing(s: LayoutSnapshot): Found[] {
     if (parentId === null) continue;
     const sections = flowChildren(s, parentId).filter((e) => e.tag === 'section');
     for (let i = 1; i < sections.length; i += 1) {
-      const prev = sections[i - 1]!;
       const next = sections[i]!;
+      // A grid places sections side by side (the repo cards, the breakdown panels): a pair in different columns
+      // has no vertical rhythm, but each column still has one. Compare a section with the nearest earlier section
+      // that shares its left edge, never with the section that merely happens to precede it in reading order.
+      const prev = sections
+        .slice(0, i)
+        .reverse()
+        .find((p) => Math.abs(next.rect.x - p.rect.x) <= TOLERANCE);
+      if (prev === undefined) continue;
       const between = next.rect.y - (prev.rect.y + prev.rect.h);
       const inner = Math.max(maxVerticalGap(flowChildren(s, prev.id)), maxVerticalGap(flowChildren(s, next.id)));
       if (between > inner) continue;

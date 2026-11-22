@@ -10,6 +10,11 @@
  * the display is abbreviated (`1.2M`) while the exact value stays available as a
  * grouped string for the title attribute — an abbreviation is for scanning, and
  * "did this ticket cost 1.2M or 1.24M" is a question the exact value answers.
+ *
+ * Locale rule (US-17): an exact count is grouped for the VIEWER's locale. The
+ * `locale` parameter defaults to `undefined` here, which is what asks
+ * `Intl`/`toLocaleString` for the runtime's own locale; only a fixture or test
+ * that needs determinism passes an explicit tag (`'en-US'`).
  */
 
 /** `1234567` → `1.2M`. Never rounds a non-zero count to `0`. */
@@ -26,10 +31,10 @@ function trim(value: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-/** `1234567` → `1,234,567`. The exact value, for a tooltip. */
-export function formatExactTokens(count: number): string {
+/** `1234567` → `1,234,567` in the viewer's locale. The exact value, for a tooltip. */
+export function formatExactTokens(count: number, locale?: string): string {
   if (!Number.isFinite(count) || count < 0) return '—';
-  return Math.round(count).toLocaleString('en-US');
+  return Math.round(count).toLocaleString(locale);
 }
 
 /**
@@ -39,4 +44,22 @@ export function formatExactTokens(count: number): string {
 export function shareOfTotal(part: number, total: number): number {
   if (!Number.isFinite(part) || !Number.isFinite(total) || total <= 0) return 0;
   return Math.round((part / total) * 1000) / 10;
+}
+
+/**
+ * A share as display text (US-18): `25%`, `33.3%`, and `<0.1%` for a real but
+ * vanishing part. A tiny non-zero share rounded to `0%` claims the group spent
+ * nothing, which is the one thing a breakdown must never say.
+ */
+export function formatShare(part: number, total: number): string {
+  if (
+    Number.isFinite(part) &&
+    Number.isFinite(total) &&
+    part > 0 &&
+    total > 0 &&
+    shareOfTotal(part, total) === 0
+  ) {
+    return '<0.1%';
+  }
+  return `${shareOfTotal(part, total)}%`;
 }

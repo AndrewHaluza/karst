@@ -1,32 +1,56 @@
 import type { AgentProvider } from '../manifest/types.js';
-import { tightestWindow, type QuotaSnapshot, type QuotaWindow } from '../agent/quota/types.js';
+import {
+  tightestWindow,
+  type QuotaKnown,
+  type QuotaSnapshot,
+  type QuotaWindow,
+} from '../agent/quota/types.js';
+import {
+  quotaCoreLabel,
+  quotaExpiredTooltipLine,
+  quotaWarnThresholdText,
+  quotaWindowTooltipLine,
+  type QuotaLevel,
+} from '../model/quotaText.js';
 
 /**
  * Pure status-bar builder for the per-core quota summary — the same shape
  * `buildResourceIndicator` uses: the `vscode` binding stays in `extension.ts`.
  *
- * Returns `null` when no core has a readable window — a permanent empty badge
- * is noise on the one surface the user cannot dismiss. The badge shows the
- * tightest window's used-% per core and turns amber at/above the threshold.
+ * Returns `null` when no core has a readable OPEN window — a permanent empty
+ * badge is noise on the one surface the user cannot dismiss. The badge shows the
+ * tightest open window's used-% per core and carries a three-way level so the
+ * binding can paint it green/amber/red (US-29).
+ *
+ * An expired window is not shown as a percentage (it would be stale); a core
+ * whose EVERY window has expired still gets one tooltip line saying so, the same
+ * sentence the Quota tab renders (US-3).
  */
 
 export interface QuotaIndicator {
   text: string;
   tooltip: string;
-  warning: boolean;
+  level: QuotaLevel;
 }
 
 interface KnownEntry {
-  snapshot: QuotaSnapshot;
+  snapshot: QuotaKnown;
   window: QuotaWindow;
 }
 
-/**
- * The tooltip shows one line per core with a readable window.
- *
- * `now` drops an already-expired window: a reset window's recorded used-% is
- * stale, so it must neither keep the badge amber nor show a bogus percentage.
- */
+/** The strongest level across the open windows (US-29). */
+function levelOf(open: readonly KnownEntry[], thresholdPct: number): QuotaLevel {
+  if (open.some(({ window }) => window.usedPct >= 100)) return 'exhausted';
+  if (open.some(({ window }) => window.usedPct >= thresholdPct)) return 'near';
+  return 'ok';
+}
+
+/** The glyph that carries the level before the text. */
+function glyphFor(level: QuotaLevel): string {
+  if (level === 'exhausted') return '$(error)';
+  return level === 'near' ? '$(warning)' : '$(dashboard)';
+}
+
 export function buildQuotaIndicator(
   snapshots: readonly QuotaSnapshot[],
   thresholdPct: number,
@@ -34,33 +58,36 @@ export function buildQuotaIndicator(
   now: Date,
   accountOf?: (core: AgentProvider) => string | undefined,
 ): QuotaIndicator | null {
-  const known: KnownEntry[] = [];
+  const open: KnownEntry[] = [];
+  const expired: QuotaSnapshot[] = [];
   for (const snapshot of snapshots) {
     const window = tightestWindow(snapshot, now);
-    if (window) known.push({ snapshot, window });
+    if (window !== null && snapshot.state === 'ok') {
+      open.push({ snapshot, window });
+      continue;
+    }
+    if (snapshot.state === 'ok' && snapshot.windows.length > 0) expired.push(snapshot);
   }
-  if (known.length === 0) return null;
+  if (open.length === 0) return null;
 
-  // The account name rides beside the core when the active account is not 'default'.
-  const named = (core: AgentProvider): string => {
-    const account = accountOf?.(core);
-    return account ? `${coreLabel(core)} (${account})` : coreLabel(core);
-  };
-  const segments = known.map(
+  const named = (core: AgentProvider): string =>
+    quotaCoreLabel(coreLabel(core), accountOf?.(core));
+
+  const level = levelOf(open, thresholdPct);
+  const segments = open.map(
     ({ snapshot, window }) => `${named(snapshot.core)} ${Math.round(window.usedPct)}%`,
   );
-  const warning = known.some(({ window }) => window.usedPct >= thresholdPct);
-  const tooltip = known
-    .map(({ snapshot, window }) => {
-      const reset = window.resetsAt ? ` · resets ${window.resetsAt}` : '';
-      return `${named(snapshot.core)}: ${Math.round(window.usedPct)}% of ${window.label}${reset}`;
-    })
-    .concat(`Warn threshold ${thresholdPct}%`)
+  const tooltip = open
+    .map(({ snapshot, window }) =>
+      quotaWindowTooltipLine(named(snapshot.core), window, now, snapshot.readAt),
+    )
+    .concat(expired.map((snapshot) => quotaExpiredTooltipLine(named(snapshot.core))))
+    .concat(quotaWarnThresholdText(thresholdPct))
     .join('\n');
 
   return {
-    text: `$(dashboard) ${segments.join(' · ')}`,
+    text: `${glyphFor(level)} ${segments.join(' · ')}`,
     tooltip,
-    warning,
+    level,
   };
 }

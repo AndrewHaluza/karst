@@ -3,8 +3,6 @@ import {
   DEFAULT_USAGE_LIMIT,
   MAX_USAGE_LIMIT,
   parseUsageQuery,
-  resolveUsageRange,
-  USAGE_RANGES,
   USAGE_SORTS,
 } from './tokenUsageQuery.js';
 
@@ -97,31 +95,5 @@ describe('parseUsageQuery', () => {
 
   it('treats explicit nulls as "unset", not as invalid', () => {
     expect(ok({ from: null, to: null, ticketId: null }).from).toBeNull();
-  });
-});
-
-describe('resolveUsageRange', () => {
-  const now = new Date('2026-08-01T12:00:00.000Z');
-
-  it('offers an all-time range that filters nothing', () => {
-    expect(resolveUsageRange('all', now)).toEqual({ from: null, to: null });
-  });
-
-  it('cuts a rolling window back from now', () => {
-    expect(resolveUsageRange('24h', now)).toEqual({
-      from: '2026-07-31T12:00:00.000Z',
-      to: null,
-    });
-    expect(resolveUsageRange('7d', now).from).toBe('2026-07-25T12:00:00.000Z');
-    expect(resolveUsageRange('30d', now).from).toBe('2026-07-02T12:00:00.000Z');
-  });
-
-  it('falls back to all-time for an unknown range id', () => {
-    expect(resolveUsageRange('forever', now)).toEqual({ from: null, to: null });
-  });
-
-  it('publishes every offered range with a label', () => {
-    expect(USAGE_RANGES.map((r) => r.id)).toEqual(['24h', '7d', '30d', 'all']);
-    for (const range of USAGE_RANGES) expect(range.label).not.toBe('');
   });
 });

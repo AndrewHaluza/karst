@@ -135,10 +135,20 @@ const FOCUS_CAP = 12;
  * the `agy` row previously rendered a single disabled `host` button (`no sandbox yet`);
  * with `docker` enabled as an allowed backend for `agy`, both `host` and `docker` buttons
  * render enabled (`allowed.length === 2`), adding exactly two focusable buttons to the Settings view.
+ *
+ * Updated a sixteenth time by the Token usage page rewrite (T1302): `usage` 13 → 37.
+ * The page is now a full page header with Refresh, the Spend/Quota tab pair, a
+ * sortable By-ticket table (5 sort-header buttons) and one ticket link per row
+ * (the `single-page` corpus renders all 25 rows), plus the four state actions
+ * that live in the DOM and are counted whether or not their state shows: Try
+ * again, Create a ticket, Refresh quota and Quota settings. Each is a real
+ * control the ticket introduced (US-1..US-35: refresh on open, tab switching,
+ * sorting, a ticket link, and one way forward per state); none folds into
+ * another, so the count grows with the page's interactive surface.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 49, // fourteenth note: #closeTicket / #reopenTicket
-  usage: 13,
+  usage: 37, // sixteenth note: page header, tabs, sort headers, ticket links and the state actions
   resources: 19, // thirteenth note: the Servers / Resources tab buttons
   serverLogs: 11,
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)

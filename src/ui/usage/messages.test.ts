@@ -23,6 +23,15 @@ function actions(): UsageActions & { calls: string[] } {
     openDashboard: (id) => {
       calls.push(`openDashboard:${id}`);
     },
+    openQuotaSettings: () => {
+      calls.push('openQuotaSettings');
+    },
+    createTicket: () => {
+      calls.push('createTicket');
+    },
+    refreshQuota: () => {
+      calls.push('refreshQuota');
+    },
   };
 }
 
@@ -45,6 +54,9 @@ describe('parseUsageMessage', () => {
       type: 'open-dashboard',
       ticketId: 3,
     });
+    expect(parseUsageMessage({ type: 'open-quota-settings' })).toEqual({ type: 'open-quota-settings' });
+    expect(parseUsageMessage({ type: 'create-ticket' })).toEqual({ type: 'create-ticket' });
+    expect(parseUsageMessage({ type: 'refresh-quota' })).toEqual({ type: 'refresh-quota' });
   });
 
   it('rejects a sort outside the closed set — it reaches a SQL query', () => {
@@ -77,12 +89,18 @@ describe('routeUsageAction', () => {
     routeUsageAction({ type: 'set-sort', sort: 'output' }, a);
     routeUsageAction({ type: 'set-page', offset: 20 }, a);
     routeUsageAction({ type: 'open-dashboard', ticketId: 9 }, a);
+    routeUsageAction({ type: 'open-quota-settings' }, a);
+    routeUsageAction({ type: 'create-ticket' }, a);
+    routeUsageAction({ type: 'refresh-quota' }, a);
     expect(a.calls).toEqual([
       'requestState',
       'setTab:quota',
       'setSort:output',
       'setPage:20',
       'openDashboard:9',
+      'openQuotaSettings',
+      'createTicket',
+      'refreshQuota',
     ]);
   });
 
@@ -97,6 +115,9 @@ describe('routeUsageAction', () => {
       setSort: vi.fn(() => pending),
       setPage: vi.fn(),
       openDashboard: vi.fn(),
+      openQuotaSettings: vi.fn(),
+      createTicket: vi.fn(),
+      refreshQuota: vi.fn(),
     };
     expect(routeUsageAction({ type: 'set-sort', sort: 'calls' }, a)).toBe(pending);
     await pending;

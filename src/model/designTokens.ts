@@ -84,8 +84,10 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   // usage view breaks spend down by stage AND by model side by side, and those
   // are two different questions: collapsing both onto `--k-info` makes the
   // comparison unreadable, which is what happens when the only blue available
-  // is the one that means "running". Ordered, and used in order.
-  '--k-series-1': 'var(--k-info)',
+  // is the one that means "running". Ordered, and used in order. Series 1 has
+  // its own chart hue (US-22): aliasing it onto --k-info made the first series
+  // spelled "running", so a chart and a status dot were the same blue.
+  '--k-series-1': 'var(--vscode-charts-blue, #3794ff)',
   '--k-series-2': 'var(--vscode-charts-purple, #8a63d2)',
 
   // ── Spacing ────────────────────────────────────────────────────────────────

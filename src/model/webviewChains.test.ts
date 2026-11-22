@@ -92,7 +92,9 @@ const CHAIN_EXPECTATIONS: Record<string, {
     injectors: [DESIGN_SYSTEM_MARKERS, AGENT_IDENTITY_MARKERS, PALETTE_MARKERS],
   },
   usage: {
-    injectors: [DESIGN_SYSTEM_MARKERS, PALETTE_MARKERS],
+    // DesignSystem → AgentIdentity → Palette — the By-agent-core panel prints
+    // the canonical core icon through agentBadgeHtml (US-4, @ui:SG-25).
+    injectors: [DESIGN_SYSTEM_MARKERS, AGENT_IDENTITY_MARKERS, PALETTE_MARKERS],
   },
   resources: {
     injectors: [DESIGN_SYSTEM_MARKERS, PALETTE_MARKERS],
