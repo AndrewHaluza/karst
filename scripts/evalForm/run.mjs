@@ -281,7 +281,9 @@ async function mainPlan(opts) {
       cliEntry: join(ROOT, 'dist/cli/main.js'),
       makeWork: (item) => makeWork(item, PLAN_REPOS),
       buildPrompt: (item, w) => ({
-        instructions: preamble.planningInstructions({ sessionId: 1, title: item.title, manifest: buildPlanManifest(item.repo, w.checkout) }),
+        instructions: preamble.planningInstructions({
+          sessionId: 1, title: item.title, manifest: buildPlanManifest(item.repo, w.checkout), artifactsDir: preamble.planningArtifactsDir(w.scratch),
+        }),
         kickoff: preamble.planningKickoff(buildPlanKickoff({ ...item, extra: planExtra })),
       }),
       onProgress: (r) => console.error(`${r.caseId} ${r.model}: ${r.status}${r.error ? ' ' + r.error : ''}`),
