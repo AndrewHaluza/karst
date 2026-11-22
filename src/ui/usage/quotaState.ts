@@ -1,5 +1,9 @@
 import type { AgentProvider } from '../../manifest/types.js';
-import { tightestUsedPct, type QuotaSnapshot } from '../../agent/quota/types.js';
+import {
+  isWindowExpired,
+  tightestUsedPct,
+  type QuotaSnapshot,
+} from '../../agent/quota/types.js';
 import { AGENT_PROVIDER_LABELS } from '../../model/agentProviders.js';
 
 /**
@@ -120,12 +124,26 @@ function rowView(snapshot: QuotaSnapshot, thresholdPct: number, now: Date, accou
       reason: snapshot.reason,
     };
   }
+  const activeWindows = snapshot.windows.filter((w) => !isWindowExpired(w, now, snapshot.readAt));
+  if (snapshot.windows.length > 0 && activeWindows.length === 0) {
+    // Every window's reset already passed: the recorded used-% describes a period
+    // that is over, so the row is unknown, never a stale "resetting now" bar.
+    return {
+      core: snapshot.core,
+      label,
+      state: 'unknown',
+      windows: [],
+      source: null,
+      readAgo: null,
+      reason: 'cached quota windows expired',
+    };
+  }
   const readAt = new Date(snapshot.readAt).getTime();
   return {
     core: snapshot.core,
     label,
     state: 'ok',
-    windows: snapshot.windows.map((w) =>
+    windows: activeWindows.map((w) =>
       windowView(w.label, w.usedPct, w.resetsAt, thresholdPct, now),
     ),
     source: snapshot.source,
