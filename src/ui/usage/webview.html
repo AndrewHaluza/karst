@@ -145,12 +145,15 @@
   .qwin + .qwin{margin-top:var(--k-space-4)}
   .qwin .qline{display:flex;align-items:baseline;gap:var(--k-space-3);flex-wrap:wrap}
   .qwin .qlbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* The level word and glyph sit with the percent, before it on the same right-aligned end group (US-19),
+     so a long status never strands the label at the start of the line with the number far away. */
+  .qwin .qend{margin-left:auto;display:inline-flex;align-items:baseline;gap:var(--k-space-3);flex:none}
   .qwin .qbadge{display:inline-flex;align-items:center;gap:var(--k-space-1);
     font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em}
   .qwin .qbadge.lvl-near{color:var(--k-attention-fg)}
   .qwin .qbadge.lvl-exhausted{color:var(--k-text)}
   .qwin .qbadge.lvl-exhausted svg{color:var(--k-danger)}
-  .qwin .qpct{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none;
+  .qwin .qpct{font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none;
     font-variant-numeric:tabular-nums}
   .qwin .qpct.lvl-near{color:var(--k-attention-fg)}
   .qwin .qpct.lvl-exhausted{color:var(--k-text)}
@@ -391,8 +394,10 @@
         const pct = w.usedDisplay
           ? `<span class="qpct lvl-${esc(w.level)}">${esc(w.usedDisplay)}</span>`
           : '';
+        // The level word and glyph sit before the percent, in one right-aligned end group (US-19).
+        const end = badge || pct ? `<span class="qend">${badge}${pct}</span>` : '';
         return '<div class="qwin">' +
-          `<div class="qline"><span class="qlbl">${esc(w.label)}</span>${badge}${pct}</div>` +
+          `<div class="qline"><span class="qlbl">${esc(w.label)}</span>${end}</div>` +
           `<div class="bar qbar lvl-${esc(w.level)}" role="meter" aria-valuenow="${w.expired ? 0 : w.usedPct}"` +
             ` aria-valuemin="0" aria-valuemax="100" aria-label="${esc(w.ariaLabel)}">` +
             `<i style="width:${Number(w.width) || 0}%"></i></div>` +
