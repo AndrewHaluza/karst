@@ -2481,6 +2481,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       openManifest: async () => {
         await vscode.commands.executeCommand('karst.openManifest');
       },
+      // Settings › Agents › Accounts "See current quota" (US-30-QC): the Token
+      // & usage panel already parses `'quota'` as its tab argument.
+      openQuota: async () => {
+        await vscode.commands.executeCommand('karst.openTokenUsage', 'quota');
+      },
       // The Settings → Approaches prompt links. The identity is a CLOSED set
       // (graphPrompts); the reveal shows the EFFECTIVE prompt — the project
       // override when one exists, else the packaged bytes (Slice-1 T7).

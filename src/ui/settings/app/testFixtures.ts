@@ -114,6 +114,7 @@ export const HOST_MESSAGE_FIXTURES: ReadonlyArray<{
   { name: 'ticket-lists', message: { type: 'ticket-lists', lists: [] } },
   { name: 'ticket-lists-error', message: { type: 'ticket-lists-error', message: 'Workspace unreadable' } },
   { name: 'token-state-configured', message: { type: 'token-state', configured: true } },
+  { name: 'quota-saved', message: { type: 'quota-saved', patch: { warnThresholdPct: 90 } } },
   { name: 'token-state-cleared', message: { type: 'token-state', configured: false } },
   {
     name: 'repo-path-picked',

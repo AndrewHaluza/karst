@@ -9,6 +9,20 @@ import type { ActionResultMessage } from '../../model/actionResult.js';
 import { DEFAULT_ACCOUNT, isAccountCore, type AccountCore } from '../../agent/accounts/types.js';
 import type { AccountsHostMessage, AccountsWebviewMessage, AccountSpecInput } from './accountsMessages.js';
 
+/**
+ * One partial write to the manifest's `quota:` block (Q4-SAVE).
+ *
+ * The Accounts tab saves its quota controls on change rather than through Save
+ * Agents, so the patch names only what the user touched: an absent key is left
+ * alone, `null` deletes it. The host validates the merged block with
+ * `validateQuota` before writing.
+ */
+export interface QuotaPatch {
+  readonly warnThresholdPct?: number | null;
+  readonly claudeGlobalStatusline?: boolean;
+  readonly claudeOauthUsageApi?: boolean;
+}
+
 /** Webview → host messages. The webview is untrusted; parse before use. */
 export type SettingsWebviewMessage =
   /**
@@ -49,6 +63,13 @@ export type SettingsWebviewMessage =
   | { type: 'browse-repo-path'; name: string }
   | { type: 'open-manifest' }
   /**
+   * Save quota controls at once (Q4-SAVE): the Accounts tab's threshold and its
+   * two opt-ins apply without going through Save Agents.
+   */
+  | { type: 'set-quota'; patch: QuotaPatch }
+  /** Open the Token & usage panel on its Quota tab (US-30-QC). */
+  | { type: 'open-quota' }
+  /**
    * Reveal the effective prompt for a graph prompt identity (`karst-graph-planner`
    * / `karst-graph-node`). The identity is a closed set — the host resolves it
    * against the stable override registry and refuses anything else.
@@ -81,6 +102,12 @@ export type SettingsHostMessage =
    * not yet saved — which, during first-time setup, is the provider itself.
    */
   | { type: 'token-state'; configured: boolean }
+  /**
+   * The quota patch landed on disk. Carries the patch, not a whole state push:
+   * the reducer applies it to BOTH the draft and the baseline so an unrelated
+   * Agents Save never clobbers the saved quota (Q4-SAVE).
+   */
+  | { type: 'quota-saved'; patch: QuotaPatch }
   /** Sandbox backend readiness (arch:AC-32), on its own message: probes can take seconds (docker build). */
   | { type: 'backend-status'; status: BackendStatuses }
   | { type: 'repo-path-picked'; name: string; path: string }
@@ -209,6 +236,10 @@ export interface SettingsActions {
   browseRepoPath(name: string): void | Promise<void>;
   /** Open this window's karst.yml in an editor (`karst.openManifest`). */
   openManifest(): void | Promise<void>;
+  /** Save one quota patch at once (Q4-SAVE), without Save Agents. */
+  setQuota(patch: QuotaPatch): void | Promise<void>;
+  /** Open the Token & usage panel on its Quota tab (US-30-QC). */
+  openQuota(): void | Promise<void>;
   /** Reveal the effective prompt file for a graph prompt identity. */
   openGraphPrompt(identity: string): void | Promise<void>;
   /** One Accounts-tab message (D505); the host replies with `accounts-*` messages. */
@@ -302,6 +333,12 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
       return str('name') ? { type: 'browse-repo-path', name: raw.name as string } : null;
     case 'open-manifest':
       return { type: 'open-manifest' };
+    case 'set-quota': {
+      const patch = parseQuotaPatch(raw.patch);
+      return patch === null ? null : { type: 'set-quota', patch };
+    }
+    case 'open-quota':
+      return { type: 'open-quota' };
     case 'open-graph-prompt':
       return str('identity') ? { type: 'open-graph-prompt', identity: raw.identity as string } : null;
     default:
@@ -363,11 +400,50 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return actions.browseRepoPath(msg.name);
     case 'open-manifest':
       return actions.openManifest();
+    case 'set-quota':
+      return actions.setQuota(msg.patch);
+    case 'open-quota':
+      return actions.openQuota();
     case 'open-graph-prompt':
       return actions.openGraphPrompt(msg.identity);
     default:
       return actions.accounts(msg);
   }
+}
+
+/** The quota keys the Accounts tab can patch (kept in step with `validateQuota`). */
+const QUOTA_PATCH_KEYS = ['warnThresholdPct', 'claudeGlobalStatusline', 'claudeOauthUsageApi'] as const;
+
+/**
+ * Narrow an untrusted `set-quota` patch.
+ *
+ * A patch is a CLOSED shape: at least one known key, no unknown keys. The
+ * threshold is `null` (delete) or a whole number 1–100 — `0`, `101`, `1.5`,
+ * `"90"` and `NaN` are dropped here rather than reaching `validateQuota`, so a
+ * junk message never becomes a panel-level error for a control the user cannot
+ * see. The two opt-ins are booleans when present.
+ */
+function parseQuotaPatch(raw: unknown): QuotaPatch | null {
+  if (!isRecord(raw)) return null;
+  const keys = Object.keys(raw);
+  if (keys.length === 0) return null;
+  if (keys.some((key) => !(QUOTA_PATCH_KEYS as readonly string[]).includes(key))) return null;
+  const patch: { -readonly [K in keyof QuotaPatch]: QuotaPatch[K] } = {};
+  if (Object.hasOwn(raw, 'warnThresholdPct')) {
+    const value = raw.warnThresholdPct;
+    const valid =
+      value === null ||
+      (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100);
+    if (!valid) return null;
+    patch.warnThresholdPct = value as number | null;
+  }
+  for (const key of ['claudeGlobalStatusline', 'claudeOauthUsageApi'] as const) {
+    if (!Object.hasOwn(raw, key)) continue;
+    const value = raw[key];
+    if (typeof value !== 'boolean') return null;
+    patch[key] = value;
+  }
+  return patch;
 }
 
 const ACCOUNT_NAME_MAX = 200;

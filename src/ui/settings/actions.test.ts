@@ -86,6 +86,7 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     modelCatalog: () => REMOTE_MODELS,
     browseForFolder: async () => undefined,
     openManifest: () => { order.push('openManifest'); },
+    openQuota: () => { order.push('openQuota'); },
     revealGraphPrompt: async () => { order.push('revealGraphPrompt'); },
     ...overrides,
   };
@@ -1274,6 +1275,75 @@ describe('settings actions — openManifest', () => {
     });
     await actions.openManifest();
     expect(posted).toContainEqual({ type: 'error', message: 'no active editor' });
+  });
+});
+
+describe('settings actions — setQuota (Q4-SAVE)', () => {
+  it('writes the patched threshold at once, then acks with the patch', async () => {
+    let written: Manifest | undefined;
+    const { actions, order, posted } = harness({
+      writeManifest: (_p, m) => { written = m; },
+    });
+    await actions.setQuota({ warnThresholdPct: 90 });
+    expect(written?.quota).toEqual({ warnThresholdPct: 90 });
+    // The same write pipeline every out-of-band setting uses: reload, refresh
+    // the sidebar/dashboard, and push state so the webview's baseline agrees.
+    expect(order).toEqual(['reload', 'change']);
+    expect(posted.some((m) => m.type === 'state')).toBe(true);
+    expect(posted).toContainEqual({ type: 'quota-saved', patch: { warnThresholdPct: 90 } });
+  });
+
+  it('keeps the other quota keys and re-fills the validator default on null', async () => {
+    let written: Manifest | undefined;
+    const { actions } = harness({
+      loadState: () => ({
+        manifest: { ...VALID, quota: { warnThresholdPct: 90, claudeGlobalStatusline: true } },
+        error: null,
+      }),
+      writeManifest: (_p, m) => { written = m; },
+    });
+    await actions.setQuota({ warnThresholdPct: null });
+    // `warnThresholdPct` is required by `QuotaConfig`, so deleting it means
+    // "back to the validator's default", not "absent from the file".
+    expect(written?.quota).toEqual({ warnThresholdPct: 80, claudeGlobalStatusline: true });
+  });
+
+  it('patches the two opt-ins without touching the threshold', async () => {
+    let written: Manifest | undefined;
+    const { actions } = harness({
+      loadState: () => ({ manifest: { ...VALID, quota: { warnThresholdPct: 70 } }, error: null }),
+      writeManifest: (_p, m) => { written = m; },
+    });
+    await actions.setQuota({ claudeOauthUsageApi: true });
+    expect(written?.quota).toEqual({ warnThresholdPct: 70, claudeOauthUsageApi: true });
+  });
+
+  it('posts an error and writes nothing when the merged block is invalid', async () => {
+    let written: Manifest | undefined;
+    const { actions, order, posted } = harness({
+      writeManifest: (_p, m) => { written = m; },
+    });
+    await actions.setQuota({ warnThresholdPct: 150 });
+    expect(written).toBeUndefined();
+    expect(order).toEqual([]);
+    expect(posted.some((m) => m.type === 'quota-saved')).toBe(false);
+    expect(posted.some((m) => m.type === 'error')).toBe(true);
+  });
+});
+
+describe('settings actions — openQuota (US-30-QC)', () => {
+  it('delegates to the injected opener', async () => {
+    const { actions, order } = harness();
+    await actions.openQuota();
+    expect(order).toEqual(['openQuota']);
+  });
+
+  it('posts a panel error when the opener rejects', async () => {
+    const { actions, posted } = harness({
+      openQuota: async () => { throw new Error('usage panel unavailable'); },
+    });
+    await actions.openQuota();
+    expect(posted).toContainEqual({ type: 'error', message: 'usage panel unavailable' });
   });
 });
 

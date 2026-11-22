@@ -43,7 +43,7 @@ function appUsedSenders(): readonly string[] {
   const used = new Set<string>();
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
-    for (const m of text.matchAll(/\.(save|validate|validateProcessAssignments|installApproach|uninstallApproach|setToken|clearToken|setApproachEnabled|setAgentEnabled|saveAgentFile|createAgent|deleteAgent|requestState|getApproachCommandBody|fetchTicketStatuses|fetchTicketLists|browseRepoPath|openManifest|openGraphPrompt)\(/g)) {
+    for (const m of text.matchAll(/\.(save|validate|validateProcessAssignments|installApproach|uninstallApproach|setToken|clearToken|setApproachEnabled|setAgentEnabled|saveAgentFile|createAgent|deleteAgent|requestState|getApproachCommandBody|fetchTicketStatuses|fetchTicketLists|browseRepoPath|openManifest|openQuota|setQuota|openGraphPrompt)\(/g)) {
       used.add(m[1]!);
     }
   }

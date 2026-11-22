@@ -2,6 +2,7 @@
  * Per-core sandbox backend choices (arch:AC-32). Dependency-free: the manifest
  * schema, the resolver and the Settings webview all import it.
  */
+import type { AgentProvider } from '../manifest/types.js';
 import { DOCKER_CORES, SBX_CORES } from './sandboxCores.js';
 
 export type CoreBackend = 'host' | 'sbx' | 'docker';
@@ -9,6 +10,22 @@ export type CoreBackend = 'host' | 'sbx' | 'docker';
 /** Every core a backend can be chosen for; agy is host only until it gets a sandbox (arch:AC-31). */
 export const BACKEND_CORES = ['claude', 'codex', 'opencode', 'opencode2', 'agy'] as const;
 export type BackendCore = (typeof BACKEND_CORES)[number];
+
+/**
+ * The session provider that serves each backend core (SET-46).
+ *
+ * The manifest vocabulary says `agy` while session providers say
+ * `antigravity` (`backendCoreKey` maps between them), so the Settings Sandbox
+ * panel must not hard-code the translation. One exhaustive map means a new core
+ * is a `tsc` error here rather than a row that silently renders no identity.
+ */
+export const BACKEND_CORE_PROVIDER: Readonly<Record<BackendCore, AgentProvider>> = {
+  claude: 'claude',
+  codex: 'codex',
+  opencode: 'opencode',
+  opencode2: 'opencode2',
+  agy: 'antigravity',
+};
 
 /** `Manifest.agentBackends`: absent key = host. */
 export type AgentBackends = { readonly [C in BackendCore]?: CoreBackend };

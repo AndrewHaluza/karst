@@ -43,6 +43,13 @@ export interface InputControl extends CommonControl {
   type?: 'text' | 'number' | 'password' | 'url' | 'search';
   value: string;
   onChange: (value: string) => void;
+  /**
+   * Commit the value when the user finishes: on blur, or on Enter (Q4-SAVE).
+   * Typed values already reach `onChange` as you type; this is the "apply now"
+   * edge for a field that saves out of band, such as the Accounts quota
+   * threshold. Never fires on Escape.
+   */
+  onCommit?: (value: string) => void;
   placeholder?: string;
   readOnly?: boolean;
   /** Native bounds for `type: 'number'` (spinner and keyboard constraint). */
@@ -177,9 +184,33 @@ type TextProps<E> = Omit<E, 'value' | 'onChange'> & {
   readonly onValueChange: (next: string) => void;
 };
 
-function TextInput({ value, onValueChange, ...rest }: TextProps<ComponentProps<'input'>>) {
+function TextInput({
+  value,
+  onValueChange,
+  onCommit,
+  onBlur,
+  onKeyDown,
+  ...rest
+}: TextProps<ComponentProps<'input'>> & { readonly onCommit?: (value: string) => void }) {
   const [local, update] = useCommittedText(value, onValueChange);
-  return <input {...rest} value={local} onChange={(e) => update(e.target.value)} />;
+  return (
+    <input
+      {...rest}
+      value={local}
+      onChange={(e) => update(e.target.value)}
+      onBlur={(e) => {
+        onBlur?.(e);
+        onCommit?.(e.currentTarget.value);
+      }}
+      onKeyDown={(e) => {
+        onKeyDown?.(e);
+        if (e.key !== 'Enter' || onCommit === undefined) return;
+        // Enter commits the live value; the form has no submit of its own.
+        e.preventDefault();
+        onCommit(e.currentTarget.value);
+      }}
+    />
+  );
 }
 
 function TextArea({ value, onValueChange, ...rest }: TextProps<ComponentProps<'textarea'>>) {
@@ -232,16 +263,17 @@ function FieldBody({
     </span>
   ) : null;
 
-  // A checkbox's label sits beside the control, so it does not use the top
-  // label. The vanilla view still showed the field's name in the form-grid's
-  // LABEL track (as plain text — the toggle's own `Enabled` label was the
-  // control's accessible name), so render that track's text too: inside
-  // `.form-grid` it lands in column 1, keeping the two-column grammar.
+  // A form setting is a native checkbox (SET-18 / Q4), not the list-item
+  // switch: `Switch` stays for Repositories/Approaches/Roles rows, where the
+  // boolean is an object's state. The name still occupies the form-grid's LABEL
+  // track (as plain text; `.k-check > label` is the control's own label), so
+  // the two-column grammar holds. `hideLabel` clips BOTH copies — a table row
+  // whose column header already names the cell must not show a stray label.
   if (control.kind === 'checkbox') {
     return (
       <div className={shellClass}>
-        <span className="field-label">{label}</span>
-        <div className="k-switch">
+        <span className={hideLabel ? 'field-label sr-only' : 'field-label'}>{label}</span>
+        <span className="k-check">
           <input
             type="checkbox"
             id={id}
@@ -250,10 +282,13 @@ function FieldBody({
             disabled={control.disabled}
             aria-describedby={describedBy}
             aria-invalid={invalid || undefined}
+            aria-required={required || undefined}
             onChange={(e) => control.onChange(e.target.checked)}
           />
-          <label htmlFor={id}>{control.switchLabel ?? label}</label>
-        </div>
+          <label htmlFor={id} className={hideLabel ? 'sr-only' : undefined}>
+            {control.switchLabel ?? label}
+          </label>
+        </span>
         {helpNode}
         {errorNode}
       </div>
@@ -269,6 +304,7 @@ function FieldBody({
       disabled: control.disabled,
       'aria-describedby': wiring.describedBy,
       'aria-invalid': wiring.invalid || undefined,
+      'aria-required': required || undefined,
     };
     return (
       <div className={shellClass}>
@@ -311,7 +347,7 @@ function FieldBody({
         {label}
         {required ? <span aria-hidden="true"> *</span> : null}
       </label>
-      {renderControl(control, wiring)}
+      {renderControl(control, wiring, required)}
       {meta}
       {helpNode}
       {errorNode}
@@ -322,6 +358,7 @@ function FieldBody({
 function renderControl(
   control: Exclude<FieldControl, { kind: 'checkbox' } | { kind: 'pair' }>,
   wiring: Wiring,
+  required: boolean,
 ): ReactNode {
   const controlClass = ['k-input', control.controlClassName]
     .filter((c): c is string => Boolean(c))
@@ -333,6 +370,7 @@ function renderControl(
     'aria-describedby': wiring.describedBy,
     'aria-description': control.ariaDescription,
     'aria-invalid': wiring.invalid || undefined,
+    'aria-required': required || undefined,
   };
   switch (control.kind) {
     case 'input':
@@ -349,6 +387,7 @@ function renderControl(
           max={control.max}
           step={control.step}
           onValueChange={control.onChange}
+          onCommit={control.onCommit}
         />
       );
     case 'textarea':

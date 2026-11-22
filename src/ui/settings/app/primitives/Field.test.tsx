@@ -75,6 +75,44 @@ describe('Field', () => {
     expect(checkbox.checked).toBe(true);
   });
 
+  it('sets aria-required on the control, not only the label asterisk (SET-17)', () => {
+    render(
+      <Field
+        label="Name"
+        required
+        control={{ kind: 'input', value: '', onChange: () => {} }}
+      />,
+    );
+    expect(screen.getByLabelText(/Name/).getAttribute('aria-required')).toBe('true');
+  });
+
+  it('renders a native checkbox row without the switch wrapper (SET-18)', () => {
+    const { container } = render(
+      <Field
+        label="Tester observations"
+        control={{ kind: 'checkbox', checked: false, onChange: () => {} }}
+      />,
+    );
+    expect(container.querySelector('.k-switch')).toBeNull();
+    expect(container.querySelector('.k-check input[type="checkbox"]')).not.toBeNull();
+    // The name still fills the form-grid label track as plain text.
+    expect(container.querySelector('.field-label')?.textContent).toBe('Tester observations');
+  });
+
+  it('clips both labels when hideLabel is set (SET-18, table rows)', () => {
+    const { container } = render(
+      <Field
+        label="Enabled"
+        hideLabel
+        control={{ kind: 'checkbox', checked: true, onChange: () => {} }}
+      />,
+    );
+    expect(container.querySelector('.field-label')?.classList.contains('sr-only')).toBe(true);
+    expect(container.querySelector('.k-check label')?.classList.contains('sr-only')).toBe(true);
+    // Still named for assistive tech.
+    expect(screen.getByLabelText('Enabled')).toBeTruthy();
+  });
+
   it('marks a required field without depending on the label text', () => {
     render(
       <Field
@@ -114,5 +152,57 @@ describe('Field — text controls commit every keystroke without a debounce wind
     const ref = createRef<HTMLInputElement>();
     render(<Field label="Host" control={{ kind: 'input', value: 'a', onChange: () => {}, inputRef: ref }} />);
     expect(ref.current).toBe(screen.getByLabelText('Host'));
+  });
+});
+
+describe('Field — onCommit (Q4-SAVE)', () => {
+  it('commits the current value on blur', () => {
+    const committed: string[] = [];
+    render(
+      <Field
+        label="Warn at used %"
+        control={{
+          kind: 'input',
+          value: '',
+          onChange: () => {},
+          onCommit: (v) => committed.push(v),
+        }}
+      />,
+    );
+    const input = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '90' } });
+    fireEvent.blur(input);
+    expect(committed).toEqual(['90']);
+  });
+
+  it('commits the live value on Enter and prevents a submit', () => {
+    const committed: string[] = [];
+    render(
+      <Field
+        label="Warn at used %"
+        control={{
+          kind: 'input',
+          value: '',
+          onChange: () => {},
+          onCommit: (v) => committed.push(v),
+        }}
+      />,
+    );
+    const input = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '75' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(committed).toEqual(['75']);
+  });
+
+  it('does not commit on other keys', () => {
+    const committed: string[] = [];
+    render(
+      <Field
+        label="Warn at used %"
+        control={{ kind: 'input', value: '1', onChange: () => {}, onCommit: (v) => committed.push(v) }}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Warn at used %'), { key: 'a' });
+    expect(committed).toEqual([]);
   });
 });

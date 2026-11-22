@@ -10,7 +10,7 @@ import {
   isBuiltInApproachId,
   withBuiltInApproaches,
 } from '../../approaches/withBuiltInApproaches.js';
-import type { SettingsActions, SettingsHostMessage } from './messages.js';
+import type { QuotaPatch, SettingsActions, SettingsHostMessage } from './messages.js';
 import { buildSettingsState, type BackendStatuses, type SettingsState } from './state.js';
 import { buildProcessAssignmentViews } from './processAssignmentViews.js';
 import type { LoadedManifest } from './panel.js';
@@ -21,6 +21,7 @@ import { assertProfileEffort, EffortError } from '../../agent/effort.js';
 import type { AccountsWebviewMessage } from './accountsMessages.js';
 import type { AccountsHost } from './accountsHost.js';
 import { mergeSection, type SettingsSection } from './sections.js';
+import { validateQuota } from '../../manifest/validate/quota.js';
 
 /** Per-panel context: how to post to this webview + which file it edits. */
 export interface SettingsActionsCtx {
@@ -120,6 +121,8 @@ export interface SettingsActionsDeps {
   browseForFolder(): Promise<string | undefined>;
   /** Open this window's karst.yml in an editor (runs `karst.openManifest`). */
   openManifest(): void | Promise<void>;
+  /** Open the Token & usage panel on its Quota tab (US-30-QC). */
+  openQuota(): void | Promise<void>;
   /**
    * Reveal the effective prompt file for a graph prompt identity (project
    * override wins over the packaged bytes).
@@ -629,6 +632,40 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         }
       },
 
+      /**
+       * Save one partial `quota:` write at once (Q4-SAVE).
+       *
+       * Built from the manifest ON DISK, not from the draft: the threshold and
+       * the two opt-ins live on the Accounts tab, which applies immediately, and
+       * merging onto the file is what keeps an unrelated in-progress Agents edit
+       * out of the write. `validateQuota` is the same validator Save runs, so an
+       * accepted patch can never make the file invalid.
+       */
+      async setQuota(patch: QuotaPatch): Promise<void> {
+        try {
+          const loaded = deps.loadState();
+          const nextQuota: Record<string, unknown> = { ...(loaded.manifest.quota ?? {}) };
+          for (const key of ['warnThresholdPct', 'claudeGlobalStatusline', 'claudeOauthUsageApi'] as const) {
+            if (!Object.hasOwn(patch, key)) continue;
+            const value = patch[key];
+            if (value === null) delete nextQuota[key];
+            else nextQuota[key] = value;
+          }
+          const next: Manifest = { ...loaded.manifest };
+          if (Object.keys(nextQuota).length === 0) delete next.quota;
+          else next.quota = validateQuota(nextQuota);
+          writeManifestDelta(next);
+          deps.reloadManifest();
+          deps.onChange();
+          await pushStateWithInstalled();
+          ctx.post({ type: 'quota-saved', patch });
+        } catch (e) {
+          // No write and no ack: the state push above is the webview's only
+          // signal, so a rejection must not look saved.
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
       async saveAgentFile(name: string, body: string): Promise<void> {
         try {
           deps.saveAgentFile(name, body);
@@ -707,6 +744,14 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       async openManifest(): Promise<void> {
         try {
           await deps.openManifest();
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      async openQuota(): Promise<void> {
+        try {
+          await deps.openQuota();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

@@ -201,6 +201,33 @@ describe('settings v7 responsive block', () => {
 const bodyRules = [...HTML.matchAll(/(?<![\w#.\-])body\s*\{([^}]*)\}/g)].map((m) => m[1] ?? '');
 const bodyHas = (...res: RegExp[]) => bodyRules.some((r) => res.every((re) => re.test(r)));
 
+describe('settings responsive tiers (SET-1, SET-2, SET-3)', () => {
+  it('keys the form tier on the content region, not the window (Q12)', () => {
+    // A window query cannot see that the content region is narrow inside a wide
+    // window once the sidebar takes space (@ui:RD-TIERS rule 1).
+    expect(HTML).toMatch(/\.content\{[^}]*container:settings-content \/ inline-size/);
+    expect(HTML).toContain('@container settings-content (max-width: 699px)');
+    // The old window-scoped form stack must be gone, or it would defeat the tier.
+    expect(HTML).not.toMatch(/@media \(max-width: 61\.25em\)\{\s*\.form-grid/);
+  });
+
+  it('never hides the save-state region; it shows a compact form instead (SET-3)', () => {
+    expect(HTML).not.toMatch(/\.save-state\{display:none\}/);
+    expect(HTML).toContain('.save-state .save-state-full{display:none}');
+    expect(HTML).toContain('.save-state::after{content:attr(data-compact)}');
+    // The topbar wraps rather than overflowing.
+    expect(HTML).toMatch(/@media \(max-width: 40em\)\{[\s\S]*?\.topbar\{[^}]*flex-wrap:wrap/);
+  });
+
+  it('tightens the chrome and keeps the Undo at the tight tier (SET-2)', () => {
+    expect(HTML).toMatch(/@media \(max-width: 22\.5em\)\{[\s\S]*?#topbarSection\{display:none\}/);
+    expect(HTML).toMatch(/@media \(max-width: 22\.5em\)\{[\s\S]*?#saveBtn \.save-section-name\{display:none\}/);
+    // The discard acknowledgement carries the Undo; hiding it would remove the
+    // only way back from a mistake.
+    expect(HTML).not.toContain('.topbar .saved-msg,.topbar .unsaved-hint{display:none}');
+  });
+});
+
 describe('content width cap (UI-R48)', () => {
   it('caps and centers body', () => {
     expect(bodyHas(/max-width\s*:\s*var\(--k-content-max\)/, /margin-inline\s*:\s*auto/)).toBe(true);

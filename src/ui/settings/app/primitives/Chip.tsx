@@ -15,7 +15,13 @@
  */
 import type { ReactNode } from 'react';
 
-export type ChipTone = 'neutral' | 'success';
+/**
+ * Chip tones. `neutral` and `success` use the DS modifier classes; `warning` and
+ * `danger` use the DS state classes (`.is-warning` / `.is-danger`) because
+ * `designComponents.webview.css` defines those, not `--warning`/`--danger`
+ * modifiers (SET-44 — verified against the shipped stylesheet).
+ */
+export type ChipTone = 'neutral' | 'success' | 'warning' | 'danger';
 
 export interface ChipProps {
   readonly tone?: ChipTone;
@@ -25,8 +31,16 @@ export interface ChipProps {
   readonly name?: string;
 }
 
+const TONE_CLASS: Readonly<Record<ChipTone, string | null>> = {
+  neutral: null,
+  success: 'k-chip--success',
+  warning: 'is-warning',
+  danger: 'is-danger',
+};
+
 export function Chip({ tone = 'neutral', children, name }: ChipProps) {
-  const className = tone === 'success' ? 'k-chip k-chip--success' : 'k-chip';
+  const modifier = TONE_CLASS[tone];
+  const className = modifier === null ? 'k-chip' : `k-chip ${modifier}`;
   return (
     <span className={className} data-chip={name}>
       {children}

@@ -14,9 +14,12 @@ import { describe, expect, it } from 'vitest';
 import {
   INITIAL_SETTINGS_APP_STATE,
   beginSave,
+  clearUndo,
+  discardWithUndo,
   setDraftManifest,
   settingsAppReducer,
   touchField,
+  undoDiscard,
   type SettingsAppState,
 } from './reducer.js';
 import { sectionForError, shouldShowBanner } from './diagnostics.js';
@@ -487,5 +490,76 @@ describe('error attribution (the reducer-adjacent display selectors)', () => {
     expect(shouldShowBanner(untouched.validation.error, untouched.touched)).toBe(false);
     expect(shouldShowBanner(touched.validation.error, touched.touched)).toBe(true);
     expect(sectionForError(touched.validation.error)).toBe('services');
+  });
+});
+
+describe('settingsAppReducer — quota-saved (Q4-SAVE)', () => {
+  it('applies the patch to the draft AND the baseline so Save Agents cannot clobber it', () => {
+    // A role edit makes Agents dirty; the quota controls then save out of band.
+    const edited = setDraftManifest(hydrated(), {
+      ...FIXTURE_MANIFEST,
+      agents: { ...(FIXTURE_MANIFEST.agents ?? {}), implement: { role: 'implement', command: 'codex' } },
+    });
+    const next = push({ type: 'quota-saved', patch: { warnThresholdPct: 90 } }, edited);
+    expect(next.draft.quota?.warnThresholdPct).toBe(90);
+    expect(next.lastSaved.quota?.warnThresholdPct).toBe(90);
+    // The unrelated Agents edit is still dirty; the quota write is not.
+    expect(next.dirtySections).toEqual(['agents']);
+    expect(next.quotaSavedSeq).toBe(edited.quotaSavedSeq + 1);
+  });
+
+  it('deletes a key on null and keeps its siblings', () => {
+    const withQuota = push({
+      type: 'state',
+      state: {
+        ...FIXTURE_STATE_PUSH,
+        manifest: { ...FIXTURE_MANIFEST, quota: { warnThresholdPct: 70, claudeGlobalStatusline: true } },
+      },
+    });
+    const next = push({ type: 'quota-saved', patch: { warnThresholdPct: null } }, withQuota);
+    expect(next.draft.quota).toEqual({ claudeGlobalStatusline: true });
+    expect(next.lastSaved.quota).toEqual({ claudeGlobalStatusline: true });
+  });
+
+  it('bumps the sequence even when the same patch arrives twice', () => {
+    const once = push({ type: 'quota-saved', patch: { warnThresholdPct: 90 } }, hydrated());
+    const twice = push({ type: 'quota-saved', patch: { warnThresholdPct: 90 } }, once);
+    expect(twice.quotaSavedSeq).toBe(once.quotaSavedSeq + 1);
+  });
+});
+
+describe('discardWithUndo / undoDiscard (Q11 / SET-15)', () => {
+  it('stores the discarded draft, and undo restores it', () => {
+    const edited = withDraftEdit(EDITED_MANIFEST);
+    const discarded = discardWithUndo(edited, 'general');
+    expect(discarded.draft.host).toBe(FIXTURE_MANIFEST.host);
+    expect(discarded.dirtySections).toEqual([]);
+    expect(discarded.undo).not.toBeNull();
+    expect(discarded.undo?.section).toBe('general');
+
+    const restored = undoDiscard(discarded);
+    expect(restored.draft).toEqual(EDITED_MANIFEST);
+    expect(restored.dirtySections).toEqual(['general']);
+    expect(restored.undo).toBeNull();
+  });
+
+  it('a new edit clears the undo snapshot', () => {
+    const discarded = discardWithUndo(withDraftEdit(EDITED_MANIFEST), 'general');
+    const edited = setDraftManifest(discarded, { ...discarded.draft, host: '127.0.0.2' });
+    expect(edited.undo).toBeNull();
+  });
+
+  it('beginSave and saved both clear it', () => {
+    const discarded = discardWithUndo(withDraftEdit(EDITED_MANIFEST), 'general');
+    expect(beginSave(discarded, 'general').undo).toBeNull();
+    expect(push({ type: 'saved', section: 'general' }, discarded).undo).toBeNull();
+  });
+
+  it('clearUndo drops the snapshot without restoring anything', () => {
+    const discarded = discardWithUndo(withDraftEdit(EDITED_MANIFEST), 'general');
+    const cleared = clearUndo(discarded);
+    expect(cleared.undo).toBeNull();
+    expect(cleared.draft).toEqual(discarded.draft);
+    expect(clearUndo(cleared)).toBe(cleared);
   });
 });

@@ -75,7 +75,10 @@ const LITERAL_BUDGET: Record<string, number> = {
   // 4, not 0: the layout B′ tier breakpoints (@container 999/699/399 + the
   // 700px label-left query) — a container condition cannot read a custom property.
   ticketForm: 4,
-  settings: 0,
+  // 1, not 0: the Q12 label-above-control tier is `@container settings-content
+  // (max-width: 699px)` — a container condition cannot read a custom property,
+  // the same exemption ticketForm/gettingStarted take (@ui:RD-TIERS).
+  settings: 1,
   sidebar: 0,
   usage: 0,
   // 1, not 0: the Agent setup rows move the tag under the title at the narrow tier (`699px`, NARROW_MAX,

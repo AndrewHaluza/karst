@@ -14,7 +14,7 @@
  */
 
 import type { BackendWant } from '../../agent/backendChoices.js';
-import type { SettingsWebviewMessage } from './messages.js';
+import type { QuotaPatch, SettingsWebviewMessage } from './messages.js';
 import type { AccountsWebviewMessage } from './accountsMessages.js';
 
 /** The minimal host API a sender posts through. */
@@ -100,6 +100,9 @@ export function createSender(api: WebviewApi) {
     browseRepoPath: (name: Msg<'browse-repo-path'>['name'], requestId?: string) =>
       send({ type: 'browse-repo-path', name }, requestId),
     openManifest: (requestId?: string) => send({ type: 'open-manifest' }, requestId),
+    setQuota: (patch: QuotaPatch, requestId?: string) =>
+      send({ type: 'set-quota', patch }, requestId),
+    openQuota: (requestId?: string) => send({ type: 'open-quota' }, requestId),
     openGraphPrompt: (
       identity: Msg<'open-graph-prompt'>['identity'],
       requestId?: string,

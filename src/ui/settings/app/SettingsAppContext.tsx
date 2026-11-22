@@ -27,19 +27,34 @@ import {
   type ReactNode,
 } from 'react';
 import type { Manifest } from '../../../manifest/types.js';
-import { SECTION_FIELDS, SECTION_LABELS, type SettingsSection } from '../sections.js';
+import {
+  SECTION_FIELDS,
+  SECTION_LABELS,
+  SETTINGS_SECTIONS,
+  type SettingsSection,
+} from '../sections.js';
 import type { SettingsHostMessage } from '../messages.js';
 import { overlaySections } from './draft.js';
 import {
   INITIAL_SETTINGS_APP_STATE,
   beginSave,
+  clearUndo,
+  discardWithUndo,
   invalidateTicketFetchesFor,
   setDraftManifest,
   settingsAppReducer,
   touchField,
+  undoDiscard,
   type SettingsAppState,
 } from './reducer.js';
-import { manifestFaultDetail, sectionForError, shouldShowBanner } from './diagnostics.js';
+import {
+  firstSectionWithLocalError,
+  hasInlineFieldFault,
+  localFieldErrors,
+  manifestFaultDetail,
+  sectionForError,
+  shouldShowBanner,
+} from './diagnostics.js';
 import { pageHostBridge, type SettingsHostBridge } from './hostBridge.js';
 
 /**
@@ -55,7 +70,9 @@ type AppAction =
   | { readonly kind: 'edit'; readonly update: (draft: Manifest) => Manifest }
   | { readonly kind: 'touch'; readonly key: string }
   | { readonly kind: 'begin-save'; readonly section: SettingsSection }
-  | { readonly kind: 'discard'; readonly section: SettingsSection };
+  | { readonly kind: 'discard'; readonly section: SettingsSection }
+  | { readonly kind: 'undo-discard' }
+  | { readonly kind: 'clear-undo' };
 
 function appReducer(state: SettingsAppState, action: AppAction): SettingsAppState {
   switch (action.kind) {
@@ -73,7 +90,11 @@ function appReducer(state: SettingsAppState, action: AppAction): SettingsAppStat
     case 'begin-save':
       return beginSave(state, action.section);
     case 'discard':
-      return setDraftManifest(state, overlaySections(state.draft, state.lastSaved, [action.section]));
+      return discardWithUndo(state, action.section);
+    case 'undo-discard':
+      return undoDiscard(state);
+    case 'clear-undo':
+      return clearUndo(state);
     default:
       return state;
   }
@@ -107,6 +128,16 @@ export interface SettingsApp {
   readonly errorSection: SettingsSection | null;
   /** The banner text, or `null` when no banner should be visible. */
   readonly bannerText: string | null;
+  /** Field errors the Quality editors already know about, per tab (SET-4/12). */
+  readonly localErrors: Partial<Record<SettingsSection, number>>;
+  /** Total local field errors across tabs — the shell's "Fix N fields" count. */
+  readonly localErrorCount: number;
+  /**
+   * True while the Agents › Accounts tab is on screen (Q4-SAVE): its controls
+   * save immediately, so the shell hides Save and Discard.
+   */
+  readonly instantApply: boolean;
+  readonly setInstantApply: (on: boolean) => void;
   /**
    * Exactly what a Save on `target` would write: the baseline with that tab's
    * edits. Also what the debounced `validate` posts, so a half-finished edit
@@ -124,6 +155,10 @@ export interface SettingsAppActions {
   markSaveStarted(target: SettingsSection): void;
   /** Roll one tab's fields back to the baseline; other tabs' edits survive. */
   discard(target: SettingsSection): void;
+  /** Put back the draft a Discard replaced (Q11). */
+  undoDiscard(): void;
+  /** Forget a pending Undo without restoring it (timer, Save, section switch). */
+  clearUndo(): void;
 }
 
 const AppContext = createContext<(SettingsApp & SettingsAppActions) | null>(null);
@@ -165,7 +200,17 @@ export function SettingsAppProvider({
       return base;
     },
   );
-  const [section, setSection] = useState<SettingsSection>(initialSection ?? FIRST_SECTION);
+  const [section, setSectionState] = useState<SettingsSection>(initialSection ?? FIRST_SECTION);
+  // Q4-SAVE: only the Accounts tab applies at once. Owned here so the shell and
+  // the section cannot disagree; leaving the tab (or Agents) resets it.
+  const [instantApply, setInstantApply] = useState(false);
+  const setSection = useCallback((target: SettingsSection) => {
+    setSectionState(target);
+    // Q11: an Undo belongs to the tab that was discarded, and a switch is a
+    // deliberate move on — restoring another tab's old draft would be a surprise.
+    dispatch({ kind: 'clear-undo' });
+    setInstantApply(false);
+  }, []);
   const { send } = host;
 
   // The mounted section's leave guard. A ref, not state: registering a guard
@@ -195,7 +240,7 @@ export function SettingsAppProvider({
       }
       dispatch({ kind: 'host', message });
     }),
-    [host],
+    [host, setSection],
   );
 
   // Persist across a reload: the manifest the file holds, plus the token flag
@@ -221,17 +266,32 @@ export function SettingsAppProvider({
     (target: SettingsSection) => dispatch({ kind: 'discard', section: target }),
     [],
   );
+  const undoDiscardAction = useCallback(() => dispatch({ kind: 'undo-discard' }), []);
+  const clearUndoAction = useCallback(() => dispatch({ kind: 'clear-undo' }), []);
 
   // Derived in render (R-X4). The fault is the draft's verdict first and the
   // host-reported failure second, so a rejected save and a rejected draft both
   // point at a tab.
   const fault = state.validation.ok ? state.hostError : state.validation.error;
-  const errorSection = useMemo(() => sectionForError(fault), [fault]);
+  const localErrors = useMemo(() => localFieldErrors(state.draft), [state.draft]);
+  const localErrorCount = useMemo(
+    () => Object.values(localErrors).reduce((sum, n) => sum + (n ?? 0), 0),
+    [localErrors],
+  );
+  // The host has only ever reported ONE fault; when it has none, the first tab
+  // with a local field error is the one Save is blocked on (SET-5).
+  const errorSection = useMemo(
+    () => sectionForError(fault) ?? firstSectionWithLocalError(localErrors, SETTINGS_SECTIONS),
+    [fault, localErrors],
+  );
   // A fault belonging to a DIFFERENT tab is prefixed with that tab's label, so
   // the banner says whose problem it is. Standing ON the owning tab, the message
   // is shown verbatim — the prefix would only be noise.
   const bannerText = useMemo(() => {
     if (!shouldShowBanner(fault, state.touched)) return null;
+    // SET-6 / UI-R25: a fault the section already renders under its own control
+    // is not repeated in the top banner.
+    if (hasInlineFieldFault(fault, section)) return null;
     const detail = manifestFaultDetail(fault);
     if (!detail) return null;
     const owner = sectionForError(fault);
@@ -257,29 +317,42 @@ export function SettingsAppProvider({
       runLeaveGuard,
       send,
       isDirty,
-      valid: state.validation.ok,
+      valid: state.validation.ok && localErrorCount === 0,
       errorSection,
       bannerText,
+      localErrors,
+      localErrorCount,
+      instantApply,
+      setInstantApply,
       saveCandidate,
       edit,
       touch,
       markSaveStarted,
       discard,
+      undoDiscard: undoDiscardAction,
+      clearUndo: clearUndoAction,
     }),
     [
       state,
       section,
+      setSection,
       setLeaveGuard,
       runLeaveGuard,
       send,
       isDirty,
       errorSection,
       bannerText,
+      localErrors,
+      localErrorCount,
+      instantApply,
+      setInstantApply,
       saveCandidate,
       edit,
       touch,
       markSaveStarted,
       discard,
+      undoDiscardAction,
+      clearUndoAction,
     ],
   );
 

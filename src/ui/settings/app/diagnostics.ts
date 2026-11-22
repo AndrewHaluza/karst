@@ -14,7 +14,11 @@
  * Kept separate from `reducer.ts` because nothing here mutates anything — it is
  * the selector half of the state boundary.
  */
+import type { Manifest } from '../../../manifest/types.js';
+import type { QuotaPatch } from '../messages.js';
+import { REVIEW_MAX_FIX_ATTEMPTS } from '../../../manifest/qualityDefaults.js';
 import type { SettingsSection } from '../sections.js';
+import { evidenceErrors, readStallDetection, stallErrors } from './sections/qualityDraft.js';
 import { DEFAULT_START_STATUS } from '../../../workflow/stages/startDefaults.js';
 
 /** A repository field fault resolved to its `name.fieldPath` display key. */
@@ -22,10 +26,17 @@ export interface RepoFieldError {
   readonly key: string;
 }
 
-/** Strip the `Invalid karst.yml: ` prefix (plus an optional `(path)`) once. */
+/**
+ * Strip the file prefix (plus an optional `(path)`) once.
+ *
+ * `loadManifest` has shipped two shapes: `Invalid karst.yml: …` from the
+ * validator and a bare `karst.yml: repositories[1] …` from load-time refusals.
+ * Both describe the FILE, not a field, so the display layer must not show the
+ * prefix as if it were part of the fault (SET-5).
+ */
 export function manifestFaultDetail(raw: string | null): string {
   if (!raw) return '';
-  return String(raw).replace(/^Invalid karst\.yml(?: \([^)]*\))?:\s*/, '');
+  return String(raw).replace(/^(?:Invalid )?karst\.yml(?: \([^)]*\))?:\s*/, '');
 }
 
 /** Short field text for a manifest path whose host fault is long; other paths show the host text. */
@@ -33,6 +44,84 @@ const FIELD_MESSAGES: Readonly<Record<string, string>> = {
   'autopilot.conflicts.maxRounds': 'Enter a whole number of at least 1.',
   'autopilot.ci.maxAttempts': 'Enter a whole number of at least 1.',
 };
+
+/** The Settings tab that renders each inline-mapped field (SET-6). */
+const FIELD_OWNER: Readonly<Record<string, SettingsSection>> = {
+  'autopilot.conflicts.maxRounds': 'autopilot',
+  'autopilot.ci.maxAttempts': 'autopilot',
+};
+
+/**
+ * Whether `raw` is already shown inline on `section` (SET-6, UI-R25).
+ *
+ * The field-level message under the control is the better place for a fault the
+ * section itself renders; repeating it in the top banner is noise on a page the
+ * user is already looking at.
+ */
+export function hasInlineFieldFault(raw: string | null, section: SettingsSection): boolean {
+  for (const [path, owner] of Object.entries(FIELD_OWNER)) {
+    if (owner === section && fieldFaultFor(raw, path) !== undefined) return true;
+  }
+  return false;
+}
+
+/**
+ * Upsert a partial `quota:` block onto a manifest (Q4-SAVE).
+ *
+ * Shared by the reducer's `quota-saved` case: the Accounts tab saves at once, so
+ * the patch has to land on BOTH the draft and the baseline — otherwise the next
+ * unrelated Agents Save would write the old threshold back.
+ */
+export function applyQuotaPatch(manifest: Manifest, patch: QuotaPatch): Manifest {
+  const nextQuota: Record<string, unknown> = { ...(manifest.quota ?? {}) };
+  for (const key of ['warnThresholdPct', 'claudeGlobalStatusline', 'claudeOauthUsageApi'] as const) {
+    if (!Object.hasOwn(patch, key)) continue;
+    const value = patch[key];
+    if (value === null) delete nextQuota[key];
+    else nextQuota[key] = value;
+  }
+  const next = { ...manifest } as Record<string, unknown>;
+  if (Object.keys(nextQuota).length === 0) delete next.quota;
+  else next.quota = nextQuota;
+  return next as unknown as Manifest;
+}
+
+/**
+ * Local (webview-side) validation errors per tab (SET-4 + SET-12).
+ *
+ * The host only ever reports the FIRST fault it finds, and while the user is
+ * editing a Quality field the host has not seen the draft yet — so the shell
+ * cannot say how many fields are wrong from `validation.error` alone. These are
+ * the same rules the Quality tab shows beside its own controls (`qualityDraft`),
+ * counted per field, and only for the tab that has them.
+ */
+export function localFieldErrors(draft: Manifest): Partial<Record<SettingsSection, number>> {
+  const stall = stallErrors(
+    readStallDetection(draft),
+    draft.review?.maxFixAttempts ?? REVIEW_MAX_FIX_ATTEMPTS,
+  );
+  let quality = 0;
+  if (stall.sameFileRounds) quality += 1;
+  if (stall.repeatedFindingRounds) quality += 1;
+  const evidence = draft.uat?.testerObservations?.requireEvidence;
+  if (evidence) {
+    const errors = evidenceErrors(evidence);
+    if (errors.file) quality += 1;
+    if (errors.whenChanged) quality += 1;
+  }
+  return quality === 0 ? {} : { quality };
+}
+
+/** The first tab (in nav order) holding a local field error, or null. */
+export function firstSectionWithLocalError(
+  errors: Partial<Record<SettingsSection, number>>,
+  order: readonly SettingsSection[],
+): SettingsSection | null {
+  for (const section of order) {
+    if ((errors[section] ?? 0) > 0) return section;
+  }
+  return null;
+}
 
 /** The message to show under the field `path`, or undefined when the fault is for another path. */
 export function fieldFaultFor(raw: string | null, path: string): string | undefined {

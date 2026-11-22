@@ -242,6 +242,7 @@ Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks.
 | Route / region | Element | Target |
 |---|---|---|
 | nav | section list | narrow/tight: horizontally wrapping chip row (not 7 stacked rows ≈ 190 px) |
+| all forms | `.form-grid` | region < 700 px: label above control (Q12) |
 | general | numeric pairs | pair stacks when each < 80 px; input min 6ch |
 | git | `.k-field-help` variables chip | wraps, `overflow-wrap:anywhere` |
 | services | repo card | `repeat(auto-fill, minmax(min(100%, 290px), 1fr))` |
