@@ -76,6 +76,7 @@ import { casStatus, NODE_RUN_TRANSITIONS, GRAPH_RUN_TRANSITIONS } from '../../..
 import type { GitRunner } from '../../../integrations/git.js';
 import type { AgentTransport, SupervisedAgentSession } from '../transport/supervisedCliTransport.js';
 import { resolvePhysicalDomains, type DomainEntry, type PhysicalDomain } from './domains.js';
+import { normalizePatchFragment } from './patchFragment.js';
 import {
   captureChangeSet,
   captureUntrackedPaths,
@@ -105,7 +106,7 @@ import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
 import { attributeOf, processOf } from '../coordinator/reconcile.js';
 import type { ProcessFactsSource } from '../../../runtime/serverIdentity.js';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -433,14 +434,24 @@ async function landWorkspaceChanges(
   const patchDir = mkdtempSync(join(tmpdir(), 'karst-int-'));
   try {
     const patchFile = join(patchDir, 'changes.patch');
-    const fragments: string[] = [];
+    const fragmentBuffers: Buffer[] = [];
     const untracked: { from: string; rel: string }[] = [];
-    for (const cwd of workspaceCwds) {
-      const diff = await deps.git(['diff', '--binary', baseRef, '--', ...paths], cwd);
+    for (const [i, cwd] of workspaceCwds.entries()) {
+      // git writes the patch to a file, never to stdout: the runner caps
+      // stdout at GIT_MAX_OUTPUT_BYTES, and a binary baseline sweep is larger
+      // (T1301). The bytes stay verbatim; see normalizePatchFragment.
+      const fragFile = join(patchDir, `frag-${i}.patch`);
+      const diff = await deps.git(
+        ['diff', '--binary', `--output=${fragFile}`, baseRef, '--', ...paths],
+        cwd,
+      );
       if (diff.exitCode !== 0) {
         return { ok: false, stderr: diff.stderr, reason: 'change-set diff failed' };
       }
-      if (diff.stdout.trim() !== '') fragments.push(diff.stdout);
+      if (existsSync(fragFile)) {
+        const fragment = normalizePatchFragment(readFileSync(fragFile));
+        if (fragment) fragmentBuffers.push(fragment);
+      }
       let untrackedPaths: string[];
       try {
         untrackedPaths = await captureUntrackedPaths(deps.git, cwd);
@@ -453,14 +464,8 @@ async function landWorkspaceChanges(
         }
       }
     }
-    if (fragments.length > 0) {
-      // Normalize the concatenation to a well-formed patch: each fragment is
-      // trimmed at its END and the fragments joined with a single newline —
-      // a runner that trims stdout must not leave the last hunk unterminated
-      // ("corrupt patch"), and a fragment that already ends with a newline
-      // must not double it.
-      const patch = fragments.map((f) => f.trimEnd()).join('\n') + '\n';
-      writeFileSync(patchFile, patch);
+    if (fragmentBuffers.length > 0) {
+      writeFileSync(patchFile, Buffer.concat(fragmentBuffers));
       const check = await deps.git(['apply', '--check', patchFile], domain.canonicalWorktree);
       if (check.exitCode !== 0) {
         // If the patch was already applied before interruption, verify with --reverse --check
@@ -731,7 +736,14 @@ export async function runCompletionPipeline(
     }
     const add = await deps.git(['add', '--all', '--', ...paths], domain.canonicalWorktree);
     if (add.exitCode !== 0) {
-      const reason = `integration-conflict: git add refused in ${domain.repoNames.join('/')} (${boundedGitReason(add.stderr)})`;
+      // The workspace patch is already in the canonical tree. Keep it there
+      // (no reset, no checkout: both trees are preserved for diagnosis) and
+      // say so, so the operator does not read the tree as untouched.
+      const landedNote =
+        capture.workspaceCwds.length > 0
+          ? '; workspace changes already landed in the canonical worktree, preserved uncommitted for diagnosis'
+          : '';
+      const reason = `integration-conflict: git add refused in ${domain.repoNames.join('/')} (${boundedGitReason(add.stderr)})${landedNote}`;
       graphDiag('integration', reason);
       parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
         outcome: 'failed',
