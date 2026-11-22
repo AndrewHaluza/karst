@@ -95,6 +95,16 @@ describe('buildTicketFormState — create mode', () => {
     expect(s.provider).toBe('clickup');
   });
 
+  it('builds the Key placeholder from the provider format (SET-62)', () => {
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => []).keyPlaceholder).toBe(
+      'e.g. PROJ-142',
+    );
+    const withClickup: Manifest = { ...MANIFEST, ticketing: { provider: 'clickup' } };
+    expect(
+      buildTicketFormState(store, withClickup, () => [], () => []).keyPlaceholder,
+    ).toBe('e.g. 869e889uh');
+  });
+
   it('enables ticket search for a clickup provider with a configured list (default on)', () => {
     const withClickup: Manifest = {
       ...MANIFEST,
@@ -364,6 +374,17 @@ describe('buildTicketFormState — edit mode', () => {
     expect(s.selectedApproach).toBe('tdd');
   });
 
+  it('carries the provider-shaped Key placeholder in edit mode too (SET-62)', () => {
+    const t = createTicket(store, { key: 'PROJ-10', title: 'x' });
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => [], t.id).keyPlaceholder).toBe(
+      'e.g. PROJ-142',
+    );
+    const withClickup: Manifest = { ...MANIFEST, ticketing: { provider: 'clickup' } };
+    expect(
+      buildTicketFormState(store, withClickup, () => [], () => [], t.id).keyPlaceholder,
+    ).toBe('e.g. 869e889uh');
+  });
+
   it('edit mode exposes source_fetched_at as briefFetchedAt', () => {
     const t = createTicket(store, { key: 'PROJ-8', title: 'x' });
     expect(buildTicketFormState(store, MANIFEST, () => [], () => [], t.id).briefFetchedAt).toBeNull();
@@ -621,7 +642,7 @@ describe('buildTicketFormState — sandbox backend override', () => {
     const dyn = state.graphRoles['karst-dynamic-graph'] ?? state.graphRoles[Object.keys(state.graphRoles)[0] ?? ''];
     expect(dyn).toBeDefined();
     // '' is the Inherit row: the active preset applies.
-    expect(dyn?.['']?.find((l) => l.role === 'expert')).toMatchObject({ text: 'claude · claude-sonnet-5', source: 'preset' });
+    expect(dyn?.['']?.find((l) => l.role === 'expert')).toMatchObject({ text: 'Claude Code · Sonnet 5', source: 'preset' });
     expect(dyn?.['deep']?.find((l) => l.role === 'expert')?.source).toBe('preset');
     expect(dyn?.['plain']?.find((l) => l.role === 'expert')?.source).toBe('approach');
     expect(dyn?.['plain']?.find((l) => l.role === 'worker')?.source).toBe('approach');

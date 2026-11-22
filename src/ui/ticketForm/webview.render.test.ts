@@ -58,7 +58,7 @@ describe('ticket form — regions + title-gated primary', () => {
     expect(err.getAttribute('role')).toBe('alert');
     expect(err.classList.contains('hidden')).toBe(false);
     expect(err.textContent).toContain('Title is required');
-    const title = v.query<HTMLInputElement>('#title')!;
+    const title = v.query<HTMLTextAreaElement>('#title')!;
     expect(title.nextElementSibling).toBe(err);
     expect(title.getAttribute('aria-invalid')).toBe('true');
     expect(title.getAttribute('aria-describedby')).toBe('titleErr');
@@ -109,7 +109,11 @@ describe('ticket form — field order and headings', () => {
     const ref = v.query('#ref')!;
     expect(title.compareDocumentPosition(ref) & 4).toBe(4); // ref follows title
     expect(title.getAttribute('placeholder')).toBe('Title (required)');
-    expect(v.query('label[for="title"]')).toBeNull();
+    // SET-58: a real visible label carries the requirement; the `*` is decorative.
+    const label = v.query('label[for="title"]')!;
+    expect(label.textContent).toContain('Title');
+    expect(label.querySelector('.req')!.getAttribute('aria-hidden')).toBe('true');
+    expect(title.getAttribute('aria-required')).toBe('true');
     expect(v.query('label[for="ref"]')!.textContent).toContain('(optional)');
     expect(ref.getAttribute('placeholder')).toBe('e.g. PROJ-142');
     expect(v.query('[data-region="content"] #title')).toBeTruthy();
@@ -146,7 +150,8 @@ describe('ticket form — edit header, callout, empty states', () => {
     const v = open(baseState({ refLabel: 'D88', subtaskOf: 'Sub-task of T12' }));
     expect(v.query('#keyChip')!.textContent).toBe('D88');
     expect(v.query('#keyChip')!.classList.contains('hidden')).toBe(false);
-    expect(v.query('#subhead')!.textContent).toBe('Sub-task of T12');
+    // SET-62: a separator, not "New ticket Sub-task of T12".
+    expect(v.query('#subhead')!.textContent).toBe(' · Sub-task of T12');
   });
 
   it('create mode hides the key chip and shows no subtitle', () => {
@@ -466,6 +471,7 @@ describe('ticket form — graph role preview (T1266)', () => {
       ...over,
     });
   const preview = (v: RenderHandle) => v.query<HTMLElement>('#graphRolesPreview')!;
+  const hintOf = (v: RenderHandle) => preview(v).querySelector('.graph-roles-hint')!.textContent;
 
   it('shows the approach-profile lines for a ticket preset the manifest lacks, not the active preset (T1266 fix)', () => {
     const dangling = [{ role: 'expert', text: 'claude · dangling-profile', source: 'approach' }];
@@ -494,9 +500,19 @@ describe('ticket form — graph role preview (T1266)', () => {
 
   it('tells how to change the models for this ticket only, and says when the ticket core replaces them', () => {
     const preset = open(st());
-    expect(preview(preset).querySelector('.graph-roles-hint')!.textContent).toContain('Core + model');
+    expect(hintOf(preset)).toBe('The preset sets these models. To change them for this ticket only, choose Core + model above.');
     const own = open(st({ selectedAgentProvider: 'claude' }));
-    expect(preview(own).querySelector('.graph-roles-hint')!.textContent).toContain('keeps its model');
+    expect(hintOf(own)).toContain('keeps its model');
+  });
+
+  it('says the approach sets the models when every role comes from the approach (SET-51)', () => {
+    const fromApproach = (preset: string) => [
+      { role: 'expert', text: `claude · expert-${preset}`, source: 'approach' },
+      { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+      { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+    ];
+    const v = open(st({ graphRoles: { dyn: { '': fromApproach('inherit'), deep: fromApproach('deep') } } }));
+    expect(hintOf(v)).toBe('The approach sets these models. To change them for this ticket only, choose Core + model above.');
   });
 
   it('is hidden for an approach with no graph', () => {
@@ -528,5 +544,384 @@ describe('ticket form — a title-derived key is not a user-owned key', () => {
     v.click('#submitBtn');
     const sub = v.posted.find((m) => (m as { type: string }).type === 'submit') as { keyAutoDerived: boolean };
     expect(sub.keyAutoDerived).toBe(false);
+  });
+});
+
+describe('ticket form — honest states (SET-52, SET-53, SET-54)', () => {
+  it('shows only the loading blocks and no active control before the first state (SET-53)', () => {
+    h = renderWebview('ticketForm');
+    const v = h;
+    expect(v.query('#loadingContent')!.getAttribute('role')).toBe('status');
+    expect(v.query('#loadingContent')!.textContent).toBe('Loading the ticket…');
+    expect(v.query('#loadingSettings')!.getAttribute('role')).toBe('status');
+    expect(v.query('#loadingSettings')!.textContent).toBe('Loading the ticket…');
+    // Each block is the FIRST child of its region — the layout gate reads the regions in DOM order.
+    expect(v.query('[data-region="content"]')!.firstElementChild).toBe(v.query('#loadingContent'));
+    expect(v.query('[data-region="settings"]')!.firstElementChild).toBe(v.query('#loadingSettings'));
+    // Nothing invites typing before anything loaded.
+    expect(v.query<HTMLButtonElement>('#analyzeBtn')!.disabled).toBe(true);
+    expect(v.document.body.classList.contains('is-ready')).toBe(false);
+    // The hiding is declared CSS (jsdom cannot cascade it): every other child of
+    // both regions is hidden until `is-ready`.
+    const selectors = v.cssRules().map((rule) => rule.selectorText).join('\n');
+    expect(selectors).toContain('body:not(.is-ready) [data-region="content"] > :not(#loadingContent)');
+    expect(selectors).toContain('body:not(.is-ready) [data-region="settings"] > :not(#loadingSettings)');
+  });
+
+  it('replaces the loading state with the real regions on the first state (SET-53)', () => {
+    const v = open(baseState());
+    expect(v.document.body.classList.contains('is-ready')).toBe(true);
+    const hideRule = v
+      .cssRules()
+      .find(
+        (rule) =>
+          rule.selectorText.includes('body.is-ready #loadingContent') &&
+          rule.selectorText.includes('body.is-ready #loadingSettings'),
+      );
+    expect(hideRule?.style.display).toBe('none');
+  });
+
+  it('shows a host error that lands before the first state instead of the loading blocks (SET-53)', () => {
+    h = renderWebview('ticketForm');
+    const v = h;
+    v.receive({ type: 'error', message: 'Could not build the ticket form: boom' });
+    const err = v.query('#err')!;
+    expect(err.classList.contains('hidden')).toBe(false);
+    expect(v.query('#errMsg')!.textContent).toBe('Could not build the ticket form: boom');
+    expect(v.document.body.classList.contains('is-ready')).toBe(false);
+    expect(v.document.body.classList.contains('load-failed')).toBe(true);
+    // jsdom cannot cascade: the pre-ready hide rule must spare #err, and a
+    // failed load must stop the loading blocks from claiming "Loading…".
+    const rules = v.cssRules();
+    const selectors = rules.map((rule) => rule.selectorText).join('\n');
+    expect(selectors).toContain('body:not(.is-ready) [data-region="content"] > :not(#loadingContent):not(#err)');
+    const failRule = rules.find(
+      (rule) =>
+        rule.selectorText.includes('body.load-failed #loadingContent') &&
+        rule.selectorText.includes('body.load-failed #loadingSettings'),
+    );
+    expect(failRule?.style.display).toBe('none');
+  });
+
+  it('drops the load-failed state when a state finally lands (SET-53)', () => {
+    h = renderWebview('ticketForm');
+    const v = h;
+    v.receive({ type: 'error', message: 'boom' });
+    v.receive({ type: 'state', state: baseState() });
+    expect(v.document.body.classList.contains('load-failed')).toBe(false);
+    expect(v.document.body.classList.contains('is-ready')).toBe(true);
+  });
+
+  it('an error after the form is ready does not mark the load as failed (SET-53)', () => {
+    const v = open(baseState());
+    v.receive({ type: 'error', message: 'Save failed' });
+    expect(v.document.body.classList.contains('load-failed')).toBe(false);
+  });
+
+  it('renders a fetch failure under the Key row and clears it on the next state (SET-52)', () => {
+    const v = open(baseState({ provider: 'clickup' }));
+    v.receive({
+      type: 'fetch-error',
+      message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).',
+    });
+    const err = v.query('#fetchErr')!;
+    expect(err.getAttribute('role')).toBe('alert');
+    expect(err.classList.contains('hidden')).toBe(false);
+    expect(err.textContent).toContain('404');
+    // In the Source block, directly after the key row (the #createInErr pattern).
+    expect(v.query('#sourceBlock')!.contains(err)).toBe(true);
+    expect(err.previousElementSibling!.id).toBe('keyRow');
+    // The page bucket stays empty: a fetch failure is not a host error.
+    expect(v.query('#err')!.classList.contains('hidden')).toBe(true);
+
+    v.receive({ type: 'state', state: baseState({ provider: 'clickup' }) });
+    expect(v.query('#fetchErr')!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('shows a Re-fetch failure on a bound ticket, where the key row is hidden (SET-52)', () => {
+    const v = open(baseState({ provider: 'clickup', mode: 'edit', ticketId: 7, sourceRef: 'abc123' }));
+    expect(v.query('#keyRow')!.classList.contains('hidden')).toBe(true);
+    v.click('#refetchBtn');
+    v.receive({ type: 'fetch-error', message: 'Could not fetch abc123: the provider returned 404.' });
+    const err = v.query('#fetchErr')!;
+    expect(err.classList.contains('hidden')).toBe(false);
+    // No ancestor hides it: the error is visible beside the Re-fetch control it came from.
+    expect(err.closest('.hidden, [hidden]')).toBeNull();
+    expect(err.textContent).toContain('404');
+  });
+
+  it('keeps host errors in a danger callout with the alert-triangle icon (SET-52)', () => {
+    const v = open(baseState());
+    v.receive({ type: 'error', message: 'Could not save the draft.' });
+    const box = v.query('#err')!;
+    expect(box.getAttribute('role')).toBe('alert');
+    expect(box.classList.contains('callout')).toBe(true);
+    expect(box.classList.contains('callout--danger')).toBe(true);
+    expect(box.classList.contains('hidden')).toBe(false);
+    expect(v.query('#errMsg')!.textContent).toBe('Could not save the draft.');
+    expect(v.query('#err .callout-icon svg')).not.toBeNull();
+  });
+
+  it('keeps the three usage-limit park actions inside the callout (SET-52, D159)', () => {
+    const v = open(baseState());
+    v.receive({
+      type: 'error',
+      message: 'Claude Code usage limit reached — monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
+      usageLimitParkId: 7,
+    });
+    const acts = v.queryAll('#errMsg [data-act]').map((b) => b.getAttribute('data-act'));
+    expect(acts).toEqual([
+      'usage-limit-park-pick',
+      'usage-limit-park-retry',
+      'usage-limit-park-dismiss',
+    ]);
+    expect(v.query('#errMsg')!.textContent).toContain('Claude Code usage limit reached');
+    v.click('#errMsg [data-act="usage-limit-park-retry"]');
+    expect(v.posted).toContainEqual({ type: 'usage-limit-park-retry', parkId: 7 });
+  });
+});
+
+describe('ticket form — Cancel asks only when the form was edited (SET-54, Q13)', () => {
+  it('a clean form posts a plain close-form', () => {
+    const v = open(baseState());
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form' });
+  });
+
+  it('a typed field posts dirty: true', () => {
+    const v = open(baseState());
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    title.value = 'Typed but not saved';
+    title.dispatchEvent(new v.window.Event('input', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+
+  it('a settings change posts dirty: true', () => {
+    const v = open(baseState());
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+
+  describe('a create-mode pick that is not a native change event still makes Cancel ask', () => {
+    const repos = [
+      { service: 'api', selected: true, score: 3 },
+      { service: 'web', selected: false, score: 0 },
+    ];
+    const repoBases = [{ repo: 'api', default: 'main', value: '', candidates: ['main', 'epic/x'] }];
+    const approaches = [
+      { id: 'direct', label: 'Direct', description: 'd' },
+      { id: 'rpi', label: 'RPI', description: 'r' },
+    ];
+    const st = () => baseState({ repos, repoBases, approaches, selectedApproach: 'direct' });
+    const cancelPosts = (v: RenderHandle) => {
+      v.click('#cancelBtn');
+      return v.posted.at(-1);
+    };
+
+    it('a core pick from the agent menu', () => {
+      const v = open(st());
+      v.click('[data-ap-trigger="core"]');
+      const option = v.query<HTMLElement>('#agentIdentityPicker [data-ap-core]')!;
+      expect(option).toBeTruthy();
+      option.click();
+      expect(v.posted.some((m) => (m as { type: string }).type === 'set-provider')).toBe(true);
+      expect(cancelPosts(v)).toEqual({ type: 'close-form', dirty: true });
+    });
+
+    it('a repository chip toggle', () => {
+      const v = open(st());
+      v.click('[data-repo="web"]');
+      expect(cancelPosts(v)).toEqual({ type: 'close-form', dirty: true });
+    });
+
+    it('a base-branch pick', () => {
+      const v = open(st());
+      v.click('[data-base-caret="api"]');
+      v.click('[data-base-pick="epic/x"]');
+      expect(cancelPosts(v)).toEqual({ type: 'close-form', dirty: true });
+    });
+
+    it('an approach pick', () => {
+      const v = open(st());
+      v.click('#approachBtn');
+      v.click('[data-approach="rpi"]');
+      expect(v.posted).toContainEqual(expect.objectContaining({ type: 'set-approach', id: 'rpi' }));
+      expect(cancelPosts(v)).toEqual({ type: 'close-form', dirty: true });
+    });
+  });
+
+  describe('a form switch the host never stores makes Cancel ask, in both modes', () => {
+    const modes = [
+      ['create', baseState()],
+      ['edit', baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T' })],
+    ] as const;
+    for (const [mode, state] of modes) {
+      for (const id of ['pullBase', 'autoImprove']) {
+        it(`${mode}: #${id}`, () => {
+          const v = open(state);
+          v.click(`#${id}`);
+          v.click('#cancelBtn');
+          expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+        });
+      }
+    }
+
+    it('create: #createIn', () => {
+      const v = open(baseState({ provider: 'clickup', canCreateProviderTicket: true }));
+      v.click('#createIn');
+      v.click('#cancelBtn');
+      expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+    });
+  });
+
+  it('in edit mode a settings pick posts a plain close-form: the host already stored it', () => {
+    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T' }));
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form' });
+  });
+
+  it('in edit mode a typed field still posts dirty: true', () => {
+    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T' }));
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    title.value = 'T edited';
+    title.dispatchEvent(new v.window.Event('input', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+
+  it('the search status filter is not an edit', () => {
+    const v = open(baseState({ provider: 'clickup' }));
+    v.query('#searchStatus')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form' });
+  });
+
+  it('a settings change that Save draft stored posts a plain close-form', () => {
+    const v = open(baseState({ title: 'Saved title' }));
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#saveBtn');
+    v.receive({ type: 'draft-saved' });
+    v.receive({ type: 'busy', what: 'save', on: false });
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form' });
+  });
+
+  it('a settings change while the save runs stays dirty', () => {
+    const v = open(baseState({ title: 'Saved title' }));
+    v.click('#saveBtn');
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.receive({ type: 'draft-saved' });
+    v.receive({ type: 'busy', what: 'save', on: false });
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+
+  it('a settings change stays dirty when the save fails', () => {
+    const v = open(baseState({ title: 'Saved title' }));
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#saveBtn');
+    v.receive({ type: 'error', message: 'Save failed' });
+    v.receive({ type: 'busy', what: 'save', on: false });
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+});
+
+describe('ticket form — content and settings polish (SET-55/58/59/60/61/62)', () => {
+  it('hides the base-branch hint when no repository can offer a ▾ (SET-58)', () => {
+    const v = open(baseState());
+    const hint = v.query<HTMLElement>('#repoHint')!;
+    expect(hint.classList.contains('hidden')).toBe(true);
+    expect(hint.textContent).toBe('Click ▾ on a repository to pick its base branch.');
+  });
+
+  it('shows the base-branch hint once repository chips render (SET-58)', () => {
+    const v = open(baseState({ repos: [{ service: 'api', selected: false, score: 0 }] }));
+    expect(v.query('#repoHint')!.classList.contains('hidden')).toBe(false);
+  });
+
+  it('makes the selected-chip branch text contrast-safe and the override underlined (SET-59)', () => {
+    const v = open(baseState());
+    const branch = v
+      .cssRules()
+      .find((r) => r.selectorText === '.repochip[aria-pressed="true"] .repo-branch');
+    expect(branch?.style.color.toLowerCase()).toBe('currentcolor');
+    const overridden = v
+      .cssRules()
+      .find((r) => r.selectorText === '.repo-branch.is-overridden');
+    expect(overridden?.style.color).toBe('var(--k-warning)');
+    expect(overridden?.style.textDecoration).toContain('underline');
+  });
+
+  it('shows one honest line and the show-session primary while a session runs (SET-60)', () => {
+    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'P-1', title: 'T', sessionOpen: true }));
+    const hint = v.query<HTMLElement>('#sessionHint')!;
+    expect(hint.classList.contains('hidden')).toBe(false);
+    expect(hint.textContent).toBe('Changes apply on the next start.');
+    expect(v.query('#submitBtn')!.textContent).toBe('Save & show session');
+  });
+
+  it('keeps the ordinary labels and hides the session line without a session (SET-60)', () => {
+    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'P-1', title: 'T' }));
+    expect(v.query('#sessionHint')!.classList.contains('hidden')).toBe(true);
+    expect(v.query('#submitBtn')!.textContent).toBe('Save & start');
+  });
+
+  it('keeps the create labels even if a session flag leaked into a create state (SET-60)', () => {
+    const v = open(baseState({ sessionOpen: true }));
+    expect(v.query('#submitBtn')!.textContent).toBe('Create & start');
+  });
+
+  it('grows the title in a one-row textarea and blocks Enter (SET-61)', () => {
+    const v = open(baseState({ title: 'A long title' }));
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    expect(title.tagName).toBe('TEXTAREA');
+    expect(title.getAttribute('rows')).toBe('1');
+    expect(title.value).toBe('A long title');
+    const ev = new v.window.KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    });
+    title.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('measures the title height again when the panel width changes (SET-61)', () => {
+    const v = open(baseState({ title: 'A long title that wraps when the panel gets narrow' }));
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    // A narrower panel wraps the title onto more lines: jsdom has no layout, so stub the new content height.
+    Object.defineProperty(title, 'scrollHeight', { configurable: true, get: () => 64 });
+    v.window.dispatchEvent(new v.window.Event('resize'));
+    expect(title.style.height).toBe('64px');
+  });
+
+  it('turns a pasted line break in the title into a space (SET-61)', () => {
+    const v = open(baseState());
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    title.value = 'First line\nsecond line';
+    title.dispatchEvent(new v.window.Event('input', { bubbles: true }));
+    expect(title.value).toBe('First line second line');
+  });
+
+  it('renders the host-built Key placeholder (SET-62)', () => {
+    const v = open(baseState({ keyPlaceholder: 'e.g. 869e889uh' }));
+    expect(v.query('#ref')!.getAttribute('placeholder')).toBe('e.g. 869e889uh');
+  });
+
+  it('names the effort field "Effort" in this page (SET-62)', () => {
+    const v = open(baseState());
+    expect(
+      v.query('#agentIdentityPicker .ap-effort-field .ap-label')!.textContent,
+    ).toBe('Effort');
+  });
+
+  it('keeps one "Acceptance check" label (SET-62)', () => {
+    const v = open(baseState());
+    const labels = v.queryAll('label[for="intent"]');
+    expect(labels.map((l) => l.textContent)).toEqual(['Acceptance check']);
   });
 });

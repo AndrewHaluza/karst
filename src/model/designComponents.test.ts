@@ -185,6 +185,21 @@ describe('design system components', () => {
     expect(rulesFor('.k-pagehead-sub')).toContain('overflow-wrap:anywhere');
   });
 
+  it('gives a light-theme input an edge that reaches 3:1 non-text contrast (SET-57, C5)', () => {
+    // Light Modern's --vscode-input-border is 1.57:1 on white: the
+    // light edge comes from a mid-grey theme colour instead. A variable, not a
+    // border-color override, so the hover and aria-invalid rules still win.
+    expect(rulesFor('.k-input')).toContain(
+      'border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border, var(--k-border)))',
+    );
+    expect(CSS).toMatch(
+      /body\.vscode-light\{[^}]*--k-input-edge:var\(--vscode-input-placeholderForeground, var\(--k-text-dim\)\)/,
+    );
+    // Hover must not fade the light edge under 3:1 (--k-border-strong is the panel border there).
+    expect(CSS).toMatch(/body\.vscode-light\{[^}]*--k-input-edge-hover:var\(--k-text\)/);
+    expect(rulesFor('.k-input:hover')).toContain('border-color:var(--k-input-edge-hover, var(--k-border-strong))');
+  });
+
   it('emits valid, balanced CSS', () => {
     const opens = (CSS.match(/\{/g) ?? []).length;
     const closes = (CSS.match(/\}/g) ?? []).length;

@@ -1151,27 +1151,38 @@ const ticketFormVariants = (): Variant[] => {
       agentPresetNames: ['fast', 'deep'],
       selectedAgentPreset: 'deep',
       defaultAgentPreset: 'fast',
+      // SET-35: `describeGraphRoles` prints the core and model labels, never the raw
+      // ids. The fixture bypasses the host, so it carries the labelled shape.
       graphRoles: {
         'karst-graph-engineering': {
           deep: [
-            { role: 'expert', text: 'codex · gpt-5.6-sol · high', source: 'preset' },
-            { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
-            { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+            { role: 'expert', text: 'Codex · GPT-5.6 Sol · high', source: 'preset' },
+            { role: 'worker', text: 'Claude Code · Sonnet 5.5 · low', source: 'approach' },
+            { role: 'fast', text: 'Claude Code · Sonnet 5.5 · low', source: 'approach' },
           ],
         },
       },
     });
   return [
-    variant('ticketForm', 'graph-roles', graphRoles, { themes: DARK_ONLY }),
+    // SET-63: the role preview's shared labels at every theme, not dark only.
+    variant('ticketForm', 'graph-roles', graphRoles, { themes: ALL_THEMES }),
     variant('ticketForm', 'populated', () => getCorpus('ticketForm'), { baseline: 'ticketForm', themes: ALL_THEMES }),
     variant('ticketForm', 'empty', () => withState({})),
     variant('ticketForm', 'loading', LOADING),
-    variant('ticketForm', 'error', () => ({
-      messages: [
-        ...withState({}).messages,
-        { type: 'error', message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).' },
-      ],
-    })),
+    // SET-52: a fetch failure has its own message and renders under the Key row,
+    // not in the page-level bucket above the title.
+    variant(
+      'ticketForm',
+      'error',
+      () => ({
+        messages: [
+          ...withState({}).messages,
+          { type: 'fetch-error', message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).' },
+        ],
+      }),
+      // SET-63: the fetch error is a contrast surface, so light and HC record it too.
+      { themes: ALL_THEMES },
+    ),
     // D159: an op that died on quota carries its park id, so the error notification
     // offers Pick agent/model, Retry same and Dismiss.
     variant('ticketForm', 'usage-limit-error', () => ({
@@ -1179,7 +1190,9 @@ const ticketFormVariants = (): Variant[] => {
         ...withState({}).messages,
         {
           type: 'error',
-          message: 'anthropic: monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
+          // SET-52: the real shape of a quota failure — the product name, never a
+          // raw provider id ("anthropic: …").
+          message: 'Claude Code usage limit reached — monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
           usageLimitParkId: 7,
         },
       ],
@@ -1254,7 +1267,18 @@ const ticketFormVariants = (): Variant[] => {
     variant('ticketForm', 'edit-core-model-tight', editCoreModel, { width: 1212 }),
     variant('ticketForm', 'edit-core-model-tight-320', editCoreModel, { width: 320 }),
     // Layout B′ (ui:UI-R57, prototype docs/design/ticket-form-b-prime.html).
-    variant('ticketForm', 'realistic-create', () => withState(REALISTIC_TICKET_FORM)),
+    // SET-63: the realistic create page at every theme — the light input edge and the
+    // HC switch/primary edge are only visible where they were missing (SET-56/57).
+    variant('ticketForm', 'realistic-create', () => withState(REALISTIC_TICKET_FORM), { themes: ALL_THEMES }),
+    // SET-56 proof (T1301): the Auto-improve switch goes Off while Pull base stays On,
+    // so one HC shot holds both switch states and the 3:1 track edge. The toggle changes
+    // no geometry, so it shares realistic-create's covered layout instead of a new page
+    // (a variant with no dark fixture page cannot join the dark-only layout project).
+    variant('ticketForm', 'realistic-create-switches', () => withState(REALISTIC_TICKET_FORM), {
+      themes: ['hc'],
+      clicks: ['#autoImprove'],
+      skipLayout: true,
+    }),
     variant('ticketForm', 'realistic-edit', () =>
       withState({ ...REALISTIC_TICKET_FORM, ...edit, title: REALISTIC_TICKET_FORM.title, refLabel: 'T42 · FEAT-42' }),
     ),
@@ -1287,7 +1311,8 @@ const ticketFormVariants = (): Variant[] => {
         { type: 'brief', brief: BRIEF_MINIMAL },
       ],
     })),
-    variant('ticketForm', 'approach-picker', () => withState(REALISTIC_TICKET_FORM)),
+    // SET-65: the open approach list, not a second copy of the closed form.
+    variant('ticketForm', 'approach-picker', () => withState(REALISTIC_TICKET_FORM), { click: '#approachBtn' }),
     // T1091: the approach, agent and base popovers near the bottom edge of a short window.
     variant('ticketForm', 'approach-picker-bottom-edge', () => withState(REALISTIC_TICKET_FORM), {
       skipLayout: true,
@@ -1300,6 +1325,13 @@ const ticketFormVariants = (): Variant[] => {
       skipLayout: true,
       width: 800,
       viewportHeight: BOTTOM_EDGE_HEIGHT,
+      capture: 'viewport',
+      click: '[data-ap-trigger="core"]',
+    }),
+    // T1301 (RD-AGENT-MENU): the open agent-core menu at the wide 799-tall window must end above the sticky
+    // action bar (or open above its trigger), leaving all three footer buttons visible.
+    variant('ticketForm', 'agent-picker-open', editCoreModel, {
+      viewportHeight: 799,
       capture: 'viewport',
       click: '[data-ap-trigger="core"]',
     }),

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
-import { describeGraphRoles, graphConfigOfApproach, graphRoleView, GRAPH_ROLES } from './graphRoleView.js';
-import { resolveGraphNodeProfile } from './profileResolver.js';
+import {
+  describeGraphRoles,
+  graphConfigOfApproach,
+  graphRoleView,
+  GRAPH_ROLES,
+  type GraphRoleView,
+} from './graphRoleView.js';
+import { resolveGraphNodeProfile, type ResolvedGraphProfile } from './profileResolver.js';
 
 const config: GraphApproachConfig = {
   planner: { profile: 'expert', prompt: { artifact: 'x' } },
@@ -92,12 +98,26 @@ describe('graphConfigOfApproach with no id (T1266 fix)', () => {
 });
 
 describe('describeGraphRoles', () => {
-  it('lists expert, worker, fast with a text and the rung that supplied it', () => {
+  const view = (expert: ResolvedGraphProfile): GraphRoleView => ({ expert, worker: undefined, fast: undefined });
+
+  it('lists expert, worker, fast with their labels and the rung that supplied each', () => {
     expect(describeGraphRoles(graphRoleView(manifest(), config))).toEqual([
-      { role: 'expert', text: 'claude · claude-opus-5 · high', source: 'approach' },
-      { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
-      { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+      { role: 'expert', text: 'Claude Code · Opus 5 · high', source: 'approach' },
+      { role: 'worker', text: 'Claude Code · Sonnet 5 · low', source: 'approach' },
+      { role: 'fast', text: 'Claude Code · Sonnet 5 · low', source: 'approach' },
     ]);
+  });
+  it('prints the core and model labels, never the raw ids', () => {
+    const lines = describeGraphRoles(view({ provider: 'claude', model: 'claude-sonnet-5', effort: 'low', source: 'approach' }));
+    expect(lines[0]?.text).toBe('Claude Code · Sonnet 5 · low');
+  });
+  it('prints a routed model with its catalog label', () => {
+    const lines = describeGraphRoles(view({ provider: 'opencode2', model: 'opencode-go/deepseek-v4.1-flash', source: 'approach' }));
+    expect(lines[0]?.text).toBe('OpenCode v2 · OpenCode Go · DeepSeek v4.1 Flash');
+  });
+  it('reads a null model as the agent default', () => {
+    const lines = describeGraphRoles(view({ provider: 'codex', source: 'preset' }));
+    expect(lines[0]?.text).toBe('Codex · Agent default');
   });
   it('is empty when no role resolves', () => {
     expect(describeGraphRoles(graphRoleView(manifest(), undefined))).toEqual([]);

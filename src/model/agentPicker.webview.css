@@ -62,6 +62,12 @@
 .ap-seg-btn{border:0;border-radius:0;background:transparent;color:var(--k-text)}
 .ap-seg-btn + .ap-seg-btn{border-left:var(--k-border-w) solid var(--k-border)}
 .ap-seg-btn[aria-checked="true"]{background:var(--k-action-bg);color:var(--k-action-fg);font-weight:600}
+/* High contrast (SET-56): the selected segment keeps a visible active edge, not only a fill. The outline is drawn
+   just inside the segment because .ap-seg clips its overflow. Other themes draw nothing (transparent edge). */
+body.vscode-high-contrast .ap-seg-btn[aria-checked="true"],
+body.vscode-high-contrast-light .ap-seg-btn[aria-checked="true"]{
+  outline:var(--k-border-w) solid var(--vscode-contrastActiveBorder,var(--vscode-contrastBorder,transparent));
+  outline-offset:calc(var(--k-border-w) * -1)}
 /* Preset select matches the Type select: inline SVG chevron in a .k-select wrapper, ellipsis, room for it. */
 select.ap-effort[data-ap-preset]{appearance:none;-webkit-appearance:none;text-overflow:ellipsis;
   padding-right:calc(var(--k-space-8) + var(--k-space-4))}

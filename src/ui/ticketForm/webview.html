@@ -71,6 +71,23 @@
     background:var(--k-surface);border-radius:var(--k-radius-md);
     padding:var(--k-space-4) var(--k-space-6);margin-bottom:var(--k-space-7);font-size:var(--k-text-md)}
   .callout-msg{font-weight:var(--k-weight-semibold)}
+  /* SET-52: the page-level failure bucket keeps its warning shape for the
+     classify gate, and carries the danger tone plus the alert-triangle icon for
+     host errors. Tokens only — the tone comes from --k-danger. */
+  .callout--danger{border-color:var(--k-danger)}
+  .callout-icon{display:inline-flex;flex:none;color:var(--k-danger);margin-top:var(--k-space-1)}
+  /* SET-53: before the first state push the regions show the honest loading
+     block and nothing else. An empty editable form reads as "ready" and invites
+     typing into a page that has not loaded yet. Once `is-ready` lands, the
+     loading blocks hide so only the real fields show. A host error before the
+     first state (the state build failed) must stay visible: #err is spared, and
+     `load-failed` hides the loading blocks, because nothing is loading now. */
+  body:not(.is-ready) [data-region="content"] > :not(#loadingContent):not(#err),
+  body:not(.is-ready) [data-region="settings"] > :not(#loadingSettings),
+  body.is-ready #loadingContent,
+  body.is-ready #loadingSettings,
+  body.load-failed #loadingContent,
+  body.load-failed #loadingSettings{display:none}
   /* Local layout modifiers replacing what used to be inline `style="…"`
      attributes (UI-R04 applies to the whole document, not only the
      stylesheet — an inline style is the same defect wearing a different hat). */
@@ -80,7 +97,11 @@
      field itself via aria-invalid/aria-describedby (§ DESIGN-SYSTEM 4.5). */
   .analysis-warning{color:var(--k-warning,var(--k-text-dim));font-size:var(--k-text-md);margin-top:var(--k-space-4)}
   .err{color:var(--k-danger);font-size:var(--k-text-md);margin-top:var(--k-space-4)}
-  #err:not(.hidden){display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4)}
+  /* The danger callout puts the icon beside the message; the message row itself
+     wraps the usage-limit park buttons beside the text (SET-52). */
+  #err:not(.hidden){display:flex;align-items:flex-start;gap:var(--k-space-4)}
+  #errMsg{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4);font-weight:var(--k-weight-normal)}
+  #errMsg:empty{display:none}
   .field input.k-input,#title,#ref{text-overflow:ellipsis}
 
   #designConstraintsCard{margin-top:var(--k-space-7)}
@@ -127,7 +148,7 @@
   .agentselect{position:relative;width:100%}
   .agentselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
     text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border,var(--vscode-panel-border)));border-radius:var(--k-radius-sm);
     padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base);cursor:pointer}
   .agentselect-trigger:hover{background:var(--vscode-input-background)}
   .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
@@ -218,7 +239,14 @@
   .repo-caret{border-top-left-radius:0;border-bottom-left-radius:0;padding-left:var(--k-space-3);padding-right:var(--k-space-3)}
   .repochip:focus-visible,.repo-caret:focus-visible,.repo-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .repo-branch{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .repo-branch.is-overridden{color:var(--k-warning)}
+  /* An override is marked by colour AND an underline, so the cue survives a
+     colour-blind reader and the AA text check (SET-59). */
+  .repo-branch.is-overridden{color:var(--k-warning);text-decoration:underline}
+  /* On the selected fill the dim branch text fell below AA: inherit the chip's
+     own (contrast-safe) colour. The override keeps its warning colour through
+     the more specific rule below (SET-59). */
+  .repochip[aria-pressed="true"] .repo-branch{color:currentColor;opacity:1}
+  .repochip[aria-pressed="true"] .repo-branch.is-overridden{color:var(--k-warning)}
   .repo-pop{position:fixed;z-index:var(--k-z-drawer);
     min-width:calc(var(--k-space-8) * 7);max-width:calc(100vw - var(--k-space-8));
     background:var(--vscode-dropdown-background,var(--k-bg));
@@ -342,7 +370,9 @@
      header / content | settings / actions. `.shell` is the width container for
      the tiers; the regions carry the page gutters so the tiers measure the full
      viewport. Tier CSS follows the base rules (UI-R49, R50). */
-  html{scroll-padding-bottom:calc(var(--k-space-8) * 3)}
+  /* The sticky action bar's measured height (written by syncActionbarHeight) reserves room for focus so a focused
+     field never lands under the bar; zero when the bar is static at the tight tier (SET-49). */
+  html{scroll-padding-bottom:var(--tf-actionbar-h, calc(var(--k-space-8) * 3))}
   .shell{container-type:inline-size;min-width:0}
   /* One frame (prototype .mock): hairline border, small radius, header strip on top,
      content | settings in the middle, the actions bar as its footer. The bar is
@@ -352,11 +382,15 @@
     background:var(--k-bg);overflow:clip;min-width:0;margin-inline:var(--k-space-7)}
   .pghead{background:var(--k-surface);border-bottom:var(--k-border-w) solid var(--k-border);
     padding:var(--k-space-3) var(--k-space-6);font-size:var(--k-text-sm);color:var(--k-text-dim)}
-  .cols{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 16);gap:var(--k-space-0);align-items:stretch}
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 16);gap:var(--k-space-0);align-items:stretch;
+    min-height:0}
   .cols > .content{padding:var(--k-space-8) var(--k-space-9)}
   .content{container-type:inline-size;container-name:content;min-width:0}
+  /* The settings column is the right pane's ONE scroll region (UI-R45) and pads by the bar height, so its last
+     rows ("Pull base first", the third Graph roles row) scroll fully above the sticky bar (SET-50). */
   .settings{min-width:0;background:var(--k-surface);border-left:var(--k-border-w) solid var(--k-border);
-    padding:var(--k-space-8) var(--k-space-7)}
+    padding:var(--k-space-8) var(--k-space-7);overflow-y:auto;
+    padding-bottom:var(--tf-actionbar-h, calc(var(--k-space-8) * 3))}
   /* Agent trigger identity truncates inside its button; the ancestor
      .ap-trigger-label clips it (UI-R44), same as the Settings agents table. */
   .settings .agent-identity{flex-wrap:nowrap;min-width:0}
@@ -409,11 +443,14 @@
     max-height:calc(var(--k-space-8) * 12)}
   #desc{min-height:calc(var(--k-space-8) * 4)}
   #codePointers{min-height:var(--k-space-9)}
-  /* Prototype .m-title: heading input, transparent, bottom border only. */
-  input.k-input#title{font-size:var(--k-text-xl);font-weight:var(--k-weight-semibold);background:transparent;
+  /* Prototype .m-title: heading field, transparent, bottom border only. A
+     textarea grows to show the whole title instead of scrolling it out of view
+     (SET-61); the height is written from scrollHeight in syncTitleHeight. */
+  textarea.k-input#title{font-size:var(--k-text-xl);font-weight:var(--k-weight-semibold);background:transparent;
     border:0;border-bottom:var(--k-border-w) solid var(--k-border);border-radius:0;
-    padding:var(--k-space-2) var(--k-space-0)}
-  input.k-input#title:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+    padding:var(--k-space-2) var(--k-space-0);resize:none;overflow:hidden;max-height:none;min-height:0;
+    line-height:var(--k-leading-tight)}
+  textarea.k-input#title:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   @container (max-width: 999px){
     .cols{grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 14)}
@@ -423,15 +460,25 @@
     .settings{border-left:0;border-top:var(--k-border-w) solid var(--k-border)}
     .cols > .content{padding-inline:var(--k-space-7)}
     .pghead,.actionbar{padding-inline:var(--k-space-7)}
-    /* Footer stacks: full-width buttons, primary first, reason above them. */
-    .actionbar{flex-direction:column-reverse;align-items:stretch}
-    .actionbar .k-btn{width:100%}
+    /* Footer: the reason, then Cancel as a link on its own row, then Save draft and the primary sharing one row
+       (SET-49). The bar stays sticky at this tier. */
+    .actionbar .reason{flex:1 0 100%;text-align:center}
     .actionbar .sp{display:none}
-    .actionbar .reason{text-align:center}
+    /* The link look keeps a real hit area: the smallest text control height (22 px), above the layout gate's 20 px
+       floor (min-hit-area, UI-R45). */
+    .actionbar #cancelBtn{flex:1 0 100%;background:transparent;border-color:transparent;color:var(--k-link);
+      min-height:var(--k-control-h-sm);padding:0;justify-content:flex-start}
+    .actionbar #cancelBtn:hover{background:transparent;color:var(--k-link-active);text-decoration:underline}
+    .actionbar #saveBtn,.actionbar #submitBtn{flex:1 1 0;min-width:0}
   }
   @container (max-width: 399px){
     .frame{margin-inline:var(--k-space-5)}
     .cols > .content,.pghead,.actionbar{padding-inline:var(--k-space-5)}
+    /* Static at tight, so the bar never covers a field (@ui:RD-VIEWS); the primary is last and full width. A
+       column flex overrides the narrow row's flex-basis with flex:none, so no control loses its height. */
+    .actionbar{position:static;flex-direction:column;align-items:stretch}
+    .actionbar .reason,.actionbar #cancelBtn{flex:none}
+    .actionbar #saveBtn,.actionbar #submitBtn{flex:none;width:100%}
   }
 </style>
 
@@ -448,16 +495,27 @@
 <div class="cols">
 <!-- Content region: what the agent is asked to do. -->
 <main class="content" data-region="content">
+  <!-- SET-53: until the first state push this is the whole region — the fields
+       below are hidden (body:not(.is-ready)) so nothing invites typing into a
+       form that has not loaded. -->
+  <div class="k-empty" id="loadingContent" role="status">Loading the ticket…</div>
   <!-- Notifications: classify gate, then fetch/attach/host errors. -->
   <div class="callout hidden" id="gateCard" role="region" aria-labelledby="gateMsg">
     <div class="callout-msg" id="gateMsg"></div>
     <div id="gateList"></div>
   </div>
-  <div class="err hidden" id="err" role="alert"></div>
+  <!-- SET-52: host errors keep their one page-level bucket, now a danger callout
+       with the alert-triangle icon; the fetch failure has its own place under Key. -->
+  <div class="callout callout--danger hidden" id="err" role="alert"><span class="callout-icon" aria-hidden="true"></span><div class="callout-msg" id="errMsg"></div></div>
 
   <div class="field">
+    <!-- SET-58: a real visible label carries the requirement; the asterisk is
+         decorative and aria-hidden, so the label text alone says it. -->
+    <label for="title">Title <span class="req" aria-hidden="true">*</span></label>
     <div>
-      <input type="text" class="k-input" id="title" aria-label="Title" placeholder="Title (required)" />
+      <!-- SET-61: a one-row textarea grows to show a long title instead of
+           scrolling it out of view; Enter never inserts a line break. -->
+      <textarea class="k-input" id="title" rows="1" aria-required="true" placeholder="Title (required)"></textarea>
       <div class="err fielderr hidden" id="titleErr" role="alert"></div>
     </div>
   </div>
@@ -477,7 +535,7 @@
       </span>
       <button type="button" class="k-btn k-btn--ghost k-btn--sm" id="revertBtn" hidden
               title="Restore the form to how it was before the last Improve with AI">Revert</button>
-      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="analyzeBtn"
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="analyzeBtn" disabled
               title="Improve the prompt with AI — also suggests the approach and repositories"><span aria-hidden="true">✦</span> <span id="analyzeLbl">Improve with AI</span></button>
     </span>
   </div>
@@ -508,6 +566,9 @@
 
 <!-- Settings region: how the ticket runs. Labels always sit above their fields. -->
 <aside class="settings" data-region="settings" aria-label="Ticket settings">
+  <!-- SET-53: same honest loading state as the content region; the settings
+       fields stay hidden until the first state push. -->
+  <div class="k-empty" id="loadingSettings" role="status">Loading the ticket…</div>
   <!-- Source: the header (provider, id, copy, open, Re-fetch) is rendered by
        renderSourceHeader; the key row is the fetch entry before an id exists. -->
   <div class="setblock" id="sourceBlock">
@@ -534,6 +595,9 @@
         </select><span class="k-select-chev" aria-hidden="true"></span></div>
       </div>
     </div>
+    <!-- SET-52: a fetch failure sits right after the Key/Fetch row (the #createInErr pattern), not in the
+         page bucket. It is outside #keyRow because a bound ticket hides that row and fetches from Re-fetch. -->
+    <span class="err fielderr hidden" id="fetchErr" role="alert"></span>
     <div class="row2">
       <!-- "Create in <provider>" — ONE location for both modes. Create mode: a
            switch (persisting also mints + binds the provider task). Edit mode, a
@@ -560,7 +624,7 @@
   <div class="setblock">
     <h2>Repositories<span class="stcount" id="repoCount"></span></h2>
     <div class="chips" id="repoList"></div>
-    <p class="chip-hint" id="repoHint">▾ on a chip picks its base branch</p>
+    <p class="chip-hint" id="repoHint">Click ▾ on a repository to pick its base branch.</p>
   </div>
 
   <div class="setblock">
@@ -607,6 +671,8 @@
     <h2>Relations</h2>
     <div id="dependenciesList" class="chips"></div>
   </div>
+  <!-- SET-60: the honest footer for a form locked by a running session. -->
+  <div class="sub hidden" id="sessionHint">Changes apply on the next start.</div>
 </aside>
 </div>
 
@@ -677,6 +743,10 @@
     let timer = null;
     let commitPending = false;
     let commitFailed = false;
+    // SET-54: settings picks since the last successful save, and the count when Save/Submit started.
+    // A pick made while the save runs is not in that save, so it stays an edit.
+    let settingsEdits = 0;
+    let settingsEditsAtCommit = 0;
     let overlaid = false;
     const write = () => {
       timer = null;
@@ -734,6 +804,13 @@
       },
       /** True when the user changed the field and has not saved it: the host render must not refill it. */
       isDirty(field) { return dirty.has(field); },
+      /**
+       * SET-54: any text field still holds an unsaved edit. Cancel asks the host
+       * before dropping it; per-field `isDirty` keeps its existing meaning.
+       */
+      anyDirty() { return dirty.size > 0 || settingsEdits > 0; },
+      /** A settings pick: not form text, so only Cancel's dirty check reads it. */
+      touchSettings() { settingsEdits += 1; },
       /** Catch text that code wrote without an input event (brief, improve, analysis). */
       scan() {
         if (!overlaid) return;
@@ -750,6 +827,7 @@
         commitFailed = false;
         commitSnapshot = {};
         for (const f of FIELDS) commitSnapshot[f] = el(f).value;
+        settingsEditsAtCommit = settingsEdits;
       },
       /** The host reported an error: the pending save did not succeed, so the draft stays. */
       commitErrored() { commitFailed = true; },
@@ -771,6 +849,8 @@
           baseline[f] = el(f).value;
         }
         commitSnapshot = null;
+        settingsEdits -= settingsEditsAtCommit;
+        settingsEditsAtCommit = 0;
         if (timer !== null) { clearTimeout(timer); timer = null; }
         write();
       },
@@ -780,6 +860,41 @@
   const liveDraft = () => ({ title: el('title').value, description: el('desc').value });
   const el = (id) => document.getElementById(id);
   const esc = karstEsc;
+  // SET-52: the page-level error bucket is a danger callout with an inline icon.
+  // The CSP forbids an external SVG, so it comes from the shared icon set.
+  karstIconInto(el('err').querySelector('.callout-icon'), 'alert-triangle', 16);
+
+  // The sticky action bar's height, written to --tf-actionbar-h so the page's scroll padding and the settings
+  // column reserve exactly the room the bar takes. At tight the bar is static, so the value is 0px (SET-49).
+  function syncActionbarHeight() {
+    const bar = el('actionBar');
+    if (!bar) return;
+    const sticky = getComputedStyle(bar).position === 'sticky';
+    document.documentElement.style.setProperty('--tf-actionbar-h', sticky ? bar.offsetHeight + 'px' : '0px');
+  }
+  // The lowest edge an open menu may use (RD-AGENT-MENU): the top of the sticky bar, so the menu flips above its
+  // trigger or caps above the bar instead of covering the footer buttons. A static bar takes no room.
+  const tfBottomEdge = () => {
+    const bar = el('actionBar');
+    if (!bar) return window.innerHeight;
+    return getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().top : window.innerHeight;
+  };
+  // The title is a one-row textarea (SET-61): its height follows the content so the whole title shows on two
+  // or more lines instead of scrolling out of a one-line input. No transition.
+  function syncTitleHeight() {
+    const t = el('title');
+    if (!t) return;
+    t.style.height = 'auto';
+    t.style.height = t.scrollHeight + 'px';
+  }
+  // A panel width change wraps the title onto more or fewer lines, so the height is measured again. The
+  // webview window resizes with the panel.
+  window.addEventListener('resize', syncTitleHeight);
+  syncActionbarHeight();
+  if (el('actionBar') && typeof ResizeObserver !== 'undefined') {
+    const actionbarObserver = new ResizeObserver(() => syncActionbarHeight());
+    actionbarObserver.observe(el('actionBar'));
+  }
 
   // Builds the shared `.k-ticket-ref` chip with DOM nodes only — the state
   // crosses postMessage, so no HTML from it is ever parsed. The text, classes
@@ -915,7 +1030,9 @@
   // renders beside whichever control is visible.
   function renderCreateIn(state) {
     const creatable = state.canCreateProviderTicket === true;
-    const showCheck = creatable && state.mode === 'create';
+    // A ticket that already carries a provider ref (sourceRef) already exists on
+    // the board — offering to create it again is wrong (SET-55).
+    const showCheck = creatable && state.mode === 'create' && !(state.sourceRef || '').trim();
     const showBtn = creatable && state.mode === 'edit' && !(state.sourceRef || '').trim();
     // Name + mark come from the injected provider identity, never a literal
     // (UI-R31): a new provider needs no edit here. Titles are plain text, so
@@ -969,6 +1086,10 @@
   };
 
   function render(state) {
+    // SET-53: the honest loading block is replaced by the real regions on the
+    // first state push; the fields were hidden until exactly here.
+    document.body.classList.add('is-ready');
+    document.body.classList.remove('load-failed');
     draft.mode = state.mode;
     // Edit header: an "Editing" eyebrow, the ticket's title as the h1 and its
     // human label (key, else #id — mirrors ticketLabel(), so the chip and the
@@ -978,12 +1099,16 @@
     el('heading').textContent = isEdit ? (refLabel ? 'Edit ' + refLabel : 'Edit ticket') : 'New ticket';
     el('keyChip').textContent = refLabel;
     el('keyChip').classList.toggle('hidden', isEdit || !refLabel);
-    el('subhead').textContent = state.subtaskOf || '';
+    // SET-62: the header reads "New ticket · Sub-task of T12", not "New ticket Sub-task of T12".
+    el('subhead').textContent = state.subtaskOf ? ' · ' + state.subtaskOf : '';
     // The label text is set here, once per state push, and NEVER touched while
     // busy (UI-R18) — setSubmitBusy only toggles aria-busy/disabled. The
     // create-mode pair matches the static markup.
     const labels = ACTION_LABELS[isEdit ? 'edit' : 'create'];
-    submitLabel = labels.submit;
+    // With a live session the primary only re-opens the terminal (src/ui/session.ts),
+    // so an edit form says what it actually does; create mode keeps its labels (SET-60).
+    const sessionOpen = state.sessionOpen === true;
+    submitLabel = isEdit && sessionOpen ? 'Save & show session' : labels.submit;
     if (!submitBusy) el('submitBtn').textContent = submitLabel;
     if (!saveBusy) el('saveBtn').textContent = labels.save;
     renderProvider(state.provider);
@@ -996,6 +1121,7 @@
     // what the user is typing on a re-push). The single #ref field IS the key —
     // seed it from the identity (key), falling back to the board ref only if the
     // ticket has no key yet.
+    el('ref').placeholder = state.keyPlaceholder || 'e.g. PROJ-142';
     if (!el('ref').value && !formPersist.isDirty('ref')) el('ref').value = state.key || state.sourceRef || '';
     // A key that came from the state is the ticket's real identity — the Title
     // must never overwrite it on the next keystroke. A key this page derived
@@ -1092,12 +1218,18 @@
     lastPresetCores = state.presetCores || {};
     lastBackendSelection = state.selectedBackend ?? null;
     renderBackendPicker(state.mode, state.selectedBackend, state.sessionOpen === true);
+    // SET-60: one line under the settings says why the fields are locked.
+    el('sessionHint').classList.toggle('hidden', !sessionOpen);
     renderGraphRoles();
     syncSubmitGate();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
     // edit-mode reopen — analysis rewrites the prompt, so it only auto-runs
     // right after a fetch (the `brief` handler triggers it).
     syncAnalyzeBtn();
+    // The title may have been seeded or replaced by this push: re-measure its height (SET-61).
+    syncTitleHeight();
+    // Labels change the bar's height: re-measure it so the reserved space stays exact (SET-49).
+    syncActionbarHeight();
   }
 
   // A persisted brief is rendered markdown ("# Title\n\n…"): the card shows it
@@ -1517,10 +1649,10 @@
   // (karstAnchoredPopover, src/ui/shared/anchoredPopover.ts): below its trigger, above when it does not fit,
   // clamped in the viewport, and it follows the trigger on scroll and resize. One detach per surface key.
   const popDetach = {};
-  function anchorPop(key, popover, trigger, width, onHidden) {
+  function anchorPop(key, popover, trigger, width, onHidden, attachOpts) {
     if (popDetach[key]) { popDetach[key](); delete popDetach[key]; }
     if (!popover || !trigger) return;
-    popDetach[key] = karstAnchoredPopover.attach({ popover, trigger, width, onTriggerHidden: onHidden });
+    popDetach[key] = karstAnchoredPopover.attach({ ...(attachOpts || {}), popover, trigger, width, onTriggerHidden: onHidden });
   }
   function unanchorPop(key) {
     if (popDetach[key]) { popDetach[key](); delete popDetach[key]; }
@@ -1571,12 +1703,16 @@
   function renderRepos(repos, repoBases) {
     lastRepos = repos || [];
     lastRepoBases = repoBases || [];
+    // SET-58: the ▾ hint is meaningful only when there are chips to click.
+    const repoHint = el('repoHint');
     if (!repos || !repos.length) {
       unanchorPop('base');
+      if (repoHint) repoHint.classList.add('hidden');
       el('repoList').innerHTML = '<p class="setempty">No repositories. Add one in <a href="#" data-act="open-settings" data-section="repositories">Settings → Repositories</a>.</p>';
       syncStepper();
       return;
     }
+    if (repoHint) repoHint.classList.remove('hidden');
     // Toggle chips: real buttons carrying aria-pressed (UI-R09, R26) — `data-repo`
     // drives the delegated click handler (flips `draft.repos`, posts `set-repos`).
     // Only a SELECTED repo gets the split caret (§ per-repo base branch).
@@ -1596,7 +1732,7 @@
     if (openBasePop && !el('repoList').querySelector('[data-base-pop]')) openBasePop = null;
     // The base-branch popover holds a filter input: when its caret scrolls out of view it stays (pinned in the
     // viewport) until the user closes it, so a typed branch is never lost.
-    if (openBasePop) anchorPop('base', el('repoList').querySelector('[data-base-pop]'), caretFor(openBasePop), undefined, () => undefined);
+    if (openBasePop) anchorPop('base', el('repoList').querySelector('[data-base-pop]'), caretFor(openBasePop), undefined, () => undefined, { bottomEdge: tfBottomEdge });
     else unanchorPop('base');
     syncStepper();
   }
@@ -1627,6 +1763,7 @@
   function pickBase(repo, raw) {
     const value = String(raw || '').trim();
     draft.baseRefs[repo] = value;
+    touchSettingsPick();
     post({ type: 'set-base-ref', repo, baseRef: value });
     closeBase();
   }
@@ -1714,7 +1851,7 @@
       + '<div id="approachListbox" role="listbox" tabindex="-1" aria-labelledby="approachHeading" aria-activedescendant="' + activeId + '"'
       + (approachOpen ? '' : ' class="hidden"') + '>' + opts + '</div>'
       + '<button type="button" class="k-btn k-btn--link k-btn--sm approach-manage' + (approachActive === approaches.length ? ' is-active' : '') + '" id="approachManage">Manage approaches…</button></div>';
-    if (approachOpen) anchorPop('approach', el('approachPop'), el('approachBtn'), 'trigger', () => closeApproach(false));
+    if (approachOpen) anchorPop('approach', el('approachPop'), el('approachBtn'), 'trigger', () => closeApproach(false), { bottomEdge: tfBottomEdge });
     else unanchorPop('approach');
     syncStepper();
   }
@@ -1859,8 +1996,17 @@
         effort: defaultEffort ? 'Inherit (settings: ' + esc(defaultEffort) + ')' : 'No effort (agent picks)',
       },
       showEffort: true,
+      // SET-62: this page calls the field "Effort"; the shared default stays
+      // "Effort / variant" for Settings and the dashboard.
+      labels: { effort: 'Effort' },
       disabled: !!sessionOpen,
+      // RD-AGENT-MENU: the open core/model menu ends above the sticky bar, never over the footer buttons. The
+      // typeof guard keeps this function extractable by the unit tests that run it without the page around it.
+      bottomEdge: typeof tfBottomEdge === 'function' ? tfBottomEdge : undefined,
       onChange: ({ mode, preset, core, model: m, effort: e }) => {
+        // The picker emits only on a user pick; its menus fire no `change`. The
+        // typeof guard keeps this function extractable by the unit tests (see bottomEdge).
+        if (typeof touchSettingsPick === 'function') touchSettingsPick();
         if (mode === 'preset') {
           // A preset GOVERNs: '' on the trio is the explicit clear (never null,
           // which would fall back to the cached identity).
@@ -1960,9 +2106,13 @@
     // An explicit core on this ticket wins over every role (AC-04 ticket rung), so the table
     // would be stale: say so instead of showing models the launch will not use.
     const ticketCore = draft.selectedAgentProvider ?? lastSelectedAgentProvider ?? '';
+    // The hint names the rung the chips show (SET-51): with no ticket core and no preset
+    // slot in play every line comes from the approach, so the preset text would contradict them.
     const hint = ticketCore
       ? 'This ticket sets its own core above. Every graph role runs on it; a preset slot for that same core keeps its model.'
-      : 'The preset sets these models. To change them for this ticket only, choose Core + model above.';
+      : lines.every((l) => l.source === 'approach')
+        ? 'The approach sets these models. To change them for this ticket only, choose Core + model above.'
+        : 'The preset sets these models. To change them for this ticket only, choose Core + model above.';
     box.innerHTML = '<label>Graph roles</label>' +
       '<div class="graph-roles-grid" role="list">' + lines.map((l) =>
         '<div class="graph-role-row" role="listitem" data-graph-role="' + esc(l.role) + '">' +
@@ -2320,6 +2470,7 @@
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
     // lastIntent/lastPointers stay at the host values, so a restored edit still counts as changed on save.
     el('codePointersRow').hidden = !el('codePointers').value;
+    syncTitleHeight();
     syncSubmitGate();
     syncAnalyzeBtn();
   }
@@ -2331,11 +2482,24 @@
     syncSubmitGate();
     scheduleSearch();
   });
+  // SET-61: the title is one line of text. Enter never inserts a line break and
+  // a pasted break becomes a space, so the derived key and the page title stay
+  // single-line while the control still grows to show a long title.
+  el('title').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') e.preventDefault();
+  });
   el('title').addEventListener('input', () => {
-    if (!refTouched) el('ref').value = deriveKey(el('title').value);
+    const t = el('title');
+    if (/[\r\n]/.test(t.value)) {
+      const at = t.selectionStart;
+      t.value = t.value.replace(/[\r\n]+/g, ' ');
+      if (at !== null) t.selectionStart = t.selectionEnd = Math.min(at, t.value.length);
+    }
+    syncTitleHeight();
+    if (!refTouched) el('ref').value = deriveKey(t.value);
     // Typing again is the retry — clear the field error the moment it's
     // no longer blank, rather than waiting for the next submit attempt.
-    if (el('title').value.trim() !== '') setTitleInvalid(false);
+    if (t.value.trim() !== '') setTitleInvalid(false);
     syncSubmitGate();
   });
 
@@ -2380,7 +2544,7 @@
     el('searchMenu').classList.remove('hidden');
     el('ref').setAttribute('aria-expanded', 'true');
     // Results only: nothing typed in the menu itself, so it closes when the key field scrolls out of view.
-    anchorPop('search', el('searchMenu'), el('ref'), 'trigger', closeSearchMenu);
+    anchorPop('search', el('searchMenu'), el('ref'), 'trigger', closeSearchMenu, { bottomEdge: tfBottomEdge });
   }
   function closeSearchMenu() {
     unanchorPop('search');
@@ -2691,11 +2855,15 @@
 
   // Auto-improve switch (default on). A real <button role="switch"> gets
   // Enter/Space activation natively — no custom keydown handler needed.
-  el('autoImprove').addEventListener('click', () => setAutoImprove(!autoImproveOn));
+  // SET-54: the host never stores this switch (in either mode), so a flip is an unsaved
+  // edit for Cancel even on a form bound to a ticket row.
+  el('autoImprove').addEventListener('click', () => { formPersist.touchSettings(); setAutoImprove(!autoImproveOn); });
 
   // The create-mode "Also create in <provider>" switch (default off). Same native
   // button activation as Auto-improve; the value rides submit/save.
   el('createIn').addEventListener('click', () => {
+    // SET-54: the value rides submit/save only, so a flip is an unsaved edit for Cancel.
+    formPersist.touchSettings();
     createInOn = !createInOn;
     el('createIn').setAttribute('aria-checked', String(createInOn));
   });
@@ -2712,13 +2880,44 @@
 
   // Pull-the-base switch (default on). Same native-button activation as
   // Auto-improve above.
-  el('pullBase').addEventListener('click', () => setPullBase(!pullBaseOn));
+  // SET-54: a submit-time option the host never stores; a flip is an unsaved edit for Cancel.
+  el('pullBase').addEventListener('click', () => { formPersist.touchSettings(); setPullBase(!pullBaseOn); });
 
   // Cancel discards the form and closes the panel. It used to post
   // request-state — but render() refuses to clobber non-empty fields, so the
   // re-push visibly did NOTHING in both modes. The webview cannot dispose its
   // own panel, so this is the host's job (close-form → ctx.close).
-  el('cancelBtn').addEventListener('click', () => post({ type: 'close-form' }));
+  //
+  // SET-54 (Q13): a form with edits asks first. The page only REPORTS that it is
+  // dirty; the question and the decision stay on the host (@ui:UI-R33), so a
+  // crafted page cannot skip the confirmation. A settings pick is an edit too,
+  // but it is not form text, so formPersist cannot see it — a delegated
+  // `change` on the region covers every control, including re-mounted ones.
+  // formPersist owns the settings edit too, so a successful save clears it
+  // with the text fields.
+  // Settings controls whose change is not a ticket edit: the key is form text
+  // (formPersist tracks it on input), and the status only filters the search.
+  const NOT_SETTINGS_EDITS = new Set(['ref', 'searchStatus']);
+  /**
+   * Record one settings pick for Cancel's dirty check. Native selects reach it
+   * through the delegated `change` below; the agent menu, repository chips,
+   * base-branch popover and approach cards fire no `change`, so their pick
+   * handlers call it directly.
+   */
+  function touchSettingsPick() {
+    // A form bound to a ticket row: each set-* action stores the pick on the host
+    // at once, so nothing is left unsaved for Cancel to ask about.
+    if (lastState && lastState.mode === 'edit' && Number.isInteger(lastState.ticketId)) return;
+    formPersist.touchSettings();
+  }
+  document.querySelector('[data-region="settings"]').addEventListener('change', (e) => {
+    if (e.target instanceof Element && NOT_SETTINGS_EDITS.has(e.target.id)) return;
+    touchSettingsPick();
+  });
+  el('cancelBtn').addEventListener('click', () => {
+    const dirty = formPersist.anyDirty();
+    post({ type: 'close-form', ...(dirty ? { dirty: true } : {}) });
+  });
 
   el('analyzeBtn').addEventListener('click', () => {
     // Explicit run: analyze the current prompt/brief. The result overwrites the
@@ -2735,6 +2934,7 @@
     const row = lastRepos.find((r) => r.service === service);
     const now = row ? !repoSelected(row) : true;
     draft.repos[service] = now;
+    touchSettingsPick();
     const repos = lastRepos.filter(repoSelected).map((r) => r.service);
     const list = el('repoList');
     const requestId = karstRequestId();
@@ -2749,6 +2949,7 @@
   // the radiogroup container for the same reason as toggleRepo above.
   function pickApproach(id) {
     draft.approach = id;
+    touchSettingsPick();
     renderGraphRoles();
     approachOpen = false;
     const list = el('approachList');
@@ -2900,18 +3101,26 @@
     else if (e.key === 'Tab') closeApproach(false);
   });
 
-  function showErr(msg) { usageLimitPending = false; const e = el('err'); e.textContent = msg; e.classList.remove('hidden'); }
+  // SET-52: a fetch failure stays beside the Key/Fetch row it came from. Cleared
+  // when the next fetch starts, when its brief arrives, and on the next state —
+  // the error describes an attempt, not the form.
+  function showFetchErr(msg) {
+    const e = el('fetchErr');
+    e.textContent = msg;
+    e.classList.toggle('hidden', !msg);
+  }
+  function clearFetchErr() { showFetchErr(''); }
+  function showErr(msg) { usageLimitPending = false; el('errMsg').textContent = msg; el('err').classList.remove('hidden'); }
   // D159: a usage-limit op park's error carries the park id and offers the
   // SAME three actions the dashboard banner offers. Rendered with buttons
   // (never `textContent`), each posting an `usage-limit-park-*` message.
   function showUsageLimitErr(msg, parkId) {
     usageLimitPending = false;
-    const e = el('err');
-    e.innerHTML = '<span>' + esc(msg) + '</span> '
+    el('errMsg').innerHTML = '<span>' + esc(msg) + '</span> '
       + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-park-pick" data-parkid="' + esc(String(parkId)) + '">Pick agent/model\u2026</button> '
       + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-park-retry" data-parkid="' + esc(String(parkId)) + '">Retry same</button> '
       + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="usage-limit-park-dismiss" data-parkid="' + esc(String(parkId)) + '">Dismiss</button>';
-    e.classList.remove('hidden');
+    el('err').classList.remove('hidden');
   }
   // UI-R11/R12: the re-run takes minutes and the park is claimed by the FIRST
   // click. A second click would post again and be answered with the false
@@ -2940,7 +3149,7 @@
     if (target.dataset.act === 'usage-limit-park-retry') post({ type: 'usage-limit-park-retry', parkId });
     if (target.dataset.act === 'usage-limit-park-dismiss') post({ type: 'usage-limit-park-dismiss', parkId });
   });
-  function clearErr() { usageLimitPending = false; el('err').classList.add('hidden'); }
+  function clearErr() { usageLimitPending = false; el('errMsg').textContent = ''; el('err').classList.add('hidden'); }
   /**
    * Watchdogs for the LEGACY `busy` channel (UI-R14).
    *
@@ -2974,6 +3183,8 @@
     // The fetch button carries its own busy state; a failed fetch (on→false with
     // no brief) resets it to idle so the user can retry.
     if (what === 'fetch') { fetchInFlight = on; renderSourceHeader(lastState); }
+    // A retry starts clean: the previous fetch failure no longer describes it (SET-52).
+    if (what === 'fetch' && on) clearFetchErr();
     if (what === 'fetch' && !on && !briefText) setFetchState('idle');
     // Submit runs worktree creation + the session launch, which take a beat.
     // Lock the button for the duration so it can't be fired twice, and say what
@@ -3012,6 +3223,9 @@
     if (!msg) return;
     switch (msg.type) {
       case 'state': {
+        // The state describes the form as it is now, so a fetch error from an
+        // earlier attempt no longer applies (SET-52).
+        clearFetchErr();
         render(msg.state);
         // First push after a reload: the saved draft fields go over the fresh data.
         if (formPersist.onHostState(msg.state)) applyRestoredDraft();
@@ -3022,7 +3236,7 @@
         // Prefill the Prompt from the fetched brief's short summary, only when
         // empty so live typing is never clobbered. The #ref field the user
         // fetched from IS the key — no separate copy needed.
-        if (!el('title').value && b.title) el('title').value = b.title;
+        if (!el('title').value && b.title) { el('title').value = b.title; syncTitleHeight(); }
         if (!el('desc').value && b.description) el('desc').value = b.description;
         // Show the card expanded, flip the fetch button to done, and bind the
         // header to the id just fetched.
@@ -3033,6 +3247,7 @@
         openComments.clear();
         srcFetched = { id: pendingFetchRef || b.sourceRef || '', url: b.url || '' };
         fetchInFlight = false;
+        clearFetchErr();
         applyBrief();
         renderSourceHeader(lastState);
         // Prefilled title may now satisfy Phase 1 — reveal Phase 2.
@@ -3145,7 +3360,13 @@
         }
         break;
       }
+      case 'fetch-error':
+        // SET-52: rendered under the Key field, not in the page bucket.
+        showFetchErr(msg.message);
+        break;
       case 'error':
+        // SET-53: an error before the first state means the form did not load.
+        if (!document.body.classList.contains('is-ready')) document.body.classList.add('load-failed');
         formPersist.commitErrored();
         if (msg.usageLimitParkId) showUsageLimitErr(msg.message, msg.usageLimitParkId);
         else showErr(msg.message);

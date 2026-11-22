@@ -1047,6 +1047,9 @@ function mountAgentPicker(root, opts) {
   // provider alone (the Model field beside it already says which model).
   var compact = !!o.compact;
   var onChange = o.onChange;
+  // Opt-in lower boundary for the menu placement (RD-AGENT-MENU): a host with a sticky footer passes the footer's
+  // top, so the menu flips above its trigger or caps above the bar. Hosts that pass nothing are unchanged.
+  var bottomEdge = typeof o.bottomEdge === 'function' ? o.bottomEdge : null;
   var state = {
     core: value.core || '',
     model: value.model || '',
@@ -1299,6 +1302,7 @@ function mountAgentPicker(root, opts) {
           popover: menu,
           trigger: trigger,
           width: 'trigger',
+          bottomEdge: bottomEdge || undefined,
           onTriggerHidden: function () { closeMenu(shell, false); },
         })
       : null;
@@ -1506,6 +1510,7 @@ function mountAgentPicker(root, opts) {
       showEffort = next ? next.showEffort !== false : true;
       disabled = !!(next && next.disabled);
       onChange = next && next.onChange;
+      bottomEdge = next && typeof next.bottomEdge === 'function' ? next.bottomEdge : null;
       if (pm && next && next.presetMode) {
         // The host's selected preset drives the tab only when IT changed; a tab
         // the user flipped by hand survives a same-value state push.
