@@ -168,6 +168,14 @@ describe('callTool', () => {
     );
   });
 
+  it('passes priority and priorityReason through the draft tool', async () => {
+    const { runner, calls } = recorder('{"ok":true,"file":"f","id":1}');
+    const input = { title: 'T', description: 'D', summary: 'S', repos: ['extention'], priority: 'high', priorityReason: 'blocks release' };
+    const result = await callTool('draft', input, NO_CONFIG, {}, runner);
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(calls[0]!.io.readStdin(1 << 16))).toEqual(input);
+  });
+
   it('turns a handler throw into a tool error', async () => {
     const runner: McpToolRunner = {
       async run() {

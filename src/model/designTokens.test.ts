@@ -53,6 +53,14 @@ describe('design tokens', () => {
     }
   });
 
+  it('gives the categorical series their own hues, not a status alias (US-22)', () => {
+    // Series 1 used to BE --k-info, so the first chart series and the meaning
+    // "running" were literally the same colour.
+    expect(DESIGN_TOKENS['--k-series-1']).not.toBe('var(--k-info)');
+    expect(DESIGN_TOKENS['--k-series-1']).toContain('--vscode-charts-blue');
+    expect(DESIGN_TOKENS['--k-series-2']).toContain('--vscode-charts-purple');
+  });
+
   it('routes every feedback colour onto the existing status ramp', () => {
     // The six greens were six independent "success" decisions. There is now one
     // place to make that decision, and it is `model/palette.ts`.

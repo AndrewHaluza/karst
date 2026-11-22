@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { opencode2Config, resetOpencode2Config } from '../agent/opencode2Binary.js';
 import { basename, dirname, join } from 'node:path';
@@ -882,6 +882,25 @@ describe('runCliAsync — base', () => {
   });
 });
 
+
+describe('runCliAsync — fall-through to runCli', () => {
+  it('forwards the injected env, not process.env', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-async-env-')));
+    vi.stubEnv('KARST_OUTBOX', '');
+    try {
+      mkdirSync(join(dir, 'outbox'));
+      writeFileSync(
+        join(dir, 'proposals.json'),
+        JSON.stringify([{ id: 7, uuid: 'u', title: 'T', status: 'pending', updatedAt: 'x' }]),
+      );
+      const out = await runCliAsync(['draft', 'list'], { KARST_OUTBOX: join(dir, 'outbox') });
+      expect(JSON.parse(out)).toEqual([{ id: 7, ref: 'D7', status: 'pending', title: 'T' }]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('runCliAsync — setup checklist outside a setup session', () => {
   let dir: string;

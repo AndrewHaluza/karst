@@ -90,7 +90,7 @@ export const WEBVIEW_CHAINS: Record<WebviewName, Chain> = {
   // The ticket-list sidebar is a React app: `webview.html` carries the
   // `/*KARST_SIDEBAR_APP*/` marker and the bundle owns `#root`.
   sidebar: (html) => injectSidebarApp(DS_AGENT_PALETTE(html)),
-  usage: DS_PALETTE,
+  usage: DS_AGENT_PALETTE,
   // The Servers & resources page is a React app: `webview.html` carries the
   // `/*KARST_RESOURCES_APP*/` marker and the bundle owns `#root`.
   resources: (html) => injectResourcesApp(DS_PALETTE(html)),

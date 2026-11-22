@@ -38,7 +38,16 @@ describe('design system components', () => {
   it('gives every focusable primitive the one focus ring (UI-R23)', () => {
     // sidebar and welcome had no :focus-visible rule at all; usage covered only
     // bare `button`. One ring, defined once, reaches all seven webviews.
-    for (const cls of ['.k-btn', '.k-iconbtn', '.k-link', '.k-input', '.k-switch', '.k-chip']) {
+    for (const cls of [
+      '.k-btn',
+      '.k-iconbtn',
+      '.k-link',
+      '.k-input',
+      '.k-switch',
+      '.k-chip',
+      '.k-tab',
+      '.k-sort',
+    ]) {
       expect(rulesFor(cls), `${cls} has no focus ring`).toContain(':focus-visible');
     }
     expect(CSS).toContain('var(--k-focus)');
@@ -183,6 +192,48 @@ describe('design system components', () => {
     // A long unbroken token must wrap instead of forcing horizontal scroll.
     expect(rulesFor('.k-pagehead-title')).toContain('overflow-wrap:anywhere');
     expect(rulesFor('.k-pagehead-sub')).toContain('overflow-wrap:anywhere');
+  });
+
+  it('draws a tab strip whose selection survives a high-contrast theme (US-21)', () => {
+    expect(rulesFor('.k-tabs')).toContain('display:flex');
+    expect(rulesFor('.k-tabs')).toContain('border-bottom:var(--k-border-w) solid var(--k-border)');
+    expect(rulesFor('.k-tabs')).toContain('margin-bottom:var(--k-space-6)');
+    expect(rulesFor('.k-tab')).toContain('background:transparent');
+    expect(rulesFor('.k-tab')).toContain('color:var(--k-text-dim)');
+    expect(rulesFor('.k-tab')).toContain(
+      'border-radius:var(--k-radius-sm) var(--k-radius-sm) 0 0',
+    );
+    expect(CSS).toContain('.k-tab[aria-selected="true"]');
+    // The underline is contrastActiveBorder when the theme supplies it, so a
+    // selected tab is never just another dim label in High Contrast.
+    expect(CSS).toContain(
+      'border-bottom-color:var(--vscode-contrastActiveBorder,var(--k-link))',
+    );
+  });
+
+  it('draws a sortable table header as the header itself (US-25)', () => {
+    const sort = rulesFor('.k-sort');
+    expect(sort).toContain('text-transform:uppercase');
+    expect(sort).toContain('letter-spacing:var(--k-chip-tracking)');
+    expect(sort).toContain('font-size:var(--k-text-2xs)');
+    expect(sort).toContain('color:inherit');
+    expect(sort).toContain('display:inline-flex');
+    expect(CSS).toContain('.k-sort:hover{color:var(--k-text)}');
+  });
+
+  it('gives a light-theme input an edge that reaches 3:1 non-text contrast (SET-57, C5)', () => {
+    // Light Modern's --vscode-input-border is 1.57:1 on white: the
+    // light edge comes from a mid-grey theme colour instead. A variable, not a
+    // border-color override, so the hover and aria-invalid rules still win.
+    expect(rulesFor('.k-input')).toContain(
+      'border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border, var(--k-border)))',
+    );
+    expect(CSS).toMatch(
+      /body\.vscode-light\{[^}]*--k-input-edge:var\(--vscode-input-placeholderForeground, var\(--k-text-dim\)\)/,
+    );
+    // Hover must not fade the light edge under 3:1 (--k-border-strong is the panel border there).
+    expect(CSS).toMatch(/body\.vscode-light\{[^}]*--k-input-edge-hover:var\(--k-text\)/);
+    expect(rulesFor('.k-input:hover')).toContain('border-color:var(--k-input-edge-hover, var(--k-border-strong))');
   });
 
   it('emits valid, balanced CSS', () => {

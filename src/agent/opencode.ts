@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, extname, isAbsolute, join } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
 import type {
   AgentAdapter,
   AgentCapabilities,
@@ -1558,6 +1558,8 @@ export function opencodeLaunchPermission(opts: {
   /** With `readOnly`: the one dir edits are allowed in (last match wins over the `*` deny). */
   writableDir?: string | undefined;
   addDirs?: string[] | undefined;
+  /** The launch cwd: a `writableDir` inside it also needs a cwd-relative allow rule. */
+  cwd?: string | undefined;
   /** Headless gate profile: edits confined to `cwd` + tmp, build/home-config denies. */
   gate?: { cwd: string; policy?: HeadlessPolicy | undefined; gateScripts?: readonly string[] | undefined } | undefined;
   /** Interactive `attended` profile: deny-only edit rules for the operator's home config. */
@@ -1578,9 +1580,10 @@ export function opencodeLaunchPermission(opts: {
     return { ...gate, ...(dirs.length > 0 ? { external_directory: external } : {}) };
   }
   const killDeny = opencodeProcessKillDeny();
+  const writableRules = opts.readOnly && opts.writableDir ? writableEditRules(opts.cwd, opts.writableDir) : undefined;
   return {
     ...(opts.readOnly
-      ? { edit: opts.writableDir ? { '*': 'deny', [`${opts.writableDir}/**`]: 'allow' } : 'deny' }
+      ? { edit: writableRules ?? (opts.writableDir ? { '*': 'deny', [`${opts.writableDir}/**`]: 'allow' } : 'deny') }
       : opts.attended ? { edit: opencodeAttendedEdit() } : {}),
     // `bash` as an object is last-match-wins: readOnly's catch-all `*` asks
     // first, then a matching kill pattern denies. Non-readOnly keeps just the
@@ -1588,6 +1591,27 @@ export function opencodeLaunchPermission(opts: {
     bash: opts.readOnly ? { '*': 'ask', ...killDeny } : killDeny,
     ...(dirs.length > 0 ? { external_directory: external } : {}),
   };
+}
+
+/**
+ * The read-only edit map for a `writableDir`: deny first, then the absolute
+ * allow and — when the dir sits inside `cwd` — its cwd-relative form, because
+ * the CLI rewrites a path inside `cwd` to a relative resource string, which the
+ * absolute rule alone never matches. `'*'` stays a deny catch-all: this map has
+ * no absolute-path marker of its own, so widening it would re-open every path.
+ */
+function writableEditRules(
+  cwd: string | undefined,
+  writableDir: string,
+): Record<string, 'allow' | 'deny'> {
+  const rules: Record<string, 'allow' | 'deny'> = {
+    '*': 'deny',
+    [`${writableDir}/**`]: 'allow',
+  };
+  const rel = cwd ? relative(cwd, writableDir) : '';
+  const inside = rel !== '' && !isAbsolute(rel) && rel.split(sep)[0] !== '..';
+  if (inside) rules[`${rel}/**`] = 'allow';
+  return rules;
 }
 
 /** The `opencodeLaunchPermission` profile fields for an interactive `policy`. */

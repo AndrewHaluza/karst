@@ -62,6 +62,21 @@ describe('token-usage host wiring', () => {
     );
   });
 
+  it('feeds a recorded token delta into the open panel, debounced and disposed with the window (US-11)', () => {
+    expect(EXTENSION).toContain('onTokenUsageRecorded(');
+    expect(EXTENSION).toContain('tokenUsagePanel.scheduleRefresh()');
+    expect(EXTENSION).toContain('unsubscribeTokenUsage');
+    expect(EXTENSION).toContain('tokenUsagePanel.dispose()');
+  });
+
+  it('wires the quota-settings, new-ticket and quota-refresh actions of the view (US-13, US-15, US-31)', () => {
+    // The panel awaits these promises for the terminal action-result (UI-R13): never discard them with `void`.
+    expect(EXTENSION).toMatch(/openQuotaSettings: \(\) => settings\.openAt\('#agents\/accounts'\)/);
+    expect(EXTENSION).toContain("Promise.resolve(vscode.commands.executeCommand('karst.openTicketForm')).then(() => undefined)");
+    expect(EXTENSION).not.toContain("void settings.openAt('#agents/accounts')");
+    expect(EXTENSION).toContain('refreshQuota: () => quotaService.refresh()');
+  });
+
   it('ships the webview into dist — an uncopied asset fails only at runtime', () => {
     expect(COPY_ASSETS).toContain("'ui/usage/webview.html'");
   });

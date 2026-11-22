@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_PROPOSAL_BYTES } from '../planning/proposal.js';
 import { runDraftCommand, type DraftProposeDeps } from './draftCommand.js';
+import { writeOutboxRejection } from '../planning/proposalIndex.js';
 
 const proposal = { title: 'Add auth', description: 'JWT', summary: 'Decided JWT', repos: ['api'] };
 
@@ -26,6 +27,88 @@ describe('draft propose / draft list', () => {
     extra: Partial<DraftProposeDeps> = {},
   ): string =>
     runDraftCommand(argv, { outboxEnv: env ?? undefined, readStdin: () => stdin, timeoutMs: 0, ...extra });
+
+  const fileUuid = (): string => readdirSync(outbox).find((f) => f.endsWith('.json'))!.replace(/\.json$/, '');
+  const writeIndex = (entries: unknown[]): void => writeFileSync(join(dir, 'proposals.json'), JSON.stringify(entries));
+  const idx = (uuid: string, over: Record<string, unknown> = {}) => ({
+    id: 42, uuid, title: 'Add auth', status: 'pending', updatedAt: 'now', ...over,
+  });
+
+  it('fails at once with the host rejection reason', () => {
+    let clock = 0;
+    let sleeps = 0;
+    const sleep = (ms: number): void => {
+      clock += ms;
+      sleeps += 1;
+      writeOutboxRejection(dir, { uuid: fileUuid(), reason: 'unknown repositories api', rejectedAt: 'now' });
+    };
+    expect(() =>
+      run(['draft', 'propose'], JSON.stringify(proposal), outbox, { timeoutMs: 10_000, now: () => clock, sleep }),
+    ).toThrow('karst draft propose: rejected by host (unknown repositories api)');
+    expect(sleeps).toBe(1);
+  });
+
+  it('returns the host warnings with a revise hint', () => {
+    let clock = 0;
+    const sleep = (ms: number): void => {
+      clock += ms;
+      writeIndex([idx(fileUuid(), { warnings: ['unknown design key @arch:NOPE'] })]);
+    };
+    const out = JSON.parse(
+      run(['draft', 'propose'], JSON.stringify(proposal), outbox, { timeoutMs: 10_000, now: () => clock, sleep }),
+    );
+    expect(out).toMatchObject({ ok: true, id: 42, ref: 'D42', warnings: ['unknown design key @arch:NOPE'] });
+    expect(out.hint).toContain('"id":42');
+    expect('checksPending' in out).toBe(false);
+  });
+
+  it('omits warnings and hint for a clean draft', () => {
+    let clock = 0;
+    const sleep = (ms: number): void => {
+      clock += ms;
+      writeIndex([idx(fileUuid())]);
+    };
+    const out = JSON.parse(
+      run(['draft', 'propose'], JSON.stringify(proposal), outbox, { timeoutMs: 10_000, now: () => clock, sleep }),
+    );
+    expect(out).toEqual({ ok: true, file: out.file, id: 42, ref: 'D42' });
+  });
+
+  it('waits for the async checks and returns their warnings', () => {
+    let clock = 0;
+    let sleeps = 0;
+    const sleep = (ms: number): void => {
+      clock += ms;
+      sleeps += 1;
+      writeIndex([sleeps === 1 ? idx(fileUuid(), { checking: true }) : idx(fileUuid(), { warnings: ['unknown commit abc1234'] })]);
+    };
+    const out = JSON.parse(
+      run(['draft', 'propose'], JSON.stringify(proposal), outbox, { timeoutMs: 10_000, now: () => clock, sleep }),
+    );
+    expect(out).toMatchObject({ id: 42, warnings: ['unknown commit abc1234'] });
+    expect(sleeps).toBe(2);
+  });
+
+  it('returns checksPending when the deadline passes mid-check', () => {
+    let clock = 0;
+    const sleep = (ms: number): void => {
+      clock += ms;
+      writeIndex([idx(fileUuid(), { checking: true })]);
+    };
+    const out = JSON.parse(
+      run(['draft', 'propose'], JSON.stringify(proposal), outbox, { timeoutMs: 300, now: () => clock, sleep }),
+    );
+    expect(out).toMatchObject({ ok: true, id: 42, ref: 'D42', checksPending: true });
+    expect('warnings' in out).toBe(false);
+  });
+
+  it('draft list adds warnings only to a flagged draft', () => {
+    writeIndex([idx('u1', { id: 1, warnings: ['w'] }), idx('u2', { id: 2 })]);
+    expect(JSON.parse(run(['draft', 'list'], ''))).toEqual([
+      { id: 1, ref: 'D1', status: 'pending', title: 'Add auth', warnings: ['w'] },
+      { id: 2, ref: 'D2', status: 'pending', title: 'Add auth' },
+    ]);
+  });
 
   it('writes one uuid-named proposal file atomically and prints its path', () => {
     const out = JSON.parse(run(['draft', 'propose'], JSON.stringify(proposal)));

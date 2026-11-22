@@ -96,6 +96,48 @@ describe('AntigravityAdapter', () => {
       expect(cmd.args).toEqual(['-i', 'hello world']);
     });
 
+    it('adds the absolute-path rule after the instructions pointer', () => {
+      // agy file tools refuse a relative path ("must be an absolute path").
+      const cmd = new AntigravityAdapter().buildInteractiveCommand({
+        cwd: '/test',
+        initialPrompt: 'hello',
+        instructions: { path: '/s/karst-instructions.md', body: 'b' },
+      });
+      const kickoff = cmd.args[cmd.args.indexOf('-i') + 1] ?? '';
+      expect(kickoff).toContain('(/s/karst-instructions.md)');
+      expect(kickoff).toContain('Give an absolute path to every file tool. agy refuses a relative path.');
+      expect(kickoff.indexOf('absolute path to every file tool')).toBeGreaterThan(kickoff.indexOf('/s/karst-instructions.md'));
+    });
+
+    it('adds no absolute-path rule without instructions', () => {
+      const cmd = new AntigravityAdapter().buildInteractiveCommand({ cwd: '/test', initialPrompt: 'hello' });
+      expect(cmd.args.join(' ')).not.toContain('absolute path to every file tool');
+    });
+
+    it('adds the no-ArtifactMetadata rule after the instructions pointer in plan mode', () => {
+      // agy refuses an ArtifactMetadata write outside its brain dir; a plain
+      // write_file into the artifacts dir works (live-verified on 1.5.14).
+      const cmd = new AntigravityAdapter().buildInteractiveCommand({
+        cwd: '/test',
+        initialPrompt: 'hello',
+        readOnly: true,
+        instructions: { path: '/s/karst-instructions.md', body: 'b' },
+      });
+      const kickoff = cmd.args[cmd.args.indexOf('-i') + 1] ?? '';
+      expect(kickoff).toContain('no ArtifactMetadata');
+      expect(kickoff.indexOf('no ArtifactMetadata')).toBeGreaterThan(kickoff.indexOf('/s/karst-instructions.md'));
+    });
+
+    it('omits the no-ArtifactMetadata rule outside plan mode', () => {
+      const cmd = new AntigravityAdapter().buildInteractiveCommand({
+        cwd: '/test',
+        initialPrompt: 'hello',
+        instructions: { path: '/s/karst-instructions.md', body: 'b' },
+      });
+      const kickoff = cmd.args[cmd.args.indexOf('-i') + 1] ?? '';
+      expect(kickoff).not.toContain('no ArtifactMetadata');
+    });
+
     it('appends extraArgs before the prompt', () => {
       const adapter = new AntigravityAdapter();
       const cmd = adapter.buildInteractiveCommand({

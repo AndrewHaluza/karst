@@ -162,8 +162,11 @@ export type TicketFormMessage =
   | { type: 'request-state' }
   // Cancel: discard the form and close the panel. The webview cannot dispose
   // its own panel — the host owns it — so this is the one message whose whole
-  // job is to trigger the host's `ctx.close()`.
-  | { type: 'close-form' };
+  // job is to trigger the host's `ctx.close()`. `dirty` says the page holds
+  // edits the user would lose (SET-54, Q13): the HOST then asks, and only a
+  // confirmed "Discard" closes (@ui:UI-R33 — the confirmation stays host-side,
+  // so a crafted page cannot skip the question and silently close).
+  | { type: 'close-form'; dirty?: boolean };
 
 /**
  * The busy vocabulary is a CLOSED union (UI-R16), not `string`: the host used to
@@ -205,6 +208,11 @@ export type TicketFormHostMessage =
   // leaves the control retryable (the Karst ticket itself was already
   // persisted — a provider failure must never lose it).
   | { type: 'provider-ticket-error'; message: string }
+  // SET-52: a FETCH failure belongs next to the Key field the user typed in,
+  // not in the page-level bucket above the title. Its own discriminant, so the
+  // page can place it where the action was taken instead of guessing from the
+  // text of a generic error.
+  | { type: 'fetch-error'; message: string }
   // D159: an error that is a usage-limit op park also carries the open park's
   // id, so the page can offer Pick agent/model… / Retry same / Dismiss.
   | { type: 'error'; message: string; usageLimitParkId?: number }
@@ -291,8 +299,12 @@ export interface TicketFormActions {
   submit: (input: SubmitFields) => void | Promise<void>;
   save: (input: TicketDraftFields) => void | Promise<void>;
   requestState: () => void | Promise<void>;
-  /** Cancel: discard the form and close the panel (ctx.close in panel.ts). */
-  closeForm: () => void | Promise<void>;
+  /**
+   * Cancel: discard the form and close the panel (ctx.close in panel.ts).
+   * `dirty` = the page holds unsaved edits, so the host confirms the discard
+   * first (SET-54, Q13, @ui:UI-R33).
+   */
+  closeForm: (dirty?: boolean) => void | Promise<void>;
 }
 
 function isStringArray(v: unknown): v is string[] {
@@ -524,7 +536,11 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
     case 'request-state':
       return { type: 'request-state' };
     case 'close-form':
-      return { type: 'close-form' };
+      // Only a literal `true` is a dirty close: anything else (absent, a
+      // string, a crafted object) reads as "the page says nothing changed",
+      // which is the safe reading — the host closes without a question, and
+      // never has to trust a page's claim that it is clean.
+      return m.dirty === true ? { type: 'close-form', dirty: true } : { type: 'close-form' };
     default:
       return null;
   }
@@ -644,7 +660,8 @@ export function routeTicketFormAction(
       actions.requestState();
       return;
     case 'close-form':
-      actions.closeForm();
-      return;
+      // Awaitable: a dirty close opens the host's confirm dialog. The pump
+      // already tolerates either shape (`void | Promise<void>`).
+      return actions.closeForm(msg.dirty === true);
   }
 }

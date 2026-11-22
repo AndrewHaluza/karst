@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
@@ -31,14 +31,41 @@ describe('repo hygiene: dependency dirs are ignored even as symlinks', () => {
     ).toBe(false);
   });
 
-  it('the only tracked symlink is AGENTS.md -> CLAUDE.md', () => {
+  // Two kinds of tracked symlink are intentional: AGENTS.md -> CLAUDE.md, and a
+  // repository skill mirror `.agents/skills/<name>` -> `../../.claude/skills/<name>`
+  // (Codex and Antigravity read `.agents/skills/`, Claude reads `.claude/skills/`;
+  // the link keeps one source and reaches every ticket worktree). Any other
+  // symlink, or a mirror that points anywhere else, is the accident above.
+  it('tracked symlinks are only AGENTS.md -> CLAUDE.md and .agents/skills mirrors of .claude/skills', () => {
     const r = spawnSync('git', ['ls-files', '-s'], { cwd: repoRoot, encoding: 'utf8' });
     expect(r.status).toBe(0);
-    const trackedSymlinks = r.stdout
+    const entries = r.stdout
       .split('\n')
       .filter((line) => line.startsWith('120000'))
-      .map((line) => line.split('\t')[1] ?? '')
-      .sort();
-    expect(trackedSymlinks).toEqual(['AGENTS.md']);
+      .map((line) => {
+        const [meta = '', path = ''] = line.split('\t');
+        return { path, sha: meta.split(' ')[1] ?? '' };
+      });
+    expect(entries.map((e) => e.path)).toContain('AGENTS.md');
+    const strykerIgnores: unknown = JSON.parse(readFileSync(join(repoRoot, 'stryker.config.json'), 'utf8')).ignorePatterns;
+    for (const { path, sha } of entries) {
+      const blob = spawnSync('git', ['cat-file', '-p', sha], { cwd: repoRoot, encoding: 'utf8' });
+      expect(blob.status, `git cat-file failed for ${path}`).toBe(0);
+      const target = blob.stdout;
+      const skill = /^\.agents\/skills\/([a-z0-9][a-z0-9._-]*)$/.exec(path)?.[1];
+      const expected = path === 'AGENTS.md' ? 'CLAUDE.md' : skill ? `../../.claude/skills/${skill}` : undefined;
+      expect(expected, `unexpected tracked symlink ${path} -> ${target}`).toBeDefined();
+      expect(target, `${path} must point at ${expected}`).toBe(expected);
+      if (skill) {
+        // Stryker copies every project file into its sandbox with copyFile, which fails
+        // on a directory symlink (EISDIR on Linux, ENOTSUP on macOS) and breaks every
+        // mutation run, so the mirror folder must stay in its ignorePatterns.
+        expect(strykerIgnores, 'stryker.config.json ignorePatterns must hold .agents').toContain('.agents');
+        expect(
+          existsSync(join(repoRoot, '.claude', 'skills', skill, 'SKILL.md')),
+          `${path} mirrors a skill with no .claude/skills/${skill}/SKILL.md`,
+        ).toBe(true);
+      }
+    }
   });
 });

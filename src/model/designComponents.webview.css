@@ -1,16 +1,22 @@
 .k-focusable:focus-visible,
 .k-btn:focus-visible,.k-iconbtn:focus-visible,.k-link:focus-visible,
 .k-input:focus-visible,.k-switch:focus-visible,.k-chip:focus-visible,
-.k-ticket-ref:focus-visible,
+.k-ticket-ref:focus-visible,.k-tab:focus-visible,.k-sort:focus-visible,
 .k-toast-close:focus-visible{
   outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 .k-input:focus{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+/* The boundary only high contrast needs (SET-56): the theme's contrast edge. VS Code defines
+   --vscode-contrastBorder in its high-contrast themes; the other themes keep a transparent border, so dark and
+   light button and switch pixels are unchanged. */
+body{--k-contrast-edge:transparent}
+body.vscode-high-contrast,body.vscode-high-contrast-light{--k-contrast-edge:var(--vscode-contrastBorder,transparent)}
 .k-btn{
   display:inline-flex;align-items:center;justify-content:center;gap:var(--k-space-3);
   font-family:inherit;font-size:var(--k-text-xs);font-weight:var(--k-weight-medium);
   line-height:var(--k-leading-tight);
   min-height:var(--k-control-h-md);padding:var(--k-space-2) var(--k-space-6);
-  border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);
+  /* A visible edge in high contrast; transparent elsewhere (SET-56). Modifiers that set a border keep it. */
+  border:var(--k-border-w) solid var(--k-contrast-edge);border-radius:var(--k-radius-sm);
   background:var(--k-action-bg);color:var(--k-action-fg);
   cursor:pointer;position:relative;
   transition:background var(--k-dur-fast) var(--k-ease-standard),
@@ -21,6 +27,10 @@
 
 .k-btn--primary{background:var(--k-action-bg);color:var(--k-action-fg)}
 .k-btn--primary:hover:where(:not(:disabled):not([aria-disabled="true"])){background:var(--k-action-bg-hover)}
+/* Light: the secondary action must read as a light neutral button, not a dark slab heavier than the primary.
+   The VS Code secondary surface is a dark grey in light themes; theme variables only, no raw colour (SET-57). */
+body.vscode-light{--k-action-2-bg:var(--vscode-editorWidget-background);--k-action-2-fg:var(--vscode-foreground);
+  --k-action-2-bg-hover:var(--vscode-list-hoverBackground)}
 .k-btn--secondary{background:var(--k-action-2-bg);color:var(--k-action-2-fg);border-color:var(--k-border)}
 .k-btn--secondary:hover:where(:not(:disabled):not([aria-disabled="true"])){background:var(--k-action-2-bg-hover)}
 
@@ -121,10 +131,17 @@
 .k-input{
   font-family:inherit;font-size:var(--k-text-md);color:var(--k-text);
   background:var(--k-surface);
-  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);
+  /* --k-input-edge is set only where the theme's own input edge is too faint (light, below); else the
+     theme's input edge, else the shared border (SET-57). */
+  border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border, var(--k-border)));border-radius:var(--k-radius-sm);
   padding:var(--k-space-2) var(--k-space-4);
   transition:border-color var(--k-dur-fast) var(--k-ease-standard)}
-.k-input:hover:not(:disabled){border-color:var(--k-border-strong)}
+/* Light: --vscode-input-border in Light Modern is 1.57:1 on white, under the 3:1 non-text minimum (C5).
+   The placeholder grey is a theme colour that VS Code keeps at 4.5:1 on the input; theme variables only, no raw
+   colour. Hover goes to the foreground, so it never fades the edge to the faint panel border. */
+body.vscode-light{--k-input-edge:var(--vscode-input-placeholderForeground, var(--k-text-dim));
+  --k-input-edge-hover:var(--k-text)}
+.k-input:hover:not(:disabled){border-color:var(--k-input-edge-hover, var(--k-border-strong))}
 .k-input:disabled{opacity:.45;color:var(--k-text-faint);cursor:default}
 .k-input[aria-busy="true"]{cursor:progress}
 .k-input[aria-invalid="true"]{border-color:var(--k-danger)}
@@ -147,7 +164,8 @@
   width:var(--k-space-5);height:var(--k-space-5);
   border-radius:var(--k-radius-circle);background:var(--k-text-dim);
   transition:transform var(--k-dur-fast) var(--k-ease-standard)}
-.k-switch[aria-checked="true"] .k-switch-track{background:var(--k-action-bg);border-color:transparent}
+/* The checked track keeps the action fill AND a high-contrast edge, so On and Off differ by shape and edge (SET-56). */
+.k-switch[aria-checked="true"] .k-switch-track{background:var(--k-action-bg);border-color:var(--k-contrast-edge)}
 .k-switch[aria-checked="true"] .k-switch-track::after{
   transform:translateX(var(--k-space-5));background:var(--k-action-fg)}
 .k-switch:hover .k-switch-track{border-color:var(--k-border-strong)}
@@ -329,6 +347,23 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
 .k-pagehead-title{margin:0;color:var(--k-text);font-size:var(--k-text-xl);font-weight:var(--k-weight-semibold);overflow-wrap:anywhere}
 .k-pagehead-sub{margin:var(--k-space-1) 0 0;color:var(--k-text-dim);font-size:var(--k-text-sm);overflow-wrap:anywhere}
 .k-pagehead-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin-left:auto}
+/* Tabs (US-21): the Resources tab strip's grammar, now shared. The selected underline falls back to the link colour,
+   but a high-contrast theme supplies contrastActiveBorder so the selection is never just another dim label. */
+.k-tabs{display:flex;gap:var(--k-space-1);
+  border-bottom:var(--k-border-w) solid var(--k-border);margin-bottom:var(--k-space-6)}
+.k-tab{background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-md);
+  font-weight:var(--k-weight-medium);cursor:pointer;min-height:var(--k-control-h-md);
+  padding:var(--k-space-2) var(--k-space-6);border:0;border-radius:var(--k-radius-sm) var(--k-radius-sm) 0 0;
+  border-bottom:calc(var(--k-border-w) * 2) solid transparent}
+.k-tab:hover{color:var(--k-text);background:var(--k-surface-hover)}
+.k-tab[aria-selected="true"]{color:var(--k-text);border-bottom-color:var(--vscode-contrastActiveBorder,var(--k-link))}
+/* A sortable table header (US-25): inherits the th's colour and carries the header's uppercase type, so the control
+   reads as part of the header rather than as a button in a cell. */
+.k-sort{background:transparent;border:0;padding:var(--k-space-0);margin:var(--k-space-0);font:inherit;
+  font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);text-transform:uppercase;
+  letter-spacing:var(--k-chip-tracking);color:inherit;cursor:pointer;display:inline-flex;align-items:center;
+  gap:var(--k-space-1);border-radius:var(--k-radius-xs);min-height:var(--k-control-h-sm)}
+.k-sort:hover{color:var(--k-text)}
 @media (max-width: 699px){.k-pagehead-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (prefers-reduced-motion: reduce){
   .k-btn,.k-iconbtn,.k-input,.k-chip,.k-ticket-ref,.k-switch,.k-switch-track,

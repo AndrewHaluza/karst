@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { INSIDE_EXTRA_WIDTHS, LAYOUT_WIDTHS, NARROW_MAX, SETTINGS_LAYOUT_WIDTHS, TIGHT_MAX, WIDE_MIN, layoutWidthsFor, tierFor } from './layoutBreakpoints.js';
+import { INSIDE_EXTRA_WIDTHS, LAYOUT_WIDTHS, NARROW_MAX, SETTINGS_LAYOUT_WIDTHS, TIGHT_MAX, USAGE_EXTRA_WIDTHS, WIDE_MIN, layoutWidthsFor, tierFor } from './layoutBreakpoints.js';
 
 /**
  * CSS files whose `@media` widths are pinned to the tiers. Empty today: the
@@ -47,10 +47,18 @@ describe('tierFor', () => {
 });
 
 describe('layoutWidthsFor', () => {
-  it('keeps the 480 floor for every view but the Inside dashboard targets', () => {
+  it('keeps the 480 floor for every view but usage and the Inside dashboard targets', () => {
     expect(layoutWidthsFor('settings', 'agents')).toEqual(LAYOUT_WIDTHS);
     expect(layoutWidthsFor('dashboard', 'drill-runtime-narrow')).toEqual(LAYOUT_WIDTHS);
-    expect(layoutWidthsFor('usage', 'inside-impl-x')).toEqual(LAYOUT_WIDTHS);
+    expect(layoutWidthsFor('resources', 'inside-impl-x')).toEqual(LAYOUT_WIDTHS);
+  });
+
+  it('opens the 360 tight floor on every usage page', () => {
+    const widths = layoutWidthsFor('usage', 'usage');
+    expect(widths).toEqual([...LAYOUT_WIDTHS, ...USAGE_EXTRA_WIDTHS]);
+    expect(widths).toEqual(expect.arrayContaining([360]));
+    expect(new Set(widths.map(tierFor))).toEqual(new Set(['wide', 'mid', 'narrow', 'tight']));
+    expect(new Set(widths).size).toBe(widths.length);
   });
 
   it('adds 400, 399 and 320 on inside-* dashboard targets, opening both sides of the tight boundary', () => {

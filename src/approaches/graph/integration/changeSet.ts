@@ -77,6 +77,11 @@ export async function captureChangeSet(
     // not integrate on a guess. Throw a named error the pipeline blocks on.
     throw new Error(`git diff --name-status ${opts.baseRef} failed (exit ${result.exitCode})`);
   }
+  if (result.stdoutTruncated) {
+    // A truncated list is not the change set: integrating it would land a
+    // partial node. Fail closed, like a failed diff.
+    throw new Error(`git diff --name-status ${opts.baseRef} output was truncated`);
+  }
   return parseNameStatus(result.stdout);
 }
 
@@ -96,6 +101,9 @@ export async function captureUntrackedPaths(
   const result = await git(['ls-files', '--others', '--exclude-standard'], cwd);
   if (result.exitCode !== 0) {
     throw new Error(`git ls-files --others failed (exit ${result.exitCode})`);
+  }
+  if (result.stdoutTruncated) {
+    throw new Error('git ls-files --others output was truncated');
   }
   return result.stdout
     .split('\n')

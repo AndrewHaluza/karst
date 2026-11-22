@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from './db.js';
 import {
   recordTokenUsage,
@@ -10,6 +10,7 @@ import {
   summarizeRecordedTokenUsageForGraphRun,
   summarizeRecordedTokenUsageByRole,
   listRecentlyUsedModels,
+  onTokenUsageRecorded,
   EMPTY_USAGE_TOTALS,
 } from './tokenUsage.js';
 import { parseUsageQuery, type UsageQuery } from './tokenUsageQuery.js';
@@ -338,6 +339,76 @@ describe('queryTokenUsageStats', () => {
     const { byModel } = queryTokenUsageStats(store, query({ projectId: 1 }));
     expect(byModel.map((r) => [r.key, r.totalTokens])).toEqual([
       ['claude-opus-5', 10],
+      ['', 4],
+    ]);
+  });
+
+  it('reports the earliest recorded instant in range as firstAt (US-1)', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ at: '2026-07-15T00:00:00.000Z' });
+    seed({ at: '2026-07-10T00:00:00.000Z' });
+    seed({ at: '2026-07-20T00:00:00.000Z' });
+    expect(queryTokenUsageStats(store, query({ projectId: 1 })).firstAt).toBe(
+      '2026-07-10T00:00:00.000Z',
+    );
+  });
+
+  it('reports no firstAt for a range with no rows', () => {
+    expect(queryTokenUsageStats(store, query({ projectId: 1 })).firstAt).toBeNull();
+  });
+
+  it('scopes firstAt by the same project filter as the totals', () => {
+    ticket(1, 'K-1', 'One', 1);
+    seed({ projectId: 2, at: '2026-07-01T00:00:00.000Z' });
+    seed({ projectId: 1, at: '2026-07-15T00:00:00.000Z' });
+    expect(queryTokenUsageStats(store, query({ projectId: 1 })).firstAt).toBe(
+      '2026-07-15T00:00:00.000Z',
+    );
+  });
+
+  it('breaks spend down by provider, heaviest fresh spend first (US-4)', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ provider: 'claude', input: 10, output: 0 });
+    seed({ provider: 'codex', input: 50, output: 0 });
+    seed({ provider: 'codex', input: 5, output: 0 });
+    const { byProvider } = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(byProvider.map((r) => [r.key, r.freshTokens, r.calls])).toEqual([
+      ['codex', 55, 2],
+      ['claude', 10, 1],
+    ]);
+  });
+
+  it('orders providers on fresh spend, matching what the view renders (US-4)', () => {
+    ticket(1, 'K-1', 'One');
+    seed({ provider: 'cache-heavy', input: 1_000, output: 0, cacheRead: 900_000 });
+    seed({ provider: 'fresh-heavy', input: 5_000, output: 5_000 });
+    const { byProvider } = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(byProvider.map((r) => r.key)).toEqual(['fresh-heavy', 'cache-heavy']);
+  });
+
+  it('keeps a NULL provider as its own empty-key group (US-4)', () => {
+    ticket(1, 'K-1', 'One');
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: 1,
+      callSite: 'ticket-analysis',
+      outcome: 'ok',
+      recordedAt: '2026-07-15T00:00:00.000Z',
+      usage: {
+        inputTokens: 4,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 4,
+        model: 'm',
+        estimated: false,
+      },
+    });
+    seed({ provider: 'claude', input: 10, output: 0 });
+    const { byProvider } = queryTokenUsageStats(store, query({ projectId: 1 }));
+    expect(byProvider.map((r) => [r.key, r.freshTokens])).toEqual([
+      ['claude', 10],
       ['', 4],
     ]);
   });
@@ -929,5 +1000,53 @@ describe('round-scoped reads (the Inside pill)', () => {
       estimatedCalls: 1,
       estimatedTotal: 60,
     });
+  });
+});
+
+describe('onTokenUsageRecorded (US-11)', () => {
+  it('fires once per successfully recorded row', () => {
+    let fired = 0;
+    const off = onTokenUsageRecorded(() => {
+      fired++;
+    });
+    try {
+      seed({});
+      seed({});
+      expect(fired).toBe(2);
+    } finally {
+      off();
+    }
+  });
+
+  it('stops delivering after unsubscribe, and unsubscribe is idempotent', () => {
+    let fired = 0;
+    const off = onTokenUsageRecorded(() => {
+      fired++;
+    });
+    seed({});
+    off();
+    off();
+    seed({});
+    expect(fired).toBe(1);
+  });
+
+  it('does not fail recording or block later listeners when one throws', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let later = 0;
+    const offBad = onTokenUsageRecorded(() => {
+      throw new Error('boom');
+    });
+    const offGood = onTokenUsageRecorded(() => {
+      later++;
+    });
+    try {
+      expect(() => seed({})).not.toThrow();
+      expect(later).toBe(1);
+      expect(error).toHaveBeenCalledWith('karst: token-usage listener failed', expect.any(Error));
+    } finally {
+      offBad();
+      offGood();
+      error.mockRestore();
+    }
   });
 });

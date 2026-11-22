@@ -169,6 +169,20 @@ karstTest.describe('UI-R29 contrast (computed assertion)', () => {
       const theme = (themeMap[testInfo.project.name] ?? 'dark') as ThemeId;
       const page = await gotoView(viewId);
 
+      // Measure the settled page. The fixture applies the theme body class after first
+      // layout, so a shared component transition (.k-btn background/color) can still be
+      // mid-flight when a computed contrast check samples it: the light secondary button
+      // read 2.96:1 during the transition and 5.45:1 once settled. Await finite animations
+      // the way layout.layout.ts does; keyframe loops (a spinner) are skipped.
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+            .map((a) => a.finished.catch(() => undefined)),
+        ),
+      );
+
       const failures: Array<{
         selector: string;
         text: string;
@@ -259,6 +273,46 @@ karstTest.describe('UI-R29 contrast (computed assertion)', () => {
           `UI-R29 contrast failures in ${viewId} (${theme}):\n${msg}\n` +
           `Add to CONTRAST_RATCHET with a gap id if this is a known v3.0 gap.`,
         );
+      }
+
+      // SET-57 / C5: in light, an input edge (the shared .k-input and the same edge in view CSS) is the only boundary of the field (its fill is
+      // near the page colour), so the edge must reach 3:1 non-text contrast against what surrounds it.
+      if (theme === 'light') {
+        // The shared .k-input and the view-local controls that draw the same input edge.
+        const INPUT_EDGE_CONTROLS =
+          '.k-input, input[type=text], input[type=number], select, textarea, .provselect-trigger, .agentselect-trigger, .reload-btn';
+        const faintEdges = await page.evaluate((INPUT_EDGE_CONTROLS) => {
+          const channels = (s: string): [number, number, number, number] | null => {
+            const m = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$/);
+            return m ? [Number(m[1]), Number(m[2]), Number(m[3]), m[4] !== undefined ? Number(m[4]) : 1] : null;
+          };
+          const lum = ([r, g, b]: readonly number[]): number => {
+            const lin = (c: number) => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+            return 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
+          };
+          const outside = (el: Element): [number, number, number] => {
+            for (let cur = el.parentElement; cur && cur !== document.documentElement; cur = cur.parentElement) {
+              const p = channels(getComputedStyle(cur).backgroundColor);
+              if (p && p[3] > 0) return [p[0], p[1], p[2]];
+            }
+            return [255, 255, 255];
+          };
+          const out: string[] = [];
+          document.querySelectorAll(INPUT_EDGE_CONTROLS).forEach((el) => {
+            const cs = getComputedStyle(el);
+            const box = el.getBoundingClientRect();
+            if (cs.display === 'none' || cs.visibility === 'hidden' || box.width === 0 || box.height === 0) return;
+            if ((el as HTMLInputElement).disabled || el.matches(':hover, [aria-invalid="true"]')) return;
+            const edge = channels(cs.borderTopColor);
+            if (!edge || edge[3] === 0 || parseFloat(cs.borderTopWidth) === 0) return;
+            const a = lum(edge);
+            const b = lum(outside(el));
+            const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+            if (ratio < 3) out.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}: ${ratio.toFixed(2)}:1 (${cs.borderTopColor})`);
+          });
+          return out;
+        }, INPUT_EDGE_CONTROLS);
+        expect(faintEdges, `SET-57 light .k-input edges under 3:1 in ${viewId}`).toEqual([]);
       }
     });
   }

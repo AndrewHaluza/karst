@@ -85,14 +85,19 @@ export function seed(
   return Array.from(new Set(failures.map(failureKey))).sort();
 }
 
-/** Removes stale entries only; never adds. */
+/**
+ * Removes stale entries only; never adds. With the authoritative run's full `expected` set, an entry whose
+ * route x width the registry no longer produces is dead too: a removed variant (or a renamed route) can never
+ * fail again, and leaving its key behind would keep an entry alive that no run can ever judge.
+ */
 export function prune(
   failures: readonly LayoutFailure[],
   ledger: readonly string[],
   ran: ReadonlySet<string>,
   guard: LedgerGuard,
+  expected?: ReadonlySet<string>,
 ): string[] {
   requireGuard('prune', guard);
   const stale = new Set(matchLedger(failures, ledger, ran).stale);
-  return ledger.filter((key) => !stale.has(key));
+  return ledger.filter((key) => !stale.has(key) && (expected === undefined || expected.has(runKeyOf(key))));
 }

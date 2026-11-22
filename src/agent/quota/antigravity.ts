@@ -1,12 +1,17 @@
+import { execFile } from 'node:child_process';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import { promisify } from 'node:util';
+import { accountLaunchFor } from '../accounts/registry.js';
+import { DEFAULT_ACCOUNT } from '../accounts/types.js';
 import { resolveAgyAppDataDir } from '../agyConversationWatch.js';
 import {
   ANTIGRAVITY_NOT_RUNNING_REASON,
   ANTIGRAVITY_UNRESPONSIVE_REASON,
   discoverAntigravityServer,
+  type DirLister,
   type FileReader,
   type PortLister,
   type ProcessLister,
@@ -24,7 +29,12 @@ export { ANTIGRAVITY_NOT_RUNNING_REASON, ANTIGRAVITY_UNRESPONSIVE_REASON };
  *    for 5h / weekly multi-group rate-limit buckets.
  * 2. `POST /exa.language_server_pb.LanguageServerService/GetUserStatus`
  *    for user subscription tier and monthly plan credits.
- * Both endpoints use `Connect-Protocol-Version: 1` and `x-codeium-csrf-token`. Zero model request spend.
+ * Both endpoints use `Connect-Protocol-Version: 1` and `x-codeium-csrf-token`, and
+ * `RetrieveUserQuotaSummary` asks for `forceRefresh: true`. Zero model request spend.
+ *
+ * When no language server answers (CLI-only sessions run it in-process), the reader
+ * runs `agy -p "/usage" --output-format json` for the active account — zero model
+ * turns — before falling back to the cache.
  *
  * Tier-aware filtering:
  * - Free Tier: Shows only active Gemini rate limits (5-hour & Weekly). Suppresses paid-only pools.
@@ -42,12 +52,43 @@ export { ANTIGRAVITY_NOT_RUNNING_REASON, ANTIGRAVITY_UNRESPONSIVE_REASON };
  */
 
 export const ANTIGRAVITY_QUOTA_SOURCE = 'Antigravity Language Server';
+export const ANTIGRAVITY_CLI_QUOTA_SOURCE = 'Antigravity CLI (/usage)';
 export const ANTIGRAVITY_CACHE_TTL_MS = 24 * 60 * 60_000; // 24 hours
 export const ANTIGRAVITY_TIMEOUT_MS = 2000;
+export const ANTIGRAVITY_CLI_TIMEOUT_MS = 10_000;
 export const ANTIGRAVITY_RELATIVE_CACHE = join('cache', 'quota.json');
 
 export function antigravityQuotaCachePath(appDataDir: string): string {
   return join(appDataDir, ANTIGRAVITY_RELATIVE_CACHE);
+}
+
+/** Headless `agy -p "/usage" --output-format json` runner (injected in unit tests). */
+export type AntigravityCliUsageRunner = (
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+) => Promise<string | null>;
+
+const execFileAsync = promisify(execFile);
+
+/** Run the CLI usage command; any failure (ENOENT, timeout, non-zero exit) is a quiet null. */
+async function defaultRunCliUsage(
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(command, [...args], {
+      env,
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+    });
+    return typeof stdout === 'string' ? stdout : null;
+  } catch {
+    return null;
+  }
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -126,7 +167,13 @@ export function resolveBucketLabel(
   bucket: Record<string, unknown>,
   group?: Record<string, unknown> | null,
 ): string {
-  const bucketId = typeof bucket.bucketId === 'string' ? bucket.bucketId.toLowerCase() : '';
+  const rawBucketId =
+    typeof bucket.bucketId === 'string' && bucket.bucketId.length > 0
+      ? bucket.bucketId
+      : typeof bucket.id === 'string' && bucket.id.length > 0
+        ? bucket.id
+        : '';
+  const bucketId = rawBucketId.toLowerCase();
   const window = typeof bucket.window === 'string' ? bucket.window.toLowerCase() : '';
   const groupName = typeof group?.displayName === 'string'
     ? group.displayName.toLowerCase()
@@ -137,7 +184,9 @@ export function resolveBucketLabel(
     ? bucket.label
     : typeof bucket.displayName === 'string' && bucket.displayName.length > 0
       ? bucket.displayName
-      : '';
+      : typeof bucket.name === 'string' && bucket.name.length > 0
+        ? bucket.name
+        : '';
   const lowerLabel = explicitLabel.toLowerCase();
 
   const isArgon = groupName.includes('argon') || bucketId.includes('argon');
@@ -145,8 +194,20 @@ export function resolveBucketLabel(
   const is3p = groupName.includes('claude') || groupName.includes('gpt') || groupName.includes('3p') ||
                bucketId.includes('claude') || bucketId.includes('gpt') || bucketId.includes('3p');
 
-  const is5h = window === '5h' || bucketId.includes('5h') || lowerLabel.includes('5h');
-  const isWeekly = window === 'weekly' || bucketId.includes('weekly') || lowerLabel.includes('weekly');
+  const is5h =
+    window === '5h' ||
+    window === '5-hour' ||
+    bucketId.includes('5h') ||
+    bucketId.includes('5-hour') ||
+    lowerLabel.includes('5h') ||
+    lowerLabel.includes('5-hour');
+  const isWeekly =
+    window === 'weekly' ||
+    window === '7-day' ||
+    bucketId.includes('weekly') ||
+    bucketId.includes('7-day') ||
+    lowerLabel.includes('weekly') ||
+    lowerLabel.includes('7-day');
 
   if (isGemini) {
     if (is5h) return '5-hour';
@@ -164,7 +225,7 @@ export function resolveBucketLabel(
   }
 
   if (explicitLabel.length > 0) return explicitLabel;
-  if (bucketId.length > 0) return typeof bucket.bucketId === 'string' ? bucket.bucketId : bucketId;
+  if (rawBucketId.length > 0) return rawBucketId;
   return 'Model';
 }
 
@@ -180,8 +241,11 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
   const isPaid = tierContext.isPaid;
   const windows: QuotaWindow[] = [];
 
-  // 1. Multi-group rate-limit buckets from RetrieveUserQuotaSummary
-  const summaryData = asRecord(summaryRoot?.response ?? summaryRoot?.userQuotaSummary ?? summaryRoot);
+  // 1. Multi-group rate-limit buckets from RetrieveUserQuotaSummary or `agy -p "/usage"` (command.data)
+  const commandObj = asRecord(summaryRoot?.command);
+  const summaryData = asRecord(
+    commandObj?.data ?? summaryRoot?.response ?? summaryRoot?.userQuotaSummary ?? summaryRoot,
+  );
   const groups = Array.isArray(summaryData?.groups) ? summaryData.groups : null;
 
   if (groups !== null) {
@@ -194,13 +258,16 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
         if (!bucket) continue;
         if (bucket.disabled === true) continue;
 
-        const remainingFraction = num(bucket.remainingFraction);
+        const remainingFraction = num(bucket.remainingFraction) ?? num(bucket.remaining_fraction);
         if (remainingFraction === null) continue;
 
         const usedPct = Math.round((1 - remainingFraction) * 100);
-        const resetsAt = typeof bucket.resetTime === 'string' && bucket.resetTime.length > 0
-          ? bucket.resetTime
-          : null;
+        const resetsAt =
+          typeof bucket.resetTime === 'string' && bucket.resetTime.length > 0
+            ? bucket.resetTime
+            : typeof bucket.reset_time === 'string' && bucket.reset_time.length > 0
+              ? bucket.reset_time
+              : null;
         const label = resolveBucketLabel(bucket, group);
 
         if (!isPaid) {
@@ -312,6 +379,7 @@ async function callConnectRpc(
   csrfToken: string,
   fetchFn: typeof fetch,
   timeoutMs: number,
+  body = '{}',
 ): Promise<unknown> {
   const url = `http://${address}/exa.language_server_pb.LanguageServerService/${methodName}`;
   const res = await fetchFn(url, {
@@ -321,7 +389,7 @@ async function callConnectRpc(
       'Content-Type': 'application/json',
       'x-codeium-csrf-token': csrfToken,
     },
-    body: '{}',
+    body,
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
@@ -337,7 +405,15 @@ async function fetchLiveQuota(
   timeoutMs: number,
 ): Promise<LiveQuotaPayload> {
   const [summaryBody, statusBody] = await Promise.all([
-    callConnectRpc(address, 'RetrieveUserQuotaSummary', csrfToken, fetchFn, timeoutMs),
+    // `forceRefresh: true` mirrors `agy /usage`: it bypasses the language server's own cache.
+    callConnectRpc(
+      address,
+      'RetrieveUserQuotaSummary',
+      csrfToken,
+      fetchFn,
+      timeoutMs,
+      '{"forceRefresh":true}',
+    ),
     callConnectRpc(address, 'GetUserStatus', csrfToken, fetchFn, timeoutMs),
   ]);
 
@@ -363,6 +439,29 @@ export interface AntigravityQuotaReaderDeps {
   listProcesses?: ProcessLister;
   listPorts?: PortLister;
   readFile?: FileReader;
+  listDir?: DirLister;
+  runCliUsage?: AntigravityCliUsageRunner;
+  cliTimeoutMs?: number;
+}
+
+/** A non-empty string, else `undefined` (an empty override is no override). */
+function nonEmpty(value: string | undefined): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * The active account's `agy` launch, resolved ONCE per read (`arch:AC-55`, the
+ * ONE resolver). A `setActive` that lands during the discovery/RPC awaits must
+ * not mix one account's folder and cache with another account's binary/env
+ * (`arch:AC-48`). A deleted active account reads as `default` (a READ has
+ * nothing to find), never as another named account.
+ */
+function pinnedAntigravityLaunch() {
+  try {
+    return accountLaunchFor('antigravity', 'agy');
+  } catch {
+    return accountLaunchFor('antigravity', 'agy', DEFAULT_ACCOUNT);
+  }
 }
 
 export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): QuotaReader {
@@ -370,23 +469,43 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
     core: 'antigravity',
     async read(): Promise<QuotaSnapshot> {
       const home = deps.homeDir ?? homedir();
-      const env = deps.env ?? process.env;
       const nowFn = deps.now ?? (() => new Date());
       const fetchFn = deps.fetchImpl ?? fetch;
-      const appDataDir = deps.appDataDir ?? resolveAgyAppDataDir(env, home);
+      // Pin the account BEFORE the first await: everything below (folder, cache,
+      // binary, args, env) comes from this one resolution.
+      const launch = pinnedAntigravityLaunch();
+      const env = deps.env ?? process.env;
+      // The account's owned data dir wins over an operator's ambient override. It
+      // lives on the launch, never in `process.env`, so a spread of the env cannot
+      // carry it (and `accountReaderEnv()` traps only `get`).
+      const envDataDir =
+        nonEmpty(launch.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) ??
+        nonEmpty(env.ANTIGRAVITY_EXECUTABLE_DATA_DIR);
+      // A named folder account (or an operator's override) owns this data dir, so
+      // discovery reads ONLY its records: the ambient language-server env, the
+      // default `~/.gemini/...` folders and the machine-wide process scan belong
+      // to no named account and would answer with another account's quota
+      // (`arch:AC-48`). The CLI fallback below is account-scoped and covers a
+      // folder with no answering language server.
+      const dataDirOnly = envDataDir !== undefined;
+      const appDataDir = deps.appDataDir ?? envDataDir ?? resolveAgyAppDataDir(env, home);
       const cachePath = antigravityQuotaCachePath(appDataDir);
       const ttlMs = deps.cacheTtlMs ?? ANTIGRAVITY_CACHE_TTL_MS;
       const timeoutMs = deps.timeoutMs ?? ANTIGRAVITY_TIMEOUT_MS;
+      const runCliUsageFn = deps.runCliUsage ?? defaultRunCliUsage;
+      const cliTimeoutMs = deps.cliTimeoutMs ?? ANTIGRAVITY_CLI_TIMEOUT_MS;
 
       const discovery = await discoverAntigravityServer({
         env,
         homeDir: home,
         appDataDir,
+        dataDirOnly,
         fetchImpl: fetchFn,
         timeoutMs,
         listProcesses: deps.listProcesses,
         listPorts: deps.listPorts,
         readFile: deps.readFile,
+        listDir: deps.listDir,
       });
 
       let liveError: string | null = null;
@@ -412,6 +531,40 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
         }
       } else {
         liveError = discovery.reason ?? ANTIGRAVITY_NOT_RUNNING_REASON;
+      }
+
+      // Headless fallback: `agy -p "/usage" --output-format json` spends zero model
+      // turns and reads the ACTIVE account's quota (`arch:AC-48`, `arch:AC-55`).
+      // It uses the launch pinned at the top of this read, never a re-resolution.
+      try {
+        const cliEnv: NodeJS.ProcessEnv = {
+          ...env,
+          ...(envDataDir ? { ANTIGRAVITY_EXECUTABLE_DATA_DIR: envDataDir } : {}),
+          ...launch.env,
+          ...(deps.appDataDir ? { ANTIGRAVITY_EXECUTABLE_DATA_DIR: deps.appDataDir } : {}),
+        };
+        const stdout = await runCliUsageFn(
+          launch.binary,
+          [...launch.args, '-p', '/usage', '--output-format', 'json'],
+          cliEnv,
+          cliTimeoutMs,
+        );
+        if (typeof stdout === 'string' && stdout.trim().length > 0) {
+          const windows = parseAntigravityWindows(JSON.parse(stdout) as unknown);
+          if (windows.length > 0) {
+            const snapshot: QuotaKnown = {
+              core: 'antigravity',
+              state: 'ok',
+              windows,
+              source: ANTIGRAVITY_CLI_QUOTA_SOURCE,
+              readAt: nowFn().toISOString(),
+            };
+            writeCache(cachePath, snapshot);
+            return snapshot;
+          }
+        }
+      } catch {
+        // A CLI failure never leaks a token or blocks the cache fallback below.
       }
 
       const cached = await readCache(cachePath, nowFn().getTime(), ttlMs);

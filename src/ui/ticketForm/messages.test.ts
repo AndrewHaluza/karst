@@ -88,6 +88,15 @@ describe('parseTicketFormMessage', () => {
     // Cancel: the panel's own close affordance (the webview cannot dispose
     // itself — the host owns the panel).
     expect(parseTicketFormMessage({ type: 'close-form' })).toEqual({ type: 'close-form' });
+    // SET-54 (Q13): a dirty close carries the flag through, so the HOST can ask.
+    expect(parseTicketFormMessage({ type: 'close-form', dirty: true })).toEqual({
+      type: 'close-form',
+      dirty: true,
+    });
+    // Only a literal `true` is a dirty close — anything else reads as clean, so
+    // a crafted page cannot claim it and skip the host's question.
+    expect(parseTicketFormMessage({ type: 'close-form', dirty: 'yes' })).toEqual({ type: 'close-form' });
+    expect(parseTicketFormMessage({ type: 'close-form', dirty: 1 })).toEqual({ type: 'close-form' });
     expect(
       parseTicketFormMessage({ type: 'submit', key: 'P-1', title: 't', description: 'd' }),
     ).toEqual({
@@ -539,9 +548,17 @@ describe('routeTicketFormAction', () => {
     expect(actions.attachBriefAttachment).toHaveBeenCalledWith(2, undefined);
     expect(actions.openSettings).toHaveBeenCalledTimes(1);
     expect(actions.closeForm).toHaveBeenCalled();
+    // SET-54: the dirty flag reaches the host action; a plain close reads false.
+    expect(actions.closeForm).toHaveBeenLastCalledWith(false);
     // set-provider must not also drive setType (a missing `return` in the
     // switch made a provider pick write the provider id as the ticket TYPE).
     expect(actions.setType).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes a dirty close-form with dirty=true (SET-54, the host asks)', () => {
+    const actions = spyActions();
+    routeTicketFormAction({ type: 'close-form', dirty: true }, actions);
+    expect(actions.closeForm).toHaveBeenCalledWith(true);
   });
 
   it('routes a valid save message to the save action', () => {

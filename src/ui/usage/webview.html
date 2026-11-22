@@ -17,40 +17,51 @@
 <!--KARST_CSP-->
 <style>
   /*KARST_DS_CSS*/
+  /*KARST_AGENT_CSS*/
 
   *{box-sizing:border-box}
   body{max-width:var(--k-content-max);margin:0;margin-inline:auto;background:var(--k-bg);color:var(--k-text);
     font-family:var(--k-font-ui);font-size:var(--k-text-base);padding:var(--k-space-8) var(--k-space-9)}
   .hidden{display:none}
+  .sr-only{position:absolute;width:var(--k-border-w);height:var(--k-border-w);padding:0;margin:calc(var(--k-border-w) * -1);
+    overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
-  .uhead{display:flex;align-items:center;gap:var(--k-space-6);flex-wrap:wrap;margin-bottom:var(--k-space-6)}
-  .uhead h1{font-size:var(--k-text-xl);margin:0}
-  .uhead .sub{color:var(--k-text-dim);font-size:var(--k-text-sm)}
+  /* The page's own container: tier rules read this width, never the viewport. */
+  .usage-page{container-type:inline-size}
+  .updated{font-size:var(--k-text-xs);color:var(--k-text-dim)}
 
   .err{border:var(--k-border-w) solid var(--k-danger);border-radius:var(--k-radius-lg);
     padding:var(--k-space-5) var(--k-space-6);margin-bottom:var(--k-space-6);
-    color:var(--k-danger);font-size:var(--k-text-md)}
+    display:flex;align-items:center;gap:var(--k-space-4);color:var(--k-text);font-size:var(--k-text-md)}
+  /* `.err` sets a display after `.hidden`, so the state toggle needs its own rule (same for `.qsummary`). */
+  .err.hidden,.qsummary.hidden{display:none}
+  .err-icon{color:var(--k-danger);display:inline-flex;flex:none}
+  .err-text{min-width:0}
 
   /* Totals strip. A wide-enough minimum column so a 1.2M and a 3 sit in the
      same grid; expressed as token arithmetic rather than a raw breakpoint. */
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 5),1fr));
-    gap:var(--k-space-5);margin-bottom:var(--k-space-8)}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 4),1fr));
+    gap:var(--k-space-5);margin-bottom:var(--k-space-4)}
   .stat{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
     background:var(--k-surface);padding:var(--k-space-5) var(--k-space-6)}
   .stat .k{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
   .stat .v{font-family:var(--k-font-mono);font-size:var(--k-text-2xl);margin-top:var(--k-space-2);
-    line-height:var(--k-leading-tight)}
-  .stat .n{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1);min-height:var(--k-space-6)}
-  .stat.flag .v{color:var(--k-warning)}
+    line-height:var(--k-leading-tight);font-variant-numeric:tabular-nums}
+  .stat .n{font-size:var(--k-text-2xs);color:var(--k-text-dim);margin-top:var(--k-space-1);min-height:var(--k-space-6)}
+  /* The headline is FRESH spend — the one number the page is about. */
+  .stat.stat--hero{grid-column:span 2;border-color:var(--k-border-strong)}
+  .stat.stat--hero .v{font-size:var(--k-text-2xl);font-weight:var(--k-weight-semibold)}
+  .est{color:var(--k-attention-fg)}
+  .stats-notes{font-size:var(--k-text-2xs);color:var(--k-text-dim);margin-bottom:var(--k-space-8)}
 
   /* Token-driven `auto-fit` collapses to one column on a narrow panel instead
      of a hardcoded breakpoint — CSS media features cannot reference a --k-*
      custom property, so this is the token-only equivalent. */
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 12),1fr));
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(var(--k-space-9) * 10),1fr));
     gap:var(--k-space-6);margin-bottom:var(--k-space-8)}
   .panel{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
     background:var(--k-surface);overflow:hidden}
-  .phead{display:flex;align-items:center;gap:var(--k-space-4);
+  .phead{display:flex;align-items:center;gap:var(--k-space-4);margin:0;
     padding:var(--k-space-5) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);
     font-size:var(--k-text-md);font-weight:var(--k-weight-semibold)}
   .phead .count{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-xs);
@@ -62,119 +73,233 @@
   .brow{padding:var(--k-space-3) 0}
   .brow + .brow{border-top:var(--k-border-w) solid var(--k-border)}
   .brow .line{display:flex;align-items:baseline;gap:var(--k-space-4)}
-  .brow .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .brow .amt{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none}
-  .brow .pct{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:none;
-    width:calc(var(--k-space-9) + var(--k-space-8));text-align:right}
+  /* A breakdown label may be a long model or call-site key: wrap it and show the whole text (UI-R19, UI-R44),
+     rather than clipping it to an ellipsis with only a mouse tooltip. */
+  .brow .lbl{min-width:0;overflow-wrap:anywhere}
+  .brow .amt{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none;
+    font-variant-numeric:tabular-nums}
+  .brow .pct{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-dim);flex:none;
+    width:calc(var(--k-space-9) + var(--k-space-8));text-align:right;font-variant-numeric:tabular-nums}
   .bar{height:var(--k-space-2);border-radius:var(--k-radius-xs);background:var(--k-surface-sunken);
     margin-top:var(--k-space-2);overflow:hidden}
-  /* The two breakdown panels answer different questions (by-stage vs by-model)
-     and sit side by side, so they must not share a hue — that is what the
-     ordered `--k-series-*` tokens are for. They are categorical, NOT status:
-     `--k-info` means "running", and borrowing it for a chart series would make
-     one colour carry two claims. */
+  /* Categorical series, never a status hue (UI-R06). */
   .bar > i{display:block;height:100%;background:var(--k-series-1);border-radius:var(--k-radius-xs)}
-  .panel.models .bar > i{background:var(--k-series-2)}
-  .panel.profiles .bar > i{background:var(--k-series-2)}
-  .brow .meta{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1)}
-  .est{color:var(--k-warning)}
+  /* A real but vanishing share still shows a sliver rather than reading as zero (US-18). */
+  .bar > i.bar-nz{min-width:var(--k-space-1)}
+  body.vscode-light .bar,body.vscode-high-contrast .bar{outline:var(--k-border-w) solid var(--k-border)}
+  .brow .meta{font-size:var(--k-text-2xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
+  .badge-core{display:inline-flex;align-items:center;gap:var(--k-space-2)}
 
   table{width:100%;border-collapse:collapse;font-size:var(--k-text-md)}
-  /* The table scrolls inside its own frame; the page never scrolls sideways. */
-  .tscroll{overflow-x:auto}
   th{text-align:left;font-weight:var(--k-weight-semibold);font-size:var(--k-text-2xs);text-transform:uppercase;
     letter-spacing:.04em;color:var(--k-text-dim);padding:var(--k-space-4) var(--k-space-6);
     border-bottom:var(--k-border-w) solid var(--k-border);white-space:nowrap}
-  th.num,td.num{text-align:right;font-family:var(--k-font-mono)}
-  th[aria-sort]{color:var(--k-text)}
-  th[aria-sort]::after{content:" \2193"}
+  th.num,td.num{text-align:right;font-family:var(--k-font-mono);font-variant-numeric:tabular-nums}
+  /* The numeric columns take only what they need; the ticket column keeps the
+     free space, so a key is never cut while the table has room (US-35). */
+  th.num,td.num{width:1%;white-space:nowrap}
   td{padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);vertical-align:middle}
   tr:last-child td{border-bottom:none}
   tbody tr:hover{background:var(--k-surface-hover)}
-  td.tkt{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  td.tkt .k-btn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+  /* Auto table layout sizes a cell by its min-content width, and a long ticket title is one unbreakable run of
+     words: without this cap the ticket cell pushes the whole table past the page edge at 1280 (US-35, US-R43).
+     `max-width:0` gives the cell no min-content contribution, so it takes the space the numeric columns leave
+     and `.tkt-title` ellipsises inside it; `.tkt-key` stays `flex:none` and is never cut. */
+  td.tkt{white-space:normal;max-width:0}
+  td.tkt .k-btn{display:flex;align-items:baseline;gap:var(--k-space-3);max-width:100%;min-width:0;text-align:left;
+    min-height:var(--k-control-h-sm)}
+  /* The key never shrinks or ellipsises; only the title gives way (US-35). */
+  .tkt-key{white-space:nowrap;flex:none;font-family:var(--k-font-mono)}
+  .tkt-sep{flex:none;color:var(--k-text-dim)}
+  .tkt-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   td.tkt span.plain{color:var(--k-text-dim)}
 
   .pager{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-6);
     font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .pager .spacer{margin-left:auto}
 
-  /* Tab bar: the same chip primitive the range presets use (UI-R08/R09). */
-  .utabs{display:flex;gap:var(--k-space-2);margin-bottom:var(--k-space-6)}
+  /* Skeleton frames: the page's own geometry in placeholder blocks, no shimmer (safe under reduced motion).
+     `--k-surface-sunken` equals the page background, so the frames would be invisible; the border keeps them
+     readable in dark, light, high contrast and grayscale. */
+  .sk{background:var(--k-surface);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg)}
+  .sk-stat{height:calc(var(--k-space-9) * 2)}
+  .sk-panel{height:calc(var(--k-space-9) * 6)}
+  .sk-gap{margin-bottom:var(--k-space-6)}
+
+  /* Spend empty state: title, hint and one way forward (US-15). */
+  .k-empty .k-btn{margin-top:var(--k-space-5)}
+  /* Quota tab: one summary line and a refresh control above the core cards. */
+  .qheadbar{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-5)}
+  .qsummary{display:inline-flex;align-items:center;gap:var(--k-space-2);color:var(--k-attention-fg);
+    font-size:var(--k-text-sm);min-width:0}
+  .qheadbar .k-btn{margin-left:auto;flex:none}
 
   /* One quota row per core; one window block per subscription window. */
   .qrow{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
     background:var(--k-surface);padding:var(--k-space-5) var(--k-space-6);margin-bottom:var(--k-space-5)}
-  .qrow .qhead{display:flex;align-items:baseline;gap:var(--k-space-4);margin-bottom:var(--k-space-3)}
-  .qrow .qname{font-weight:var(--k-weight-semibold);font-size:var(--k-text-md)}
-  .qrow .qmeta{margin-left:auto;font-size:var(--k-text-2xs);color:var(--k-text-faint);text-align:right}
+  .qrow .qhead{display:flex;align-items:baseline;gap:var(--k-space-4);margin-bottom:var(--k-space-3);flex-wrap:wrap}
+  .qrow .qname{margin:0;display:inline-flex;align-items:center;gap:var(--k-space-2);
+    font-weight:var(--k-weight-semibold);font-size:var(--k-text-md)}
+  .qrow .qmeta{margin-left:auto;font-size:var(--k-text-2xs);color:var(--k-text-dim);text-align:right}
+  .qrow .qmeta .stale{color:var(--k-attention-fg);display:inline-flex;align-items:center;gap:var(--k-space-1)}
   .qrow .qreason{font-size:var(--k-text-sm);color:var(--k-text-dim)}
   .qrow .qstate{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
   .qwin + .qwin{margin-top:var(--k-space-4)}
-  .qwin .qline{display:flex;align-items:baseline;gap:var(--k-space-4)}
+  .qwin .qline{display:flex;align-items:baseline;gap:var(--k-space-3);flex-wrap:wrap}
   .qwin .qlbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .qwin .qpct{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none}
-  .qwin .qpct.lvl-near,.qwin .qpct.lvl-exhausted{color:var(--k-warning)}
-  .qwin .qpct.lvl-exhausted{color:var(--k-danger)}
-  .qwin .qmeta{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1)}
+  .qwin .qbadge{display:inline-flex;align-items:center;gap:var(--k-space-1);
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em}
+  .qwin .qbadge.lvl-near{color:var(--k-attention-fg)}
+  .qwin .qbadge.lvl-exhausted{color:var(--k-text)}
+  .qwin .qbadge.lvl-exhausted svg{color:var(--k-danger)}
+  .qwin .qpct{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none;
+    font-variant-numeric:tabular-nums}
+  .qwin .qpct.lvl-near{color:var(--k-attention-fg)}
+  .qwin .qpct.lvl-exhausted{color:var(--k-text)}
+  /* The level word and glyph own the left of the meta line (US-19); the reset/age text keeps the right.
+     The percent stays alone on the value line, so the number is never crowded by the status. */
+  .qwin .qfoot{display:flex;align-items:baseline;gap:var(--k-space-3);margin-top:var(--k-space-1);flex-wrap:wrap}
+  .qwin .qmeta{font-size:var(--k-text-2xs);color:var(--k-text-dim)}
   .qbar{margin-top:var(--k-space-2)}
-  .qbar.lvl-near > i{background:var(--k-warning)}
+  .qbar.lvl-near > i{background:var(--k-attention-fg)}
   .qbar.lvl-exhausted > i{background:var(--k-danger)}
+
+  /* Tiers read the page's container width (@ui:RD-TIERS). The two literal
+     conditions are the canonical 699px narrow and 399px tight edges — a
+     container condition cannot read a custom property. */
+  @container (max-width: 699px){
+    .stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+    [data-priority="3"]{display:none}
+    .tkt-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+      white-space:normal;overflow:hidden;text-overflow:ellipsis}
+    td.tkt .k-btn{flex-wrap:wrap}
+  }
+  @container (max-width: 399px){
+    .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .stat.stat--hero{grid-column:span 2}
+    .stat{padding:var(--k-space-4);display:grid;grid-template-columns:auto minmax(0,1fr);
+      align-items:baseline;column-gap:var(--k-space-3)}
+    .stat .v{font-size:var(--k-text-lg);margin-top:0;grid-column:2;text-align:right}
+    .stat .n{grid-column:1 / -1}
+    .qheadbar{flex-wrap:wrap}
+    .qheadbar .k-btn{margin-left:0}
+    /* The card rows carry their own data-labels. Hide the header outright rather than clipping it to 1x1:
+       its sort buttons would stay in the tab order while invisible (UI-R23). */
+    thead{display:none}
+    tbody tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+      column-gap:var(--k-space-4);row-gap:var(--k-space-2);padding:var(--k-space-5) var(--k-space-6);
+      border-bottom:var(--k-border-w) solid var(--k-border)}
+    tbody tr:last-child{border-bottom:none}
+    td{border:0;padding:0;display:flex;flex-direction:column;white-space:normal}
+    td::before{content:attr(data-label);font-size:var(--k-text-2xs);text-transform:uppercase;
+      letter-spacing:.04em;color:var(--k-text-dim)}
+    td.tkt{grid-column:1 / -1;max-width:none}
+    td.tkt::before{content:none}
+    td.num{text-align:left;width:auto}
+    td.num::before{text-align:left}
+  }
 
   /* The palette supplies the status/data-series tokens used by quota fills. */
   /*KARST_PALETTE*/
 </style>
 
-<div class="uhead">
-  <h1>Token usage</h1>
-  <span class="sub" id="sub"></span>
-</div>
-
-<div class="utabs" id="tabs"></div>
-
-<div id="spend">
-  <div class="err hidden" id="err"></div>
-
-  <div id="body" class="hidden">
-  <div class="stats" id="stats"></div>
-  <div class="grid">
-    <div class="panel stages">
-      <div class="phead">By stage<span class="count" id="stageCount"></span></div>
-      <div class="pbody" id="stages"></div>
+<div class="usage-page">
+  <header class="k-pagehead">
+    <div class="k-pagehead-main">
+      <div>
+        <h1 class="k-pagehead-title">Token usage</h1>
+        <p class="k-pagehead-sub" id="sub"></p>
+      </div>
     </div>
-    <div class="panel models">
-      <div class="phead">By model<span class="count" id="modelCount"></span></div>
-      <div class="pbody" id="models"></div>
+    <div class="k-pagehead-actions">
+      <span class="updated" id="updated"></span>
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
-    <div class="panel profiles">
-      <div class="phead">Graph spend by profile<span class="count" id="profileCount"></span></div>
-      <div class="pbody" id="profiles"></div>
-    </div>
-  </div>
-  <div class="panel">
-    <div class="phead">By ticket<span class="count" id="tktCount"></span></div>
-    <div class="tscroll">
-      <table>
-        <thead><tr id="thead"></tr></thead>
-        <tbody id="tbody"></tbody>
-      </table>
-    </div>
-    <div class="pager" id="pager"></div>
-  </div>
-</div>
+  </header>
 
-<div class="k-empty hidden" id="empty">
-  <div class="k-empty-title">No AI token usage recorded yet</div>
-  <div class="k-empty-hint" id="emptyHint"></div>
-</div>
-</div>
+  <div class="k-tabs" role="tablist" aria-label="Token usage views" id="tabs"></div>
 
-<div id="quota" class="hidden">
-  <div id="qrows"></div>
+  <main id="main">
+    <div class="sr-only" role="status" aria-live="polite" id="status">Loading token usage</div>
+
+    <div class="err hidden" id="err">
+      <span class="err-icon" id="errIcon" aria-hidden="true"></span>
+      <span class="err-text" id="errText"></span>
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="retryBtn">Try again</button>
+    </div>
+
+    <div id="loading">
+      <div class="stats sk-gap">
+        <div class="sk sk-stat"></div>
+        <div class="sk sk-stat"></div>
+        <div class="sk sk-stat"></div>
+        <div class="sk sk-stat"></div>
+        <div class="sk sk-stat"></div>
+      </div>
+      <div class="grid sk-gap">
+        <div class="sk sk-panel"></div>
+        <div class="sk sk-panel"></div>
+        <div class="sk sk-panel"></div>
+      </div>
+    </div>
+
+    <div id="spend" role="tabpanel" aria-labelledby="tab-spend">
+      <div id="body" class="hidden">
+        <div class="stats" id="stats"></div>
+        <div class="stats-notes" id="statsNotes"></div>
+        <div class="grid">
+          <section class="panel">
+            <h2 class="phead">By agent core<span class="count" id="providerCount"></span></h2>
+            <div class="pbody" id="providers"></div>
+          </section>
+          <section class="panel">
+            <h2 class="phead">By activity<span class="count" id="activityCount"></span></h2>
+            <div class="pbody" id="activities"></div>
+          </section>
+          <section class="panel">
+            <h2 class="phead">By model<span class="count" id="modelCount"></span></h2>
+            <div class="pbody" id="models"></div>
+          </section>
+          <section class="panel">
+            <h2 class="phead">Graph spend by profile<span class="count" id="profileCount"></span></h2>
+            <div class="pbody" id="profiles"></div>
+          </section>
+        </div>
+        <section class="panel">
+          <h2 class="phead">By ticket<span class="count" id="tktCount"></span></h2>
+          <table>
+            <thead><tr id="thead"></tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+          <div class="pager" id="pager"></div>
+        </section>
+      </div>
+
+      <div class="k-empty hidden" id="empty">
+        <div class="k-empty-title">No token usage yet</div>
+        <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
+      </div>
+    </div>
+
+    <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
+      <div class="qheadbar">
+        <div class="qsummary hidden" id="qsummary"></div>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
+      </div>
+      <div id="qrows"></div>
+      <div class="k-empty hidden" id="quotaEmpty">
+        <div class="k-empty-title">No quota read yet</div>
+        <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
+      </div>
+    </div>
+  </main>
 </div>
 
 <script>
   /*KARST_DS_JS*/
+  /*KARST_AGENT_JS*/
 
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
@@ -182,27 +307,52 @@
   const esc = karstEsc;
 
   // Columns of the per-ticket table. `sort` is the key posted back when the
-  // header is clicked; a column without one is not sortable. The set matches
-  // USAGE_SORTS host-side — an unknown key is rejected there, never applied.
+  // header is clicked; a column without one is not sortable. `priority` drives
+  // the narrow tier (3 hides) and the tight tier (every row becomes a card).
+  // The set matches USAGE_SORTS host-side — an unknown key is rejected there.
   const COLUMNS = [
-    { key: 'ticket', label: 'Ticket' },
-    { key: 'calls', label: 'Calls', sort: 'calls', num: true },
-    { key: 'input', label: 'Input', sort: 'input', num: true },
-    { key: 'output', label: 'Output', sort: 'output', num: true },
-    { key: 'total', label: 'Total', sort: 'total', num: true },
-    { key: 'last', label: 'Last call', sort: 'recent', num: true },
+    { key: 'ticket', label: 'Ticket', priority: 1 },
+    { key: 'calls', label: 'Calls', sort: 'calls', num: true, priority: 2 },
+    { key: 'input', label: 'Input', sort: 'input', num: true, priority: 3 },
+    { key: 'output', label: 'Output', sort: 'output', num: true, priority: 3 },
+    { key: 'total', label: 'Total', sort: 'total', num: true, priority: 1 },
+    { key: 'last', label: 'Last call', sort: 'recent', num: true, priority: 2 },
   ];
 
   let lastState = null;
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
-  /** An ISO stamp as the viewer's local date. The host sends the instant. */
-  const localDate = (iso) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
+
+  /** The focused control's identity, saved across a re-render (US-24). */
+  const captureFocus = () => {
+    const node = document.activeElement;
+    if (!node || !node.dataset) return null;
+    if (node.dataset.sort) return { kind: 'sort', value: node.dataset.sort };
+    if (node.dataset.tab) return { kind: 'tab', value: node.dataset.tab };
+    if (node.dataset.dir) return { kind: 'page', value: node.dataset.dir };
+    return null;
+  };
+
+  /** Put focus back on the matching control; a disabled pager hands it over (US-24). */
+  const restoreFocus = (saved) => {
+    if (!saved) return;
+    let target = null;
+    if (saved.kind === 'sort') target = document.querySelector(`[data-sort="${saved.value}"]`);
+    else if (saved.kind === 'tab') target = document.querySelector(`[data-tab="${saved.value}"]`);
+    else if (saved.kind === 'page') target = document.querySelector(`[data-dir="${saved.value}"]`);
+    if (target && !target.disabled) { target.focus(); return; }
+    if (saved.kind === 'page') {
+      const other = document.querySelector(saved.value === 'prev' ? '[data-dir="next"]' : '[data-dir="prev"]');
+      if (other && !other.disabled) other.focus();
+    }
   };
 
   // The two tabs, built from state.tabs — never a hardcoded list. The active
@@ -211,112 +361,183 @@
   const renderTabs = (state) => {
     const wrap = el('tabs');
     wrap.innerHTML = state.tabs.map((t) =>
-      `<button type="button" class="k-chip" data-tab="${esc(t.id)}" aria-pressed="${t.id === state.tab}">${esc(t.label)}</button>`,
+      `<button type="button" class="k-tab" id="tab-${esc(t.id)}" role="tab" data-tab="${esc(t.id)}"` +
+      ` aria-controls="${esc(t.id)}" aria-selected="${t.id === state.tab}"` +
+      ` tabindex="${t.id === state.tab ? '0' : '-1'}">${esc(t.label)}</button>`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
-  // One row per core; one bar per window. A core with no readable source shows
-  // its reason, never a 0% bar. Every number/label arrives pre-formatted.
-  const renderQuota = (quota) => {
+  // One row per core; one block per window. A core with no readable source
+  // shows a plain reason, never a 0% bar. Every number/label arrives formatted.
+  const renderQuota = (state) => {
+    const quota = state.quota;
+    // An error is not an empty state (UI-R31): a failed read states the failure and one way forward, never
+    // also "No quota read yet" underneath it.
+    const empty = !state.error && quota.rows.length === 0;
+    const rowsHidden = !!state.error || empty;
+    el('quotaEmpty').classList.toggle('hidden', !empty);
+    el('qrows').classList.toggle('hidden', rowsHidden);
+    const showSummary = quota.anyNear && !!quota.summaryLine;
+    el('qsummary').classList.toggle('hidden', !showSummary);
+    el('qsummary').innerHTML = showSummary
+      ? icon('alert-triangle') + `<span>${esc(quota.summaryLine)}</span>`
+      : '';
+
     el('qrows').innerHTML = quota.rows.map((r) => {
       if (r.state === 'unknown') {
         return '<div class="qrow">' +
-          `<div class="qhead"><span class="qname">${esc(r.label)}</span><span class="qstate">unknown</span></div>` +
-          `<div class="qreason">${esc(r.reason || 'no readable quota source')}</div>` +
+          // The core keeps its canonical icon even when the quota read is unknown (UI-R10c).
+          `<div class="qhead"><h3 class="qname">${agentIconHtml(r.core)}<span>${esc(r.label)}</span></h3>` +
+          '<span class="qstate">Quota not available</span></div>' +
+          `<div class="qreason" title="${esc(r.reason || '')}">${esc(r.plainReason || '')}</div>` +
         '</div>';
       }
-      const windows = r.windows.map((w) =>
-        '<div class="qwin">' +
-          '<div class="qline">' +
-            `<span class="qlbl">${esc(w.label)}</span>` +
-            `<span class="qpct lvl-${esc(w.level)}">${esc(w.usedPct)}%</span>` +
-          '</div>' +
-          `<div class="bar qbar lvl-${esc(w.level)}"><i style="width:${Number(w.width) || 0}%"></i></div>` +
-          `<div class="qmeta">${w.resetsIn ? `resets in ${esc(w.resetsIn)}` : 'no reset time reported'}</div>` +
-        '</div>',
-      ).join('');
+      const windows = r.windows.map((w) => {
+        const badge = w.levelLabel
+          ? `<span class="qbadge lvl-${esc(w.level)}">` +
+            `${w.level === 'exhausted' ? icon('circle-x') : icon('alert-triangle')}` +
+            `<span>${esc(w.levelLabel)}</span></span>`
+          : '';
+        const pct = w.usedDisplay
+          ? `<span class="qpct lvl-${esc(w.level)}">${esc(w.usedDisplay)}</span>`
+          : '';
+        return '<div class="qwin">' +
+          `<div class="qline"><span class="qlbl">${esc(w.label)}</span>${pct}</div>` +
+          `<div class="bar qbar lvl-${esc(w.level)}" role="meter" aria-valuenow="${w.expired ? 0 : w.usedPct}"` +
+            ` aria-valuemin="0" aria-valuemax="100" aria-label="${esc(w.ariaLabel)}">` +
+            `<i style="width:${Number(w.width) || 0}%"></i></div>` +
+          // The level word and glyph sit on the meta line, before the reset/age text (US-19).
+          `<div class="qfoot">${badge}<div class="qmeta">${esc(w.meta)}</div></div>` +
+        '</div>';
+      }).join('');
+      const provenance = r.readMeta
+        ? ` · <span class="${r.stale ? 'stale' : ''}">${r.stale ? icon('alert-triangle') : ''}${esc(r.readMeta)}</span>`
+        : '';
       return '<div class="qrow">' +
-        `<div class="qhead"><span class="qname">${esc(r.label)}</span>` +
-          `<span class="qmeta">${esc(r.source || '')}${r.readAgo ? ` · read ${esc(r.readAgo)}` : ''}</span></div>` +
+        `<div class="qhead"><h3 class="qname">${agentIconHtml(r.core)}<span>${esc(r.label)}</span></h3>` +
+          `<span class="qmeta">${esc(r.source || '')}${provenance}</span></div>` +
         windows +
       '</div>';
     }).join('');
   };
 
-  const statCard = (label, value, note, flag) =>
-    `<div class="stat${flag ? ' flag' : ''}"><div class="k">${esc(label)}</div>` +
+  const statCard = (label, value, note) =>
+    `<div class="stat"><div class="k">${esc(label)}</div>` +
     `<div class="v">${esc(value)}</div><div class="n">${esc(note || '')}</div></div>`;
 
-  const renderStats = (t) => {
+  const renderStats = (state) => {
+    const t = state.totals;
+    // Two host facts, two visible items: a separator keeps the exact count from running into the estimate
+    // note (UI-R31: the webview owns presenting the supplied facts).
+    const estimated = t.estimatedNote ? ` · <span class="est">${esc(t.estimatedNote)}</span>` : '';
     el('stats').innerHTML = [
       // The headline is FRESH spend. Cache reads keep their own tile beside
       // it, never inside it: re-read context is charged at a fraction of the
       // fresh rate and dominates a long session's raw tally.
-      statCard('Fresh tokens', t.totalDisplay, t.totalExact),
+      `<div class="stat stat--hero"><div class="k">Fresh tokens</div>` +
+        `<div class="v">${esc(t.totalDisplay)}</div>` +
+        `<div class="n">${esc(t.totalNote)}${estimated}</div></div>`,
       statCard('Input', t.inputDisplay, ''),
       statCard('Output', t.outputDisplay, ''),
       statCard('Reasoning', t.reasoningDisplay, ''),
-      statCard('Cache read', t.cacheReadDisplay, 'billed apart from fresh'),
-      statCard('Calls', String(t.calls), t.erroredCalls ? `${t.erroredCalls} failed` : ''),
-      // Estimated calls get their own tile rather than a footnote: whether the
-      // headline number was measured or approximated changes how it may be used.
-      statCard('Estimated', String(t.estimatedCalls), t.estimatedCalls ? 'counts approximated' : 'all measured', t.estimatedCalls > 0),
+      statCard('Cache write', t.cacheWriteDisplay, 'counted in fresh'),
+      statCard('Cache read', t.cacheReadDisplay, 'not in fresh'),
+      statCard('Calls', String(t.calls), t.erroredNote),
     ].join('');
+    el('statsNotes').textContent = 'Fresh = input + output + reasoning + cache write · ' + state.costNote;
   };
 
-  const renderBreakdown = (node, rows) => {
-    if (!rows.length) { node.innerHTML = '<div class="brow"><div class="meta">nothing in this range</div></div>'; return; }
-    node.innerHTML = rows.map((r) =>
-      '<div class="brow">' +
+  const renderBreakdown = (node, countEl, rows, countLabel, trueCount, opts) => {
+    const agentCore = !!(opts && opts.agentCore);
+    // The visible count is the panel's TRUE group count, not the capped row count (US-23): it must agree
+    // with the accessible name, which the host builds from the same number.
+    countEl.textContent = String(trueCount);
+    countEl.setAttribute('aria-label', countLabel);
+    if (!rows.length) {
+      node.innerHTML = '<div class="brow"><div class="meta">No tokens recorded yet</div></div>';
+      return;
+    }
+    node.innerHTML = rows.map((r) => {
+      // A known core prints its canonical mark beside the name (@ui:SG-25); an
+      // unreported or folded row stays plain text.
+      const labelHtml = agentCore && r.key !== '' && r.key !== '__other__'
+        ? agentBadgeHtml(r.key)
+        : esc(r.label);
+      return '<div class="brow">' +
         '<div class="line">' +
-          `<span class="lbl" title="${esc(r.label)}">${esc(r.label)}</span>` +
+          `<span class="lbl" title="${esc(r.title || r.label)}">${labelHtml}</span>` +
           `<span class="amt" title="${esc(r.totalExact)} tokens">${esc(r.totalDisplay)}</span>` +
-          `<span class="pct">${esc(r.share)}%</span>` +
+          `<span class="pct">${esc(r.shareDisplay)}</span>` +
         '</div>' +
-        `<div class="bar"><i style="width:${Number(r.share) || 0}%"></i></div>` +
+        `<div class="bar" aria-hidden="true"><i${r.totalTokens > 0 ? ' class="bar-nz"' : ''} style="width:${Number(r.share) || 0}%"></i></div>` +
         `<div class="meta">${esc(r.callsText)} · in ${esc(r.inputDisplay)} · out ${esc(r.outputDisplay)}` +
           (r.note ? ` · ${esc(r.note)}` : '') +
           (r.estimated ? ' · <span class="est">estimated</span>' : '') +
         '</div>' +
-      '</div>',
-    ).join('');
+      '</div>';
+    }).join('');
   };
 
   const renderTable = (state) => {
     const thead = el('thead');
     thead.innerHTML = COLUMNS.map((c) => {
       const cls = c.num ? ' class="num"' : '';
-      if (!c.sort) return `<th${cls}>${esc(c.label)}</th>`;
-      const sorted = c.sort === state.sort ? ' aria-sort="descending"' : '';
+      if (!c.sort) return `<th${cls} data-priority="${c.priority}">${esc(c.label)}</th>`;
+      const sorted = c.sort === state.sort;
+      const ariaSort = sorted ? ' aria-sort="descending"' : '';
       // A real, keyboard-reachable control inside the header cell — not a
       // click handler on the <th> itself (UI-R09).
-      return `<th${cls}${sorted}><button type="button" class="k-btn k-btn--link" data-sort="${esc(c.sort)}">${esc(c.label)}</button></th>`;
+      return `<th${cls} data-priority="${c.priority}"${ariaSort}>` +
+        `<button type="button" class="k-sort" data-sort="${esc(c.sort)}"` +
+          ` aria-label="${esc(c.label)}${sorted ? ', sorted descending' : ''}">` +
+          `${esc(c.label)}${sorted ? '<span aria-hidden="true">↓</span>' : ''}</button></th>`;
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-sort', sort: btn.dataset.sort, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
+      }, { tier: 'view' });
     }
 
     const tbody = el('tbody');
     tbody.innerHTML = state.tickets.map((t) => {
       // A row with no ticket is spend recorded before the ticket existed; it has
       // no dashboard to open, so it is plain text rather than a dead button.
-      const name = t.ticketId === null
-        ? `<span class="plain">${esc(t.label)}</span>`
-        : `<button type="button" class="k-btn k-btn--link" data-ticket="${esc(t.ticketId)}" title="${esc(t.label)}" aria-label="${esc(t.label)}">${esc(t.label)}</button>`;
-      return '<tr>' +
-        `<td class="tkt">${name}</td>` +
-        `<td class="num">${esc(t.calls)}</td>` +
-        `<td class="num">${esc(t.inputDisplay)}</td>` +
-        `<td class="num">${esc(t.outputDisplay)}</td>` +
-        `<td class="num" title="${esc(t.totalExact)} tokens">${esc(t.totalDisplay)}${t.estimated ? ' <span class="est">≈</span>' : ''}</td>` +
-        `<td class="num">${esc(localDate(t.lastAt))}</td>` +
+      let name;
+      if (t.ticketId === null) {
+        name = `<span class="plain">${esc(t.label)}</span>`;
+      } else {
+        const title = t.ticketTitle
+          ? ` <span class="tkt-sep" aria-hidden="true">—</span> <span class="tkt-title" aria-label="${esc(t.ticketTitle)}">${esc(t.ticketTitle)}</span>`
+          : '';
+        name = `<button type="button" class="k-btn k-btn--link" data-ticket="${esc(t.ticketId)}"` +
+          ` title="${esc(t.label)}"><span class="tkt-key">${esc(t.ticketKey || '')}</span>${title}</button>`;
+      }
+      const last = t.lastAt
+        ? `<time datetime="${esc(t.lastAt)}" title="${esc(t.lastTitle)}">${esc(t.lastDisplay)}</time>`
+        : esc(t.lastDisplay);
+      return '<tr role="row">' +
+        `<td class="tkt" role="cell" data-priority="1" data-label="Ticket">${name}</td>` +
+        `<td class="num" role="cell" data-priority="2" data-label="Calls">${esc(t.calls)}</td>` +
+        `<td class="num" role="cell" data-priority="3" data-label="Input">${esc(t.inputDisplay)}</td>` +
+        `<td class="num" role="cell" data-priority="3" data-label="Output">${esc(t.outputDisplay)}</td>` +
+        `<td class="num" role="cell" data-priority="1" data-label="Total" title="${esc(t.totalExact)} tokens">` +
+          `${esc(t.totalDisplay)}${t.estimated ? ' <span class="est">≈</span>' : ''}</td>` +
+        `<td class="num" role="cell" data-priority="2" data-label="Last call">${last}</td>` +
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -330,60 +551,113 @@
     const pager = el('pager');
     pager.innerHTML =
       `<span>${esc(p.summary)}</span><span class="spacer"></span>` +
-      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${esc(prevOffset)}" title="${prevTitle}"${p.hasPrev ? '' : ' disabled'}>Previous</button>` +
-      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${esc(nextOffset)}" title="${nextTitle}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
+      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="prev" data-page="${esc(prevOffset)}" title="${prevTitle}"${p.hasPrev ? '' : ' disabled'}>Previous</button>` +
+      `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="${esc(nextOffset)}" title="${nextTitle}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
+      }, { tier: 'view' });
     }
+  };
+
+  const renderError = (state) => {
+    const shown = !!state.error;
+    el('err').classList.toggle('hidden', !shown);
+    el('errText').textContent = state.error || '';
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
+      // A rejected query is announced through the one shared live region
+      // (the toast) only when it follows a user action; an error on open stays
+      // inline. A retry that fails with the SAME message is still a new result
+      // the user asked for, so it is announced again (UI-R27, US-14).
+      if (pendingUserActions > 0) karstToast('error', state.error);
+      lastErrorShown = state.error;
+    } else if (!shown) {
+      lastErrorShown = null;
+    }
+  };
+
+  const renderSpend = (state) => {
+    // An error is not an empty state: showing the empty state under a rejected
+    // query would claim nothing was spent when nothing was asked.
+    const showEmpty = state.empty && !state.error;
+    el('empty').classList.toggle('hidden', !showEmpty);
+    el('body').classList.toggle('hidden', state.empty || !!state.error);
+    if (state.empty || state.error) return;
+
+    renderStats(state);
+    renderBreakdown(el('providers'), el('providerCount'), state.byProvider, state.counts.providers, state.counts.providerCount, { agentCore: true });
+    renderBreakdown(el('activities'), el('activityCount'), state.byActivity, state.counts.activities, state.counts.activityCount);
+    renderBreakdown(el('models'), el('modelCount'), state.byModel, state.counts.models, state.counts.modelCount);
+    renderBreakdown(el('profiles'), el('profileCount'), state.byProfile, state.counts.profiles, state.counts.profileCount);
+    el('tktCount').textContent = String(state.page.groups);
+    el('tktCount').setAttribute('aria-label', state.counts.tickets);
+    renderTable(state);
   };
 
   const render = (state) => {
     if (!state) return;
+    const savedFocus = captureFocus();
     lastState = state;
+
+    el('loading').classList.add('hidden');
     renderTabs(state);
 
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
 
-    if (quotaTab) {
-      el('sub').textContent = `warn at ${state.quota.thresholdPct}% of the tightest window`;
-      renderQuota(state.quota);
-      return;
-    }
+    el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
+    el('updated').textContent = state.updatedLabel;
+    el('status').textContent = state.updatedLabel || 'Loading token usage';
 
-    el('sub').textContent = '';
+    renderError(state);
+    if (quotaTab) renderQuota(state);
+    else renderSpend(state);
 
-    el('err').textContent = state.error || '';
-    el('err').classList.toggle('hidden', !state.error);
-    // A rejected query is announced through the one shared live region
-    // (the toast) rather than a second live region on #err (UI-R27), and only
-    // once per distinct error so an unrelated re-render does not re-announce it.
-    if (state.error) {
-      if (state.error !== lastErrorShown) karstToast('error', state.error);
-      lastErrorShown = state.error;
-    } else {
-      lastErrorShown = null;
-    }
-
-    // An error is not an empty state: showing the empty state under a rejected
-    // query would claim nothing was spent when nothing was asked.
-    const showEmpty = state.empty && !state.error;
-    el('empty').classList.toggle('hidden', !showEmpty);
-    el('emptyHint').textContent = 'Run an AI-backed action (ticket analysis, PR description).';
-    el('body').classList.toggle('hidden', state.empty || !!state.error);
-    if (state.empty || state.error) return;
-
-    renderStats(state.totals);
-    el('stageCount').textContent = state.byStage.length;
-    el('modelCount').textContent = state.byModel.length;
-    el('profileCount').textContent = state.byProfile.length;
-    el('tktCount').textContent = state.page.groups;
-    renderBreakdown(el('stages'), state.byStage);
-    renderBreakdown(el('models'), state.byModel);
-    renderBreakdown(el('profiles'), state.byProfile);
-    renderTable(state);
+    restoreFocus(savedFocus);
   };
+
+  // Roving tablist keys (US-21): arrows move between tabs, Home/End to the ends.
+  el('tabs').addEventListener('keydown', (e) => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(e.key)) return;
+    const tabs = Array.from(el('tabs').querySelectorAll('[data-tab]'));
+    const at = tabs.findIndex((t) => t === document.activeElement);
+    if (at < 0) return;
+    let next;
+    if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    else next = (at + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    e.preventDefault();
+    tabs[next].focus();
+    tabs[next].click();
+  });
+
+  // Header and empty-state controls are static, so they bind once.
+  el('errIcon').innerHTML = icon('circle-x');
+  karstAction(el('refreshBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'request-state', requestId });
+  }, { tier: 'view' });
+  karstAction(el('retryBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'request-state', requestId });
+  }, { tier: 'view' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
+  karstAction(el('refreshQuotaBtn'), (requestId) => {
+    // A quota refresh the user asked for can fail with the same message as the
+    // last read; it is still announced (UI-R27, US-14).
+    markUserAction();
+    post({ type: 'refresh-quota', requestId });
+  }, { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -397,7 +671,11 @@
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)

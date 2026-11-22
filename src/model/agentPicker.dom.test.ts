@@ -385,3 +385,57 @@ describe('presetMode (opt-in Preset | Core + model)', () => {
     expect(presetSelect(root).value).toBe('fast');
   });
 });
+
+describe('the menu placement takes an opt-in bottom edge (RD-AGENT-MENU)', () => {
+  type AttachOptions = Record<string, unknown>;
+
+  function mountPicker(extra: Record<string, unknown> = {}): HTMLElement {
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const { mountAgentPicker } = new Function(
+      `${agentIdentityJs()}\n${js}\nreturn { mountAgentPicker };`,
+    )() as { mountAgentPicker: Mount };
+    const root = document.createElement('div');
+    document.body.append(root);
+    mountAgentPicker(root, {
+      cores: [{ id: 'claude', label: 'Claude' }],
+      catalog: { claude: [{ id: 'claude-sonnet-5', label: 'Sonnet 5' }] },
+      value: { core: 'claude', model: 'claude-sonnet-5' },
+      ...extra,
+    });
+    return root;
+  }
+
+  /** Replace the shared placement with a recorder: the menu must forward the host's edge into its options. */
+  function recordAttach(): AttachOptions[] {
+    const seen: AttachOptions[] = [];
+    (window as unknown as { karstAnchoredPopover: unknown }).karstAnchoredPopover = {
+      attach: (opts: AttachOptions) => {
+        seen.push(opts);
+        return () => undefined;
+      },
+    };
+    return seen;
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { karstAnchoredPopover?: unknown }).karstAnchoredPopover;
+  });
+
+  it('forwards bottomEdge to the attach call for the open menu', () => {
+    const seen = recordAttach();
+    const root = mountPicker({ bottomEdge: () => 420 });
+    click(trigger(root, 'core'));
+    expect(seen).toHaveLength(1);
+    const edge = seen[0]!.bottomEdge as () => number;
+    expect(typeof edge).toBe('function');
+    expect(edge()).toBe(420);
+  });
+
+  it('forwards no edge when the host does not opt in, so Settings and the dashboard keep the viewport', () => {
+    const seen = recordAttach();
+    const root = mountPicker();
+    click(trigger(root, 'core'));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.bottomEdge).toBeUndefined();
+  });
+});

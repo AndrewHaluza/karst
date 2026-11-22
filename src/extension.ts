@@ -423,7 +423,7 @@ import { AgentConsole } from './agent/agentConsole.js';
 import { GateConsole } from './workflow/gates/gateConsole.js';
 import { LiveGateRegistry } from './workflow/gates/liveGates.js';
 import type { GateOutputChunk } from './workflow/gates/run.js';
-import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
+import { recordTokenUsage, listRecentlyUsedModels, onTokenUsageRecorded } from './store/tokenUsage.js';
 import { UsagePanelManager } from './ui/usage/panel.js';
 import { makeUsagePanelHost } from './ui/usage/host.js';
 import { QuotaService, defaultQuotaReaders } from './agent/quota/service.js';
@@ -777,8 +777,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (m) => logger.debug(m), planningHistory: (m) => gatherPlanningHistory(m, { runGit: execGit, debug: (msg) => logger.debug(msg) }),
     onChange: () => provider.refresh(), offerRestart: offerPlannerRestart,
   });
+  // The outbox is created later in activate; until then no async check runs.
+  let planningCheckingIds: () => ReadonlySet<number> = () => new Set();
   const refreshPlanningIndex = (sessionId: number): void =>
-    refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId)));
+    refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId)), { checkingIds: planningCheckingIds() });
   const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
     choose: async (text) => ({ Review: 'review', Discard: 'discard' } as Record<string, ProposalChoice>)[
       (await ask.info(text, 'Review', 'Discard')) ?? ''],
@@ -2242,6 +2244,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       requestSubtaskAutostart: () => void subtaskAutostart.sweep(),
       // A started ticket belongs to its dashboard — the ticket form hands off there.
       openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId), openDependency: (ticketId: number) => dashboard.openDashboard(ticketId), confirmBlockedStart: async (message: string) => (await ask.warn(message, { modal: true }, 'Start anyway')) === 'Start anyway',
+      // SET-54 (Q13): Cancel on an edited form asks on the HOST, and only
+      // "Discard" throws the edits away (@ui:UI-R33).
+      confirmDiscard: async (message: string) => (await ask.warn(message, { modal: true }, 'Discard')) === 'Discard',
       writeSignals: writeRepoSignals,
       // Re-read the manifest from disk after a signal writeback so the panel's
       // manifest getter (currentManifest) reflects the saved signals — the gate
@@ -2797,10 +2802,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const tokenUsagePanel = new UsagePanelManager(localStore, restoreHosts.track('usageHost', makeUsagePanelHost(context, brandIcon)), {
     projectId: () => currentProject()?.id,
     openDashboard: (ticketId) =>
-      void vscode.commands.executeCommand('karst.openDashboard', ticketId),
+      Promise.resolve(vscode.commands.executeCommand('karst.openDashboard', ticketId)).then(() => undefined),
     quota: () => quotaService.snapshots(),
     quotaThresholdPct: quotaWarnThresholdPct,
     quotaAccountOf: activeAccountLabel,
+    // Return the promise: the panel awaits it for the terminal action-result (UI-R13), so a rejection is
+    // reported to the webview instead of becoming an unhandled rejection after a premature ack.
+    openQuotaSettings: () => settings.openAt('#agents/accounts'),
+    createTicket: () =>
+      Promise.resolve(vscode.commands.executeCommand('karst.openTicketForm')).then(() => undefined),
+    refreshQuota: () => quotaService.refresh().then(() => undefined),
     logError,
   });
   const quotaStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 45);
@@ -2816,12 +2827,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     coreLabel: (core) => AGENT_PROVIDER_LABELS[core] ?? core,
     accountOf: activeAccountLabel,
     status: {
-      set: (text, tooltip, warning) => {
+      set: (text, tooltip, level) => {
         quotaStatus.text = text;
         quotaStatus.tooltip = tooltip;
-        quotaStatus.backgroundColor = warning
-          ? new vscode.ThemeColor('statusBarItem.warningBackground')
-          : undefined;
+        quotaStatus.backgroundColor =
+          level === 'exhausted'
+            ? new vscode.ThemeColor('statusBarItem.errorBackground')
+            : level === 'near'
+              ? new vscode.ThemeColor('statusBarItem.warningBackground')
+              : undefined;
         quotaStatus.show();
       },
       hide: () => quotaStatus.hide(),
@@ -2834,7 +2848,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   quotaService.start(); quotaOps.syncClaudeGlobalStatusline();
   onAccountsChanged = () => quotaOps.accountsChanged();
-  context.subscriptions.push({ dispose: () => { onAccountsChanged = () => {}; quotaOps.dispose(); quotaService.dispose(); } });
+  // A live token delta re-reads the open usage panel, coalesced so a burst of
+  // recorded rows costs one query (US-11). The listener set is module-level,
+  // so the unsubscribe is the window's lifetime.
+  const unsubscribeTokenUsage = onTokenUsageRecorded(() => tokenUsagePanel.scheduleRefresh());
+  context.subscriptions.push({ dispose: () => { unsubscribeTokenUsage(); tokenUsagePanel.dispose(); onAccountsChanged = () => {}; quotaOps.dispose(); quotaService.dispose(); } });
 
 
   // The resource monitor (leak hunter): one slow-lane sample every 30 s for the
@@ -7495,6 +7513,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     windowId: randomUUID(), now: () => Date.now(), notify, debug: (m) => logger.debug(m),
     onProposal: (p, change) => { provider.refresh(); void proposalOps.announce(p, change); },
     repoPaths: (names) => repoPathsOf(currentManifest(), names), resolveBaseShas: (names) => resolveBaseShasOf(currentManifest(), names), commitExists: (r, h) => commitExistsViaGit(r, h, execGit), onWarnings: () => provider.refresh() });
+  planningCheckingIds = () => outbox.checkingIds();
   let planScanTimer: NodeJS.Timeout | undefined;
   const planScan = (): void => { clearTimeout(planScanTimer); planScanTimer = setTimeout(() => { try { outbox.scan(); } catch (e) { logError('planning: outbox scan failed', e); } }, 200); };
   let planWatcher: { close(): void } | undefined;

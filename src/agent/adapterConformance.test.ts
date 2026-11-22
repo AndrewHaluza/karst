@@ -337,10 +337,13 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       expect(args).not.toContain('/repos/api');
     } else if (provider === 'opencode' || provider === 'opencode2') {
       const permission = provider === 'opencode' ? opencodePermission(l) : opencode2Permission(l);
-      // Last match wins: the catch-all deny comes first, the artifacts allow after it.
+      // Last match wins: the catch-all deny comes first, the artifacts allow
+      // after it. The cwd-relative form is required too: the CLI rewrites a
+      // path inside cwd to a relative resource string.
       expect(Object.entries(permission.edit as Record<string, string>)).toEqual([
         ['*', 'deny'],
         ['/karst/scratch/artifacts/**', 'allow'],
+        ['artifacts/**', 'allow'],
       ]);
       expect(permission.bash).toMatchObject({ '*': 'ask' });
     } else {

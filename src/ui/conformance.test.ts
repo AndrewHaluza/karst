@@ -80,7 +80,11 @@ const LITERAL_BUDGET: Record<string, number> = {
   // the same exemption ticketForm/gettingStarted take (@ui:RD-TIERS).
   settings: 1,
   sidebar: 0,
-  usage: 0,
+  // 2, not 0: the two @container tier conditions (`699px` narrow, `399px`
+  // tight, @ui:RD-TIERS). A container condition cannot read a custom property,
+  // so the canonical edges are the only literal form; every other dimension
+  // uses a token.
+  usage: 2,
   // 1, not 0: the Agent setup rows move the tag under the title at the narrow tier (`699px`, NARROW_MAX,
   // @ui:RD-TIERS) — a media condition cannot read a custom property. Pinned by webview.test.ts.
   gettingStarted: 1,

@@ -1062,15 +1062,30 @@ const sidebarVariants = (): Variant[] => {
 
 const usageVariants = (): Variant[] => {
   const u = fixtureCorpus.bind(null, 'usage', usageRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
+  const populated = (): ViewCorpus => getCorpus('usage');
   return [
-    variant('usage', 'populated', () => getCorpus('usage'), { baseline: 'usage', themes: ALL_THEMES }),
+    variant('usage', 'populated', populated, { baseline: 'usage', themes: ALL_THEMES }),
+    // T1302 tiers (@ui:RD-TIERS): a tier variant differs only in width, so it shares the populated layout run.
+    variant('usage', 'populated-narrow', populated, { width: 500 }),
+    variant('usage', 'populated-tight', populated, { width: 360 }),
     variant('usage', 'empty', u('empty')),
     variant('usage', 'loading', LOADING),
     variant('usage', 'error', u('error')),
     variant('usage', 'long-content', u('hostile')),
     variant('usage', 'paged', u('paged-middle')),
     variant('usage', 'sorted', u('all-sorts')),
-    variant('usage', 'quota', u('quota')),
+    // T1302 US-35: the real long key at wide (1280) and mid (800); the two share one layout run.
+    variant('usage', 'long-key', u('long-key'), { width: 1280 }),
+    variant('usage', 'long-key-mid', u('long-key'), { width: 800 }),
+    // T1302 US-2: a host failure states the error and one way forward instead of a blank page.
+    variant('usage', 'host-failure', u('host-failure')),
+    // T1302 US-10/US-19: the near state at every theme, plus the grayscale audit; exhausted in both.
+    variant('usage', 'quota-near', u('quota-near'), { themes: [...ALL_THEMES, 'dark-grayscale'] }),
+    variant('usage', 'quota-exhausted', u('quota-exhausted'), { themes: ['dark', 'dark-grayscale'] }),
+    variant('usage', 'quota-expired', u('quota-expired')),
+    variant('usage', 'quota-stale', u('quota-stale')),
+    variant('usage', 'quota-empty', u('quota-empty')),
+    variant('usage', 'quota-tight', u('quota-near'), { width: 360 }),
   ];
 };
 
@@ -1230,27 +1245,38 @@ const ticketFormVariants = (): Variant[] => {
       agentPresetNames: ['fast', 'deep'],
       selectedAgentPreset: 'deep',
       defaultAgentPreset: 'fast',
+      // SET-35: `describeGraphRoles` prints the core and model labels, never the raw
+      // ids. The fixture bypasses the host, so it carries the labelled shape.
       graphRoles: {
         'karst-graph-engineering': {
           deep: [
-            { role: 'expert', text: 'codex · gpt-5.6-sol · high', source: 'preset' },
-            { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
-            { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+            { role: 'expert', text: 'Codex · GPT-5.6 Sol · high', source: 'preset' },
+            { role: 'worker', text: 'Claude Code · Sonnet 5.5 · low', source: 'approach' },
+            { role: 'fast', text: 'Claude Code · Sonnet 5.5 · low', source: 'approach' },
           ],
         },
       },
     });
   return [
-    variant('ticketForm', 'graph-roles', graphRoles, { themes: DARK_ONLY }),
+    // SET-63: the role preview's shared labels at every theme, not dark only.
+    variant('ticketForm', 'graph-roles', graphRoles, { themes: ALL_THEMES }),
     variant('ticketForm', 'populated', () => getCorpus('ticketForm'), { baseline: 'ticketForm', themes: ALL_THEMES }),
     variant('ticketForm', 'empty', () => withState({})),
     variant('ticketForm', 'loading', LOADING),
-    variant('ticketForm', 'error', () => ({
-      messages: [
-        ...withState({}).messages,
-        { type: 'error', message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).' },
-      ],
-    })),
+    // SET-52: a fetch failure has its own message and renders under the Key row,
+    // not in the page-level bucket above the title.
+    variant(
+      'ticketForm',
+      'error',
+      () => ({
+        messages: [
+          ...withState({}).messages,
+          { type: 'fetch-error', message: 'Could not fetch FEAT-9999: the provider returned 404 (check the list id).' },
+        ],
+      }),
+      // SET-63: the fetch error is a contrast surface, so light and HC record it too.
+      { themes: ALL_THEMES },
+    ),
     // D159: an op that died on quota carries its park id, so the error notification
     // offers Pick agent/model, Retry same and Dismiss.
     variant('ticketForm', 'usage-limit-error', () => ({
@@ -1258,7 +1284,9 @@ const ticketFormVariants = (): Variant[] => {
         ...withState({}).messages,
         {
           type: 'error',
-          message: 'anthropic: monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
+          // SET-52: the real shape of a quota failure — the product name, never a
+          // raw provider id ("anthropic: …").
+          message: 'Claude Code usage limit reached — monthly quota exceeded. Pick another agent/model, retry, or dismiss.',
           usageLimitParkId: 7,
         },
       ],
@@ -1333,7 +1361,18 @@ const ticketFormVariants = (): Variant[] => {
     variant('ticketForm', 'edit-core-model-tight', editCoreModel, { width: 1212 }),
     variant('ticketForm', 'edit-core-model-tight-320', editCoreModel, { width: 320 }),
     // Layout B′ (ui:UI-R57, prototype docs/design/ticket-form-b-prime.html).
-    variant('ticketForm', 'realistic-create', () => withState(REALISTIC_TICKET_FORM)),
+    // SET-63: the realistic create page at every theme — the light input edge and the
+    // HC switch/primary edge are only visible where they were missing (SET-56/57).
+    variant('ticketForm', 'realistic-create', () => withState(REALISTIC_TICKET_FORM), { themes: ALL_THEMES }),
+    // SET-56 proof (T1301): the Auto-improve switch goes Off while Pull base stays On,
+    // so one HC shot holds both switch states and the 3:1 track edge. The toggle changes
+    // no geometry, so it shares realistic-create's covered layout instead of a new page
+    // (a variant with no dark fixture page cannot join the dark-only layout project).
+    variant('ticketForm', 'realistic-create-switches', () => withState(REALISTIC_TICKET_FORM), {
+      themes: ['hc'],
+      clicks: ['#autoImprove'],
+      skipLayout: true,
+    }),
     variant('ticketForm', 'realistic-edit', () =>
       withState({ ...REALISTIC_TICKET_FORM, ...edit, title: REALISTIC_TICKET_FORM.title, refLabel: 'T42 · FEAT-42' }),
     ),
@@ -1366,7 +1405,8 @@ const ticketFormVariants = (): Variant[] => {
         { type: 'brief', brief: BRIEF_MINIMAL },
       ],
     })),
-    variant('ticketForm', 'approach-picker', () => withState(REALISTIC_TICKET_FORM)),
+    // SET-65: the open approach list, not a second copy of the closed form.
+    variant('ticketForm', 'approach-picker', () => withState(REALISTIC_TICKET_FORM), { click: '#approachBtn' }),
     // T1091: the approach, agent and base popovers near the bottom edge of a short window.
     variant('ticketForm', 'approach-picker-bottom-edge', () => withState(REALISTIC_TICKET_FORM), {
       skipLayout: true,
@@ -1379,6 +1419,13 @@ const ticketFormVariants = (): Variant[] => {
       skipLayout: true,
       width: 800,
       viewportHeight: BOTTOM_EDGE_HEIGHT,
+      capture: 'viewport',
+      click: '[data-ap-trigger="core"]',
+    }),
+    // T1301 (RD-AGENT-MENU): the open agent-core menu at the wide 799-tall window must end above the sticky
+    // action bar (or open above its trigger), leaving all three footer buttons visible.
+    variant('ticketForm', 'agent-picker-open', editCoreModel, {
+      viewportHeight: 799,
       capture: 'viewport',
       click: '[data-ap-trigger="core"]',
     }),
