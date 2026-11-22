@@ -51,6 +51,7 @@ import {
   createUsageLimitParkBinding,
   driverLockedRun,
   makeUsageLimitAgentModelPicker,
+  makeUsageLimitCarryPicker,
 } from './usageLimitParkBinding.js';
 import { makeReviewArtifactsBinding } from './reviewArtifactsBinding.js';
 import { openStore } from '../store/db.js';
@@ -137,6 +138,26 @@ describe('makeUsageLimitAgentModelPicker', () => {
     const pick = makeUsageLimitAgentModelPicker(() => fakeCatalog);
     expect(await pick('claude', null)).toBeUndefined();
     expect(showQuickPick).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('makeUsageLimitCarryPicker (T1313, @arch:AC-65)', () => {
+  it('shows the carry choices under the carry title and returns the pick', async () => {
+    const items = [
+      { label: 'Only this run', carry: false },
+      { label: 'Use for this ticket', carry: true },
+    ];
+    showQuickPick.mockResolvedValueOnce(items[1]);
+
+    const picked = await makeUsageLimitCarryPicker()(items);
+
+    expect(picked).toBe(items[1]);
+    expect(showQuickPick).toHaveBeenCalledWith(items, { title: 'Use this pick for' });
+  });
+
+  it('returns undefined when the carry step is cancelled', async () => {
+    showQuickPick.mockResolvedValueOnce(undefined);
+    expect(await makeUsageLimitCarryPicker()([{ label: 'x', carry: false }])).toBeUndefined();
   });
 });
 
