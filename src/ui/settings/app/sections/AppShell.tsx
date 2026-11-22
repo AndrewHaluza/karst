@@ -69,7 +69,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     send,
     saveCandidate,
     markSaveStarted,
-    localErrorCount,
+    localErrors,
     instantApply,
     undoDiscard,
     clearUndo,
@@ -188,7 +188,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     dirty,
     hostFault,
     errorSection,
-    localErrorCount,
+    localErrors,
     section,
   };
   const fullState = saveStateText(stateFacts);
@@ -715,7 +715,8 @@ interface SaveStateFacts {
   /** A host verdict or host error exists (`valid` also covers local errors). */
   readonly hostFault: boolean;
   readonly errorSection: SettingsSection | null;
-  readonly localErrorCount: number;
+  /** Local (webview-side) field counts, keyed by the tab that owns them. */
+  readonly localErrors: Partial<Record<SettingsSection, number>>;
   readonly section: SettingsSection;
 }
 
@@ -730,9 +731,13 @@ function saveStateText(facts: SaveStateFacts): string {
   if (!facts.hydrated) return '';
   // In flight outranks validity: the user needs to know the Save is running.
   if (facts.saving) return 'Saving…';
-  if (facts.localErrorCount > 0) {
-    const owner = facts.errorSection ?? facts.section;
-    return `Fix ${plural(facts.localErrorCount, 'field', 'fields')} on ${SECTION_LABELS[owner]} to save`;
+  // The count belongs to the tab the sentence names. A host fault on another
+  // tab must never borrow the local count of the tab the user is editing (the
+  // count is per-tab, so pairing it with `errorSection` blindly said
+  // "2 fields on Repositories" for Quality's errors).
+  const ownedLocal = facts.errorSection === null ? 0 : (facts.localErrors[facts.errorSection] ?? 0);
+  if (ownedLocal > 0) {
+    return `Fix ${plural(ownedLocal, 'field', 'fields')} on ${SECTION_LABELS[facts.errorSection!]} to save`;
   }
   if (facts.hostFault) {
     return facts.errorSection === null
@@ -751,7 +756,8 @@ function saveStateText(facts: SaveStateFacts): string {
 function compactSaveStateText(facts: SaveStateFacts): string {
   if (!facts.hydrated) return '';
   if (facts.saving) return 'Saving…';
-  const errors = facts.localErrorCount > 0 ? facts.localErrorCount : facts.hostFault ? 1 : 0;
+  const local = Object.values(facts.localErrors).reduce((sum, n) => sum + (n ?? 0), 0);
+  const errors = local > 0 ? local : facts.hostFault ? 1 : 0;
   if (errors > 0) return plural(errors, 'error', 'errors');
   return facts.dirty ? 'Unsaved' : 'Saved';
 }

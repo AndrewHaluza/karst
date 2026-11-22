@@ -1318,16 +1318,50 @@ describe('settings actions — setQuota (Q4-SAVE)', () => {
     expect(written?.quota).toEqual({ warnThresholdPct: 70, claudeOauthUsageApi: true });
   });
 
-  it('posts an error and writes nothing when the merged block is invalid', async () => {
+  it('posts an error, rejects for the receipt, and writes nothing when the merged block is invalid', async () => {
     let written: Manifest | undefined;
     const { actions, order, posted } = harness({
       writeManifest: (_p, m) => { written = m; },
     });
-    await actions.setQuota({ warnThresholdPct: 150 });
+    // The rejection is what makes reportAction send ok:false, so the control
+    // settles failed rather than claiming "Saved" (UI-R15).
+    await expect(actions.setQuota({ warnThresholdPct: 150 })).rejects.toThrow();
     expect(written).toBeUndefined();
     expect(order).toEqual([]);
     expect(posted.some((m) => m.type === 'quota-saved')).toBe(false);
     expect(posted.some((m) => m.type === 'error')).toBe(true);
+  });
+});
+
+describe('settings actions — manifest writers refuse an unreadable karst.yml', () => {
+  const broken = (order: string[] = []) => harness({
+    loadState: () => ({ manifest: VALID, error: 'Invalid karst.yml: bad indent' }),
+    writeManifest: () => { order.push('write'); },
+  });
+
+  it('setQuota: no write, one error, rejects so the receipt fails', async () => {
+    const order: string[] = [];
+    const { actions, posted } = broken(order);
+    await expect(actions.setQuota({ claudeGlobalStatusline: true })).rejects.toThrow(/errors on disk/);
+    expect(order).not.toContain('write');
+    expect(posted.filter((m) => m.type === 'error')).toHaveLength(1);
+    expect(posted.some((m) => m.type === 'quota-saved')).toBe(false);
+  });
+
+  it('setApproachEnabled: no write, one error, rejects', async () => {
+    const order: string[] = [];
+    const { actions, posted } = broken(order);
+    await expect(actions.setApproachEnabled('a', false)).rejects.toThrow(/errors on disk/);
+    expect(order).not.toContain('write');
+    expect(posted.filter((m) => m.type === 'error')).toHaveLength(1);
+  });
+
+  it('setAgentEnabled: no write, one error, rejects', async () => {
+    const order: string[] = [];
+    const { actions, posted } = broken(order);
+    await expect(actions.setAgentEnabled('reviewer', false)).rejects.toThrow(/errors on disk/);
+    expect(order).not.toContain('write');
+    expect(posted.filter((m) => m.type === 'error')).toHaveLength(1);
   });
 });
 

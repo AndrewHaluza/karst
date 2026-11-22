@@ -63,11 +63,14 @@ function statusNode(core: BackendCore, backend: 'sbx' | 'docker', status: Backen
   return (
     <span className="backend-status is-error" data-testid={testId} role="alert">
       <span className="backend-status-name">{backend}: </span>
-      {status.reason.split(/(`[^`]*`)/).map((part) =>
+      {status.reason.split(/(`[^`]*`)/).map((part, index) =>
         part.startsWith('`') && part.endsWith('`') && part.length > 1 ? (
-          <code key={`${testId}:${part}`}>{part.slice(1, -1)}</code>
+          // The index keeps the key unique: a reason that starts and ends with a
+          // command ('`sbx login`') splits into ['', '`sbx login`', ''] and the
+          // two empty literal segments would otherwise share one key.
+          <code key={`${testId}:${index}`}>{part.slice(1, -1)}</code>
         ) : (
-          <Fragment key={`${testId}:${part}`}>{part}</Fragment>
+          <Fragment key={`${testId}:${index}`}>{part}</Fragment>
         ),
       )}
     </span>

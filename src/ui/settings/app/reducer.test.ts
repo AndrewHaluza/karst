@@ -508,7 +508,7 @@ describe('settingsAppReducer — quota-saved (Q4-SAVE)', () => {
     expect(next.quotaSavedSeq).toBe(edited.quotaSavedSeq + 1);
   });
 
-  it('deletes a key on null and keeps its siblings', () => {
+  it('refills the validator default on null while a sibling key is present (matches disk)', () => {
     const withQuota = push({
       type: 'state',
       state: {
@@ -516,9 +516,22 @@ describe('settingsAppReducer — quota-saved (Q4-SAVE)', () => {
         manifest: { ...FIXTURE_MANIFEST, quota: { warnThresholdPct: 70, claudeGlobalStatusline: true } },
       },
     });
+    // The host's setQuota deletes the key, then `validateQuota` re-fills 80
+    // before writing. The mirror must land on the same value, or the baseline
+    // disagrees with disk and the field snaps back on the next push.
     const next = push({ type: 'quota-saved', patch: { warnThresholdPct: null } }, withQuota);
-    expect(next.draft.quota).toEqual({ claudeGlobalStatusline: true });
-    expect(next.lastSaved.quota).toEqual({ claudeGlobalStatusline: true });
+    expect(next.draft.quota).toEqual({ warnThresholdPct: 80, claudeGlobalStatusline: true });
+    expect(next.lastSaved.quota).toEqual({ warnThresholdPct: 80, claudeGlobalStatusline: true });
+  });
+
+  it('drops the block when null clears the only key', () => {
+    const withQuota = push({
+      type: 'state',
+      state: { ...FIXTURE_STATE_PUSH, manifest: { ...FIXTURE_MANIFEST, quota: { warnThresholdPct: 70 } } },
+    });
+    const next = push({ type: 'quota-saved', patch: { warnThresholdPct: null } }, withQuota);
+    expect(next.draft.quota).toBeUndefined();
+    expect(next.lastSaved.quota).toBeUndefined();
   });
 
   it('bumps the sequence even when the same patch arrives twice', () => {
@@ -553,6 +566,18 @@ describe('discardWithUndo / undoDiscard (Q11 / SET-15)', () => {
     const discarded = discardWithUndo(withDraftEdit(EDITED_MANIFEST), 'general');
     expect(beginSave(discarded, 'general').undo).toBeNull();
     expect(push({ type: 'saved', section: 'general' }, discarded).undo).toBeNull();
+  });
+
+  it('an out-of-band state push clears it: Undo must not revert that write', () => {
+    const discarded = discardWithUndo(withDraftEdit(EDITED_MANIFEST), 'general');
+    const pushed = push({ type: 'state', state: FIXTURE_STATE_PUSH }, discarded);
+    expect(pushed.undo).toBeNull();
+  });
+
+  it('a quota-saved push clears it: the quota write already landed', () => {
+    const discarded = discardWithUndo(withDraftEdit(EDITED_MANIFEST), 'general');
+    const acked = push({ type: 'quota-saved', patch: { claudeGlobalStatusline: true } }, discarded);
+    expect(acked.undo).toBeNull();
   });
 
   it('clearUndo drops the snapshot without restoring anything', () => {

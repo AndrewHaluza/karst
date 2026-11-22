@@ -122,10 +122,54 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
     const { bridge } = mount();
     fireEvent.change(threshold(), { target: { value: '90' } });
     fireEvent.blur(threshold());
-    act(() => bridge.push({ type: 'quota-saved', patch: { warnThresholdPct: 90 } }));
+    const sent = bridge.last('set-quota')!;
+    act(() => {
+      bridge.push({ type: 'quota-saved', patch: { warnThresholdPct: 90 } });
+      bridge.push({ type: 'action-result', requestId: sent.requestId!, ok: true });
+    });
     expect(screen.getByText('Saved')).toBeTruthy();
     expect(screen.getByText('Saved').getAttribute('role')).toBe('status');
     act(() => vi.advanceTimersByTime(SAVED_ACK_MS));
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('exposes aria-busy while pending and drops the Enter-then-blur duplicate', () => {
+    const { bridge } = mount();
+    const field = threshold();
+    fireEvent.change(field, { target: { value: '90' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(field.getAttribute('aria-busy')).toBe('true');
+    // The blur that follows Enter is the same write; the pending guard drops it.
+    fireEvent.blur(field);
+    const sent = bridge.all('set-quota');
+    expect(sent).toHaveLength(1);
+    act(() => bridge.push({ type: 'action-result', requestId: sent[0]!.requestId!, ok: true }));
+    expect(field.getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('places "Saved" beside the control whose own write was acknowledged (UI-R15)', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getByLabelText('Install for all Claude sessions'));
+    fireEvent.click(screen.getByLabelText('Use the Claude usage API'));
+    const [statusline, usage] = bridge.all('set-quota') as unknown as Array<{
+      patch: Record<string, unknown>;
+      requestId?: string;
+    }>;
+    expect(statusline?.patch).toEqual({ claudeGlobalStatusline: true });
+    expect(usage?.patch).toEqual({ claudeOauthUsageApi: true });
+    act(() => {
+      bridge.push({ type: 'quota-saved', patch: { claudeGlobalStatusline: true } });
+      bridge.push({ type: 'action-result', requestId: statusline!.requestId!, ok: true });
+    });
+    const note = screen.getByText('Saved');
+    expect(note.previousElementSibling?.textContent).toContain('Install for all Claude sessions');
+  });
+
+  it('never claims "Saved" when the host refuses the write', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getByLabelText('Install for all Claude sessions'));
+    const sent = bridge.last('set-quota')!;
+    act(() => bridge.push({ type: 'action-result', requestId: sent.requestId!, ok: false, message: 'refused' }));
     expect(screen.queryByText('Saved')).toBeNull();
   });
 

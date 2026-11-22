@@ -124,6 +124,26 @@ describe('Sandbox tab — the status belongs to its row (SET-47)', () => {
     expect(status.querySelector('code')!.textContent).toBe('sbx login');
   });
 
+  it('renders a reason that is only a command without duplicate keys', () => {
+    // '`sbx login`' splits into ['', '`sbx login`', '']: the two empty literal
+    // segments used to share one React key.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const bridge = mount({ ...BASE, agentBackends: { claude: 'sbx' } } as Manifest);
+      act(() =>
+        bridge.push({
+          type: 'backend-status',
+          status: { sbx: { ok: false, reason: '`sbx login`' }, docker: { ok: true } },
+        } as never),
+      );
+      const status = screen.getByTestId('backend-status-claude');
+      expect(status.querySelector('code')!.textContent).toBe('sbx login');
+      expect(consoleError.mock.calls.flat().join(' ')).not.toMatch(/same key/i);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('says not checked until the host answers', () => {
     mount({ ...BASE, agentBackends: { codex: 'sbx' } } as Manifest);
     expect(screen.getByTestId('backend-status-codex').textContent).toBe('not checked');

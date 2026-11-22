@@ -319,6 +319,15 @@ describe('Agents page — agent profiles', () => {
     expect(screen.getByText('plan').closest('button')!.textContent).toContain('unused');
   });
 
+  it('names an approach group from the manifest, not only the packaged list (SET-40)', () => {
+    // Sourced approaches live in the manifest; `packagedApproaches` holds only
+    // the packaged built-ins, so a packaged-only lookup rendered raw ids.
+    mount({ ...BASE, approaches: [{ id: 'speckit', label: 'Spec Kit' }] } as unknown as Manifest);
+    openProfiles();
+    const titles = [...document.querySelectorAll('.agents-group-title')].map((n) => n.textContent);
+    expect(titles).toContain('From approach: Spec Kit');
+  });
+
   it('shows the real built-in prompt for a prompt-bearing role and the identity note for the rest', () => {
     mount();
     openProfiles();

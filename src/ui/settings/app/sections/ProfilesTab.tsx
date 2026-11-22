@@ -68,11 +68,18 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer, focusTick }: 
     [state.host?.agents, state.host?.builtInPrompts, state.draft, labels, capabilities],
   );
   // SET-40: an approach group is named by the approach's display name; the id is
-  // only the fallback when the host list does not carry that approach.
+  // only the fallback when neither list carries that approach. Sourced
+  // approaches (the ones that actually install .claude/agents files) live in
+  // the manifest, not in `packagedApproaches` — reading only the packaged list
+  // left them rendering raw ids in production.
   const approachName = useMemo(() => {
-    const byId = new Map((state.host?.packagedApproaches ?? []).map((a) => [a.id, a.label]));
+    const byId = new Map<string, string>();
+    for (const approach of state.draft.approaches ?? []) byId.set(approach.id, approach.label ?? approach.id);
+    for (const approach of state.host?.packagedApproaches ?? []) {
+      if (!byId.has(approach.id)) byId.set(approach.id, approach.label);
+    }
     return (id: string): string => byId.get(id) ?? id;
-  }, [state.host?.packagedApproaches]);
+  }, [state.draft.approaches, state.host?.packagedApproaches]);
   const visible = filterEntries(entries, query);
   const selected = entries.find((e) => e.id === route.selected) ?? null;
   const roleLabel = (cap: string): string => labels[cap as ProcessKey] ?? cap;

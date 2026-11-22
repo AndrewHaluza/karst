@@ -17,7 +17,7 @@
  */
 // @vitest-environment jsdom
 import { act, useEffect } from 'react';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Manifest } from '../../../../manifest/types.js';
 import { buildSettingsState } from '../../state.js';
@@ -53,6 +53,7 @@ function mount(): { bridge: TestBridge } {
         <AppShell>
           <div data-testid="tab-content">
             <HostEditor />
+            <QualityEditor />
           </div>
         </AppShell>
       </SettingsAppProvider>
@@ -61,6 +62,26 @@ function mount(): { bridge: TestBridge } {
   );
   act(() => bridge.push({ type: 'state', state: FIXTURE_STATE_PUSH }));
   return { bridge };
+}
+
+/** Parks an invalid Quality edit (two local field errors) without leaving General. */
+function QualityEditor() {
+  const app = useSettingsApp();
+  return (
+    <button
+      onClick={() =>
+        app.edit((draft) => ({
+          ...draft,
+          review: {
+            ...(draft.review ?? {}),
+            stallDetection: { enabled: true, sameFileRounds: 0, repeatedFindingRounds: 0 },
+          } as NonNullable<Manifest['review']>,
+        }))
+      }
+    >
+      break quality
+    </button>
+  );
 }
 
 /** The nav's section ids, in document order. */
@@ -342,6 +363,36 @@ describe('AppShell — an invalid file blocks Save in the save bar', () => {
     expect(bar?.textContent).toBe('Fix 2 fields on Quality to save');
     expect(bar?.classList.contains('is-error')).toBe(true);
     expect((document.getElementById('saveBtn') as HTMLButtonElement | null)?.disabled ?? true).toBe(true);
+  });
+
+  it('does not block the shown tab on a parked edit from another tab (@arch:SAVE)', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getByText('break quality'));
+    act(() => bridge.push({ type: 'navigate', hash: '#agents' }));
+    // The parked Quality edit is not the Agents candidate: the bar does not
+    // claim Quality's errors block this tab, and the tab's own Save is gated
+    // only by the Agents state (nothing to save there). The nav still shows the
+    // parked tab as having unsaved changes.
+    expect(document.getElementById('saveState')?.textContent).toBe('All changes saved');
+    expect((document.getElementById('saveBtn') as HTMLButtonElement | null)?.disabled).toBe(true);
+    const qualityNav = document.querySelector('.nav-btn[data-section="quality"]');
+    expect(qualityNav?.className).toContain('has-changes');
+    expect(qualityNav?.className).not.toContain('has-error');
+  });
+
+  it('never borrows a local count for a host fault on another tab', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getByText('break quality'));
+    act(() =>
+      bridge.push({
+        type: 'validation',
+        ok: false,
+        error: 'Invalid karst.yml: repositories[1].path must be a string',
+      }),
+    );
+    // The sentence names the host fault's tab; Quality's two local errors must
+    // not become "Fix 2 fields on Repositories".
+    expect(document.getElementById('saveState')?.textContent).toBe('Fix the error on Repositories to save');
   });
 });
 

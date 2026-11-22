@@ -269,11 +269,24 @@ export function SettingsAppProvider({
   const undoDiscardAction = useCallback(() => dispatch({ kind: 'undo-discard' }), []);
   const clearUndoAction = useCallback(() => dispatch({ kind: 'clear-undo' }), []);
 
+  // The tab's to-be-saved manifest: its own draft fields over the saved
+  // baseline, exactly what `save` would merge for this section.
+  const saveCandidate = useCallback(
+    (target: SettingsSection) => overlaySections(state.lastSaved, state.draft, [target]),
+    [state.lastSaved, state.draft],
+  );
+
   // Derived in render (R-X4). The fault is the draft's verdict first and the
   // host-reported failure second, so a rejected save and a rejected draft both
   // point at a tab.
   const fault = state.validation.ok ? state.hostError : state.validation.error;
-  const localErrors = useMemo(() => localFieldErrors(state.draft), [state.draft]);
+  // @arch:SAVE: validate the per-tab CANDIDATE, never the raw draft — an
+  // unfinished edit parked on another tab cannot block this one's Save, and a
+  // local count can only ever belong to the section it is shown on.
+  const localErrors = useMemo(
+    () => localFieldErrors(saveCandidate(section)),
+    [saveCandidate, section],
+  );
   const localErrorCount = useMemo(
     () => Object.values(localErrors).reduce((sum, n) => sum + (n ?? 0), 0),
     [localErrors],
@@ -301,11 +314,6 @@ export function SettingsAppProvider({
   const isDirty = useCallback(
     (target: SettingsSection) => state.dirtySections.includes(target),
     [state.dirtySections],
-  );
-
-  const saveCandidate = useCallback(
-    (target: SettingsSection) => overlaySections(state.lastSaved, state.draft, [target]),
-    [state.lastSaved, state.draft],
   );
 
   const value = useMemo<SettingsApp & SettingsAppActions>(

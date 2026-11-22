@@ -218,6 +218,10 @@ function applyState(state: SettingsAppState, host: SettingsState): SettingsAppSt
       },
       processAssignments: host.processAssignments,
       validation,
+      // Q11: a push means the host just wrote the file (an agent or approach
+      // toggle, an install, a quota change). Restoring a pre-push draft snapshot
+      // would silently revert that write, so the Undo window ends here.
+      undo: null,
       // The script cleared the confirm-install latch on every push; the drawer's
       // "Delete" is guarded by "Uninstall before deleting", and a push that
       // re-opens a drawer for an already-uninstalled approach would offer a
@@ -336,6 +340,10 @@ export function settingsAppReducer(
         lastSaved,
         dirtySections: dirtySectionsOf(draft, lastSaved),
         quotaSavedSeq: state.quotaSavedSeq + 1,
+        // Q11: the quota write already landed; an Undo that restored the old
+        // snapshot would revert it in the draft and the next Save would write
+        // the old value back to disk.
+        undo: null,
       };
     }
 

@@ -52,6 +52,29 @@ describe('SegmentedControl — radiogroup semantics', () => {
     expect(radios.map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
   });
 
+  it('keeps one tab stop when the value matches no option (UI-R26)', () => {
+    // An unsupported backend in karst.yml checks nothing; the first ENABLED
+    // option must still be reachable so the row can be repaired by keyboard.
+    render(
+      <>
+        <span id="backend-label">claude</span>
+        <SegmentedControl
+          labelId="backend-label"
+          value="docker"
+          options={[
+            { value: 'unsupported', label: 'host', disabled: true },
+            { value: 'host', label: 'host' },
+            { value: 'sbx', label: 'sbx' },
+          ]}
+          onChange={vi.fn()}
+        />
+      </>,
+    );
+    const radios = screen.getAllByRole('radio') as HTMLButtonElement[];
+    expect(radios.map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+    expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'false', 'false']);
+  });
+
   it('reports a click on another option', () => {
     const { onChange } = mount();
     fireEvent.click(screen.getByRole('radio', { name: 'docker' }));

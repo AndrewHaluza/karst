@@ -11,8 +11,12 @@
  * user leaves the field or presses Enter (`Field`'s `onCommit`). A blank value
  * deletes the key (the loader default applies); a value outside 1-100 is flagged
  * inline and sends nothing, so the file never takes a value the schema refuses.
- * A successful save shows "Saved" beside the control that produced it for
- * `SAVED_ACK_MS`.
+ *
+ * Each control owns its own `useHostMutation` (UI-R11/R12): pending begins on
+ * activation, a second activation while it is in flight is dropped, and the
+ * "Saved" note is placed by THAT control's correlated `action-result` receipt —
+ * never by a shared "last sent" guess, which mis-attributed the note when two
+ * quota writes overlapped (UI-R15).
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
@@ -21,14 +25,15 @@ import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../../../manifest/validate/
 import type { QuotaPatch } from '../../messages.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
+import { useHostMutation } from '../useHostMutation.js';
 import { SAVED_ACK_MS } from './AppShell.js';
 
 const QUOTA_THRESHOLD_ERROR = 'Enter a whole number from 1 to 100.';
 
-/** Which control produced the last `set-quota`, so its "Saved" note lands beside it. */
+/** The controls that save out of band, in render order. */
 type SavedControl = 'threshold' | 'statusline' | 'usage';
 
-/** Post one patch through the host; remembered so its acknowledgement can be placed. */
+/** Post one patch through the host; the host acks each control separately. */
 export function QuotaCard() {
   const { state, send } = useSettingsApp();
   const quota = readField<Partial<QuotaConfig> | undefined>(state.draft, 'quota', undefined);
@@ -47,15 +52,44 @@ export function QuotaCard() {
     setError(null);
   }
 
-  // Which control the last request came from; the host does not echo it, so the
-  // component remembers it locally.
-  const lastSent = useRef<SavedControl | null>(null);
-  const [ack, setAck] = useState<{ control: SavedControl; seq: number } | null>(null);
-  const [seenSeq, setSeenSeq] = useState(state.quotaSavedSeq);
-  if (state.quotaSavedSeq !== seenSeq) {
-    setSeenSeq(state.quotaSavedSeq);
-    if (lastSent.current !== null) setAck({ control: lastSent.current, seq: state.quotaSavedSeq });
-  }
+  // One mutation per control: each owns its pending/dedup guard, so a toggle on
+  // one field cannot swallow or mis-acknowledge another field's write.
+  const thresholdSave = useHostMutation<[QuotaPatch]>({
+    kind: 'Save the quota threshold',
+    send: (requestId, patch) => send.setQuota(patch, requestId),
+  });
+  const statuslineSave = useHostMutation<[QuotaPatch]>({
+    kind: 'Install for all Claude sessions',
+    send: (requestId, patch) => send.setQuota(patch, requestId),
+  });
+  const usageSave = useHostMutation<[QuotaPatch]>({
+    kind: 'Use the Claude usage API',
+    send: (requestId, patch) => send.setQuota(patch, requestId),
+  });
+
+  // Settle each request once from its own receipt, and place the acknowledgement
+  // beside the control whose request it answers (UI-R15).
+  const settled = useRef<ReadonlySet<string>>(new Set());
+  const [ack, setAck] = useState<{ control: SavedControl; requestId: string } | null>(null);
+  useEffect(() => {
+    const requests = [
+      { control: 'threshold' as const, mutation: thresholdSave },
+      { control: 'statusline' as const, mutation: statuslineSave },
+      { control: 'usage' as const, mutation: usageSave },
+    ];
+    for (const { control, mutation } of requests) {
+      const id = mutation.requestId;
+      const receipt = id === undefined ? undefined : state.receipts[id];
+      if (id === undefined || receipt === undefined || settled.current.has(id)) continue;
+      settled.current = new Set(settled.current).add(id);
+      if (receipt.ok) {
+        mutation.settle({ requestId: id, result: 'success' });
+        setAck({ control, requestId: id });
+      } else {
+        mutation.settle({ requestId: id, result: 'failure', message: receipt.message ?? undefined });
+      }
+    }
+  }, [state.receipts, thresholdSave, statuslineSave, usageSave]);
   useEffect(() => {
     if (ack === null) return undefined;
     const timer = window.setTimeout(() => setAck((current) => (current === ack ? null : current)), SAVED_ACK_MS);
@@ -63,8 +97,9 @@ export function QuotaCard() {
   }, [ack]);
 
   const post = (control: SavedControl, patch: QuotaPatch): void => {
-    lastSent.current = control;
-    send.setQuota(patch);
+    if (control === 'threshold') thresholdSave.trigger(patch);
+    else if (control === 'statusline') statuslineSave.trigger(patch);
+    else usageSave.trigger(patch);
   };
 
   const commitThreshold = (raw: string): void => {
@@ -114,6 +149,7 @@ export function QuotaCard() {
           step: 1,
           value: text,
           placeholder: String(DEFAULT_QUOTA_WARN_THRESHOLD_PCT),
+          busy: thresholdSave.busy,
           onChange: (next) => {
             setText(next);
             setError(null);
@@ -128,6 +164,7 @@ export function QuotaCard() {
           kind: 'checkbox',
           name: 'quotaClaudeGlobalStatusline',
           checked: quota?.claudeGlobalStatusline === true,
+          busy: statuslineSave.busy,
           onChange: (on) => post('statusline', { claudeGlobalStatusline: on }),
         }}
       />
@@ -139,6 +176,7 @@ export function QuotaCard() {
           kind: 'checkbox',
           name: 'quotaClaudeOauthUsageApi',
           checked: quota?.claudeOauthUsageApi === true,
+          busy: usageSave.busy,
           onChange: (on) => post('usage', { claudeOauthUsageApi: on }),
         }}
       />

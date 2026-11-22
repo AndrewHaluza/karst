@@ -26,6 +26,12 @@ export interface SelectOption {
 
 interface CommonControl {
   disabled?: boolean;
+  /**
+   * A host mutation for this control is in flight (UI-R11). Exposed as
+   * `aria-busy` on the control itself — separate from `disabled`, which may also
+   * be true (UI-R17).
+   */
+  busy?: boolean;
   name?: string;
   /** Explicit screen reader description on the control element (UI-R25). */
   ariaDescription?: string;
@@ -280,6 +286,7 @@ function FieldBody({
             name={control.name}
             checked={control.checked}
             disabled={control.disabled}
+            aria-busy={control.busy || undefined}
             aria-describedby={describedBy}
             aria-invalid={invalid || undefined}
             aria-required={required || undefined}
@@ -367,6 +374,7 @@ function renderControl(
     id: wiring.id,
     name: control.name,
     disabled: control.disabled,
+    'aria-busy': control.busy || undefined,
     'aria-describedby': wiring.describedBy,
     'aria-description': control.ariaDescription,
     'aria-invalid': wiring.invalid || undefined,

@@ -8,6 +8,8 @@
  *
  * Behavior, per the radio pattern:
  * - exactly one tab stop: the selected option has `tabIndex=0`, the rest `-1`;
+ *   when the value matches no option (an unsupported backend in karst.yml), the
+ *   first enabled option takes it so the broken row stays reachable (UI-R26);
  * - ArrowLeft / ArrowRight (and ArrowUp / ArrowDown, as the dashboard's layout
  *   control already accepts) move the selection and the focus together;
  * - Home / End jump to the first / last enabled option.
@@ -65,6 +67,12 @@ export function SegmentedControl({
   className,
 }: SegmentedControlProps) {
   const selectedIndex = options.findIndex((option) => option.value === value);
+  const firstEnabled = options.findIndex((option) => !option.disabled);
+  // A radiogroup always owns exactly one tab stop. When the saved value is not
+  // among the options (an unsupported backend in karst.yml), no option is
+  // checked; the FIRST ENABLED option must still be reachable so a keyboard
+  // user can repair the manifest (UI-R26 / WAI-ARIA radiogroup).
+  const tabStop = selectedIndex >= 0 ? selectedIndex : firstEnabled;
   const groupClass = ['k-segmented', className].filter((c): c is string => Boolean(c)).join(' ');
 
   const selectAt = (index: number, event: KeyboardEvent<HTMLDivElement>): void => {
@@ -80,7 +88,7 @@ export function SegmentedControl({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    const from = selectedIndex >= 0 ? selectedIndex : 0;
+    const from = selectedIndex >= 0 ? selectedIndex : Math.max(firstEnabled, 0);
     if (event.key === 'Home') {
       selectAt(options.findIndex((option) => !option.disabled), event);
       return;
@@ -103,14 +111,14 @@ export function SegmentedControl({
       className={groupClass}
       onKeyDown={onKeyDown}
     >
-      {options.map((option) => {
+      {options.map((option, index) => {
         const selected = option.value === value;
         return (
           <Button
             key={option.value}
             role="radio"
             aria-checked={selected}
-            tabIndex={selected ? 0 : -1}
+            tabIndex={index === tabStop ? 0 : -1}
             variant={selected ? 'secondary' : 'ghost'}
             size="sm"
             disabled={disabled || option.disabled}

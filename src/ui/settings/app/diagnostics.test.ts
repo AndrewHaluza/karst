@@ -109,4 +109,15 @@ describe('applyQuotaPatch (Q4-SAVE)', () => {
       claudeGlobalStatusline: true,
     });
   });
+
+  it('runs the host validator, so clearing one key beside a sibling re-fills the default', () => {
+    // setQuota deletes warnThresholdPct, then validateQuota({ claudeGlobalStatusline })
+    // re-fills 80 before the write. The local mirror must agree, or the field
+    // snaps back and Agents stays dirty against a baseline the file never held.
+    const base = manifest({ host: 'localhost', quota: { warnThresholdPct: 90, claudeGlobalStatusline: true } });
+    expect(applyQuotaPatch(base, { warnThresholdPct: null }).quota).toEqual({
+      warnThresholdPct: 80,
+      claudeGlobalStatusline: true,
+    });
+  });
 });

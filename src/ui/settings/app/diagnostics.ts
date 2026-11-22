@@ -17,6 +17,7 @@
 import type { Manifest } from '../../../manifest/types.js';
 import type { QuotaPatch } from '../messages.js';
 import { REVIEW_MAX_FIX_ATTEMPTS } from '../../../manifest/qualityDefaults.js';
+import { validateQuota } from '../../../manifest/validate/quota.js';
 import type { SettingsSection } from '../sections.js';
 import { evidenceErrors, readStallDetection, stallErrors } from './sections/qualityDraft.js';
 import { DEFAULT_START_STATUS } from '../../../workflow/stages/startDefaults.js';
@@ -71,6 +72,12 @@ export function hasInlineFieldFault(raw: string | null, section: SettingsSection
  * Shared by the reducer's `quota-saved` case: the Accounts tab saves at once, so
  * the patch has to land on BOTH the draft and the baseline — otherwise the next
  * unrelated Agents Save would write the old threshold back.
+ *
+ * The merge goes through the SAME `validateQuota` the host runs before writing
+ * (R-X1: import the rule, never mirror it). Clearing `warnThresholdPct` with a
+ * sibling key present therefore re-fills the default exactly as the file on
+ * disk does; a local "delete the key" left the baseline disagreeing with disk
+ * and snapped the field back on the next state push.
  */
 export function applyQuotaPatch(manifest: Manifest, patch: QuotaPatch): Manifest {
   const nextQuota: Record<string, unknown> = { ...(manifest.quota ?? {}) };
@@ -82,7 +89,7 @@ export function applyQuotaPatch(manifest: Manifest, patch: QuotaPatch): Manifest
   }
   const next = { ...manifest } as Record<string, unknown>;
   if (Object.keys(nextQuota).length === 0) delete next.quota;
-  else next.quota = nextQuota;
+  else next.quota = validateQuota(nextQuota);
   return next as unknown as Manifest;
 }
 
