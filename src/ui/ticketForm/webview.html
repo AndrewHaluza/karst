@@ -2883,7 +2883,14 @@
   // `change` on the region covers every control, including re-mounted ones.
   // formPersist owns the settings edit too, so a successful save clears it
   // with the text fields.
-  document.querySelector('[data-region="settings"]').addEventListener('change', () => {
+  // Settings controls whose change is not a ticket edit: the key is form text
+  // (formPersist tracks it on input), and the status only filters the search.
+  const NOT_SETTINGS_EDITS = new Set(['ref', 'searchStatus']);
+  document.querySelector('[data-region="settings"]').addEventListener('change', (e) => {
+    // A form bound to a ticket row: each set-* action stores the pick on the host
+    // at once, so nothing is left unsaved for Cancel to ask about.
+    if (lastState && lastState.mode === 'edit' && Number.isInteger(lastState.ticketId)) return;
+    if (e.target instanceof Element && NOT_SETTINGS_EDITS.has(e.target.id)) return;
     formPersist.touchSettings();
   });
   el('cancelBtn').addEventListener('click', () => {

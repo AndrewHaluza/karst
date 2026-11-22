@@ -692,6 +692,29 @@ describe('ticket form — Cancel asks only when the form was edited (SET-54, Q13
     expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
   });
 
+  it('in edit mode a settings pick posts a plain close-form: the host already stored it', () => {
+    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T' }));
+    v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form' });
+  });
+
+  it('in edit mode a typed field still posts dirty: true', () => {
+    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T' }));
+    const title = v.query<HTMLTextAreaElement>('#title')!;
+    title.value = 'T edited';
+    title.dispatchEvent(new v.window.Event('input', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form', dirty: true });
+  });
+
+  it('the search status filter is not an edit', () => {
+    const v = open(baseState({ provider: 'clickup' }));
+    v.query('#searchStatus')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
+    v.click('#cancelBtn');
+    expect(v.posted.at(-1)).toEqual({ type: 'close-form' });
+  });
+
   it('a settings change that Save draft stored posts a plain close-form', () => {
     const v = open(baseState({ title: 'Saved title' }));
     v.query('#typeSelect')!.dispatchEvent(new v.window.Event('change', { bubbles: true }));
