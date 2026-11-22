@@ -62,6 +62,9 @@ import { ensureAntigravityWorkspaceTrusted } from './workspaceTrust.js';
 const AGY_BIN = 'agy';
 /** agy file tools refuse a relative path ("must be an absolute path"); the other cores accept one. */
 export const AGY_ABSOLUTE_PATH_RULE = 'Give an absolute path to every file tool. agy refuses a relative path.';
+/** agy plan mode refuses a write with ArtifactMetadata outside its brain dir; a plain write_file works. */
+export const AGY_PLAN_FILES_RULE =
+  'Write plan and session files with plain write_file and no ArtifactMetadata; agy refuses an artifact outside its own dir.';
 
 function assertSafeAgentName(name: string): void {
   if (
@@ -293,10 +296,15 @@ export class AntigravityAdapter implements AgentAdapter {
     for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
     // The instruction layer is a pointer in the kickoff, after any leading
     // slash command, so the agent reads `$KARST_INSTRUCTIONS` before it starts.
+    // The plan-files rule rides after it in plan mode (readOnly) only.
     const kickoff = opts.instructions
       ? withInstructionsPointer(
           opts.initialPrompt,
-          `${renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions.path)} ${AGY_ABSOLUTE_PATH_RULE}`,
+          [
+            renderInstructionsPointer(KARST_INSTRUCTIONS_ENV, opts.instructions.path),
+            AGY_ABSOLUTE_PATH_RULE,
+            ...(opts.readOnly ? [AGY_PLAN_FILES_RULE] : []),
+          ].join(' '),
         )
       : opts.initialPrompt;
     // `-i` takes the kickoff as one argv entry; spill an oversized one to a
