@@ -259,7 +259,7 @@ export async function missingPathsViaGitBatch(
   const perRef = variants.reduce((n, v) => n + v.length, 0);
   const lines = [
     ...refs.map((r) => `${r}^{commit}`),
-    ...refs.flatMap((r) => variants.flatMap((vs) => vs.map((v) => `${r}:${v}`))),
+    ...refs.flatMap((r) => variants.flatMap((vs) => vs.map((v) => `${r}:./${v}`))),
   ];
   const out = (await batch(target.repoPath, `${lines.join('\n')}\n`)).split('\n');
   const found = (i: number): boolean => OBJECT_LINE.test(out[i] ?? '');

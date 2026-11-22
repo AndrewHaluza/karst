@@ -1015,7 +1015,7 @@ describe('planning outbox', () => {
           input
             .split('\n')
             .filter(Boolean)
-            .map((l) => (l.endsWith('^{commit}') || !missing.some((m) => l.endsWith(`:${m}`)) ? `${'a'.repeat(40)} blob 1` : `${l} missing`))
+            .map((l) => (l.endsWith('^{commit}') || !missing.some((m) => l.endsWith(`:./${m}`)) ? `${'a'.repeat(40)} blob 1` : `${l} missing`))
             .join('\n'),
         );
       it('adds the missing-path warning once the batch answers, holding checking until then', async () => {

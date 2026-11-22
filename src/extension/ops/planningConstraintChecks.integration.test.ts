@@ -34,6 +34,20 @@ describe('gitCatFileBatch + missingPathWarnings against a real repository', () =
     expect(w).toEqual(['missing path at base: src/gone.ts']);
     expect(batch).toHaveBeenCalledTimes(1);
   });
+  it('resolves paths from a repoPath that is a subdirectory of the git root', async () => {
+    const root = repo();
+    mkdirSync(join(root, 'pkg', 'src'), { recursive: true });
+    writeFileSync(join(root, 'pkg', 'src', 'b.ts'), 'export {};\n');
+    execFileSync('git', ['add', '.'], { cwd: root, stdio: 'ignore' });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@e', 'commit', '-q', '-m', 'pkg'], { cwd: root, stdio: 'ignore' });
+    const w = await missingPathWarnings(
+      ['src/b.ts', 'src/a.ts'],
+      [{ repoPath: join(root, 'pkg'), baseBranch: 'main' }],
+      gitCatFileBatch,
+      vi.fn(),
+    );
+    expect(w).toEqual(['missing path at base: src/a.ts']);
+  });
   it('rejects with the git error for a directory that is not a repository', async () => {
     const plain = mkdtempSync(join(tmpdir(), 'karst-nogit-'));
     dirs.push(plain);

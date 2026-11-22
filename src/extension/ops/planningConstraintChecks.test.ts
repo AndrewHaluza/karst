@@ -324,22 +324,22 @@ describe('pathVariants', () => {
 describe('missingPathsViaGitBatch', () => {
   const target = { repoPath: '/r', baseBranch: 'develop' };
   it('sends every ref and every path in ONE batch and uses origin/<base> first', async () => {
-    const batch = fakeBatch((l) => l === 'origin/develop^{commit}' || l === 'develop^{commit}' || l === 'origin/develop:src/a.ts' || l === 'develop:src/b.ts');
+    const batch = fakeBatch((l) => l === 'origin/develop^{commit}' || l === 'develop^{commit}' || l === 'origin/develop:./src/a.ts' || l === 'develop:./src/b.ts');
     expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], batch)).toEqual(['src/b.ts']);
     expect(batch.calls).toHaveLength(1);
     expect(batch.calls[0]!.lines.slice(0, 3)).toEqual(['origin/develop^{commit}', 'develop^{commit}', 'HEAD^{commit}']);
   });
   it('falls back to the local branch, then HEAD', async () => {
-    const local = fakeBatch((l) => l === 'develop^{commit}' || l === 'develop:src/a.ts');
+    const local = fakeBatch((l) => l === 'develop^{commit}' || l === 'develop:./src/a.ts');
     expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], local)).toEqual(['src/b.ts']);
-    const head = fakeBatch((l) => l === 'HEAD^{commit}' || l === 'HEAD:src/b.ts');
+    const head = fakeBatch((l) => l === 'HEAD^{commit}' || l === 'HEAD:./src/b.ts');
     expect(await missingPathsViaGitBatch(target, ['src/a.ts', 'src/b.ts'], head)).toEqual(['src/a.ts']);
   });
   it('is undefined when no ref resolves', async () => {
     expect(await missingPathsViaGitBatch(target, ['src/a.ts'], fakeBatch(() => false))).toBeUndefined();
   });
   it('a .js path counts as present when its .ts or .tsx source exists', async () => {
-    const batch = fakeBatch((l) => l === 'origin/develop^{commit}' || l === 'origin/develop:src/a.ts' || l === 'origin/develop:src/b.tsx');
+    const batch = fakeBatch((l) => l === 'origin/develop^{commit}' || l === 'origin/develop:./src/a.ts' || l === 'origin/develop:./src/b.tsx');
     expect(await missingPathsViaGitBatch(target, ['src/a.js', 'src/b.js', 'src/c.js'], batch)).toEqual(['src/c.js']);
   });
   it('reads a line as present only when it is "<sha> <type> <size>"', async () => {
@@ -353,7 +353,7 @@ describe('missingPathWarnings', () => {
   const t2 = { repoPath: '/r2', baseBranch: 'main' };
   const resolves = (l: string) => l.endsWith('^{commit}');
   it('runs one batch per target and warns on a path missing in every target', async () => {
-    const batch = fakeBatch((l) => resolves(l) || l === 'origin/main:src/a.ts');
+    const batch = fakeBatch((l) => resolves(l) || l === 'origin/main:./src/a.ts');
     const w = await missingPathWarnings(['src/a.ts', 'src/b.ts'], [t1, t2], batch, vi.fn());
     expect(w).toEqual(['missing path at base: src/b.ts']);
     expect(batch.calls.map((c) => c.repoPath)).toEqual(['/r1', '/r2']);
@@ -372,7 +372,7 @@ describe('missingPathWarnings', () => {
     const batch = fakeBatch(resolves);
     const paths = Array.from({ length: 60 }, (_, i) => `src/f${i}.ts`);
     await missingPathWarnings([...paths, 'src/f0.ts', 'src/x\n.ts', 'src/y\r.ts'], [t1], batch, vi.fn());
-    const pathLines = batch.calls[0]!.lines.filter((l) => l.startsWith('HEAD:'));
+    const pathLines = batch.calls[0]!.lines.filter((l) => l.startsWith('HEAD:./'));
     expect(pathLines).toHaveLength(MAX_CHECKED_PATHS);
     expect(pathLines.some((l) => /[\r\n]/.test(l))).toBe(false);
   });
@@ -393,7 +393,7 @@ describe('missingPathWarnings', () => {
     expect(debug).toHaveBeenCalledWith(expect.stringMatching(/^\[planning\] .*\/r2.*no base ref/));
   });
   it('a path present in one checked target and missing in another is not reported', async () => {
-    const batch: GitBatch = async (repoPath, input) => fakeBatch((l) => resolves(l) || (repoPath === '/r2' && l === 'origin/main:src/a.ts'))(repoPath, input);
+    const batch: GitBatch = async (repoPath, input) => fakeBatch((l) => resolves(l) || (repoPath === '/r2' && l === 'origin/main:./src/a.ts'))(repoPath, input);
     expect(await missingPathWarnings(['src/a.ts'], [t1, t2], batch, vi.fn())).toEqual([]);
   });
   it('clips a long path to keep the warning at 60 chars', async () => {
