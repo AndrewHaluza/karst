@@ -1340,6 +1340,7 @@ CREATE TABLE IF NOT EXISTS planning_proposals (
   depends_on_tickets TEXT NOT NULL DEFAULT '[]',
   priority_override TEXT CHECK (priority_override IN ('urgent', 'high', 'normal', 'low')),
   depends_dropped TEXT NOT NULL DEFAULT '[]',
+  revision_count INTEGER NOT NULL DEFAULT 0,
   status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'discarded')),
   ticket_id    INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
   source_uuid  TEXT NOT NULL DEFAULT '',

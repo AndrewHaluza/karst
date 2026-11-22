@@ -3115,5 +3115,13 @@ function migrateLocked(db: Database): void {
     if (gateCols134.size > 0 && !gateCols134.has('skip_reason')) db.exec('ALTER TABLE gate_runs ADD COLUMN skip_reason TEXT');
   }
 
+  if (current < 135) {
+    // v135: `planning_proposals.revision_count` — how many times a planner revised a pending draft in place (only `updateProposalPayload` increments it; @arch:PLANNING). Additive; 0 for every pre-v135 row: no backfill from `updated_at`, which accept, discard and late warnings/base shas also bump.
+    const proposalCols135 = tableColumns(db, 'planning_proposals');
+    if (proposalCols135.size > 0 && !proposalCols135.has('revision_count')) {
+      db.exec('ALTER TABLE planning_proposals ADD COLUMN revision_count INTEGER NOT NULL DEFAULT 0');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

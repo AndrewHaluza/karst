@@ -72,8 +72,11 @@ export interface PlanningReport {
       readonly core: string;
       readonly model: string | null;
     })[];
-    /** Revise and accept both bump `updated_at`, so the two cannot be told apart. */
-    readonly revisedBeforeAccept: { readonly value: null; readonly missing: string };
+    /**
+     * Accepted drafts the planner revised at least once (`revision_count > 0`, v135) before accept.
+     * A pre-v135 row reads 0 (no backfill), so the rate is a floor for older drafts.
+     */
+    readonly revisedBeforeAccept: { readonly revised: number; readonly accepted: number; readonly rate: number | null };
   };
   readonly outcome: PlanningOutcome;
   readonly splits: readonly PlanningSplit[];
@@ -87,6 +90,8 @@ interface DraftRow {
   model: string | null;
   status: 'pending' | 'accepted' | 'discarded';
   ticket_id: number | null;
+  /** v135; NULL never occurs on a migrated DB (NOT NULL DEFAULT 0), read defensively. */
+  revision_count: number | null;
   created_at: string;
   payload_json: string;
   depends_on: string;
@@ -240,6 +245,16 @@ function constraintBucket(n: number | null): string {
   return n <= 5 ? '1-5' : '6+';
 }
 
+function revisionBucket(n: number | null): string {
+  return (n ?? 0) > 0 ? '1+' : '0';
+}
+
+function revisedBeforeAccept(rows: readonly DraftRow[]): PlanningReport['funnel']['revisedBeforeAccept'] {
+  const accepted = rows.filter((r) => r.status === 'accepted');
+  const revised = accepted.filter((r) => (r.revision_count ?? 0) > 0).length;
+  return { revised, accepted: accepted.length, rate: ratio(revised, accepted.length) };
+}
+
 function reposBucket(n: number | null): string {
   if (n === null) return UNREADABLE;
   return n >= 3 ? '3+' : String(n);
@@ -271,6 +286,7 @@ function buildSplits(store: Store, drafts: readonly DraftRow[]): PlanningSplit[]
     }),
     bucketize(store, 'summary length', drafts, (d) => summary(trait(d).summaryLength)),
     bucketize(store, 'repos', drafts, (d) => reposBucket(trait(d).repos)),
+    bucketize(store, 'revised', drafts, (d) => revisionBucket(d.revision_count)),
   ];
 }
 
@@ -282,7 +298,7 @@ function loadDrafts(store: Store, scope: MetricsScope): DraftRow[] {
   return store.db
     .prepare(
       `SELECT pp.id AS id, pp.session_id AS session_id, s.core AS core, s.model AS model,
-              pp.status AS status, t.id AS ticket_exists, pp.ticket_id AS ticket_id,
+              pp.status AS status, pp.revision_count AS revision_count, t.id AS ticket_exists, pp.ticket_id AS ticket_id,
               pp.created_at AS created_at, pp.payload_json AS payload_json,
               pp.depends_on AS depends_on, t.stage_current AS stage_current,
               t.archived_at AS archived_at
@@ -330,11 +346,7 @@ export function collectPlanning(
         model: rs[0]!.model,
         ...funnelCounts(rs),
       })),
-      revisedBeforeAccept: {
-        value: null,
-        missing:
-          'planning_proposals has no revision stamp or counter (`updated_at` is also bumped by accept); needs a `revised_at` or `revision_count` column',
-      },
+      revisedBeforeAccept: revisedBeforeAccept(rows),
     },
     outcome: outcomeFor(store, born),
     splits: buildSplits(store, born),
