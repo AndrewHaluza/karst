@@ -47,6 +47,7 @@ describe('repo hygiene: dependency dirs are ignored even as symlinks', () => {
         return { path, sha: meta.split(' ')[1] ?? '' };
       });
     expect(entries.map((e) => e.path)).toContain('AGENTS.md');
+    const strykerIgnores: unknown = JSON.parse(readFileSync(join(repoRoot, 'stryker.config.json'), 'utf8')).ignorePatterns;
     for (const { path, sha } of entries) {
       const blob = spawnSync('git', ['cat-file', '-p', sha], { cwd: repoRoot, encoding: 'utf8' });
       expect(blob.status, `git cat-file failed for ${path}`).toBe(0);
@@ -56,6 +57,10 @@ describe('repo hygiene: dependency dirs are ignored even as symlinks', () => {
       expect(expected, `unexpected tracked symlink ${path} -> ${target}`).toBeDefined();
       expect(target, `${path} must point at ${expected}`).toBe(expected);
       if (skill) {
+        // Stryker copies every project file into its sandbox with copyFile, which fails
+        // on a directory symlink (EISDIR on Linux, ENOTSUP on macOS) and breaks every
+        // mutation run, so the mirror folder must stay in its ignorePatterns.
+        expect(strykerIgnores, 'stryker.config.json ignorePatterns must hold .agents').toContain('.agents');
         expect(
           existsSync(join(repoRoot, '.claude', 'skills', skill, 'SKILL.md')),
           `${path} mirrors a skill with no .claude/skills/${skill}/SKILL.md`,

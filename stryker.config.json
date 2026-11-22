@@ -18,5 +18,5 @@
   "disableTypeChecks": "src/extension/**/*.ts",
   "thresholds": { "high": 85, "low": 75, "break": 85 },
   "timeoutMS": 60000,
-  "ignorePatterns": [".claude", ".karst", "reports", "coverage", "test-results", "dist"]
+  "ignorePatterns": [".claude", ".agents", ".karst", "reports", "coverage", "test-results", "dist"]
 }
