@@ -27,6 +27,7 @@ import { runProcess } from './gates/run.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import { openRecoveryRound, listRecoveryRounds } from '../store/recoveryRounds.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
+import { insertOpenPark, claimUsageLimitPark } from '../store/usageLimitParks.js';
 import { spinTicket } from '../runtime/spin.js';
 import { stopTicketServers } from '../runtime/supervisor.js';
 
@@ -815,6 +816,76 @@ describe('driveTicket', () => {
     // The review runner's findings adapter is the SAME instrumented adapter the
     // process resolved — no second resolution path to keep in sync.
     expect(seenReviewDeps?.findingsAdapter).toBe(adapterB);
+  });
+
+  // T1313 / @arch:AC-65 (a): a pick with carry, then a review lane on the
+  // parked provider runs on the picked core — the review bundle is built ONCE,
+  // with the carried override, and feeds both the process and the findings
+  // adapter. The UAT lane resolves to another provider and ignores the carry.
+  it('runs the review lane on a carried usage-limit pick while its role resolves to the parked provider', async () => {
+    const adapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => ({ command: 'fake', args: [], env: {} }),
+      runHeadless: async () => ({ sessionId: '', verdict: null, raw: '[]' }),
+    };
+    const parkId = insertOpenPark(store, {
+      ticketId: id, stage: 'review', kind: 'op', lane: 'analysis', target: null,
+      provider: 'codex', model: 'gpt-6', detail: 'Codex usage limit reached.', keptOutcome: null,
+      parkedAt: '2026-11-22T10:00:00.000Z',
+    });
+    claimUsageLimitPark(store, parkId, 'pick', '2026-11-22T10:05:00.000Z', {
+      provider: 'claude', model: 'claude-opus-5-5', until: '2026-11-22T15:05:00.000Z',
+    });
+    const resolveUatTester = vi.fn((_: number, override?: { provider: string; model: string | null }) => ({
+      assignment: { agentName: 'UAT Agent', provider: (override?.provider ?? 'claude') as 'claude' },
+      adapter,
+    }));
+    const resolveReviewProcess = vi.fn((_: number, override?: { provider: string; model: string | null }) => ({
+      assignment: {
+        agentName: 'Review Agent',
+        provider: (override?.provider ?? 'codex') as 'codex',
+        ...(override?.model ? { model: override.model } : {}),
+      },
+      adapter,
+    }));
+    const carryActivity = vi.fn();
+    const debug = vi.fn();
+    let seenReviewDeps: ReviewDeps | undefined;
+    let seenUatDeps: UatDeps | undefined;
+
+    await driveTicket(
+      deps({
+        uatTester: resolveUatTester,
+        reviewProcess: resolveReviewProcess,
+        laneProvider: (_id, role) => (role === 'review' ? 'codex' : 'claude'),
+        carryActivity,
+        carryNow: () => new Date('2026-11-22T12:00:00.000Z'),
+        debug,
+      }),
+      id,
+      {
+        runUat: async (s, opts, runnerDeps) => {
+          seenUatDeps = runnerDeps;
+          return { kind: 'advanced', next: transition(s, opts.ticketId, 'uat', { kind: 'passed' }) };
+        },
+        runReview: async (s, opts, runnerDeps) => {
+          seenReviewDeps = runnerDeps;
+          return { kind: 'advanced', next: transition(s, opts.ticketId, 'review', { kind: 'passed' }) };
+        },
+      },
+    );
+
+    expect(resolveReviewProcess).toHaveBeenCalledTimes(1);
+    expect(resolveReviewProcess).toHaveBeenCalledWith(id, { provider: 'claude', model: 'claude-opus-5-5' });
+    expect(seenReviewDeps?.reviewProcess?.assignment).toMatchObject({ provider: 'claude', model: 'claude-opus-5-5' });
+    expect(seenReviewDeps?.findingsAdapter).toBe(adapter);
+    expect(resolveUatTester).toHaveBeenCalledTimes(1);
+    expect(resolveUatTester).toHaveBeenCalledWith(id);
+    expect(seenUatDeps?.tester?.assignment.provider).toBe('claude');
+    expect(carryActivity).toHaveBeenCalledTimes(1);
+    expect(carryActivity.mock.calls[0]![1]).toMatch(/^used claude\/claude-opus-5-5 from the usage-limit pick until /);
+    expect(debug.mock.calls.filter(([m]) => String(m).includes('from the usage-limit pick'))).toHaveLength(1);
   });
 
   // Task 3: the process callbacks return `DriveProcessBundle | null` — NULL is

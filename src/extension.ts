@@ -101,7 +101,8 @@ import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding } from './extension/storedArtifactBinding.js';
 import { createInteractiveUsageLimitBinding } from './extension/interactiveUsageLimitBinding.js';
-import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, driverLockedRun } from './extension/usageLimitParkBinding.js';
+import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, makeUsageLimitCarryPicker, driverLockedRun } from './extension/usageLimitParkBinding.js';
+import { makeCarriedPickWiring } from './extension/ops/carriedPickWiring.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
 import { TicketChangesManager } from './ui/diffs/panel.js';
@@ -1411,6 +1412,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // (`manifest/validate/processAssignments.ts`), because the Settings row
   // renders a different explanation per group and must not carry its own copy.
   const promptBearingRoles = new Set<ProcessRole>(PROMPT_BEARING_ROLES);
+  // T1313 (@arch:AC-65); `quotaService` is declared later and read only at a carry step.
+  const carriedPick = makeCarriedPickWiring({ store: localStore, fallbackProjectId: () => currentProject()?.id, quotaFor: (core) => quotaService.get(core),
+    debug: (m) => logger.debug(m), manifest: () => currentManifest() ?? emptyManifest(), catalog: () => modelCatalog });
   const processFor = (
     // Undefined = no ticket yet (a create panel's pre-mint "is it enabled" probe):
     // resolves the role's configured assignment with no ticket picks.
@@ -2229,6 +2233,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // reads as configured absence (the form's analyze refuses).
       resolveAnalysisProcess: analysisProcess,
       pickUsageLimitAgentModel: makeUsageLimitAgentModelPicker(() => modelCatalog),
+      pickUsageLimitCarry: makeUsageLimitCarryPicker(),
+      quotaResetFor: carriedPick.quotaResetFor,
       onChange: () => provider.refresh(),
       cancelGraphRunForApproachChange: bindApproachChangeCancel(
         () => graphCoordinatorStore && {
@@ -3134,6 +3140,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let serverLifecycleDeps!: ServerLifecycleDeps;
   const usageLimitParks = createUsageLimitParkBinding({
     store: localStore, notify: vscodeNotify, catalog: () => modelCatalog, manifest: currentManifest, redrive: (id) => maybeDrive(id, 'stage-resume'), refresh: (id) => dashboard.pushState(id),
+    quotaResetFor: carriedPick.quotaResetFor,
     withDriverRun: driverLockedRun(driver), // same single-flight lock + Stop signal as a stage run
     adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
     assignmentFor: (ticketId, stageKey, provider, model) => processFor(ticketId, stageKey === 'review' ? 'review' : 'uat-tester', { provider, model })?.assignment,
@@ -3824,8 +3831,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // `enabled: false` resolves to null and the driver omits the
           // process: nothing is created or instrumented for the disabled role,
           // and the Fix seam performs no launch or nudge.
-          uatTester: (id) => processFor(id, 'uat-tester'),
-          reviewProcess: (id) => processFor(id, 'review'),
+          uatTester: (id, override) => processFor(id, 'uat-tester', override),
+          reviewProcess: (id, override) => processFor(id, 'review', override),
+          laneProvider: carriedPick.laneProvider,
+          carryActivity: carriedPick.carryActivity,
           reviewArtifacts: makeReviewArtifactsBinding({
             registry: localStore,
             artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),

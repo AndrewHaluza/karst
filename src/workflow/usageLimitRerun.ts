@@ -6,6 +6,7 @@ import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import {
   claimUsageLimitPark,
   reopenUsageLimitPark,
+  type CarriedPickInput,
   type UsageLimitParkRow,
 } from '../store/usageLimitParks.js';
 import { usageLimitReason } from '../agent/cliFailure.js';
@@ -155,6 +156,11 @@ export interface RerunParkOptions {
   ) => ProcessAssignmentSnapshot | undefined;
   manifest?: Manifest;
   resolution?: string;
+  /**
+   * The opt-in carried pick (@arch:AC-65), written by the claim itself, so a
+   * losing window writes no carry. Absent → one-shot (D159).
+   */
+  carry?: CarriedPickInput;
   cwd: string;
   artifactDir: string;
   signal?: AbortSignal;
@@ -359,7 +365,7 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<RerunPar
   // 1. Claim the park row atomically before building anything or running. A
   // racing window loses here and returns `stopped` without constructing an
   // adapter, opening a stage run, or touching any state.
-  const claim = claimUsageLimitPark(store, parkRow.id, opts.resolution ?? 'rerun', runAt);
+  const claim = claimUsageLimitPark(store, parkRow.id, opts.resolution ?? 'rerun', runAt, opts.carry);
   if (!claim.claimed) {
     opts.debug?.(`[usageLimit] park ${parkRow.id} already claimed or invalid`);
     return { kind: 'stopped', alreadyHandled: true };

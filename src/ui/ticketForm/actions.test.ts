@@ -40,6 +40,8 @@ import {
 } from '../../store/attachments.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { insertOpenPark, listOpenParks } from '../../store/usageLimitParks.js';
+import { activeCarryViews } from './state.js';
+import type { CarryChoice } from '../../workflow/carriedPick.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
@@ -956,6 +958,53 @@ describe('buildTicketFormActions', () => {
     await expect(actions.usageLimitParkPick(parkId)).resolves.toBeUndefined();
 
     expect(ctx.posted).toContainEqual({ type: 'error', message: 'resolver exploded' });
+  });
+
+  // T1313 / @arch:AC-65 (f): the form's Pick offers the carry step; the
+  // carry shows as an active carry, and "Stop using pick" ends it once.
+  it('Pick with "Use for this ticket" writes a carry that Stop using pick ends (T1313)', async () => {
+    const t = createTicket(store, { key: 'T-CARRY-FORM', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+    deps.pickUsageLimitAgentModel = vi.fn(
+      async (): Promise<{ provider: AgentProvider; model: string | null }> => ({ provider: 'codex', model: 'gpt-4o' }),
+    );
+    let shown: string[] = [];
+    deps.pickUsageLimitCarry = vi.fn(async (items: CarryChoice[]) => {
+      shown = items.map((i) => i.label);
+      return items[1];
+    });
+    deps.quotaResetFor = () => new Date(Date.now() + 3_600_000).toISOString();
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkPick(parkId);
+
+    expect(shown[0]).toBe('Only this run');
+    expect(shown[1]).toMatch(/^Use for this ticket until the limit resets \(/);
+    const views = activeCarryViews(store, t.id, new Date());
+    expect(views).toEqual([{ parkId, label: expect.stringMatching(/^Stop using pick: codex\/gpt-4o until .* \(parked on claude\)$/) }]);
+
+    const pushesBefore = ctx.statePushes;
+    actions.usageLimitCarryStop(parkId);
+    expect(activeCarryViews(store, t.id, new Date())).toEqual([]);
+    expect(ctx.statePushes).toBe(pushesBefore + 1);
+
+    actions.usageLimitCarryStop(parkId);
+    expect(ctx.posted.at(-1)).toEqual({ type: 'error', message: 'This pick is no longer in use.' });
+  });
+
+  it('a cancel at the carry step claims nothing (T1313)', async () => {
+    const t = createTicket(store, { key: 'T-CARRY-CANCEL', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.pickUsageLimitAgentModel = vi.fn(
+      async (): Promise<{ provider: AgentProvider; model: string | null }> => ({ provider: 'codex', model: 'gpt-4o' }),
+    );
+    deps.pickUsageLimitCarry = vi.fn(async () => undefined);
+    const ctx = mkCtx(t.id);
+    await buildTicketFormActions(deps)(ctx).usageLimitParkPick(parkId);
+    expect(listOpenParks(store, t.id).map((p) => p.id)).toEqual([parkId]);
+    expect(ctx.posted.at(-1)).toEqual({ type: 'usage-limit-park-cancelled' });
   });
 
   it('Retry re-runs ONLY the parked ANALYSIS op with the parked pair (D159)', async () => {

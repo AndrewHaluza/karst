@@ -680,6 +680,10 @@
      Labels are set per mode by render(); the static text IS the create-mode label. -->
 <div class="actionbar" id="actionBar" data-region="actions">
   <span class="reason" id="actionReason">Add a title to continue</span>
+  <!-- T1313 (@arch:AC-65, @ui:TICKET-FORM-MIGRATION-EXCEPTIONS): "Stop using pick" for the newest active
+       carried usage-limit pick, beside the reason so Cancel stays first and the primary stays last. Hidden
+       unless state.activeCarries has a row. -->
+  <button type="button" class="k-btn k-btn--ghost m-btn hidden" id="carryStopBtn">Stop using pick</button>
   <span class="sp"></span>
   <button type="button" class="k-btn k-btn--ghost m-btn g" id="cancelBtn">Cancel</button>
   <button type="button" class="k-btn k-btn--secondary m-btn" id="saveBtn">Save draft</button>
@@ -1098,6 +1102,12 @@
     const refLabel = state.refLabel || '';
     el('heading').textContent = isEdit ? (refLabel ? 'Edit ' + refLabel : 'Edit ticket') : 'New ticket';
     el('keyChip').textContent = refLabel;
+    // T1313: the newest active carried pick; the host builds the label (UI-R31).
+    const carry = (state.activeCarries || [])[0];
+    const carryBtn = el('carryStopBtn');
+    carryBtn.classList.toggle('hidden', !carry);
+    carryBtn.dataset.parkId = carry ? String(carry.parkId) : '';
+    carryBtn.title = carry ? carry.label : '';
     el('keyChip').classList.toggle('hidden', isEdit || !refLabel);
     // SET-62: the header reads "New ticket · Sub-task of T12", not "New ticket Sub-task of T12".
     el('subhead').textContent = state.subtaskOf ? ' · ' + state.subtaskOf : '';
@@ -2913,6 +2923,10 @@
   document.querySelector('[data-region="settings"]').addEventListener('change', (e) => {
     if (e.target instanceof Element && NOT_SETTINGS_EDITS.has(e.target.id)) return;
     touchSettingsPick();
+  });
+  el('carryStopBtn').addEventListener('click', () => {
+    const parkId = Number(el('carryStopBtn').dataset.parkId);
+    if (Number.isInteger(parkId) && parkId > 0) post({ type: 'usage-limit-carry-stop', parkId });
   });
   el('cancelBtn').addEventListener('click', () => {
     const dirty = formPersist.anyDirty();

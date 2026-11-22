@@ -1497,7 +1497,13 @@ CREATE TABLE IF NOT EXISTS usage_limit_parks (
   kept_outcome TEXT,
   parked_at    TEXT NOT NULL,
   resolved_at  TEXT,
-  resolution   TEXT
+  resolution   TEXT,
+  -- v135 (T1313, @arch:AC-65): the parsed reset instant (NULL = unknown) and the
+  -- opt-in carried pick (NULL = one-shot). Written by the claim, never Settings.
+  reset_at       TEXT,
+  carry_provider TEXT,
+  carry_model    TEXT,
+  carry_until    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_usage_limit_parks_ticket
   ON usage_limit_parks(ticket_id, resolved_at);

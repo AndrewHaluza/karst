@@ -3,7 +3,7 @@ import type { StageKey } from '../model/types.js';
 import { nowIso } from '../model/time.js';
 import { setStage } from './stages.js';
 import { classifyFailure } from '../agent/failureClass.js';
-import { UsageLimitError } from '../agent/cliFailure.js';
+import { UsageLimitError, parseUsageLimitResetAt } from '../agent/cliFailure.js';
 
 /**
  * `usage_limit_parks` (v82, @arch:V82) — one row per AI operation that stopped
@@ -48,7 +48,11 @@ CREATE TABLE IF NOT EXISTS usage_limit_parks (
   kept_outcome TEXT,
   parked_at    TEXT NOT NULL,
   resolved_at  TEXT,
-  resolution   TEXT
+  resolution   TEXT,
+  reset_at       TEXT,
+  carry_provider TEXT,
+  carry_model    TEXT,
+  carry_until    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_usage_limit_parks_ticket
   ON usage_limit_parks(ticket_id, resolved_at);
@@ -89,6 +93,11 @@ export interface UsageLimitParkInput extends UsageLimitParkPayload {
   stageRunId?: number | null;
   /** Injectable clock; defaults to `nowIso()`. */
   parkedAt?: string;
+  /**
+   * The instant the limit resets, when the caller knows it. Absent → parsed
+   * from `detail` (`parseUsageLimitResetAt`); null when neither names one.
+   */
+  resetAt?: string | null;
 }
 
 export interface UsageLimitParkRow {
@@ -107,6 +116,13 @@ export interface UsageLimitParkRow {
   parkedAt: string;
   resolvedAt: string | null;
   resolution: string | null;
+  /** The instant the limit resets (v135, T1313); null = unknown. */
+  resetAt: string | null;
+  /** The carried pick (v135, @arch:AC-65): the core/model later lanes use; null = one-shot. */
+  carryProvider: string | null;
+  carryModel: string | null;
+  /** The carry ends at this instant; null = no carry. */
+  carryUntil: string | null;
 }
 
 interface RawParkRow {
@@ -125,6 +141,10 @@ interface RawParkRow {
   parked_at: string;
   resolved_at: string | null;
   resolution: string | null;
+  reset_at: string | null;
+  carry_provider: string | null;
+  carry_model: string | null;
+  carry_until: string | null;
 }
 
 function rowToPark(r: RawParkRow): UsageLimitParkRow {
@@ -144,6 +164,10 @@ function rowToPark(r: RawParkRow): UsageLimitParkRow {
     parkedAt: r.parked_at,
     resolvedAt: r.resolved_at,
     resolution: r.resolution,
+    resetAt: r.reset_at ?? null,
+    carryProvider: r.carry_provider ?? null,
+    carryModel: r.carry_model ?? null,
+    carryUntil: r.carry_until ?? null,
   };
 }
 
@@ -263,12 +287,14 @@ export function insertOpenPark(store: Store, input: UsageLimitParkInput): number
   const stageRunId = input.stageRunId ?? null;
   const model = input.model ?? null;
   const keptOutcome = input.keptOutcome ?? null;
+  const resetAt =
+    input.resetAt !== undefined ? input.resetAt : parseUsageLimitResetAt(input.detail, new Date(parkedAt));
   const existing = findOpenId(store, input);
   if (existing !== null) {
     store.db
       .prepare(
         `UPDATE usage_limit_parks
-         SET stage_run_id = ?, provider = ?, model = ?, detail = ?, kept_outcome = ?, parked_at = ?
+         SET stage_run_id = ?, provider = ?, model = ?, detail = ?, kept_outcome = ?, parked_at = ?, reset_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -278,6 +304,7 @@ export function insertOpenPark(store: Store, input: UsageLimitParkInput): number
         input.detail,
         mergeKeptOutcome(existing.keptOutcome, keptOutcome),
         parkedAt,
+        resetAt,
         existing.id,
       );
     return existing.id;
@@ -286,8 +313,8 @@ export function insertOpenPark(store: Store, input: UsageLimitParkInput): number
     .prepare(
       `INSERT INTO usage_limit_parks
          (ticket_id, stage, kind, lane, target, session_id, stage_run_id,
-          provider, model, detail, kept_outcome, parked_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          provider, model, detail, kept_outcome, parked_at, reset_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.ticketId,
@@ -302,6 +329,7 @@ export function insertOpenPark(store: Store, input: UsageLimitParkInput): number
       input.detail,
       keptOutcome,
       parkedAt,
+      resetAt,
     );
   return Number(info.lastInsertRowid);
 }
@@ -328,6 +356,14 @@ export function resolveOpenParks(
   return info.changes;
 }
 
+/** What an opt-in carried pick writes on the claimed row (@arch:AC-65). */
+export interface CarriedPickInput {
+  provider: string;
+  model: string | null;
+  /** ISO-8601: the carry ends at this instant. */
+  until: string;
+}
+
 export type ClaimParkResult =
   | { claimed: true; park: UsageLimitParkRow }
   | { claimed: false; park: null };
@@ -349,17 +385,30 @@ export function claimUsageLimitPark(
   parkId: number,
   resolution: string,
   at?: string,
+  /**
+   * The opt-in carried pick (@arch:AC-65): written in the SAME conditional
+   * UPDATE as `resolved_at`, so only the claim winner's carry lands. Absent →
+   * one-shot (the default, D159); the carry columns stay NULL.
+   */
+  carry?: CarriedPickInput,
 ): ClaimParkResult {
   const resolvedAt = at ?? nowIso();
   const apply = store.db.transaction((): ClaimParkResult => {
     const raw = store.db
       .prepare(
         `UPDATE usage_limit_parks
-         SET resolved_at = ?, resolution = ?
+         SET resolved_at = ?, resolution = ?, carry_provider = ?, carry_model = ?, carry_until = ?
          WHERE id = ? AND resolved_at IS NULL
          RETURNING *`,
       )
-      .get(resolvedAt, resolution, parkId) as RawParkRow | undefined;
+      .get(
+        resolvedAt,
+        resolution,
+        carry?.provider ?? null,
+        carry ? carry.model : null,
+        carry?.until ?? null,
+        parkId,
+      ) as RawParkRow | undefined;
 
     if (!raw) {
       return { claimed: false, park: null };
@@ -422,7 +471,8 @@ export function reopenUsageLimitPark(
     const raw = store.db
       .prepare(
         `UPDATE usage_limit_parks
-         SET resolved_at = NULL, resolution = NULL
+         SET resolved_at = NULL, resolution = NULL,
+             carry_provider = NULL, carry_model = NULL, carry_until = NULL
          WHERE id = ? AND resolved_at IS NOT NULL
          RETURNING *`,
       )
@@ -502,5 +552,80 @@ export function recordUsageLimitOpPark(
     detail: limit?.message ?? (error instanceof Error ? error.message : String(error)),
     keptOutcome: null,
     parkedAt: input.parkedAt,
+    // The raw provider text first: the stored sentence caps it.
+    ...(limit?.detail
+      ? { resetAt: resetFromTexts([limit.detail, limit.message], input.parkedAt) }
+      : {}),
   });
+}
+
+function resetFromTexts(texts: readonly string[], parkedAt: string | undefined): string | null {
+  const now = new Date(parkedAt ?? nowIso());
+  for (const text of texts) {
+    const at = parseUsageLimitResetAt(text, now);
+    if (at !== null) return at;
+  }
+  return null;
+}
+
+const TERMINAL_STAGES = new Set(['done', 'closed']);
+
+function isLiveTicket(store: Store, ticketId: number): boolean {
+  const row = store.db
+    .prepare('SELECT stage_current, archived_at FROM tickets WHERE id = ?')
+    .get(ticketId) as { stage_current: string | null; archived_at: string | null } | undefined;
+  return !!row && row.archived_at === null && !TERMINAL_STAGES.has(row.stage_current ?? '');
+}
+
+function isAfter(iso: string | null, now: Date): boolean {
+  if (iso === null) return false;
+  const at = Date.parse(iso);
+  return !Number.isNaN(at) && at > now.getTime();
+}
+
+/**
+ * The ticket's carried picks still in force at `now`, newest claim first
+ * (@arch:AC-65). A carry is a claimed `pick` row with `carry_provider` set and
+ * `carry_until > now`; `carry_until <= now` ended it with no write. A done,
+ * closed or archived ticket has none.
+ */
+export function listActiveCarries(store: Store, ticketId: number, now: Date): UsageLimitParkRow[] {
+  if (!isLiveTicket(store, ticketId)) return [];
+  const rows = store.db
+    .prepare(
+      `SELECT * FROM usage_limit_parks
+       WHERE ticket_id = ? AND resolved_at IS NOT NULL AND resolution = 'pick'
+         AND carry_provider IS NOT NULL AND carry_until IS NOT NULL
+       ORDER BY resolved_at DESC, id DESC`,
+    )
+    .all(ticketId) as RawParkRow[];
+  return rows.map(rowToPark).filter((p) => isAfter(p.carryUntil, now));
+}
+
+/**
+ * The lane guard's one read (@arch:AC-65): the newest active carry of this
+ * ticket whose PARKED provider is `provider` (the lane's resolved core), or
+ * null. Pure read — no write, no Settings, no role.
+ */
+export function resolveCarriedPick(
+  store: Store,
+  ticketId: number,
+  provider: string,
+  now: Date,
+): UsageLimitParkRow | null {
+  return listActiveCarries(store, ticketId, now).find((p) => p.provider === provider) ?? null;
+}
+
+/**
+ * "Stop using pick": end one carry now by setting `carry_until = at`. Only a
+ * row of `ticketId` whose carry is still in force changes; returns true when
+ * one did.
+ */
+export function stopCarriedPick(store: Store, ticketId: number, parkId: number, at: Date): boolean {
+  const active = listActiveCarries(store, ticketId, at).some((p) => p.id === parkId);
+  if (!active) return false;
+  const info = store.db
+    .prepare('UPDATE usage_limit_parks SET carry_until = ? WHERE id = ? AND ticket_id = ?')
+    .run(at.toISOString(), parkId, ticketId);
+  return info.changes > 0;
 }
