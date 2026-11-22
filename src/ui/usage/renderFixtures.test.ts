@@ -118,7 +118,7 @@ describe('usage render fixtures', () => {
       const totalFresh = Number(f.state.totals.totalExact.replace(/,/g, ''));
       for (const row of [...f.state.byProvider, ...f.state.byActivity, ...f.state.byModel, ...f.state.byProfile]) {
         expect(row.totalDisplay, `${f.scenario} ${row.key}`).toBe(formatTokens(row.totalTokens));
-        expect(row.totalExact, `${f.scenario} ${row.key}`).toBe(formatExactTokens(row.totalTokens));
+        expect(row.totalExact, `${f.scenario} ${row.key}`).toBe(formatExactTokens(row.totalTokens, 'en-US'));
         expect(row.share, `${f.scenario} ${row.key}`).toBe(
           totalFresh === 0 ? 0 : Math.round((row.totalTokens / totalFresh) * 1000) / 10,
         );
@@ -128,7 +128,7 @@ describe('usage render fixtures', () => {
       }
       for (const t of f.state.tickets) {
         expect(t.totalDisplay, `${f.scenario} ${t.label}`).toBe(formatTokens(t.totalTokens));
-        expect(t.totalExact, `${f.scenario} ${t.label}`).toBe(formatExactTokens(t.totalTokens));
+        expect(t.totalExact, `${f.scenario} ${t.label}`).toBe(formatExactTokens(t.totalTokens, 'en-US'));
         const at = t.lastAt!;
         expect(t.lastDisplay).toBe(formatCalendarDate(at, FIXTURE_NOW, DATE_OPTS));
         expect(t.lastTitle).toBe(formatFullDateTime(at, DATE_OPTS));
@@ -179,7 +179,9 @@ describe('usage render fixtures', () => {
     ].join(' ');
     expect(allText).toContain('<script>alert(1)</script>');
     expect(allText).toContain('A & B "quoted" <b>');
-    expect(allText.length).toBeGreaterThan(300);
+    // One VISIBLE breakdown label is the long string, so the clip/wrap rule is actually exercised (UI-R44):
+    // the old fixture kept HOSTILE_LONG only in a tooltip, which let a clipped label pass.
+    expect(hostile.state.byModel.some((r) => r.label.length >= 300)).toBe(true);
     expect(hostile.state.counts.models).toBe('12 models');
     expect(hostile.state.byModel).toHaveLength(7);
     expect(hostile.state.byModel[6]).toMatchObject({ key: '__other__', label: 'Other (6)' });

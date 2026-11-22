@@ -73,7 +73,9 @@
   .brow{padding:var(--k-space-3) 0}
   .brow + .brow{border-top:var(--k-border-w) solid var(--k-border)}
   .brow .line{display:flex;align-items:baseline;gap:var(--k-space-4)}
-  .brow .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* A breakdown label may be a long model or call-site key: wrap it and show the whole text (UI-R19, UI-R44),
+     rather than clipping it to an ellipsis with only a mouse tooltip. */
+  .brow .lbl{min-width:0;overflow-wrap:anywhere}
   .brow .amt{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none;
     font-variant-numeric:tabular-nums}
   .brow .pct{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-dim);flex:none;
@@ -181,8 +183,9 @@
     .stat .n{grid-column:1 / -1}
     .qheadbar{flex-wrap:wrap}
     .qheadbar .k-btn{margin-left:0}
-    thead{position:absolute;width:var(--k-border-w);height:var(--k-border-w);overflow:hidden;
-      clip:rect(0 0 0 0);white-space:nowrap}
+    /* The card rows carry their own data-labels. Hide the header outright rather than clipping it to 1x1:
+       its sort buttons would stay in the tab order while invisible (UI-R23). */
+    thead{display:none}
     tbody tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
       column-gap:var(--k-space-4);row-gap:var(--k-space-2);padding:var(--k-space-5) var(--k-space-6);
       border-bottom:var(--k-border-w) solid var(--k-border)}
@@ -320,9 +323,11 @@
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -361,7 +366,11 @@
       ` tabindex="${t.id === state.tab ? '0' : '-1'}">${esc(t.label)}</button>`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -492,7 +501,7 @@
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -525,7 +534,10 @@
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -543,7 +555,7 @@
       `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="${esc(nextOffset)}" title="${nextTitle}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -553,17 +565,16 @@
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -626,21 +637,27 @@
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -654,7 +671,11 @@
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)

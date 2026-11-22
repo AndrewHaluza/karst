@@ -280,6 +280,19 @@ describe('usage render', () => {
       } finally { h.close(); }
     });
 
+    it('toasts a tab switch whose read fails, and keeps the action pending across a background push (UI-R27)', () => {
+      const { h, fixture } = open('host-failure');
+      try {
+        (h.query('#tab-quota') as HTMLElement).click();
+        // A background push arrives first (no error): it must not consume the tab action.
+        h.receive({ type: 'state', state: { ...fixture.state, error: null, updatedLabel: 'Updated 10:43' } });
+        expect(h.query('#k-toast-root')).toBeNull();
+        // The tab's own read fails with the same message: still announced.
+        h.receive({ type: 'state', state: { ...fixture.state, tab: 'quota' } });
+        expect(h.query('#k-toast-root')).not.toBeNull();
+      } finally { h.close(); }
+    });
+
     it('hides the Quota empty state when the host read failed (UI-R31, US-2)', () => {
       const state = usageErrorState(
         { tab: 'quota', sort: 'calls', offset: 0, limit: 20 },

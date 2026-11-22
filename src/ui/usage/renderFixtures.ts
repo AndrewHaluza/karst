@@ -227,7 +227,7 @@ const HOSTILE_LONG = 'Y'.repeat(300);
 /** 12 models so the host-side top-6 cap produces `Other (6)` (US-23). */
 const HOSTILE_KEY = 'HOSTILE-LONG-TITLE';
 const HOSTILE_ROWS: RawTicket[] = Array.from({ length: 12 }, (_, i) =>
-  ticket(i, (['claude', 'codex', 'opencode'] as const)[i % 3]!, `hostile-model-${i}`, i === 0 ? HOSTILE_LABEL : 'implementation', 12_000 - i * 1_000, {
+  ticket(i, (['claude', 'codex', 'opencode'] as const)[i % 3]!, i === 3 ? HOSTILE_LONG : `hostile-model-${i}`, i === 0 ? HOSTILE_LABEL : 'implementation', 12_000 - i * 1_000, {
     calls: 1,
     daysAgo: i,
     ...(i === 0 ? { activityNote: HOSTILE_DETAIL } : {}),
@@ -329,7 +329,7 @@ function breakdownRows(
       callsText: plural(group.calls, 'call', 'calls'),
       totalTokens: group.fresh,
       totalDisplay: formatTokens(group.fresh),
-      totalExact: formatExactTokens(group.fresh),
+      totalExact: formatExactTokens(group.fresh, DATE_OPTS.locale),
       inputDisplay: formatTokens(group.input),
       outputDisplay: formatTokens(group.output),
       share: shareOfTotal(group.fresh, freshTotal),
@@ -359,7 +359,7 @@ function profileRows(groups: GroupTotals[], freshTotal: number): UsageProfileRow
       callsText: plural(group.calls, 'call', 'calls'),
       totalTokens: group.fresh,
       totalDisplay: formatTokens(group.fresh),
-      totalExact: formatExactTokens(group.fresh),
+      totalExact: formatExactTokens(group.fresh, DATE_OPTS.locale),
       inputDisplay: formatTokens(group.input),
       outputDisplay: formatTokens(group.output),
       share: shareOfTotal(group.fresh, freshTotal),
@@ -384,8 +384,8 @@ function totalsView(rows: RawTicket[]): UsageTotalsView {
   return {
     calls,
     totalDisplay: formatTokens(fresh),
-    totalExact: formatExactTokens(fresh),
-    totalNote: `${formatExactTokens(fresh)} tokens`,
+    totalExact: formatExactTokens(fresh, DATE_OPTS.locale),
+    totalNote: `${formatExactTokens(fresh, DATE_OPTS.locale)} tokens`,
     inputDisplay: formatTokens(input),
     outputDisplay: formatTokens(output),
     reasoningDisplay: formatTokens(reasoning),
@@ -457,7 +457,7 @@ function buildState(options: BuildStateOptions): UsageState {
       calls: row.calls,
       totalTokens: fresh,
       totalDisplay: formatTokens(fresh),
-      totalExact: formatExactTokens(fresh),
+      totalExact: formatExactTokens(fresh, DATE_OPTS.locale),
       inputDisplay: formatTokens(row.input),
       outputDisplay: formatTokens(row.output),
       lastAt: lastAtOf(row),

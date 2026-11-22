@@ -185,7 +185,10 @@ describe('token-usage webview.html', () => {
 
   it('announces an action’s failure through the one shared toast live region, not a second region on #err (UI-R27, US-14)', () => {
     const script = scriptBlock();
-    expect(script).toContain("if (userActionPending) karstToast('error', state.error)");
+    expect(script).toContain("if (pendingUserActions > 0) karstToast('error', state.error)");
+    // A count, settled by the action-result, so a background push cannot consume the action's announcement.
+    expect(script).toContain('pendingUserActions = Math.max(0, pendingUserActions - 1)');
+    expect(script).not.toContain('userActionPending');
     expect(HTML).not.toMatch(/id="err"[^>]*role=/);
     expect(HTML).not.toMatch(/id="err"[^>]*aria-live=/);
     expect(script).toContain("el('errText').textContent = state.error || ''");

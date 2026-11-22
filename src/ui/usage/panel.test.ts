@@ -290,6 +290,27 @@ describe('UsagePanelManager', () => {
     }
   });
 
+  it('waits for the action promise before posting the action-result (UI-R13)', async () => {
+    let settle!: () => void;
+    const openQuotaSettings = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW, openQuotaSettings });
+    mgr.open();
+    const panel = host.panels[0]!;
+    panel.emit({ type: 'open-quota-settings', requestId: 'r3' });
+    await Promise.resolve();
+    // The ack waits for the host effect: no premature action-result while it runs.
+    expect(panel.posted.some((m) => m.type === 'action-result')).toBe(false);
+    settle();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(panel.posted.find((m) => m.type === 'action-result')).toEqual({
+      type: 'action-result',
+      requestId: 'r3',
+      ok: true,
+    });
+  });
+
   it('dispatches the quota and ticket actions to their host effects (US-13, US-15, US-31)', () => {
     const openQuotaSettings = vi.fn();
     const createTicket = vi.fn();

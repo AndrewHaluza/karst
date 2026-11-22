@@ -491,9 +491,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -532,7 +534,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -663,7 +669,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -696,7 +702,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -714,7 +723,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -724,17 +733,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -797,21 +805,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -825,7 +839,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -1326,9 +1344,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -1367,7 +1387,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -1498,7 +1522,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -1531,7 +1555,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -1549,7 +1576,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -1559,17 +1586,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -1632,21 +1658,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -1660,7 +1692,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -2161,9 +2197,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -2202,7 +2240,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -2333,7 +2375,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -2366,7 +2408,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -2384,7 +2429,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -2394,17 +2439,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -2467,21 +2511,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -2495,7 +2545,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -2996,9 +3050,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -3037,7 +3093,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -3168,7 +3228,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -3201,7 +3261,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -3219,7 +3282,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -3229,17 +3292,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -3302,21 +3364,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -3330,7 +3398,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -3396,7 +3468,7 @@ exports[`usage render > hostile > snapshot 1`] = `
           </section>
           <section class="panel">
             <h2 class="phead">By model<span class="count" id="modelCount" aria-label="12 models">12</span></h2>
-            <div class="pbody" id="models"><div class="brow"><div class="line"><span class="lbl" title="hostile-model-0">hostile-model-0</span><span class="amt" title="12,000 tokens">12k</span><span class="pct">15.4%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:15.4%"></i></div><div class="meta">1 call · in 4.8k · out 5.4k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-1">hostile-model-1</span><span class="amt" title="11,000 tokens">11k</span><span class="pct">14.1%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:14.1%"></i></div><div class="meta">1 call · in 4.4k · out 5k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-2">hostile-model-2</span><span class="amt" title="10,000 tokens">10k</span><span class="pct">12.8%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:12.8%"></i></div><div class="meta">1 call · in 4k · out 4.5k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-3">hostile-model-3</span><span class="amt" title="9,000 tokens">9k</span><span class="pct">11.5%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:11.5%"></i></div><div class="meta">1 call · in 3.6k · out 4.1k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-4">hostile-model-4</span><span class="amt" title="8,000 tokens">8k</span><span class="pct">10.3%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:10.3%"></i></div><div class="meta">1 call · in 3.2k · out 3.6k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-5">hostile-model-5</span><span class="amt" title="7,000 tokens">7k</span><span class="pct">9%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:9%"></i></div><div class="meta">1 call · in 2.8k · out 3.2k</div></div><div class="brow"><div class="line"><span class="lbl" title="Other (6)">Other (6)</span><span class="amt" title="21,000 tokens">21k</span><span class="pct">26.9%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:26.9%"></i></div><div class="meta">6 calls · in 8.4k · out 9.5k</div></div></div>
+            <div class="pbody" id="models"><div class="brow"><div class="line"><span class="lbl" title="hostile-model-0">hostile-model-0</span><span class="amt" title="12,000 tokens">12k</span><span class="pct">15.4%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:15.4%"></i></div><div class="meta">1 call · in 4.8k · out 5.4k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-1">hostile-model-1</span><span class="amt" title="11,000 tokens">11k</span><span class="pct">14.1%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:14.1%"></i></div><div class="meta">1 call · in 4.4k · out 5k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-2">hostile-model-2</span><span class="amt" title="10,000 tokens">10k</span><span class="pct">12.8%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:12.8%"></i></div><div class="meta">1 call · in 4k · out 4.5k</div></div><div class="brow"><div class="line"><span class="lbl" title="YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY">YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY</span><span class="amt" title="9,000 tokens">9k</span><span class="pct">11.5%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:11.5%"></i></div><div class="meta">1 call · in 3.6k · out 4.1k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-4">hostile-model-4</span><span class="amt" title="8,000 tokens">8k</span><span class="pct">10.3%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:10.3%"></i></div><div class="meta">1 call · in 3.2k · out 3.6k</div></div><div class="brow"><div class="line"><span class="lbl" title="hostile-model-5">hostile-model-5</span><span class="amt" title="7,000 tokens">7k</span><span class="pct">9%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:9%"></i></div><div class="meta">1 call · in 2.8k · out 3.2k</div></div><div class="brow"><div class="line"><span class="lbl" title="Other (6)">Other (6)</span><span class="amt" title="21,000 tokens">21k</span><span class="pct">26.9%</span></div><div class="bar" aria-hidden="true"><i class="bar-nz" style="width:26.9%"></i></div><div class="meta">6 calls · in 8.4k · out 9.5k</div></div></div>
           </section>
           <section class="panel">
             <h2 class="phead">Graph spend by profile<span class="count" id="profileCount" aria-label="1 profile">1</span></h2>
@@ -3831,9 +3903,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -3872,7 +3946,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -4003,7 +4081,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -4036,7 +4114,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -4054,7 +4135,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -4064,17 +4145,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -4137,21 +4217,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -4165,7 +4251,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -4666,9 +4756,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -4707,7 +4799,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -4838,7 +4934,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -4871,7 +4967,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -4889,7 +4988,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -4899,17 +4998,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -4972,21 +5070,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -5000,7 +5104,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -5501,9 +5609,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -5542,7 +5652,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -5673,7 +5787,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -5706,7 +5820,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -5724,7 +5841,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -5734,17 +5851,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -5807,21 +5923,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -5835,7 +5957,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -6336,9 +6462,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -6377,7 +6505,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -6508,7 +6640,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -6541,7 +6673,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -6559,7 +6694,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -6569,17 +6704,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -6642,21 +6776,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -6670,7 +6810,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -7171,9 +7315,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -7212,7 +7358,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -7343,7 +7493,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -7376,7 +7526,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -7394,7 +7547,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -7404,17 +7557,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -7477,21 +7629,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -7505,7 +7663,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -8006,9 +8168,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -8047,7 +8211,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -8178,7 +8346,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -8211,7 +8379,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -8229,7 +8400,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -8239,17 +8410,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -8312,21 +8482,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -8340,7 +8516,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -8841,9 +9021,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -8882,7 +9064,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -9013,7 +9199,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -9046,7 +9232,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -9064,7 +9253,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -9074,17 +9263,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -9147,21 +9335,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -9175,7 +9369,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -9676,9 +9874,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -9717,7 +9917,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -9848,7 +10052,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -9881,7 +10085,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -9899,7 +10106,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -9909,17 +10116,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -9982,21 +10188,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -10010,7 +10222,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)
@@ -10511,9 +10727,11 @@ function agentIdentityHtml(provider, model, compact) {
   // The last error string already surfaced through the toast, so a re-render
   // of an unchanged rejected query does not re-announce it (UI-R27).
   let lastErrorShown = null;
-  // True only between a user action (sort/page/refresh) and the next state, so
-  // an error on open stays inline and only an action's failure toasts (US-14).
-  let userActionPending = false;
+  // In-flight user actions (tab/sort/page/refresh/retry/refresh-quota/…). An error on open stays inline;
+  // only an action's failure toasts (US-14). A count, not a flag: a background push that arrives while
+  // the action is still in flight must not consume the action's announcement (UI-R27).
+  let pendingUserActions = 0;
+  const markUserAction = () => { pendingUserActions += 1; };
 
   const icon = (name) => (typeof karstIcon === 'function' ? karstIcon(name) : '');
 
@@ -10552,7 +10770,11 @@ function agentIdentityHtml(provider, model, compact) {
       \` tabindex="\${t.id === state.tab ? '0' : '-1'}">\${esc(t.label)}</button>\`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        // A tab switch is a user action too: a read that fails after it toasts (US-14, UI-R27).
+        markUserAction();
+        post({ type: 'set-tab', tab: btn.dataset.tab, requestId });
+      }, { tier: 'view' });
     }
   };
 
@@ -10683,7 +10905,7 @@ function agentIdentityHtml(provider, model, compact) {
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-sort', sort: btn.dataset.sort, requestId });
       }, { tier: 'view' });
     }
@@ -10716,7 +10938,10 @@ function agentIdentityHtml(provider, model, compact) {
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
+      karstAction(btn, (requestId) => {
+        markUserAction();
+        post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId });
+      }, { tier: 'view' });
     }
 
     const p = state.page;
@@ -10734,7 +10959,7 @@ function agentIdentityHtml(provider, model, compact) {
       \`<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-dir="next" data-page="\${esc(nextOffset)}" title="\${nextTitle}"\${p.hasNext ? '' : ' disabled'}>Next</button>\`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
       karstAction(btn, (requestId) => {
-        userActionPending = true;
+        markUserAction();
         post({ type: 'set-page', offset: Number(btn.dataset.page), requestId });
       }, { tier: 'view' });
     }
@@ -10744,17 +10969,16 @@ function agentIdentityHtml(provider, model, compact) {
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && (userActionPending || state.error !== lastErrorShown)) {
+    if (shown && (pendingUserActions > 0 || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
       // inline. A retry that fails with the SAME message is still a new result
       // the user asked for, so it is announced again (UI-R27, US-14).
-      if (userActionPending) karstToast('error', state.error);
+      if (pendingUserActions > 0) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
       lastErrorShown = null;
     }
-    userActionPending = false;
   };
 
   const renderSpend = (state) => {
@@ -10817,21 +11041,27 @@ function agentIdentityHtml(provider, model, compact) {
   // Header and empty-state controls are static, so they bind once.
   el('errIcon').innerHTML = icon('circle-x');
   karstAction(el('refreshBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('retryBtn'), (requestId) => {
-    userActionPending = true;
+    markUserAction();
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
-  karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
+  karstAction(el('createTicketBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'create-ticket', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('refreshQuotaBtn'), (requestId) => {
     // A quota refresh the user asked for can fail with the same message as the
     // last read; it is still announced (UI-R27, US-14).
-    userActionPending = true;
+    markUserAction();
     post({ type: 'refresh-quota', requestId });
   }, { tier: 'mutation' });
-  karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
+  karstAction(el('quotaSettingsBtn'), (requestId) => {
+    markUserAction();
+    post({ type: 'open-quota-settings', requestId });
+  }, { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {
     const msg = e.data;
@@ -10845,7 +11075,11 @@ function agentIdentityHtml(provider, model, compact) {
         /* state persistence is best-effort */
       }
     }
-    else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
+    else if (msg.type === 'action-result') {
+      // The action settled; a later background push must no longer count as its announcement (UI-R27).
+      pendingUserActions = Math.max(0, pendingUserActions - 1);
+      karstSettle(msg.requestId, msg.ok, msg.message);
+    }
   });
 
   // The host pushes on open, but a webview that was restored (or reloaded)

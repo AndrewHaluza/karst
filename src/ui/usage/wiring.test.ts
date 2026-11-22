@@ -70,8 +70,10 @@ describe('token-usage host wiring', () => {
   });
 
   it('wires the quota-settings, new-ticket and quota-refresh actions of the view (US-13, US-15, US-31)', () => {
-    expect(EXTENSION).toMatch(/openQuotaSettings: \(\) => void settings\.openAt\('#agents\/accounts'\)/);
-    expect(EXTENSION).toContain("createTicket: () => void vscode.commands.executeCommand('karst.openTicketForm')");
+    // The panel awaits these promises for the terminal action-result (UI-R13): never discard them with `void`.
+    expect(EXTENSION).toMatch(/openQuotaSettings: \(\) => settings\.openAt\('#agents\/accounts'\)/);
+    expect(EXTENSION).toContain("Promise.resolve(vscode.commands.executeCommand('karst.openTicketForm')).then(() => undefined)");
+    expect(EXTENSION).not.toContain("void settings.openAt('#agents/accounts')");
     expect(EXTENSION).toContain('refreshQuota: () => quotaService.refresh()');
   });
 

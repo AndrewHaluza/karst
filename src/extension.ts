@@ -2792,12 +2792,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const tokenUsagePanel = new UsagePanelManager(localStore, restoreHosts.track('usageHost', makeUsagePanelHost(context, brandIcon)), {
     projectId: () => currentProject()?.id,
     openDashboard: (ticketId) =>
-      void vscode.commands.executeCommand('karst.openDashboard', ticketId),
+      Promise.resolve(vscode.commands.executeCommand('karst.openDashboard', ticketId)).then(() => undefined),
     quota: () => quotaService.snapshots(),
     quotaThresholdPct: quotaWarnThresholdPct,
     quotaAccountOf: activeAccountLabel,
-    openQuotaSettings: () => void settings.openAt('#agents/accounts'),
-    createTicket: () => void vscode.commands.executeCommand('karst.openTicketForm'),
+    // Return the promise: the panel awaits it for the terminal action-result (UI-R13), so a rejection is
+    // reported to the webview instead of becoming an unhandled rejection after a premature ack.
+    openQuotaSettings: () => settings.openAt('#agents/accounts'),
+    createTicket: () =>
+      Promise.resolve(vscode.commands.executeCommand('karst.openTicketForm')).then(() => undefined),
     refreshQuota: () => quotaService.refresh().then(() => undefined),
     logError,
   });

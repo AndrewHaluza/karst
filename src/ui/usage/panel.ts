@@ -54,7 +54,7 @@ export interface UsagePanelDeps {
   /** The window's bound project — a getter, since binding resolves at activation. */
   projectId?: () => number | undefined;
   /** Open a ticket's dashboard from a row in the per-ticket table. */
-  openDashboard?: (ticketId: number) => void;
+  openDashboard?: (ticketId: number) => void | Promise<void>;
   /** Cached per-core quota snapshots — the quota tab's data. */
   quota?: () => readonly QuotaSnapshot[];
   /** The manifest's quota warn threshold. */
