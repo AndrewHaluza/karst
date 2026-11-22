@@ -583,6 +583,12 @@
   "src/extension/ops/planningConstraintChecks.ts#commitWarnings": [
     "arch:DRAFT-CONSTRAINTS"
   ],
+  "src/extension/ops/planningConstraintChecks.ts#missingPathWarnings": [
+    "arch:DRAFT-QUALITY"
+  ],
+  "src/extension/ops/planningConstraintChecks.ts#overlapWarnings": [
+    "arch:DRAFT-QUALITY"
+  ],
   "src/extension/ops/planningHistory.ts#gatherPlanningHistory": [
     "arch:PLANNING-HISTORY"
   ],
@@ -759,6 +765,12 @@
   ],
   "src/model/ticketMessaging.ts#checkMessaging": [
     "arch:CLI-11"
+  ],
+  "src/planning/draftQualityChecks.ts#draftQualityWarnings": [
+    "arch:DRAFT-QUALITY"
+  ],
+  "src/planning/draftQualityChecks.ts#extractReferencedPaths": [
+    "arch:DRAFT-QUALITY"
   ],
   "src/planning/preamble.ts#planningInstructions": [
     "arch:PLANNING-HISTORY"
@@ -974,6 +986,9 @@
   ],
   "src/store/deliverRuns.ts": [
     "arch:AP-01"
+  ],
+  "src/store/draftOverlap.ts#listOverlapCandidates": [
+    "arch:DRAFT-QUALITY"
   ],
   "src/store/findingIdentity.ts": [
     "arch:REVIEW-STALL"
