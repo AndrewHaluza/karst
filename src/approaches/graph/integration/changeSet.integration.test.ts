@@ -18,6 +18,7 @@ import {
   validateChangeSet,
   isPathWithinClaim,
   captureUntrackedPaths,
+  captureChangeSet,
   MAX_CHANGE_SET_PATHS,
 } from './changeSet.js';
 import type { GitRunner } from '../../../integrations/git.js';
@@ -168,5 +169,31 @@ describe('validateChangeSet', () => {
   it('an empty declared set accepts nothing', () => {
     const result = validateChangeSet([], [{ path: 'a.ts', kind: 'modified' }]);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('truncated git output fails closed', () => {
+  const truncated: GitRunner = () =>
+    Promise.resolve({ stdout: 'M\ta.ts\n', stdoutTruncated: true, stderr: '', exitCode: 0 });
+  const complete: GitRunner = () =>
+    Promise.resolve({ stdout: 'M\ta.ts\n', stdoutTruncated: false, stderr: '', exitCode: 0 });
+
+  it('captureChangeSet throws when the name-status output was truncated', async () => {
+    await expect(captureChangeSet(truncated, { cwd: '/unused', baseRef: 'abc123' })).rejects.toThrow(
+      'git diff --name-status abc123 output was truncated',
+    );
+  });
+
+  it('captureUntrackedPaths throws when the ls-files output was truncated', async () => {
+    await expect(captureUntrackedPaths(truncated, '/unused')).rejects.toThrow(
+      'git ls-files --others output was truncated',
+    );
+  });
+
+  it('output that was not truncated still parses', async () => {
+    await expect(captureChangeSet(complete, { cwd: '/unused', baseRef: 'abc123' })).resolves.toEqual([
+      { path: 'a.ts', kind: 'modified' },
+    ]);
+    await expect(captureUntrackedPaths(complete, '/unused')).resolves.toEqual(['M\ta.ts']);
   });
 });
