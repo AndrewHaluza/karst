@@ -452,14 +452,17 @@ const AUTOMATIC_BUDGET_REFUSAL_DETAIL =
 
 /**
  * The automatic replan's budget pre-check: true when the run's accepted
- * replan count has reached the active revision document's `budgets.maxReplans`.
- * Read-only. An unparseable or missing revision is NOT "spent" — the election
- * owns that refusal, exactly as before.
+ * replan count has reached `budgets.maxReplans` of the active revision
+ * document (`canonicalGraph`).
+ * Read-only. An unparseable revision is NOT "spent" — the election owns that
+ * refusal, exactly as before.
  */
-function documentReplanBudgetSpent(db: Store['db'], graphRunId: number): boolean {
-  const revision = activeRevision(db, graphRunId);
-  if (!revision) return false;
-  const parsed = parseGraphDocument(revision.canonical_graph);
+function documentReplanBudgetSpent(
+  db: Store['db'],
+  graphRunId: number,
+  canonicalGraph: string,
+): boolean {
+  const parsed = parseGraphDocument(canonicalGraph);
   if (!parsed.ok) return false;
   const count = graphRunStatusReplanCount(db, graphRunId)?.replan_count ?? 0;
   return count >= parsed.document.budgets.maxReplans;
@@ -492,13 +495,8 @@ function replanRecovery(
   // a fresh bootstrap planner. Refusing here left such a run permanently
   // unrecoverable: Resume and Retry both read `explicit-resolution` with
   // nothing a human could actually resolve.
-  const hasActiveRevision =
-    db
-      .prepare(
-        "SELECT id FROM approach_graph_revisions WHERE graph_run_id = ? AND status = 'active'",
-      )
-      .get(input.graphRunId) !== undefined;
-  if (!hasActiveRevision) {
+  const revision = activeRevision(db, input.graphRunId);
+  if (!revision) {
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'recovery',
       graphRunId: input.graphRunId,
@@ -542,7 +540,7 @@ function replanRecovery(
   // the node's failure evidence (e.g. `resource-claim-violated: <paths>`) with
   // a bare `graph-budget-exhausted`. `electReplan` keeps its own check as the
   // race guard for a direct `outcome: 'replan'` report on a running run.
-  if (input.humanReplan !== true && documentReplanBudgetSpent(db, input.graphRunId)) {
+  if (input.humanReplan !== true && documentReplanBudgetSpent(db, input.graphRunId, revision.canonical_graph)) {
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'replan',
       graphRunId: input.graphRunId,
