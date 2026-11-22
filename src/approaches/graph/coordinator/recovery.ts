@@ -25,8 +25,9 @@
  *                       the violation as evidence)
  *                       elect + begin a new planner run (Slice-4 T5),
  *                       subject to the planner/replan budget; an AUTOMATIC
- *                       budget refusal blocks the reporting node
- *                       `graph-budget-exhausted` and is REFUSED here, but an
+ *                       budget refusal is checked BEFORE the claim and is
+ *                       REFUSED here with no row changed (the run keeps its
+ *                       block reason, the node its failure evidence), but an
  *                       explicit human Replan bypasses the document ceiling
  *                       (bounded only by the project maximum)
  *   discard-required    launch-unknown / termination-unknown — never
@@ -107,6 +108,8 @@ import {
 import { emitGraphDiagnostic } from '../diagnostics.js';
 import { ARTIFACT_FAULT_STATUSES, recheckArtifactFaults } from './artifactRecheck.js';
 import { DEFAULT_GRAPH_LIMITS, GRAPH_HARD_CEILINGS } from '../../../manifest/graphConfig.js';
+import { activeRevision } from '../../../store/graph/revisions.js';
+import { parseGraphDocument } from '../parse.js';
 
 /** The one graph blocker kind (defined here, on the graph side; the stage
  *  boundary module and the model's `BlockerKind` refer to this string). */
@@ -442,6 +445,29 @@ function retryReservedVisits(
   return { kind: 'retried', retried, resnapshotted };
 }
 
+const AUTOMATIC_BUDGET_REFUSAL_DETAIL =
+  'refused (config-then-resume): the revision document’s replan budget ' +
+  '(budgets.maxReplans) is exhausted — Replan bypasses it; raise limits.maxReplans ' +
+  'if the project cap is reached';
+
+/**
+ * The automatic replan's budget pre-check: true when the run's accepted
+ * replan count has reached `budgets.maxReplans` of the active revision
+ * document (`canonicalGraph`).
+ * Read-only. An unparseable revision is NOT "spent" — the election owns that
+ * refusal, exactly as before.
+ */
+function documentReplanBudgetSpent(
+  db: Store['db'],
+  graphRunId: number,
+  canonicalGraph: string,
+): boolean {
+  const parsed = parseGraphDocument(canonicalGraph);
+  if (!parsed.ok) return false;
+  const count = graphRunStatusReplanCount(db, graphRunId)?.replan_count ?? 0;
+  return count >= parsed.document.budgets.maxReplans;
+}
+
 /**
  * The replan / compile-new-revision action (Slice-4 T5 machinery). The blocked
  * run is atomically re-opened, then `electReplan` drains it (an AUTOMATIC
@@ -452,7 +478,8 @@ function retryReservedVisits(
  * lives in the frozen revision, so raising config cannot lift it. It is
  * bounded only by the project `limits.maxReplans`, and that check runs BEFORE
  * the run is claimed: at the cap the recovery refuses and mutates NOTHING (no
- * run CAS, no `blocked_reason` change, no node-clobbering budget block).
+ * run CAS, no `blocked_reason` change, no node-clobbering budget block). An
+ * AUTOMATIC replan checks the document budget before the claim the same way.
  */
 function replanRecovery(
   deps: RecoveryDeps,
@@ -468,13 +495,8 @@ function replanRecovery(
   // a fresh bootstrap planner. Refusing here left such a run permanently
   // unrecoverable: Resume and Retry both read `explicit-resolution` with
   // nothing a human could actually resolve.
-  const hasActiveRevision =
-    db
-      .prepare(
-        "SELECT id FROM approach_graph_revisions WHERE graph_run_id = ? AND status = 'active'",
-      )
-      .get(input.graphRunId) !== undefined;
-  if (!hasActiveRevision) {
+  const revision = activeRevision(db, input.graphRunId);
+  if (!revision) {
     emitGraphDiagnostic({ db, debug: deps.debug }, {
       category: 'recovery',
       graphRunId: input.graphRunId,
@@ -487,7 +509,7 @@ function replanRecovery(
   // claim, so a refusal leaves the run `blocked`, the stage block parked, and
   // every node row exactly as it was — the node's original failure reason is
   // never overwritten by a budget block. Automatic replans skip this and
-  // enforce the document budget inside the election.
+  // check the document budget below, also before the claim.
   if (input.humanReplan === true) {
     const cap = deps.projectMaxReplans ?? DEFAULT_GRAPH_LIMITS.maxReplans;
     const count = graphRunStatusReplanCount(db, input.graphRunId)?.replan_count ?? 0;
@@ -510,6 +532,21 @@ function replanRecovery(
       });
       return { kind: 'refused', reason: 'config-then-resume' };
     }
+  }
+
+  // An AUTOMATIC replan is bounded by the frozen revision document's
+  // `budgets.maxReplans`. Check it BEFORE the claim too: claiming first let
+  // `electReplan` refuse after the CAS and overwrite the run's block reason and
+  // the node's failure evidence (e.g. `resource-claim-violated: <paths>`) with
+  // a bare `graph-budget-exhausted`. `electReplan` keeps its own check as the
+  // race guard for a direct `outcome: 'replan'` report on a running run.
+  if (input.humanReplan !== true && documentReplanBudgetSpent(db, input.graphRunId, revision.canonical_graph)) {
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'replan',
+      graphRunId: input.graphRunId,
+      detail: AUTOMATIC_BUDGET_REFUSAL_DETAIL,
+    });
+    return { kind: 'refused', reason: 'config-then-resume' };
   }
 
   const claimed = deps.transaction(() => {
@@ -545,10 +582,7 @@ function replanRecovery(
       emitGraphDiagnostic({ db, debug: deps.debug }, {
         category: 'replan',
         graphRunId: input.graphRunId,
-        detail:
-          'refused (config-then-resume): the revision document’s replan budget ' +
-          '(budgets.maxReplans) is exhausted — Replan bypasses it; raise limits.maxReplans ' +
-          'if the project cap is reached',
+        detail: AUTOMATIC_BUDGET_REFUSAL_DETAIL,
       });
       return { kind: 'refused', reason: 'config-then-resume' };
     }

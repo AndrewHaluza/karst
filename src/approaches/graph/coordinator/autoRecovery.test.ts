@@ -217,6 +217,30 @@ describe('autoRecoverBlockedRuns', () => {
     expect(deps.notes).toHaveLength(0);
   });
 
+  it('does not retry an unchanged resource-claim-violated block refused for a spent budget', async () => {
+    // The replan budget refusal changes no row, so the block reason stays the
+    // claim violation; the in-memory refusal memory stops a retry loop.
+    const f = fixture('resource-claim-violated: b.ts (declared writes: a/**)');
+    const recover = vi.fn(async (): Promise<RecoveryResult> => ({ kind: 'refused', reason: 'config-then-resume' }));
+    const deps = depsFor(f, recover);
+    const memory = createAutoRecoveryMemory();
+    await sweep(f, deps, memory);
+    await sweep(f, deps, memory);
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(deps.lines.filter((l) => l.includes('automatic recovery refused (config-then-resume)'))).toHaveLength(1);
+    expect(graphRunAutoRecovery(f.store.db, f.graphRunId).count).toBe(0);
+  });
+
+  it('runs a refused resource-claim-violated block once more with a new memory (a window reload)', async () => {
+    const f = fixture('resource-claim-violated: b.ts (declared writes: a/**)');
+    const recover = vi.fn(async (): Promise<RecoveryResult> => ({ kind: 'refused', reason: 'config-then-resume' }));
+    const deps = depsFor(f, recover);
+    await sweep(f, deps, createAutoRecoveryMemory());
+    await sweep(f, deps, createAutoRecoveryMemory());
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(graphRunAutoRecovery(f.store.db, f.graphRunId).count).toBe(0);
+  });
+
   it('tries again after the run was unblocked and blocked with the same reason', async () => {
     const f = fixture('node-blocked: n1');
     const recover = vi.fn(async (): Promise<RecoveryResult> => ({ kind: 'refused', reason: 'launch-loop' }));

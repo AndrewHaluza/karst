@@ -244,6 +244,12 @@
   "src/approaches/graph/coordinator/autoRecovery.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/approaches/graph/coordinator/recovery.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
+  "src/approaches/graph/coordinator/replan.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
   "src/approaches/graph/workspace/depsPlan.ts": [
     "arch:GRAPHDEPS"
   ],

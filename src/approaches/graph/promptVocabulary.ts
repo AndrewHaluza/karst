@@ -5,6 +5,33 @@ export const PLANNER_SUBMIT_INSTRUCTION =
   'After writing every artifact and `graph.json`, run `node "$KARST_GRAPH_CLI" graph submit`. Wait for it to report `{"ok":true}`, then exit; karst observes the committed submission and does not depend on the terminal closing.';
 
 /**
+ * The `- replans:` bullet. `budgets.maxReplans` counts the replans of the
+ * WHOLE graph run, so a revision that declares it at or below the replans
+ * already spent permits none. The spent count matches `compileExpertSpend`:
+ * every planner run except the bootstrap one is a replan.
+ */
+function replanBudgetLines(context: CompileContext): string[] {
+  const spentReplans = Math.max(
+    0,
+    context.expertSpend.spentPlannerRuns - (context.expertSpend.bootstrapUnspent ? 0 : 1),
+  );
+  const { maxReplans, maxExpertRuns } = context.projectMaxima;
+  if (spentReplans === 0 && maxReplans === 0) return [];
+  if (spentReplans >= maxReplans) {
+    return [
+      `- replans: ${spentReplans} replans already spent in this graph run, the project maximum is ${maxReplans};`,
+      '  no automatic replans remain. Declare `budgets.maxReplans` equal to the project',
+      `  maximum ${maxReplans}: a value above it fails to compile.`,
+    ];
+  }
+  return [
+    `- replans: ${spentReplans} replans already spent in this graph run, the project maximum is ${maxReplans};`,
+    '  `budgets.maxReplans` counts the replans of the whole run, so declare it above',
+    `  ${spentReplans} and not above ${maxReplans}. The project \`budgets.maxExpertRuns\` cap is ${maxExpertRuns}.`,
+  ];
+}
+
+/**
  * The exact vocabulary a plan for THIS run may name.
  *
  * The planner skill forbids inventing repository, profile and command ids, but
@@ -38,6 +65,7 @@ export function plannerVocabulary(context: CompileContext, artifactRoot = ''): s
           `  so declare \`budgets.maxNodeRuns\` above ${context.spentNodeRuns} plus the node runs this graph needs.`,
         ]
       : []),
+    ...replanBudgetLines(context),
     ...(artifactRoot
       ? [
           `- artifact root: \`${artifactRoot}\` — every \`artifacts[].path\` resolves`,

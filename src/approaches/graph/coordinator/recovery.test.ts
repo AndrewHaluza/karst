@@ -99,6 +99,23 @@ describe('recoverGraphRun', () => {
     return { ticketId, graphRunId, revisionId };
   }
 
+  function setNodeFailure(id: number, category: string, reason: string): void {
+    store.db
+      .prepare('UPDATE approach_node_runs SET failure_category = ?, reason = ? WHERE id = ?')
+      .run(category, reason, id);
+  }
+
+  function nodeFailure(id: number): {
+    status: string;
+    effective_outcome: string | null;
+    failure_category: string | null;
+    reason: string | null;
+  } {
+    return store.db
+      .prepare('SELECT status, effective_outcome, failure_category, reason FROM approach_node_runs WHERE id = ?')
+      .get(id) as ReturnType<typeof nodeFailure>;
+  }
+
   /** A blocked run in the bootstrap phase — no active revision exists yet (the
    *  bootstrap planner died before submitting), the shape the `planner-stale`
    *  reconcile writes. */
@@ -714,28 +731,24 @@ describe('recoverGraphRun', () => {
 
   it('an automatic (node-requested) replan still enforces the document budget', () => {
     // Project headroom is irrelevant to an automatic replan: the document's
-    // frozen maxReplans is the ceiling, exactly as before this ticket.
-    const { ticketId, graphRunId } = blockedGraph(
-      'graph-plan-invalid: planner produced an invalid document',
-      [{ id: 5, status: 'blocked' }],
-      validGraph(1),
-      1,
-    );
+    // frozen maxReplans is the ceiling. The refusal runs BEFORE the claim, so
+    // the run keeps its block reason and the node keeps its failure evidence.
+    const reason = 'graph-plan-invalid: planner produced an invalid document';
+    const { ticketId, graphRunId } = blockedGraph(reason, [{ id: 5, status: 'blocked' }], validGraph(1), 1);
+    setNodeFailure(5, 'graph-plan-invalid', reason);
     const lines: string[] = [];
     const result = recoverGraphRun(
       makeDeps({ projectMaxReplans: 5, debug: (m) => lines.push(m) }),
       { ticketId, graphRunId },
     );
     expect(result).toEqual({ kind: 'refused', reason: 'config-then-resume' });
-    const node = store.db
-      .prepare('SELECT status, effective_outcome, failure_category FROM approach_node_runs WHERE id = 5')
-      .get() as { status: string; effective_outcome: string | null; failure_category: string | null };
-    expect(node).toMatchObject({
+    expect(nodeFailure(5)).toEqual({
       status: 'blocked',
-      effective_outcome: 'blocked',
-      failure_category: 'graph-budget-exhausted',
+      effective_outcome: null,
+      failure_category: 'graph-plan-invalid',
+      reason,
     });
-    expect(runRow(graphRunId)).toEqual({ status: 'blocked', blocked_reason: 'graph-budget-exhausted' });
+    expect(runRow(graphRunId)).toEqual({ status: 'blocked', blocked_reason: reason });
     // The project cap is irrelevant here (5): the truthful exit is Replan.
     expect(lines.join('\n')).toContain('Replan bypasses it');
   });
@@ -907,23 +920,54 @@ describe('recoverGraphRun', () => {
     expect(runRow(graphRunId)).toEqual({ status: 'planning', blocked_reason: null });
   });
 
-  it('a replan-category refusal when maxReplans is exhausted blocks the node graph-budget-exhausted', () => {
-    const { ticketId, graphRunId } = blockedGraph(
-      'graph-plan-invalid: planner produced an invalid document',
-      [{ id: 5, status: 'blocked' }],
-      validGraph(1),
-      1,
-    );
-    const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
+  it('an automatic replan refused by a spent maxReplans keeps the claim-violation evidence', () => {
+    const evidence = 'resource-claim-violated: b.ts (declared writes: a/**)';
+    const { ticketId, graphRunId } = blockedGraph(evidence, [{ id: 5, status: 'blocked' }], validGraph(1), 1);
+    setNodeFailure(5, 'resource-claim-violated', evidence);
+    const lines: string[] = [];
+    const result = recoverGraphRun(makeDeps({ debug: (m) => lines.push(m) }), { ticketId, graphRunId });
     expect(result).toEqual({ kind: 'refused', reason: 'config-then-resume' });
-    const node = store.db
-      .prepare('SELECT status, effective_outcome, failure_category FROM approach_node_runs WHERE id = 5')
-      .get() as { status: string; effective_outcome: string | null; failure_category: string | null };
-    expect(node.status).toBe('blocked');
-    expect(node.effective_outcome).toBe('blocked');
-    expect(node.failure_category).toBe('graph-budget-exhausted');
-    expect(runRow(graphRunId)).toEqual({ status: 'blocked', blocked_reason: 'graph-budget-exhausted' });
+    expect(lines.join('\n')).toContain('refused (config-then-resume)');
+    expect(nodeFailure(5)).toEqual({
+      status: 'blocked',
+      effective_outcome: null,
+      failure_category: 'resource-claim-violated',
+      reason: evidence,
+    });
+    expect(runRow(graphRunId)).toEqual({ status: 'blocked', blocked_reason: evidence });
     expect(stageBlock(store, ticketId, 'impl')).not.toBeNull();
+  });
+
+  it('a human Replan after that refusal hands the planner the claim violation at once', () => {
+    const evidence = 'resource-claim-violated: b.ts (declared writes: a/**)';
+    const { ticketId, graphRunId } = blockedGraph(evidence, [{ id: 5, status: 'blocked' }], validGraph(1), 1);
+    setNodeFailure(5, 'resource-claim-violated', evidence);
+    expect(recoverGraphRun(makeDeps(), { ticketId, graphRunId })).toEqual({
+      kind: 'refused',
+      reason: 'config-then-resume',
+    });
+    const writes: { relativePath: string; bytes: Uint8Array }[] = [];
+    const result = recoverGraphRun(
+      makeDeps({
+        projectMaxReplans: 5,
+        readPrompt: () => new TextEncoder().encode('planner prompt'),
+        writeSnapshot: ((_g: number, relativePath: string, bytes: Uint8Array) => {
+          writes.push({ relativePath, bytes });
+        }) as RecoveryDeps['writeSnapshot'],
+        plannerPromptPath: '/pkg/graph-planner/SKILL.md',
+        ticketContext: 'ticket context',
+      }),
+      { ticketId, graphRunId, mode: 'replan' },
+    );
+    // Allocated at once: the dead claim-violation node does not defer it.
+    expect(result.kind).toBe('replanned');
+    if (result.kind !== 'replanned') return;
+    expect(result.plannerRunId).not.toBeNull();
+    const reasonsWrite = writes.find((w) => w.relativePath.startsWith('reasons/'));
+    const reasons = JSON.parse(new TextDecoder().decode(reasonsWrite!.bytes)) as {
+      claimViolations: Array<{ node: string; evidence: string }>;
+    };
+    expect(reasons.claimViolations).toEqual([{ node: 'n', evidence }]);
   });
 
   it('a command-definition-changed reason routes to the compile-new-revision (replan) tier', () => {
