@@ -203,7 +203,7 @@ import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
 import { getPlacement } from './store/placement.js';
 import { createStallBinding } from './extension/stallBinding.js';
 import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
-import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
+import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, gitCatFileBatch, repoPathsOf, repoTargetsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
 import { createPlanningProposalOps, type ProposalChoice } from './extension/ops/planningProposalOps.js';
@@ -7507,7 +7507,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     knownRepos: () => { const m = currentManifest(); return m && Object.entries(m.repositories).filter(([, d]) => d.enabled !== false).map(([n]) => n); },
     windowId: randomUUID(), now: () => Date.now(), notify, debug: (m) => logger.debug(m),
     onProposal: (p, change) => { provider.refresh(); void proposalOps.announce(p, change); },
-    repoPaths: (names) => repoPathsOf(currentManifest(), names), resolveBaseShas: (names) => resolveBaseShasOf(currentManifest(), names), commitExists: (r, h) => commitExistsViaGit(r, h, execGit), onWarnings: () => provider.refresh() });
+    repoPaths: (names) => repoPathsOf(currentManifest(), names), resolveBaseShas: (names) => resolveBaseShasOf(currentManifest(), names), commitExists: (r, h) => commitExistsViaGit(r, h, execGit),
+    pathTargets: (names) => repoTargetsOf(currentManifest(), names), gitBatch: gitCatFileBatch, onWarnings: () => provider.refresh() });
   planningCheckingIds = () => outbox.checkingIds();
   let planScanTimer: NodeJS.Timeout | undefined;
   const planScan = (): void => { clearTimeout(planScanTimer); planScanTimer = setTimeout(() => { try { outbox.scan(); } catch (e) { logError('planning: outbox scan failed', e); } }, 200); };

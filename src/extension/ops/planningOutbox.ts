@@ -13,13 +13,19 @@ import {
 } from '../../store/planningProposals.js';
 import { MAX_PROPOSAL_BYTES, validateProposal, type Proposal } from '../../planning/proposal.js';
 import { updateTicketFields } from '../../store/tickets.js';
-import { planningOutboxDir } from '../../planning/preamble.js';
+import { planningArtifactsDir, planningOutboxDir } from '../../planning/preamble.js';
+import { draftQualityWarnings, extractReferencedPaths } from '../../planning/draftQualityChecks.js';
 import {
   archWarnings,
   commitWarnings,
+  missingPathWarnings,
+  overlapWarnings,
   sensitivePathWarning,
   type CommitExists,
+  type GitBatch,
+  type PathRepoTarget,
 } from './planningConstraintChecks.js';
+import { listOverlapCandidates } from '../../store/draftOverlap.js';
 import { formatId } from '../../model/entityId.js';
 import { recordOutboxRejection, refreshProposalIndex } from './planningIndex.js';
 import type { Notify } from './notify.js';
@@ -63,6 +69,10 @@ export interface PlanningOutboxDeps {
   resolveBaseShas?(repos: readonly string[]): Promise<Record<string, string>>;
   /** Async `git cat-file` probe for commit constraints; absent = commit check skipped. */
   commitExists?: CommitExists;
+  /** Repo names → distinct (repoPath, base branch) targets for the path probe; absent = path check skipped. */
+  pathTargets?(names: string[]): PathRepoTarget[];
+  /** Async `git cat-file --batch-check`, one per target; absent = path check skipped. */
+  gitBatch?: GitBatch;
   /** A late (async) check added warnings or base shas to a stored proposal. */
   onWarnings?(p: PlanningProposal): void;
 }
@@ -80,6 +90,7 @@ export interface PlanningOutbox {
 type Read = { ok: true; value: Proposal } | { ok: false; reason: string };
 
 const errCode = (e: unknown): string | undefined => (e as NodeJS.ErrnoException | undefined)?.code;
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   const fs = deps.fs ?? nodeFs;
@@ -233,31 +244,81 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     }
   }
 
-  /** Warnings computable without spawning anything: unknown @arch keys, sensitive code with no rule. */
-  function quickWarnings(p: Proposal): string[] {
+  /** True when the session's artifacts dir holds a Markdown file. Reads names only, never content. */
+  function hasPlanArtifact(scratch: string): boolean {
+    try {
+      return fs.readdirSync(planningArtifactsDir(scratch)).some((n) => n.endsWith('.md'));
+    } catch (e) {
+      if (errCode(e) !== 'ENOENT') debug(`artifacts dir unreadable (${errCode(e) ?? 'error'})`);
+      return false;
+    }
+  }
+
+  /** Overlap with open drafts and tickets; a store failure skips the check with a debug line. */
+  function overlapOf(p: Proposal, id: number | undefined): string[] {
+    const projectId = deps.projectId();
+    if (projectId === undefined) return [];
+    try {
+      return overlapWarnings(p, listOverlapCandidates(deps.store, projectId, id, p.dependsOn ?? []));
+    } catch (e) {
+      debug(`overlap check for ${id === undefined ? 'a new draft' : formatId('draft', id)} skipped (${messageOf(e)})`);
+      return [];
+    }
+  }
+
+  /**
+   * Warnings computable without spawning anything: design keys, sensitive code
+   * with no rule, draft quality (`@arch:DRAFT-QUALITY`) and overlap. `id` is the
+   * revised draft, undefined for a new one.
+   */
+  function quickWarnings(p: Proposal, scratch: string, id: number | undefined): string[] {
     const paths = deps.repoPaths?.(p.repos) ?? [];
     return [
       ...archWarnings(p.constraints ?? [], paths, debug),
       ...sensitivePathWarning(p),
+      ...draftQualityWarnings(p, { hasPlanArtifact: hasPlanArtifact(scratch) }),
+      ...overlapOf(p, id),
     ];
   }
 
-  /** True when the async commit probe will run for this draft (a probe and repo paths exist). */
-  function willVerifyCommits(p: Proposal): boolean {
+  /** The commit probe runs when a probe and repo paths exist. */
+  function commitProbeRuns(p: Proposal): boolean {
     return deps.commitExists !== undefined && (deps.repoPaths?.(p.repos) ?? []).length > 0;
   }
 
+  /** The path probe input, or undefined when it does not run (no batch, no target, or no edited path). */
+  function pathProbe(p: Proposal): { paths: string[]; targets: PathRepoTarget[] } | undefined {
+    if (!deps.gitBatch) return undefined;
+    const targets = deps.pathTargets?.(p.repos) ?? [];
+    const paths = extractReferencedPaths(p.description).existing;
+    return targets.length > 0 && paths.length > 0 ? { paths, targets } : undefined;
+  }
+
+  /** True when an async check (commit or path probe) will run for this draft. */
+  function willVerify(p: Proposal): boolean {
+    return commitProbeRuns(p) || pathProbe(p) !== undefined;
+  }
+
   /**
-   * Unknown-commit warnings need git; they land on the stored row once the
-   * probe answers. The `finally` ALWAYS clears this uuid's latch and refreshes
-   * the index (also with no extra warning, and on an error), so `checking:
-   * true` never sticks.
+   * The git-backed warnings (unknown commits, paths missing at base) land on
+   * the stored row once BOTH probes settle, in one write. The `finally` ALWAYS
+   * clears this uuid's latch and refreshes the index (also with no extra
+   * warning, and on an error), so `checking: true` never sticks.
    */
-  function verifyCommits(sessionId: number, scratch: string, id: number, uuid: string, p: Proposal): void {
-    const paths = deps.repoPaths?.(p.repos) ?? [];
-    if (!deps.commitExists || paths.length === 0) return;
-    void commitWarnings(p.constraints ?? [], paths, deps.commitExists, debug)
-      .then((extra) => {
+  function verifyAsync(sessionId: number, scratch: string, id: number, uuid: string, p: Proposal): void {
+    if (!willVerify(p)) return;
+    const probe = pathProbe(p);
+    const commits = commitProbeRuns(p)
+      ? commitWarnings(p.constraints ?? [], deps.repoPaths!(p.repos), deps.commitExists!, debug)
+      : Promise.resolve<string[]>([]);
+    const missing = probe ? missingPathWarnings(probe.paths, probe.targets, deps.gitBatch!, debug) : Promise.resolve<string[]>([]);
+    void Promise.allSettled([commits, missing])
+      .then((settled) => {
+        const extra = settled.flatMap((s) => {
+          if (s.status === 'fulfilled') return s.value;
+          debug(`async check for proposal ${id} failed (${messageOf(s.reason)})`);
+          return [];
+        });
         if (extra.length === 0) return;
         const cur = getProposal(deps.store, id);
         // A revise or resolution since ingest owns the warnings now.
@@ -266,7 +327,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         const row = getProposal(deps.store, id);
         if (row) deps.onWarnings?.(row);
       })
-      .catch((e: unknown) => debug(`commit check for proposal ${id} failed (${e instanceof Error ? e.message : String(e)})`))
+      .catch((e: unknown) => debug(`async checks for proposal ${id} failed (${messageOf(e)})`))
       .finally(() => {
         if (checking.get(id) !== uuid) return;
         checking.delete(id);
@@ -315,17 +376,17 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         reject(sessionId, scratch, claimed, proposal, reason);
         return;
       }
-      updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value));
+      updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value, scratch, requestedId));
       // A revise owns the latch: drop the old uuid's latch first, then set it
       // again only when this revision runs its own async check.
       checking.delete(requestedId);
-      if (willVerifyCommits(read.value)) checking.set(requestedId, uuid);
+      if (willVerify(read.value)) checking.set(requestedId, uuid);
       safeRefresh(sessionId, scratch);
       remove(claimed);
       const row = getProposal(deps.store, requestedId);
       if (row) deps.onProposal(row, 'updated');
       resolveBaseShasLate(requestedId, uuid, read.value);
-      verifyCommits(sessionId, scratch, requestedId, uuid, read.value);
+      verifyAsync(sessionId, scratch, requestedId, uuid, read.value);
       debug(`session ${sessionId}: ${proposal} → proposal ${requestedId} updated`);
       return;
     }
@@ -342,16 +403,16 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       );
       return;
     }
-    const id = insertProposal(deps.store, sessionId, payload, uuid, quickWarnings(read.value));
+    const id = insertProposal(deps.store, sessionId, payload, uuid, quickWarnings(read.value, scratch, undefined));
     // Set the latch BEFORE the first index write, so `draft propose` never
     // sees this entry without `checking` while the probe still runs.
-    if (willVerifyCommits(read.value)) checking.set(id, uuid);
+    if (willVerify(read.value)) checking.set(id, uuid);
     safeRefresh(sessionId, scratch);
     remove(claimed);
     const row = getProposal(deps.store, id);
     if (row) deps.onProposal(row);
     resolveBaseShasLate(id, uuid, read.value);
-    verifyCommits(sessionId, scratch, id, uuid, read.value);
+    verifyAsync(sessionId, scratch, id, uuid, read.value);
     debug(`session ${sessionId}: ${proposal} → proposal ${id}`);
   }
 
