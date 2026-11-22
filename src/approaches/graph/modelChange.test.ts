@@ -7,6 +7,7 @@ import type { Manifest } from '../../manifest/types.js';
 import { harness, NOW, testManifest, type Harness } from './driverHarness.js';
 import { createGraphRun, graphRunAgentIdentity, setGraphRunAgentIdentity } from '../../store/graph/graphRuns.js';
 import { parseRunIdentities, resolveRunIdentities, serializeRunIdentities } from './runIdentity.js';
+import { ticketLaunchFields } from './profileResolver.js';
 import {
   agentSettingsChanged,
   runModelDifference,
@@ -34,7 +35,7 @@ function runWith(h: Harness, preset: 'p1' | 'p2' | null, status: string, ticketI
   return id;
 }
 
-const NO_TICKET = { agentPreset: null, provider: null, model: null, effort: null };
+const NO_TICKET = { agentPreset: null };
 
 const depsOf = (h: Harness, manifest: Manifest) => ({
   db: h.db,
@@ -78,13 +79,57 @@ describe('findModelChanges', () => {
 });
 
 describe('findModelChanges ticket fields', () => {
-  it('reports a run when the ticket now names another core, model or effort', () => {
+  it('reports a run when the ticket now names another agentPreset', () => {
     const h = harness();
     runWith(h, 'p1', 'running');
-    const deps = { ...depsOf(h, manifestWith('p1')), ticketLaunchFieldsOf: () => ({ ...NO_TICKET, effort: 'max' }) };
+    const deps = { ...depsOf(h, manifestWith('p1')), ticketLaunchFieldsOf: () => ({ agentPreset: 'p2' }) };
     const found = findModelChanges(deps);
     expect(found).toHaveLength(1);
     expect(found[0]!.summary.difference).toContain('expert');
+  });
+
+  it('raises no prompt for a live run on a ticket with a stale agentProvider/model/effort (AC-63)', () => {
+    const h = harness();
+    const id = runWith(h, 'p1', 'running');
+    h.db
+      .prepare("UPDATE tickets SET agent_provider = 'opencode2', model = 'kimi-k2', effort = 'max' WHERE id = ?")
+      .run(h.ticketId);
+    const rowOf = (ticketId: number) => {
+      const r = h.db
+        .prepare('SELECT agent_preset, agent_provider, model, effort FROM tickets WHERE id = ?')
+        .get(ticketId) as { agent_preset: string | null; agent_provider: string | null; model: string | null; effort: string | null };
+      expect(r.agent_provider).toBe('opencode2');
+      return { agentPreset: r.agent_preset, agentProvider: r.agent_provider, model: r.model, effort: r.effort };
+    };
+    const deps = { ...depsOf(h, manifestWith('p1')), ticketLaunchFieldsOf: (t: number) => ticketLaunchFields(rowOf(t)) };
+    expect(findModelChanges(deps)).toEqual([]);
+    expect(runModelDifference(deps, id)).toBeUndefined();
+  });
+});
+
+describe('findModelChanges legacy snapshots', () => {
+  const legacyRun = (h: Harness, expert: Record<string, string>): number => {
+    const id = createGraphRun(h.db, { ticketId: h.ticketId, stageAttempt: ++attempt, approachId: 'karst-graph-engineering', now: NOW });
+    const live = resolveRunIdentities(manifestWith('p1'), h.config);
+    setGraphRunAgentIdentity(h.db, id, JSON.stringify({ v: 1, roles: { ...live.roles, expert } }), NOW);
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = ?").run(id);
+    return id;
+  };
+
+  it('detects drift on a stored "source":"ticket" snapshot by provider, model and effort', () => {
+    const h = harness();
+    const id = legacyRun(h, { provider: 'opencode2', model: 'kimi-k2', source: 'ticket' });
+    const found = findModelChanges(depsOf(h, manifestWith('p1')));
+    expect(found.map((c) => c.graphRunId)).toEqual([id]);
+    expect(found[0]!.summary.from).toContain('opencode2/kimi-k2');
+    expect(runModelDifference(depsOf(h, manifestWith('p1')), id)).toContain('→');
+  });
+
+  it('ignores the source of a legacy snapshot whose triple matches the live one', () => {
+    const h = harness();
+    const id = legacyRun(h, { provider: 'claude', model: 'claude-opus-5', effort: 'high', source: 'ticket' });
+    expect(findModelChanges(depsOf(h, manifestWith('p1')))).toEqual([]);
+    expect(runModelDifference(depsOf(h, manifestWith('p1')), id)).toBeUndefined();
   });
 });
 

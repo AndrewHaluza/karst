@@ -27,7 +27,14 @@ import {
 import type { Notify } from './notify.js';
 
 const UUID = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const good = { title: 'Fix auth', description: 'd', summary: 's', repos: ['api'] };
+const good = {
+  title: 'Fix auth',
+  description:
+    'Renew an expired token once in src/auth/session.ts before the request fails.\n' +
+    'Verify: a vitest case for the expired token passes under npx vitest run.',
+  summary: 'The login flow drops users when the token expires; renew it once and keep the retry bounded.',
+  repos: ['api'],
+};
 
 describe('planning outbox', () => {
   let root: string;
@@ -733,8 +740,9 @@ describe('planning outbox', () => {
     });
 
     it('warns for a sensitive path without a rule, not with one', () => {
-      put(`${UUID(1)}.json`, { ...good, description: 'change src/agent/seed.ts' });
-      put(`${UUID(2)}.json`, { ...good, description: 'change src/agent/seed.ts', constraints: ['@arch:RESIDENT'] });
+      const seed = good.description.replace('src/auth/session.ts', 'src/agent/seed.ts');
+      put(`${UUID(1)}.json`, { ...good, description: seed });
+      put(`${UUID(2)}.json`, { ...good, description: seed, constraints: ['@arch:RESIDENT'] });
       withRepo().scan();
       const [a, b] = pending();
       expect(a!.warnings).toEqual(['touches prompt-sensitive code without citing a design rule']);
@@ -914,7 +922,7 @@ describe('planning outbox', () => {
       ob.scan();
       const id = pending()[0]!.id;
       await flush();
-      expect(debug).toHaveBeenCalledWith(`[planning] commit check for proposal ${id} failed (boom)`);
+      expect(debug).toHaveBeenCalledWith(`[planning] async checks for proposal ${id} failed (boom)`);
       expect(ob.checkingIds().size).toBe(0);
     });
 
@@ -939,6 +947,231 @@ describe('planning outbox', () => {
       withRepo().scan();
       expect(pending()).toEqual([]);
       expect(warns.join()).toMatch(/hostWarnings/);
+    });
+
+    describe('draft quality', () => {
+      it('stores the quality warnings of a thin draft', () => {
+        put(`${UUID(1)}.json`, { ...good, description: 'd', summary: 's' });
+        make().scan();
+        expect(pending()[0]!.warnings).toEqual(['description is short (1 chars)', 'summary is short (1 chars)']);
+      });
+      it('flags an inverted draft on ingest and clears it on a fixed revise', () => {
+        const inverted = {
+          ...good,
+          description: `${'Return host warnings to the planner. '.repeat(4)}`,
+          summary: '1. Edit src/cli/draftCommand.ts.\n2. Edit src/extension/ops/planningOutbox.ts.\n3. Run vitest.',
+        };
+        put(`${UUID(1)}.json`, inverted);
+        make().scan();
+        const id = pending()[0]!.id;
+        expect(getProposal(store, id)!.warnings).toContain('plan details in summary instead of description');
+        put(`${UUID(2)}.json`, { ...good, id });
+        make().scan();
+        expect(getProposal(store, id)!.warnings).toEqual([]);
+      });
+      it('reads only the names in <scratch>/artifacts for the dropped-plan check', () => {
+        mkdirSync(join(scratch, 'artifacts'), { recursive: true });
+        writeFileSync(join(scratch, 'artifacts', 'plan.md'), '# plan');
+        put(`${UUID(1)}.json`, good);
+        const readFileSync = vi.fn(nodeFs.readFileSync);
+        make({ fs: { ...nodeFs, readFileSync } as typeof nodeFs }).scan();
+        expect(pending()[0]!.warnings).toEqual(['session has plan artifact but description is short']);
+        expect(readFileSync.mock.calls.some(([p]) => String(p).includes('artifacts'))).toBe(false);
+      });
+      it('ignores a non-Markdown artifact and a missing artifacts dir', () => {
+        put(`${UUID(1)}.json`, good);
+        make().scan();
+        mkdirSync(join(scratch, 'artifacts'), { recursive: true });
+        writeFileSync(join(scratch, 'artifacts', 'shot.png'), 'x');
+        put(`${UUID(2)}.json`, { ...good, title: 'Other' });
+        make().scan();
+        expect(pending().map((p) => p.warnings)).toEqual([[], []]);
+      });
+      it('warns when a new draft overlaps an open ticket, not when it depends on it', () => {
+        const desc = `${good.description}\nAlso src/auth/token.ts.`;
+        const t = createTicket(store, { key: 'K', title: 'k', description: desc, projectId }).id;
+        put(`${UUID(1)}.json`, { ...good, description: desc });
+        put(`${UUID(2)}.json`, { ...good, title: 'Second', description: desc, dependsOn: [`T${t}`] });
+        make().scan();
+        const [a, b] = pending();
+        expect(a!.warnings).toEqual([`overlaps files with T${t} (add dependsOn?)`]);
+        expect(b!.warnings).toEqual([`overlaps files with D${a!.id} (add dependsOn?)`]);
+      });
+      it('a failing overlap query is skipped with a debug line, and the draft is stored', () => {
+        const debug = vi.fn();
+        store.db.exec('ALTER TABLE tickets RENAME TO tickets_gone');
+        put(`${UUID(1)}.json`, good);
+        make({ debug }).scan();
+        store.db.exec('ALTER TABLE tickets_gone RENAME TO tickets');
+        expect(pending()).toHaveLength(1);
+        expect(pending()[0]!.warnings).toEqual([]);
+        expect(debug.mock.calls.some(([l]) => /^\[planning\] overlap check for a new draft skipped \(.+\)$/.test(String(l)))).toBe(true);
+      });
+      it('names the revised draft when its overlap query fails', () => {
+        const debug = vi.fn();
+        put(`${UUID(1)}.json`, good);
+        make({ debug }).scan();
+        const id = pending()[0]!.id;
+        store.db.exec('ALTER TABLE tickets RENAME TO tickets_gone');
+        put(`${UUID(2)}.json`, { ...good, id });
+        make({ debug }).scan();
+        store.db.exec('ALTER TABLE tickets_gone RENAME TO tickets');
+        expect(getProposal(store, id)!.warnings).toEqual([]);
+        expect(debug.mock.calls.some(([l]) => String(l).startsWith(`[planning] overlap check for D${id} skipped (`))).toBe(true);
+      });
+      it('skips the overlap check, without a query or a log, when the project is gone by then', () => {
+        const debug = vi.fn();
+        const desc = `${good.description}\nAlso src/auth/token.ts.`;
+        createTicket(store, { key: 'K', title: 'k', description: desc, projectId });
+        put(`${UUID(1)}.json`, { ...good, description: desc });
+        let calls = 0;
+        make({ debug, projectId: () => (calls++ === 0 ? projectId : undefined) }).scan();
+        expect(pending()[0]!.warnings).toEqual([]);
+        expect(debug.mock.calls.some(([l]) => String(l).includes('overlap check'))).toBe(false);
+      });
+      it('counts a Markdown artifact next to a non-Markdown one', () => {
+        mkdirSync(join(scratch, 'artifacts'), { recursive: true });
+        writeFileSync(join(scratch, 'artifacts', 'shot.png'), 'x');
+        writeFileSync(join(scratch, 'artifacts', 'plan.md'), '# plan');
+        put(`${UUID(1)}.json`, good);
+        make().scan();
+        expect(pending()[0]!.warnings).toEqual(['session has plan artifact but description is short']);
+      });
+      it('stays silent for a missing artifacts dir and logs any other read failure', () => {
+        const debug = vi.fn();
+        put(`${UUID(1)}.json`, good);
+        make({ debug }).scan();
+        expect(debug.mock.calls.some(([l]) => String(l).includes('artifacts dir unreadable'))).toBe(false);
+        writeFileSync(join(scratch, 'artifacts'), 'not a dir');
+        put(`${UUID(2)}.json`, { ...good, title: 'Other' });
+        make({ debug }).scan();
+        expect(debug.mock.calls.some(([l]) => l === '[planning] artifacts dir unreadable (ENOTDIR)')).toBe(true);
+      });
+      it('logs a read failure without a code as a plain error', () => {
+        const debug = vi.fn();
+        const fs = {
+          ...nodeFs,
+          readdirSync: ((...a: Parameters<typeof nodeFs.readdirSync>) => {
+            if (String(a[0]).endsWith('artifacts')) throw new Error('weird');
+            return nodeFs.readdirSync(...a);
+          }) as typeof nodeFs.readdirSync,
+        } as typeof nodeFs;
+        put(`${UUID(1)}.json`, good);
+        make({ debug, fs }).scan();
+        expect(debug.mock.calls.some(([l]) => l === '[planning] artifacts dir unreadable (error)')).toBe(true);
+        expect(pending()).toHaveLength(1);
+      });
+    });
+
+    describe('missing paths at base', () => {
+      const target = { repoPath: '/r', baseBranch: 'main' };
+      const batchMissing = (missing: string[]) =>
+        vi.fn(async (_repo: string, input: string) =>
+          input
+            .split('\n')
+            .filter(Boolean)
+            .map((l) => (l.endsWith('^{commit}') || !missing.some((m) => l.endsWith(`:./${m}`)) ? `${'a'.repeat(40)} blob 1` : `${l} missing`))
+            .join('\n'),
+        );
+      it('adds the missing-path warning once the batch answers, holding checking until then', async () => {
+        const gitBatch = batchMissing(['src/auth/session.ts']);
+        const ob = make({ pathTargets: () => [target], gitBatch });
+        put(`${UUID(1)}.json`, good);
+        ob.scan();
+        const id = pending()[0]!.id;
+        expect(readProposalIndex(scratch)[0]).toMatchObject({ id, checking: true });
+        await flush();
+        expect(getProposal(store, id)!.warnings).toEqual(['missing path at base: src/auth/session.ts']);
+        expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+        expect(gitBatch).toHaveBeenCalledTimes(1);
+      });
+      it('does not run the probe for a draft that names only created paths', async () => {
+        const gitBatch = batchMissing([]);
+        put(`${UUID(1)}.json`, { ...good, description: good.description.replace('Renew', '[NEW] Renew') });
+        make({ pathTargets: () => [target], gitBatch }).scan();
+        expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+        expect(gitBatch).not.toHaveBeenCalled();
+      });
+      it('holds ONE latch for the commit and path probes and merges both warnings', async () => {
+        let releaseCommit!: () => void;
+        const commitGate = new Promise<void>((r) => (releaseCommit = r));
+        const ob = make({
+          repoPaths: () => [repo],
+          commitExists: async () => {
+            await commitGate;
+            return false;
+          },
+          pathTargets: () => [target],
+          gitBatch: batchMissing(['src/auth/session.ts']),
+        });
+        put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+        ob.scan();
+        const id = pending()[0]!.id;
+        await flush();
+        expect(ob.checkingIds().has(id)).toBe(true);
+        releaseCommit();
+        await flush();
+        expect(ob.checkingIds().size).toBe(0);
+        expect(getProposal(store, id)!.warnings).toEqual(['unknown commit abc1234', 'missing path at base: src/auth/session.ts']);
+      });
+      it('does not probe, nor mark checking, without a git batch even when targets exist', async () => {
+        const pathTargets = vi.fn(() => [target]);
+        const ob = make({ pathTargets });
+        put(`${UUID(1)}.json`, good);
+        ob.scan();
+        expect(pending()).toHaveLength(1);
+        expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+        expect(ob.checkingIds().size).toBe(0);
+        expect(pathTargets).not.toHaveBeenCalled();
+      });
+      it('ingests a draft with a git batch but no pathTargets dep, without checking', () => {
+        const gitBatch = batchMissing([]);
+        const debug = vi.fn();
+        const ob = make({ gitBatch, debug });
+        put(`${UUID(1)}.json`, good);
+        ob.scan();
+        expect(pending()).toHaveLength(1);
+        expect(ob.checkingIds().size).toBe(0);
+        expect(gitBatch).not.toHaveBeenCalled();
+        expect(debug).toHaveBeenCalledWith(expect.stringMatching(/→ proposal \d+$/));
+        expect(warns).toEqual([]);
+      });
+      it('does not mark checking when the draft resolves to no path target', () => {
+        const gitBatch = batchMissing([]);
+        const ob = make({ pathTargets: () => [], gitBatch });
+        put(`${UUID(1)}.json`, good);
+        ob.scan();
+        expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+        expect(ob.checkingIds().size).toBe(0);
+        expect(gitBatch).not.toHaveBeenCalled();
+      });
+      it('logs a commit probe that throws synchronously and stores no warning', async () => {
+        const debug = vi.fn();
+        const ob = make({
+          repoPaths: () => [repo],
+          commitExists: () => {
+            throw new Error('sync boom');
+          },
+          debug,
+        });
+        put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+        ob.scan();
+        const id = pending()[0]!.id;
+        await flush();
+        expect(getProposal(store, id)!.warnings).toEqual([]);
+        expect(ob.checkingIds().size).toBe(0);
+        expect(debug.mock.calls.some(([l]) => String(l).includes(`async check for proposal ${id} failed (sync boom)`))).toBe(true);
+      });
+      it('a failing batch leaves no warning and clears checking', async () => {
+        const debug = vi.fn();
+        const ob = make({ pathTargets: () => [target], gitBatch: async () => { throw new Error('no git'); }, debug });
+        put(`${UUID(1)}.json`, good);
+        ob.scan();
+        await flush();
+        expect(pending()[0]!.warnings).toEqual([]);
+        expect(ob.checkingIds().size).toBe(0);
+        expect(debug.mock.calls.some(([l]) => String(l).includes('no git'))).toBe(true);
+      });
     });
   });
 });

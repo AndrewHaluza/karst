@@ -470,13 +470,13 @@ export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): b
 }
 
 /** Stages a ticket never leaves: nothing can unblock a draft that waits on one of them. */
-const FINISHED_STAGES: readonly string[] = ['done', 'closed'];
+export const FINISHED_STAGES: readonly string[] = ['done', 'closed'];
 
 const nodeOfDraft = (id: number): string => `D${id}`;
 const nodeOfTicket = (id: number): string => `T${id}`;
 const nodeOfDep = (d: ProposalDependency): string => (isTicketDep(d) ? d : nodeOfDraft(d));
 /** Sentinel for a create: the draft has no id yet, and no real node is called `new`. */
-const NEW_NODE = 'new';
+export const NEW_NODE = 'new';
 
 /** A ticket dependency problem, or undefined when the ticket is an open one of the project. */
 function ticketDepProblem(store: Store, projectId: number, ticketId: number): string | undefined {
@@ -494,8 +494,9 @@ function ticketDepProblem(store: Store, projectId: number, ticketId: number): st
 }
 
 /** The project's dependency graph: every non-discarded proposal's edges, an
- *  accepted proposal's link to its ticket, and every `blocked-by` relation row. */
-function projectGraph(
+ *  accepted proposal's link to its ticket, and every `blocked-by` relation row.
+ *  Also read by the overlap check (`store/draftOverlap.ts`) for draft connectivity. */
+export function projectGraph(
   store: Store,
   projectId: number,
   incomingId: number | undefined,

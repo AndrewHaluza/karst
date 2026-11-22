@@ -2588,6 +2588,24 @@ describe('buildTicketFormActions', () => {
     expect(ctx.pushes).toBe(2); // setProvider re-pushed, then setPreset
   });
 
+  it('setPreset("") (Inherit) clears the preset and the explicit core/model/effort too (arch:AC-63)', () => {
+    const t = createTicket(store, { key: 'P-INHERIT', title: 't' });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.setPreset('fast');
+    actions.setProvider('opencode2');
+    actions.setModel('kimi-k2');
+    actions.setEffort('max');
+    actions.setPreset('');
+
+    const reloaded = getTicket(store, t.id);
+    expect(reloaded.agentPreset).toBeNull();
+    expect(reloaded.agentProvider).toBeNull();
+    expect(reloaded.model).toBeNull();
+    expect(reloaded.effort).toBeNull();
+  });
+
   it('setBackend persists a host opt-out and clears it, re-pushing state', () => {
     const t = createTicket(store, { key: 'P-BACKEND', title: 't' });
     const ctx = mkCtx(t.id);

@@ -1257,9 +1257,35 @@ const ticketFormVariants = (): Variant[] => {
         },
       },
     });
+  // T1308 (arch:AC-63): a legacy graph ticket whose row still holds a stale core, model and
+  // effort. The picker shows the preset only, and the chips stay preset/approach.
+  const graphRolesLegacyCore = () =>
+    withState({
+      ...edit,
+      approaches: [{ id: 'karst-graph-engineering', label: 'Dynamic Graph', description: '', recommended: true, installed: true, enabled: true }],
+      selectedApproach: 'karst-graph-engineering',
+      agentProviders: ['claude', 'codex', 'opencode2'],
+      agentPresetNames: ['fast', 'deep'],
+      selectedAgentPreset: null,
+      defaultAgentPreset: 'fast',
+      selectedAgentProvider: 'opencode2',
+      selectedModel: 'kimi-k2',
+      selectedEffort: 'max',
+      graphRoles: {
+        'karst-graph-engineering': {
+          '': [
+            { role: 'expert', text: 'Antigravity · Gemini 4 Neon · high', source: 'preset' },
+            { role: 'worker', text: 'Claude Code · Sonnet 5.5 · low', source: 'approach' },
+            { role: 'fast', text: 'Claude Code · Sonnet 5.5 · low', source: 'approach' },
+          ],
+        },
+      },
+    });
   return [
     // SET-63: the role preview's shared labels at every theme, not dark only.
     variant('ticketForm', 'graph-roles', graphRoles, { themes: ALL_THEMES }),
+    variant('ticketForm', 'graph-roles-legacy-core', graphRolesLegacyCore),
+    variant('ticketForm', 'graph-roles-legacy-core-tight-320', graphRolesLegacyCore, { width: 320 }),
     variant('ticketForm', 'populated', () => getCorpus('ticketForm'), { baseline: 'ticketForm', themes: ALL_THEMES }),
     variant('ticketForm', 'empty', () => withState({})),
     variant('ticketForm', 'loading', LOADING),
