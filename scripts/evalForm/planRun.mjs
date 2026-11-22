@@ -6,8 +6,15 @@ import { createdPaths, dirtyDefect, planStaticChecks } from './planChecks.mjs';
 import { judgePlan } from './planJudge.mjs';
 import { gitRunner } from './draftChecks.mjs';
 
-/** Read tools plus ONLY the propose command (pipe and heredoc forms). No bare `node:*`: it would allow `node -e` writes outside the copy. */
-export const planTools = (cliEntry) => ['Read', 'Grep', 'Glob', 'Bash(printf:*)', `Bash(node ${cliEntry} draft propose:*)`, 'Bash(node "$KARST_CLI" draft propose:*)'];
+/**
+ * Read tools plus ONLY the propose command (pipe and `--file` forms), and file writes only under the artifacts dir
+ * (an `Edit(//abs/**)` rule covers Write/Edit/MultiEdit, as in `src/agent/claude.ts`). No bare `node:*`: it would allow
+ * `node -e` writes outside the copy.
+ */
+export const planTools = (cliEntry, artifactsDir) => [
+  'Read', 'Grep', 'Glob', 'Bash(printf:*)', `Bash(node ${cliEntry} draft propose:*)`, 'Bash(node "$KARST_CLI" draft propose:*)',
+  ...(artifactsDir ? [`Edit(/${artifactsDir}/**)`] : []),
+];
 const TIMEOUT = /time(d)?[ -]?out/i;
 const msg = (e) => (e instanceof Error ? e.message : String(e));
 
@@ -35,14 +42,15 @@ export function readOutbox({ outbox, maxDrafts, validate }) {
 }
 
 /** `{status: ok|no-draft|invalid-proposal|timeout|error, drafts, invalid, usage}`; never throws for a run failure. */
-export async function runPlannerHeadless({ adapter, instructions, kickoff, checkout, outbox, model, cliEntry, timeoutMs, maxDrafts, validate, effort }) {
+export async function runPlannerHeadless({ adapter, instructions, kickoff, checkout, outbox, artifactsDir, model, cliEntry, timeoutMs, maxDrafts, validate, effort }) {
   mkdirSync(outbox, { recursive: true });
+  if (artifactsDir) mkdirSync(artifactsDir, { recursive: true });
   let res;
   try {
     res = await adapter.runHeadless({
-      prompt: `${instructions}\n\n${kickoff}`, cwd: checkout, model, timeoutMs, trustCwd: true, allowedTools: planTools(cliEntry),
+      prompt: `${instructions}\n\n${kickoff}`, cwd: checkout, model, timeoutMs, trustCwd: true, allowedTools: planTools(cliEntry, artifactsDir),
       ...(effort ? { effort } : {}),
-      env: { KARST_OUTBOX: outbox, KARST_CLI: cliEntry },
+      env: { KARST_OUTBOX: outbox, KARST_CLI: cliEntry, KARST_PLANNING_SESSION: '1', ...(artifactsDir ? { KARST_ARTIFACTS: artifactsDir } : {}) },
       tracking: { callSite: 'eval-form-plan', ticketId: null, processRunId: null },
     });
   } catch (e) {
@@ -73,7 +81,8 @@ export async function runPlanEval({ opts, items, models, adapter, judgeAdapter, 
       try {
         const t0 = Date.now();
         const run = await runPlannerHeadless({
-          adapter, ...buildPrompt(item, w), checkout: w.checkout, outbox: join(w.scratch, 'outbox'), model, cliEntry,
+          adapter, ...buildPrompt(item, w), checkout: w.checkout, outbox: join(w.scratch, 'outbox'),
+          artifactsDir: join(w.scratch, 'artifacts'), model, cliEntry,
           timeoutMs: opts.timeoutMin * 60_000, maxDrafts: opts.maxDrafts, validate, effort: opts.effort,
         });
         Object.assign(r, { status: run.status, drafts: run.drafts, invalid: run.invalid, usage: run.usage, seconds: (Date.now() - t0) / 1000 });

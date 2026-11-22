@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { planningInstructions } from '../../src/planning/preamble.ts';
+import { planningArtifactsDir, planningInstructions } from '../../src/planning/preamble.ts';
 import { validateProposal } from '../../src/planning/proposal.ts';
 import { gitRunner } from './draftChecks.mjs';
 import { buildPlanJudgePrompt, judgePlan, parsePlanJudge } from './planJudge.mjs';
@@ -215,6 +215,36 @@ describe('plan allowed tools and cleanup', () => {
     await run(fakeAdapter((o) => { seen = o; }), { cliEntry: CLI });
     expect(prefixes).toContain(`node ${seen.env.KARST_CLI} draft propose`);
     expect(seen.allowedTools).toEqual(planTools(CLI));
+  });
+  it('allows one Edit rule for the artifacts dir only, and keeps the two node prefixes', () => {
+    expect(planTools(CLI, '/w/artifacts')).toEqual([...planTools(CLI), 'Edit(//w/artifacts/**)']);
+    expect(planTools(CLI).some((x) => x.startsWith('Edit('))).toBe(false);
+  });
+  it('the --file propose command matches an allowed prefix, and the env names the same artifacts dir', async () => {
+    const artifactsDir = planningArtifactsDir(tmp());
+    const instructions = planningInstructions({ sessionId: 1, title: 't', manifest: buildPlanManifest('core', '/w'), artifactsDir });
+    expect(instructions).toContain(`${artifactsDir}/draft.json`);
+    const cmd = /run: (node "\$KARST_CLI" draft propose) --file "\$KARST_ARTIFACTS\/draft\.json"/.exec(instructions)?.[1];
+    const prefixes = planTools(CLI).filter((x) => x.startsWith('Bash(node')).map((x) => x.slice(5, -3));
+    expect(prefixes).toContain(cmd);
+    let seen;
+    await run(fakeAdapter((o) => { seen = o; }), { cliEntry: CLI, artifactsDir });
+    expect(seen.env).toMatchObject({ KARST_ARTIFACTS: artifactsDir, KARST_PLANNING_SESSION: '1' });
+    expect(seen.allowedTools).toEqual(planTools(CLI, artifactsDir));
+    expect(existsSync(artifactsDir)).toBe(true);
+  });
+  it('runPlanEval derives the artifacts dir as planningArtifactsDir(scratch)', async () => {
+    const r = makeRepo();
+    const scratch = tmp();
+    let seen;
+    const item = { id: 'c', repo: 'core', title: 'T', body: 'B', baseSha: r.base, fixPatch: FIX, testPatch: '', f2p: [] };
+    await runPlanEval({
+      opts: { judgeModel: 'j', maxDrafts: 3, timeoutMin: 1 }, items: [item], models: ['p'],
+      adapter: fakeAdapter((o) => { seen = o; }), judgeAdapter: null,
+      makeWork: () => ({ checkout: r.dir, scratch, cleanup: () => {} }),
+      buildPrompt: () => ({ instructions: 'I', kickoff: 'K' }), validate: validateProposal, cliEntry: '/cli.js', cwd: tmp(),
+    });
+    expect(seen.env.KARST_ARTIFACTS).toBe(planningArtifactsDir(scratch));
   });
   const setup = (adapter, judgeAdapter, seenOrder) => {
     const r = makeRepo();
