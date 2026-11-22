@@ -266,8 +266,12 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
      * SecretStorage via `deps.hasToken`.
      */
     async function pushStateWithInstalled(): Promise<void> {
-      const loaded = deps.loadState();
+      // Read the manifest AFTER the await: overlapping out-of-band writes (the
+      // three quota controls save independently) each push state, and a
+      // snapshot taken before the await lets the slower, OLDER push land last
+      // and visually revert the newer write.
       const tokenConfigured = await deps.hasToken();
+      const loaded = deps.loadState();
       ctx.post({
         type: 'state',
         state: buildSettingsState(

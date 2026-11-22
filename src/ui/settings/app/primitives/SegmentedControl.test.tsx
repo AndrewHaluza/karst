@@ -52,6 +52,27 @@ describe('SegmentedControl — radiogroup semantics', () => {
     expect(radios.map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
   });
 
+  it('never puts the only tab stop on a disabled selected option (UI-R26)', () => {
+    render(
+      <>
+        <span id="backend-label">claude</span>
+        <SegmentedControl
+          labelId="backend-label"
+          value="sbx"
+          options={[
+            { value: 'host', label: 'host' },
+            { value: 'sbx', label: 'sbx', disabled: true },
+            { value: 'docker', label: 'docker' },
+          ]}
+          onChange={vi.fn()}
+        />
+      </>,
+    );
+    const radios = screen.getAllByRole('radio') as HTMLButtonElement[];
+    // The selected option is disabled, so it cannot hold the group's tab stop.
+    expect(radios.map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+  });
+
   it('keeps one tab stop when the value matches no option (UI-R26)', () => {
     // An unsupported backend in karst.yml checks nothing; the first ENABLED
     // option must still be reachable so the row can be repaired by keyboard.

@@ -1318,6 +1318,32 @@ describe('settings actions — setQuota (Q4-SAVE)', () => {
     expect(written?.quota).toEqual({ warnThresholdPct: 70, claudeOauthUsageApi: true });
   });
 
+  it('pushes the newest manifest when two out-of-band writes overlap', async () => {
+    const releases: Array<() => void> = [];
+    let current: Manifest = { ...VALID };
+    const { actions, posted } = harness({
+      loadState: () => ({ manifest: current, error: null }),
+      writeManifest: (_p, m) => { current = m; },
+      hasToken: () => new Promise<boolean>((resolve) => releases.push(() => resolve(false))),
+    });
+    const first = actions.setQuota({ warnThresholdPct: 70 });
+    const second = actions.setQuota({ claudeOauthUsageApi: true });
+    // The SECOND write's token read resolves first; the first (older) push then
+    // lands last. It must read the manifest after its await, not the snapshot
+    // from before it.
+    releases[1]!();
+    await second;
+    releases[0]!();
+    await first;
+    const states = posted.filter((m) => m.type === 'state') as Array<{
+      state: { manifest: Manifest };
+    }>;
+    expect(states.at(-1)!.state.manifest.quota).toMatchObject({
+      warnThresholdPct: 70,
+      claudeOauthUsageApi: true,
+    });
+  });
+
   it('posts an error, rejects for the receipt, and writes nothing when the merged block is invalid', async () => {
     let written: Manifest | undefined;
     const { actions, order, posted } = harness({

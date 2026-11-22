@@ -68,11 +68,12 @@ export function SegmentedControl({
 }: SegmentedControlProps) {
   const selectedIndex = options.findIndex((option) => option.value === value);
   const firstEnabled = options.findIndex((option) => !option.disabled);
-  // A radiogroup always owns exactly one tab stop. When the saved value is not
-  // among the options (an unsupported backend in karst.yml), no option is
-  // checked; the FIRST ENABLED option must still be reachable so a keyboard
+  // A radiogroup always owns exactly one ENABLED tab stop. When the saved value
+  // is not among the options (an unsupported backend in karst.yml) — or names a
+  // disabled one — the first enabled option must be reachable so a keyboard
   // user can repair the manifest (UI-R26 / WAI-ARIA radiogroup).
-  const tabStop = selectedIndex >= 0 ? selectedIndex : firstEnabled;
+  const selectedEnabled = selectedIndex >= 0 && options[selectedIndex]?.disabled !== true;
+  const tabStop = selectedEnabled ? selectedIndex : firstEnabled;
   const groupClass = ['k-segmented', className].filter((c): c is string => Boolean(c)).join(' ');
 
   const selectAt = (index: number, event: KeyboardEvent<HTMLDivElement>): void => {
@@ -88,7 +89,7 @@ export function SegmentedControl({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    const from = selectedIndex >= 0 ? selectedIndex : Math.max(firstEnabled, 0);
+    const from = selectedEnabled ? selectedIndex : Math.max(firstEnabled, 0);
     if (event.key === 'Home') {
       selectAt(options.findIndex((option) => !option.disabled), event);
       return;

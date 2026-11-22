@@ -349,6 +349,24 @@ describe('AppShell — an invalid file blocks Save in the save bar', () => {
     expect((document.getElementById('saveBtn') as HTMLButtonElement | null)?.disabled ?? true).toBe(true);
   });
 
+  it('sends the banner link to its own fault tab, not the local-error tab (SET-5)', () => {
+    const { bridge } = mount();
+    fireEvent.click(document.querySelector('.nav-btn[data-section="quality"]')!);
+    fireEvent.click(screen.getByText('break quality'));
+    act(() =>
+      bridge.push({
+        type: 'validation',
+        ok: false,
+        error: 'Invalid karst.yml: host must be a non-empty string',
+      }),
+    );
+    const banner = document.querySelector('.err-banner');
+    expect(banner?.textContent).toContain('General: host must be a non-empty string');
+    // The Save-blocking local error is Quality's, but the BANNER's owner is
+    // General; the link must follow the banner's text.
+    expect(banner?.querySelector('.err-banner-goto')?.textContent).toBe('Go to General');
+  });
+
   it('offers a link to the faulted tab when it is not the one on screen (SET-5)', () => {
     const { bridge } = mount();
     act(() => bridge.push({ type: 'validation', ok: false, error: 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1' }));

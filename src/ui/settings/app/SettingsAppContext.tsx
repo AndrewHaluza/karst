@@ -124,8 +124,10 @@ export interface SettingsApp {
   isDirty(target: SettingsSection): boolean;
   /** Is the draft currently valid per the host's last verdict? */
   readonly valid: boolean;
-  /** The tab a validation fault belongs to, or `null` when unattributable. */
+  /** The tab blocking Save (local errors first), or `null` when unattributable. */
   readonly errorSection: SettingsSection | null;
+  /** The tab the BANNER's fault belongs to (its prefix and "Go to" link). */
+  readonly bannerSection: SettingsSection | null;
   /** The banner text, or `null` when no banner should be visible. */
   readonly bannerText: string | null;
   /** Field errors the Quality editors already know about, per tab (SET-4/12). */
@@ -315,6 +317,9 @@ export function SettingsAppProvider({
   // A fault belonging to a DIFFERENT tab is prefixed with that tab's label, so
   // the banner says whose problem it is. Standing ON the owning tab, the message
   // is shown verbatim — the prefix would only be noise.
+  // The banner and its "Go to" link must agree on ONE owner: `bannerSection`,
+  // not `errorSection` (which prefers the shown tab's local errors for Save).
+  const bannerSection = useMemo(() => sectionForError(fault), [fault]);
   const bannerText = useMemo(() => {
     if (!shouldShowBanner(fault, state.touched)) return null;
     // SET-6 / UI-R25: a fault the section already renders under its own control
@@ -322,9 +327,10 @@ export function SettingsAppProvider({
     if (hasInlineFieldFault(fault, section)) return null;
     const detail = manifestFaultDetail(fault);
     if (!detail) return null;
-    const owner = sectionForError(fault);
-    return owner && owner !== section ? `${SECTION_LABELS[owner]}: ${detail}` : detail;
-  }, [fault, state.touched, section]);
+    return bannerSection && bannerSection !== section
+      ? `${SECTION_LABELS[bannerSection]}: ${detail}`
+      : detail;
+  }, [fault, state.touched, section, bannerSection]);
 
   const isDirty = useCallback(
     (target: SettingsSection) => state.dirtySections.includes(target),
@@ -342,6 +348,7 @@ export function SettingsAppProvider({
       isDirty,
       valid: state.validation.ok && localErrorCount === 0,
       errorSection,
+      bannerSection,
       bannerText,
       localErrors,
       localErrorCount,
@@ -364,6 +371,7 @@ export function SettingsAppProvider({
       send,
       isDirty,
       errorSection,
+      bannerSection,
       bannerText,
       localErrors,
       localErrorCount,

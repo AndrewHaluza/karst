@@ -65,6 +65,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     runLeaveGuard,
     isDirty,
     errorSection,
+    bannerSection,
     valid,
     send,
     saveCandidate,
@@ -512,14 +513,16 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
                 <div className="err-banner" role="alert">
                   <TablerIcon name="alert-triangle" size={16} />
                   <span className="err-banner-text">{app.bannerText}</span>
-                  {errorSection !== null && errorSection !== section ? (
-                    // SET-5: the banner names the owning tab; the link goes there.
+                  {bannerSection !== null && bannerSection !== section ? (
+                    // SET-5: the banner names its fault's owning tab; the link
+                    // goes to THAT tab, never to `errorSection` (which prefers
+                    // the shown tab's local errors for which Save is blocked).
                     <Button
                       variant="text"
                       className="err-banner-goto"
-                      onClick={() => requestSection(errorSection)}
+                      onClick={() => requestSection(bannerSection)}
                     >
-                      {`Go to ${SECTION_LABELS[errorSection]}`}
+                      {`Go to ${SECTION_LABELS[bannerSection]}`}
                     </Button>
                   ) : null}
                 </div>

@@ -70,4 +70,11 @@ describe('agents.webview.css — Accounts row menu anchoring', () => {
       /@media \(max-width: 699px\)[\s\S]*?#section-agents \.accounts-menu-list\s*\{[^}]*inset-inline-start:\s*0[^}]*inset-inline-end:\s*auto/,
     );
   });
+
+  it('puts the narrow override after the base rule in source order (UI-R49)', () => {
+    const base = css.indexOf('#section-agents .accounts-menu-list {');
+    const override = css.indexOf('#section-agents .accounts-menu-list { inset-inline-start: 0;');
+    expect(base, 'base rule').toBeGreaterThan(-1);
+    expect(override, 'narrow override').toBeGreaterThan(base);
+  });
 });

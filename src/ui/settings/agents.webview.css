@@ -419,6 +419,30 @@
 #section-agents .accounts-quota .field-label, #section-agents .accounts-quota .k-switch label { color: var(--vscode-foreground); }
 #section-agents .accounts-quota-threshold input { width: 10ch; min-width: 0; box-sizing: border-box; } /* 6 digits of text plus the padding and the number spinner */
 #section-agents .accounts-actions { display: flex; gap: var(--k-space-3, 8px); }
+
+/* Accounts row actions (SET-41): ONE row that never wraps into a ragged second
+   line (UI-R54). The lower-priority actions live behind the ⋯ menu. These base
+   rules sit BEFORE the narrow-tier block so that block's overrides win by
+   source order (UI-R49). */
+#section-agents .accounts-row-actions { flex-wrap: nowrap; align-items: center; }
+#section-agents .accounts-menu { position: relative; display: inline-flex; }
+#section-agents .accounts-menu-list {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(100% + var(--k-space-1));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: calc(var(--k-space-9) * 5);
+  padding: var(--k-space-1);
+  background: var(--vscode-menu-background, var(--k-surface));
+  border: var(--k-border-w) solid var(--vscode-menu-border, var(--k-border));
+  border-radius: var(--k-radius-md);
+  box-shadow: 0 var(--k-space-1) var(--k-space-3) var(--vscode-widget-shadow, rgb(0 0 0 / 30%));
+}
+#section-agents .accounts-menu-list .k-btn { justify-content: flex-start; text-align: start; }
+
 @media (max-width: 699px) {
   #section-agents .accounts-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   #section-agents .accounts-table, #section-agents .accounts-table tbody, #section-agents .accounts-table tr, #section-agents .accounts-table td { display: block; }
@@ -447,27 +471,6 @@
   background: var(--vscode-textCodeBlock-background, transparent);
 }
 #section-agents .backend-recheck { margin-block-start: var(--k-space-3); }
-
-/* Accounts row actions (SET-41): ONE row that never wraps into a ragged second
-   line (UI-R54). The lower-priority actions live behind the ⋯ menu. */
-#section-agents .accounts-row-actions { flex-wrap: nowrap; align-items: center; }
-#section-agents .accounts-menu { position: relative; display: inline-flex; }
-#section-agents .accounts-menu-list {
-  position: absolute;
-  inset-inline-end: 0;
-  top: calc(100% + var(--k-space-1));
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  min-width: calc(var(--k-space-9) * 5);
-  padding: var(--k-space-1);
-  background: var(--vscode-menu-background, var(--k-surface));
-  border: var(--k-border-w) solid var(--vscode-menu-border, var(--k-border));
-  border-radius: var(--k-radius-md);
-  box-shadow: 0 var(--k-space-1) var(--k-space-3) var(--vscode-widget-shadow, rgb(0 0 0 / 30%));
-}
-#section-agents .accounts-menu-list .k-btn { justify-content: flex-start; text-align: start; }
 
 /* Quota card (Q4-SAVE): the "Saved" acknowledgement beside the control it saved. */
 #section-agents .accounts-quota-saved { font-size: var(--k-text-xs); color: var(--k-text-dim); }
