@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listTrackedFiles, findAbsoluteHostPaths } from './agentsTree.js';
@@ -31,6 +31,12 @@ describe('the .agents tree', () => {
       // it would throw ENOENT — an opaque failure unrelated to what this
       // guard checks. Skip files that aren't actually on disk.
       if (!existsSync(file)) {
+        continue;
+      }
+      // A skill mirror `.agents/skills/<name>` is a tracked symlink to a
+      // `.claude/skills/<name>` directory (repoHygiene pins its target): it has
+      // no content of its own here, and reading it throws EISDIR.
+      if (statSync(file).isDirectory()) {
         continue;
       }
       const hits = findAbsoluteHostPaths(readFileSync(file, 'utf8'));
