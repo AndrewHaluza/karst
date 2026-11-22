@@ -38,6 +38,10 @@ export const PLANNING_CLAIM_STALE_MS = 5 * 60_000;
 
 const PROPOSAL_NAME = /^[0-9a-f-]{36}\.json$/;
 const CLAIM_NAME = /^\.claim-.+-([0-9a-f-]{36}\.json)$/;
+const JSON_SUFFIX_LENGTH = '.json'.length;
+
+/** The uuid of a validated `<uuid>.json` outbox name. */
+const uuidOf = (proposal: string): string => proposal.slice(0, -JSON_SUFFIX_LENGTH);
 
 export interface PlanningOutboxDeps {
   store: Store;
@@ -198,7 +202,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   /** Unlink and warn about a claimed file the host refused, naming the reason; tell the CLI why. */
   function reject(sessionId: number, scratch: string, claimed: string, proposal: string, reason: string): void {
     remove(claimed);
-    safeRecordRejection(sessionId, scratch, proposal.replace(/\.json$/, ''), reason);
+    safeRecordRejection(sessionId, scratch, uuidOf(proposal), reason);
     debug(`session ${sessionId}: ${proposal} rejected (${reason})`);
     deps.notify.warn(`A draft of planning session ${formatId('plan', sessionId)} was rejected (${reason}).`);
   }
@@ -277,7 +281,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       return;
     }
     const { id: requestedId, ...payload } = read.value;
-    const uuid = proposal.replace(/\.json$/, '');
+    const uuid = uuidOf(proposal);
 
     // Dependencies name drafts of ANY session of this project or its open
     // tickets (`T<n>`): an unknown id, a discarded draft, another project's id,
