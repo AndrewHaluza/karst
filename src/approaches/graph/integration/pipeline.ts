@@ -736,7 +736,14 @@ export async function runCompletionPipeline(
     }
     const add = await deps.git(['add', '--all', '--', ...paths], domain.canonicalWorktree);
     if (add.exitCode !== 0) {
-      const reason = `integration-conflict: git add refused in ${domain.repoNames.join('/')} (${boundedGitReason(add.stderr)})`;
+      // The workspace patch is already in the canonical tree. Keep it there
+      // (no reset, no checkout: both trees are preserved for diagnosis) and
+      // say so, so the operator does not read the tree as untouched.
+      const landedNote =
+        capture.workspaceCwds.length > 0
+          ? '; workspace changes already landed in the canonical worktree, preserved uncommitted for diagnosis'
+          : '';
+      const reason = `integration-conflict: git add refused in ${domain.repoNames.join('/')} (${boundedGitReason(add.stderr)})${landedNote}`;
       graphDiag('integration', reason);
       parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
         outcome: 'failed',

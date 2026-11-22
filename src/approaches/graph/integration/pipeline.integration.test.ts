@@ -1359,4 +1359,36 @@ describe('runCompletionPipeline — workspace patch bytes (T1304)', () => {
     expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe(edited);
     expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
   });
+
+  it('a git add refusal after a landed workspace patch preserves both trees and says the changes landed', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 73, 'completing');
+    const ws = makeWorkspaceClone(h.worktree, h.baseSha);
+    writeFileSync(join(ws, 'a.ts'), 'ws-73\n');
+    const domain = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    recordBaseHead(h, 73, domain, h.baseSha);
+    const realGit = makeDeps(h).git;
+    const deps = makeDeps(h, {
+      git: (args, cwd, options) =>
+        args[0] === 'add'
+          ? Promise.resolve({ stdout: '', stderr: 'fatal: forced add refusal', exitCode: 1 })
+          : realGit(args, cwd, options),
+      workspaceCwdOf: (nodeRunId) => (nodeRunId === 73 ? ws : undefined),
+    });
+    const headBefore = git(h.worktree, ['rev-parse', 'HEAD']);
+
+    const result = await runCompletionPipeline(deps, { graphRunId: h.graphRunId, nodeRunId: 73 });
+    expect(result.kind).toBe('integration-conflict');
+    const run = h.db
+      .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(h.graphRunId) as { blocked_reason: string };
+    expect(run.blocked_reason).toContain('integration-conflict: git add refused in api');
+    expect(run.blocked_reason).toContain('workspace changes already landed in the canonical worktree');
+    // Preserved: no reset, no checkout.
+    expect(git(h.worktree, ['rev-parse', 'HEAD'])).toBe(headBefore);
+    expect(git(h.worktree, ['status', '--porcelain'])).toContain('a.ts');
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('ws-73\n');
+    expect(readFileSync(join(ws, 'a.ts'), 'utf8')).toBe('ws-73\n');
+  });
 });
