@@ -44,6 +44,18 @@ export function collectSnapshot(page: Page): Promise<LayoutSnapshot> {
       }
       return null;
     };
+    // A clipped element exposes its full text when it carries an ARIA
+    // name/description/expansion, OR when it holds the visual+sr-only pair: the
+    // ellipsized copy is aria-hidden and a direct `.sr-only` child carries the
+    // full text for assistive tech (UI-R44). The latter announces the text once
+    // and must not be read as silent truncation.
+    const exposesFullText = (e: Element): boolean =>
+      e.hasAttribute('aria-label') ||
+      e.hasAttribute('aria-describedby') ||
+      e.hasAttribute('aria-expanded') ||
+      Array.from(e.children).some(
+        (child) => child.classList.contains('sr-only') && (child.textContent ?? '').trim().length > 0,
+      );
 
     for (const e of Array.from(document.body.querySelectorAll('*'))) {
       if (SKIP.has(e.tagName) || e.closest('svg') !== null && e.tagName.toLowerCase() !== 'svg') continue;
@@ -73,8 +85,7 @@ export function collectSnapshot(page: Page): Promise<LayoutSnapshot> {
         scrollH: e.scrollHeight,
         clientH: e.clientHeight,
         colSpan: e instanceof HTMLTableCellElement ? e.colSpan : Number(e.getAttribute('aria-colspan') ?? 1),
-        exposesText:
-          e.hasAttribute('aria-label') || e.hasAttribute('aria-describedby') || e.hasAttribute('aria-expanded'),
+        exposesText: exposesFullText(e),
         hasText: (e.textContent ?? '').trim().length > 0,
         region: e.getAttribute('data-region'),
         primaryAction: e.classList.contains('k-btn--primary'),

@@ -45,7 +45,11 @@ export interface ElementSnap {
   readonly scrollH: number;
   readonly clientH: number;
   readonly colSpan: number;
-  /** aria-label / aria-describedby / aria-expanded present: full text reachable. */
+  /**
+   * Full text reachable: aria-label / aria-describedby / aria-expanded on the
+   * element, or a direct `.sr-only` child carrying the full text beside an
+   * aria-hidden truncation (the visual+sr-only pair, `@ui:UI-R44`).
+   */
   readonly exposesText: boolean;
   /** Visible text content (trimmed, non-empty). */
   readonly hasText: boolean;
