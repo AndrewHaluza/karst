@@ -115,9 +115,9 @@ import {
   type FileChangeStatus,
   type PreparedDiffResource,
 } from './ui/diffs/git.js';
-import { buildTicketChangesSnapshot, type TicketChangesSnapshot } from './ui/diffs/snapshot.js';
+import { buildTicketChangesSnapshot } from './ui/diffs/snapshot.js';
 import { diffNodeChangeId } from './ui/diffs/treeModel.js';
-import { wireDiffsTree } from './extension/diffsHost.js';
+import { confirmDiscard, wireDiffsTree } from './extension/diffsHost.js';
 import { discardChanges as gitDiscard, unstageFile as gitUnstage } from './ui/diffs/gitActions.js';
 import {
   type VirtualDocumentAttempt,
@@ -2643,6 +2643,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (repo) => repoDisplayPath(repo, pathContext),
     );
   };
+  /**
+   * The ticket's own name — the editor tab title without the ` — Changes`
+   * suffix (DF-17). Both the panel title and the header's `ticketLabel` use it,
+   * so the tab and the page say the same words.
+   */
+  const ticketChangesLabel = (ticketId: number): string => {
+    const t = getTicket(localStore, ticketId);
+    return `${formatId('ticket', ticketId)} ${tabTitle(compactTicketLabel(t, ticketLabel(t)))}`;
+  };
   const loadTicketChanges = async (ticketId: number, signal?: AbortSignal) => {
     const worktrees = ticketWorktreeSpecs(ticketId);
     const snapshot = await buildTicketChangesSnapshot(
@@ -2651,77 +2660,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (spec, inspectSignal) => inspectWorktree(defaultGitRunner, spec, inspectSignal),
       undefined,
       signal,
+      ticketChangesLabel(ticketId),
     );
     return { snapshot, worktrees };
   };
 
-  let lastLoadedWorktrees: readonly { path: string; label: string }[] = [];
-  let lastLoadedSnapshot: TicketChangesSnapshot | null = null;
-  const wrapLoadForChanges = async (ticketId: number, signal?: AbortSignal) => {
-    const result = await loadTicketChanges(ticketId, signal);
-    lastLoadedWorktrees = result.worktrees;
-    lastLoadedSnapshot = result.snapshot;
-    return result.snapshot;
+  // One pair of git adapters for the panel and the SCM tree: a row action must
+  // mean the same thing in both places (DF-1 to DF-4).
+  const diffsGit = {
+    discard: (repoPath: string, path: string, status: FileChangeStatus) =>
+      gitDiscard(defaultGitRunner, repoPath, path, status),
+    unstage: (repoPath: string, path: string) => gitUnstage(defaultGitRunner, repoPath, path),
   };
-  const handleOpenFile = (absolutePath: string): void => {
-    void vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absolutePath));
-  };
-  const handleDiscard = async (changeId: string): Promise<void> => {
-    if (!lastLoadedSnapshot) return;
-    // Find the file in the snapshot to get its path and status
-    for (const [targetId, target] of lastLoadedSnapshot.targets) {
-      if (targetId !== changeId) continue;
-      const worktreePath = lastLoadedWorktrees.find((w) => target.displayPath && lastLoadedSnapshot!.targets.has(changeId))?.path;
-      // Look up worktree from the snapshot's worktree views
-      for (const view of lastLoadedSnapshot.state.worktrees) {
-        for (const file of [...view.staged, ...view.unstaged, ...view.untracked]) {
-          if (file.changeId === changeId) {
-            const wtPath = lastLoadedWorktrees.find((w) => w.label === view.label)?.path;
-            if (wtPath) {
-              const result = await gitDiscard(defaultGitRunner, wtPath, file.path, file.status);
-              if (!result.ok) {
-                void toast.warn(`Karst could not discard the changes (${reasonText(result.error)}).`);
-              }
-              return;
-            }
-          }
-        }
-      }
-    }
-  };
-  const handleUnstage = async (changeId: string): Promise<void> => {
-    if (!lastLoadedSnapshot) return;
-    for (const view of lastLoadedSnapshot.state.worktrees) {
-      for (const file of view.staged) {
-        if (file.changeId === changeId) {
-          const wtPath = lastLoadedWorktrees.find((w) => w.label === view.label)?.path;
-          if (wtPath) {
-            const result = await gitUnstage(defaultGitRunner, wtPath, file.path);
-            if (!result.ok) {
-              void toast.warn(`Karst could not unstage the file (${reasonText(result.error)}).`);
-            }
-            return;
-          }
-        }
-      }
-    }
+  // Returns the promise: a failed open must reach the webview as
+  // `action-result ok:false`, not vanish into a voided call (DF-22).
+  const handleOpenFile = async (absolutePath: string): Promise<void> => {
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absolutePath));
   };
 
   const changes = new TicketChangesManager(
     restoreHosts.track('changesHost', makeChangesPanelHost(context, brandIcon)),
-    (ticketId) => {
-      const t = getTicket(localStore, ticketId);
-      return `${formatId('ticket', ticketId)} ${tabTitle(compactTicketLabel(t, ticketLabel(t)))} — Changes`;
-    },
-    wrapLoadForChanges,
+    (ticketId) => `${ticketChangesLabel(ticketId)} — Changes`,
+    (ticketId, signal) => loadTicketChanges(ticketId, signal).then((result) => result.snapshot),
     openTicketDiff,
     (message) => void toast.warn(message),
     logError,
     (text) => void vscode.env.clipboard.writeText(text),
     (ticketId, active) => activeTicket.set(ticketId, active),
     handleOpenFile,
-    handleDiscard,
-    handleUnstage,
+    confirmDiscard,
+    diffsGit.discard,
+    diffsGit.unstage,
+    async (ticketId) => {
+      await vscode.commands.executeCommand('karst.openDashboard', ticketId);
+    },
   );
   shutdownTicketChanges = () => changes.dispose();
   context.subscriptions.push(changes);
@@ -2736,9 +2708,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return `${formatId('ticket', ticketId)} ${compactTicketLabel(t, ticketLabel(t))}`;
     },
     debug: logger.debug,
-    discard: (repoPath, path, status) =>
-      gitDiscard(defaultGitRunner, repoPath, path, status as FileChangeStatus),
-    unstage: (repoPath, path) => gitUnstage(defaultGitRunner, repoPath, path),
+    discard: diffsGit.discard,
+    unstage: diffsGit.unstage,
     artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
     store: localStore,
     projectId: () => currentProject()?.id,

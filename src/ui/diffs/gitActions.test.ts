@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { GitRunner, GitResult } from '../../integrations/git.js';
-import { discardChanges, unstageFile } from './gitActions.js';
+import { discardChanges, discardConfirmText, unstageFile } from './gitActions.js';
 
 function makeGitRunner(exitCode = 0, stdout = '', stderr = ''): GitRunner {
   return vi.fn(async (): Promise<GitResult> => ({
@@ -57,6 +57,32 @@ describe('discardChanges', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe('spawn failed');
+  });
+});
+
+/**
+ * DF-1 (decision Q7): ONE confirmation text for the panel and the SCM tree. The
+ * wording differs from the old mock on purpose — an untracked file is deleted,
+ * not restored, so its message has to say so.
+ */
+describe('discardConfirmText', () => {
+  it('says the new file is deleted for an added file (the git clean path)', () => {
+    expect(discardConfirmText('src/new.ts', 'added')).toEqual({
+      message: 'Delete the new file src/new.ts? This cannot be undone.',
+      action: 'Delete file',
+    });
+  });
+
+  it('says the changes are discarded for a tracked file (the git restore path)', () => {
+    expect(discardConfirmText('src/app.ts', 'modified')).toEqual({
+      message: 'Discard the changes to src/app.ts? This cannot be undone.',
+      action: 'Discard changes',
+    });
+  });
+
+  it('uses the discard text for deleted and renamed files, which git restores', () => {
+    expect(discardConfirmText('src/gone.ts', 'deleted').action).toBe('Discard changes');
+    expect(discardConfirmText('src/new-name.ts', 'renamed').action).toBe('Discard changes');
   });
 });
 

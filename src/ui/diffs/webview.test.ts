@@ -337,6 +337,7 @@ function commitView(overrides: Partial<CommitView> = {}): CommitView {
     subject: 'Add gate runner',
     author: 'Ada Lovelace',
     authoredAt: '2026-07-30',
+    authoredLabel: 'Jul 30, 2026',
     files: [],
     ...overrides,
   };
@@ -364,6 +365,7 @@ function stateOf(
 ): TicketChangesState {
   return {
     ticketId: 7,
+    ticketLabel: 'T7 · Fix login',
     worktreeCount: worktrees.length,
     commitCount: counts.commitCount,
     pendingCount: counts.pendingCount,
@@ -974,7 +976,7 @@ describe('diffs count text', () => {
     const harness = boot();
     const worktree = worktreeView({
       label: 'api',
-      commits: [{ hash: 'h1', shortHash: 'h1', subject: 'One', author: 'Ada', authoredAt: 'now', files: [] }],
+      commits: [{ hash: 'h1', shortHash: 'h1', subject: 'One', author: 'Ada', authoredAt: 'now', authoredLabel: 'now', files: [] }],
     });
     const state = stateOf([worktree], { commitCount: 1, pendingCount: 0 });
     harness.render(state, false);

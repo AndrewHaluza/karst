@@ -10,6 +10,21 @@ export interface DiffsTicketChoice {
 }
 
 /**
+ * The ticket id a `karst.selectDiffsTicket` invocation named, or undefined when
+ * it named none (so the quick pick still runs).
+ *
+ * The command takes an argument so a probe — and a test, and a key binding —
+ * can open one ticket directly; VS Code hands a command palette invocation no
+ * argument at all. Only a positive integer is an id: a string, a float or an
+ * object is not, and silently coercing one would open the wrong ticket.
+ */
+export function diffsTicketArg(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+/**
  * The project scope a ticket query MUST carry. The store is shared by every
  * IDE window, so an unscoped `listTickets` would list another project's tickets
  * (`docs/arch/store-and-schema.md`, "Projects scope the board across IDE
