@@ -254,6 +254,7 @@ describe('planningInstructions draft contract', () => {
       expect(t).toContain('- "description" is the self-contained execution spec');
       expect(t).toMatch(/ticket prompt and the UAT criteria/);
       expect(t).toMatch(/exact ordered edits/);
+      expect(t).toMatch(/split work over ~10k chars into drafts linked by "dependsOn"/);
       expect(t).toMatch(/acceptance criteria/);
       expect(t).toMatch(/Never a vague blurb or a path to a local plan file/);
       expect(t).toContain('- "summary" holds the decisions reached, the options rejected with reasons, and the key risks');
