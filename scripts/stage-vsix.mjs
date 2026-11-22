@@ -35,6 +35,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   rmSync,
@@ -256,6 +257,19 @@ function ensureDependencyStubs(stage) {
   }
 }
 
+/**
+ * cpSync filter for the stage copy. A symlink to a directory (for example
+ * .agents/skills/gates-and-ci -> ../../.claude/skills/gates-and-ci) is dropped:
+ * vsce lists it as a file, and its secretlint scan then fails with
+ * `EISDIR: illegal operation on a directory, read`. A dangling symlink is dropped
+ * too. A symlink to a file (AGENTS.md) and all real entries are kept.
+ */
+export function keepInStage(source) {
+  if (!lstatSync(source).isSymbolicLink()) return true;
+  if (!existsSync(source)) return false;
+  return !statSync(source).isDirectory();
+}
+
 function fillStage(stage) {
   rmSync(stage, { recursive: true, force: true });
   mkdirSync(stage, { recursive: true });
@@ -263,12 +277,12 @@ function fillStage(stage) {
   for (const entry of COPY_LIST.required) {
     const source = join(ROOT, entry);
     if (!existsSync(source)) fail(`required stage entry is missing: ${entry}`);
-    cpSync(source, join(stage, entry), { recursive: true });
+    cpSync(source, join(stage, entry), { recursive: true, filter: keepInStage });
   }
   for (const entry of COPY_LIST.optional) {
     const source = join(ROOT, entry);
     if (!existsSync(source)) continue;
-    cpSync(source, join(stage, entry), { recursive: true });
+    cpSync(source, join(stage, entry), { recursive: true, filter: keepInStage });
   }
 
   // Dev-only UAT host harness output (arch:UATHOST-01); never ships.

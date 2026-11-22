@@ -39,9 +39,9 @@ describe('buildSidebarState', () => {
     const rows = buildSidebarState(store, { facets: ['all'], filter: '', manifest: m }).sections.current;
     const byLabel = Object.fromEntries(rows.map((r) => [r.label, r.graphRoles]));
     expect(byLabel['G-1 — graph']).toEqual([
-      { role: 'expert', text: 'codex · gpt-5.6-sol', source: 'preset' },
-      { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
-      { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+      { role: 'expert', text: 'Codex · GPT-5.6 Sol', source: 'preset' },
+      { role: 'worker', text: 'Claude Code · Sonnet 5 · low', source: 'approach' },
+      { role: 'fast', text: 'Claude Code · Sonnet 5 · low', source: 'approach' },
     ]);
     expect(byLabel['C-1 — classic']).toBeUndefined();
   });

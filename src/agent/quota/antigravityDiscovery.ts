@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -23,16 +23,27 @@ export interface AntigravityProcessInfo {
 export type ProcessLister = () => Promise<AntigravityProcessInfo[]> | AntigravityProcessInfo[];
 export type PortLister = (pid: number) => Promise<number[]> | number[];
 export type FileReader = (path: string) => Promise<string | null> | (string | null);
+export type DirLister = (dir: string) => Promise<string[]> | string[];
 
 export interface AntigravityDiscoveryDeps {
   env?: NodeJS.ProcessEnv;
   listProcesses?: ProcessLister;
   listPorts?: PortLister;
   readFile?: FileReader;
+  listDir?: DirLister;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   homeDir?: string;
   appDataDir?: string;
+  /**
+   * `true` when `appDataDir` is the folder of ONE account (`arch:AC-55`): only
+   * that folder's records are trusted. The ambient `ANTIGRAVITY_LS_ADDRESS`/
+   * `CSRF_TOKEN` shortcut, the default `~/.gemini/...` folders and the
+   * machine-wide `ps` scan are then skipped, because none of them names the
+   * account a language server belongs to and each could answer with another
+   * account's quota (`arch:AC-48`).
+   */
+  dataDirOnly?: boolean;
 }
 
 export interface ParsedLanguageServerCommand {
@@ -105,6 +116,44 @@ export async function defaultListPorts(pid: number): Promise<number[]> {
   }
 }
 
+/** Parse one discovery payload (`discovery.json` or a `daemon/*.json`) into an address + CSRF token. */
+function parseDiscoveryPayload(data: unknown): { address: string; csrfToken: string } | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const record = data as Record<string, unknown>;
+  const csrf =
+    typeof record.csrf_token === 'string' && record.csrf_token.length > 0
+      ? record.csrf_token
+      : typeof record.csrfToken === 'string' && record.csrfToken.length > 0
+        ? record.csrfToken
+        : null;
+  if (!csrf) return null;
+  const portCandidates = [record.httpPort, record.http_server_port, record.port];
+  const port = portCandidates.find(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0,
+  );
+  const address =
+    typeof record.address === 'string' && record.address.length > 0
+      ? record.address
+      : port !== undefined
+        ? `127.0.0.1:${port}`
+        : null;
+  if (!address) return null;
+  return { address, csrfToken: csrf };
+}
+
+async function readDiscoveryFile(
+  path: string,
+  readFileFn: FileReader,
+): Promise<{ address: string; csrfToken: string } | null> {
+  try {
+    const content = await readFileFn(path);
+    if (!content) return null;
+    return parseDiscoveryPayload(JSON.parse(content) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 async function probeCandidate(
   address: string,
   csrfToken: string,
@@ -135,12 +184,20 @@ export async function discoverAntigravityServer(
   const env = deps.env ?? process.env;
   const timeoutMs = deps.timeoutMs ?? 2000;
   const fetchFn = deps.fetchImpl ?? fetch;
+  // A data dir that belongs to ONE account (`arch:AC-55`): only that folder's
+  // records are trusted (`arch:AC-48`).
+  const dataDirOnly = deps.dataDirOnly === true;
 
-  // 1. Env vars (they take priority)
-  const envAddress = env.ANTIGRAVITY_LS_ADDRESS?.trim();
-  const envCsrf = env.ANTIGRAVITY_CSRF_TOKEN?.trim();
-  if (envAddress && envCsrf) {
-    return { address: envAddress, csrfToken: envCsrf };
+  // 1. Env vars (they take priority) — for an UNSCOPED read only. An ambient
+  //    `ANTIGRAVITY_LS_ADDRESS`/`ANTIGRAVITY_CSRF_TOKEN` names NO account (and a
+  //    CSRF token can never be stored on one: `isSecretEnvKey`), so it belongs to
+  //    whatever session exported it; a named account must not be answered by it.
+  if (!dataDirOnly) {
+    const envAddress = env.ANTIGRAVITY_LS_ADDRESS?.trim();
+    const envCsrf = env.ANTIGRAVITY_CSRF_TOKEN?.trim();
+    if (envAddress && envCsrf) {
+      return { address: envAddress, csrfToken: envCsrf };
+    }
   }
 
   // 2. Discovered running server
@@ -161,11 +218,13 @@ export async function discoverAntigravityServer(
   if (deps.appDataDir) {
     candidateDirs.push(deps.appDataDir);
   }
-  candidateDirs.push(
-    join(home, '.gemini', 'antigravity'),
-    join(home, '.gemini', 'antigravity-ide'),
-    join(home, '.gemini', 'antigravity-cli'),
-  );
+  if (!dataDirOnly) {
+    candidateDirs.push(
+      join(home, '.gemini', 'antigravity'),
+      join(home, '.gemini', 'antigravity-ide'),
+      join(home, '.gemini', 'antigravity-cli'),
+    );
+  }
 
   const readFileFn =
     deps.readFile ??
@@ -176,49 +235,52 @@ export async function discoverAntigravityServer(
         return null;
       }
     });
+  const listDirFn: DirLister =
+    deps.listDir ??
+    (async (dir: string) => {
+      try {
+        return await readdir(dir);
+      } catch {
+        return [];
+      }
+    });
 
   for (const dir of candidateDirs) {
-    const discoveryFile = join(dir, 'discovery.json');
+    const fromDiscoveryFile = await readDiscoveryFile(join(dir, 'discovery.json'), readFileFn);
+    if (fromDiscoveryFile) {
+      addCandidate(fromDiscoveryFile.address, fromDiscoveryFile.csrfToken);
+    }
+
+    // Daemon sockets (`ls_*.json` / `hub_*.json`) carry httpPort + csrfToken.
+    const daemonDir = join(dir, 'daemon');
+    let entries: string[] = [];
     try {
-      const content = await readFileFn(discoveryFile);
-      if (content) {
-        const data = JSON.parse(content) as Record<string, unknown>;
-        if (data && typeof data === 'object') {
-          const csrf =
-            typeof data.csrf_token === 'string'
-              ? data.csrf_token
-              : typeof data.csrfToken === 'string'
-                ? data.csrfToken
-                : null;
-          const port =
-            typeof data.http_server_port === 'number'
-              ? data.http_server_port
-              : typeof data.port === 'number'
-                ? data.port
-                : null;
-          const addr =
-            typeof data.address === 'string'
-              ? data.address
-              : port
-                ? `127.0.0.1:${port}`
-                : null;
-          if (addr && csrf) {
-            addCandidate(addr, csrf);
-          }
-        }
-      }
+      entries = await listDirFn(daemonDir);
     } catch {
-      // Ignore parse failure
+      entries = [];
+    }
+    const daemonFiles = entries
+      .filter((name) => /^(?:ls|hub)_.*\.json$/.test(name))
+      .sort();
+    for (const name of daemonFiles) {
+      const parsed = await readDiscoveryFile(join(daemonDir, name), readFileFn);
+      if (parsed) {
+        addCandidate(parsed.address, parsed.csrfToken);
+      }
     }
   }
 
-  // 2b. Process-based discovery
+  // 2b. Process-based discovery. A `ps` row names no account, so an
+  // account-scoped read never trusts one (`arch:AC-48`); its own folder's
+  // records, then `agy -p "/usage"`, answer instead.
   const listProcessesFn = deps.listProcesses ?? defaultListProcesses;
   let processes: AntigravityProcessInfo[] = [];
-  try {
-    processes = await listProcessesFn();
-  } catch {
-    processes = [];
+  if (!dataDirOnly) {
+    try {
+      processes = await listProcessesFn();
+    } catch {
+      processes = [];
+    }
   }
 
   for (const proc of processes) {

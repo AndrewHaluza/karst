@@ -184,7 +184,7 @@
   label{display:block;font-size:var(--k-text-md);opacity:.8;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
   input[type=text],input[type=number],select,textarea{
     padding:var(--k-space-3) var(--k-space-4);border-radius:var(--k-radius-sm);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));
+    border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border,var(--vscode-panel-border)));
     background:var(--vscode-input-background);color:var(--vscode-input-foreground);
     font-family:inherit;font-size:var(--k-text-base);
   }
@@ -209,7 +209,7 @@
   .provselect{position:relative;width:100%}
   .provselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
     text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border,var(--vscode-panel-border)));border-radius:var(--k-radius-sm);
     padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base);cursor:pointer}
   /* A custom control must answer a hover the way the page's other custom
      triggers do (`.select-trigger`): the input chrome does not change under
@@ -551,7 +551,7 @@
 
   textarea{
     background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
+    border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border,var(--vscode-panel-border)));border-radius:var(--k-radius-sm);
     padding:var(--k-space-4);font-family:var(--k-font-mono);font-size:var(--k-text-md);width:100%;resize:vertical;min-height:calc(var(--k-space-8) * 8);
   }
 
@@ -744,7 +744,7 @@
     width:calc(var(--k-space-8) * 1.7);height:calc(var(--k-space-8) * 1.7);flex:0 0 auto;display:grid;place-items:center;
     padding:var(--k-space-0);border-radius:var(--k-radius-sm);cursor:pointer;
     background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));
+    border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border,var(--vscode-panel-border)));
   }
   .reload-btn:hover{border-color:var(--k-focus)}
   .reload-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}

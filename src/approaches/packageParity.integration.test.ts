@@ -50,8 +50,13 @@ describe('built-in package VSIX parity', () => {
     expect(untracked, 'files present on disk but not tracked in git').toEqual([]);
   });
 
-  it('ships the entry descriptor and both prompt files', () => {
-    expect(existsSync(join(packageRoot, 'SKILL.md'))).toBe(true);
+  // The package root holds a README, not a SKILL.md: a root SKILL.md without
+  // frontmatter is refused by agy and skipped by Codex, and with frontmatter every
+  // core would list a reference doc as a skill. Only the two prompt files below
+  // are SKILL.md files, and their bodies are the prompt bytes.
+  it('ships the package README and both prompt files', () => {
+    expect(existsSync(join(packageRoot, 'README.md'))).toBe(true);
+    expect(existsSync(join(packageRoot, 'SKILL.md'))).toBe(false);
     expect(existsSync(join(packageRoot, 'skills', 'graph-planner', 'SKILL.md'))).toBe(true);
     expect(existsSync(join(packageRoot, 'skills', 'graph-node', 'SKILL.md'))).toBe(true);
   });

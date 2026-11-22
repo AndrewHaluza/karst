@@ -146,6 +146,70 @@ describe('buildQuotaView', () => {
     expect(view.summaryLine).toBeNull();
   });
 
+  it('keeps an expired window visible, expired, beside the active one (T1300, D751)', () => {
+    const view = buildQuotaView(
+      [ok({
+        windows: [
+          { label: '5-hour', usedPct: 95, resetsAt: '2025-12-25T00:00:00.000Z' },
+          {
+            label: '7-day',
+            usedPct: 42,
+            resetsAt: new Date(NOW.getTime() + 2 * 3_600_000).toISOString(),
+          },
+        ],
+      })],
+      80,
+      NOW,
+    );
+    const row = view.rows[0]!;
+    expect(row.state).toBe('ok');
+    expect(row.windows.map((w) => w.label)).toEqual(['5-hour', '7-day']);
+    expect(row.windows[0]).toMatchObject({
+      expired: true,
+      usedDisplay: null,
+      width: '0',
+      meta: QUOTA_EXPIRED_TEXT,
+    });
+    expect(row.windows[1]).toMatchObject({ usedPct: 42, level: 'ok', usedDisplay: '42% used' });
+    expect(view.anyNear).toBe(false);
+  });
+
+  it('keeps an all-expired row readable instead of a stale "resetting now" bar (T1300, D751)', () => {
+    const view = buildQuotaView(
+      [ok({ windows: [{ label: '5-hour', usedPct: 95, resetsAt: '2025-12-25T00:00:00.000Z' }] })],
+      80,
+      NOW,
+    );
+    const row = view.rows[0]!;
+    expect(row.state).toBe('ok');
+    expect(row.windows).toHaveLength(1);
+    expect(row.windows[0]).toMatchObject({
+      expired: true,
+      usedDisplay: null,
+      resetsIn: null,
+      meta: QUOTA_EXPIRED_TEXT,
+    });
+    expect(view.anyNear).toBe(false);
+    expect(view.summaryLine).toBeNull();
+  });
+
+  it('expires a null-reset window once the read outlives its length (T1300, D751)', () => {
+    const view = buildQuotaView(
+      [ok({
+        windows: [{ label: '5-hour', usedPct: 95, resetsAt: null }],
+        readAt: new Date(NOW.getTime() - 6 * 3_600_000).toISOString(),
+      })],
+      80,
+      NOW,
+    );
+    expect(view.rows[0]!.windows[0]).toMatchObject({
+      expired: true,
+      usedDisplay: null,
+      meta: QUOTA_EXPIRED_TEXT,
+    });
+    expect(view.anyNear).toBe(false);
+  });
+
   it('rounds and clamps the used-%', () => {
     const view = buildQuotaView(
       [ok({ windows: [{ label: 'a', usedPct: 76.6, resetsAt: null }, { label: 'b', usedPct: 140, resetsAt: null }] })],

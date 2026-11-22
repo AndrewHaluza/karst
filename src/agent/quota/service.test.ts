@@ -139,10 +139,59 @@ describe('defaultQuotaReaders', () => {
         now: () => new Date(0),
         antigravityAppDataDir: dir,
         antigravityListProcesses: () => [],
+        antigravityListDir: () => [],
+        antigravityCliRunner: async () => null,
       });
       const snap = await readers.find((r) => r.core === 'antigravity')!.read();
       expect(snap).toMatchObject({ core: 'antigravity', state: 'unknown' });
       expect(snap.state === 'unknown' && snap.reason.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('wires the antigravity CLI fallback runner and returns its snapshot when no language server runs', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-quota-antigravity-cli-'));
+    try {
+      const antigravityCliRunner = vi.fn(async () =>
+        JSON.stringify({
+          command: {
+            data: {
+              groups: [
+                {
+                  name: 'Gemini Models',
+                  buckets: [
+                    {
+                      id: 'gemini-5h',
+                      window: '5-hour',
+                      remaining_fraction: 0.58,
+                      reset_time: '2026-01-01T05:00:00Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      );
+      const readers = defaultQuotaReaders({
+        homeDir: '/nope',
+        env: {},
+        now: () => new Date('2026-01-01T00:00:00.000Z'),
+        antigravityAppDataDir: dir,
+        antigravityListProcesses: () => [],
+        antigravityListDir: () => [],
+        antigravityCliRunner,
+      });
+
+      const snap = await readers.find((r) => r.core === 'antigravity')!.read();
+      expect(snap).toMatchObject({
+        core: 'antigravity',
+        state: 'ok',
+        source: 'Antigravity CLI (/usage)',
+        windows: [{ label: '5-hour', usedPct: 42, resetsAt: '2026-01-01T05:00:00Z' }],
+      });
+      expect(antigravityCliRunner).toHaveBeenCalledOnce();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

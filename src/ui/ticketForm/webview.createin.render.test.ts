@@ -62,6 +62,11 @@ describe('ticket form — create-in control derives from provider identity', () 
     expect(sw.getAttribute('title')).toContain('Linear');
   });
 
+  it('create state with a sourceRef hides the switch: the ticket already exists on the board (SET-55)', () => {
+    const v = open(baseState({ provider: 'clickup', canCreateProviderTicket: true, sourceRef: '869e889uh' }));
+    expect(v.query('#createInRow')!.classList.contains('hidden')).toBe(true);
+  });
+
   it('gating unchanged: no canCreateProviderTicket hides the control even for clickup', () => {
     const v = open(baseState({ provider: 'clickup', canCreateProviderTicket: false }));
     expect(v.query('#createInRow')!.classList.contains('hidden')).toBe(true);

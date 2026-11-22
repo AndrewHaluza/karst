@@ -2242,6 +2242,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       requestSubtaskAutostart: () => void subtaskAutostart.sweep(),
       // A started ticket belongs to its dashboard — the ticket form hands off there.
       openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId), openDependency: (ticketId: number) => dashboard.openDashboard(ticketId), confirmBlockedStart: async (message: string) => (await ask.warn(message, { modal: true }, 'Start anyway')) === 'Start anyway',
+      // SET-54 (Q13): Cancel on an edited form asks on the HOST, and only
+      // "Discard" throws the edits away (@ui:UI-R33).
+      confirmDiscard: async (message: string) => (await ask.warn(message, { modal: true }, 'Discard')) === 'Discard',
       writeSignals: writeRepoSignals,
       // Re-read the manifest from disk after a signal writeback so the panel's
       // manifest getter (currentManifest) reflects the saved signals — the gate

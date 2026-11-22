@@ -110,6 +110,12 @@ export interface AttachOptions {
    * While the trigger stays out of view the popover is pinned inside the viewport.
    */
   readonly onTriggerHidden: () => void;
+  /**
+   * Optional lower boundary in viewport px — the top of a sticky footer. Everything below it counts as out of
+   * reach, so a menu that does not fit flips above its trigger or caps above the edge (RD-AGENT-MENU) instead of
+   * covering the footer's buttons. Absent = the viewport is the boundary.
+   */
+  readonly bottomEdge?: () => number;
 }
 
 /** The popover's height without its own cap: a capped box scrolls, so its content height is `scrollHeight`. */
@@ -145,8 +151,12 @@ function place(opts: AttachOptions): boolean {
   // A detached trigger has no layout box: leave the popover where it is, not at the top-left corner.
   if (!trigger.isConnected) return true;
   const r = trigger.getBoundingClientRect();
+  // A sticky footer is the real bottom of the free area (RD-AGENT-MENU); the width still spans the window.
+  const viewport = {
+    width: window.innerWidth,
+    height: Math.min(window.innerHeight, opts.bottomEdge ? opts.bottomEdge() : window.innerHeight),
+  };
   // The cap is never cleared to measure: clearing it resets the popover's own scroll position to the top.
-  const viewport = { width: window.innerWidth, height: window.innerHeight };
   const wanted = opts.width === 'trigger' ? r.width : opts.width;
   const p = computePlacement({
     trigger: { left: r.left, top: r.top, width: r.width, height: r.height },

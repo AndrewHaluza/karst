@@ -188,6 +188,11 @@ function rowView(snapshot: QuotaSnapshot, thresholdPct: number, now: Date, accou
     core: snapshot.core,
     label,
     state: 'ok',
+    // The T1300 rule (never a stale "resetting now" bar) holds per window: an
+    // expired window keeps its label but loses its percent, countdown and bar
+    // fill. D751 keeps the window VISIBLE with `QUOTA_EXPIRED_TEXT` instead of
+    // filtering it out (hiding it leaves the user unable to see why a core has
+    // no number), and `anyNear` already skips every expired window below.
     windows: snapshot.windows.map((w) => windowView(label, w, thresholdPct, now, snapshot.readAt)),
     source: snapshot.source,
     readAgo,
