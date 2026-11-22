@@ -169,6 +169,20 @@ karstTest.describe('UI-R29 contrast (computed assertion)', () => {
       const theme = (themeMap[testInfo.project.name] ?? 'dark') as ThemeId;
       const page = await gotoView(viewId);
 
+      // Measure the settled page. The fixture applies the theme body class after first
+      // layout, so a shared component transition (.k-btn background/color) can still be
+      // mid-flight when a computed contrast check samples it: the light secondary button
+      // read 2.96:1 during the transition and 5.45:1 once settled. Await finite animations
+      // the way layout.layout.ts does; keyframe loops (a spinner) are skipped.
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+            .map((a) => a.finished.catch(() => undefined)),
+        ),
+      );
+
       const failures: Array<{
         selector: string;
         text: string;

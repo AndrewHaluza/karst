@@ -56,7 +56,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   sidebar: { screenshots: 42, layout: 95 },
   // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
   // T1301 agent-picker-open (the open agent-core menu at the wide 799-tall window, RD-AGENT-MENU), @ui:UI-R57: 1 theme (dark) (+1 screenshot); the page shares the edit-core-model layout run, so no layout tests are added.
-  ticketForm: { screenshots: 32, layout: 95 },
+  // T1301 SET-63 realistic-create / graph-roles / error at ALL_THEMES, SET-56's HC realistic-create-switches (Auto-improve Off), and SET-65's open approach picker, @ui:UI-R57: 7 screenshots (3 variants x 2 added themes = +6, the HC switch variant = +1); skipLayout, because the switch toggle adds no geometry and realistic-create already runs the page.
+  ticketForm: { screenshots: 39, layout: 95 },
   usage: { screenshots: 10, layout: 40 },
 };
 
