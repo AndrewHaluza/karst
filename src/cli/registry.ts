@@ -19,6 +19,7 @@
 
 import { OUTPUT_KINDS } from '../manifest/types.js';
 import { validateJson, type JsonSchema } from './jsonSchema.js';
+import { PRIORITY_LEVELS } from '../model/priority.js';
 
 export interface CommandGlobals {
   /** Requires `--db <path>`. */
@@ -393,6 +394,8 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         id: draftRef,
         dependsOn: dependsOnArray,
         constraints: strArray,
+        priority: { type: 'string', enum: [...PRIORITY_LEVELS] },
+        priorityReason: str,
       },
       ['title', 'description', 'summary', 'repos'],
     ),

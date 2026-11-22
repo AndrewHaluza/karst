@@ -86,6 +86,13 @@ describe('validateCommandInput', () => {
     expect(() => validateCommandInput('draft', { ...base, id: 'T4' })).toThrow(/id/);
   });
 
+  it('draft accepts priority and priorityReason, rejects an unknown level or a non-string reason', () => {
+    const base = { title: 't', description: 'd', summary: 's', repos: ['a'] };
+    expect(() => validateCommandInput('draft', { ...base, priority: 'high', priorityReason: 'blocks release' })).not.toThrow();
+    expect(() => validateCommandInput('draft', { ...base, priority: 'critical' })).toThrow(/priority/);
+    expect(() => validateCommandInput('draft', { ...base, priorityReason: 7 })).toThrow(/priorityReason/);
+  });
+
   it('rejects a CSV array element containing a comma', () => {
     expect(() => validateCommandInput('subtask', { title: 'x', repos: ['a,b'] })).toThrow(
       /repos\[0\].*must match/,
