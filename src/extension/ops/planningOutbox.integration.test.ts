@@ -832,6 +832,27 @@ describe('planning outbox', () => {
       expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
     });
 
+    it('a late answer for an old uuid does not clear the latch of a newer check', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      let call = 0;
+      const ob = withRepo({
+        commitExists: () => {
+          call += 1;
+          return call === 1 ? gate.then(() => false) : new Promise<boolean>(() => {});
+        },
+      });
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, constraints: ['abc1234'] });
+      ob.scan();
+      release();
+      await flush();
+      expect(readProposalIndex(scratch)[0]).toMatchObject({ id, uuid: UUID(2), checking: true });
+      expect(ob.checkingIds().has(id)).toBe(true);
+    });
+
     it('a revise with async checks marks the new uuid checking', () => {
       const ob = withRepo({ commitExists: () => new Promise<boolean>(() => {}) });
       put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
