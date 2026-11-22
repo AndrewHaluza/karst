@@ -53,7 +53,7 @@
 .ap-model-tags{display:flex;flex-wrap:wrap;gap:var(--k-space-1);margin-top:var(--k-space-2)}
 .ap-tag{font-size:var(--k-text-2xs);line-height:1;color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-2);white-space:nowrap}
 .ap-empty{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-sm);text-align:center}
-.ap-effort-field[hidden],.ap-field[hidden]{display:none}
+.ap-effort-field[hidden],.ap-field[hidden],.ap-seg[hidden]{display:none}
 .ap-seg{display:flex;gap:var(--k-space-2);grid-column:1/-1;justify-self:start;align-items:center}
 .ap-field[data-ap-preset-field]{grid-column:1/-1}
 /* Segmented control (prototype .m-seg): one border, dividers, filled accent. Only the

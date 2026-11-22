@@ -38,6 +38,7 @@ import {
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
+import { ticketLaunchFields } from './profileResolver.js';
 import { acquireLease } from '../../store/graph/leases.js';
 import { createRevision } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
@@ -2954,7 +2955,7 @@ describe('nodePromptWithReporter', () => {
   });
 });
 
-describe('resolveGraphNodeProfile — ticket rungs, gates and source', () => {
+describe('resolveGraphNodeProfile — preset and approach rungs, gates and source', () => {
   const config = graphApproachConfig({
     profiles: {
       expert: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
@@ -2966,7 +2967,9 @@ describe('resolveGraphNodeProfile — ticket rungs, gates and source', () => {
     active: { label: 'A', slots: { graphExpert: { provider: 'codex', model: 'gpt-5.5', effort: 'high' } } },
     mine: { label: 'M', slots: { graphExpert: { provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' } } },
   } as const;
-  const none = { agentPreset: null, provider: null, model: null, effort: null };
+  const none = { agentPreset: null };
+  /** A ticket row with a stale single-agent trio (T1301): a graph launch must ignore it. */
+  const staleRow = { agentPreset: null, agentProvider: 'opencode2', model: 'claude-opus-5', effort: 'max' };
 
   it('returns source preset for a slot and approach for the config profile', () => {
     const m = testManifest({ agentPresets: presets, activeAgentPreset: 'active' } as never);
@@ -2980,23 +2983,25 @@ describe('resolveGraphNodeProfile — ticket rungs, gates and source', () => {
     expect(r).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low', source: 'preset' });
   });
 
-  it('lets the ticket provider/model/effort beat the preset slot', () => {
+  it('ignores the ticket provider/model/effort: the active graphExpert slot wins (AC-63)', () => {
     const m = testManifest({ agentPresets: presets, activeAgentPreset: 'active' } as never);
-    const r = resolveGraphNodeProfile(m, config, 'expert', {
-      agentPreset: null,
-      provider: 'claude',
-      model: 'claude-opus-5',
-      effort: 'max',
-    });
-    expect(r).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'max', source: 'ticket' });
+    const r = resolveGraphNodeProfile(m, config, 'expert', ticketLaunchFields(staleRow));
+    expect(r).toEqual({ provider: 'codex', model: 'gpt-5.5', effort: 'high', source: 'preset' });
   });
 
-  it('drops the whole slot when the ticket names another core (no model crosses cores)', () => {
+  it('ignores the ticket trio with no preset: the approach expert profile wins (AC-63)', () => {
+    const r = resolveGraphNodeProfile(testManifest(), config, 'expert', ticketLaunchFields(staleRow));
+    expect(r).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'high', source: 'approach' });
+  });
+
+  it('reads only agentPreset from a ticket row', () => {
+    expect(ticketLaunchFields({ ...staleRow, agentPreset: 'mine' })).toEqual({ agentPreset: 'mine' });
+  });
+
+  it('falls through a dangling ticket agentPreset to the approach profile (T1266)', () => {
     const m = testManifest({ agentPresets: presets, activeAgentPreset: 'active' } as never);
-    const r = resolveGraphNodeProfile(m, config, 'expert', { ...none, provider: 'claude' });
-    expect(r?.provider).toBe('claude');
-    expect(r?.model).toBeUndefined();
-    expect(r?.source).toBe('ticket');
+    const r = resolveGraphNodeProfile(m, config, 'expert', { agentPreset: 'gone' });
+    expect(r).toMatchObject({ provider: 'claude', model: 'claude-opus-5', source: 'approach' });
   });
 
   it('drops a codex slot that carries a Claude model and falls back to the approach profile', () => {
@@ -3066,7 +3071,7 @@ describe('planner launches resolve through the preset-aware resolver', () => {
   it('lets the ticket agentPreset beat the active preset on bootstrap', async () => {
     const h = harness();
     h.deps.manifest = slotManifest();
-    h.deps.ticketLaunchFieldsOf = () => ({ agentPreset: 'mine', provider: null, model: null, effort: null });
+    h.deps.ticketLaunchFieldsOf = () => ({ agentPreset: 'mine' });
     await bootstrapAndLaunchPlanner(h.deps, {
       ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', projectSlug: 'acme',
     });
@@ -3107,6 +3112,58 @@ describe('planner launches resolve through the preset-aware resolver', () => {
     expect(result.kind).toBe('launched');
     expect(providers).toContain('codex');
     expect(interactiveOf(h)).toMatchObject({ model: 'gpt-5.5', effort: 'high' });
+  });
+
+  it('ignores a stale ticket core on bootstrap and replan: graphExpert still launches (T1301)', async () => {
+    const h = harness();
+    h.deps.manifest = slotManifest();
+    const providers = spyAdapters(h);
+    const row = { agentPreset: null, agentProvider: 'opencode2', model: 'kimi-k2', effort: 'max' };
+    h.deps.ticketLaunchFieldsOf = () => ticketLaunchFields(row);
+    const boot = await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', projectSlug: 'acme',
+    });
+    expect(boot.kind).toBe('launched');
+    const graphRunId = Number((h.db.prepare('SELECT MAX(id) AS id FROM approach_graph_runs').get() as { id: number }).id);
+    h.db
+      .prepare(`INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status) VALUES (?, 9, 'replan', 'ready')`)
+      .run(graphRunId);
+    const plannerRunId = Number(
+      (h.db.prepare('SELECT MAX(id) AS id FROM approach_planner_runs').get() as { id: number }).id,
+    );
+    const replan = await launchReplanPlanner(h.deps, {
+      graphRunId, plannerRunId, generation: '', capability: '', prompt: '# replan',
+      cwd: join(h.root, 'wt'), repo: 'api',
+    });
+    expect(replan.kind).toBe('launched');
+    expect(providers).not.toContain('opencode2');
+    expect(h.starts).toHaveLength(2);
+    for (const start of h.starts) {
+      expect((start as { interactive: { model?: string; effort?: string } }).interactive).toMatchObject({
+        model: 'gpt-5.5',
+        effort: 'high',
+      });
+    }
+  });
+
+  it('ignores a stale ticket core on a replan with no preset: the approach expert launches', async () => {
+    const h = harness();
+    const providers = spyAdapters(h);
+    const row = { agentPreset: null, agentProvider: 'opencode2', model: 'kimi-k2', effort: 'max' };
+    h.deps.ticketLaunchFieldsOf = () => ticketLaunchFields(row);
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId, stageAttempt: 0, approachId: 'karst-graph-engineering', now: NOW,
+    });
+    h.db
+      .prepare(`INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status) VALUES (?, 2, 'replan', 'ready')`)
+      .run(graphRunId);
+    const result = await launchReplanPlanner(h.deps, {
+      graphRunId, plannerRunId: plannerRunIdFor(h.db, graphRunId), generation: '', capability: '', prompt: '# replan',
+      cwd: join(h.root, 'wt'), repo: 'api',
+    });
+    expect(result.kind).toBe('launched');
+    expect(providers).toEqual(['claude']);
+    expect(interactiveOf(h)).toMatchObject({ model: 'claude-opus-5', effort: 'high' });
   });
 
   const plannerRow = (h: Harness) =>

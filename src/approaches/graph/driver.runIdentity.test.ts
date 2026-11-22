@@ -26,6 +26,7 @@ import {
   resolveRunIdentities,
   serializeRunIdentities,
 } from './runIdentity.js';
+import { ticketLaunchFields } from './profileResolver.js';
 
 function presetManifest(active: 'p1' | 'p2'): Manifest {
   return testManifest({
@@ -201,6 +202,54 @@ function readyWorkerNode(h: Harness, snapshot: string | null): number {
   }
   return graphRunId;
 }
+
+describe('a stale ticket core never reaches a graph launch (AC-63)', () => {
+  const staleRow = { agentPreset: null, agentProvider: 'opencode2', model: 'kimi-k2', effort: 'max' };
+  const replanOf = (h: Harness, graphRunId: number): number => {
+    h.db
+      .prepare("INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status) VALUES (?, 2, 'replan', 'ready')")
+      .run(graphRunId);
+    return (h.db.prepare("SELECT id FROM approach_planner_runs WHERE kind = 'replan'").get() as { id: number }).id;
+  };
+
+  it('bootstrap then replan resolve graphExpert from the preset with agent_provider set on the ticket', async () => {
+    const h = harness();
+    const { deps, providers } = depsWith(h, presetManifest('p2'));
+    const withStale = { ...deps, ticketLaunchFieldsOf: () => ticketLaunchFields(staleRow) };
+    const boot = await bootstrapAndLaunchPlanner(withStale, input(h));
+    if (boot.kind !== 'launched') throw new Error(`bootstrap: ${boot.kind}`);
+    expect(parseRunIdentities(graphRunAgentIdentity(h.db, boot.graphRunId))?.roles.expert).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-5.6',
+      source: 'preset',
+    });
+    const result = await launchReplanPlanner(withStale, {
+      graphRunId: boot.graphRunId, plannerRunId: replanOf(h, boot.graphRunId), generation: '', capability: '',
+      prompt: '# replan', cwd: join(h.root, 'wt'), repo: 'api',
+    });
+    expect(result.kind).toBe('launched');
+    expect(providers).toEqual(['codex', 'codex']);
+    expect(modelOf(h, 0)).toBe('gpt-5.6');
+    expect(modelOf(h, 1)).toBe('gpt-5.6');
+  });
+
+  it('a legacy run whose snapshot holds "source":"ticket" still parses and launches on it', async () => {
+    const h = harness();
+    const graphRunId = await bootstrap(h, presetManifest('p1'));
+    const live = resolveRunIdentities(presetManifest('p1'), h.config);
+    const legacy = { v: 1, roles: { ...live.roles, expert: { provider: 'codex', model: 'gpt-5.6', source: 'ticket' } } };
+    expect(setGraphRunAgentIdentity(h.db, graphRunId, JSON.stringify(legacy), NOW)).toBe(true);
+    expect(parseRunIdentities(graphRunAgentIdentity(h.db, graphRunId))?.roles.expert?.source).toBe('ticket');
+    const { deps, providers } = depsWith(h, presetManifest('p1'));
+    const result = await launchReplanPlanner(deps, {
+      graphRunId, plannerRunId: replanOf(h, graphRunId), generation: '', capability: '',
+      prompt: '# replan', cwd: join(h.root, 'wt'), repo: 'api',
+    });
+    expect(result.kind).toBe('launched');
+    expect(providers).toEqual(['codex']);
+    expect(modelOf(h)).toBe('gpt-5.6');
+  });
+});
 
 describe('node launch identity', () => {
   const snapshotOf = (h: Harness, preset: 'p1' | 'p2'): string =>

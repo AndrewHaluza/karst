@@ -424,7 +424,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
     debug: () => undefined,
     graphConfigOf: (approachId) => (approachId === GRAPH_APPROACH ? config : undefined),
     manifest: manifest({}, {}),
-    ticketLaunchFieldsOf: () => ({ agentPreset: null, provider: null, model: null, effort: null }),
+    ticketLaunchFieldsOf: () => ({ agentPreset: null }),
     artifactRootOf: () => artifactRoot,
     graphEnvOf: (input) => ({
       KARST_GRAPH_PROJECT: String(projectId),

@@ -116,8 +116,8 @@ export function agentContextFor(
       continue;
     }
     if (GRAPH_CAPABILITIES.has(capability)) {
-      // A graph ticket shows what a graph launch resolves (AC-04): ticket
-      // rungs → preset slot → approach profile, through the shared role view.
+      // A graph ticket shows what a graph launch resolves (AC-63):
+      // ticket.agentPreset → active preset → approach profile, through the shared role view.
       // A classic ticket (one whose approach has no graph) launches no graph role, so
       // its header names none (null). With no ticket at all, a preset slot is the only
       // rung; an absent slot is Inherit (null).

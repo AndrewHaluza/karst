@@ -44,7 +44,7 @@ export interface ModelChangeScanDeps {
   readonly db: GraphDb;
   readonly manifest: Manifest;
   readonly graphConfigOf: (approachId: string) => GraphApproachConfig | undefined;
-  /** The ticket's own core, model, effort and preset: part of the identity a launch resolves. */
+  /** The ticket's agentPreset: part of the identity a launch resolves. */
   readonly ticketLaunchFieldsOf: (ticketId: number) => GraphLaunchTicketFields;
 }
 

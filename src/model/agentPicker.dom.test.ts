@@ -384,6 +384,49 @@ describe('presetMode (opt-in Preset | Core + model)', () => {
     mount(root, { ...opts, presetMode: presetMode('fast') });
     expect(presetSelect(root).value).toBe('fast');
   });
+
+  describe('presetMode.only (a graph approach: the preset is the one source)', () => {
+    const only = (selected: string | null) => ({ ...presetMode(selected), only: true });
+    const seg = (r: HTMLElement) => r.querySelector('[role="radiogroup"]') as HTMLElement;
+
+    it('hides the Preset | Core + model switch and opens the preset tab with no preset selected', () => {
+      const { root } = mountPreset({ presetMode: only(null) });
+      expect(seg(root).hidden).toBe(true);
+      expect(fieldOf(root, '[data-ap-preset]').hidden).toBe(false);
+      for (const sel of ['[data-ap-shell="core"]', '[data-ap-shell="model"]', '[data-ap-effort]']) {
+        expect(fieldOf(root, sel).hidden, sel).toBe(true);
+      }
+      expect(presetSelect(root).value).toBe('');
+    });
+
+    it('never leaves the preset tab: setMode("core") and a click on the hidden radio do nothing', () => {
+      const { root, inst, seen } = mountPreset({ presetMode: only('fast') });
+      inst.setMode('core');
+      click(radios(root)[1]!);
+      expect(fieldOf(root, '[data-ap-shell="core"]').hidden).toBe(true);
+      expect(radios(root)[0]!.getAttribute('aria-checked')).toBe('true');
+      expect(seen).toEqual([]);
+    });
+
+    it('a preset pick emits mode preset with the trio cleared', () => {
+      const { root, seen } = mountPreset({ presetMode: only('fast') });
+      presetSelect(root).value = '';
+      presetSelect(root).dispatchEvent(new Event('change', { bubbles: true }));
+      expect(seen.at(-1)).toEqual({ mode: 'preset', preset: '', core: '', model: '', effort: '' });
+    });
+
+    it('a re-mount that turns `only` on pins the preset tab, and off shows the switch again', () => {
+      const { root, mount, opts } = mountPreset();
+      expect(radios(root)[1]!.getAttribute('aria-checked')).toBe('true');
+      mount(root, { ...opts, presetMode: only(null) });
+      expect(seg(root).hidden).toBe(true);
+      expect(fieldOf(root, '[data-ap-shell="core"]').hidden).toBe(true);
+      mount(root, { ...opts, presetMode: presetMode(null) });
+      expect(seg(root).hidden).toBe(false);
+      expect(radios(root)[1]!.getAttribute('aria-checked')).toBe('true');
+      expect(fieldOf(root, '[data-ap-shell="core"]').hidden).toBe(false);
+    });
+  });
 });
 
 describe('the menu placement takes an opt-in bottom edge (RD-AGENT-MENU)', () => {

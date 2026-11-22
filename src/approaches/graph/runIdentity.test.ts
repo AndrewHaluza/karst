@@ -10,6 +10,7 @@ import {
   serializeRunIdentities,
   summarizeRunIdentities,
 } from './runIdentity.js';
+import { ticketLaunchFields } from './profileResolver.js';
 
 const config = {
   planner: { profile: 'expert' },
@@ -98,20 +99,47 @@ describe('summaries', () => {
 });
 
 describe('ticket fields', () => {
-  it('fold the ticket core, model and effort into the snapshot', () => {
-    const ids = resolveRunIdentities(manifestWith(undefined), config, {
-      agentPreset: null,
-      provider: 'claude',
-      model: 'claude-opus-5',
-      effort: 'max',
-    });
-    expect(ids.roles.expert).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'max', source: 'ticket' });
+  it('fold the ticket agentPreset into the snapshot', () => {
+    const ids = resolveRunIdentities(manifestWith(undefined), config, { agentPreset: 'b' });
+    expect(ids.roles.worker).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low', source: 'preset' });
+    expect(ids.roles.expert?.source).toBe('approach');
   });
-  it('make a ticket change differ from the stored snapshot', () => {
-    const none = { agentPreset: null, provider: null, model: null, effort: null };
-    const before = resolveRunIdentities(manifestWith(undefined), config, none);
-    const after = resolveRunIdentities(manifestWith(undefined), config, { ...none, effort: 'max' });
+  it('make a ticket agentPreset change differ from the stored snapshot', () => {
+    const before = resolveRunIdentities(manifestWith(undefined), config, { agentPreset: null });
+    const after = resolveRunIdentities(manifestWith(undefined), config, { agentPreset: 'b' });
     expect(identitiesDiffer(before, after)).toBe(true);
+  });
+  it('ignore the ticket core, model and effort (AC-63)', () => {
+    const row = { agentPreset: null, agentProvider: 'opencode2', model: 'kimi-k2', effort: 'max' };
+    const live = resolveRunIdentities(manifestWith(undefined), config, ticketLaunchFields(row));
+    expect(identitiesDiffer(resolveRunIdentities(manifestWith(undefined), config), live)).toBe(false);
+  });
+});
+
+describe('legacy ticket-rung snapshots', () => {
+  const legacy = JSON.stringify({
+    v: 1,
+    roles: { expert: { provider: 'opencode2', model: 'kimi-k2', effort: 'max', source: 'ticket' } },
+  });
+  it('still parse a stored "source":"ticket" role', () => {
+    expect(parseRunIdentities(legacy)?.roles.expert).toEqual({
+      provider: 'opencode2',
+      model: 'kimi-k2',
+      effort: 'max',
+      source: 'ticket',
+    });
+  });
+  it('pin the legacy identity for a launch of that run', () => {
+    expect(pinnedProfile(parseRunIdentities(legacy), 'expert')).toMatchObject({ provider: 'opencode2', source: 'ticket' });
+  });
+  it('differ from the live identity by provider, model and effort only', () => {
+    const live = resolveRunIdentities(manifestWith(undefined), config);
+    expect(identitiesDiffer(parseRunIdentities(legacy)!, live)).toBe(true);
+    const sameTriple = JSON.stringify({
+      v: 1,
+      roles: { ...live.roles, expert: { ...live.roles.expert, source: 'ticket' } },
+    });
+    expect(identitiesDiffer(parseRunIdentities(sameTriple)!, live)).toBe(false);
   });
 });
 
