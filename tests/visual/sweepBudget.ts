@@ -56,7 +56,9 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   sidebar: { screenshots: 42, layout: 95 },
   // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
   ticketForm: { screenshots: 31, layout: 95 },
-  usage: { screenshots: 10, layout: 40 },
+  // T1302 state matrix (@ui:UI-R57): populated-narrow/tight, long-key wide + mid, host-failure, and the five
+  // quota states (+14 screenshots); their layout runs add 6 distinct pages x 6 widths and 8 pages x the 360 tier (+44).
+  usage: { screenshots: 24, layout: 84 },
 };
 
 /** The settings layout tests of `layout.layout.ts`: every route at every width, plus the Agents resize test. */
