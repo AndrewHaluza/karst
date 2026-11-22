@@ -571,6 +571,14 @@ describe('ticket form — honest states (SET-52, SET-53, SET-54)', () => {
   it('replaces the loading state with the real regions on the first state (SET-53)', () => {
     const v = open(baseState());
     expect(v.document.body.classList.contains('is-ready')).toBe(true);
+    const hideRule = v
+      .cssRules()
+      .find(
+        (rule) =>
+          rule.selectorText.includes('body.is-ready #loadingContent') &&
+          rule.selectorText.includes('body.is-ready #loadingSettings'),
+      );
+    expect(hideRule?.style.display).toBe('none');
   });
 
   it('renders a fetch failure under the Key row and clears it on the next state (SET-52)', () => {

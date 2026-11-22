@@ -78,9 +78,12 @@
   .callout-icon{display:inline-flex;flex:none;color:var(--k-danger);margin-top:var(--k-space-1)}
   /* SET-53: before the first state push the regions show the honest loading
      block and nothing else. An empty editable form reads as "ready" and invites
-     typing into a page that has not loaded yet. */
+     typing into a page that has not loaded yet. Once `is-ready` lands, the
+     loading blocks hide so only the real fields show. */
   body:not(.is-ready) [data-region="content"] > :not(#loadingContent),
-  body:not(.is-ready) [data-region="settings"] > :not(#loadingSettings){display:none}
+  body:not(.is-ready) [data-region="settings"] > :not(#loadingSettings),
+  body.is-ready #loadingContent,
+  body.is-ready #loadingSettings{display:none}
   /* Local layout modifiers replacing what used to be inline `style="…"`
      attributes (UI-R04 applies to the whole document, not only the
      stylesheet — an inline style is the same defect wearing a different hat). */
