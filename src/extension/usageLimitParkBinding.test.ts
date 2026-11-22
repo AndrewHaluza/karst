@@ -299,6 +299,7 @@ describe('createUsageLimitParkBinding', () => {
     const { store, ticket } = setup();
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    showQuickPick.mockResolvedValueOnce({ label: 'Only this run', carry: false });
     const adapterFor = vi.fn().mockReturnValue(fakeAdapter);
     const redrive = vi.fn();
     const refresh = vi.fn();
@@ -354,6 +355,7 @@ describe('createUsageLimitParkBinding', () => {
     const { store, ticket } = setup();
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    showQuickPick.mockResolvedValueOnce({ label: 'Only this run', carry: false });
     const stop = new AbortController();
     type DriverRun = NonNullable<Parameters<typeof createUsageLimitParkBinding>[0]['withDriverRun']>;
     const withDriverRunSpy = vi.fn(
@@ -388,6 +390,7 @@ describe('createUsageLimitParkBinding', () => {
   it('defaults the git runner to the production seam', async () => {    const { store, ticket } = setup();
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    showQuickPick.mockResolvedValueOnce({ label: 'Only this run', carry: false });
 
     // NO `git` seam: the binding must fall back to the production runner.
     const actions = binding(store, ticket.id).forTicket(ticket.id);
@@ -422,6 +425,7 @@ describe('createUsageLimitParkBinding', () => {
     mockedRunProcess.mockResolvedValue({ kind: 'completed', exitCode: 0, stdout: '', stderr: '' });
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    showQuickPick.mockResolvedValueOnce({ label: 'Only this run', carry: false });
     const manifest = {
       uat: { testerVerifier: { name: 'verify', kind: 'script', script: 'verify' } },
     } as unknown as Manifest;
@@ -467,6 +471,7 @@ describe('createUsageLimitParkBinding', () => {
     const hostRunner = vi.fn();
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    showQuickPick.mockResolvedValueOnce({ label: 'Only this run', carry: false });
     const manifest = {
       uat: { testerVerifier: { name: 'verify', kind: 'script', script: 'verify' } },
     } as unknown as Manifest;
@@ -514,6 +519,7 @@ describe('createUsageLimitParkBinding', () => {
     });
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    showQuickPick.mockResolvedValueOnce({ label: 'Only this run', carry: false });
     const syncSandbox = vi.fn(async () => ({ ok: true as const }));
 
     const actions = binding(store, ticket.id, {
@@ -558,6 +564,7 @@ describe('createUsageLimitParkBinding', () => {
     });
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    showQuickPick.mockResolvedValueOnce({ label: 'Only this run', carry: false });
     const manifest = {
       repositories: {
         repo: { repoPath: '/tmp', hasMigrations: false, service: { start: 'npm run dev' } },
@@ -612,6 +619,7 @@ describe('createUsageLimitParkBinding', () => {
     });
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    showQuickPick.mockResolvedValueOnce({ label: 'Only this run', carry: false });
     const runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' });
 
     const actions = binding(store, ticket.id, {
