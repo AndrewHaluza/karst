@@ -2082,9 +2082,13 @@
     // An explicit core on this ticket wins over every role (AC-04 ticket rung), so the table
     // would be stale: say so instead of showing models the launch will not use.
     const ticketCore = draft.selectedAgentProvider ?? lastSelectedAgentProvider ?? '';
+    // The hint names the rung the chips show (SET-51): with no ticket core and no preset
+    // slot in play every line comes from the approach, so the preset text would contradict them.
     const hint = ticketCore
       ? 'This ticket sets its own core above. Every graph role runs on it; a preset slot for that same core keeps its model.'
-      : 'The preset sets these models. To change them for this ticket only, choose Core + model above.';
+      : lines.every((l) => l.source === 'approach')
+        ? 'The approach sets these models. To change them for this ticket only, choose Core + model above.'
+        : 'The preset sets these models. To change them for this ticket only, choose Core + model above.';
     box.innerHTML = '<label>Graph roles</label>' +
       '<div class="graph-roles-grid" role="list">' + lines.map((l) =>
         '<div class="graph-role-row" role="listitem" data-graph-role="' + esc(l.role) + '">' +

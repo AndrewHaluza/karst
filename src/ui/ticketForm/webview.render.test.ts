@@ -471,6 +471,7 @@ describe('ticket form — graph role preview (T1266)', () => {
       ...over,
     });
   const preview = (v: RenderHandle) => v.query<HTMLElement>('#graphRolesPreview')!;
+  const hintOf = (v: RenderHandle) => preview(v).querySelector('.graph-roles-hint')!.textContent;
 
   it('shows the approach-profile lines for a ticket preset the manifest lacks, not the active preset (T1266 fix)', () => {
     const dangling = [{ role: 'expert', text: 'claude · dangling-profile', source: 'approach' }];
@@ -499,9 +500,19 @@ describe('ticket form — graph role preview (T1266)', () => {
 
   it('tells how to change the models for this ticket only, and says when the ticket core replaces them', () => {
     const preset = open(st());
-    expect(preview(preset).querySelector('.graph-roles-hint')!.textContent).toContain('Core + model');
+    expect(hintOf(preset)).toBe('The preset sets these models. To change them for this ticket only, choose Core + model above.');
     const own = open(st({ selectedAgentProvider: 'claude' }));
-    expect(preview(own).querySelector('.graph-roles-hint')!.textContent).toContain('keeps its model');
+    expect(hintOf(own)).toContain('keeps its model');
+  });
+
+  it('says the approach sets the models when every role comes from the approach (SET-51)', () => {
+    const fromApproach = (preset: string) => [
+      { role: 'expert', text: `claude · expert-${preset}`, source: 'approach' },
+      { role: 'worker', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+      { role: 'fast', text: 'claude · claude-sonnet-5 · low', source: 'approach' },
+    ];
+    const v = open(st({ graphRoles: { dyn: { '': fromApproach('inherit'), deep: fromApproach('deep') } } }));
+    expect(hintOf(v)).toBe('The approach sets these models. To change them for this ticket only, choose Core + model above.');
   });
 
   it('is hidden for an approach with no graph', () => {

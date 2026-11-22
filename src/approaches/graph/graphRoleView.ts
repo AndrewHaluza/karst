@@ -5,7 +5,9 @@
  * a launch. It calls `resolveGraphNodeProfile` — it holds no resolution logic.
  */
 
-import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
+import type { AgentProvider, GraphApproachConfig, Manifest } from '../../manifest/types.js';
+import { bundledModelCatalog } from '../../agent/modelCatalog.js';
+import { AGENT_PROVIDER_LABELS } from '../../model/agentProviders.js';
 import {
   NO_TICKET_FIELDS,
   resolveGraphNodeProfile,
@@ -56,13 +58,42 @@ export interface GraphRoleLine {
   readonly source: GraphProfileSource;
 }
 
+/**
+ * The core's canonical name, from the shared registry (UI-R10c). Read here and
+ * not from `inside/agent.ts`: that module value-imports `agentIdentity.ts`,
+ * which reads the icon assets off disk with `node:fs`, and this file is bundled
+ * into the Settings webview. `agentProviders.ts` is the dependency-free home of
+ * the same mapping (`AGENT_PROVIDER_LABELS`), so the name is shared, not copied.
+ */
+function coreLabel(provider: string): string {
+  const labels = AGENT_PROVIDER_LABELS as Readonly<Record<string, string | undefined>>;
+  return labels[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+/**
+ * The model's catalog label, the raw id when the catalog lacks it, else the
+ * default reading — the same rule (and the same bundled catalog) as
+ * `labelForModel` in `inside/agent.ts`, which this webview-bundled module
+ * cannot import (see `coreLabel`).
+ */
+function modelLabel(provider: string, model: string | null): string {
+  if (!model) return 'Agent default';
+  const catalog = bundledModelCatalog()[provider as AgentProvider];
+  return catalog?.find((option) => option.id === model)?.label ?? model;
+}
+
 /** The resolved roles as printable lines, in expert → worker → fast order; unresolved roles are left out. */
 export function describeGraphRoles(view: GraphRoleView): readonly GraphRoleLine[] {
   const lines: GraphRoleLine[] = [];
   for (const role of GRAPH_ROLES) {
     const p = view[role];
     if (p === undefined) continue;
-    lines.push({ role, text: [p.provider, p.model, p.effort].filter(Boolean).join(' · '), source: p.source });
+    // Display labels, never the raw ids (SET-35): the core name and the model
+    // label are added here so every view of the roles prints the same text (AC-63).
+    const text = [coreLabel(p.provider), modelLabel(p.provider, p.model ?? null), p.effort]
+      .filter((part): part is string => Boolean(part))
+      .join(' · ');
+    lines.push({ role, text, source: p.source });
   }
   return lines;
 }
