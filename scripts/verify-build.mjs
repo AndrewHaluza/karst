@@ -93,7 +93,12 @@ const REQUIRED_ARTIFACTS = [
 // which bundles the D726 resolver (`resolveGraphNodeProfile`, the preset slot reader and the model
 // and effort gates; ~7 KB minified) instead of a second copy of that logic: bundle is 425174
 // bytes (~1.8 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 417 * 1024;
+// Raised 417 → 426 KB for T1297 (Settings production-ready): the shared SegmentedControl radio
+// group (BackendPanel), the Accounts quota save-on-change path (QuotaCard, `set-quota`), the
+// Ticketing provider picker and ClickUp field gating, the local-field-error diagnostics, the
+// Discard/Undo snapshot in the shell and the Accounts row actions — ~9 KB of genuine app code;
+// bundle is 434541 bytes (~1.6 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 426 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
