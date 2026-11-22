@@ -55,6 +55,26 @@ describe('archWarnings', () => {
   });
 });
 
+describe('archWarnings gating and repo sets', () => {
+  const docA = '## [@arch:KA] a\nEND_DOC_BLOCK: [@arch:KA]\n';
+  const docB = '## [@arch:KB] b\nEND_DOC_BLOCK: [@arch:KB]\n';
+  it('a key must be known to be accepted, and is unknown when only another repo defines a different key', () => {
+    expect(archWarnings(['@arch:KA'], [repoWithDocs(docA), repoWithDocs(docB)], vi.fn())).toEqual([]);
+    expect(archWarnings(['@arch:KA', '@arch:KB', '@arch:KC'], [repoWithDocs(docA), repoWithDocs(docB)], vi.fn())).toEqual([
+      'unknown design key @arch:KC',
+    ]);
+  });
+  it('does not log when there is nothing to verify', () => {
+    const debug = vi.fn();
+    expect(archWarnings([], [repoWithDocs(undefined)], debug)).toEqual([]);
+    expect(archWarnings(['@arch:KA'], [], debug)).toEqual([]);
+    expect(debug).not.toHaveBeenCalled();
+  });
+  it('archDocFiles ignores a malformed key without throwing', () => {
+    expect(archDocFiles(['@arch:x', '@arch:'], [repoWithDocs(docA)])).toEqual({});
+  });
+});
+
 describe('sensitivePathWarning', () => {
   const msg = 'touches prompt-sensitive code without citing a design rule';
   it('warns when a sensitive path is mentioned and no @arch is cited', () => {
@@ -404,6 +424,27 @@ describe('missingPathWarnings', () => {
   });
 });
 
+describe('missingPathWarnings input hygiene', () => {
+  const t1 = { repoPath: '/r1', baseBranch: 'main' };
+  it('sends no path with a line break, even when it comes first, and stays silent when the base resolves', async () => {
+    const calls: string[] = [];
+    const debug = vi.fn();
+    const batch: GitBatch = async (_r, input) => {
+      calls.push(input);
+      return input
+        .split('\n')
+        .filter(Boolean)
+        .map(() => `${'a'.repeat(40)} blob 1`)
+        .join('\n');
+    };
+    await expect(missingPathWarnings(['src/x\n.ts', 'src/y\r.ts', 'src/ok.ts'], [t1], batch, debug)).resolves.toEqual([]);
+    const pathLines = calls[0]!.split('\n').filter((l) => l.startsWith('HEAD:./'));
+    expect(pathLines).toEqual(['HEAD:./src/ok.ts']);
+    expect(calls[0]!.split('\n')).not.toContain('.ts');
+    expect(debug).not.toHaveBeenCalled();
+  });
+});
+
 describe('overlapWarnings', () => {
   const incoming = { title: 'Retry token refresh in session store', description: 'Edit src/auth/session.ts and src/auth/token.ts.' };
   const c = (ref: string, title: string, description = '') => ({ ref, title, description });
@@ -440,5 +481,17 @@ describe('overlapWarnings', () => {
     const w = overlapWarnings(incoming, many);
     expect(w).toHaveLength(3);
     for (const x of w) expect(x.length).toBeLessThanOrEqual(60);
+  });
+  it('counts 3-letter words as title tokens', () => {
+    expect(overlapWarnings({ title: 'api web sdk', description: '' }, [c('D1', 'api web sdk')])).toEqual(['title closely matches D1']);
+  });
+  it('counts only the files that both drafts name, not all of the candidate files', () => {
+    const own = { title: 'zz', description: 'src/a.ts' };
+    expect(overlapWarnings(own, [c('D1', 'zz', 'src/a.ts src/b.ts src/c.ts')])).toEqual([]);
+  });
+  it('requires 3 tokens on BOTH sides for a title match', () => {
+    expect(overlapWarnings({ title: 'alpha beta gamma', description: '' }, [c('D1', 'alpha beta')])).toEqual([]);
+    expect(overlapWarnings({ title: 'alpha beta', description: '' }, [c('D1', 'alpha beta gamma')])).toEqual([]);
+    expect(overlapWarnings({ title: 'alpha beta', description: '' }, [c('D1', 'alpha beta')])).toEqual([]);
   });
 });

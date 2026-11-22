@@ -257,8 +257,10 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   /** Overlap with open drafts and tickets; a store failure skips the check with a debug line. */
   function overlapOf(p: Proposal, id: number | undefined): string[] {
     const projectId = deps.projectId();
+    // Stryker disable next-line ConditionalExpression: equivalent, an undefined project id matches no row and logs nothing
     if (projectId === undefined) return [];
     try {
+      // Stryker disable next-line ArrayDeclaration: equivalent, a dependency that is no node id links to nothing
       return overlapWarnings(p, listOverlapCandidates(deps.store, projectId, id, p.dependsOn ?? []));
     } catch (e) {
       debug(`overlap check for ${id === undefined ? 'a new draft' : formatId('draft', id)} skipped (${messageOf(e)})`);
@@ -306,10 +308,12 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
    * warning, and on an error), so `checking: true` never sticks.
    */
   function verifyAsync(sessionId: number, scratch: string, id: number, uuid: string, p: Proposal): void {
+    // Stryker disable next-line ConditionalExpression: equivalent, both probes are already resolved when none runs and the latch was never set
     if (!willVerify(p)) return;
     const probe = pathProbe(p);
     const commits = commitProbeRuns(p)
-      ? commitWarnings(p.constraints ?? [], deps.repoPaths!(p.repos), deps.commitExists!, debug)
+      ? // Stryker disable next-line ArrayDeclaration: equivalent, a non-commit constraint is filtered out by commitWarnings
+        commitWarnings(p.constraints ?? [], deps.repoPaths!(p.repos), deps.commitExists!, debug)
       : Promise.resolve<string[]>([]);
     const missing = probe ? missingPathWarnings(probe.paths, probe.targets, deps.gitBatch!, debug) : Promise.resolve<string[]>([]);
     void Promise.allSettled([commits, missing])

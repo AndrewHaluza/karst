@@ -126,7 +126,7 @@ export function archDocFiles(constraints: readonly string[], repoPaths: readonly
       try {
         const file = readdirSync(abs)
           .filter((n) => n.endsWith('.md'))
-          .find((n) => readFileSync(join(abs, n), 'utf8').includes(`[@${parsed.ns}:${parsed.key}]`));
+          .find((n) => readFileSync(join(abs, n), DOC_ENCODING).includes(`[@${parsed.ns}:${parsed.key}]`));
         if (file) {
           out[c] = file;
           break;
@@ -143,6 +143,7 @@ export function archDocFiles(constraints: readonly string[], repoPaths: readonly
 function keysIn(constraints: readonly string[], ns: DesignNamespace): string[] {
   return constraints.filter((c) => {
     const p = parseDesignKey(c);
+    // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent, the `ns` of the string 'malformed' is undefined and never equals `ns`
     return p !== undefined && p !== 'malformed' && p.ns === ns;
   });
 }
@@ -221,6 +222,8 @@ export const MAX_CHECKED_PATHS = 50;
 export const MAX_MISSING_PATH_WARNINGS = 3;
 const GIT_BATCH_TIMEOUT_MS = 5000;
 const GIT_BATCH_MAX_BUFFER = 1024 * 1024;
+const GIT_BATCH_OPTIONS = { encoding: 'utf8', timeout: GIT_BATCH_TIMEOUT_MS, maxBuffer: GIT_BATCH_MAX_BUFFER } as const;
+const DOC_ENCODING = 'utf8';
 const OBJECT_LINE = /^[0-9a-f]{40,64} \S+ \d+$/;
 const MISSING_PREFIX = 'missing path at base: ';
 
@@ -262,6 +265,7 @@ export async function missingPathsViaGitBatch(
     ...refs.flatMap((r) => variants.flatMap((vs) => vs.map((v) => `${r}:./${v}`))),
   ];
   const out = (await batch(target.repoPath, `${lines.join('\n')}\n`)).split('\n');
+  // Stryker disable next-line StringLiteral: equivalent, any non-empty fallback fails OBJECT_LINE like the empty one
   const found = (i: number): boolean => OBJECT_LINE.test(out[i] ?? '');
   const refIndex = refs.findIndex((_, i) => found(i));
   if (refIndex === -1) return undefined;
@@ -288,6 +292,7 @@ export async function missingPathWarnings(
   debug: Debug,
 ): Promise<string[]> {
   const wanted = [...new Set(paths.filter((p) => !/[\r\n]/.test(p)))].slice(0, MAX_CHECKED_PATHS);
+  // Stryker disable next-line ConditionalExpression: equivalent for `targets.length === 0`, no target leaves no checked result and `[]` anyway
   if (wanted.length === 0 || targets.length === 0) return [];
   const results = await Promise.all(
     targets.map((t) =>
@@ -324,11 +329,13 @@ export function gitCatFileBatch(repoPath: string, input: string): Promise<string
     const child = execFile(
       'git',
       ['-C', repoPath, 'cat-file', '--batch-check'],
-      { encoding: 'utf8', timeout: GIT_BATCH_TIMEOUT_MS, maxBuffer: GIT_BATCH_MAX_BUFFER },
+      GIT_BATCH_OPTIONS,
       (err, stdout) => (err ? reject(err) : resolve(stdout)),
     );
     // A stdin failure (EPIPE when git exits early) rejects; a later reject is a no-op.
+    // Stryker disable next-line OptionalChaining,StringLiteral: equivalent, `stdin` is always a pipe here and an EPIPE race cannot be pinned in a test
     child.stdin?.on('error', reject);
+    // Stryker disable next-line OptionalChaining: equivalent, `stdin` is always a pipe here
     child.stdin?.end(input);
   });
 }
@@ -338,6 +345,8 @@ export const TITLE_SIMILARITY = 0.65;
 export const MIN_TITLE_TOKENS = 3;
 export const MAX_OVERLAP_WARNINGS = 3;
 const MIN_TOKEN_LENGTH = 3;
+/** Runs of these split a title into tokens; the empty pieces fail the length filter. */
+const TITLE_SEPARATOR = /[^a-z0-9]+/;
 const TITLE_STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'into', 'onto', 'that', 'this', 'when', 'not', 'are', 'via', 'per',
   'add', 'fix', 'feat', 'chore', 'docs', 'refactor', 'test', 'tests', 'perf',
@@ -353,7 +362,7 @@ function titleTokens(title: string): Set<string> {
   return new Set(
     title
       .toLowerCase()
-      .split(/[^a-z0-9]+/)
+      .split(TITLE_SEPARATOR)
       .filter((w) => w.length >= MIN_TOKEN_LENGTH && !TITLE_STOPWORDS.has(w)),
   );
 }

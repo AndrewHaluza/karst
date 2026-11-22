@@ -48,6 +48,12 @@ describe('gitCatFileBatch + missingPathWarnings against a real repository', () =
     );
     expect(w).toEqual(['missing path at base: src/a.ts']);
   });
+  it('answers the raw batch-check output as a string', async () => {
+    const root = repo();
+    const out = await gitCatFileBatch(root, 'HEAD^{commit}\n');
+    expect(typeof out).toBe('string');
+    expect(out).toMatch(/^[0-9a-f]{40,64} commit \d+\n$/);
+  });
   it('rejects with the git error for a directory that is not a repository', async () => {
     const plain = mkdtempSync(join(tmpdir(), 'karst-nogit-'));
     dirs.push(plain);
