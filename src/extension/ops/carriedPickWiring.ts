@@ -39,14 +39,14 @@ export interface CarriedPickWiring {
 export function makeCarriedPickWiring(deps: CarriedPickWiringDeps): CarriedPickWiring {
   return {
     carryActivity: (ticketId, title) => {
-      let projectId: number | null | undefined;
+      let projectId: number | undefined;
       try {
         projectId = getTicket(deps.store, ticketId).projectId ?? deps.fallbackProjectId();
       } catch (err) {
         deps.debug(`[driver] ticket ${ticketId}: carried-pick Activity skipped: ${err instanceof Error ? err.message : String(err)}`);
         return;
       }
-      if (projectId === undefined || projectId === null) {
+      if (projectId === undefined) {
         deps.debug(`[driver] ticket ${ticketId}: no project for the carried-pick Activity entry (${title})`);
         return;
       }
