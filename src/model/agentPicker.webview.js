@@ -632,15 +632,15 @@ function apInitialMode(pm) {
 
 /**
  * Segmented Preset | Core + model control (ui:UI-R26 radiogroup, aria-checked).
- * Under `presetMode.only` the switch stays in the DOM but is hidden, so a later
+ * Under `presetMode.only` renderMode hides it but keeps it in the DOM, so a later
  * state push can show it again without a rebuild (no node is added or removed).
  */
-function apModeBarHtml(mode, only) {
+function apModeBarHtml(mode) {
   function btn(id, label) {
     return '<button type="button" role="radio" class="k-btn k-btn--secondary k-btn--sm ap-seg-btn" data-ap-mode="'
       + id + '" aria-checked="' + (mode === id ? 'true' : 'false') + '">' + label + '</button>';
   }
-  return '<div class="ap-seg" role="radiogroup" aria-label="Agent source" data-ap-seg' + (only ? ' hidden' : '') + '>'
+  return '<div class="ap-seg" role="radiogroup" aria-label="Agent source" data-ap-seg>'
     + btn('preset', 'Preset') + btn('core', 'Core + model') + '</div>';
 }
 
@@ -1080,7 +1080,7 @@ function mountAgentPicker(root, opts) {
   var apId = 'ap-' + (++AP_SEQ);
   root.innerHTML = '<div class="ap' + (compact ? ' ap-compact' : '') + '">'
     + (pm
-      ? apModeBarHtml(mode, !!pm.only)
+      ? apModeBarHtml(mode)
         + '<div class="ap-field" data-ap-preset-field><label class="ap-label">Preset</label>'
         + '<div class="k-select"><select class="ap-effort" data-ap-preset aria-label="Preset"></select>'
         + '<span class="k-select-chev" aria-hidden="true">' + apChevronSvg(16) + '</span></div>'
@@ -1121,7 +1121,6 @@ function mountAgentPicker(root, opts) {
   /** presetMode only: tab state, which fields show, the preset select + missing warning. */
   function renderMode() {
     if (!pm) return;
-    if (pm.only) mode = 'preset';
     $('[data-ap-seg]').hidden = !!pm.only;
     var bars = root.querySelectorAll('[data-ap-mode]');
     for (var i = 0; i < bars.length; i++) {
@@ -1144,7 +1143,7 @@ function mountAgentPicker(root, opts) {
   function setMode(next, quiet) {
     if (!pm || (next !== 'preset' && next !== 'core') || next === mode) return;
     // presetMode.only: the preset tab is the one source; the core tab is never entered.
-    if (pm.only && next !== 'preset') return;
+    if (pm.only) return;
     mode = next;
     renderMode();
     if (!quiet) emit();
