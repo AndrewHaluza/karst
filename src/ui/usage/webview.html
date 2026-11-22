@@ -367,10 +367,14 @@
 
   // One row per core; one block per window. A core with no readable source
   // shows a plain reason, never a 0% bar. Every number/label arrives formatted.
-  const renderQuota = (quota) => {
-    const empty = quota.rows.length === 0;
+  const renderQuota = (state) => {
+    const quota = state.quota;
+    // An error is not an empty state (UI-R31): a failed read states the failure and one way forward, never
+    // also "No quota read yet" underneath it.
+    const empty = !state.error && quota.rows.length === 0;
+    const rowsHidden = !!state.error || empty;
     el('quotaEmpty').classList.toggle('hidden', !empty);
-    el('qrows').classList.toggle('hidden', empty);
+    el('qrows').classList.toggle('hidden', rowsHidden);
     const showSummary = quota.anyNear && !!quota.summaryLine;
     el('qsummary').classList.toggle('hidden', !showSummary);
     el('qsummary').innerHTML = showSummary
@@ -380,7 +384,8 @@
     el('qrows').innerHTML = quota.rows.map((r) => {
       if (r.state === 'unknown') {
         return '<div class="qrow">' +
-          `<div class="qhead"><h3 class="qname">${icon('info-circle')}<span>${esc(r.label)}</span></h3>` +
+          // The core keeps its canonical icon even when the quota read is unknown (UI-R10c).
+          `<div class="qhead"><h3 class="qname">${agentIconHtml(r.core)}<span>${esc(r.label)}</span></h3>` +
           '<span class="qstate">Quota not available</span></div>' +
           `<div class="qreason" title="${esc(r.reason || '')}">${esc(r.plainReason || '')}</div>` +
         '</div>';
@@ -420,7 +425,9 @@
 
   const renderStats = (state) => {
     const t = state.totals;
-    const estimated = t.estimatedNote ? `<span class="est">${esc(t.estimatedNote)}</span>` : '';
+    // Two host facts, two visible items: a separator keeps the exact count from running into the estimate
+    // note (UI-R31: the webview owns presenting the supplied facts).
+    const estimated = t.estimatedNote ? ` · <span class="est">${esc(t.estimatedNote)}</span>` : '';
     el('stats').innerHTML = [
       // The headline is FRESH spend. Cache reads keep their own tile beside
       // it, never inside it: re-read context is charged at a fraction of the
@@ -438,9 +445,11 @@
     el('statsNotes').textContent = 'Fresh = input + output + reasoning + cache write · ' + state.costNote;
   };
 
-  const renderBreakdown = (node, countEl, rows, countLabel, opts) => {
+  const renderBreakdown = (node, countEl, rows, countLabel, trueCount, opts) => {
     const agentCore = !!(opts && opts.agentCore);
-    countEl.textContent = String(rows.length);
+    // The visible count is the panel's TRUE group count, not the capped row count (US-23): it must agree
+    // with the accessible name, which the host builds from the same number.
+    countEl.textContent = String(trueCount);
     countEl.setAttribute('aria-label', countLabel);
     if (!rows.length) {
       node.innerHTML = '<div class="brow"><div class="meta">No tokens recorded yet</div></div>';
@@ -544,10 +553,11 @@
     const shown = !!state.error;
     el('err').classList.toggle('hidden', !shown);
     el('errText').textContent = state.error || '';
-    if (shown && state.error !== lastErrorShown) {
+    if (shown && (userActionPending || state.error !== lastErrorShown)) {
       // A rejected query is announced through the one shared live region
       // (the toast) only when it follows a user action; an error on open stays
-      // inline (UI-R27, US-14).
+      // inline. A retry that fails with the SAME message is still a new result
+      // the user asked for, so it is announced again (UI-R27, US-14).
       if (userActionPending) karstToast('error', state.error);
       lastErrorShown = state.error;
     } else if (!shown) {
@@ -565,10 +575,10 @@
     if (state.empty || state.error) return;
 
     renderStats(state);
-    renderBreakdown(el('providers'), el('providerCount'), state.byProvider, state.counts.providers, { agentCore: true });
-    renderBreakdown(el('activities'), el('activityCount'), state.byActivity, state.counts.activities);
-    renderBreakdown(el('models'), el('modelCount'), state.byModel, state.counts.models);
-    renderBreakdown(el('profiles'), el('profileCount'), state.byProfile, state.counts.profiles);
+    renderBreakdown(el('providers'), el('providerCount'), state.byProvider, state.counts.providers, state.counts.providerCount, { agentCore: true });
+    renderBreakdown(el('activities'), el('activityCount'), state.byActivity, state.counts.activities, state.counts.activityCount);
+    renderBreakdown(el('models'), el('modelCount'), state.byModel, state.counts.models, state.counts.modelCount);
+    renderBreakdown(el('profiles'), el('profileCount'), state.byProfile, state.counts.profiles, state.counts.profileCount);
     el('tktCount').textContent = String(state.page.groups);
     el('tktCount').setAttribute('aria-label', state.counts.tickets);
     renderTable(state);
@@ -591,7 +601,7 @@
     el('status').textContent = state.updatedLabel || 'Loading token usage';
 
     renderError(state);
-    if (quotaTab) renderQuota(state.quota);
+    if (quotaTab) renderQuota(state);
     else renderSpend(state);
 
     restoreFocus(savedFocus);
@@ -624,7 +634,12 @@
     post({ type: 'request-state', requestId });
   }, { tier: 'view' });
   karstAction(el('createTicketBtn'), (requestId) => post({ type: 'create-ticket', requestId }), { tier: 'mutation' });
-  karstAction(el('refreshQuotaBtn'), (requestId) => post({ type: 'refresh-quota', requestId }), { tier: 'mutation' });
+  karstAction(el('refreshQuotaBtn'), (requestId) => {
+    // A quota refresh the user asked for can fail with the same message as the
+    // last read; it is still announced (UI-R27, US-14).
+    userActionPending = true;
+    post({ type: 'refresh-quota', requestId });
+  }, { tier: 'mutation' });
   karstAction(el('quotaSettingsBtn'), (requestId) => post({ type: 'open-quota-settings', requestId }), { tier: 'mutation' });
 
   window.addEventListener('message', (e) => {

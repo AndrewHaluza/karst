@@ -6,6 +6,7 @@ import {
   USAGE_SCENARIOS,
 } from './renderFixtures.js';
 import { QUOTA_EXPIRED_TEXT } from '../../model/quotaText.js';
+import { usageErrorState } from './state.js';
 
 const FIXTURE_NONCE = 'fixture-nonce-000000000000';
 
@@ -150,6 +151,24 @@ describe('usage render', () => {
         expect(h.query('#stats')!.textContent).toContain('not in fresh');
       } finally { h.close(); }
     });
+
+    it('separates the exact token count from the estimate note in the hero (UI-R31)', () => {
+      const { h, fixture } = open('single-page');
+      try {
+        const t = fixture.state.totals;
+        expect(t.estimatedNote).not.toBeNull();
+        expect(h.query('.stat--hero .n')!.textContent).toBe(`${t.totalNote} · ${t.estimatedNote}`);
+      } finally { h.close(); }
+    });
+
+    it('shows the true group count beside a capped panel, agreeing with its accessible name (UI-R31)', () => {
+      const { h, fixture } = open('hostile');
+      try {
+        expect(fixture.state.byModel.length).toBeLessThan(fixture.state.counts.modelCount);
+        expect(h.query('#modelCount')!.textContent).toBe(String(fixture.state.counts.modelCount));
+        expect(h.query('#modelCount')!.getAttribute('aria-label')).toBe(fixture.state.counts.models);
+      } finally { h.close(); }
+    });
   });
 
   describe('tabs and focus (US-21, US-24)', () => {
@@ -249,6 +268,31 @@ describe('usage render', () => {
         (h.query('#refreshBtn') as HTMLElement).click();
         h.receive({ type: 'state', state: { ...fixture.state, error: 'A different failure' } });
         expect(h.query('#k-toast-root')).not.toBeNull();
+      } finally { h.close(); }
+    });
+
+    it('toasts a retry that fails with the SAME message (UI-R27, US-14)', () => {
+      const { h, fixture } = open('host-failure');
+      try {
+        (h.query('#retryBtn') as HTMLElement).click();
+        h.receive({ type: 'state', state: fixture.state });
+        expect(h.query('#k-toast-root')).not.toBeNull();
+      } finally { h.close(); }
+    });
+
+    it('hides the Quota empty state when the host read failed (UI-R31, US-2)', () => {
+      const state = usageErrorState(
+        { tab: 'quota', sort: 'calls', offset: 0, limit: 20 },
+        'Could not read token usage. Details are in the Karst log.',
+        new Date('2026-03-10T10:42:00Z'),
+        { locale: 'en-US', timeZone: 'UTC' },
+      );
+      const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
+      try {
+        h.receive({ type: 'state', state });
+        expect(h.query('#err')!.classList.contains('hidden')).toBe(false);
+        expect(h.query('#quotaEmpty')!.classList.contains('hidden')).toBe(true);
+        expect(h.query('#qrows')!.classList.contains('hidden')).toBe(true);
       } finally { h.close(); }
     });
 
@@ -373,6 +417,16 @@ describe('usage render', () => {
         expect(row.textContent).toContain('Quota not available');
         expect(row.textContent).toContain('Antigravity CLI does not expose quota locally.');
         expect(row.textContent).not.toContain('/root');
+      } finally { h.close(); }
+    });
+
+    it('keeps the core\'s canonical icon on an unknown quota row (UI-R10c)', () => {
+      const { h } = open('quota-near');
+      try {
+        const row = Array.from(h.queryAll('#qrows .qrow')).find((n) => n.textContent?.includes('Antigravity CLI'))!;
+        expect(row.querySelector('.qname .agenticon')).not.toBeNull();
+        // The generic info glyph is not the core mark.
+        expect(row.querySelector('.qname > svg')).toBeNull();
       } finally { h.close(); }
     });
 

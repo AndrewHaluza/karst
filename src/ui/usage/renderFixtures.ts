@@ -484,13 +484,23 @@ function buildState(options: BuildStateOptions): UsageState {
     ),
     byModel: breakdownRows(groupedBy(rows, (r) => r.model), freshTotal, (key) => key),
     byProfile: profileRows(groupedBy(rows, (r) => r.profile), freshTotal),
-    counts: {
-      providers: plural(new Set(rows.map((r) => r.core)).size, 'agent core', 'agent cores'),
-      activities: plural(new Set(rows.map((r) => r.activity)).size, 'activity', 'activities'),
-      models: plural(new Set(rows.map((r) => r.model)).size, 'model', 'models'),
-      profiles: plural(new Set(rows.map((r) => r.profile)).size, 'profile', 'profiles'),
-      tickets: plural(rows.length, 'ticket', 'tickets'),
-    },
+    counts: (() => {
+      const providerCount = new Set(rows.map((r) => r.core)).size;
+      const activityCount = new Set(rows.map((r) => r.activity)).size;
+      const modelCount = new Set(rows.map((r) => r.model)).size;
+      const profileCount = new Set(rows.map((r) => r.profile)).size;
+      return {
+        providers: plural(providerCount, 'agent core', 'agent cores'),
+        activities: plural(activityCount, 'activity', 'activities'),
+        models: plural(modelCount, 'model', 'models'),
+        profiles: plural(profileCount, 'profile', 'profiles'),
+        tickets: plural(rows.length, 'ticket', 'tickets'),
+        providerCount,
+        activityCount,
+        modelCount,
+        profileCount,
+      };
+    })(),
     tickets,
     page: {
       offset,

@@ -138,6 +138,11 @@ export interface UsageCounts {
   models: string;
   profiles: string;
   tickets: string;
+  /** The true group count behind each label, even when the panel draws a capped row list (US-23). */
+  providerCount: number;
+  activityCount: number;
+  modelCount: number;
+  profileCount: number;
 }
 
 export interface UsageState {
@@ -443,6 +448,10 @@ function base(
       models: plural(0, 'model', 'models'),
       profiles: plural(0, 'profile', 'profiles'),
       tickets: plural(0, 'ticket', 'tickets'),
+      providerCount: 0,
+      activityCount: 0,
+      modelCount: 0,
+      profileCount: 0,
     },
     tickets: [],
     page: { offset, limit, groups: 0, hasPrev: offset > 0, hasNext: false, summary: pageSummary(offset, 0, 0) },
@@ -522,6 +531,10 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
       models: plural(stats.byModel.length, 'model', 'models'),
       profiles: plural(stats.byProfile.length, 'profile', 'profiles'),
       tickets: plural(stats.ticketGroups, 'ticket', 'tickets'),
+      providerCount: stats.byProvider.length,
+      activityCount: stats.byCallSite.length,
+      modelCount: stats.byModel.length,
+      profileCount: stats.byProfile.length,
     },
     tickets: stats.byTicket.map((row) => {
       // Same expression the query sorted and paginated on.

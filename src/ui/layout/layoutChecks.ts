@@ -353,11 +353,15 @@ function sectionSpacing(s: LayoutSnapshot): Found[] {
     if (parentId === null) continue;
     const sections = flowChildren(s, parentId).filter((e) => e.tag === 'section');
     for (let i = 1; i < sections.length; i += 1) {
-      const prev = sections[i - 1]!;
       const next = sections[i]!;
-      // A grid places sections side by side (the repo cards, the breakdown panels): there is no vertical rhythm
-      // between different columns, so only a run that shares a left edge has a spacing between its sections.
-      if (Math.abs(next.rect.x - prev.rect.x) > TOLERANCE) continue;
+      // A grid places sections side by side (the repo cards, the breakdown panels): a pair in different columns
+      // has no vertical rhythm, but each column still has one. Compare a section with the nearest earlier section
+      // that shares its left edge, never with the section that merely happens to precede it in reading order.
+      const prev = sections
+        .slice(0, i)
+        .reverse()
+        .find((p) => Math.abs(next.rect.x - p.rect.x) <= TOLERANCE);
+      if (prev === undefined) continue;
       const between = next.rect.y - (prev.rect.y + prev.rect.h);
       const inner = Math.max(maxVerticalGap(flowChildren(s, prev.id)), maxVerticalGap(flowChildren(s, next.id)));
       if (between > inner) continue;

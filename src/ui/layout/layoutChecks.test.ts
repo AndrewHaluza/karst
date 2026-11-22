@@ -270,6 +270,23 @@ describe('section-spacing', () => {
     const b = el({ tag: 'section', parentId: parent.id, rect: { x: 200, y: 0, w: 200, h: 140 } });
     expect(checksOf(snap([parent, a, item(a, 0), item(a, 20), b, item(b, 0)]), 'section-spacing')).toEqual([]);
   });
+  it('still measures the vertical rhythm inside each column of a grid', () => {
+    // Two columns: row 1 (left, right) and row 2 (left, right). Each column's rows are too close, so both fail.
+    const a = section(0, 100);
+    const b = el({ tag: 'section', parentId: parent.id, rect: { x: 200, y: 0, w: 200, h: 100 } });
+    const c = el({ tag: 'section', parentId: parent.id, rect: { y: 110, w: 200, h: 100 } });
+    const d = el({ tag: 'section', parentId: parent.id, rect: { x: 200, y: 110, w: 200, h: 100 } });
+    const f = checksOf(
+      snap([
+        parent, a, item(a, 0), item(a, 20),
+        b, c, item(c, 0), item(c, 20),
+        d, item(d, 0), item(d, 20),
+      ]),
+      'section-spacing',
+    );
+    expect(f).toHaveLength(2);
+    expect(f.every((x) => x.detail.includes('not larger'))).toBe(true);
+  });
 });
 
 describe('region-order', () => {

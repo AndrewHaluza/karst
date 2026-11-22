@@ -412,6 +412,8 @@ describe('usage state — scope, labels and counts (US-1, US-4, US-5, US-7, US-1
     expect(byModel).toHaveLength(7);
     expect(byModel[6]).toMatchObject({ key: '__other__', label: 'Other (4)', totalTokens: 100 + 200 + 300 + 400 });
     expect(counts.models).toBe('10 models');
+    // The count is the true group count, not the seven drawn rows (UI-R31).
+    expect(counts.modelCount).toBe(10);
     const shares = byModel.reduce((sum, row) => sum + row.share, 0);
     expect(Math.abs(shares - 100)).toBeLessThan(0.5);
   });
@@ -456,6 +458,10 @@ describe('usage state — scope, labels and counts (US-1, US-4, US-5, US-7, US-1
       models: '1 model',
       profiles: '0 profiles',
       tickets: '1 ticket',
+      providerCount: 1,
+      activityCount: 1,
+      modelCount: 1,
+      profileCount: 0,
     });
   });
 

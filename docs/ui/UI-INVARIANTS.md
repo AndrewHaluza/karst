@@ -149,6 +149,9 @@ form's migration: the React ticket form must re-home its park actions, never
 carry the vanilla buttons across. (The dashboard's blocked banner carries the
 same three actions in React.)
 
+**Recorded exception (T1302, 2026-11-22):** the Token usage page rewrite stays in
+its vanilla view for the ticket; see `@ui:USAGE-MIGRATION-EXCEPTION`.
+
 **The dashboard is React (migrated 2026-10-25, `ui:DASHBOARD-MIGRATION`):**
 `src/ui/dashboard/app/**` draws every region and overlay, and its header's
 Close/Reopen buttons and the banner's park actions are React controls like the
@@ -292,3 +295,16 @@ END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
 
 **One recorded exception** (T690, 2026-10-23): D159's usage-limit park actions ('Pick agent/model…', 'Retry same', 'Dismiss') in the ticket form's op-park error, still a vanilla view — a `usage-limit` block is non-resumable and no other surface reaches the action; it expires with the ticket form's migration (`@ui:REACT-VIEWS`). **Second recorded exception** (T862, 2026-10-30): the layout B′ shell restructure of `src/ui/ticketForm/webview.html` (D284; user-chosen layout, binding prototype `docs/design/ticket-form-b-prime.html`), scoped by the ticket brief and sequenced with D285–D287, which also edit this vanilla file; it expires with the same migration. **Third recorded exception** (T926, 2026-11-02): the create-mode Sandbox backend picker (Inherit / Host opt-out only, `@arch:AC-32`) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D381); it expires with the same migration. **Fourth recorded exception** (T972, 2026-11-06): the window-reload draft restore (`formPersist`, the only `getState`/`setState` caller) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D372); it expires with the same migration. **Fifth recorded exception** (T1021, 2026-11-09): the shared ticket reference chip and the readable relation labels in the ticket form's Relations card, rendered from the host's `ticketRefView` by a small DOM builder in `src/ui/ticketForm/webview.html`; the same `ticketRefView` and `.k-ticket-ref` primitive are the React surfaces' implementation, and the form stays vanilla until the migration, so the ticket brief scopes this one; it expires with the same migration. The one-stage-chip change (T1099) updates that DOM builder to the same chip markup, as the same exception.
 END_DOC_BLOCK: [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS]
+
+## [@ui:USAGE-MIGRATION-EXCEPTION] Token-usage migration exception (T1302)
+
+**One recorded exception** (T1302, 2026-11-22): D751 rewrites the Token usage page
+in its vanilla `src/ui/usage/webview.html` (D751's US-1..US-36: the all-time scope
+label, tokens-only note, quota levels and expired windows, state messages, the
+full ticket key). The ticket brief scopes the page rewrite as one change, so
+migrating the view first would put the whole audit behind a separate migration.
+The work stays within the vanilla view's existing seams (`UsageState` and the
+`messages.ts` protocol), adds no framework to it, and expires when the Usage view
+migrates under `@ui:REACT-VIEWS`: the React view carries the same states and the
+same host-built text, not a second implementation of the rules.
+END_DOC_BLOCK: [@ui:USAGE-MIGRATION-EXCEPTION]
