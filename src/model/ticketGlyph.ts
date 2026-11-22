@@ -161,7 +161,12 @@ export function needsUser(t: TicketWithStages): boolean {
     // automatically (design NDL-70 §6). Unlike `awaiting-subtask` — whose wait
     // is on a machine or another ticket — this one needs a human to resolve the
     // conflict, so it reads amber like `awaiting-merge`.
-    current?.blockedKind === 'subtask-integration-conflict'
+    current?.blockedKind === 'subtask-integration-conflict' ||
+    // UAT/review could not map a worktree to a repository in karst.yml: the
+    // question ("which repo is this?") reaches the user, who edits the manifest
+    // and Resumes — amber, not running (RD-5, @arch:BLOCKED). Resume clears it
+    // after the edit (`src/model/types.ts`), so it is a user-decided kind.
+    current?.blockedKind === 'unmapped-repository'
   );
 }
 

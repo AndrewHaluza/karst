@@ -77,12 +77,20 @@ describe('ticket row', () => {
     expect(h.queryAll('.rail')).toHaveLength(0);
   });
 
-  it('tints the karst mark by the status glyph and names the state for assistive tech (UI-R28)', async () => {
+  it('paints the shared status marker for the glyph and names the state for assistive tech (UI-R28, SB-1)', async () => {
     const h = await mount(stateWith({ current: [row(1, { glyph: 'amber' })] }));
-    const glyph = h.query('.ticket .glyph')!;
-    expect(glyph.classList.contains('g-amber')).toBe(true);
+    const glyph = h.query('.ticket .k-status')!;
+    expect(glyph.classList.contains('k-status--attention')).toBe(true);
     expect(glyph.getAttribute('role')).toBe('img');
     expect(glyph.getAttribute('aria-label')).toBe('Needs you');
+  });
+
+  it('paints a red ticket with the failed cross and the word "Failed" (SB-1)', async () => {
+    const h = await mount(stateWith({ current: [row(1, { glyph: 'red' })] }));
+    const glyph = h.query('.ticket .k-status--failed')!;
+    expect(glyph.getAttribute('aria-label')).toBe('Failed');
+    // The primitive renders no visible status word (UI-R28b).
+    expect(text(glyph)).toBe('✕');
   });
 
   it('puts the check-in-ring on completed rows, with no stage pill, and the age only on Recently done', async () => {

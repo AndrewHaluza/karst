@@ -5,6 +5,7 @@
  * the scrolling body.
  */
 import { plural } from '../../../model/notifyText.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
 import { ActButton } from './action.js';
 import { FilterMenu } from './FilterMenu.js';
 import { allRows } from './format.js';
@@ -21,7 +22,9 @@ function AttentionLine() {
   if (activePreset(state.facets || ['all'])?.id !== 'all' || (input === 0 && failed === 0)) return null;
   const parts: string[] = [];
   if (input > 0) parts.push(plural(input, 'needs you', 'need you'));
-  if (failed > 0) parts.push(`${failed} failed`);
+  // The red word comes from the shared table (RD-2, SB-13), so the header and the
+  // badge tooltip name the same state; `summary.text` keeps the union count (D746).
+  if (failed > 0) parts.push(`${failed} ${GLYPH_WORD.red.toLowerCase()}`);
   return (
     <button type="button" className="pane-attention" data-attention="1" onClick={() => applyPreset('attention')}>
       {parts.join(' · ')}

@@ -2,6 +2,7 @@ import type { Stage } from '../../store/stages.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { SessionAction } from '../../agent/sessionAction.js';
 import { STAGE_TITLE } from '../../model/stageBadge.js';
+import { plural } from '../../model/notifyText.js';
 import type { MergeGateState } from '../../workflow/mergeGate.js';
 import type { StageKey } from '../../model/types.js';
 import type { AgentProvider } from '../../manifest/types.js';
@@ -107,10 +108,6 @@ export interface PeekInput {
 const GATE_KEYS: ReadonlySet<string> = new Set(['uat', 'review']);
 const INTERACTIVE_KEYS: ReadonlySet<string> = new Set(['impl', 'fix']);
 const PAUSED_NOTE = 'No stage starts until you resume';
-
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
 
 /** The first line of a verdict, trimmed; null when blank. */
 function firstLine(text: string | null | undefined): string | null {

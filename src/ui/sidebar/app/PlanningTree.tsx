@@ -12,6 +12,7 @@ import { Icon } from './Icon.js';
 import { PlanControl, PlanDraft } from './PlanDraft.js';
 import { acceptedOf, actionsForNode, draftOf, planIsOpen, planStatus, searchRevealsAccepted, sessionActions, shownDrafts } from './planModel.js';
 import { ds } from './runtime.js';
+import { Status } from '../../shared/Status.js';
 import { useSidebar, type MenuItem } from './SidebarContext.js';
 
 const itemsOf = (root: HTMLElement): HTMLElement[] => [...root.querySelectorAll<HTMLElement>('[role="treeitem"]')];
@@ -72,7 +73,7 @@ function Session({ plan, stop }: { readonly plan: PlanningRow; readonly stop: st
         <span className={`pt-twistie${drafts.length ? '' : ' leaf'}`} data-plan-toggle={plan.sessionId} data-expanded={open} aria-hidden="true">
           <Icon name="chevron-right" size={12} />
         </span>
-        <span className={`pt-dot pt-dot--${st.tone}`} aria-hidden="true" />
+        <Status kind={st.tone} label={st.word} />
         <span className="pt-label">{plan.idLabel} {plan.title}</span>
         {all.length ? <span className="pt-count" aria-hidden="true">{all.length}</span> : null}
         <AcceptedToggle plan={plan} revealed={revealed} />

@@ -229,8 +229,8 @@ its own; Planning is capped at about 40% while open, Tickets takes the rest, and
 a collapsed pane hands its height to the other. The toolbar keeps only resources,
 token usage and settings. The facet chip row is gone: a funnel menu
 (`FilterMenu.tsx`, `menuitemradio`, a dot when a preset other than All is active)
-in the Tickets header offers single-select presets (All, Needs attention =
-`input`+`failed`, In progress, Done, Archived). A preset is a facet selection, so
+in the Tickets header offers single-select presets (All, Needs you or failed =
+`input`+`failed`, Running, Done, Archived). A preset is a facet selection, so
 the host protocol is unchanged: the view posts `toggle-facet` `all` (reset) and
 then each facet. A selection no preset names (only reachable from an old
 persisted state) shows the dot and no checked item. "N need you · M failed" ("1 needs you" for one input; a zero part is hidden) sits

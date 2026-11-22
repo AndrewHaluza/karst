@@ -7,6 +7,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { fixtureDraft, fixturePlanningRow, sidebarRenderFixtures } from '../renderFixtures.js';
 import type { SidebarState } from '../state.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
 import { closeSidebarRealm, renderSidebarApp, type RenderedSidebar } from './renderSidebarApp.js';
 
 afterAll(closeSidebarRealm);
@@ -106,11 +107,11 @@ describe('Tickets filter menu', () => {
     await open(h);
     expect(btn.getAttribute('aria-expanded')).toBe('true');
     const items = h.queryAll('[role="menuitemradio"]');
-    expect(items.map(text)).toEqual(['All', 'Needs attention', 'In progress', 'Done', 'Archived']);
+    expect(items.map(text)).toEqual(['All', 'Needs you or failed', 'Running', 'Done', 'Archived']);
     expect(items.map((i) => i.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false', 'false']);
   });
 
-  it('Needs attention applies facets input + blocked through the existing messages', async () => {
+  it('the attention preset applies facets input + failed through the existing messages', async () => {
     const h = await mount(fixture('all-sections'));
     await open(h);
     await h.click('[data-preset="attention"]');
@@ -142,7 +143,7 @@ describe('Tickets filter menu', () => {
   it('marks the active preset and shows a dot on the funnel', async () => {
     const h = await mount({ ...fixture('multi-facet'), facets: ['input', 'failed'] });
     expect(h.query('[data-filter-dot]')).not.toBeNull();
-    expect(h.query('[data-filter-menu]')!.getAttribute('aria-label')).toBe('Filter tickets: Needs attention');
+    expect(h.query('[data-filter-menu]')!.getAttribute('aria-label')).toBe('Filter tickets: Needs you or failed');
     await open(h);
     expect(h.query('[data-preset="attention"]')!.getAttribute('aria-checked')).toBe('true');
     expect(h.query('[data-preset="all"]')!.getAttribute('aria-checked')).toBe('false');
@@ -171,7 +172,7 @@ describe('attention line', () => {
   it('reads "N need you · M failed" on All and applies Needs attention when clicked', async () => {
     const h = await mount(withCounts(fixture('all-sections'), { input: 2, failed: 1 }));
     const line = h.query('[data-attention]')!;
-    expect(text(line)).toBe('2 need you · 1 failed');
+    expect(text(line)).toBe(`2 need you · 1 ${GLYPH_WORD.red.toLowerCase()}`);
     await h.click(line);
     expect(sent(h).map((m) => (m as { facet?: string }).facet)).toEqual(['all', 'input', 'failed']);
   });

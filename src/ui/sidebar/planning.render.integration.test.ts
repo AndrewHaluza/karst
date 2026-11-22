@@ -25,12 +25,13 @@ describe('sidebar planning tree', () => {
     expect(h.queryAll('[role="treeitem"][aria-level="1"]')).toHaveLength(2);
   });
 
-  it('a session row has a twistie, a status dot, the title and a muted draft count — no text pills', async () => {
+  it('a session row has a twistie, a status marker, the title and a muted draft count — no text pills', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
     const row = session(h, 90).querySelector('.pt-row')!;
     expect(row.querySelector('.pt-twistie')).not.toBeNull();
-    expect(row.querySelector('.pt-dot')).not.toBeNull();
+    expect(row.querySelector('.k-status')).not.toBeNull();
+    expect(row.querySelector('.k-status')!.getAttribute('aria-label')).toBe('needs review');
     expect(row.querySelector('.pt-label')!.textContent).toBe('P90 Planning 90');
     expect(row.querySelector('.pt-count')!.textContent).toBe('2');
     expect(row.querySelector('.k-pill,.agent-identity,.plan-meta')).toBeNull();
@@ -55,12 +56,12 @@ describe('sidebar planning tree', () => {
       fixturePlanningRow(4, { proposals: [fixtureDraft({ id: 41, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] })] }),
       fixturePlanningRow(5),
     ]) });
-    const dot = (id: number) => session(h, id).querySelector('.pt-dot')!.className;
-    expect(dot(1)).toContain('pt-dot--attention');
-    expect(dot(2)).toContain('pt-dot--running');
-    expect(dot(3)).toContain('pt-dot--passed');
-    expect(dot(4)).toContain('pt-dot--passed');
-    expect(dot(5)).toContain('pt-dot--pending');
+    const dot = (id: number) => session(h, id).querySelector('.k-status')!.className;
+    expect(dot(1)).toContain('k-status--attention');
+    expect(dot(2)).toContain('k-status--running');
+    expect(dot(3)).toContain('k-status--passed');
+    expect(dot(4)).toContain('k-status--passed');
+    expect(dot(5)).toContain('k-status--pending');
     expect(session(h, 2).getAttribute('aria-label')).toMatch(/terminal live/);
     expect(session(h, 3).getAttribute('aria-label')).toMatch(/filed/);
   });

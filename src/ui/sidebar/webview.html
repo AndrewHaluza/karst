@@ -126,24 +126,6 @@
   .ticket.active .row::before{content:"";position:absolute;left:0;top:var(--k-space-2);
     bottom:var(--k-space-2);width:calc(var(--k-border-w) * 2);
     border-radius:var(--k-radius-pill);background:var(--k-focus)}
-  /* The pending spinner replaces only the status dot — not the whole glyph —
-     so the karst mark stays visible and the row never shifts. The dot hides
-     and a same-size spinner takes its place (same absolute position). */
-  .glyph .sdot-spin{
-    display:none;position:absolute;right:calc(-1 * var(--k-space-2));bottom:calc(-1 * var(--k-space-2));
-    width:var(--k-space-3);height:var(--k-space-3);
-    border:var(--k-spinner-w) solid currentColor;border-top-color:transparent;
-    border-radius:var(--k-radius-circle);animation:k-spin var(--k-dur-spin) linear infinite}
-  /* The rowopen control IS the button that carries aria-busy (karstBeginPending),
-     and the glyph lives inside it — so the spinner swap is pure CSS on that
-     state, no MutationObserver needed. */
-  .rowopen[aria-busy="true"] .glyph .sdot{display:none}
-  .rowopen[aria-busy="true"] .glyph .sdot-spin{display:block}
-  /* The sidebar's rows spin their OWN dot — the generic `.k-btn[aria-busy]::before`
-     spinner (a leading flex icon) must not push the glyph aside as well. Scoped
-     to `.rowopen`, never `.k-btn--row`: the diffs view's file rows share that
-     class and their ONLY pending indicator is the generic ::before spinner. */
-  .rowopen[aria-busy="true"]::before{content:none}
 
   /* Override .k-iconbtn padding — the prototype chevron has zero inset. The
      min-width/min-height stay at the .k-iconbtn defaults (--k-hit-min) so the
@@ -184,23 +166,12 @@
     text-align:left;color:inherit}
   .rowopen:hover,.rowopen:focus-visible{color:inherit;text-decoration:none}
 
-  /* The row marker is the karst logo tinted by the status glyph: the mark is
-     drawn with fill="currentColor", so the g-* classes below set `color` and
-     the palette stays the single source (no per-view hex). Sized by the SVG's
-     own width/height attributes, not CSS. */
-  .glyph{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
+  /* The row marker is now the shared `.k-status` primitive (model/designComponents):
+     a shape per state, tinted by the shared status token. `.glyph` still wraps the
+     completed row's check-in-ring, and the `g-*` classes below stay because that
+     ring uses them. */
+  .glyph{display:inline-flex;align-items:center;flex:0 0 auto}
   .glyph svg{display:block}
-  /* Status dot on the mark: the tint alone is easy to miss at this size against
-     a themed sidebar, so the state also gets a shape. Ringed in the sidebar
-     background so it reads as an overlay, not part of the logo. */
-  .glyph .sdot{position:absolute;right:calc(-1 * var(--k-space-2));bottom:calc(-1 * var(--k-space-2));
-    width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);
-    background:currentColor;
-    box-shadow:0 0 0 calc(var(--k-border-w) * 1.5) var(--vscode-sideBar-background,var(--vscode-editor-background))}
-  /* Pending reads as absence: a hollow ring, not a filled dot. */
-  .glyph.g-gray .sdot{background:transparent;
-    box-shadow:0 0 0 calc(var(--k-border-w) * 1.5) var(--vscode-sideBar-background,var(--vscode-editor-background));
-    border:calc(var(--k-border-w) * 1.5) solid currentColor}
   .g-blue{color:var(--k-running)}
   .g-amber{color:var(--k-attention)}
   .g-red{color:var(--k-failed)}
@@ -331,8 +302,7 @@
   .peek{margin:0}
   .peek-head{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3)}
   .peek-copy{min-width:0;flex:1;display:flex;align-items:baseline;gap:var(--k-space-2);flex-wrap:wrap}
-  .peek-dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:50%;flex:none;align-self:center;
-    background:currentColor}
+  .peek-copy>.k-status{align-self:center}
   .peek-title{font-size:var(--k-text-sm);color:var(--k-text);font-weight:var(--k-weight-medium)}
   .peek-age,.peek-attempt{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .peek-attempt{font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
@@ -486,12 +456,11 @@
     color:var(--k-text-dim);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   .pt-twistie[data-expanded="true"]{transform:rotate(90deg)}
   .pt-twistie.leaf{visibility:hidden}
-  .pt-dot{flex:none;width:var(--k-space-4);height:var(--k-space-4);margin:0 var(--k-space-1);border-radius:50%;background:currentColor}
-  .pt-dot--pending{background:transparent;box-shadow:inset 0 0 0 var(--k-border-w) currentColor}
-  .pt-dot--running,.pt-c-running{color:var(--k-running)}
-  .pt-dot--attention,.pt-c-attention{color:var(--k-attention)}
-  .pt-dot--passed,.pt-c-passed{color:var(--k-passed)}
-  .pt-dot--pending,.pt-c-pending{color:var(--k-pending)}
+  .pt-row>.k-status{margin:0 var(--k-space-1)}
+  .pt-c-running{color:var(--k-running)}
+  .pt-c-attention{color:var(--k-attention)}
+  .pt-c-passed{color:var(--k-passed)}
+  .pt-c-pending{color:var(--k-pending)}
   .pt-icon{flex:none}
   .pt-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pt-count{flex:none;font-size:var(--k-text-xs);color:var(--k-text-dim)}

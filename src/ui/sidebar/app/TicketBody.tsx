@@ -6,11 +6,13 @@
  * — the view phrases no domain state, it only formats the ISO times.
  */
 import type { RailCta } from '../../../model/railNeeds.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
 import type { PeekNext, TicketPeek } from '../peek.js';
 import type { TicketRow } from '../state.js';
 import { ActButton, type ActionSpec } from './action.js';
 import { AgentIdentity, Icon } from './Icon.js';
-import { activeText, metaLine, sinceText, whereLine } from './format.js';
+import { activeText, GLYPH_STATUS, metaLine, sinceText, whereLine } from './format.js';
+import { Status } from '../../shared/Status.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketTools } from './TicketTools.js';
 
@@ -68,10 +70,11 @@ function ActionStrip({ peek, row }: { readonly peek: TicketPeek; readonly row: T
 function Headline({ peek, row, sessVerb }: { readonly peek: TicketPeek; readonly row: TicketRow; readonly sessVerb: string }) {
   const { now } = useSidebar();
   const age = sinceText(peek.since, now);
+  const glyph = peek.tone || row.glyph;
   return (
     <div className="peek-head">
       <div className="peek-copy">
-        <span className={`peek-dot g-${peek.tone || row.glyph}`} aria-hidden="true" />
+        <Status kind={GLYPH_STATUS[glyph]} label={GLYPH_WORD[glyph]} />
         <span className="peek-title">{peek.title}</span>
         {age ? <span className="peek-age">{age}</span> : null}
         {peek.attempt && peek.attempt > 1 ? <span className="peek-attempt">attempt {peek.attempt}</span> : null}

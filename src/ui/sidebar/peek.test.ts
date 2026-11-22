@@ -388,9 +388,10 @@ describe('buildPeek — done, closed and scope', () => {
     expect(buildPeek(input()).title).toBe('Not scoped yet');
   });
 
-  it('a scoped ticket reads ready to work, naming running servers when there are some', () => {
+  it('a scoped ticket reads ready to work, naming running servers when there are some (one plural, @arch:NTF-07)', () => {
     const wt = [{ repo: 'api' }];
     expect(buildPeek(input({ worktrees: wt })).title).toBe('Scoped — ready to work');
+    expect(buildPeek(input({ worktrees: wt, servers: [{ status: 'running' }] })).title).toBe('1 server running');
     expect(buildPeek(input({ worktrees: wt, servers: [{ status: 'running' }, { status: 'running' }] })).title).toBe(
       '2 servers running',
     );

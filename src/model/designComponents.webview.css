@@ -245,6 +245,21 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
 .k-dot--attention{background:var(--k-attention)}
 .k-dot--passed{background:var(--k-passed)}
 .k-dot--failed{background:var(--k-failed)}
+/* The workflow-status marker (UI-R28 / UI-R28b, DESIGN-SYSTEM §11.12): one distinct glyph per state,
+   so hue is never the only visible carrier, and never a visible status word. The running state reuses
+   `.k-spinner`; the state token supplies the hue. Sized for a dense row and still readable at the
+   size a sidebar row paints. */
+.k-status{
+  display:inline-grid;place-items:center;flex:none;
+  width:var(--k-space-7);height:var(--k-space-7);
+  font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);
+  line-height:1;border-radius:var(--k-radius-circle)}
+.k-status--pending{color:var(--k-pending)}
+.k-status--running{color:var(--k-running)}
+.k-status--attention{color:var(--k-attention)}
+.k-status--passed{color:var(--k-passed)}
+.k-status--failed{color:var(--k-failed)}
+.k-status--bypassed{color:var(--k-pending)}
 /* The stage pill: the shared stg-<stage> token (model/stagePalette) is its text colour and its washed-out fill. The
    sidebar row and the dashboard Sub-tasks panel both paint it. Keyed on the stg- class so an unrelated `.stage`
    caption (Resources ticket groups) stays plain. Uppercase + tracking match the rail's stage label. */

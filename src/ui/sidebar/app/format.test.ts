@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SUBTASK_DEPTH } from '../../../workflow/stages/subtask.js';
 import { FACETS } from '../facets.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
 import { sidebarRenderFixtures } from '../renderFixtures.js';
 import type { QueueRowView, SidebarState, TicketRow } from '../state.js';
-import { EMPTY_STATE, FACET_META, MAX_SUBTASK_INDENT, allRows, findRow, metaLine, relTime, visibleRows, withStateDefaults } from './format.js';
+import { EMPTY_STATE, FACET_META, GLYPH_STATUS, MAX_SUBTASK_INDENT, allRows, findRow, metaLine, relTime, visibleRows, withStateDefaults } from './format.js';
+import type { StatusKind } from '../../shared/Status.js';
+
+const GLYPHS = ['gray', 'blue', 'amber', 'green', 'red'] as const;
 
 const fixtures = sidebarRenderFixtures();
 const baseRow = fixtures.find((f) => f.scenario === 'all-sections')!.state.sections.current[0]!;
@@ -18,6 +22,29 @@ describe('MAX_SUBTASK_INDENT', () => {
 describe('FACET_META', () => {
   it('lists every host facet once, in the host order', () => {
     expect(FACET_META.map((f) => f.key)).toEqual(FACETS.map((f) => f.key));
+  });
+
+  it('reads each state label from GLYPH_WORD, so the facet names one state (SB-13)', () => {
+    const label = (key: string) => FACET_META.find((f) => f.key === key)!.label;
+    expect(label('running')).toBe(GLYPH_WORD.blue);
+    expect(label('input')).toBe(GLYPH_WORD.amber);
+    expect(label('failed')).toBe(GLYPH_WORD.red);
+    expect(label('done')).toBe(GLYPH_WORD.green);
+    expect(label('failed')).toBe('Failed');
+  });
+});
+
+describe('GLYPH_STATUS', () => {
+  it('gives each glyph its own status marker, so hue is never the only carrier (SB-1, UI-R28)', () => {
+    const kinds: StatusKind[] = GLYPHS.map((g) => GLYPH_STATUS[g]);
+    expect(new Set(kinds).size).toBe(GLYPHS.length);
+    expect(GLYPH_STATUS).toEqual({
+      gray: 'pending',
+      blue: 'running',
+      amber: 'attention',
+      green: 'passed',
+      red: 'failed',
+    });
   });
 });
 

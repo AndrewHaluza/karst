@@ -5,6 +5,8 @@
  */
 import type { FacetKey } from '../facets.js';
 import type { QueueRowView, SidebarState, TicketRow } from '../state.js';
+import { GLYPH_WORD, type Glyph } from '../../../model/glyph.js';
+import type { StatusKind } from '../../shared/Status.js';
 
 /**
  * The deepest indent painted, mirroring `MAX_SUBTASK_INDENT` in
@@ -17,27 +19,32 @@ export const MAX_SUBTASK_INDENT = 4;
 /**
  * `dotVariant` names a `.k-dot--<variant>` suffix (model/designComponents), not
  * the facet's own key — "input" (needs you) maps to the shared "attention"
- * status meaning, "done" to "passed".
+ * status meaning, "done" to "passed". `label` is the shared `GLYPH_WORD`
+ * (SB-13), so the facet and the glyph name one state.
  */
 export const FACET_META: ReadonlyArray<{ key: FacetKey; label: string; dotVariant: string | null }> = [
   { key: 'all', label: 'All', dotVariant: null },
-  { key: 'running', label: 'In progress', dotVariant: 'running' },
-  { key: 'input', label: 'Needs you', dotVariant: 'attention' },
-  { key: 'failed', label: 'Blocked', dotVariant: 'failed' },
-  { key: 'done', label: 'Done', dotVariant: 'passed' },
+  { key: 'running', label: GLYPH_WORD.blue, dotVariant: 'running' },
+  { key: 'input', label: GLYPH_WORD.amber, dotVariant: 'attention' },
+  { key: 'failed', label: GLYPH_WORD.red, dotVariant: 'failed' },
+  { key: 'done', label: GLYPH_WORD.green, dotVariant: 'passed' },
   { key: 'archived', label: 'Archived', dotVariant: null },
 ];
 
-/** Status word for the glyph's role="img" aria-label — colour is never the only carrier (UI-R28). */
-export const GLYPH_WORD: Readonly<Record<string, string>> = {
-  gray: 'Pending',
-  blue: 'Running',
-  amber: 'Needs you',
-  green: 'Done',
-  red: 'Failed',
-};
-
+/** The autostart sub-task state word: "Queued" / "Starting". */
 export const AUTOSTART_WORD: Readonly<Record<string, string>> = { queued: 'Queued', starting: 'Starting' };
+
+/**
+ * The status marker each glyph paints (SB-1). One shape per state, so the hue
+ * reinforces the shape instead of carrying it alone (UI-R28, UI-R28b).
+ */
+export const GLYPH_STATUS: Readonly<Record<Glyph, StatusKind>> = {
+  gray: 'pending',
+  blue: 'running',
+  amber: 'attention',
+  green: 'passed',
+  red: 'failed',
+};
 
 /** The empty snapshot shown before the first host push (and for a pre-upgrade restore). */
 export const EMPTY_STATE: SidebarState = {

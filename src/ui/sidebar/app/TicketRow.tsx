@@ -10,11 +10,13 @@ import type { CSSProperties } from 'react';
 import type { TicketRow as Row } from '../state.js';
 import { ActButton } from './action.js';
 import { CloudLinks } from './CloudSessions.js';
-import { Icon, KarstMark } from './Icon.js';
+import { Icon } from './Icon.js';
 import { IconAct } from './IconAct.js';
 import { TicketTools } from './TicketTools.js';
 import { PriorityChip } from './PriorityChip.js';
-import { AUTOSTART_WORD, GLYPH_WORD, MAX_SUBTASK_INDENT, relTime } from './format.js';
+import { AUTOSTART_WORD, GLYPH_STATUS, MAX_SUBTASK_INDENT, relTime } from './format.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
+import { Status } from '../../shared/Status.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketBody } from './TicketBody.js';
 import { stageWord as stageWordOf } from '../../shared/ticketRefView.js';
@@ -103,19 +105,16 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
   const blockedBy = row.blockedBy || [];
 
   // Decorative content of the row's main click target — never another interactive
-  // control (UI-R09). Completed rows swap the karst mark + status dot for a
-  // check-in-ring (aria-hidden) and drop the stage pill; the check SHAPE is the
-  // non-color carrier (UI-R28) and `g-<glyph>` keeps the shared status color.
+  // control (UI-R09). A live row paints the shared `.k-status` marker (a shape per
+  // state, UI-R28); completed rows swap it for a check-in-ring (aria-hidden) and
+  // drop the stage pill; the check SHAPE is the non-color carrier and `g-<glyph>`
+  // keeps the shared status colour.
   const content = (
     <>
       {compact ? (
         <span className={`glyph chk g-${row.glyph}`} aria-hidden="true"><Icon name="circle-check" size={14} /></span>
       ) : (
-        <span className={`glyph g-${row.glyph}`} role="img" aria-label={glyphWord} title={row.description}>
-          <KarstMark />
-          <span className="sdot" aria-hidden="true" />
-          <span className="sdot-spin" aria-hidden="true" />
-        </span>
+        <Status kind={GLYPH_STATUS[row.glyph]} label={glyphWord} />
       )}
       <span className="k-id" title={`Ticket ${row.idLabel}`}>{row.idLabel}</span>
       {row.priorityEditable ? <PriorityChip level={row.priority} source={row.prioritySource} provider={{ label: row.providerLabel, level: row.providerPriority }} /> : null}
