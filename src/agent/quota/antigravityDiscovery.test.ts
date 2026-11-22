@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ANTIGRAVITY_NOT_RUNNING_REASON,
@@ -78,6 +79,8 @@ describe('antigravityDiscovery', () => {
             command: 'language_server --csrf_token proc-token --http_server_port 57687',
           },
         ],
+        readFile: () => null,
+        listDir: () => [],
         fetchImpl: fetchMock,
       });
 
@@ -94,6 +97,7 @@ describe('antigravityDiscovery', () => {
         env: {},
         listProcesses: () => [],
         readFile: () => null,
+        listDir: () => [],
       });
 
       expect(result).toEqual({
@@ -119,6 +123,8 @@ describe('antigravityDiscovery', () => {
             command: '/opt/agy/language_server --csrf_token token-from-proc --http_server_port 57687',
           },
         ],
+        readFile: () => null,
+        listDir: () => [],
         fetchImpl: fetchMock,
       });
 
@@ -142,6 +148,8 @@ describe('antigravityDiscovery', () => {
           },
         ],
         listPorts,
+        readFile: () => null,
+        listDir: () => [],
         fetchImpl: fetchMock,
       });
 
@@ -168,6 +176,7 @@ describe('antigravityDiscovery', () => {
         env: {},
         listProcesses: () => [],
         readFile,
+        listDir: () => [],
         fetchImpl: fetchMock,
       });
 
@@ -192,6 +201,8 @@ describe('antigravityDiscovery', () => {
             command: 'node some_other_script.js --csrf_token fake-token',
           },
         ],
+        readFile: () => null,
+        listDir: () => [],
         fetchImpl: fetchMock,
       });
 
@@ -224,6 +235,8 @@ describe('antigravityDiscovery', () => {
             command: 'language_server --csrf_token token-2 --http_server_port 50002',
           },
         ],
+        readFile: () => null,
+        listDir: () => [],
         fetchImpl: fetchMock,
         timeoutMs: 1500,
       });
@@ -246,6 +259,8 @@ describe('antigravityDiscovery', () => {
             command: 'language_server --csrf_token token-dead --http_server_port 50001',
           },
         ],
+        readFile: () => null,
+        listDir: () => [],
         fetchImpl: fetchMock,
       });
 
@@ -266,6 +281,8 @@ describe('antigravityDiscovery', () => {
             command: `language_server --csrf_token ${secretToken} --http_server_port 50001`,
           },
         ],
+        readFile: () => null,
+        listDir: () => [],
         fetchImpl: fetchMock,
       });
 
@@ -274,6 +291,154 @@ describe('antigravityDiscovery', () => {
         expect(result.reason).toBe(ANTIGRAVITY_UNRESPONSIVE_REASON);
         expect(result.reason).not.toContain(secretToken);
       }
+    });
+
+    it('discovers a daemon ls_*.json with httpPort and csrfToken', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const daemonDir = join('/nope', '.gemini', 'antigravity', 'daemon');
+      const readFile = vi.fn((path: string) =>
+        path === join(daemonDir, 'ls_1234.json')
+          ? JSON.stringify({ httpPort: 52111, csrfToken: 'daemon-ls-token' })
+          : null,
+      );
+
+      const result = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        listProcesses: () => [],
+        readFile,
+        listDir: (dir) => (dir === daemonDir ? ['ls_1234.json'] : []),
+        fetchImpl: fetchMock,
+      });
+
+      expect(result).toEqual({ address: '127.0.0.1:52111', csrfToken: 'daemon-ls-token' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('discovers a daemon hub_*.json with http_server_port and csrf_token', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const daemonDir = join('/nope', '.gemini', 'antigravity-ide', 'daemon');
+      const readFile = vi.fn((path: string) =>
+        path === join(daemonDir, 'hub_abc.json')
+          ? JSON.stringify({ http_server_port: 52333, csrf_token: 'hub-token' })
+          : null,
+      );
+
+      const result = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        listProcesses: () => [],
+        readFile,
+        listDir: (dir) => (dir === daemonDir ? ['hub_abc.json'] : []),
+        fetchImpl: fetchMock,
+      });
+
+      expect(result).toEqual({ address: '127.0.0.1:52333', csrfToken: 'hub-token' });
+    });
+
+    it('ignores daemon files that are neither ls_*.json nor hub_*.json', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const daemonDir = join('/nope', '.gemini', 'antigravity', 'daemon');
+      const readFile = vi.fn((path: string) =>
+        path.endsWith(join('antigravity', 'daemon', 'ls_real.json'))
+          ? JSON.stringify({ port: 53001, csrfToken: 'real-token' })
+          : null,
+      );
+
+      const result = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        listProcesses: () => [],
+        readFile,
+        listDir: (dir) =>
+          dir === daemonDir ? ['other.json', 'ls_notes.txt', 'ls_real.json'] : [],
+        fetchImpl: fetchMock,
+      });
+
+      expect(result).toEqual({ address: '127.0.0.1:53001', csrfToken: 'real-token' });
+      const readPaths = readFile.mock.calls.map(([path]) => String(path));
+      expect(readPaths.some((path) => path.endsWith('other.json'))).toBe(false);
+      expect(readPaths.some((path) => path.endsWith('ls_notes.txt'))).toBe(false);
+    });
+
+    it('handles a throwing or empty listDir and still reads discovery.json', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const readFile = vi.fn((path: string) =>
+        path.endsWith(join('antigravity', 'discovery.json'))
+          ? JSON.stringify({ address: '127.0.0.1:54001', csrf_token: 'file-token' })
+          : null,
+      );
+
+      const throwing = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        listProcesses: () => [],
+        readFile,
+        listDir: () => {
+          throw new Error('daemon dir unreadable');
+        },
+        fetchImpl: fetchMock,
+      });
+      expect(throwing).toEqual({ address: '127.0.0.1:54001', csrfToken: 'file-token' });
+
+      const empty = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        listProcesses: () => [],
+        readFile,
+        listDir: () => [],
+        fetchImpl: fetchMock,
+      });
+      expect(empty).toEqual({ address: '127.0.0.1:54001', csrfToken: 'file-token' });
+    });
+
+    it('skips a malformed daemon file and discovers the next valid one', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const daemonDir = join('/nope', '.gemini', 'antigravity', 'daemon');
+      const readFile = vi.fn((path: string) => {
+        if (path === join(daemonDir, 'hub_a.json')) return '{not json';
+        if (path === join(daemonDir, 'ls_b.json')) {
+          return JSON.stringify({ httpPort: 55001, csrfToken: 'second-token' });
+        }
+        return null;
+      });
+
+      const result = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        listProcesses: () => [],
+        readFile,
+        listDir: (dir) => (dir === daemonDir ? ['ls_b.json', 'hub_a.json'] : []),
+        fetchImpl: fetchMock,
+      });
+
+      expect(result).toEqual({ address: '127.0.0.1:55001', csrfToken: 'second-token' });
+      expect(readFile.mock.calls.map(([path]) => String(path))).toContain(
+        join(daemonDir, 'hub_a.json'),
+      );
+    });
+
+    it('discovers appDataDir/daemon/ls_*.json', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const appDataDir = '/nope/agy-app-data';
+      const daemonDir = join(appDataDir, 'daemon');
+      const readFile = vi.fn((path: string) =>
+        path === join(daemonDir, 'ls_appdata.json')
+          ? JSON.stringify({ httpPort: 56001, csrfToken: 'appdata-token' })
+          : null,
+      );
+
+      const result = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        appDataDir,
+        listProcesses: () => [],
+        readFile,
+        listDir: (dir) => (dir === daemonDir ? ['ls_appdata.json'] : []),
+        fetchImpl: fetchMock,
+      });
+
+      expect(result).toEqual({ address: '127.0.0.1:56001', csrfToken: 'appdata-token' });
     });
   });
 });

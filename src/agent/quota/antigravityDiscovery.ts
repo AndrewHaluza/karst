@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -23,12 +23,14 @@ export interface AntigravityProcessInfo {
 export type ProcessLister = () => Promise<AntigravityProcessInfo[]> | AntigravityProcessInfo[];
 export type PortLister = (pid: number) => Promise<number[]> | number[];
 export type FileReader = (path: string) => Promise<string | null> | (string | null);
+export type DirLister = (dir: string) => Promise<string[]> | string[];
 
 export interface AntigravityDiscoveryDeps {
   env?: NodeJS.ProcessEnv;
   listProcesses?: ProcessLister;
   listPorts?: PortLister;
   readFile?: FileReader;
+  listDir?: DirLister;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   homeDir?: string;
@@ -105,6 +107,44 @@ export async function defaultListPorts(pid: number): Promise<number[]> {
   }
 }
 
+/** Parse one discovery payload (`discovery.json` or a `daemon/*.json`) into an address + CSRF token. */
+function parseDiscoveryPayload(data: unknown): { address: string; csrfToken: string } | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const record = data as Record<string, unknown>;
+  const csrf =
+    typeof record.csrf_token === 'string' && record.csrf_token.length > 0
+      ? record.csrf_token
+      : typeof record.csrfToken === 'string' && record.csrfToken.length > 0
+        ? record.csrfToken
+        : null;
+  if (!csrf) return null;
+  const portCandidates = [record.httpPort, record.http_server_port, record.port];
+  const port = portCandidates.find(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0,
+  );
+  const address =
+    typeof record.address === 'string' && record.address.length > 0
+      ? record.address
+      : port !== undefined
+        ? `127.0.0.1:${port}`
+        : null;
+  if (!address) return null;
+  return { address, csrfToken: csrf };
+}
+
+async function readDiscoveryFile(
+  path: string,
+  readFileFn: FileReader,
+): Promise<{ address: string; csrfToken: string } | null> {
+  try {
+    const content = await readFileFn(path);
+    if (!content) return null;
+    return parseDiscoveryPayload(JSON.parse(content) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 async function probeCandidate(
   address: string,
   csrfToken: string,
@@ -176,39 +216,38 @@ export async function discoverAntigravityServer(
         return null;
       }
     });
+  const listDirFn: DirLister =
+    deps.listDir ??
+    (async (dir: string) => {
+      try {
+        return await readdir(dir);
+      } catch {
+        return [];
+      }
+    });
 
   for (const dir of candidateDirs) {
-    const discoveryFile = join(dir, 'discovery.json');
+    const fromDiscoveryFile = await readDiscoveryFile(join(dir, 'discovery.json'), readFileFn);
+    if (fromDiscoveryFile) {
+      addCandidate(fromDiscoveryFile.address, fromDiscoveryFile.csrfToken);
+    }
+
+    // Daemon sockets (`ls_*.json` / `hub_*.json`) carry httpPort + csrfToken.
+    const daemonDir = join(dir, 'daemon');
+    let entries: string[] = [];
     try {
-      const content = await readFileFn(discoveryFile);
-      if (content) {
-        const data = JSON.parse(content) as Record<string, unknown>;
-        if (data && typeof data === 'object') {
-          const csrf =
-            typeof data.csrf_token === 'string'
-              ? data.csrf_token
-              : typeof data.csrfToken === 'string'
-                ? data.csrfToken
-                : null;
-          const port =
-            typeof data.http_server_port === 'number'
-              ? data.http_server_port
-              : typeof data.port === 'number'
-                ? data.port
-                : null;
-          const addr =
-            typeof data.address === 'string'
-              ? data.address
-              : port
-                ? `127.0.0.1:${port}`
-                : null;
-          if (addr && csrf) {
-            addCandidate(addr, csrf);
-          }
-        }
-      }
+      entries = await listDirFn(daemonDir);
     } catch {
-      // Ignore parse failure
+      entries = [];
+    }
+    const daemonFiles = entries
+      .filter((name) => /^(?:ls|hub)_.*\.json$/.test(name))
+      .sort();
+    for (const name of daemonFiles) {
+      const parsed = await readDiscoveryFile(join(daemonDir, name), readFileFn);
+      if (parsed) {
+        addCandidate(parsed.address, parsed.csrfToken);
+      }
     }
   }
 

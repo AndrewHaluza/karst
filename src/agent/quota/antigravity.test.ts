@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,8 +21,11 @@ import {
   ANTIGRAVITY_RELATIVE_CACHE,
   ANTIGRAVITY_NOT_RUNNING_REASON,
   ANTIGRAVITY_UNRESPONSIVE_REASON,
+  ANTIGRAVITY_CLI_QUOTA_SOURCE,
+  ANTIGRAVITY_CLI_TIMEOUT_MS,
 } from './antigravity.js';
 import type { QuotaKnown } from './types.js';
+import { accountReaderEnv, configureAccounts, resetAccounts } from '../accounts/registry.js';
 
 describe('antigravityQuotaCachePath and constants', () => {
   it('returns join(appDataDir, "cache", "quota.json")', () => {
@@ -294,6 +297,15 @@ describe('resolveBucketLabel', () => {
     expect(resolveBucketLabel({ displayName: 'Custom Display' })).toBe('Custom Display');
     expect(resolveBucketLabel({ bucketId: 'custom-pool' })).toBe('custom-pool');
     expect(resolveBucketLabel({})).toBe('Model');
+  });
+
+  it('resolves snake_case agy /usage buckets by id, name, window and 5-hour/7-day labels', () => {
+    expect(resolveBucketLabel({ id: 'gemini-5h', name: '5-hour' }, { name: 'Gemini' })).toBe('5-hour');
+    expect(resolveBucketLabel({ id: 'gemini-7-day', name: '7-day' }, { name: 'Gemini' })).toBe('Weekly');
+    expect(resolveBucketLabel({ window: '5-hour' }, { name: 'Gemini' })).toBe('5-hour');
+    expect(resolveBucketLabel({ window: '7-day' }, { name: 'Gemini' })).toBe('Weekly');
+    expect(resolveBucketLabel({ name: 'Custom Window' })).toBe('Custom Window');
+    expect(resolveBucketLabel({ id: 'custom-pool' })).toBe('custom-pool');
   });
 });
 
@@ -876,6 +888,48 @@ describe('parseAntigravityWindows', () => {
     ]);
   });
 
+  it('parses the snake_case agy -p "/usage" payload under command.data.groups', () => {
+    const usage = {
+      command: {
+        data: {
+          groups: [
+            {
+              name: 'Gemini Models',
+              buckets: [
+                {
+                  id: 'gemini-5h',
+                  name: '5-hour',
+                  window: '5-hour',
+                  remaining_fraction: 0.422,
+                  reset_time: '2026-01-01T05:00:00Z',
+                },
+                {
+                  id: 'gemini-7-day',
+                  name: '7-day',
+                  window: '7-day',
+                  remaining_fraction: 0.75,
+                  reset_time: '2026-01-08T00:00:00Z',
+                  disabled: false,
+                },
+                {
+                  id: 'gemini-weekly-disabled',
+                  window: '7-day',
+                  remaining_fraction: 0.1,
+                  disabled: true,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    expect(parseAntigravityWindows(usage)).toEqual([
+      { label: '5-hour', usedPct: 58, resetsAt: '2026-01-01T05:00:00Z' },
+      { label: 'Weekly', usedPct: 25, resetsAt: '2026-01-08T00:00:00Z' },
+    ]);
+  });
+
   it('skips buckets without valid finite remainingFraction', () => {
     const summary = {
       groups: [
@@ -1156,7 +1210,9 @@ describe('antigravityQuotaReader', () => {
 
       for (const call of capturedCalls) {
         expect(call.options?.method).toBe('POST');
-        expect(call.options?.body).toBe('{}');
+        expect(call.options?.body).toBe(
+          call.url.endsWith('RetrieveUserQuotaSummary') ? '{"forceRefresh":true}' : '{}',
+        );
         expect(call.options?.headers).toEqual({
           'Connect-Protocol-Version': '1',
           'Content-Type': 'application/json',
@@ -1370,6 +1426,7 @@ describe('antigravityQuotaReader', () => {
         },
         now,
         fetchImpl,
+        runCliUsage: async () => null,
       });
 
       const snapshot = await reader.read();
@@ -1393,6 +1450,9 @@ describe('antigravityQuotaReader', () => {
         env: { ANTIGRAVITY_CSRF_TOKEN: 'csrf-only' },
         now: () => new Date(0),
         listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => null,
       });
       expect(await readerMissing.read()).toEqual({
         core: 'antigravity',
@@ -1405,6 +1465,9 @@ describe('antigravityQuotaReader', () => {
         env: { ANTIGRAVITY_LS_ADDRESS: '', ANTIGRAVITY_CSRF_TOKEN: 'csrf-only' },
         now: () => new Date(0),
         listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => null,
       });
       expect(await readerEmpty.read()).toEqual({
         core: 'antigravity',
@@ -1424,6 +1487,9 @@ describe('antigravityQuotaReader', () => {
         env: { ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123' },
         now: () => new Date(0),
         listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => null,
       });
       expect(await readerMissing.read()).toEqual({
         core: 'antigravity',
@@ -1436,6 +1502,9 @@ describe('antigravityQuotaReader', () => {
         env: { ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123', ANTIGRAVITY_CSRF_TOKEN: '' },
         now: () => new Date(0),
         listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => null,
       });
       expect(await readerEmpty.read()).toEqual({
         core: 'antigravity',
@@ -1473,6 +1542,7 @@ describe('antigravityQuotaReader', () => {
         },
         now: () => new Date('2026-10-29T10:00:00.000Z'),
         fetchImpl,
+        runCliUsage: async () => null,
       });
 
       const snapshot = await reader.read();
@@ -1497,6 +1567,7 @@ describe('antigravityQuotaReader', () => {
         },
         now: () => new Date(0),
         fetchImpl,
+        runCliUsage: async () => null,
       });
 
       const snapshot = await reader.read();
@@ -1536,6 +1607,7 @@ describe('antigravityQuotaReader', () => {
         },
         now: () => new Date('2026-10-29T10:00:00.000Z'),
         fetchImpl,
+        runCliUsage: async () => null,
       });
 
       const snapshot = await reader.read();
@@ -1560,6 +1632,7 @@ describe('antigravityQuotaReader', () => {
         },
         now: () => new Date(0),
         fetchImpl,
+        runCliUsage: async () => null,
       });
 
       const snapshot = await reader.read();
@@ -1582,6 +1655,9 @@ describe('antigravityQuotaReader', () => {
         env: {},
         now: () => new Date(0),
         listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => null,
       });
       const snap1 = await readerWithHome.read();
       expect(snap1.core).toBe('antigravity');
@@ -1592,6 +1668,9 @@ describe('antigravityQuotaReader', () => {
         env: {},
         now: () => new Date(0),
         listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => null,
       });
       const snap2 = await readerWithAppData.read();
       expect(snap2.core).toBe('antigravity');
@@ -1648,6 +1727,8 @@ describe('antigravityQuotaReader', () => {
         env: {},
         now: () => new Date('2026-10-31T12:00:00.000Z'),
         fetchImpl,
+        readFile: () => null,
+        listDir: () => [],
         listProcesses: () => [
           {
             pid: 999,
@@ -1688,6 +1769,8 @@ describe('antigravityQuotaReader', () => {
         env: {},
         listProcesses: () => [],
         readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => null,
       });
 
       const snapshot = await reader.read();
@@ -1814,6 +1897,8 @@ describe('antigravityQuotaReader', () => {
             ANTIGRAVITY_CSRF_TOKEN: secretToken,
           },
           fetchImpl: failingFetch,
+          listDir: () => [],
+          runCliUsage: async () => null,
         });
         const failSnapshot = await failingReader.read();
         expect(JSON.stringify(failSnapshot)).not.toContain(secretToken);
@@ -1823,5 +1908,359 @@ describe('antigravityQuotaReader', () => {
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
     }
+  });
+
+  it('falls back to agy -p "/usage" when no language server is running and never serves a stale cache', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const cachePath = join(appDataDir, 'cache', 'quota.json');
+      mkdirSync(join(appDataDir, 'cache'), { recursive: true });
+      const stale: QuotaKnown = {
+        core: 'antigravity',
+        state: 'ok',
+        source: 'Antigravity Language Server',
+        readAt: '2025-12-31T00:00:00.000Z',
+        windows: [{ label: '5-hour', usedPct: 99, resetsAt: '2025-12-31T05:00:00.000Z' }],
+      };
+      writeFileSync(cachePath, JSON.stringify(stale), 'utf8');
+
+      const runCliUsage = vi.fn(async () =>
+        JSON.stringify({
+          command: {
+            data: {
+              groups: [
+                {
+                  name: 'Gemini Models',
+                  buckets: [
+                    {
+                      id: 'gemini-5h',
+                      window: '5-hour',
+                      remaining_fraction: 0.6,
+                      reset_time: '2026-01-01T05:00:00Z',
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        }),
+      );
+
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {},
+        homeDir: '/nope',
+        now: () => new Date('2026-01-01T00:00:00.000Z'),
+        listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage,
+      });
+
+      const snapshot = await reader.read();
+      expect(snapshot).toEqual({
+        core: 'antigravity',
+        state: 'ok',
+        windows: [{ label: '5-hour', usedPct: 40, resetsAt: '2026-01-01T05:00:00Z' }],
+        source: ANTIGRAVITY_CLI_QUOTA_SOURCE,
+        readAt: '2026-01-01T00:00:00.000Z',
+      });
+      expect(runCliUsage).toHaveBeenCalledWith(
+        'agy',
+        ['-p', '/usage', '--output-format', 'json'],
+        expect.any(Object),
+        ANTIGRAVITY_CLI_TIMEOUT_MS,
+      );
+      expect(JSON.parse(readFileSync(cachePath, 'utf8'))).toEqual(snapshot);
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to agy -p "/usage" when the language server Connect RPC fails', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const fetchImpl = vi.fn(
+        async () => new Response('Internal error', { status: 500 }),
+      ) as unknown as typeof fetch;
+
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+          ANTIGRAVITY_CSRF_TOKEN: 'token',
+        },
+        now: () => new Date('2026-01-01T00:00:00.000Z'),
+        fetchImpl,
+        runCliUsage: async () =>
+          JSON.stringify({
+            command: {
+              data: {
+                groups: [
+                  {
+                    name: 'Gemini Models',
+                    buckets: [
+                      {
+                        id: 'gemini-5h',
+                        window: '5-hour',
+                        remaining_fraction: 0.9,
+                        reset_time: '2026-01-01T05:00:00Z',
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          }),
+      });
+
+      const snapshot = await reader.read();
+      expect(fetchImpl).toHaveBeenCalled();
+      expect(snapshot).toEqual({
+        core: 'antigravity',
+        state: 'ok',
+        windows: [{ label: '5-hour', usedPct: 10, resetsAt: '2026-01-01T05:00:00Z' }],
+        source: ANTIGRAVITY_CLI_QUOTA_SOURCE,
+        readAt: '2026-01-01T00:00:00.000Z',
+      });
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the cache only when both the Connect RPC and the CLI /usage fail', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const cachePath = join(appDataDir, 'cache', 'quota.json');
+      mkdirSync(join(appDataDir, 'cache'), { recursive: true });
+      const cachedSnapshot: QuotaKnown = {
+        core: 'antigravity',
+        state: 'ok',
+        source: 'Antigravity Language Server',
+        readAt: '2026-01-01T00:00:00.000Z',
+        windows: [{ label: 'Weekly', usedPct: 30, resetsAt: '2026-01-08T00:00:00Z' }],
+      };
+      writeFileSync(cachePath, JSON.stringify(cachedSnapshot), 'utf8');
+
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {
+          ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:45123',
+          ANTIGRAVITY_CSRF_TOKEN: 'token',
+        },
+        now: () => new Date('2026-01-01T00:00:00.000Z'),
+        fetchImpl: vi.fn(
+          async () => new Response('Internal error', { status: 500 }),
+        ) as unknown as typeof fetch,
+        runCliUsage: async () => null,
+      });
+
+      expect(await reader.read()).toEqual(cachedSnapshot);
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns unknown with the live error when both live paths fail and no cache exists', async () => {
+    const appDataDir = createTempDir();
+    try {
+      const reader = antigravityQuotaReader({
+        appDataDir,
+        env: {},
+        homeDir: '/nope',
+        now: () => new Date(0),
+        listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => '{not json',
+      });
+
+      expect(await reader.read()).toEqual({
+        core: 'antigravity',
+        state: 'unknown',
+        reason: ANTIGRAVITY_NOT_RUNNING_REASON,
+      });
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('never leaks CLI errors or account env secrets into the reason or the cache', async () => {
+    const appDataDir = createTempDir();
+    const secret = 'agy-cli-secret-never-leak-777';
+    try {
+      const failingReader = antigravityQuotaReader({
+        appDataDir,
+        env: {},
+        homeDir: '/nope',
+        now: () => new Date(0),
+        listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () => {
+          throw new Error(`failed with ${secret}`);
+        },
+      });
+
+      const failed = await failingReader.read();
+      expect(failed).toEqual({
+        core: 'antigravity',
+        state: 'unknown',
+        reason: ANTIGRAVITY_NOT_RUNNING_REASON,
+      });
+      expect(JSON.stringify(failed)).not.toContain(secret);
+
+      const okReader = antigravityQuotaReader({
+        appDataDir,
+        env: { AGY_API_KEY: secret },
+        homeDir: '/nope',
+        now: () => new Date('2026-01-01T00:00:00.000Z'),
+        listProcesses: () => [],
+        readFile: () => null,
+        listDir: () => [],
+        runCliUsage: async () =>
+          JSON.stringify({
+            command: {
+              data: {
+                groups: [
+                  {
+                    name: 'Gemini Models',
+                    buckets: [
+                      {
+                        id: 'gemini-5h',
+                        window: '5-hour',
+                        remaining_fraction: 0.5,
+                        reset_time: '2026-01-01T05:00:00Z',
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          }),
+      });
+
+      const ok = await okReader.read();
+      expect(ok.state).toBe('ok');
+      expect(JSON.stringify(ok)).not.toContain(secret);
+      const cachedRaw = readFileSync(join(appDataDir, 'cache', 'quota.json'), 'utf8');
+      expect(cachedRaw).not.toContain(secret);
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  describe('account-scoped CLI fallback (@arch:AC-55)', () => {
+    afterEach(() => resetAccounts());
+
+    function usageJson(remainingFraction: number): string {
+      return JSON.stringify({
+        command: {
+          data: {
+            groups: [
+              {
+                name: 'Gemini Models',
+                buckets: [
+                  {
+                    id: 'gemini-5h',
+                    window: '5-hour',
+                    remaining_fraction: remainingFraction,
+                    reset_time: '2026-01-01T05:00:00Z',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      });
+    }
+
+    it('uses the active folder account data dir when appDataDir is not overridden', async () => {
+      const accountDir = createTempDir();
+      try {
+        configureAccounts({
+          antigravity: {
+            active: 'work',
+            list: { work: { kind: 'subscription', source: 'folder', dir: accountDir } },
+          },
+        });
+        const runCliUsage = vi.fn(
+          async (
+            _command: string,
+            _args: readonly string[],
+            _env: NodeJS.ProcessEnv,
+            _timeoutMs: number,
+          ) => usageJson(0.5),
+        );
+
+        const reader = antigravityQuotaReader({
+          env: accountReaderEnv({}, {}),
+          homeDir: '/nope',
+          now: () => new Date('2026-01-01T00:00:00.000Z'),
+          listProcesses: () => [],
+          readFile: () => null,
+          listDir: () => [],
+          runCliUsage,
+        });
+
+        const snapshot = await reader.read();
+        expect(snapshot.state).toBe('ok');
+        const childEnv = runCliUsage.mock.calls[0]![2];
+        expect(childEnv.ANTIGRAVITY_EXECUTABLE_DATA_DIR).toBe(accountDir);
+        expect(existsSync(join(accountDir, 'cache', 'quota.json'))).toBe(true);
+      } finally {
+        rmSync(accountDir, { recursive: true, force: true });
+      }
+    });
+
+    it('runs the command account binary and args, with the appDataDir override winning', async () => {
+      const accountDir = createTempDir();
+      const appDataDir = createTempDir();
+      try {
+        configureAccounts({
+          antigravity: {
+            active: 'work',
+            list: {
+              work: {
+                kind: 'subscription',
+                source: 'command',
+                dir: accountDir,
+                command: '/opt/custom/agy',
+                args: ['--profile', 'work'],
+              },
+            },
+          },
+        });
+        const runCliUsage = vi.fn(
+          async (
+            _command: string,
+            _args: readonly string[],
+            _env: NodeJS.ProcessEnv,
+            _timeoutMs: number,
+          ) => usageJson(0.5),
+        );
+
+        const reader = antigravityQuotaReader({
+          appDataDir,
+          env: accountReaderEnv({}, {}),
+          homeDir: '/nope',
+          now: () => new Date('2026-01-01T00:00:00.000Z'),
+          listProcesses: () => [],
+          readFile: () => null,
+          listDir: () => [],
+          runCliUsage,
+        });
+
+        const snapshot = await reader.read();
+        expect(snapshot.state).toBe('ok');
+        const [command, args, childEnv] = runCliUsage.mock.calls[0]!;
+        expect(command).toBe('/opt/custom/agy');
+        expect(args).toEqual(['--profile', 'work', '-p', '/usage', '--output-format', 'json']);
+        expect(childEnv.ANTIGRAVITY_EXECUTABLE_DATA_DIR).toBe(appDataDir);
+      } finally {
+        rmSync(accountDir, { recursive: true, force: true });
+        rmSync(appDataDir, { recursive: true, force: true });
+      }
+    });
   });
 });

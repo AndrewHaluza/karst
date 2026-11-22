@@ -72,6 +72,65 @@ describe('buildQuotaView', () => {
     expect(view.anyNear).toBe(false);
   });
 
+  it('omits expired windows and keeps the active ones', () => {
+    const view = buildQuotaView(
+      [ok({
+        windows: [
+          { label: '5-hour', usedPct: 95, resetsAt: '2025-12-25T00:00:00.000Z' },
+          {
+            label: '7-day',
+            usedPct: 42,
+            resetsAt: new Date(NOW.getTime() + 2 * 3_600_000).toISOString(),
+          },
+        ],
+      })],
+      80,
+      NOW,
+    );
+    const row = view.rows[0]!;
+    expect(row.state).toBe('ok');
+    expect(row.windows.map((w) => w.label)).toEqual(['7-day']);
+    expect(row.windows[0]).toMatchObject({ usedPct: 42, level: 'ok' });
+    expect(view.anyNear).toBe(false);
+  });
+
+  it('renders unknown when every window has expired by its reset time', () => {
+    const view = buildQuotaView(
+      [ok({ windows: [{ label: '5-hour', usedPct: 95, resetsAt: '2025-12-25T00:00:00.000Z' }] })],
+      80,
+      NOW,
+    );
+    expect(view.rows[0]).toEqual({
+      core: 'codex',
+      label: 'Codex',
+      state: 'unknown',
+      windows: [],
+      source: null,
+      readAgo: null,
+      reason: 'cached quota windows expired',
+    });
+    expect(view.anyNear).toBe(false);
+  });
+
+  it('renders unknown when a null-reset window outlived its length from readAt', () => {
+    const view = buildQuotaView(
+      [ok({
+        windows: [{ label: '5-hour', usedPct: 95, resetsAt: null }],
+        readAt: new Date(NOW.getTime() - 6 * 3_600_000).toISOString(),
+      })],
+      80,
+      NOW,
+    );
+    expect(view.rows[0]).toMatchObject({
+      state: 'unknown',
+      windows: [],
+      source: null,
+      readAgo: null,
+      reason: 'cached quota windows expired',
+    });
+    expect(view.anyNear).toBe(false);
+  });
+
   it('renders an unknown core with its reason and no windows', () => {
     const view = buildQuotaView([{ core: 'opencode', state: 'unknown', reason: 'no source' }], 80, NOW);
     expect(view.rows[0]).toMatchObject({

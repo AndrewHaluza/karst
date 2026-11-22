@@ -5,8 +5,8 @@ import type { AgentProvider } from '../../manifest/types.js';
 import { codexQuotaReader } from './codex.js';
 import { claudeQuotaReader } from './claude.js';
 import { opencodeQuotaReader } from './opencode.js';
-import { antigravityQuotaReader } from './antigravity.js';
-import type { ProcessLister } from './antigravityDiscovery.js';
+import { antigravityQuotaReader, type AntigravityCliUsageRunner } from './antigravity.js';
+import type { DirLister, ProcessLister } from './antigravityDiscovery.js';
 import type { QuotaReader, QuotaSnapshot } from './types.js';
 
 /**
@@ -173,6 +173,10 @@ export interface DefaultQuotaReadersDeps {
   antigravityAppDataDir?: string;
   /** Injected for tests so discovery never probes a language server running on the host. */
   antigravityListProcesses?: ProcessLister;
+  /** Injected for tests so discovery never scans the host's daemon discovery files. */
+  antigravityListDir?: DirLister;
+  /** Injected headless `agy -p "/usage"` runner for tests (never spawns the host binary). */
+  antigravityCliRunner?: AntigravityCliUsageRunner;
 }
 
 /** The production reader set — one reader per core (D162/D201). */
@@ -204,6 +208,8 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
       fetchImpl: deps.fetchImpl,
       appDataDir: deps.antigravityAppDataDir,
       listProcesses: deps.antigravityListProcesses,
+      listDir: deps.antigravityListDir,
+      runCliUsage: deps.antigravityCliRunner,
     }),
     opencodeQuotaReader({
       core: 'opencode',
