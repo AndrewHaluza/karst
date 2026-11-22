@@ -35,6 +35,14 @@ export interface AntigravityDiscoveryDeps {
   timeoutMs?: number;
   homeDir?: string;
   appDataDir?: string;
+  /**
+   * `true` when `appDataDir` is the folder of ONE account (`arch:AC-55`): only
+   * that folder's records are trusted. The default `~/.gemini/...` folders and
+   * the machine-wide `ps` scan are then skipped, because neither names the
+   * account a language server belongs to and either could answer with another
+   * account's quota (`arch:AC-48`).
+   */
+  dataDirOnly?: boolean;
 }
 
 export interface ParsedLanguageServerCommand {
@@ -197,15 +205,18 @@ export async function discoverAntigravityServer(
 
   // 2a. File-based discovery
   const home = deps.homeDir ?? homedir();
+  const dataDirOnly = deps.dataDirOnly === true;
   const candidateDirs: string[] = [];
   if (deps.appDataDir) {
     candidateDirs.push(deps.appDataDir);
   }
-  candidateDirs.push(
-    join(home, '.gemini', 'antigravity'),
-    join(home, '.gemini', 'antigravity-ide'),
-    join(home, '.gemini', 'antigravity-cli'),
-  );
+  if (!dataDirOnly) {
+    candidateDirs.push(
+      join(home, '.gemini', 'antigravity'),
+      join(home, '.gemini', 'antigravity-ide'),
+      join(home, '.gemini', 'antigravity-cli'),
+    );
+  }
 
   const readFileFn =
     deps.readFile ??
@@ -251,13 +262,17 @@ export async function discoverAntigravityServer(
     }
   }
 
-  // 2b. Process-based discovery
+  // 2b. Process-based discovery. A `ps` row names no account, so an
+  // account-scoped read never trusts one (`arch:AC-48`); its own folder's
+  // records, then `agy -p "/usage"`, answer instead.
   const listProcessesFn = deps.listProcesses ?? defaultListProcesses;
   let processes: AntigravityProcessInfo[] = [];
-  try {
-    processes = await listProcessesFn();
-  } catch {
-    processes = [];
+  if (!dataDirOnly) {
+    try {
+      processes = await listProcessesFn();
+    } catch {
+      processes = [];
+    }
   }
 
   for (const proc of processes) {

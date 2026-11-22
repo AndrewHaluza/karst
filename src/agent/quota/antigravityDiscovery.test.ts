@@ -440,5 +440,70 @@ describe('antigravityDiscovery', () => {
 
       expect(result).toEqual({ address: '127.0.0.1:56001', csrfToken: 'appdata-token' });
     });
+
+    it('with dataDirOnly reads ONLY the data dir, never another account\u2019s daemon file or process (@arch:AC-48)', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const appDataDir = '/accounts/antigravity/work';
+      const ownDaemonDir = join(appDataDir, 'daemon');
+      const defaultDaemonDir = join('/nope', '.gemini', 'antigravity', 'daemon');
+      const readFile = vi.fn((path: string) => {
+        if (path === join(defaultDaemonDir, 'ls_default.json')) {
+          return JSON.stringify({ httpPort: 51001, csrfToken: 'default-account-token' });
+        }
+        if (path === join(ownDaemonDir, 'ls_own.json')) {
+          return JSON.stringify({ httpPort: 56002, csrfToken: 'own-token' });
+        }
+        return null;
+      });
+      const listProcesses = vi.fn(() => [
+        { pid: 42, command: 'language_server --csrf_token default-proc-token --http_server_port 59999' },
+      ]);
+
+      const result = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        appDataDir,
+        dataDirOnly: true,
+        listProcesses,
+        readFile,
+        listDir: (dir) =>
+          dir === ownDaemonDir ? ['ls_own.json'] : dir === defaultDaemonDir ? ['ls_default.json'] : [],
+        fetchImpl: fetchMock,
+      });
+
+      expect(result).toEqual({ address: '127.0.0.1:56002', csrfToken: 'own-token' });
+      const readPaths = readFile.mock.calls.map(([path]) => String(path));
+      expect(readPaths).not.toContain(join(defaultDaemonDir, 'ls_default.json'));
+      expect(listProcesses).not.toHaveBeenCalled();
+    });
+
+    it('with dataDirOnly and no record in the data dir reports not running (the CLI fallback answers)', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+      const appDataDir = '/accounts/antigravity/work';
+      const defaultDaemonDir = join('/nope', '.gemini', 'antigravity', 'daemon');
+      const readFile = vi.fn((path: string) =>
+        path === join(defaultDaemonDir, 'ls_default.json')
+          ? JSON.stringify({ httpPort: 51001, csrfToken: 'default-account-token' })
+          : null,
+      );
+      const listProcesses = vi.fn(() => [
+        { pid: 42, command: 'language_server --csrf_token default-proc-token --http_server_port 59999' },
+      ]);
+
+      const result = await discoverAntigravityServer({
+        env: {},
+        homeDir: '/nope',
+        appDataDir,
+        dataDirOnly: true,
+        listProcesses,
+        readFile,
+        listDir: (dir) => (dir === defaultDaemonDir ? ['ls_default.json'] : []),
+        fetchImpl: fetchMock,
+      });
+
+      expect(result).toEqual({ reason: ANTIGRAVITY_NOT_RUNNING_REASON });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(listProcesses).not.toHaveBeenCalled();
+    });
   });
 });

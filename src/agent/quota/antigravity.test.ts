@@ -2262,5 +2262,178 @@ describe('antigravityQuotaReader', () => {
         rmSync(appDataDir, { recursive: true, force: true });
       }
     });
+
+    it('never serves the default account\u2019s language server: the CLI fallback answers instead (@arch:AC-48)', async () => {
+      const accountDir = createTempDir();
+      const fakeHome = createTempDir();
+      try {
+        configureAccounts({
+          antigravity: {
+            active: 'work',
+            list: { work: { kind: 'subscription', source: 'folder', dir: accountDir } },
+          },
+        });
+        const defaultDaemonDir = join(fakeHome, '.gemini', 'antigravity', 'daemon');
+        const readFile = vi.fn((path: string) =>
+          path === join(defaultDaemonDir, 'ls_default.json')
+            ? JSON.stringify({ httpPort: 51001, csrfToken: 'default-account-token' })
+            : null,
+        );
+        const fetchImpl = vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                groups: [
+                  {
+                    displayName: 'Gemini Models',
+                    buckets: [
+                      { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.1 },
+                    ],
+                  },
+                ],
+              }),
+              { status: 200 },
+            ),
+        ) as unknown as typeof fetch;
+        const runCliUsage = vi.fn(
+          async (
+            _command: string,
+            _args: readonly string[],
+            _env: NodeJS.ProcessEnv,
+            _timeoutMs: number,
+          ) => usageJson(0.5),
+        );
+
+        const reader = antigravityQuotaReader({
+          env: accountReaderEnv({}, {}),
+          homeDir: fakeHome,
+          now: () => new Date('2026-01-01T00:00:00.000Z'),
+          fetchImpl,
+          listProcesses: () => [
+            { pid: 7, command: 'language_server --csrf_token default-proc-token --http_server_port 59999' },
+          ],
+          readFile,
+          listDir: (dir: string) => (dir === defaultDaemonDir ? ['ls_default.json'] : []),
+          runCliUsage,
+        });
+
+        const snapshot = await reader.read();
+
+        expect(snapshot.state).toBe('ok');
+        if (snapshot.state !== 'ok') throw new Error('unreachable');
+        expect(snapshot.source).toBe(ANTIGRAVITY_CLI_QUOTA_SOURCE);
+        expect(snapshot.windows[0]?.usedPct).toBe(50);
+        expect(fetchImpl).not.toHaveBeenCalled();
+        expect(runCliUsage).toHaveBeenCalledTimes(1);
+        expect(existsSync(join(accountDir, 'cache', 'quota.json'))).toBe(true);
+        const cached = JSON.parse(readFileSync(join(accountDir, 'cache', 'quota.json'), 'utf8'));
+        expect(cached.source).toBe(ANTIGRAVITY_CLI_QUOTA_SOURCE);
+      } finally {
+        rmSync(accountDir, { recursive: true, force: true });
+        rmSync(fakeHome, { recursive: true, force: true });
+      }
+    });
+
+    it('still serves a live server that answers from the account\u2019s OWN daemon folder', async () => {
+      const accountDir = createTempDir();
+      try {
+        configureAccounts({
+          antigravity: {
+            active: 'work',
+            list: { work: { kind: 'subscription', source: 'folder', dir: accountDir } },
+          },
+        });
+        const ownDaemonDir = join(accountDir, 'daemon');
+        const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+          String(url).endsWith('RetrieveUserQuotaSummary')
+            ? new Response(
+                JSON.stringify({
+                  groups: [
+                    {
+                      displayName: 'Gemini Models',
+                      buckets: [
+                        {
+                          bucketId: 'gemini-5h',
+                          window: '5h',
+                          remainingFraction: 0.25,
+                          resetTime: '2026-01-01T05:00:00Z',
+                        },
+                      ],
+                    },
+                  ],
+                }),
+                { status: 200 },
+              )
+            : new Response('{}', { status: 200 }),
+        ) as unknown as typeof fetch;
+        const runCliUsage = vi.fn(async () => usageJson(0.9));
+
+        const reader = antigravityQuotaReader({
+          env: accountReaderEnv({}, {}),
+          homeDir: '/nope',
+          now: () => new Date('2026-01-01T00:00:00.000Z'),
+          fetchImpl,
+          listProcesses: () => [],
+          readFile: (path: string) =>
+            path === join(ownDaemonDir, 'ls_own.json')
+              ? JSON.stringify({ httpPort: 56002, csrfToken: 'own-token' })
+              : null,
+          listDir: (dir: string) => (dir === ownDaemonDir ? ['ls_own.json'] : []),
+          runCliUsage,
+        });
+
+        const snapshot = await reader.read();
+
+        expect(snapshot.state).toBe('ok');
+        if (snapshot.state !== 'ok') throw new Error('unreachable');
+        expect(snapshot.source).toBe(ANTIGRAVITY_QUOTA_SOURCE);
+        expect(snapshot.windows[0]?.usedPct).toBe(75);
+        expect(runCliUsage).not.toHaveBeenCalled();
+        expect(fetchImpl).toHaveBeenCalled();
+      } finally {
+        rmSync(accountDir, { recursive: true, force: true });
+      }
+    });
+
+    it('resolves the active account folder when no env is injected (@arch:AC-55)', async () => {
+      const accountDir = createTempDir();
+      const fakeHome = createTempDir();
+      try {
+        configureAccounts({
+          antigravity: {
+            active: 'work',
+            list: { work: { kind: 'subscription', source: 'folder', dir: accountDir } },
+          },
+        });
+        const runCliUsage = vi.fn(
+          async (
+            _command: string,
+            _args: readonly string[],
+            _env: NodeJS.ProcessEnv,
+            _timeoutMs: number,
+          ) => usageJson(0.5),
+        );
+
+        const reader = antigravityQuotaReader({
+          homeDir: fakeHome,
+          now: () => new Date('2026-01-01T00:00:00.000Z'),
+          listProcesses: () => [],
+          readFile: () => null,
+          listDir: () => [],
+          runCliUsage,
+        });
+
+        const snapshot = await reader.read();
+
+        expect(snapshot.state).toBe('ok');
+        expect(existsSync(join(accountDir, 'cache', 'quota.json'))).toBe(true);
+        expect(existsSync(join(fakeHome, '.gemini', 'antigravity-cli', 'cache', 'quota.json'))).toBe(
+          false,
+        );
+      } finally {
+        rmSync(accountDir, { recursive: true, force: true });
+        rmSync(fakeHome, { recursive: true, force: true });
+      }
+    });
   });
 });

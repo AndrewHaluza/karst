@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
-import { accountLaunchFor } from '../accounts/registry.js';
+import { accountLaunchFor, accountReaderEnv } from '../accounts/registry.js';
 import { resolveAgyAppDataDir } from '../agyConversationWatch.js';
 import {
   ANTIGRAVITY_NOT_RUNNING_REASON,
@@ -448,9 +448,21 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
     core: 'antigravity',
     async read(): Promise<QuotaSnapshot> {
       const home = deps.homeDir ?? homedir();
-      const env = deps.env ?? process.env;
+      // `accountReaderEnv()` resolves the home variable of the ACTIVE account at
+      // read time, so a `setActive` reaches this long-lived reader (`arch:AC-55`).
+      const env = deps.env ?? accountReaderEnv();
       const nowFn = deps.now ?? (() => new Date());
       const fetchFn = deps.fetchImpl ?? fetch;
+      // `accountReaderEnv()` traps only `get`, so materialize the data dir here:
+      // a spread would miss a key that is not already in `process.env`.
+      const envDataDir = env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
+      // A named folder account (or an operator's override) owns this data dir, so
+      // discovery reads ONLY its records: the default `~/.gemini/...` folders and
+      // the machine-wide process scan belong to no named account and would answer
+      // with another account's quota (`arch:AC-48`). The CLI fallback below is
+      // account-scoped and covers a folder with no answering language server.
+      const dataDirOnly =
+        typeof envDataDir === 'string' && envDataDir.length > 0 ? true : false;
       const appDataDir = deps.appDataDir ?? resolveAgyAppDataDir(env, home);
       const cachePath = antigravityQuotaCachePath(appDataDir);
       const ttlMs = deps.cacheTtlMs ?? ANTIGRAVITY_CACHE_TTL_MS;
@@ -462,6 +474,7 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
         env,
         homeDir: home,
         appDataDir,
+        dataDirOnly,
         fetchImpl: fetchFn,
         timeoutMs,
         listProcesses: deps.listProcesses,
@@ -499,8 +512,6 @@ export function antigravityQuotaReader(deps: AntigravityQuotaReaderDeps = {}): Q
       // turns and reads the ACTIVE account's quota (`arch:AC-48`, `arch:AC-55`).
       try {
         const launch = accountLaunchFor('antigravity', 'agy');
-        // `accountReaderEnv()` traps only `get`, so materialize the data dir explicitly.
-        const envDataDir = env.ANTIGRAVITY_EXECUTABLE_DATA_DIR;
         const cliEnv: NodeJS.ProcessEnv = {
           ...env,
           ...(envDataDir ? { ANTIGRAVITY_EXECUTABLE_DATA_DIR: envDataDir } : {}),
