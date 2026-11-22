@@ -423,7 +423,7 @@ import { AgentConsole } from './agent/agentConsole.js';
 import { GateConsole } from './workflow/gates/gateConsole.js';
 import { LiveGateRegistry } from './workflow/gates/liveGates.js';
 import type { GateOutputChunk } from './workflow/gates/run.js';
-import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
+import { recordTokenUsage, listRecentlyUsedModels, onTokenUsageRecorded } from './store/tokenUsage.js';
 import { UsagePanelManager } from './ui/usage/panel.js';
 import { makeUsagePanelHost } from './ui/usage/host.js';
 import { QuotaService, defaultQuotaReaders } from './agent/quota/service.js';
@@ -2796,6 +2796,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     quota: () => quotaService.snapshots(),
     quotaThresholdPct: quotaWarnThresholdPct,
     quotaAccountOf: activeAccountLabel,
+    openQuotaSettings: () => void settings.openAt('#agents/accounts'),
+    createTicket: () => void vscode.commands.executeCommand('karst.openTicketForm'),
+    refreshQuota: () => quotaService.refresh().then(() => undefined),
     logError,
   });
   const quotaStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 45);
@@ -2832,7 +2835,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   quotaService.start(); quotaOps.syncClaudeGlobalStatusline();
   onAccountsChanged = () => quotaOps.accountsChanged();
-  context.subscriptions.push({ dispose: () => { onAccountsChanged = () => {}; quotaOps.dispose(); quotaService.dispose(); } });
+  // A live token delta re-reads the open usage panel, coalesced so a burst of
+  // recorded rows costs one query (US-11). The listener set is module-level,
+  // so the unsubscribe is the window's lifetime.
+  const unsubscribeTokenUsage = onTokenUsageRecorded(() => tokenUsagePanel.scheduleRefresh());
+  context.subscriptions.push({ dispose: () => { unsubscribeTokenUsage(); tokenUsagePanel.dispose(); onAccountsChanged = () => {}; quotaOps.dispose(); quotaService.dispose(); } });
 
 
   // The resource monitor (leak hunter): one slow-lane sample every 30 s for the

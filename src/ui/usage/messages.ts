@@ -20,7 +20,10 @@ export type UsageWebviewMessage =
   | { type: 'set-tab'; tab: UsageTab }
   | { type: 'set-sort'; sort: UsageSort }
   | { type: 'set-page'; offset: number }
-  | { type: 'open-dashboard'; ticketId: number };
+  | { type: 'open-dashboard'; ticketId: number }
+  | { type: 'open-quota-settings' }
+  | { type: 'create-ticket' }
+  | { type: 'refresh-quota' };
 
 /**
  * Every action now reports through the single `action-result` seam (UI-R13),
@@ -42,6 +45,9 @@ export interface UsageActions {
   setSort(sort: UsageSort): void | Promise<void>;
   setPage(offset: number): void | Promise<void>;
   openDashboard(ticketId: number): void | Promise<void>;
+  openQuotaSettings(): void | Promise<void>;
+  createTicket(): void | Promise<void>;
+  refreshQuota(): void | Promise<void>;
 }
 
 const SORT_IDS = new Set<string>(USAGE_SORTS);
@@ -73,6 +79,12 @@ export function parseUsageMessage(raw: unknown): UsageWebviewMessage | null {
       return typeof m.ticketId === 'number' && Number.isFinite(m.ticketId)
         ? { type: 'open-dashboard', ticketId: m.ticketId }
         : null;
+    case 'open-quota-settings':
+      return { type: 'open-quota-settings' };
+    case 'create-ticket':
+      return { type: 'create-ticket' };
+    case 'refresh-quota':
+      return { type: 'refresh-quota' };
     default:
       return null;
   }
@@ -98,5 +110,11 @@ export function routeUsageAction(msg: UsageWebviewMessage, actions: UsageActions
       return actions.setPage(msg.offset);
     case 'open-dashboard':
       return actions.openDashboard(msg.ticketId);
+    case 'open-quota-settings':
+      return actions.openQuotaSettings();
+    case 'create-ticket':
+      return actions.createTicket();
+    case 'refresh-quota':
+      return actions.refreshQuota();
   }
 }

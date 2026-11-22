@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
-import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './panel.js';
+import { UsagePanelManager, USAGE_REFRESH_DEBOUNCE_MS, type UsagePanel, type UsagePanelHost } from './panel.js';
 import type { UsageHostMessage } from './messages.js';
 import type { UsageState } from './state.js';
 
@@ -230,6 +230,86 @@ describe('UsagePanelManager', () => {
     expect(lastState(panel).tab).toBe('quota');
     panel.emit({ type: 'set-tab', tab: 'spend' });
     expect(lastState(panel).tab).toBe('spend');
+  });
+
+  it('posts a stated error state when the store read throws (US-2)', () => {
+    const logError = vi.fn();
+    const broken = {
+      db: {
+        prepare: () => {
+          throw new Error('disk on fire');
+        },
+      },
+    } as unknown as Store;
+    const host = fakeHost();
+    new UsagePanelManager(broken, host, { projectId: () => 1, now: NOW, logError }).open();
+    const state = lastState(host.panels[0]!);
+    expect(state.error).toBe('Could not read token usage. Details are in the Karst log.');
+    expect(state.error).not.toContain('disk on fire');
+    expect(state.empty).toBe(true);
+    expect(state.byActivity).toEqual([]);
+    expect(state.quota.rows).toEqual([]);
+    expect(logError).toHaveBeenCalledWith('karst: token-usage push failed', expect.any(Error));
+  });
+
+  it('coalesces a burst of recorded rows into one push after the debounce (US-11)', () => {
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
+    mgr.open();
+    const panel = host.panels[0]!;
+    const before = panel.posted.length;
+    vi.useFakeTimers();
+    try {
+      mgr.scheduleRefresh();
+      mgr.scheduleRefresh();
+      vi.advanceTimersByTime(USAGE_REFRESH_DEBOUNCE_MS - 1);
+      expect(panel.posted.length).toBe(before);
+      vi.advanceTimersByTime(1);
+      expect(panel.posted.length).toBe(before + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a pending debounce is dropped on dispose, and scheduleRefresh is a no-op while closed (US-11)', () => {
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
+    mgr.scheduleRefresh();
+    expect(host.panels).toHaveLength(0);
+    mgr.open();
+    const panel = host.panels[0]!;
+    const before = panel.posted.length;
+    vi.useFakeTimers();
+    try {
+      mgr.scheduleRefresh();
+      mgr.dispose();
+      vi.advanceTimersByTime(USAGE_REFRESH_DEBOUNCE_MS);
+      expect(panel.posted.length).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('dispatches the quota and ticket actions to their host effects (US-13, US-15, US-31)', () => {
+    const openQuotaSettings = vi.fn();
+    const createTicket = vi.fn();
+    const refreshQuota = vi.fn();
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, {
+      projectId: () => 1,
+      now: NOW,
+      openQuotaSettings,
+      createTicket,
+      refreshQuota,
+    });
+    mgr.open();
+    const panel = host.panels[0]!;
+    panel.emit({ type: 'open-quota-settings' });
+    panel.emit({ type: 'create-ticket' });
+    panel.emit({ type: 'refresh-quota' });
+    expect(openQuotaSettings).toHaveBeenCalledTimes(1);
+    expect(createTicket).toHaveBeenCalledTimes(1);
+    expect(refreshQuota).toHaveBeenCalledTimes(1);
   });
 
   it('flows the cached quota snapshots and threshold into the state', () => {
