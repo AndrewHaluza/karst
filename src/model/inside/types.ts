@@ -267,7 +267,6 @@ export type InsideActionKind =
   | 'graph-resume'
   | 'graph-restart'
   | 'graph-replan'
-  | 'graph-mark-impl'
   | 'graph-discard-node'
   | 'graph-edit-override'
   | 'graph-edit-workspace-deps';

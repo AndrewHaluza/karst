@@ -515,18 +515,39 @@ describe('tryAutoFireGraphImplMarker', () => {
     expect(stageOf(ticketId)).toBe('impl');
   });
 
-  it('refuses with a caller pre-check reason and does not fire', () => {
-    const { ticketId, graphRunId } = ready('AF-5');
-    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now, 'cannot mark this stage done: docs');
-    expect(out).toMatchObject({ kind: 'refused' });
+  it('treats a lock error from the marker as busy and writes no block', () => {
+    const { ticketId, graphRunId } = ready('AF-6');
+    const realPrepare = store.db.prepare.bind(store.db);
+    const locked = (sql: string): ReturnType<typeof realPrepare> => {
+      if (/UPDATE\s+approach_graph_runs/i.test(sql)) throw new Error('SQLITE_BUSY: database is locked');
+      return realPrepare(sql);
+    };
+    store.db.prepare = locked as typeof store.db.prepare;
+    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now);
+    store.db.prepare = realPrepare as typeof store.db.prepare;
+    expect(out).toEqual({ kind: 'busy' });
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
     expect(stageOf(ticketId)).toBe('impl');
   });
 
-  it('treats a lock error as busy and writes no block', () => {
-    const { ticketId, graphRunId } = ready('AF-6');
-    const out = tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now, 'SQLITE_BUSY: database is locked');
-    expect(out).toEqual({ kind: 'busy' });
-    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  it('fires on a later call once the blocking sub-task closes', () => {
+    const { ticketId, graphRunId } = ready('AF-7');
+    const projectId = (store.db.prepare('SELECT project_id AS p FROM tickets WHERE id = ?').get(ticketId) as { p: number }).p;
+    const child = createTicket(store, { key: 'AF-7-s1', title: 'sub', projectId }).id;
+    store.db.prepare('UPDATE tickets SET subtask_parent_id = ?, blocks_parent = 1 WHERE id = ?').run(ticketId, child);
+    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toMatchObject({ kind: 'refused' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(child);
+    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toEqual({ kind: 'fired', graphRunId });
+    expect(stageOf(ticketId)).toBe('uat');
+  });
+
+  it('fires on a later call once the ticket is unpaused', () => {
+    const { ticketId, graphRunId } = ready('AF-8');
+    store.db.prepare("UPDATE tickets SET paused_at = datetime('now') WHERE id = ?").run(ticketId);
+    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toMatchObject({ kind: 'paused' });
+    store.db.prepare('UPDATE tickets SET paused_at = NULL WHERE id = ?').run(ticketId);
+    expect(tryAutoFireGraphImplMarker(store, ticketId, graphRunId, now)).toEqual({ kind: 'fired', graphRunId });
+    expect(stageOf(ticketId)).toBe('uat');
   });
 
   it('keeps the block with the reason on a waiting agent and reports the refusal once', () => {

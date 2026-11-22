@@ -3317,31 +3317,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const handler = restartGraphRun;
         if (handler) void handler(ticketId, graphRunId);
       },
-      // Fire the impl marker for a run that finished all its node work and is
-      // durably waiting (Slice 7). Runs the SAME guarded transition
-      // `karst stage impl pass` runs, including the waiting-agent refusal —
-      // see `fireGraphImplMarkerFromHost`'s doc comment for why this must
-      // never call `graphImplMarkerGuard` directly.
-      graphMarkImpl: (ticketId, graphRunId) => {
-        const result = fireGraphImplMarkerFromHost(localStore, ticketId);
-        if (result.ok) {
-          void toast.info(
-            markerAdvancedText(toastLabel(ticketId)),
-          );
-          // The ticket is the stage driver's again the moment the marker
-          // lands. Nothing else kicks it here — the graph node fires no hook
-          // — so without this the uat gates wait for the graph sweep's next
-          // handoff tick (declared below, same deferred-reference pattern as
-          // `runPrSync`).
-          maybeDrive(ticketId, 'graph-impl-marker');
-        } else {
-          void toast.warn(
-            markerFailedText(toastLabel(ticketId), result.reason ?? 'unknown error'),
-          );
-        }
-        provider.refresh();
-        dashboard.pushState(ticketId);
-      },
       // Discard an ambiguous node run (Slice 4 Task 4) — the named exit for a
       // process whose fate cannot be proven. The coordinator's OWN connection
       // runs the one transaction (a contended BEGIN IMMEDIATE must abort, not

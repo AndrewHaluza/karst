@@ -179,7 +179,6 @@ export type GraphActionTarget =
   // automatic resume that restarts agents the user just stopped.
   | { kind: 'graph-restart'; graphRunId: number }
   | { kind: 'graph-replan'; graphRunId: number }
-  | { kind: 'graph-mark-impl'; graphRunId: number }
   | { kind: 'graph-discard-node'; nodeRunId: number }
   | { kind: 'graph-edit-override'; nodeRunId: number }
   // D647: open karst.yml at the repository entry a `graph-workspace-deps:` block names.
@@ -412,13 +411,11 @@ export function graphInsideProcess(
     status: graphRunStatus(input.graphRun.status),
     ...(input.attach && input.graphRun.status === 'blocked'
       ? { action: input.attach({ kind: 'graph-resume', graphRunId: input.graphRun.id }) }
-      : input.attach && input.graphRun.status === 'completed-awaiting-impl-marker'
-        ? { action: input.attach({ kind: 'graph-mark-impl', graphRunId: input.graphRun.id }) }
-        : input.attach && isStopDrained(input)
-          ? { action: input.attach({ kind: 'graph-restart', graphRunId: input.graphRun.id }) }
-          : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
-            ? { action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }) }
-            : {}),
+      : input.attach && isStopDrained(input)
+        ? { action: input.attach({ kind: 'graph-restart', graphRunId: input.graphRun.id }) }
+        : STOPPABLE_RUN_STATUSES.includes(input.graphRun.status) && input.attach
+          ? { action: input.attach({ kind: 'graph-stop', graphRunId: input.graphRun.id }) }
+          : {}),
   });
 
   if (input.attach && input.graphRun.status === 'blocked') {

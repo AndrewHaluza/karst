@@ -20,7 +20,6 @@ export const INSIDE_ACTION_LABEL: Readonly<Partial<Record<InsideActionKind, stri
   'graph-resume': 'Resume',
   'graph-restart': 'Restart graph',
   'graph-replan': 'Replan',
-  'graph-mark-impl': 'Mark done',
   'graph-discard-node': 'Discard process',
   'graph-edit-override': 'Edit override',
   'graph-edit-workspace-deps': 'Edit workspace deps',
@@ -41,7 +40,6 @@ export const INSIDE_ACTION_TITLE: Readonly<Partial<Record<InsideActionKind, stri
   'graph-resume': 'Retry this blocked graph using its recorded recovery path',
   'graph-restart': 'Restart this stopped graph run on its current plan',
   'graph-replan': 'Elect a new graph revision from the recorded failure evidence',
-  'graph-mark-impl': 'Fire the implementation marker and advance this ticket to uat',
   // DANGER (UI-R10b): the process may still be running. The title names the risk and the row's visible status
   // (`launch-unknown`/`termination-unknown`) states it again, so the explanation is never title-only (UI-R19).
   'graph-discard-node': 'Discard unknown process — it may still be running',
@@ -66,7 +64,6 @@ export const INSIDE_ACTION_ICON: Readonly<Partial<Record<InsideActionKind, strin
   'graph-resume': 'player-play',
   'graph-restart': 'refresh',
   'graph-replan': 'list-tree',
-  'graph-mark-impl': 'check',
   'graph-discard-node': 'trash',
   'graph-edit-override': 'pencil',
   'graph-edit-workspace-deps': 'pencil',

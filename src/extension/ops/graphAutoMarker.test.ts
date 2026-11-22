@@ -20,7 +20,7 @@ describe('autoFireImplMarker', () => {
     const ticketId = pausedTicket();
     const drive = vi.fn();
     const refresh = vi.fn();
-    const deps = { store, debug: vi.fn(), drive, refresh, git: vi.fn(), runLint: vi.fn() };
+    const deps = { store, debug: vi.fn(), drive, refresh };
     await autoFireImplMarker(deps, ticketId, 1);
     await autoFireImplMarker(deps, ticketId, 1);
     expect(drive).not.toHaveBeenCalled();

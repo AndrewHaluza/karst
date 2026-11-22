@@ -35,7 +35,6 @@ export function makeInsideActionHost(
     ) => void;
     graphStop: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphRestart: (ticketId: number, graphRunId: number) => void | Promise<void>;
-    graphMarkImpl: (ticketId: number, graphRunId: number) => void | Promise<void>;
     graphDiscardNode: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditOverride: (ticketId: number, nodeRunId: number) => void | Promise<void>;
     graphEditWorkspaceDeps: (ticketId: number, graphRunId: number) => void | Promise<void>;
@@ -210,7 +209,6 @@ export function makeInsideActionHost(
     graphRestart: (ticketId, graphRunId) => graphHost.graphRestart(ticketId, graphRunId),
     graphResume: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'resume'),
     graphReplan: (ticketId, graphRunId) => recoverBlockedGraph(ticketId, graphRunId, 'replan'),
-    graphMarkImpl: (ticketId, graphRunId) => graphHost.graphMarkImpl(ticketId, graphRunId),
     graphDiscardNode: (ticketId, nodeRunId) => graphHost.graphDiscardNode(ticketId, nodeRunId),
     graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
     graphEditWorkspaceDeps: (ticketId, graphRunId) => graphHost.graphEditWorkspaceDeps(ticketId, graphRunId),
