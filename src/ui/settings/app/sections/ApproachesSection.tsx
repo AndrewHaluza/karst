@@ -445,10 +445,7 @@ export function ApproachesSection() {
     <div className="section" id="section-approaches">
       <div className="page-header">
         <div className="page-title">Approaches</div>
-        <div className="page-desc">
-          Installed, available and built-in approaches stay distinguishable without turning every
-          item into a card.
-        </div>
+        <div className="page-desc">How Karst plans and runs a ticket.</div>
         <div className="page-actions">
           <Button variant="secondary" onClick={() => open('add', null)}>
             + Add approach
@@ -583,8 +580,7 @@ function ApproachCard({
     <div className={`roster-card ${stateClass}`} data-approach={approach.id}>
       <div className="approach-rail" />
       <div className="approach-body">
-        <div className="approach-head">
-          <span className="approach-id">{approach.id}</span>
+        <div className="approach-head" title={approach.id}>
           <span className="approach-label">{approach.label}</span>
           <span className="approach-actions">
             <Switch
@@ -593,7 +589,9 @@ function ApproachCard({
               label={toggle.label}
               disabled={!toggle.usable}
               onChange={onToggle}
-            />
+            >
+              <span>Enabled</span>
+            </Switch>
             <Button variant="secondary" size="sm" onClick={onEdit}>
               Edit
             </Button>
@@ -632,6 +630,7 @@ function ApproachCard({
                 href="#"
                 className="graph-prompt-link"
                 data-open-graph-prompt={GRAPH_PROMPT_IDENTITY}
+                title={graph.planner?.prompt?.artifact}
                 aria-busy={openPrompt.pending || undefined}
                 aria-disabled={openPrompt.disabled || undefined}
                 onClick={(event) => {
@@ -640,7 +639,7 @@ function ApproachCard({
                   openPrompt.trigger();
                 }}
               >
-                {graph.planner?.prompt?.artifact || FALLBACK_PROMPT_TEXT}
+                {graph.planner?.prompt?.artifact?.split('/').pop() || FALLBACK_PROMPT_TEXT}
               </a>
             </div>
             {/* Execution profiles: each profile row hosts the UNIFIED agent
@@ -658,6 +657,7 @@ function ApproachCard({
                   <span className="graph-profile-name">{name}</span>
                   <div className="graph-profile-picker" data-gf-profile-picker={name}>
                     <AgentPickerIsland
+                      compact
                       cores={cores}
                       catalog={catalog}
                       recent={recent}

@@ -185,33 +185,38 @@ export function GitSection() {
         </div>
 
         <div className="form-grid">
-          <div className="field-control row" role="group">
-            <Field
-              label="Preset"
-              help="Fills the fields below for review — nothing is written until you press Save."
-              control={{
-                kind: 'select',
-                name: 'conventionPreset',
-                value: chosen,
-                options: [
-                  { value: '', label: 'Choose a preset…' },
-                  ...CONVENTION_PRESETS.map((preset) => ({
-                    value: preset.id,
-                    label: preset.label,
-                  })),
-                ],
-                onChange: setChosen,
-              }}
-            />
-            <Button
-              variant="secondary"
-              className="fixed"
-              disabled={chosen === ''}
-              onClick={() => applyPreset(chosen)}
-            >
-              Apply preset
-            </Button>
-          </div>
+          {/* SET-22: the preset control is a `Field` in the shared form grid, so
+              its label sits in the label track like every other row. The apply
+              action rides the field's own control track. */}
+          <Field
+            label="Preset"
+            help="Fills the fields below for review — nothing is written until you press Save."
+            control={{
+              kind: 'select',
+              name: 'conventionPreset',
+              value: chosen,
+              options: [
+                { value: '', label: 'Choose a preset…' },
+                ...CONVENTION_PRESETS.map((preset) => ({
+                  value: preset.id,
+                  label: preset.label,
+                })),
+              ],
+              onChange: setChosen,
+            }}
+            meta={
+              <div className="template-meta git-preset-meta">
+                <Button
+                  variant="secondary"
+                  className="fixed"
+                  disabled={chosen === ''}
+                  onClick={() => applyPreset(chosen)}
+                >
+                  Apply preset
+                </Button>
+              </div>
+            }
+          />
 
           <Field
             label="Default ticket type"
@@ -280,6 +285,7 @@ function TemplateRow({
 
   return (
     <Field
+      className="git-template-row"
       label={label}
       error={error}
       help={HINTS[field]}

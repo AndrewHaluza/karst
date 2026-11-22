@@ -43,6 +43,7 @@ import { Button } from '../primitives/Button.js';
 import { Switch } from '../primitives/Switch.js';
 import { Chip } from '../primitives/Chip.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
+import { TablerIcon } from '../primitives/TablerIcon.js';
 import { ServiceFields } from './ServiceFields.js';
 import {
   CONVENTION_FIELD_DEFAULTS,
@@ -60,6 +61,7 @@ import {
   isMultiService,
   isRunnable,
   isValidShipExclude,
+  middleEllipsis,
   newRepository,
   nextRepositoryName,
   nextServiceName,
@@ -108,8 +110,7 @@ export function ServicesSection() {
         <div className="page-header">
           <div className="page-title">Repositories</div>
           <div className="page-desc">
-            Compact at rest; runtime, ports, dependencies, bindings, migrations, signals and ship
-            excludes appear when a repository is opened.
+            The repositories Karst opens worktrees in, and how each one runs.
           </div>
           <div className="page-actions">
             <Button variant="secondary" onClick={add}>
@@ -129,8 +130,7 @@ export function ServicesSection() {
       <div className="page-header">
         <div className="page-title">Repositories</div>
         <div className="page-desc">
-          Compact at rest; runtime, ports, dependencies, bindings, migrations and signals appear
-          when a repository is opened.
+          The repositories Karst opens worktrees in, and how each one runs.
         </div>
         <div className="page-actions">
           <Button variant="secondary" onClick={add}>
@@ -240,28 +240,36 @@ function RepositoryCard({
           onClick={onToggle}
         >
           <span className="chevron" aria-hidden="true">
-            ▸
+            <TablerIcon name="chevron-right" size={14} />
           </span>
           <span className="card-title">{name}</span>
         </button>
         <span className="cell-path" title={repo.repoPath || ''}>
-          {repo.repoPath || '—'}
+          {repo.repoPath ? (
+            <>
+              <span className="path-text">{middleEllipsis(repo.repoPath)}</span>
+              <span className="sr-only">{repo.repoPath}</span>
+            </>
+          ) : (
+            '—'
+          )}
         </span>
         <span className="cell-meta mono">{baselineFor(repo, projectBaseline)}</span>
         <span className="cell-meta">
           <Chip tone={runnable ? 'success' : 'neutral'} name={`runtime-${name}`}>
-            {runtimeBadge(repo) === 'worktree' ? 'worktree only' : runtimeBadge(repo)}
+            {runtimeBadge(repo) === 'worktree' ? 'Worktree only' : runtimeBadge(repo)}
           </Chip>
         </span>
         <span className="cell-actions">
           {enabled ? null : <Chip name={`draft-${name}`}>Draft</Chip>}
-          {runnable ? null : <span className="field-hint">no service</span>}
           <Switch
             name={`repo-enabled-${name}`}
             checked={enabled}
             label={enabled ? 'Disable this repository' : 'Enable this repository'}
             onChange={(next) => onWrite({ enabled: next })}
-          />
+          >
+            <span>Enabled</span>
+          </Switch>
           <DestructiveButton action="remove-service" size="sm" onClick={onRemove}>
             Remove
           </DestructiveButton>
@@ -322,7 +330,7 @@ function RepositoryCard({
         />
         <Field
           label="Runnable service"
-          help="Off means karst gives this repo a worktree but never starts it. No port, no health check."
+          help="Off means Karst gives this repo a worktree but never starts it. No port, no health check."
           control={{
             kind: 'checkbox',
             name: `f-svc-runnable-${name}`,

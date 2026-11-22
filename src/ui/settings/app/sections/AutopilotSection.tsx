@@ -75,7 +75,7 @@ export function AutopilotSection() {
       <div className="page-header">
         <h1 className="page-title">Autopilot</h1>
         <div className="page-desc">
-          What karst does when a shipped PR hits a problem it knows how to fix. Autopilot never
+          What Karst does when a shipped PR hits a problem it knows how to fix. Autopilot never
           merges a PR. Each ticket can override this from its ship panel.
         </div>
       </div>
@@ -87,10 +87,10 @@ export function AutopilotSection() {
             <div className="section-desc">Project default for every ticket and its sub-tasks.</div>
           </div>
         </div>
-        <div className="form-grid stack">
+        <div className="form-grid">
           <Field
             label="Mode"
-            help="On: karst runs the fix with the ticket's agent, up to the limit, then asks you. Off: every problem waits for your approval."
+            help="On: Karst runs the fix with the ticket's agent, up to the limit, then asks you. Off: every problem waits for your approval."
             control={{
               kind: 'checkbox',
               name: 'autopilotEnabled',
@@ -109,7 +109,7 @@ export function AutopilotSection() {
             <div className="section-desc">The PR no longer merges cleanly into its base.</div>
           </div>
         </div>
-        <div className="form-grid stack" onBlur={() => setTyped({})}>
+        <div className="form-grid" onBlur={() => setTyped({})}>
           <Field
             label="When it happens"
             control={{
@@ -147,7 +147,7 @@ export function AutopilotSection() {
             <div className="section-desc">A check failed on the PR.</div>
           </div>
         </div>
-        <div className="form-grid stack" onBlur={() => setTyped({})}>
+        <div className="form-grid" onBlur={() => setTyped({})}>
           <Field
             label="When it happens"
             control={{
@@ -175,7 +175,7 @@ export function AutopilotSection() {
             }}
             error={faultFor('autopilot.ci.maxAttempts')}
           />
-          <span className="field-label" id="autopilot-checks-label">Checks karst may fix</span>
+          <span className="field-label" id="autopilot-checks-label">Checks Karst may fix</span>
           <div className="field-control">
             <div className="autopilot-check-row">
               <ul className="autopilot-checks" aria-labelledby="autopilot-checks-label">
@@ -199,7 +199,7 @@ export function AutopilotSection() {
                   type: 'text',
                   name: 'autopilotAddCheck',
                   value: checkName,
-                  placeholder: 'add a check',
+                  placeholder: 'Check name, e.g. lint',
                   onChange: setCheckName,
                 }}
                 error={faultFor('autopilot.ci.checks')}
@@ -225,7 +225,7 @@ export function AutopilotSection() {
             <div className="section-desc">Someone else pushed to the ticket branch.</div>
           </div>
         </div>
-        <div className="form-grid stack">
+        <div className="form-grid">
           <div className="field-control">
             <span className="field-label">When it happens</span>
             <Help>

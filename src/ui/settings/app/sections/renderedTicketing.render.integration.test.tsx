@@ -179,8 +179,17 @@ describe('rendered Settings — Ticketing tab mounts into the real document', ()
 
   it('renders the provider trigger through the shared runtime (R-X3)', async () => {
     const { view } = await mountOnTicketing();
-    const trigger = byAriaLabel(view, 'Ticketing provider');
+    // SET-30: the trigger is named by its field label AND its current value,
+    // not by a generic aria-label that hides which provider is selected.
+    const trigger = root(view).querySelector('#providerTrigger')!;
     expect(trigger.getAttribute('aria-haspopup')).toBe('listbox');
+    expect(trigger.getAttribute('aria-labelledby')).toBe(
+      'ticketProviderLabel providerTriggerValue',
+    );
+    const provider = selectedProvider(view);
+    expect(trigger.querySelector('.sr-only')?.textContent).toBe(
+      provider === 'clickup' ? 'ClickUp' : 'Manual',
+    );
     // `aria-expanded` is derived from state, never written imperatively (R26).
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
   });

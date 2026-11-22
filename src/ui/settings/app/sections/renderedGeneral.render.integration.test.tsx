@@ -197,7 +197,7 @@ describe('rendered Settings — the dirty markers are derived from the reducer (
       .toBe(false);
     expect(saveButton(view).disabled).toBe(true);
     expect(root(view).querySelector('.save-state')?.textContent).toBe(
-      'Fix 1 field to save',
+      'Fix the error on General to save',
     );
   });
 

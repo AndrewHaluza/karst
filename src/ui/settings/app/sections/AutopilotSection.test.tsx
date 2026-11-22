@@ -138,7 +138,7 @@ describe('Autopilot tab', () => {
 
   it('lists the allowlist, adds a check and removes one', () => {
     const { probe } = mount(stateWith(ON));
-    const list = screen.getByRole('list', { name: 'Checks karst may fix' });
+    const list = screen.getByRole('list', { name: 'Checks Karst may fix' });
     expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
       expect.stringContaining('lint'),
       expect.stringContaining('typecheck'),
@@ -182,6 +182,31 @@ describe('Autopilot tab', () => {
   it('shows the host text for a path without a short message', () => {
     mount(stateWith(ON, 'Invalid karst.yml: autopilot.ci.policy must be auto or ask'));
     expect(screen.getByText('autopilot.ci.policy must be auto or ask')).toBeTruthy();
+  });
+
+  it('drops the dead stack class: the form grid tiers do the collapse (SET-1)', () => {
+    mount(stateWith(ON));
+    expect(document.querySelector('.form-grid.stack')).toBeNull();
+    expect(document.querySelectorAll('#section-autopilot .form-grid')).toHaveLength(4);
+  });
+
+  it('writes Karst in the section copy (SET-11)', () => {
+    mount(stateWith(ON));
+    const text = document.querySelector('#section-autopilot')?.textContent ?? '';
+    expect(text).toContain('What Karst does');
+    expect(text).not.toContain('What karst does');
+    expect(text).toContain('Checks Karst may fix');
+  });
+
+  it('adds a check only when there is one, with its hint (SET-34)', () => {
+    mount(stateWith(ON));
+    const add = screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    expect(add.className).toContain('k-btn--secondary');
+    const input = screen.getByLabelText('Add a check') as HTMLInputElement;
+    expect(input.placeholder).toBe('Check name, e.g. lint');
+    fireEvent.change(input, { target: { value: 'e2e' } });
+    expect(add.disabled).toBe(false);
   });
 
   it('renders the checks, the input and the Add button in one row with no list bullets', () => {
