@@ -99,6 +99,7 @@ describe('ticket form — action labels', () => {
     const btn = v.query('#carryStopBtn') as HTMLButtonElement;
     expect(btn.classList.contains('hidden')).toBe(false);
     expect(btn.title).toBe('Stop using pick: claude/claude-opus-5-5 until 15:05 (parked on antigravity)');
+    expect(btn.textContent).toBe('Stop using pick: claude/claude-opus-5-5 until 15:05 (parked on antigravity)');
     btn.click();
     expect(v.posted).toContainEqual({ type: 'usage-limit-carry-stop', parkId: 14 });
     const ids = v.queryAll('#actionBar button').filter((b) => !b.classList.contains('hidden')).map((b) => b.id);

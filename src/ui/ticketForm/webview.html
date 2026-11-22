@@ -1107,6 +1107,7 @@
     const carryBtn = el('carryStopBtn');
     carryBtn.classList.toggle('hidden', !carry);
     carryBtn.dataset.parkId = carry ? String(carry.parkId) : '';
+    carryBtn.textContent = carry ? carry.label : 'Stop using pick';
     carryBtn.title = carry ? carry.label : '';
     el('keyChip').classList.toggle('hidden', isEdit || !refLabel);
     // SET-62: the header reads "New ticket · Sub-task of T12", not "New ticket Sub-task of T12".
