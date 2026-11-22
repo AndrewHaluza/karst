@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import { PROMPT_SENSITIVE_PATHS } from '../../planning/proposal.js';
-import { clipToken, MAX_WARNING_CHARS } from '../../planning/draftQualityChecks.js';
+import { clipToken, extractReferencedPaths, jaccard, MAX_WARNING_CHARS } from '../../planning/draftQualityChecks.js';
+import type { OverlapCandidate } from '../../store/draftOverlap.js';
 
 /**
  * Host-side checks of a draft's `constraints` at ingest. They only ever produce
@@ -330,4 +331,56 @@ export function gitCatFileBatch(repoPath: string, input: string): Promise<string
     child.stdin?.on('error', reject);
     child.stdin?.end(input);
   });
+}
+
+export const OVERLAP_MIN_SHARED_FILES = 2;
+export const TITLE_SIMILARITY = 0.65;
+export const MIN_TITLE_TOKENS = 3;
+export const MAX_OVERLAP_WARNINGS = 3;
+const MIN_TOKEN_LENGTH = 3;
+const TITLE_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'into', 'onto', 'that', 'this', 'when', 'not', 'are', 'via', 'per',
+  'add', 'fix', 'feat', 'chore', 'docs', 'refactor', 'test', 'tests', 'perf',
+]);
+
+/** Source files a draft names (edited or created); docs and Markdown never count as overlap. */
+function sourceFilesOf(text: string): Set<string> {
+  const { existing, created } = extractReferencedPaths(text);
+  return new Set([...existing, ...created].filter((p) => !p.startsWith('docs/') && !p.endsWith('.md')));
+}
+
+function titleTokens(title: string): Set<string> {
+  return new Set(
+    title
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= MIN_TOKEN_LENGTH && !TITLE_STOPWORDS.has(w)),
+  );
+}
+
+/**
+ * Open drafts and tickets that look like the same work as `incoming`: 2+
+ * shared source files, else a close title. `candidates` already excludes the
+ * draft itself and everything linked to it (`listOverlapCandidates`).
+ */
+export function overlapWarnings(
+  incoming: { title: string; description: string },
+  candidates: readonly OverlapCandidate[],
+): string[] {
+  const files = sourceFilesOf(incoming.description);
+  const tokens = titleTokens(incoming.title);
+  const out: string[] = [];
+  for (const c of candidates) {
+    if (out.length >= MAX_OVERLAP_WARNINGS) break;
+    const shared = [...sourceFilesOf(c.description)].filter((f) => files.has(f)).length;
+    if (shared >= OVERLAP_MIN_SHARED_FILES) {
+      out.push(`overlaps files with ${c.ref} (add dependsOn?)`);
+      continue;
+    }
+    const other = titleTokens(c.title);
+    if (tokens.size >= MIN_TITLE_TOKENS && other.size >= MIN_TITLE_TOKENS && jaccard(tokens, other) >= TITLE_SIMILARITY) {
+      out.push(`title closely matches ${c.ref}`);
+    }
+  }
+  return out;
 }

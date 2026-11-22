@@ -15,6 +15,7 @@ import {
   pathVariants,
   repoTargetsOf,
   MAX_CHECKED_PATHS,
+  overlapWarnings,
   type GitBatch,
 } from './planningConstraintChecks.js';
 import type { Manifest } from '../../manifest/types.js';
@@ -400,5 +401,44 @@ describe('missingPathWarnings', () => {
     const [w] = await missingPathWarnings([long], [t1], fakeBatch(resolves), vi.fn());
     expect(w!.length).toBeLessThanOrEqual(60);
     expect(w).toMatch(/^missing path at base: ….*file\.ts$/);
+  });
+});
+
+describe('overlapWarnings', () => {
+  const incoming = { title: 'Retry token refresh in session store', description: 'Edit src/auth/session.ts and src/auth/token.ts.' };
+  const c = (ref: string, title: string, description = '') => ({ ref, title, description });
+  it('warns on 2 or more shared source files, not on 1', () => {
+    expect(overlapWarnings(incoming, [c('D4', 'x', 'src/auth/session.ts src/auth/token.ts')])).toEqual(['overlaps files with D4 (add dependsOn?)']);
+    expect(overlapWarnings(incoming, [c('T9', 'x', 'src/auth/session.ts only')])).toEqual([]);
+  });
+  it('created paths count as shared files too', () => {
+    expect(overlapWarnings({ title: 'a', description: '[NEW] src/n.ts\n[NEW] src/m.ts' }, [c('D1', 'b', 'src/n.ts src/m.ts')])).toHaveLength(1);
+  });
+  it('does not count docs/** or *.md files', () => {
+    const docs = { title: 'a', description: 'docs/arch/cli.md docs/x.ts src/README.md src/a.ts' };
+    expect(overlapWarnings(docs, [c('D1', 'b', 'docs/arch/cli.md docs/x.ts src/README.md src/a.ts')])).toEqual([]);
+  });
+  it('warns on a title Jaccard of 0.65 or more, with 3+ meaningful tokens on both sides', () => {
+    const tokens = Array.from({ length: 17 }, (_, i) => `tok${i}`);
+    const a = { title: [...tokens.slice(0, 13), 'aaa1', 'aaa2', 'aaa3'].join(' '), description: '' };
+    // 13 shared, 3 own + 4 own: 13/20 = 0.65
+    expect(overlapWarnings(a, [c('T2', [...tokens.slice(0, 13), 'bbb1', 'bbb2', 'bbb3', 'bbb4'].join(' '))])).toEqual(['title closely matches T2']);
+    // 13 shared, 3 own + 5 own: 13/21 < 0.65
+    expect(overlapWarnings(a, [c('T2', [...tokens.slice(0, 13), 'bbb1', 'bbb2', 'bbb3', 'bbb4', 'bbb5'].join(' '))])).toEqual([]);
+  });
+  it('needs 3 tokens of length 3+ that are not stopwords on both sides', () => {
+    expect(overlapWarnings({ title: 'Fix auth', description: '' }, [c('D1', 'Fix auth')])).toEqual([]);
+    expect(overlapWarnings({ title: 'feat: fix the auth flow', description: '' }, [c('D1', 'feat: fix the auth flow')])).toEqual([]);
+    expect(overlapWarnings({ title: 'go to db ui', description: '' }, [c('D1', 'go to db ui')])).toEqual([]);
+    expect(overlapWarnings({ title: 'Token refresh retry', description: '' }, [c('D1', 'token REFRESH retry')])).toEqual(['title closely matches D1']);
+  });
+  it('a file overlap wins over a title match for the same candidate', () => {
+    expect(overlapWarnings(incoming, [c('D4', incoming.title, incoming.description)])).toEqual(['overlaps files with D4 (add dependsOn?)']);
+  });
+  it('caps at 3 warnings, each at most 60 chars', () => {
+    const many = Array.from({ length: 5 }, (_, i) => c(`T${100000 + i}`, 'x', incoming.description));
+    const w = overlapWarnings(incoming, many);
+    expect(w).toHaveLength(3);
+    for (const x of w) expect(x.length).toBeLessThanOrEqual(60);
   });
 });
