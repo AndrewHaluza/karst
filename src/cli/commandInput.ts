@@ -13,7 +13,7 @@
  * here runs).
  */
 
-import { closeSync, openSync, readSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { validateCommandInput, type CommandSpec } from './registry.js';
 
 /** Upper bound on structured input, matching the draft-proposal cap posture. */
@@ -44,10 +44,14 @@ function flagValue(rest: readonly string[], at: number): string | undefined {
  * Read at most `max + 1` bytes from `path` and close it. Mirrors
  * `readStdinBounded`: the extra byte is enough to detect oversize, so a wrong
  * or enormous path never allocates the whole file before the size check.
+ * `O_NOFOLLOW` refuses a symlink and `O_NONBLOCK` refuses to hang on a FIFO;
+ * the fstat check refuses anything that is not a regular file. This is the
+ * same posture as the host outbox read (`planningOutbox.ts`).
  */
 function readFileBounded(path: string, max: number): string {
-  const fd = openSync(path, 'r');
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
+    if (!fstatSync(fd).isFile()) throw new Error('not a regular file');
     const chunks: Buffer[] = [];
     let total = 0;
     const buf = Buffer.alloc(8192);

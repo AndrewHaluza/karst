@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_STRUCTURED_INPUT_BYTES, resolveStructuredInput } from './commandInput.js';
@@ -330,5 +330,50 @@ describe('structured input through runCli', () => {
     } finally {
       rmSync(outbox, { recursive: true, force: true });
     }
+  });
+});
+
+describe('--file reads only a regular file', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-file-input-')));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('reads a regular file from disk', () => {
+    const path = join(dir, 'in.json');
+    writeFileSync(path, '{"title":"Piece"}');
+    const out = resolveStructuredInput(subtaskSpec(), ['subtask', '--file', path], deps(''));
+    expect(out?.argv).toEqual(['subtask', 'create', '--title', 'Piece']);
+  });
+
+  it('refuses a symlink', () => {
+    const real = join(dir, 'real.json');
+    const link = join(dir, 'link.json');
+    writeFileSync(real, '{"title":"Piece"}');
+    symlinkSync(real, link);
+    expect(() => resolveStructuredInput(subtaskSpec(), ['subtask', '--file', link], deps(''))).toThrow(
+      /cannot read --file .*ELOOP/,
+    );
+  });
+
+  it('refuses a path that is not a regular file', () => {
+    const sub = join(dir, 'sub');
+    mkdirSync(sub);
+    expect(() => resolveStructuredInput(subtaskSpec(), ['subtask', '--file', sub], deps(''))).toThrow(
+      /cannot read --file .*not a regular file/,
+    );
+  });
+
+  it('draft propose --file carries priority and priorityReason into the outbox', () => {
+    const outbox = join(dir, 'outbox');
+    mkdirSync(outbox);
+    const path = join(dir, 'draft.json');
+    const draft = { title: 'T', description: 'D', summary: 'S', repos: ['api'], priority: 'high', priorityReason: 'blocks release' };
+    writeFileSync(path, JSON.stringify(draft));
+    const out = JSON.parse(
+      runCli(['draft', 'propose', '--file', path], { KARST_OUTBOX: outbox }, { readStdin: () => '', timeoutMs: 0 }),
+    );
+    expect(JSON.parse(readFileSync(out.file, 'utf8'))).toMatchObject({ priority: 'high', priorityReason: 'blocks release' });
   });
 });

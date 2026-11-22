@@ -1020,7 +1020,7 @@ export async function runCliAsync(
       store.close();
     }
   }
-  if (rest[0] !== 'servers') return runCli(argv);
+  if (rest[0] !== 'servers') return runCli(argv, env);
   if (!db) throw new Error('missing --db <path>');
   if (!ticket) throw new Error('missing --ticket <key>');
   // `servers` is the one async verb; it still accepts structured input via the
