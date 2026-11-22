@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as nodeFs from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,6 +46,35 @@ describe('refreshProposalIndex', () => {
     expect('checking' in byId().get(b)!).toBe(false);
     refreshProposalIndex(store, sessionId, scratch);
     expect('checking' in byId().get(a)!).toBe(false);
+  });
+});
+
+describe('injected fs', () => {
+  it('refreshProposalIndex writes through opts.fs', () => {
+    const store = openStore(':memory:');
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const sid = createPlanningSession(store, { projectId, title: 's', core: 'claude', model: null }).id;
+    const scratch = mkdtempSync(join(tmpdir(), 'karst-plan-index-fs-'));
+    const renameSync = vi.fn(nodeFs.renameSync);
+    try {
+      insertProposal(store, sid, payload, UUID(1));
+      refreshProposalIndex(store, sid, scratch, { fs: { ...nodeFs, renameSync } as typeof nodeFs });
+      expect(renameSync).toHaveBeenCalled();
+    } finally {
+      store.close();
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it('recordOutboxRejection writes through opts.fs', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'karst-plan-reject-fs-'));
+    const renameSync = vi.fn(nodeFs.renameSync);
+    try {
+      recordOutboxRejection(scratch, UUID(4), 'r', 0, { fs: { ...nodeFs, renameSync } as typeof nodeFs });
+      expect(renameSync).toHaveBeenCalled();
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
   });
 });
 

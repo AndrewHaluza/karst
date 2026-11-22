@@ -863,6 +863,68 @@ describe('planning outbox', () => {
       expect(readProposalIndex(scratch)[0]).toMatchObject({ id, uuid: UUID(2), checking: true });
     });
 
+    it('does not mark checking without a commit probe, even with repo paths', () => {
+      put(`${UUID(1)}.json`, good);
+      const ob = withRepo();
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id });
+      ob.scan();
+      expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+      expect(ob.checkingIds().size).toBe(0);
+    });
+
+    it('does not mark checking, and does not throw, when a probe exists but repoPaths does not', () => {
+      const ob = make({ commitExists: () => new Promise<boolean>(() => {}) });
+      put(`${UUID(1)}.json`, good);
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id });
+      ob.scan();
+      expect(pending()).toHaveLength(1);
+      expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+      expect(ob.checkingIds().size).toBe(0);
+    });
+
+    it('does not mark checking when the probe exists but the draft has no repo path', () => {
+      const ob = make({ repoPaths: () => [], commitExists: () => new Promise<boolean>(() => {}) });
+      put(`${UUID(1)}.json`, good);
+      ob.scan();
+      expect('checking' in readProposalIndex(scratch)[0]!).toBe(false);
+    });
+
+    it('a revise adds the unknown-commit warning once the probe answers', async () => {
+      const ob = withRepo({ commitExists: async () => false });
+      put(`${UUID(1)}.json`, good);
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, constraints: ['abc1234'] });
+      ob.scan();
+      await flush();
+      expect(getProposal(store, id)!.warnings).toEqual(['unknown commit abc1234']);
+    });
+
+    it('names the proposal in the log and still clears checking when a late warning write throws', async () => {
+      const debug = vi.fn();
+      const onWarnings = vi.fn(() => {
+        throw new Error('boom');
+      });
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      const ob = withRepo({ commitExists: async () => false, onWarnings, debug });
+      ob.scan();
+      const id = pending()[0]!.id;
+      await flush();
+      expect(debug).toHaveBeenCalledWith(`[planning] commit check for proposal ${id} failed (boom)`);
+      expect(ob.checkingIds().size).toBe(0);
+    });
+
+    it('writes the rejection through the injected fs', () => {
+      const renameSync = vi.fn(nodeFs.renameSync);
+      put(`${UUID(1)}.json`, { ...good, repos: ['nope'] });
+      make({ fs: { ...nodeFs, renameSync } as typeof nodeFs }).scan();
+      expect(renameSync.mock.calls.some(([, to]) => String(to).includes('outbox-rejections'))).toBe(true);
+    });
+
     it('revise recomputes warnings', () => {
       put(`${UUID(1)}.json`, { ...good, constraints: ['@arch:NOPE'] });
       withRepo().scan();
