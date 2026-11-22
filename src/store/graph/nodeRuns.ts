@@ -359,24 +359,29 @@ export function countNodeRunsInStatusesExcludingOutcome(
   graphRunId: number,
   statuses: readonly string[],
   excludedOutcome: string,
-  /** A `blocked` node run with this failure category is not counted. */
-  exclude: { blockedCategory?: string } = {},
+  /** A `blocked` node run with one of these failure categories is not
+   *  counted. The match is NULL-safe: a blocked row with a NULL category is
+   *  always counted (a plain `NOT IN` would drop it). */
+  exclude: { blockedCategory?: string; blockedCategories?: readonly string[] } = {},
 ): number {
   if (statuses.length === 0) return 0;
   const placeholders = statuses.map(() => '?').join(', ');
+  const categories = [
+    ...(exclude.blockedCategory === undefined ? [] : [exclude.blockedCategory]),
+    ...(exclude.blockedCategories ?? []),
+  ];
+  const categoryClause =
+    categories.length === 0
+      ? ''
+      : `AND NOT (status = 'blocked' AND COALESCE(failure_category, '') IN (${categories.map(() => '?').join(', ')}))`;
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n FROM approach_node_runs
        WHERE graph_run_id = ? AND status IN (${placeholders})
          AND (outcome IS NULL OR outcome <> ?)
-         ${exclude.blockedCategory === undefined ? '' : "AND NOT (status = 'blocked' AND failure_category IS ?)"}`,
+         ${categoryClause}`,
     )
-    .get(
-      graphRunId,
-      ...statuses,
-      excludedOutcome,
-      ...(exclude.blockedCategory === undefined ? [] : [exclude.blockedCategory]),
-    ) as { n: number };
+    .get(graphRunId, ...statuses, excludedOutcome, ...categories) as { n: number };
   return row.n;
 }
 

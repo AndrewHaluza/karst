@@ -580,6 +580,28 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
     expect(result.ok).toBe(true);
   });
 
+  it.each(['graph-budget-exhausted', 'integration-conflict'])(
+    'does not wait on a dead blocked node with failure category %s',
+    (category) => {
+      const ctx = electedCtx();
+      nodeRun(ctx, 80, 'a', 'blocked');
+      ctx.db.prepare('UPDATE approach_node_runs SET failure_category = ? WHERE id = 80').run(category);
+      const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+      expect(result.ok).toBe(true);
+    },
+  );
+
+  it.each([['failed-to-launch'], ['artifact-unsafe'], [null]])(
+    'still waits on a blocked node with failure category %s (live-process park, other, NULL)',
+    (category) => {
+      const ctx = electedCtx();
+      nodeRun(ctx, 81, 'a', 'blocked');
+      ctx.db.prepare('UPDATE approach_node_runs SET failure_category = ? WHERE id = 81').run(category);
+      const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+      expect(result).toEqual({ ok: false, reason: 'not-quiescent' });
+    },
+  );
+
   it('refuses before quiescence: a running node blocks the planner run', () => {
     const ctx = electedCtx();
     nodeRun(ctx, 51, 'a', 'running');

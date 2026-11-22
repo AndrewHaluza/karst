@@ -266,6 +266,16 @@ export type BeginReplanResult =
       reason: 'not-draining' | 'not-quiescent' | 'instructions-missing' | 'already-planned';
     };
 
+/** Blocked-node failure categories that prove no live process remains:
+ *  - `resource-claim-violated` — the violation IS the replan's evidence;
+ *  - `integration-conflict` — written only after termination is proven;
+ *  - `graph-budget-exhausted` — legacy rows a budget refusal clobbered. */
+const DEAD_BLOCKED_CATEGORIES: readonly string[] = [
+  'resource-claim-violated',
+  'graph-budget-exhausted',
+  'integration-conflict',
+];
+
 /** The drain's active-work quiescence: no non-terminal node run and no held
  *  ambiguous-process lease. Held (`held`) leases are deliberately NOT a block
  *  — they are the deferral source: N+1 validates against them and schedules
@@ -277,12 +287,13 @@ function replanQuiescenceBlockedBy(db: GraphDb, graphRunId: number): string | nu
   // are the reason for the drain (and the source of its reasons artifact), not
   // active work. Counting them would make the drain refuse its own planner
   // forever — the exact strand this ticket fixes — so they are excluded.
-  // A `resource-claim-violated` node stays `blocked` with no live process: the
-  // violation is the reason for the replan, so it must not hold the drain
-  // open. The replan submit cancels it with the superseded revision's work.
+  // A DEAD blocked node (no live process) must not hold the drain open either,
+  // or a human Replan defers `not-quiescent` until a background tick cancels
+  // it. The replan submit cancels these rows with the superseded revision's
+  // work. `failed-to-launch` is NOT dead: the `graph-live-process` park uses it.
   if (
     countNodeRunsInStatusesExcludingOutcome(db, graphRunId, ACTIVE_NODE_STATUSES, 'replan', {
-      blockedCategory: 'resource-claim-violated',
+      blockedCategories: DEAD_BLOCKED_CATEGORIES,
     }) > 0
   ) {
     return 'active-node-runs';

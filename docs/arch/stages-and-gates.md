@@ -583,7 +583,7 @@ covers: src/workflow/stages/shipResume.ts, src/workflow/stages/ship.ts, src/exte
 END_DOC_BLOCK: [@arch:SHIP-RESUME]
 
 ## [@arch:GRAPH-AUTORECOVERY] The graph coordinator recovers a blocked run for the safe reasons, three times at most
-covers: src/approaches/graph/coordinator/autoRecovery.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts
+covers: src/approaches/graph/coordinator/autoRecovery.ts, src/approaches/graph/coordinator/recovery.ts, src/approaches/graph/coordinator/replan.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts
 
 The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` run when `recoveryCategoryFor(blocked_reason)` is an automatic category. The sweep uses the same entry and the same seams as the Resume and Replan buttons (`dispatchGraphRecovery`). The run claim (`blocked → running`) is a CAS, so two windows cannot both recover one block. The sweep shows no dialog. It writes one graph diagnostic and one bulletin note for each automatic recovery.
 
@@ -602,7 +602,7 @@ The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` r
 
 A `graph-workspace-deps` block means a node clone could not get the dependencies of its ticket worktree (`@arch:GRAPHDEPS`). A retry would repeat the same install, so a human installs the dependencies or sets `graphWorkspace`, then runs Replan.
 
-An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file. A `blocked` node run with that failure category does not hold the drain open.
+An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. When that budget is spent, the recovery refuses with `config-then-resume` before the run claim and changes no row. The run keeps its block reason and the node keeps its failure evidence. A human Replan bypasses the document budget. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file. A `blocked` node run with the failure category `resource-claim-violated`, `integration-conflict` or `graph-budget-exhausted` has no live process, so it does not hold the drain open. A node run with `failed-to-launch` or a NULL category still holds it open.
 
 The count of automatic recoveries is `approach_graph_runs.auto_recovery_count`. The limit is `AUTO_RECOVERY_LIMIT` (3), a constant and not a manifest setting. At the limit the run stays `blocked` and the block reason says `automatic recovery stopped after 3 attempts` and lists the recovered reasons. A human Resume or Replan still works and does not reset the count.
 END_DOC_BLOCK: [@arch:GRAPH-AUTORECOVERY]
