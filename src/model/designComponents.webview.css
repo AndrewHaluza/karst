@@ -344,7 +344,7 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
 .k-sort{background:transparent;border:0;padding:var(--k-space-0);margin:var(--k-space-0);font:inherit;
   font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);text-transform:uppercase;
   letter-spacing:var(--k-chip-tracking);color:inherit;cursor:pointer;display:inline-flex;align-items:center;
-  gap:var(--k-space-1);border-radius:var(--k-radius-xs)}
+  gap:var(--k-space-1);border-radius:var(--k-radius-xs);min-height:var(--k-control-h-sm)}
 .k-sort:hover{color:var(--k-text)}
 @media (max-width: 699px){.k-pagehead-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (prefers-reduced-motion: reduce){

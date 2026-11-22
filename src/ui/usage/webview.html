@@ -33,6 +33,8 @@
   .err{border:var(--k-border-w) solid var(--k-danger);border-radius:var(--k-radius-lg);
     padding:var(--k-space-5) var(--k-space-6);margin-bottom:var(--k-space-6);
     display:flex;align-items:center;gap:var(--k-space-4);color:var(--k-text);font-size:var(--k-text-md)}
+  /* `.err` sets a display after `.hidden`, so the state toggle needs its own rule (same for `.qsummary`). */
+  .err.hidden,.qsummary.hidden{display:none}
   .err-icon{color:var(--k-danger);display:inline-flex;flex:none}
   .err-text{min-width:0}
 
@@ -97,8 +99,13 @@
   td{padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);vertical-align:middle}
   tr:last-child td{border-bottom:none}
   tbody tr:hover{background:var(--k-surface-hover)}
-  td.tkt{white-space:normal}
-  td.tkt .k-btn{display:flex;align-items:baseline;gap:var(--k-space-3);max-width:100%;min-width:0;text-align:left}
+  /* Auto table layout sizes a cell by its min-content width, and a long ticket title is one unbreakable run of
+     words: without this cap the ticket cell pushes the whole table past the page edge at 1280 (US-35, US-R43).
+     `max-width:0` gives the cell no min-content contribution, so it takes the space the numeric columns leave
+     and `.tkt-title` ellipsises inside it; `.tkt-key` stays `flex:none` and is never cut. */
+  td.tkt{white-space:normal;max-width:0}
+  td.tkt .k-btn{display:flex;align-items:baseline;gap:var(--k-space-3);max-width:100%;min-width:0;text-align:left;
+    min-height:var(--k-control-h-sm)}
   /* The key never shrinks or ellipsises; only the title gives way (US-35). */
   .tkt-key{white-space:nowrap;flex:none;font-family:var(--k-font-mono)}
   .tkt-sep{flex:none;color:var(--k-text-dim)}
@@ -109,8 +116,10 @@
     font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .pager .spacer{margin-left:auto}
 
-  /* Skeleton frames: the page's own geometry in sunken blocks, no shimmer. */
-  .sk{background:var(--k-surface-sunken);border-radius:var(--k-radius-lg)}
+  /* Skeleton frames: the page's own geometry in placeholder blocks, no shimmer (safe under reduced motion).
+     `--k-surface-sunken` equals the page background, so the frames would be invisible; the border keeps them
+     readable in dark, light, high contrast and grayscale. */
+  .sk{background:var(--k-surface);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg)}
   .sk-stat{height:calc(var(--k-space-9) * 2)}
   .sk-panel{height:calc(var(--k-space-9) * 6)}
   .sk-gap{margin-bottom:var(--k-space-6)}
@@ -157,7 +166,7 @@
     .stats{grid-template-columns:repeat(3,minmax(0,1fr))}
     [data-priority="3"]{display:none}
     .tkt-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-      white-space:normal;overflow:hidden}
+      white-space:normal;overflow:hidden;text-overflow:ellipsis}
     td.tkt .k-btn{flex-wrap:wrap}
   }
   @container (max-width: 399px){
@@ -178,7 +187,7 @@
     td{border:0;padding:0;display:flex;flex-direction:column;white-space:normal}
     td::before{content:attr(data-label);font-size:var(--k-text-2xs);text-transform:uppercase;
       letter-spacing:.04em;color:var(--k-text-dim)}
-    td.tkt{grid-column:1 / -1}
+    td.tkt{grid-column:1 / -1;max-width:none}
     td.tkt::before{content:none}
     td.num{text-align:left;width:auto}
     td.num::before{text-align:left}
@@ -484,7 +493,7 @@
         name = `<span class="plain">${esc(t.label)}</span>`;
       } else {
         const title = t.ticketTitle
-          ? ` <span class="tkt-sep" aria-hidden="true">—</span> <span class="tkt-title">${esc(t.ticketTitle)}</span>`
+          ? ` <span class="tkt-sep" aria-hidden="true">—</span> <span class="tkt-title" aria-label="${esc(t.ticketTitle)}">${esc(t.ticketTitle)}</span>`
           : '';
         name = `<button type="button" class="k-btn k-btn--link" data-ticket="${esc(t.ticketId)}"` +
           ` title="${esc(t.label)}"><span class="tkt-key">${esc(t.ticketKey || '')}</span>${title}</button>`;

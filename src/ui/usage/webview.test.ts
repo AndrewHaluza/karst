@@ -155,7 +155,12 @@ describe('token-usage webview.html', () => {
     const style = styleBlock();
     expect(style).toMatch(/\.tkt-key\{white-space:nowrap;flex:none/);
     expect(style).toMatch(/\.tkt-title\{min-width:0;overflow:hidden;text-overflow:ellipsis/);
-    expect(style).not.toMatch(/td\.tkt\{max-width:0/);
+    // UI-R19: an ellipsised text must expose its full value to AT; the button's title alone does not count.
+    expect(scriptBlock()).toContain('<span class="tkt-title" aria-label=');
+    // The cell contributes no min-content width, so a long title ellipsises inside the free column instead of
+    // widening the table past the page edge (the 1280 layout run catches the overflow, US-35/US-R43).
+    expect(style).toMatch(/td\.tkt\{white-space:normal;max-width:0\}/);
+    expect(style).toMatch(/td\.tkt\{grid-column:1 \/ -1;max-width:none\}/);
   });
 
   it('renders a sortable header through the shared .k-sort control with its arrow hidden from AT (US-25)', () => {
@@ -195,6 +200,8 @@ describe('token-usage webview.html', () => {
 
   it('renders the loading skeleton, hides it on the first state and keeps one status node (US-12)', () => {
     expect(HTML).toContain('id="loading"');
+    // The frames must read as placeholders in every theme: the sunken fill equals the page background.
+    expect(styleBlock()).toContain('.sk{background:var(--k-surface);border:var(--k-border-w) solid var(--k-border)');
     expect(HTML).toContain('role="status"');
     expect(HTML).toContain('Loading token usage');
     const script = scriptBlock();

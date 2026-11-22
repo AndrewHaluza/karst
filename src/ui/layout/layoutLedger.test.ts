@@ -85,6 +85,12 @@ describe('prune', () => {
     const other = failureKey(failure('x', 'general', 700));
     expect(prune([], [other], r, DOCKER)).toEqual([other]);
   });
+  it('drops an entry for a route or width the full run no longer produces', () => {
+    const removed = failureKey(failure('x', 'usage/quota', 1280));
+    const kept = failureKey(failure('keep'));
+    const expected = new Set([failureKey(failure('keep')).split('|').slice(0, 2).join('|')]);
+    expect(prune([failure('keep')], [kept, removed], r, DOCKER, expected)).toEqual([kept]);
+  });
   it('is refused without KARST_LAYOUT_AUTHORITATIVE', () => {
     expect(() => prune([], [], r, { ...DOCKER, authoritative: false })).toThrow(/test:layout:docker:prune/);
   });
