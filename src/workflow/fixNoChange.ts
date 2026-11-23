@@ -21,9 +21,12 @@ export type NoChangeOutcome =
 
 const ALREADY_RECORDED = 'this fix round already has a no-change verdict — stop and wait for the host';
 
+/** Leading text of the same-head park verdict; the agent reason and the way out follow it. */
+export const NO_CHANGE_SAME_HEAD_PREFIX = 'second no-change verdict on the same head';
+
 /** The park verdict of a second no-change on the same head. */
 export const NO_CHANGE_SAME_HEAD_VERDICT = (reason: string): string =>
-  `second no-change verdict on the same head (${noChangeEndReason(reason)}) — ${HOST_RERUN_WAY_OUT}`;
+  `${NO_CHANGE_SAME_HEAD_PREFIX} (${noChangeEndReason(reason)}) — ${HOST_RERUN_WAY_OUT}`;
 
 /** Equal as sets of `path:sha`. Two empty sets are NOT equal: no snapshot is no evidence. */
 function sameHeads(a: readonly FixRoundHead[], b: readonly FixRoundHead[]): boolean {

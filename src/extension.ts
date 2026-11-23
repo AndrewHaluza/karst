@@ -67,6 +67,8 @@ import { registerSbxOauth } from './extension/sbxOauthBinding.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
 import { hostRerunFor, makeRequestedRerunSweep, preBriefRerunFor } from './extension/ops/fixRerunOps.js';
+import { makeFixParkNotifier } from './extension/ops/fixParkNotify.js';
+import { ticketToastLabel } from './extension/ticketToastLabel.js';
 import { bindGateRerunDeps } from './extension/gateRerunBinding.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
@@ -2132,8 +2134,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     deliverLive: fixDelivery.deliverConflict, recordSeed: fixDelivery.recordConflictSeed,
     key: (id) => formatId('ticket', id), debug: (m) => logger.debug(m),
   });
+  // A host park writes no event of its own: one warn for each new parked round (@arch:AC-66).
+  const fixParkNotifier = makeFixParkNotifier({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    notify: vscodeNotify,
+    labelOf: (id) => ticketToastLabel(localStore, id),
+  });
   // Host CLI fix markers (@arch:AC-45): a refused `stage fix pass` stored a re-run request; the one host gate re-run runs here.
-  const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, drain, projectId: () => currentProject()?.id });
+  const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, drain, projectId: () => currentProject()?.id, onTick: fixParkNotifier });
   const requestedRerunTimer = setInterval(() => void requestedRerunSweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(requestedRerunTimer) });
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
