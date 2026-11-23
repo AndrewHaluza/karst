@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import { acquireGateSlot, countGateSlots, GATE_SLOT_HEARTBEAT_MS, reapStaleGateSlots, releaseGateSlot, STALE_GATE_SLOT_MS, touchGateSlot } from '../../store/gateSlots.js';
+import { defaultSleepLedger } from '../../runtime/sleepLedger.js';
 import type { GateProcessRunner, ProcessOutcome } from '../../workflow/gates/run.js';
 
 /** How often a waiting gate retries for a slot. */
@@ -16,6 +17,11 @@ export interface GateSlotDeps {
   readonly pollMs?: number;
   readonly heartbeatMs?: number;
   readonly staleMs?: number;
+  /**
+   * The wall length that holds `windowMs` of awake time (T1326). Absent, the default sleep ledger
+   * applies — unstarted in a test, so plain wall time.
+   */
+  readonly awakeWindowMs?: (windowMs: number, nowMs: number) => number;
 }
 
 /** The line a waiting gate prints into its live output. */
@@ -38,7 +44,9 @@ export function withGateSlot(deps: GateSlotDeps, ticketId: number, run: GateProc
     const limit = deps.limit();
     if (limit === 0) return run(command, args, cwd, options);
     const projectId = deps.projectIdOf(ticketId);
-    const staleMs = deps.staleMs ?? STALE_GATE_SLOT_MS;
+    // A host sleep is not a dead window (T1326): the stale cutoff is stretched by the sleep it holds.
+    const staleWallMs = deps.staleMs ?? STALE_GATE_SLOT_MS;
+    const staleMs = (deps.awakeWindowMs ?? defaultSleepLedger.awakeWindowMs)(staleWallMs, Date.now());
     let slot: number | null = null;
     let noted = false;
     const waitStart = Date.now();

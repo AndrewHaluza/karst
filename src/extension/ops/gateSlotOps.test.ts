@@ -166,6 +166,43 @@ describe('withGateSlot', () => {
     await Promise.all([a, b]);
   });
 
+  it('does not reap a slot whose holder only slept through the window (T1326)', async () => {
+    // A foreign slot last refreshed 3 minutes ago, in SQLite's own timestamp form.
+    store.db
+      .prepare(
+        `INSERT INTO gate_slots (ticket_id, project_id, owner, claimed_at, touched_at)
+         VALUES (9, 1, 'other', strftime('%Y-%m-%d %H:%M:%f', 'now', '-3 minutes'), strftime('%Y-%m-%d %H:%M:%f', 'now', '-3 minutes'))`,
+      )
+      .run();
+    const g = gate();
+    // Two wall hours of the stale window were a host sleep: 3 min old is not stale.
+    const a = withGateSlot(deps(1, { staleMs: 60_000, awakeWindowMs: (windowMs) => windowMs + 2 * 3600_000 }), 1, g.run)('npm', [], '/wt');
+    await tick();
+    expect(g.started()).toBe(0);
+    // The foreign holder goes away; the waiter takes the freed slot.
+    store.db.prepare('DELETE FROM gate_slots').run();
+    await tick();
+    expect(g.started()).toBe(1);
+    g.release();
+    await a;
+  });
+
+  it('reaps the same slot once the awake window has passed', async () => {
+    // A foreign slot last refreshed 3 minutes ago, in SQLite's own timestamp form.
+    store.db
+      .prepare(
+        `INSERT INTO gate_slots (ticket_id, project_id, owner, claimed_at, touched_at)
+         VALUES (9, 1, 'other', strftime('%Y-%m-%d %H:%M:%f', 'now', '-3 minutes'), strftime('%Y-%m-%d %H:%M:%f', 'now', '-3 minutes'))`,
+      )
+      .run();
+    const g = gate();
+    const a = withGateSlot(deps(1, { staleMs: 60_000, awakeWindowMs: (windowMs) => windowMs }), 1, g.run)('npm', [], '/wt');
+    await tick();
+    expect(g.started()).toBe(1);
+    g.release();
+    await a;
+  });
+
   it('prints the waiting note on stderr and reports it to the debug log, once', async () => {
     const g = gate();
     const debug = vi.fn();

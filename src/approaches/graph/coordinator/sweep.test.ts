@@ -544,6 +544,51 @@ describe('scheduler admission, deferrals and the process ceiling (Slice 5 Task 3
     expect(run.blocked_reason).toContain('dom-api');
   });
 
+  it('H4: a wait that passed asleep is not a deferral timeout (T1326)', () => {
+    const ctx = harness(doc([agent('a')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['a']));
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId);
+    acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId: 900,
+      physicalDomain: 'dom-api',
+      accessMode: 'write',
+      claimedPaths: null,
+      now: ctx.now,
+    });
+    entryFor(ctx, 'entry-a', 'a', ctx.now);
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, 'a', 'resource-conflict: dom-api', ?, ?)`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId, '2026-08-11T00:00:00.000Z', '2026-08-11T00:00:00.000Z');
+    const at = '2026-08-11T02:00:00.000Z';
+    const tick = (awakeElapsedMs: () => number) =>
+      runCoordinatorTick(ctx.makeDeps({
+        now: () => at,
+        awakeElapsedMs,
+        domainsForActivation: () => [{ physicalDomain: 'dom-api', accessMode: 'write', paths: [] }],
+      }), { graphRunId: ctx.graphRunId });
+    const status = (): string =>
+      (ctx.db.prepare('SELECT status FROM approach_graph_runs WHERE id = ?').get(ctx.graphRunId) as { status: string }).status;
+
+    // Two wall hours, but only ten minutes awake: the run keeps waiting.
+    tick(() => 10 * 60_000);
+    expect(status()).toBe('running');
+
+    // The same wall time with the awake time actually spent blocks as before.
+    tick(() => 2 * 60 * 60_000);
+    expect(status()).toBe('blocked');
+  });
+
   it('H4: a timeout whose CAS lost to a run still running keeps scheduling', () => {
     const ctx = harness(doc([agent('a')], [
       { id: 'a-end', from: 'a', on: 'complete', to: 'END' },

@@ -224,12 +224,15 @@ export const CONFLICT_ROUND_STALL_MS = 5 * 60_000;
  * gates ran for 25 minutes must not be dropped the second its push is refused. A round with no receipt is never stalled
  * here: `fixDeliverySweep` re-sends the pointer and raises needs-you, and the round is not dropped.
  * `receiptAt(repo)` is the ISO read time of the latest conflict delivery of the round's repo, or null.
+ * `awakeElapsedMs` makes the window count awake time only (T1326); the host binds the sleep ledger, and a caller
+ * without one (tests, CLI) gets plain wall time.
  */
 export function isConflictRoundStalled(
   rounds: ConflictRounds,
   ticketId: number,
   receiptAt: (repo: string) => string | null,
   now: number = Date.now(),
+  awakeElapsedMs: (sinceMs: number, nowMs: number) => number = (sinceMs, nowMs): number => nowMs - sinceMs,
 ): boolean {
   if (isAutoDelivering(ticketId)) return false;
   const round = rounds.armed(ticketId); // null (no round) is never stalled
@@ -239,7 +242,7 @@ export function isConflictRoundStalled(
   const at = Date.parse(receipt);
   const delivered = rounds.deliveredAt(ticketId) ?? Number.NEGATIVE_INFINITY;
   // A receipt that is not a date gives a NaN start, and a NaN comparison is never true: that round is not stalled here.
-  return now - Math.max(at, delivered) > CONFLICT_ROUND_STALL_MS;
+  return awakeElapsedMs(Math.max(at, delivered), now) > CONFLICT_ROUND_STALL_MS;
 }
 
 /**

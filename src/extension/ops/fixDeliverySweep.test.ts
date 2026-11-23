@@ -237,6 +237,27 @@ describe('fixDeliverySweep', () => {
       expect(h.sent).toHaveLength(1);
     });
 
+    it('does not type after a 2-hour host sleep, and does once the awake time is spent (T1326)', () => {
+      const slept = 2 * 60 * 60_000;
+      const awakeAfterSleeping = (sinceMs: number, nowMs: number): number =>
+        Math.max(0, nowMs - sinceMs - slept);
+      const sweepWithSleep = (): void =>
+        makeFixDeliverySweep({
+          ...h.host,
+          projectId: () => h.projectId,
+          awakeElapsedMs: awakeAfterSleeping,
+        }).sweep();
+
+      deliver();
+      h.advance(slept + ARMED_FIX_TIMEOUT_MS - 1);
+      sweepWithSleep();
+      expect(h.sent).toEqual([]);
+
+      h.advance(1);
+      sweepWithSleep();
+      expect(h.sent).toHaveLength(1);
+    });
+
     it('holds while the agent is mid-turn (the hook will point at the turn end)', () => {
       deliver();
       h.advance(ARMED_FIX_TIMEOUT_MS * 5);
