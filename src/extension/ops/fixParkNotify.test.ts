@@ -111,6 +111,16 @@ describe('makeFixParkNotifier', () => {
     expect(retry).toBeGreaterThan(roundId);
   });
 
+  it('reads no store without a project', () => {
+    const untouched = {
+      get db(): never {
+        throw new Error('store read without a project');
+      },
+    } as unknown as Store;
+    const tick = makeFixParkNotifier({ store: untouched, projectId: () => undefined, notify: notify as unknown as Notify, labelOf });
+    expect(() => tick()).not.toThrow();
+  });
+
   it('does nothing without a project', () => {
     const tick = makeFixParkNotifier({ store, projectId: () => undefined, notify: notify as unknown as Notify, labelOf });
     tick();

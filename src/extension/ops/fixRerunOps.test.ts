@@ -821,6 +821,29 @@ describe('makeRequestedRerunSweep onTick', () => {
   });
 });
 
+describe('makeRequestedRerunSweep onTick absent or silent', () => {
+  const deps = (over: Record<string, unknown> = {}) => ({
+    store: openStore(':memory:'),
+    runnerFor: () => vi.fn() as never,
+    projectId: () => 1,
+    ...over,
+  });
+
+  it('logs nothing when no tick check is set', async () => {
+    const debug = vi.fn();
+    await makeRequestedRerunSweep(deps({ debug }) as never)();
+    expect(debug).not.toHaveBeenCalledWith(expect.stringContaining('park warning check failed'));
+  });
+
+  it('lets a throwing tick check pass when no debug callback is set', async () => {
+    const onTick = vi.fn(() => {
+      throw new Error('gone');
+    });
+    await expect(makeRequestedRerunSweep(deps({ onTick }) as never)()).resolves.toBeUndefined();
+    expect(onTick).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('host gate re-runs and the drain (@arch:DRAIN-01)', () => {
   it('never refuses the bridge or pre-brief re-run while draining, and counts it as live', async () => {
     const store = openStore(':memory:');
