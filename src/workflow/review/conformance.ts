@@ -14,6 +14,7 @@ import {
   type ChainEntry,
 } from '../artifacts/chain.js';
 import type { OperatorManifestInfo } from './manifestBlock.js';
+import type { NoChangeClaim } from '../noChangeClaimText.js';
 
 export interface ReviewArtifacts {
   intent: string | null;
@@ -27,6 +28,8 @@ export interface ReviewArtifacts {
   targets?: readonly string[];
   /** The operator manifest, outside the git diff; rendered only when it changed. */
   operatorManifest?: OperatorManifestInfo;
+  /** The fix agent no-change claim for the open findings; set only on a no-change re-run. */
+  noChangeClaim?: NoChangeClaim;
 }
 
 export interface AlignmentSnapshot {

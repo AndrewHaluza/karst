@@ -8,9 +8,12 @@ import { readLastAlignmentReport } from '../artifacts/alignmentReport.js';
 import { loadChainEntries } from '../artifacts/loadChain.js';
 import { buildReviewArtifacts, type ReviewArtifacts } from './conformance.js';
 import type { OperatorManifestInfo } from './manifestBlock.js';
+import type { NoChangeClaim } from '../noChangeClaimText.js';
 
 export interface ReviewArtifactsLoaderDeps {
   intentOf: (ticketId: number) => string | null;
+  /** The fix agent no-change claim for the review run; null or absent → none. */
+  noChangeClaimOf?: (ticketId: number) => NoChangeClaim | null;
   /** The ticket description; the reviewer sees it only when the intent is blank. */
   descriptionOf?: (ticketId: number) => string | null;
   /** Edges the ticket's approach verifies itself. */
@@ -31,8 +34,10 @@ export function makeReviewArtifactsLoader(
     const description = intent?.trim() ? null : (deps.descriptionOf?.(ticketId)?.trim() ?? null);
     const operatorManifest = await deps.manifestOf?.(ticketId);
     const manifestPart = operatorManifest?.changed ? { operatorManifest } : {};
+    const claim = deps.noChangeClaimOf?.(ticketId) ?? null;
+    const claimPart = claim === null ? {} : { noChangeClaim: claim };
     if (!intent?.trim() && entries.length === 0 && !description) {
-      return operatorManifest?.changed ? { intent: null, spec: null, plan: null, ...manifestPart } : undefined;
+      return operatorManifest?.changed || claim !== null ? { intent: null, spec: null, plan: null, ...manifestPart, ...claimPart } : undefined;
     }
     const artifacts = buildReviewArtifacts({
       intent,
@@ -40,6 +45,6 @@ export function makeReviewArtifactsLoader(
       checks: deps.checksOf(ticketId),
       lastIntentSpecReport: store ? await readLastAlignmentReport(store, ticketId, 'intent-spec') : null,
     });
-    return { ...artifacts, ...(description ? { description } : {}), ...manifestPart };
+    return { ...artifacts, ...(description ? { description } : {}), ...manifestPart, ...claimPart };
   };
 }

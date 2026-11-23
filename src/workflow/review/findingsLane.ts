@@ -49,6 +49,7 @@ import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
+import { renderNoChangeClaim } from '../noChangeClaimText.js';
 import {
   gatesOutcomeBeforeFindings,
   DEFAULT_REVIEW_FINDINGS,
@@ -261,6 +262,8 @@ export function buildFindingsPrompt(
     // Never replaced by `instructions`, like the scope block above.
     ...conformance,
     ...(artifacts?.operatorManifest ? buildManifestBlock(artifacts.operatorManifest) : []),
+    // Never replaced by `instructions`: the agent reason is data, and the evidence rule stays.
+    ...(artifacts?.noChangeClaim ? ['', renderNoChangeClaim(artifacts.noChangeClaim, 'finding')] : []),
     ``,
     GATE_ISOLATION_RULE,
     // Outside `strategy`, so `instructions` cannot remove them.

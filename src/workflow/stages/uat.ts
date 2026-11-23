@@ -5,6 +5,7 @@ import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
 import { UAT_TESTER_ON_SKIP } from '../../manifest/qualityDefaults.js';
+import { noChangeClaimFor } from '../noChangeClaim.js';
 import { runnableSubset, unitsOf, unitsOfRepos } from '../../manifest/runnable.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
@@ -1104,6 +1105,14 @@ export async function runUat(
           requireEvidence: opts.manifest?.uat?.testerObservations?.requireEvidence,
           // Started harnesses (@arch:UAT-HARNESS): the Tester owes evidence for each.
           harnesses: startedHarnesses,
+          // A no-change re-run: the Tester sees each open observation with the agent reason.
+          noChangeClaim:
+            noChangeClaimFor(
+              store,
+              opts.ticketId,
+              'uat',
+              opts.manifest?.uat?.testerObservations?.blockingSeverity ?? 'none',
+            ) ?? undefined,
         },
         { now },
       );

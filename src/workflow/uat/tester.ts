@@ -61,6 +61,7 @@ import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
+import { renderNoChangeClaim, type NoChangeClaim } from '../noChangeClaimText.js';
 import { observedNothing, skippedDetail, reaskPrefix, type OnSkip } from './testerSkip.js';
 import {
   changedPaths,
@@ -324,6 +325,8 @@ export interface RunUatTesterOpts {
    * than the run start observed nothing, whatever it reported (arch:UAT-OBS-RUNS).
    */
   requireEvidence?: UatTesterRequireEvidence;
+  /** The fix agent no-change claim, shown in each target prompt; absent → none. */
+  noChangeClaim?: NoChangeClaim;
   /**
    * The harnesses the host started (@arch:UAT-HARNESS). A target owes fresh
    * evidence for each harness of its own repo; missing evidence makes the run
@@ -764,6 +767,8 @@ export interface TesterPromptExtra {
   harnesses?: readonly StartedHarness[];
   /** The evidence rule paragraph (`evidenceRuleParagraph`); set only when the diff matches `requireEvidence.whenChanged`. */
   evidenceRule?: string;
+  /** The fix agent no-change claim for the open observations; set only on a no-change re-run. */
+  noChangeClaim?: NoChangeClaim;
 }
 
 /** Karst-owned scratch dir for UAT probe files; under `/.karst/`, which KARST_EXCLUDE_RULES covers. */
@@ -870,6 +875,7 @@ export function buildTesterPrompt(
     ...(coreHint ? [coreHint] : []),
     ...harnessPromptLines(extra?.harnesses),
     ...(extra?.evidenceRule ? [extra.evidenceRule] : []),
+    ...(extra?.noChangeClaim ? [renderNoChangeClaim(extra.noChangeClaim, 'observation')] : []),
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.
@@ -1134,6 +1140,7 @@ async function runTesterBody(
           provider: opts.assignment.provider,
           outputForm: structuredOutputFormOf(opts.adapter),
           harnesses: harnessesOf(opts, target.repo),
+          ...(opts.noChangeClaim === undefined ? {} : { noChangeClaim: opts.noChangeClaim }),
           ...(evidenceRule === undefined ? {} : { evidenceRule }),
         },
       );

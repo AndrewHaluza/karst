@@ -1901,3 +1901,18 @@ describe('runUatTester — core-specific prompt and telemetry (T927)', () => {
     expect(JSON.stringify(run.promptTelemetry)).not.toContain('BypassSandbox');
   });
 });
+
+describe('buildTesterPrompt — no-change claim', () => {
+  it('lists each open observation with the agent reason and the evidence rule', async () => {
+    const { NO_CHANGE_EVIDENCE_RULE } = await import('../noChangeClaim.js');
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
+      noChangeClaim: { reason: 'needs sbx', items: ['[high] broken (a.ts:2)'] },
+    });
+    expect(prompt).toContain('needs sbx');
+    expect(prompt).toContain('- [high] broken (a.ts:2)');
+    expect(prompt).toContain(NO_CHANGE_EVIDENCE_RULE);
+  });
+  it('has no no-change block without a claim', () => {
+    expect(buildTesterPrompt(TARGETS[0]!)).not.toContain('no-change-reason');
+  });
+});
