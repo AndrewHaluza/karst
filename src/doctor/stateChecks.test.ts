@@ -69,6 +69,42 @@ describe('checkState: healthy baseline', () => {
     expect(checks.filter((c) => c.status !== 'ok')).toEqual([]);
   });
 
+  it('gives every check a human-readable title', () => {
+    const healthy = checkState(probes({ worktrees: [wt()], servers: [srv({ status: 'stopped' })] }));
+    expect(byId(healthy, 'state.worktrees')?.title).toBe('Recorded worktrees');
+    expect(byId(healthy, 'state.servers')?.title).toBe('Recorded servers');
+
+    const checks = checkState(
+      probes({
+        worktrees: [wt({ ticketStage: 'done' })],
+        servers: [srv({ pid: null })],
+        staleOutboxFiles: ['/o/a.json'],
+        dbSchemaVersion: 1,
+        extensionSchemaVersion: 2,
+      }),
+    );
+    for (const c of checks) expect(c.title, c.id).toBeTruthy();
+    expect(byId(checks, 'state.schema')?.title).toBe('Database schema');
+    expect(byId(checks, 'state.wal')?.title).toBe('SQLite WAL');
+    expect(byId(checks, 'state.outbox.0')?.title).toBe('Stale outbox file');
+    expect(byId(checks, 'state.server-dead.7')?.title).toBe('Dead server');
+  });
+
+  it('counts the recorded rows with plural words, never "(s)"', () => {
+    const one = checkState(probes({ worktrees: [wt()], servers: [srv({ status: 'stopped' })] }));
+    expect(byId(one, 'state.worktrees')?.detail).toBe('Checked 1 recorded worktree; none need attention.');
+    expect(byId(one, 'state.servers')?.detail).toBe('Checked 1 server row; none dead or leaked.');
+
+    const many = checkState(
+      probes({
+        worktrees: [wt(), wt({ repo: 'web', path: '/wt/web' })],
+        servers: [srv({ status: 'stopped' }), srv({ id: 8, status: 'stopped' })],
+      }),
+    );
+    expect(byId(many, 'state.worktrees')?.detail).toBe('Checked 2 recorded worktrees; none need attention.');
+    expect(byId(many, 'state.servers')?.detail).toBe('Checked 2 server rows; none dead or leaked.');
+  });
+
   it('tags every check with area state and a state. id', () => {
     const checks = checkState(
       probes({
@@ -169,11 +205,13 @@ describe('checkState: worktree prune', () => {
     expect(c?.fix?.tier).toBe('report');
   });
 
-  it('never auto-prunes an unknown-state worktree; reports instead', () => {
+  it('never auto-prunes an unknown-state worktree; marks it Not checked', () => {
     const checks = checkState(
       probes({ worktrees: [wt({ ticketStage: 'done' })], worktreeState: () => 'unknown' }),
     );
     const c = byId(checks, 'state.worktree-prune.PROJ-1.api');
+    expect(c?.status).toBe('skipped');
+    expect(c?.title).toBe('Worktree prune');
     expect(c?.fix?.tier).toBe('report');
   });
 
@@ -326,13 +364,23 @@ describe('checkState: schema and wal', () => {
   });
 
   it('warns with a report fix when the WAL exceeds its limit', () => {
-    const checks = checkState(probes({ walBytes: 101, walLimitBytes: 100 }));
+    const checks = checkState(probes({ walBytes: 80 * 1024 * 1024, walLimitBytes: 64 * 1024 * 1024 }));
     const c = byId(checks, 'state.wal');
     expect(c?.status).toBe('warn');
+    expect(c?.detail).toBe('SQLite WAL is 80.0 MB, over the 64.0 MB limit.');
     expect(c?.fix?.tier).toBe('report');
     if (c?.fix?.tier === 'report') {
       expect(c.fix.nextStep).toMatch(/closing all karst windows/i);
     }
+  });
+
+  it('renders the WAL sizes in bytes, KB, MB or GB, never raw bytes', () => {
+    expect(byId(checkState(probes({ walBytes: 512, walLimitBytes: 1024 })), 'state.wal')?.detail).toBe(
+      'SQLite WAL is 512 B, within the 1.0 KB limit.',
+    );
+    expect(byId(checkState(probes({ walBytes: 1024, walLimitBytes: 1024 ** 3 })), 'state.wal')?.detail).toBe(
+      'SQLite WAL is 1.0 KB, within the 1.0 GB limit.',
+    );
   });
 
   it('is ok when the WAL is at or below its limit', () => {

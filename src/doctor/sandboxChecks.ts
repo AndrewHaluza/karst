@@ -1,9 +1,15 @@
 import type { BackendStatus } from '../agent/effectiveBackend.js';
 import { PRUNE_CACHE_HINT, REMOVE_IMAGES_HINT } from '../agent/docker/dockerCleanup.js';
+import { plural } from '../model/notifyText.js';
+import { formatDoctorBytes } from './formatBytes.js';
 import type { DoctorCheck } from './types.js';
 
-/** Disk warning threshold for karst sandboxes (a constant, not config). */
-export const SANDBOX_DISK_WARN_BYTES = 10e9;
+/**
+ * Disk warning threshold for karst sandboxes (a constant, not config). Binary,
+ * like the one byte formatter (DR-8): 10 GiB. A decimal 10e9 would warn at a
+ * size the page prints as "9.3 GB", so the threshold and the number disagree.
+ */
+export const SANDBOX_DISK_WARN_BYTES = 10 * 2 ** 30;
 
 export interface SandboxCheckInput {
   /** The sandbox backends some core selects; sbx and docker can both be on. */
@@ -38,25 +44,28 @@ export function checkSandboxBackends(input: SandboxCheckInput): DoctorCheck[] {
 }
 
 function backendCheck(backend: 'sbx' | 'docker', status: BackendStatus): DoctorCheck {
+  const name = backend === 'sbx' ? 'Sbx' : 'Docker';
+  const title = `Sandbox backend (${backend})`;
   return status.ok
-    ? { id: `tools.sandbox-${backend}`, area: 'tools', status: 'ok', detail: `${backend} sandbox backend ready` }
+    ? { id: `tools.sandbox-${backend}`, area: 'tools', status: 'ok', title, detail: `${name} sandbox backend ready` }
     : {
         id: `tools.sandbox-${backend}`,
         area: 'tools',
         status: 'warn',
-        detail: `${backend} backend unavailable: sessions run prompted on host (${status.reason})`,
+        title,
+        detail: `${name} backend unavailable: sessions run prompted on host (${status.reason})`,
         fix: { tier: 'report', summary: `${backend} backend unavailable`, nextStep: status.reason },
       };
 }
 
 function memoryCheck(bytes: number): DoctorCheck {
-  const gb = (bytes / 2 ** 30).toFixed(1);
   const low = bytes < DOCKER_MEM_WARN_BYTES;
   return {
     id: 'tools.docker-memory',
     area: 'tools',
     status: low ? 'warn' : 'ok',
-    detail: `Docker VM memory ${gb} GB`,
+    title: 'Docker VM memory',
+    detail: `Docker VM memory ${formatDoctorBytes(bytes)}`,
     ...(low
       ? { fix: { tier: 'report' as const, summary: 'Docker VM has under 8 GB: sandbox setup can be OOM-killed (exit 137)', nextStep: 'raise Docker Desktop → Settings → Resources → Memory to 8 GB or more' } }
       : {}),
@@ -64,26 +73,22 @@ function memoryCheck(bytes: number): DoctorCheck {
 }
 
 function diskCheck(count: number, bytes: number | undefined, imageBytes: number | undefined, cacheBytes: number | undefined): DoctorCheck {
-  const noun = count === 1 ? 'sandbox' : 'sandboxes';
-  const size = bytes === undefined ? 'size unknown' : `~${formatGb(bytes)}`;
-  const parts = [`${count} ${noun}, ${size}`];
-  if (imageBytes !== undefined) parts.push(`karst images ~${formatGb(imageBytes)}`);
-  if (cacheBytes !== undefined) parts.push(`build cache ~${formatGb(cacheBytes)}`);
+  const size = bytes === undefined ? 'size unknown' : `~${formatDoctorBytes(bytes)}`;
+  const parts = [`${plural(count, 'sandbox', 'sandboxes')}, ${size}`];
+  if (imageBytes !== undefined) parts.push(`karst images ~${formatDoctorBytes(imageBytes)}`);
+  if (cacheBytes !== undefined) parts.push(`build cache ~${formatDoctorBytes(cacheBytes)}`);
   const total = (bytes ?? 0) + (imageBytes ?? 0) + (cacheBytes ?? 0);
   const over = total > SANDBOX_DISK_WARN_BYTES;
   return {
     id: 'state.sandbox-disk',
     area: 'state',
     status: over ? 'warn' : 'ok',
+    title: 'Sandbox disk usage',
     detail: parts.join(', '),
     ...(over
       ? { fix: { tier: 'report' as const, summary: 'sandboxes, karst images and build cache use over 10 GB', nextStep: `remove finished sandboxes from the dashboard or run "Karst: Clean Up Orphan Sandboxes"; remove old image tags with \`${REMOVE_IMAGES_HINT}\`; trim the build cache with \`${PRUNE_CACHE_HINT}\`` } }
       : {}),
   };
-}
-
-function formatGb(bytes: number): string {
-  return `${(bytes / 1e9).toFixed(1)} GB`;
 }
 
 const UNITS: Readonly<Record<string, number>> = { B: 1, kB: 1e3, KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 };
@@ -111,7 +116,8 @@ export function checkSandboxSetupDeclared(selected: readonly ('sbx' | 'docker')[
       id: `manifest.sandbox-setup.${r.name}`,
       area: 'manifest' as const,
       status: 'warn' as const,
-      detail: `repository "${r.name}" has a lockfile but no sandbox.setup; sandboxed runs start without installed dependencies`,
+      title: 'Sandbox setup',
+      detail: `Repository "${r.name}" has a lockfile but no sandbox.setup; sandboxed runs start without installed dependencies`,
       fix: {
         tier: 'report' as const,
         summary: `repository "${r.name}" declares no sandbox.setup`,

@@ -25,7 +25,7 @@ function byId(checks: DoctorCheck[], id: string): DoctorCheck {
 }
 
 describe('checkManifest: manifest.valid', () => {
-  it('fails with consented fix when the manifest could not load', () => {
+  it('fails with a report fix when the manifest could not load', () => {
     const checks = checkManifest(
       probes({ manifest: undefined, manifestError: 'karst.yml:3 unknown key "stat"' }),
     );
@@ -33,7 +33,7 @@ describe('checkManifest: manifest.valid', () => {
     const c = byId(checks, 'manifest.valid');
     expect(c).toMatchObject({ area: 'manifest', status: 'fail' });
     expect(c.detail).toContain('unknown key "stat"');
-    expect(c.fix?.tier).toBe('consented');
+    expect(c.fix?.tier).toBe('report');
   });
 
   it('warns once when there is no manifest and no error', () => {
@@ -42,7 +42,7 @@ describe('checkManifest: manifest.valid', () => {
     const c = byId(checks, 'manifest.valid');
     expect(c.status).toBe('warn');
     expect(c.detail).toMatch(/no manifest/i);
-    expect(c.fix?.tier).toBe('consented');
+    expect(c.fix?.tier).toBe('report');
   });
 
   it('is ok with no fix for a loaded manifest', () => {
@@ -69,7 +69,7 @@ describe('checkManifest: manifest.repo-path', () => {
     expect(c.fix).toBeUndefined();
   });
 
-  it('fails with a consented fix when the path does not exist', () => {
+  it('fails with a report fix when the path does not exist', () => {
     const m = manifest({ api: repo({ repoPath: '/r/api' }) });
     const seen: string[] = [];
     const checks = checkManifest(
@@ -86,9 +86,9 @@ describe('checkManifest: manifest.repo-path', () => {
     expect(c.status).toBe('fail');
     expect(c.detail).toContain('/r/api');
     expect(c.fix).toEqual({
-      tier: 'consented',
+      tier: 'report',
       summary: expect.any(String),
-      command: 'Fix repoPath in karst.yml (use the typed setup tools)',
+      nextStep: 'Fix repoPath in karst.yml (use the typed setup tools)',
     });
   });
 
@@ -110,7 +110,7 @@ describe('checkManifest: manifest.repo-path', () => {
     expect(seen).toEqual(['/r/api']);
     expect(c.status).toBe('fail');
     expect(c.detail).toMatch(/not a git repo/i);
-    expect(c.fix?.tier).toBe('consented');
+    expect(c.fix?.tier).toBe('report');
   });
 });
 
@@ -172,7 +172,7 @@ describe('checkManifest: manifest.start', () => {
     expect(c.fix).toBeUndefined();
   });
 
-  it('fails with a consented fix when the binary does not resolve', () => {
+  it('fails with a report fix when the binary does not resolve', () => {
     const m = manifest({ web: runnableRepo({ start: 'pnpm dev' }, { repoPath: '/r/web' }) });
     const c = byId(
       checkManifest(probes({ manifest: m, binaryResolves: () => false })),
@@ -180,8 +180,8 @@ describe('checkManifest: manifest.start', () => {
     );
     expect(c.status).toBe('fail');
     expect(c.detail).toContain('pnpm');
-    expect(c.fix?.tier).toBe('consented');
-    expect(c.fix && 'command' in c.fix ? c.fix.command : '').toContain('web');
+    expect(c.fix?.tier).toBe('report');
+    expect(c.fix && 'nextStep' in c.fix ? c.fix.nextStep : '').toContain('web');
   });
 
   it('emits no start check when start is empty (docker-run service)', () => {
@@ -278,7 +278,7 @@ describe('checkManifest: manifest.depends-on', () => {
     expect(byId(checks, 'manifest.ports.mono/web').status).toBe('ok');
   });
 
-  it('fails with a consented fix when the target repository does not exist', () => {
+  it('fails with a report fix when the target repository does not exist', () => {
     const web = runnableRepo(
       { dependsOn: [dependsOn('ghost', 'http', [])] },
       { repoPath: '/r/web' },
@@ -289,7 +289,7 @@ describe('checkManifest: manifest.depends-on', () => {
     );
     expect(c.status).toBe('fail');
     expect(c.detail).toContain('ghost');
-    expect(c.fix?.tier).toBe('consented');
+    expect(c.fix?.tier).toBe('report');
   });
 
   it('does not resolve inherited object keys as repository names', () => {
@@ -329,7 +329,7 @@ describe('checkManifest: manifest.depends-on', () => {
     );
     expect(c.status).toBe('fail');
     expect(c.detail).toContain('grpc');
-    expect(c.fix?.tier).toBe('consented');
+    expect(c.fix?.tier).toBe('report');
   });
 });
 
@@ -385,9 +385,15 @@ describe('checkManifest: scope and shape', () => {
     const fixes = checks.flatMap((c) => (c.fix ? [c.fix] : []));
     expect(fixes).toHaveLength(5);
     for (const fix of fixes) {
-      expect(fix.tier).toBe('consented');
       expect(fix).not.toHaveProperty('action');
+      expect(fix.tier).not.toBe('auto');
     }
+    // Only the two exact commands are consented; prose is a report (DR-2).
+    const consented = fixes.flatMap((fix) => (fix.tier === 'consented' ? [fix.command] : []));
+    expect(consented).toEqual([
+      'git -C /r/api branch main origin/main',
+      'lsof -nP -iTCP:3000 -sTCP:LISTEN',
+    ]);
   });
 });
 

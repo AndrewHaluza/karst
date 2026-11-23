@@ -38,11 +38,12 @@ describe('checkTools', () => {
     expect(checks.map((c) => c.id)).toEqual(['tools.git', 'tools.npm', 'tools.gh']);
     expect(checks.every((c) => c.area === 'tools')).toBe(true);
     expect(checks.map((c) => c.status)).toEqual(['ok', 'ok', 'ok']);
-    expect(checkById(checks, 'tools.git').detail).toBe('git 2.43.0');
+    expect(checks.map((c) => c.title)).toEqual(['Git', 'Npm', 'GitHub CLI']);
+    expect(checkById(checks, 'tools.git').detail).toBe('Git 2.43.0');
     expect(checkById(checks, 'tools.git').fix).toBeUndefined();
   });
 
-  it('fails a missing tool with the install guidance as a consented fix', () => {
+  it('fails a missing tool with the install guidance as a report fix', () => {
     const checks = checkTools(
       probesFor({ probe: (binary) => binary !== 'npm' }),
     );
@@ -50,11 +51,14 @@ describe('checkTools', () => {
 
     expect(npm.status).toBe('fail');
     expect(npm.area).toBe('tools');
+    expect(npm.title).toBe('Npm');
     expect(npm.detail).toBe(renderMissingDependency(NPM_DEPENDENCY));
+    // The install text is a sentence, so it is a step the user reads, never a
+    // command the page offers to copy (DR-2).
     expect(npm.fix).toEqual({
-      tier: 'consented',
+      tier: 'report',
       summary: 'Install npm',
-      command: NPM_DEPENDENCY.install,
+      nextStep: NPM_DEPENDENCY.install,
     });
   });
 
@@ -65,6 +69,7 @@ describe('checkTools', () => {
     const gh = checkById(checks, 'tools.gh');
 
     expect(gh.status).toBe('fail');
+    expect(gh.title).toBe('GitHub CLI');
     expect(gh.detail).toContain('not signed in');
     expect(gh.fix).toEqual({
       tier: 'report',
@@ -73,16 +78,19 @@ describe('checkTools', () => {
     });
   });
 
-  it('warns when a tool is older than its minimum version, with a consented upgrade', () => {
+  it('warns when a tool is older than its minimum version, with a report-only upgrade', () => {
     const checks = checkTools(
       probesFor({ version: versions({ git: '2.10.0', npm: '10.2.0', gh: '2.50.0' }) }),
     );
     const git = checkById(checks, 'tools.git');
 
     expect(git.status).toBe('warn');
-    expect(git.detail).toContain('2.10.0');
-    expect(git.fix?.tier).toBe('consented');
-    expect(git.fix && 'command' in git.fix ? git.fix.command : '').toContain(MIN_VERSIONS.git);
+    expect(git.detail).toBe('Git 2.10.0 is older than 2.15.0, the oldest karst is tested with.');
+    expect(git.fix).toEqual({
+      tier: 'report',
+      summary: 'Upgrade Git',
+      nextStep: `Upgrade Git to ${MIN_VERSIONS.git} or newer, then reload the window.`,
+    });
   });
 
   it('treats an unparseable version string as ok, with a plain installed detail', () => {
@@ -92,7 +100,7 @@ describe('checkTools', () => {
     const git = checkById(checks, 'tools.git');
 
     expect(git.status).toBe('ok');
-    expect(git.detail).toBe('git is installed');
+    expect(git.detail).toBe('Git is installed');
   });
 
   it('treats a missing version as ok when the tool has no minimum', () => {
@@ -100,7 +108,7 @@ describe('checkTools', () => {
     const npm = checkById(checks, 'tools.npm');
 
     expect(npm.status).toBe('ok');
-    expect(npm.detail).toBe('npm is installed');
+    expect(npm.detail).toBe('Npm is installed');
   });
 
   it('compares versions numerically, not lexically, and treats missing parts as zero', () => {

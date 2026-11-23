@@ -29,10 +29,34 @@ async function run(store: ReturnType<typeof seed>, rest: string[]): Promise<Doct
 
 describe('karst doctor command', () => {
   it('parses flags and rejects junk', async () => {
-    expect(parseDoctorArgs(['doctor', '--fix', '--json', '--area', 'state'])).toEqual({ fix: true, json: true, areas: ['state'] });
+    expect(parseDoctorArgs(['doctor', '--fix', '--json', '--area', 'state'])).toEqual({ fix: true, json: true, areas: ['state'], only: [] });
     expect(() => parseDoctorArgs(['doctor', '--area'])).toThrow(/needs a value/);
     expect(() => parseDoctorArgs(['doctor', '--area', 'nope'])).toThrow(/--area/);
     expect(() => parseDoctorArgs(['doctor', 'x'])).toThrow(/unexpected/);
+  });
+
+  it('parses repeatable --only ids without splitting them', () => {
+    expect(parseDoctorArgs(['doctor', '--fix', '--only', 'a', '--only', 'b']).only).toEqual(['a', 'b']);
+    // A check id can hold a repo name or ticket key, so a comma is never a separator.
+    expect(
+      parseDoctorArgs(['doctor', '--fix', '--only', 'state.worktree-prune.T1320.api,web']).only,
+    ).toEqual(['state.worktree-prune.T1320.api,web']);
+    expect(parseDoctorArgs(['doctor', '--fix', '--only', 'manifest.sandbox-setup.my.repo']).only).toEqual([
+      'manifest.sandbox-setup.my.repo',
+    ]);
+  });
+
+  it('rejects --only without a value or without --fix', () => {
+    expect(() => parseDoctorArgs(['doctor', '--fix', '--only'])).toThrow(/karst doctor: --only needs a value/);
+    expect(() => parseDoctorArgs(['doctor', '--only', 'a'])).toThrow(/karst doctor: --only needs --fix/);
+  });
+
+  it('rejects --only without --fix before running any check', async () => {
+    const store = seed();
+    await expect(runDoctorCommand(store, ':memory:', undefined, ['doctor', '--json', '--only', 'state.schema'], {})).rejects.toThrow(
+      /--only needs --fix/,
+    );
+    expect(status(store)).toBe('running');
   });
 
   it('without --fix makes no writes', async () => {
@@ -52,6 +76,42 @@ describe('karst doctor command', () => {
     expect(report.applied).toHaveLength(1);
     expect(report.applied[0]).toMatchObject({ ok: true });
     expect(report.checks.some((c: { id: string }) => c.id.startsWith('state.server-dead'))).toBe(false);
+  });
+
+  it('--fix --only applies just the named auto fix and leaves the other one alone', async () => {
+    const store = seed();
+    store.db
+      .prepare("INSERT INTO servers (ticket_id, repo, pid, status, kind) VALUES (1, 'r2', 2147483645, 'running', 'service')")
+      .run();
+    const rows = store.db.prepare('SELECT id, status FROM servers ORDER BY id').all() as { id: number; status: string }[];
+    const [first, second] = rows;
+    if (!first || !second) throw new Error('expected two servers');
+
+    const report = JSON.parse(
+      (await run(store, ['--fix', '--json', '--only', `state.server-dead.${first.id}`, '--area', 'state'])).output,
+    );
+
+    const after = store.db.prepare('SELECT id, status FROM servers ORDER BY id').all() as { id: number; status: string }[];
+    expect(after).toEqual([
+      { id: first.id, status: 'stopped' },
+      { id: second.id, status: 'running' },
+    ]);
+    expect(report.applied).toEqual([expect.objectContaining({ checkId: `state.server-dead.${first.id}`, ok: true })]);
+  });
+
+  it('--fix --only reports an id that is gone as skipped and applies nothing else', async () => {
+    const store = seed();
+    const report = JSON.parse(
+      (await run(store, ['--fix', '--json', '--only', 'state.server-dead.999', '--area', 'state'])).output,
+    );
+    expect(report.applied).toContainEqual({
+      checkId: 'state.server-dead.999',
+      what: 'skipped state.server-dead.999',
+      why: 'the problem is gone',
+      evidence: 'not found when the fix ran',
+      ok: false,
+    });
+    expect(status(store)).toBe('running');
   });
 
   it('exits 1 when a check fails (schema mismatch is not fixable)', async () => {

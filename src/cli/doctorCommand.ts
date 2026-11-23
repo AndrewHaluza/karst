@@ -53,20 +53,27 @@ export interface ParsedDoctorArgs {
   fix: boolean;
   json: boolean;
   areas: DoctorArea[];
+  /** Check ids for `--fix --only <id>` (repeatable; never comma-split — ids hold repo names). */
+  only: string[];
 }
 
 export function parseDoctorArgs(rest: readonly string[]): ParsedDoctorArgs {
-  const out: ParsedDoctorArgs = { fix: false, json: false, areas: [] };
+  const out: ParsedDoctorArgs = { fix: false, json: false, areas: [], only: [] };
   for (let i = 1; i < rest.length; i++) {
     const t = rest[i]!;
     if (t === '--fix') out.fix = true;
     else if (t === '--json') out.json = true;
-    else if (t === '--area') {
+    else if (t === '--only') {
+      const v = rest[++i];
+      if (v === undefined) throw new Error('karst doctor: --only needs a value');
+      out.only.push(v);
+    } else if (t === '--area') {
       const v = rest[++i];
       if (v === undefined) throw new Error('karst doctor: --area needs a value');
       out.areas.push(parseDoctorArea(v));
     } else throw new Error(`karst doctor: unexpected argument '${t}'`);
   }
+  if (out.only.length > 0 && !out.fix) throw new Error('karst doctor: --only needs --fix');
   return out;
 }
 
@@ -297,6 +304,7 @@ export async function runDoctorCommand(
   }
   const report = await runDoctor({
     areas: args.areas, fix: args.fix,
+    ...(args.only.length > 0 ? { only: args.only } : {}),
     collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes, probe, gitHealth }),
     effects: fixEffects(store),
   });
