@@ -253,6 +253,9 @@
   "src/approaches/graph/coordinator/replan.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/approaches/graph/coordinator/replanDrain.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
   "src/approaches/graph/workspace/depsPlan.ts": [
     "arch:GRAPHDEPS"
   ],
@@ -569,6 +572,9 @@
     "arch:GRAPH-AUTORECOVERY"
   ],
   "src/extension/ops/graphRecoveryDispatch.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
+  "src/extension/ops/graphReplanDrain.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
   "src/extension/ops/hostUserUat.ts#hasRunningHostPlacedServices": [
