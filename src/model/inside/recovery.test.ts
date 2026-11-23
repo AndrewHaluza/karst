@@ -28,6 +28,7 @@ function round(extra: Partial<RecoveryRound> = {}): RecoveryRound {
     endedAt: null,
     interruptCount: 0,
     fixCommitSha: null,
+    noChangeReason: null,
     ...extra,
   };
 }

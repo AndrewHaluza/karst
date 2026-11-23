@@ -133,6 +133,7 @@ export function caseRound(
     endedAt: at(30),
     interruptCount: 0,
     fixCommitSha: null,
+    noChangeReason: null,
     ...over,
   };
 }

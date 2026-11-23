@@ -85,6 +85,7 @@ const EXPECTED_TABLES = [
   'uat_gate_passes',
   'fix_deliveries',
   'usage_limit_parks',
+  'fix_round_acceptances',
   'karst_events',
 ] as const;
 

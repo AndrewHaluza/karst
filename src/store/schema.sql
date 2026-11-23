@@ -388,6 +388,9 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   manifest_sha TEXT,      -- v108: sha256 of that file's bytes at that time; NULL = none or unreadable
   host_rerun_requested_at TEXT, -- v112: stamp of a refused host CLI fix marker that asked the extension for the host re-run
   host_rerun_pid INTEGER, -- v122: the pid of the host that claimed the re-run; NULL = none recorded (a pre-v122 claim)
+  no_change_reason TEXT,   -- v137: the agent's reason that no code change is correct (@arch:AC-66); NULL = none
+  no_change_at TEXT,       -- v137: stamp of that reason
+  no_change_rerun_at TEXT, -- v137: stamp of the one host re-run a no-change verdict buys (separate from host_rerun_at)
   CHECK (round <= max_rounds)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
@@ -1658,3 +1661,17 @@ CREATE TABLE IF NOT EXISTS karst_events (
 );
 CREATE INDEX IF NOT EXISTS idx_karst_events_project ON karst_events(project_id, id);
 CREATE INDEX IF NOT EXISTS idx_karst_events_unread ON karst_events(project_id, read_at);
+
+-- v137 fix_round_acceptances (kept in sync with FIX_ROUND_ACCEPTANCES_DDL in store/fixRoundAcceptances.ts, @arch:AC-66).
+-- One row per user decision to accept the open items of a parked fix round and continue. Append-only.
+CREATE TABLE IF NOT EXISTS fix_round_acceptances (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  round_id INTEGER NOT NULL REFERENCES recovery_rounds(id) ON DELETE CASCADE,
+  source_stage TEXT NOT NULL,
+  trigger_kind TEXT NOT NULL,
+  items TEXT NOT NULL,
+  note TEXT,
+  decided_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fix_round_acceptances_ticket ON fix_round_acceptances(ticket_id, id);

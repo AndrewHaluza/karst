@@ -14,6 +14,7 @@ import { KARST_EVENTS_DDL } from './karstEvents.js';
 import { BASELINE_DECISIONS_DDL } from './baselineDecisions.js';
 import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
 import { FIX_DELIVERIES_DDL } from './fixDeliveries.js';
+import { FIX_ROUND_ACCEPTANCES_DDL } from './fixRoundAcceptances.js';
 import { USAGE_LIMIT_PARKS_DDL } from './usageLimitParks.js';
 import { CLOUD_SESSION_LINKS_DDL } from './cloudSessionLinks.js';
 import { FIX_ROUND_HEADS_DDL } from './fixRoundHeads.js';
@@ -3129,6 +3130,15 @@ function migrateLocked(db: Database): void {
     for (const col of ['reset_at', 'carry_provider', 'carry_model', 'carry_until']) {
       if (parkCols136.size > 0 && !parkCols136.has(col)) db.exec(`ALTER TABLE usage_limit_parks ADD COLUMN ${col} TEXT`);
     }
+  }
+
+  if (current < 137) {
+    // v137: `recovery_rounds.no_change_reason`, `no_change_at`, `no_change_rerun_at` and the `fix_round_acceptances` table (@arch:AC-66). Additive; NULL = no no-change verdict (no backfill).
+    const roundCols137 = tableColumns(db, 'recovery_rounds');
+    for (const col of ['no_change_reason', 'no_change_at', 'no_change_rerun_at']) {
+      if (roundCols137.size > 0 && !roundCols137.has(col)) db.exec(`ALTER TABLE recovery_rounds ADD COLUMN ${col} TEXT`);
+    }
+    db.exec(FIX_ROUND_ACCEPTANCES_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
