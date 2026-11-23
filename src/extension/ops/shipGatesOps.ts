@@ -88,15 +88,49 @@ interface PlannedRepo {
 
 const STOPPED = 'stopped: a newer push superseded this run';
 
+/** A ship gate that exited non-zero: its name and the output an environment classifier reads (T1315). */
+export interface FailedShipGate {
+  readonly name: string;
+  /** The repo whose worktree ran it: a re-run needs only the repos that actually failed. */
+  readonly repo: string;
+  /** The gate's whole captured output. */
+  readonly output: string;
+  /** The failure summary the run stored, when there is one: it leads with the signature line when the runner stored it. */
+  readonly summary?: string | null;
+}
+
+/**
+ * What a ship gate run did: the first failure for the deliver path, and every failed gate with its output, so the
+ * auto-deliver can tell an environment fault from one that needs an agent (@arch:GATE-ENV-RERUN, T1315).
+ */
+export interface ShipGateReport {
+  /** Null when every gate passed (or there is nothing to run); else the first failure. */
+  readonly reason: string | null;
+  /** Every gate that exited non-zero, in run order. */
+  readonly failed: readonly FailedShipGate[];
+  /**
+   * True when a repo failed before a later repo's gates ran. A re-run of only the failed gates would leave that repo
+   * ungated, so the refusal stands instead.
+   */
+  readonly incomplete?: boolean;
+}
+
+const PASSED: ShipGateReport = { reason: null, failed: [] };
+
 /** Null when every gate passed (or there is nothing to run); else the first failure. */
 export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps): Promise<string | null> {
+  return (await runShipGatesReport(prs, d)).reason;
+}
+
+/** The same run, with every failed gate and its output: the auto-deliver's environment re-run needs that detail (T1315). */
+export async function runShipGatesReport(prs: readonly DeliverPr[], d: ShipGatesDeps): Promise<ShipGateReport> {
   const planned: PlannedRepo[] = [];
   for (const pr of prs) {
     const probe = probeScripts(pr.cwd, d.debug);
     const resolution = resolveTargetGates(probe, d.uat, [pr.repo], [], d.debug);
     if (resolution.kind === 'unavailable') {
       if (resolution.blocker === 'nothing-to-run') continue;
-      return `${pr.repo}: ${resolution.reason}`;
+      return { reason: `${pr.repo}: ${resolution.reason}`, failed: [] };
     }
     const baseRef = d.gateEnv?.(pr).baseRef;
     const cut = d.uiChanged !== undefined
@@ -108,23 +142,27 @@ export async function runShipGates(prs: readonly DeliverPr[], d: ShipGatesDeps):
     planned.push({ pr, probe, gates: cut.kept.filter(wanted), skipped: cut.skipped.filter(wanted) });
   }
   // An abort during planning (a newer push superseded this run): open no run, or it would close the newer one.
-  if (d.signal?.aborted) return STOPPED;
+  if (d.signal?.aborted) return { reason: STOPPED, failed: [] };
   const runId = await openRun(planned, d);
-  if (runId === null && d.signal?.aborted) return STOPPED; // aborted while the head was read: no run, no gate
+  if (d.signal?.aborted) return { reason: STOPPED, failed: [] }; // aborted while the head was read: no run, no gate
   if (runId !== null) d.onRunOpened?.(runId);
-  let failure: string | null = null;
+  let report: ShipGateReport = PASSED;
   try {
-    for (const p of planned) {
-      failure = await runRepo(p, d, runId);
-      if (failure !== null) break;
+    for (let i = 0; i < planned.length; i += 1) {
+      const ran = await runRepo(planned[i]!, d, runId);
+      if (ran.reason === null) continue;
+      // A later repo never gated: its gates are told apart from the failed ones, so nothing re-runs a subset (T1315).
+      report = i < planned.length - 1 ? { ...ran, incomplete: true } : ran;
+      break;
     }
   } finally {
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: openRun opens a run only for an evidence target, so a run id and an evidence target are one condition
     if (runId !== null && d.evidence) {
-      finishDeliverRun(d.evidence.store, runId, failure === null ? 'passed' : d.signal?.aborted ? 'stopped' : 'failed', nowIso());
+      finishDeliverRun(d.evidence.store, runId, report.reason === null ? 'passed' : d.signal?.aborted ? 'stopped' : 'failed', nowIso());
       d.onProgress?.();
     }
   }
-  return failure;
+  return report;
 }
 
 function cutByBaseDelta(gates: readonly ResolvedGate[], uiChanged: boolean): { kept: ResolvedGate[]; skipped: ResolvedGate[] } {
@@ -144,7 +182,7 @@ async function openRun(planned: readonly PlannedRepo[], d: ShipGatesDeps): Promi
   return id;
 }
 
-async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): Promise<string | null> {
+async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): Promise<ShipGateReport> {
   const { pr, probe } = p;
   const store = d.evidence?.store;
   const head = d.headSha ? await d.headSha(pr.cwd) : null;
@@ -194,13 +232,19 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
       d.onProgress?.();
     },
   }).finally(clearLive);
-  if (ran.kind === 'stopped') return `${pr.repo}: gate run was stopped`;
+  if (ran.kind === 'stopped') return { reason: `${pr.repo}: gate run was stopped`, failed: [] };
   for (const r of ran.results) {
-    if (r.exitCode === null && r.hostRefused) return `${pr.repo}: gate "${r.name}" could not run (refused by the host boundary), so the merge is not verified`;
+    // A refused gate never ran (no exit code, `@arch:GATE-CAPABILITY`): no verdict, and nothing a re-run could ask for.
+    if (r.hostRefused) return { reason: `${pr.repo}: gate "${r.name}" could not run (refused by the host boundary), so the merge is not verified`, failed: [] };
     if (r.exitCode === null || r.exitCode === 0) continue;
-    return `${pr.repo}: gate "${r.name}" failed (exit ${r.exitCode})${summaryOf(r.output)}`;
+    // The list runs no short-circuit (a gate list runs to the end), so every failed gate is known here: the environment
+    // re-run needs all of them, and the first one in run order is the reason the deliver path shows (T1315).
+    return {
+      reason: `${pr.repo}: gate "${r.name}" failed (exit ${r.exitCode})${summaryOf(r.output)}`,
+      failed: ran.results.filter((x) => x.exitCode !== null && x.exitCode !== 0).map((x) => ({ name: x.name, repo: pr.repo, output: x.output, summary: summarizeGateFailure(x.output) })),
+    };
   }
-  return null;
+  return PASSED;
 }
 
 /**

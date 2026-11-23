@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { runShipGates, scopeLinesOf } from './shipGatesOps.js';
+import { describe, expect, it, vi } from 'vitest';
+import { runShipGates, runShipGatesReport, scopeLinesOf } from './shipGatesOps.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { currentDeliverRun, listDeliverResults } from '../../store/deliverRuns.js';
@@ -41,6 +41,22 @@ describe('runShipGates', () => {
     expect(r).toMatch(/^r: gate "test" failed \(exit 1\)/);
     expect(seen).toEqual([a.cwd]);
   });
+
+  it('tells a repo that never gated because an earlier one failed (T1315)', async () => {
+    const runProcess: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 1, output: 'boom' });
+    const a = repoWith({ test: 'x' });
+    const b = { ...repoWith({ test: 'x' }), repo: 'second' };
+    const first = await runShipGatesReport([a, b], { uat: undefined, runProcess });
+    expect(first.failed.map((g) => g.name)).toEqual(['test']);
+    expect(first.failed[0]?.output).toBe('boom');
+    expect(first.incomplete).toBe(true);
+    const last = await runShipGatesReport([a, b], {
+      uat: undefined,
+      runProcess: async (_c, _a, cwd) => ({ kind: 'completed', exitCode: cwd === a.cwd ? 0 : 1, output: cwd === a.cwd ? 'ok' : 'boom' }),
+    });
+    expect(last.incomplete).toBeUndefined();
+    expect(last.failed.map((g) => g.name)).toEqual(['test']);
+  });
   it('a declared command gate runs without a package.json', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
     const uat = { gates: [{ name: 'lint', kind: 'command', command: 'ruff', args: ['check'] }], repositories: {} } as never;
@@ -52,8 +68,10 @@ describe('runShipGates', () => {
   it('blocks with the repo and reason when the probe cannot read package.json', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
     mkdirSync(join(cwd, 'package.json'));
-    const r = await runShipGates([{ repo: 'io', number: 1, branch: 'b', cwd }], { uat: undefined, runProcess: exits(0) });
-    expect(r).toMatch(/^io: cannot read package\.json/);
+    const report = await runShipGatesReport([{ repo: 'io', number: 1, branch: 'b', cwd }], { uat: undefined, runProcess: exits(0) });
+    expect(report.reason).toMatch(/^io: cannot read package\.json/);
+    // No gate ran, so there is nothing for the environment re-run to look at (T1315).
+    expect(report.failed).toEqual([]);
   });
   it('treats a gate that never started (no exit code) as no verdict, not a failure', async () => {
     const runProcess: GateProcessRunner = async () => ({ kind: 'spawnFailed', message: 'ENOENT' }) as never;
@@ -63,8 +81,11 @@ describe('runShipGates', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
     const uat = { gates: [{ name: 'docs', kind: 'command', command: 'x', args: [], sandbox: 'host' }], repositories: {} } as never;
     const refuse: GateProcessRunner = async () => ({ kind: 'spawnFailed', message: 'no exec', output: 'refused' }) as never;
-    const r = await runShipGates([{ repo: 'sb', number: 1, branch: 'b', cwd }], { uat, runProcess: refuse, hostProcess: refuse });
-    expect(r).toBe('sb: gate "docs" could not run (refused by the host boundary), so the merge is not verified');
+    const report = await runShipGatesReport([{ repo: 'sb', number: 1, branch: 'b', cwd }], { uat, runProcess: refuse, hostProcess: refuse });
+    expect(report.reason).toBe('sb: gate "docs" could not run (refused by the host boundary), so the merge is not verified');
+    // A gate that never ran has no output for the environment classifier: it is never a re-run candidate (T1315).
+    expect(report.failed).toEqual([]);
+    expect(await runShipGates([{ repo: 'sb', number: 1, branch: 'b', cwd }], { uat, runProcess: refuse, hostProcess: refuse })).toBe(report.reason);
   });
   it('runs every gate with the ticket citations as PR_BODY and its base branch', async () => {
     const argsSeen: Array<readonly string[]> = [];
@@ -208,8 +229,9 @@ describe('runShipGates evidence (T1018)', () => {
       if (n === 2) { ac.abort(); return { kind: 'aborted' } as never; }
       return { kind: 'completed', exitCode: 0, output: '' };
     };
-    const out = await runShipGates([pr], { uat: twoGates, runProcess, signal: ac.signal, evidence: { store, ticketId }, headSha: async () => 'a'.repeat(40) });
-    expect(out).toMatch(/gate run was stopped/);
+    const report = await runShipGatesReport([pr], { uat: twoGates, runProcess, signal: ac.signal, evidence: { store, ticketId }, headSha: async () => 'a'.repeat(40) });
+    expect(report.reason).toMatch(/gate run was stopped/);
+    expect(report.failed).toEqual([]);
     expect(listDeliverResults(store, ticketId).map((r) => r.gateName)).toEqual(['unit']);
     expect(currentDeliverRun(store, ticketId)?.state).toBe('stopped');
   });
@@ -379,14 +401,63 @@ describe('runShipGates UI cut (same rule as UAT)', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
     const ac = new AbortController();
     const opened: number[] = [];
-    const out = await runShipGates([{ repo: 'r', number: 1, branch: 'b', cwd }], {
+    const out = await runShipGatesReport([{ repo: 'r', number: 1, branch: 'b', cwd }], {
       uat, runProcess, evidence: { store, ticketId }, signal: ac.signal, onRunOpened: (id) => opened.push(id),
       headSha: async () => { ac.abort(); return 'd'.repeat(40); },
     });
-    expect(out).not.toBeNull();
+    expect(out.reason).toBe('stopped: a newer push superseded this run');
+    expect(out.failed).toEqual([]);
     expect(ran).toEqual([]);
     expect(opened).toEqual([]);
     expect(currentDeliverRun(store, ticketId)).toBeNull();
+  });
+
+  it('opens no run and runs no gate when the signal was already aborted', async () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicket(store, { key: 'T-5', title: 't' }).id;
+    const uat = { gates: [{ name: 'lint', kind: 'command', command: 'b' }], repositories: {} } as never;
+    const ran: string[] = [];
+    const runProcess: GateProcessRunner = async (cmd) => { ran.push(cmd); return { kind: 'completed', exitCode: 0, output: '' }; };
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const ac = new AbortController();
+    ac.abort();
+    const heads = vi.fn(async () => 'e'.repeat(40));
+    const out = await runShipGatesReport([{ repo: 'r', number: 1, branch: 'b', cwd }], {
+      uat, runProcess, evidence: { store, ticketId }, signal: ac.signal, headSha: heads,
+    });
+    expect(out.reason).toBe('stopped: a newer push superseded this run');
+    expect(out.failed).toEqual([]);
+    expect(ran).toEqual([]);
+    // The guard saves the head read too: an aborted run must not touch git before it returns.
+    expect(heads).not.toHaveBeenCalled();
+    expect(currentDeliverRun(store, ticketId)).toBeNull();
+  });
+
+  it('reports every failed gate of a mixed run with its repo, output and summary (T1315)', async () => {
+    const uat = { gates: [
+      { name: 'lint', kind: 'command', command: 'a' }, { name: 'unit', kind: 'command', command: 'b' }, { name: 'types', kind: 'command', command: 'c' },
+    ], repositories: {} } as never;
+    const runProcess: GateProcessRunner = async (cmd) => {
+      if (cmd === 'b') return { kind: 'completed', exitCode: 1, output: 'base check skipped: some vitest failures are not parseable' };
+      if (cmd === 'c') return { kind: 'completed', exitCode: 2, output: 'src/a.ts(2,3): error TS2322' };
+      return { kind: 'completed', exitCode: 0, output: 'ok' };
+    };
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const report = await runShipGatesReport([{ repo: 'r', number: 1, branch: 'b', cwd }], { uat, runProcess });
+    // The reason names the FIRST failure in run order; `failed` names every failure, so the environment guard sees the
+    // whole batch (one signed gate beside one real failure must not be retried).
+    expect(report.reason).toBe('r: gate "unit" failed (exit 1) — base check skipped: some vitest failures are not parseable');
+    expect(report.failed.map((g) => [g.name, g.repo])).toEqual([['unit', 'r'], ['types', 'r']]);
+    expect(report.failed[0]).toMatchObject({ name: 'unit', repo: 'r', output: 'base check skipped: some vitest failures are not parseable', summary: 'base check skipped: some vitest failures are not parseable' });
+  });
+
+  it('lists only the gates that exited non-zero, never one that did not run (T1315)', async () => {
+    // A discovered script whose binary vanished has no verdict (exit code null): it must not reach the re-run set.
+    const runProcess: GateProcessRunner = async (_c, args) =>
+      args.includes('e2e') ? ({ kind: 'spawnFailed', message: 'ENOENT', output: '' } as never) : { kind: 'completed', exitCode: 1, output: 'boom: broke' };
+    const report = await runShipGatesReport([repoWith({ test: 'x', e2e: 'y' })], { uat: undefined, runProcess });
+    expect(report.reason).toMatch(/^r: gate "(test|e2e)" failed \(exit 1\)/);
+    expect(report.failed.map((g) => g.name)).toEqual(['test']);
   });
 
   it('does not report a run id when no run is opened (no evidence target)', async () => {

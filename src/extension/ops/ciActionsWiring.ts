@@ -14,7 +14,7 @@ import { sendGateFailureToAgent } from './baseMovedFailureOps.js';
 import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { deliverToPr, refreshUndelivered, type UndeliveredTracker } from './deliverToPrOps.js';
 import { deliverTargets, type DeliverPr } from '../../workflow/deliverState.js';
-import { runShipGates, type ShipGatesDeps } from './shipGatesOps.js';
+import { runShipGates, runShipGatesReport, type ShipGatesDeps } from './shipGatesOps.js';
 import { checkBaseMoved } from './baseMovedCheck.js';
 import { remedyBaseMoved } from './baseMovedRemedy.js';
 import { latestBaseMovedFailedGates } from '../../workflow/baseMovedFailure.js';
@@ -453,7 +453,11 @@ export function autoDeliverAction(
     ticketId: i.ticketId,
     key: extra.key, status: extra.status, log: extra.log,
     rounds: conflictRounds,
-    runGates: (prs, signal) => runShipGates(prs, { ...extra.gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: (cwd) => headShaOf(i, cwd), onProgress: i.afterServerChange }),
+    runGates: (prs, signal, only) => runShipGatesReport(prs, {
+      ...extra.gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: (cwd) => headShaOf(i, cwd),
+      onProgress: i.afterServerChange, ...(only ? { only } : {}),
+    }),
+    mergeSha: (pr) => headShaOf(i, pr.cwd),
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),

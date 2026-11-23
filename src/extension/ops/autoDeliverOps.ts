@@ -6,6 +6,8 @@ import { getTicket } from '../../store/tickets.js';
 import { getMergeCheck } from '../../store/mergeChecks.js';
 import { clearConflictRound } from '../../store/autopilot.js';
 import { shortSha } from '../../model/inside/deliver.js';
+import type { FailedShipGate, ShipGateReport } from './shipGatesOps.js';
+import { environmentSignature, signatureOfSummary } from '../../workflow/gates/environmentSignature.js';
 
 /**
  * Auto-delivery of a resolved merge conflict at ship (arch:AC-39, D247).
@@ -27,11 +29,30 @@ export interface ResolvedRound {
   readonly files: readonly string[];
 }
 
+/**
+ * Why a delivery of a VERIFIED merge was refused: the merge passed `verifyMergeResolved`, so only a gate or the base
+ * check stopped it. The park names it instead of waiting for a Stop that never comes (@arch:AP-01, T1315).
+ */
+export interface RoundRefusal {
+  readonly repo: string;
+  /** The tail of the park reason: `gate "unit" failed`, `the base check failed`. */
+  readonly tail: string;
+  /** The merge commit that is ready in the worktree, or null when git could not read it. */
+  readonly sha: string | null;
+}
+
 export interface ConflictRounds {
   arm(ticketId: number, round: ResolvedRound): void;
   armed(ticketId: number): ResolvedRound | null;
   /** When the round was armed (ms), or null. */
   armedAt(ticketId: number): number | null;
+  /** When the last auto-deliver of the round ended (ms), or null when none ran since the round armed (T1315). */
+  deliveredAt(ticketId: number): number | null;
+  /** The auto-deliver of the round ended: the stall clock counts from here, not from the receipt. */
+  markDelivered(ticketId: number): void;
+  /** Why the last auto-deliver refused a verified merge, or null (T1315). */
+  refusal(ticketId: number): RoundRefusal | null;
+  refuse(ticketId: number, refusal: RoundRefusal): void;
   disarm(ticketId: number): void;
 }
 
@@ -42,15 +63,29 @@ export interface ConflictRounds {
 export function createConflictRounds(onDisarm?: (ticketId: number) => void): ConflictRounds {
   const byTicket = new Map<number, ResolvedRound>();
   const since = new Map<number, number>();
+  const delivered = new Map<number, number>();
+  const refusals = new Map<number, RoundRefusal>();
   return {
     arm: (ticketId, round) => {
       byTicket.set(ticketId, round);
       const now = Date.now();
       since.set(ticketId, now);
+      delivered.delete(ticketId);
+      refusals.delete(ticketId);
     },
     armedAt: (ticketId) => since.get(ticketId) ?? null,
     armed: (ticketId) => byTicket.get(ticketId) ?? null,
-    disarm: (ticketId) => { byTicket.delete(ticketId); since.delete(ticketId); onDisarm?.(ticketId); },
+    deliveredAt: (ticketId) => delivered.get(ticketId) ?? null,
+    markDelivered: (ticketId) => { delivered.set(ticketId, Date.now()); },
+    refusal: (ticketId) => refusals.get(ticketId) ?? null,
+    refuse: (ticketId, refusal) => { refusals.set(ticketId, refusal); },
+    disarm: (ticketId) => {
+      byTicket.delete(ticketId);
+      since.delete(ticketId);
+      delivered.delete(ticketId);
+      refusals.delete(ticketId);
+      onDisarm?.(ticketId);
+    },
   };
 }
 
@@ -87,7 +122,9 @@ export interface AutoDeliverDeps extends Omit<DeliverDeps, 'verify'> {
   /** Null when the merge is finished and the ship-stage gates pass on it; else the reason. */
   readonly verifyMerge: (pr: DeliverPr, round: ResolvedRound) => Promise<string | null>;
   /** `signal` aborts the running gate process when a manual Deliver takes over (T1018). */
-  readonly runGates: (prs: readonly DeliverPr[], signal: AbortSignal) => Promise<string | null>;
+  readonly runGates: (prs: readonly DeliverPr[], signal: AbortSignal, only?: readonly string[]) => Promise<ShipGateReport>;
+  /** The merged HEAD sha of a PR's worktree: the merge commit a refusal names (@arch:AP-01). Absent → no sha in the park. */
+  readonly mergeSha?: (pr: DeliverPr) => Promise<string | null>;
   /**
    * Runs after the ship gates pass: the branch merged with the moved base, as CI tests it (D541, `baseMovedCheck.ts`).
    * Null = nothing to stop the push (base unchanged, merge passed, or not checkable); else the reason, shown as a ship
@@ -182,9 +219,10 @@ export function isAutoDelivering(ticketId: number): boolean {
 export const CONFLICT_ROUND_STALL_MS = 5 * 60_000;
 
 /**
- * The stall clock starts at the receipt: the agent's `fix-brief --ack` read of the stored conflict brief, or the launch
- * seed (@arch:AP-01). A round with no receipt is never stalled here: `fixDeliverySweep` re-sends the pointer and
- * raises needs-you, and the round is not dropped. A receipt and no merge after the stall time is a round that did not deliver.
+ * The stall clock starts at the LATER of the receipt and the end of the last auto-deliver of the round (T1315). The receipt
+ * is the agent's `fix-brief --ack` read of the stored conflict brief, or the launch seed (@arch:AP-01); a delivery whose
+ * gates ran for 25 minutes must not be dropped the second its push is refused. A round with no receipt is never stalled
+ * here: `fixDeliverySweep` re-sends the pointer and raises needs-you, and the round is not dropped.
  * `receiptAt(repo)` is the ISO read time of the latest conflict delivery of the round's repo, or null.
  */
 export function isConflictRoundStalled(
@@ -199,7 +237,9 @@ export function isConflictRoundStalled(
   const receipt = receiptAt(round.repo);
   if (receipt === null) return false;
   const at = Date.parse(receipt);
-  return Number.isFinite(at) && now - at > CONFLICT_ROUND_STALL_MS;
+  const delivered = rounds.deliveredAt(ticketId) ?? Number.NEGATIVE_INFINITY;
+  // A receipt that is not a date gives a NaN start, and a NaN comparison is never true: that round is not stalled here.
+  return now - Math.max(at, delivered) > CONFLICT_ROUND_STALL_MS;
 }
 
 /**
@@ -244,6 +284,54 @@ export function endConflictRoundOnDeliver(rounds: ConflictRounds, ticketId: numb
   return true;
 }
 
+/**
+ * The environment reason of every failed gate, or null when one failure needs an agent. A gate that could not run at all
+ * (a refused or unresolvable gate) has no exit code and no output, so it is never an environment fault (T1315). An empty
+ * list gives an empty list: nothing failed, so there is nothing to re-run.
+ */
+export function environmentReasons(failed: readonly FailedShipGate[]): string[] | null {
+  const reasons: string[] = [];
+  for (const gate of failed) {
+    const reason = environmentSignature(gate.name, gate.output) ?? signatureOfSummary(gate.summary);
+    if (reason === null) return null;
+    reasons.push(`${gate.name} (${reason})`);
+  }
+  return reasons;
+}
+
+/** `gate "unit" failed` for a park reason; a plain statement when the run named no gate. */
+export function shipGateFailureTail(r: ShipGateReport): string {
+  const first = r.failed[0];
+  return first === undefined ? 'a ship gate failed' : `gate "${first.name}" failed`;
+}
+
+/**
+ * The ship gates, then ONE re-run of the failed gates when EVERY failure carried an environment signature (@arch:GATE-ENV-RERUN,
+ * T1315). The re-run uses the same signal and take-over rule as the first run. A real failure, a mixed one, or a run whose
+ * later repo never gated is never retried: a real failure must never be retried.
+ */
+async function runShipGatesWithRerun(d: AutoDeliverDeps, prs: readonly DeliverPr[], entry: InFlight): Promise<ShipGateReport> {
+  const first = await d.runGates(prs, entry.controller.signal);
+  // A manual Deliver got in during the run: it owns the push now, so no second gate run starts behind it.
+  if (entry.takenOver) return first;
+  const reasons = environmentReasons(first.failed);
+  // A pass, or a run that named no failed gate (a refused or unresolvable gate): nothing to re-run.
+  if (reasons === null || reasons.length === 0) return first;
+  if (first.incomplete === true) {
+    d.log(`[ship] ticket ${d.key} auto-deliver: the failed gates are not re-run, a repo after the failing one never gated: ${reasons.join(', ')}`);
+    return first;
+  }
+  d.log(`[ship] ticket ${d.key} auto-deliver: re-running the failed gates once, every failure carried an environment signature: ${reasons.join(', ')}`);
+  const repos = new Set(first.failed.map((g) => g.repo));
+  return d.runGates(prs.filter((p) => repos.has(p.repo)), entry.controller.signal, first.failed.map((g) => g.name));
+}
+
+/** The merge commit a refusal names: absent or unreadable → no sha, never a failing delivery. */
+async function mergeShaOf(d: AutoDeliverDeps, pr: DeliverPr): Promise<string | null> {
+  if (d.mergeSha === undefined) return null;
+  return d.mergeSha(pr).catch(() => null);
+}
+
 /** Run on a Stop/session.idle of a ticket; a no-op unless a Resolve-conflicts round is armed for it. */
 export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void> {
   const round = d.rounds.armed(d.ticketId);
@@ -269,16 +357,20 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
           d.error(`conflict resolve did not finish: ${unfinished}`);
           return unfinished;
         }
-        const failed = await d.runGates(targets.prs, entry.controller.signal);
+        const gates = await runShipGatesWithRerun(d, targets.prs, entry);
         if (entry.takenOver) return TAKEN_OVER;
-        if (failed !== null) {
-          d.error(`Resolved merge not delivered: a ship-stage gate failed — ${failed}`);
-          return failed;
+        if (gates.reason !== null) {
+          d.error(`Resolved merge not delivered: a ship-stage gate failed — ${gates.reason}`);
+          // The merge is finished and correct: only a gate stopped the delivery. Name it, so autopilot parks with the gate,
+          // the merge commit and the manual Deliver instead of dropping the round as one that never delivered (T1315).
+          d.rounds.refuse(d.ticketId, { repo: round.repo, tail: shipGateFailureTail(gates), sha: await mergeShaOf(d, pr) });
+          return gates.reason;
         }
         const baseFailure = d.checkBase ? await d.checkBase(pr, entry.controller.signal) : null;
         if (entry.takenOver) return TAKEN_OVER;
         if (baseFailure !== null) {
           d.error(`Resolved merge not delivered: ${baseFailure}`);
+          d.rounds.refuse(d.ticketId, { repo: round.repo, tail: 'the base check failed', sha: await mergeShaOf(d, pr) });
           return baseFailure;
         }
         // The gates ran for a while: confirm the tree they checked is still the finished merge.
@@ -294,6 +386,9 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
     d.log(`[ship] ticket ${d.key} auto-deliver after conflict resolve: ${outcome.kind}${'reason' in outcome ? ` (${outcome.reason})` : ''}`);
     });
   } finally {
+    // The stall clock counts from here, not from the receipt: a delivery whose gates ran for 25 minutes keeps its round
+    // alive for the stall time after the push is refused (T1315).
+    d.rounds.markDelivered(d.ticketId);
     inFlight.delete(d.ticketId);
   }
 }
@@ -317,6 +412,14 @@ export const conflictRounds = createConflictRounds((ticketId) => roundEnded?.(ti
 /** The host sets the store once: a round that ends (delivered, dropped, stopped) frees its sub-task slot. Host tickets only: the engine parks a sandboxed one first. */
 export function freeSlotOnConflictRoundEnd(store: Store): void {
   roundEnded = (ticketId) => clearConflictRound(store, ticketId);
+}
+
+/**
+ * Why the process's armed round of this ticket refused its delivery, or null (`@arch:AP-01`, T1315). It is round state,
+ * beside the armed round and its timestamps, so the Autopilot engine reads it the same way it reads the round itself.
+ */
+export function conflictRoundRefusal(ticketId: number): RoundRefusal | null {
+  return conflictRounds.refusal(ticketId);
 }
 
 /** The result of the gates a manual Deliver skipped, run on the pushed head. */

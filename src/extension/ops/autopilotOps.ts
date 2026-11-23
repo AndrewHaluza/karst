@@ -8,6 +8,8 @@ import { clearOpenPrProbe } from '../../store/prs.js';
 import { mergeHeadFactsByRepo } from '../../store/mergeHeads.js';
 import { isLocalHeadUnpushed } from '../../model/inside/deliver.js';
 import type { ResumeOutcome } from './conflictResumeOps.js';
+import { conflictRoundRefusal, type RoundRefusal } from './autoDeliverOps.js';
+import { holdsPark, refusedMergeBody, refusedMergeReason, STALLED_REASON, UNFINISHED_BODY } from './autopilotRefusal.js';
 import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
@@ -86,6 +88,12 @@ export interface AutopilotDeps {
   readonly isDraining?: () => boolean;
   /** True when a conflict round is armed but never delivered; the engine drops it with a note. */
   readonly conflictRoundStalled: () => boolean;
+  /**
+   * Why the last auto-deliver refused a merge that passed the merge check (only a gate or the base check stopped it): the
+   * round parks at once, naming the gate and the merge commit, instead of waiting for a retry that never comes (T1315).
+   * Absent → the process's armed round (`conflictRoundRefusal`), where the delivery records it.
+   */
+  readonly conflictRoundRefused?: () => RoundRefusal | null;
   readonly dropConflictRound: () => void;
   /**
    * Delivers a merge that is finished in the worktree but not pushed, with no new round (@arch:AP-01). `fromRound`: the store
@@ -122,8 +130,6 @@ const LOG = '[ship] autopilot';
 const GRAPH_REASON = 'auto-fix not run: graph ticket';
 const UNKNOWN_PLACEMENT_REASON = 'auto-fix not run: placement unknown';
 export const NO_CHANGE_BASE_MOVED_REASON = 'auto-fix stopped: base-moved round made no change';
-const UNFINISHED_BODY = 'the resolved merge was not delivered (the agent left it unfinished, or a gate failed). The round is dropped; approve one more attempt or resolve the conflict by hand.';
-const STALLED_REASON = 'auto-fix stopped: conflict round did not deliver';
 
 function openPrRepos(store: Store, ticketId: number): Set<string> {
   const rows = store.db
@@ -285,7 +291,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   if (getStage(d.store, d.ticketId, 'ship')?.status === 'running') return { kind: 'busy' };
   // An undelivered round parked the ticket: the CI rollup is of the old head, so no round starts until a person acts (approve
   // one more, set the mode) or the PRs are proven clean.
-  if (state.stoppedReason === STALLED_REASON && !provenClean(d)) return { kind: 'idle' };
+  if (holdsPark(state.stoppedReason) && !provenClean(d)) return { kind: 'idle' };
   // Only a SHIPPED ticket (the awaiting-merge block) is worked: a ticket that waits for Confirm ship has no block, and its
   // stored CI result belongs to an older head. Push-diverged and every other foreign block need a person too.
   // A failed base-moved check (`base-moved-failed`) is worked like a red CI rollup, by its own round (@arch:AP-00).
@@ -316,6 +322,16 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   } else {
     // Only a round the engine sent can stall: the round of a manual Resolve conflicts click is not ours to drop.
     const engineRound = getConflictRoundAt(d.store, d.ticketId) !== null;
+    // A refused delivery of a VERIFIED merge parks at once and names the gate (T1315): the agent is already idle, so the
+    // "next Stop retries" rule would leave the round armed for ever, and the stall rule would drop a merge that is ready.
+    const refusalOf = d.conflictRoundRefused ?? (() => conflictRoundRefusal(d.ticketId));
+    const refused = engineRound ? refusalOf() : null;
+    if (refused !== null) {
+      d.dropConflictRound();
+      clearConflictRound(d.store, d.ticketId);
+      d.debug(`${LOG} ticket ${d.key}: the resolved merge was not delivered (${refused.tail}); the round is dropped`);
+      return park(d, 'conflicts', refusedMergeReason(refused.tail), refusedMergeBody(refused), false, refused.sha);
+    }
     if (engineRound && d.conflictRoundStalled()) {
       d.dropConflictRound();
       armedNoted(d.store).delete(flightKeyOf(d));
