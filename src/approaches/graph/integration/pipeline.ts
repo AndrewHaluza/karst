@@ -81,7 +81,12 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { resolvePhysicalDomains, type DomainEntry, type PhysicalDomain } from './domains.js';
 import { normalizePatchFragment } from './patchFragment.js';
-import { captureUntrackedPaths, isPathWithinClaim, validateChangeSet } from './changeSet.js';
+import {
+  captureUntrackedPaths,
+  isPathWithinClaim,
+  validateChangeSet,
+  type ChangeSetEntry,
+} from './changeSet.js';
 import {
   blockGraphRun,
   captureDomainChangeSet,
@@ -180,6 +185,77 @@ function boundedGitReason(stderr: string): string {
   const line = stderr.split('\n').find((l) => l.trim() !== '');
   const collapsed = (line ?? 'git refused').trim().slice(0, 200);
   return collapsed;
+}
+
+/** The most ignored paths one git-add refusal reason names. */
+const MAX_IGNORED_PATHS_IN_REASON = 5;
+
+/** The header git prints before the paths an `add` refused as ignored. */
+const IGNORED_PATHS_HEADER = 'The following paths are ignored by one of your .gitignore files:';
+
+/**
+ * The paths git names in its ignored-paths refusal block: the lines after the
+ * header, up to the first `hint:` line or blank line.
+ *
+ * `git add --all -- <path>` refuses a TRACKED path inside a folder an ignore
+ * rule matches, and its FIRST stderr line is only the header — so
+ * `boundedGitReason` alone never names the path. The graph integration stages
+ * tracked entries with `git add -u`, which lets them through; a NEW file
+ * under the same rule still refuses, and this is how its reason names it.
+ * Returns no paths when the stderr carries no such block.
+ */
+export function ignoredPathsFromAddStderr(stderr: string): string[] {
+  const lines = stderr.split('\n');
+  const start = lines.findIndex((line) => line.trim() === IGNORED_PATHS_HEADER);
+  if (start === -1) return [];
+  const paths: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed.startsWith('hint:')) break;
+    paths.push(trimmed);
+  }
+  return paths;
+}
+
+/** The parenthetical detail of a refused `git add`: the ignored paths when git
+ *  named them, else the first stderr line. Bounded like `boundedGitReason`. */
+function addRefusalDetail(stderr: string): string {
+  const ignored = ignoredPathsFromAddStderr(stderr);
+  if (ignored.length === 0) return boundedGitReason(stderr);
+  const named = ignored.slice(0, MAX_IGNORED_PATHS_IN_REASON).join(', ');
+  return `ignored: ${named}`.slice(0, 200);
+}
+
+/**
+ * Stage a captured change set in the canonical worktree (T1331).
+ *
+ * TRACKED entries (`modified`, `deleted`) go through `git add -u`, which — unlike
+ * `git add -- <path>` — does NOT consult the ignore rules, so a tracked path
+ * inside a folder karst excludes (`.agents/skills/karst-<id>/`) still stages.
+ * NEW entries (`added`, `renamed`) go through `git add --all`: a path only the
+ * canonical excludes hide must still be refused, never force-added. Tracked
+ * first, then fresh; the first refusal stops the staging and is returned.
+ */
+async function stageCapturedChanges(
+  deps: CompletionPipelineDeps,
+  domain: PhysicalDomain,
+  entries: readonly ChangeSetEntry[],
+): Promise<{ exitCode: number; stderr: string } | undefined> {
+  const tracked: string[] = [];
+  const fresh: string[] = [];
+  for (const entry of entries) {
+    if (entry.kind === 'modified' || entry.kind === 'deleted') tracked.push(entry.path);
+    else fresh.push(entry.path);
+  }
+  if (tracked.length > 0) {
+    const staged = await deps.git(['add', '-u', '--', ...tracked], domain.canonicalWorktree);
+    if (staged.exitCode !== 0) return staged;
+  }
+  if (fresh.length > 0) {
+    const staged = await deps.git(['add', '--all', '--', ...fresh], domain.canonicalWorktree);
+    if (staged.exitCode !== 0) return staged;
+  }
+  return undefined;
 }
 
 /**
@@ -580,8 +656,8 @@ export async function runCompletionPipeline(
         return { kind: 'integration-conflict', reason: landed.stderr };
       }
     }
-    const add = await deps.git(['add', '--all', '--', ...paths], domain.canonicalWorktree);
-    if (add.exitCode !== 0) {
+    const add = await stageCapturedChanges(deps, domain, capture.entries);
+    if (add !== undefined && add.exitCode !== 0) {
       // The workspace patch is already in the canonical tree. Keep it there
       // (no reset, no checkout: both trees are preserved for diagnosis) and
       // say so, so the operator does not read the tree as untouched.
@@ -589,7 +665,7 @@ export async function runCompletionPipeline(
         capture.workspaceCwds.length > 0
           ? '; workspace changes already landed in the canonical worktree, preserved uncommitted for diagnosis'
           : '';
-      const reason = `integration-conflict: git add refused in ${domain.repoNames.join('/')} (${boundedGitReason(add.stderr)})${landedNote}`;
+      const reason = `integration-conflict: git add refused in ${domain.repoNames.join('/')} (${addRefusalDetail(add.stderr)})${landedNote}`;
       graphDiag('integration', reason);
       parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
         outcome: 'failed',

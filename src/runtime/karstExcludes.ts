@@ -22,10 +22,13 @@ import { join } from 'node:path';
  * but only when the session CLOSES, and ship commonly runs while it is still
  * open. Exclusion is the invariant; cleanup is the tidy-up.
  *
- * Ignore rules never apply to tracked files, which is what makes this safe for a
- * repository that checks in its own tree at one of these paths (karst's own
- * carries `.karst-plugin/rpi/` and the `karst-rpi` skill dirs): its changes
- * still show, and the adapters already refuse to claim a pre-existing directory.
+ * Ignore rules do not hide a TRACKED file from `git status` or a plain
+ * `git add -A`, which is what makes this safe for a repository that checks in
+ * its own tree at one of these paths (karst's own carries `.karst-plugin/rpi/`
+ * and the `karst-rpi` skill dirs): its changes still show, and the adapters
+ * already refuse to claim a pre-existing directory. The limit is `git add --
+ * <path>`: it refuses a tracked path inside an ignored folder, so the graph
+ * integration stages tracked paths with `git add -u` for that reason.
  *
  * Every rule is anchored at the working-tree root — unanchored, `.karst/` would
  * also hide a `src/.karst/` that belongs to the repository.

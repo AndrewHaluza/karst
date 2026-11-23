@@ -1781,3 +1781,125 @@ describe('runCompletionPipeline — workspace patch bytes (T1304)', () => {
     expect(readFileSync(join(ws, 'a.ts'), 'utf8')).toBe('ws-73\n');
   });
 });
+
+describe('runCompletionPipeline — a tracked path under a karst exclude rule (T1331)', () => {
+  // The canonical `.git/info/exclude` carries `/.agents/skills/karst-*/`
+  // (KARST_EXCLUDE_RULES), and this repository tracks its own skill under that
+  // folder. `git add -- <path>` refuses a TRACKED path inside an ignored
+  // folder; `git add -u -- <path>` does not. The node clone has no karst
+  // excludes, so capture and landing succeed and only the canonical add could
+  // fail — which is exactly the run that blocked with a half-staged tree.
+  const SKILL_DIR = '.agents/skills/karst-demo';
+  const SKILL_PATH = `${SKILL_DIR}/SKILL.md`;
+  const OTHER_PATH = `${SKILL_DIR}/OTHER.md`;
+  const EXCLUDE_RULE = '/.agents/skills/karst-*/';
+
+  /** Commit the tracked skill files, THEN write the karst exclude rule: the
+   *  rule hides untracked paths, never the tracked ones. Returns the new base. */
+  function excludedRepo(h: Harness): string {
+    mkdirSync(join(h.worktree, SKILL_DIR), { recursive: true });
+    writeFileSync(join(h.worktree, SKILL_PATH), 'skill v1\n');
+    writeFileSync(join(h.worktree, OTHER_PATH), 'other v1\n');
+    git(h.worktree, ['add', '-A']);
+    git(h.worktree, ['commit', '-qm', 'track the karst skill']);
+    const excludeFile = join(h.worktree, '.git/info/exclude');
+    writeFileSync(excludeFile, `${readFileSync(excludeFile, 'utf8')}${EXCLUDE_RULE}\n`);
+    return git(h.worktree, ['rev-parse', 'HEAD']);
+  }
+
+  /** A `completing` node that has a write claim on the skill folder and a
+   *  workspace clone cut from the base — the clone has no karst excludes. */
+  function excludedNode(h: Harness, id: number, baseSha: string) {
+    insertNodeRun(h, id, 'completing');
+    const domain = domainKeyOf(canonicalPath(h.worktree), gitCommonDirOf2(h.worktree));
+    recordBaseHead(h, id, domain, baseSha);
+    const ws = makeWorkspaceClone(h.worktree, baseSha);
+    return { domain, ws };
+  }
+
+  function depsFor(h: Harness, id: number, domain: string, ws: string): CompletionPipelineDeps {
+    return makeDeps(h, {
+      declaredWritesOf: () => [{ domainKey: domain, paths: [SKILL_DIR] }],
+      workspaceCwdOf: (nodeRunId) => (nodeRunId === id ? ws : undefined),
+    });
+  }
+
+  function blockedReason(h: Harness): string {
+    return (
+      h.db
+        .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
+        .get(h.graphRunId) as { blocked_reason: string | null }
+    ).blocked_reason ?? '';
+  }
+
+  it('modifies a tracked file under the excluded folder and commits the change', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const baseSha = excludedRepo(h);
+    const { domain, ws } = excludedNode(h, 81, baseSha);
+    expect(readFileSync(join(ws, '.git/info/exclude'), 'utf8')).not.toContain(EXCLUDE_RULE);
+    writeFileSync(join(ws, SKILL_PATH), 'skill v2\n');
+
+    const result = await runCompletionPipeline(depsFor(h, 81, domain, ws), {
+      graphRunId: h.graphRunId,
+      nodeRunId: 81,
+    });
+
+    expect(result).not.toEqual(expect.objectContaining({ kind: 'integration-conflict' }));
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(git(h.worktree, ['log', '--format=%s', '-1'])).toBe(
+      `${INTEGRATION_COMMIT_PREFIX} ${h.graphRunId} node 81`,
+    );
+    expect(git(h.worktree, ['show', `HEAD:${SKILL_PATH}`])).toBe('skill v2');
+    expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
+    expect(nodeRow(h, 81).status).toBe('completed');
+  });
+
+  it('deletes a tracked file under the excluded folder and commits the deletion', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const baseSha = excludedRepo(h);
+    const { domain, ws } = excludedNode(h, 82, baseSha);
+    rmSync(join(ws, OTHER_PATH));
+
+    const result = await runCompletionPipeline(depsFor(h, 82, domain, ws), {
+      graphRunId: h.graphRunId,
+      nodeRunId: 82,
+    });
+
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(git(h.worktree, ['log', '--format=%s', '-1'])).toBe(
+      `${INTEGRATION_COMMIT_PREFIX} ${h.graphRunId} node 82`,
+    );
+    expect(git(h.worktree, ['show', '--name-only', '--format=', 'HEAD']).split('\n')).toEqual([
+      OTHER_PATH,
+    ]);
+    expect(existsSync(join(h.worktree, OTHER_PATH))).toBe(false);
+    expect(nodeRow(h, 82).status).toBe('completed');
+  });
+
+  it('still refuses a NEW file under the excluded folder, and the reason names it', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const baseSha = excludedRepo(h);
+    const { domain, ws } = excludedNode(h, 83, baseSha);
+    const NEW_PATH = `${SKILL_DIR}/NEW.md`;
+    writeFileSync(join(ws, NEW_PATH), 'new skill file\n');
+
+    const result = await runCompletionPipeline(depsFor(h, 83, domain, ws), {
+      graphRunId: h.graphRunId,
+      nodeRunId: 83,
+    });
+
+    expect(result.kind).toBe('integration-conflict');
+    expect(nodeRow(h, 83)).toMatchObject({
+      status: 'blocked',
+      failure_category: 'integration-conflict',
+    });
+    expect(blockedReason(h)).toContain('integration-conflict: git add refused in api');
+    // Bounded reason names the refused path (git names the folder or the file).
+    expect(blockedReason(h)).toContain(`ignored: ${SKILL_DIR}`);
+    // Nothing committed: the base commit is still HEAD.
+    expect(git(h.worktree, ['rev-parse', 'HEAD'])).toBe(baseSha);
+  });
+});
