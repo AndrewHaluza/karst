@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { defaultGitRunner } from '../../integrations/git.js';
+import { formatId } from '../../model/entityId.js';
 import { plural } from '../../model/notifyText.js';
 import {
   inspectWorktree,
@@ -24,7 +25,10 @@ export interface CommitView {
   shortHash: string;
   subject: string;
   author: string;
+  /** The raw ISO instant, kept for `<time datetime>` and the row's `title`. */
   authoredAt: string;
+  /** `authoredAt` formatted for people (DF-16). */
+  authoredLabel: string;
   files: ChangedFileView[];
 }
 
@@ -43,12 +47,38 @@ export interface WorktreeChangesView {
 
 export interface TicketChangesState {
   ticketId: number;
+  /**
+   * The ticket's own name — the editor tab title without the ` — Changes`
+   * suffix (DF-17). The webview header shows it above the summary.
+   */
+  ticketLabel: string;
   worktreeCount: number;
   commitCount: number;
   pendingCount: number;
   worktrees: WorktreeChangesView[];
   /** The header summary, built host-side by `diffsSummaryText` (@arch:NTF-07). */
   summaryText: string;
+}
+
+/** Which part of the tree a changed file came from (DF-3). */
+export type SnapshotFileGroup = 'commit' | 'staged' | 'unstaged' | 'untracked';
+
+/**
+ * The host-only facts of one changed row, keyed by its opaque `changeId`.
+ *
+ * The webview names a `changeId` and nothing else, so the row action needs a
+ * path, a status and the worktree it belongs to — all of which the host
+ * resolved itself. Keeping them here (per snapshot, therefore per panel)
+ * replaces the window-wide `lastLoadedSnapshot` that made Discard in one panel
+ * act on another panel's data (DF-3).
+ */
+export interface SnapshotFileEntry {
+  /** Absolute path of the worktree the file lives in. */
+  repoPath: string;
+  /** Repo-relative path, as git reported it. */
+  path: string;
+  status: FileChangeStatus;
+  group: SnapshotFileGroup;
 }
 
 /** `1 commit · clean`, `2 commits · 1 pending` — one text for a worktree row. */
@@ -61,9 +91,32 @@ export function diffsSummaryText(worktreeCount: number, commitCount: number, pen
   return `${plural(worktreeCount, 'worktree', 'worktrees')} · ${plural(commitCount, 'commit', 'commits')} · ${pendingCount} pending`;
 }
 
+const AUTHORED_FORMAT = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+/**
+ * A commit's time, for people (DF-16). `git log` reports an ISO string, which
+ * the commit meta line used to show verbatim; this renders it in the reader's
+ * own locale and zone. `format` is injectable so a test can pin the output.
+ * An unparseable value is handed back unchanged rather than shown as
+ * "Invalid Date".
+ */
+export function authoredLabel(iso: string, format: Intl.DateTimeFormat = AUTHORED_FORMAT): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return format.format(date);
+}
+
 export interface TicketChangesSnapshot {
   state: TicketChangesState;
   targets: ReadonlyMap<string, DiffTarget>;
+  /**
+   * Host-only: what a row action needs, per `changeId` (DF-3). It is never
+   * posted to a webview — `state` is the only part that crosses the boundary.
+   */
+  files: ReadonlyMap<string, SnapshotFileEntry>;
 }
 
 /**
@@ -122,6 +175,7 @@ export async function buildTicketChangesSnapshot(
   ) => Promise<InspectedWorktree> = defaultInspect,
   makePrefix: () => string = () => randomBytes(16).toString('hex'),
   signal?: AbortSignal,
+  ticketLabel: string = formatId('ticket', ticketId),
 ): Promise<TicketChangesSnapshot> {
   throwIfAborted(signal);
   const settled = await Promise.all(
@@ -141,6 +195,7 @@ export async function buildTicketChangesSnapshot(
   );
   throwIfAborted(signal);
   const targets = new Map<string, DiffTarget>();
+  const files = new Map<string, SnapshotFileEntry>();
   const prefix = makePrefix();
   let counter = 0;
 
@@ -159,9 +214,13 @@ export async function buildTicketChangesSnapshot(
       };
     }
 
-    const changedFile = (file: InspectedFile): ChangedFileView => {
+    const changedFile = (
+      file: InspectedFile,
+      group: SnapshotFileGroup,
+    ): ChangedFileView => {
       const changeId = `${prefix}:${++counter}`;
       targets.set(changeId, file.target);
+      files.set(changeId, { repoPath: spec.path, path: file.path, status: file.status, group });
       return {
         changeId,
         status: file.status,
@@ -182,11 +241,12 @@ export async function buildTicketChangesSnapshot(
         subject: commit.subject,
         author: commit.author,
         authoredAt: commit.authoredAt,
-        files: commit.files.map(changedFile),
+        authoredLabel: authoredLabel(commit.authoredAt),
+        files: commit.files.map((file) => changedFile(file, 'commit')),
       })),
-      staged: inspected.staged.map(changedFile),
-      unstaged: inspected.unstaged.map(changedFile),
-      untracked: inspected.untracked.map(changedFile),
+      staged: inspected.staged.map((file) => changedFile(file, 'staged')),
+      unstaged: inspected.unstaged.map((file) => changedFile(file, 'unstaged')),
+      untracked: inspected.untracked.map((file) => changedFile(file, 'untracked')),
       error: null,
       countText: worktreeCountText(inspected.commits.length, pending),
     };
@@ -201,6 +261,7 @@ export async function buildTicketChangesSnapshot(
   return {
     state: {
       ticketId,
+      ticketLabel,
       worktreeCount: worktrees.length,
       commitCount,
       pendingCount,
@@ -208,5 +269,6 @@ export async function buildTicketChangesSnapshot(
       summaryText: diffsSummaryText(worktrees.length, commitCount, pendingCount),
     },
     targets,
+    files,
   };
 }

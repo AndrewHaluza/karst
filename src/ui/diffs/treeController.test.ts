@@ -45,6 +45,7 @@ function makeSnapshot(
   return {
     state: {
       ticketId: 1,
+      ticketLabel: 'T1',
       worktreeCount: views.length,
       commitCount,
       pendingCount,
@@ -52,6 +53,7 @@ function makeSnapshot(
       summaryText: diffsSummaryText(views.length, commitCount, pendingCount),
     },
     targets,
+    files: new Map(),
   };
 }
 
@@ -337,7 +339,7 @@ describe('DiffTreeController', () => {
     await controller.show(1);
     await controller.discard('b');
 
-    expect(confirmDiscard).toHaveBeenCalledWith('src/b.ts');
+    expect(confirmDiscard).toHaveBeenCalledWith('src/b.ts', 'modified');
     expect(discard).not.toHaveBeenCalled();
     expect(load).toHaveBeenCalledTimes(1);
   });

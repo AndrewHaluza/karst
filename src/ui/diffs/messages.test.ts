@@ -26,6 +26,17 @@ describe('parseChangesMessage', () => {
     expect(parseChangesMessage({ type: 'open-file' })).toBeNull();
   });
 
+  /**
+   * DF-14: the empty state's action opens the ticket itself. The panel already
+   * knows which ticket it belongs to, so the message carries no id at all —
+   * there is nothing for a crafted payload to aim somewhere else.
+   */
+  it('accepts open-ticket with no payload and drops a forged ticketId', () => {
+    expect(parseChangesMessage({ type: 'open-ticket' })).toEqual({ type: 'open-ticket' });
+    expect(parseChangesMessage({ type: 'open-ticket', ticketId: 999 }))
+      .toEqual({ type: 'open-ticket' });
+  });
+
   it('accepts a copy request for something that is actually a commit hash', () => {
     expect(parseChangesMessage({ type: 'copy-hash', hash: '9f1c2ab' }))
       .toEqual({ type: 'copy-hash', hash: '9f1c2ab' });
@@ -55,7 +66,10 @@ describe('parseChangesMessage', () => {
     const refresh = vi.fn();
     const openDiff = vi.fn();
     const copyHash = vi.fn();
-    const actions = { refresh, openDiff, copyHash, openFile: vi.fn(), discard: vi.fn(), unstage: vi.fn() };
+    const actions = {
+      refresh, openDiff, copyHash,
+      openFile: vi.fn(), discard: vi.fn(), unstage: vi.fn(), openTicket: vi.fn(),
+    };
 
     for (const raw of [
       { type: 'refresh', revision: 'forged' },
@@ -86,15 +100,18 @@ describe('routeChangesAction', () => {
       openFile: vi.fn(),
       discard: vi.fn(),
       unstage: vi.fn(),
+      openTicket: vi.fn(),
     };
     routeChangesAction({ type: 'refresh' }, actions);
     routeChangesAction({ type: 'open-diff', changeId: 'g1:4' }, actions);
     routeChangesAction({ type: 'open-file', changeId: 'g1:5' }, actions);
     routeChangesAction({ type: 'copy-hash', hash: '9f1c2ab' }, actions);
+    routeChangesAction({ type: 'open-ticket' }, actions);
     expect(actions.refresh).toHaveBeenCalledOnce();
     expect(actions.openDiff).toHaveBeenCalledWith('g1:4');
     expect(actions.openFile).toHaveBeenCalledWith('g1:5');
     expect(actions.copyHash).toHaveBeenCalledWith('9f1c2ab');
+    expect(actions.openTicket).toHaveBeenCalledOnce();
   });
 
   it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {
@@ -109,6 +126,7 @@ describe('routeChangesAction', () => {
       openFile: vi.fn(),
       discard: vi.fn(),
       unstage: vi.fn(),
+      openTicket: vi.fn(),
     };
     expect(routeChangesAction({ type: 'open-diff', changeId: 'g1:4' }, actions)).toBe(pending);
     await pending;

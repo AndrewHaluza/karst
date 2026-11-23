@@ -59,3 +59,27 @@ export async function unstageFile(
 ): Promise<GitActionResult> {
   return runGit(git, ['restore', '--staged', '--', path], cwd);
 }
+
+/**
+ * The one confirmation text of a Discard (@arch:NTF-07, DF-1 decision Q7).
+ *
+ * The panel and the SCM tree both ask through this function, so the wording is
+ * the same wherever the user starts the action. The wording also has to be
+ * honest about what is lost: an `added` file is UNTRACKED, so `discardChanges`
+ * deletes it with `git clean`; everything else is restored from the index.
+ */
+export function discardConfirmText(
+  path: string,
+  status: FileChangeStatus,
+): { message: string; action: string } {
+  if (status === 'added') {
+    return {
+      message: `Delete the new file ${path}? This cannot be undone.`,
+      action: 'Delete file',
+    };
+  }
+  return {
+    message: `Discard the changes to ${path}? This cannot be undone.`,
+    action: 'Discard changes',
+  };
+}

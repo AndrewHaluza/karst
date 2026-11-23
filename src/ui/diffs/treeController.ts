@@ -1,7 +1,8 @@
 import type { OutputKind } from '../../manifest/types.js';
 import { reasonText } from '../../model/notifyText.js';
 import { diffViewColumn } from './diffColumn.js';
-import type { DiffTarget, WorktreeSpec } from './git.js';
+import type { DiffTarget, FileChangeStatus, WorktreeSpec } from './git.js';
+import type { GitActionResult } from './gitActions.js';
 import { buildScmGroups } from './scmModel.js';
 import type { TicketChangesSnapshot } from './snapshot.js';
 import { buildDiffTree, selectorNode, type DiffNode } from './treeModel.js';
@@ -24,7 +25,7 @@ export interface DiffTreeHost {
 interface TreeRowAction {
   repoPath: string;
   path: string;
-  status: string;
+  status: FileChangeStatus;
   category: string;
   absolutePath: string;
 }
@@ -40,9 +41,13 @@ export interface DiffTreeControllerDeps {
   /** The selector row's text for a ticket, e.g. `FEAT-42 — multi repo diffs`. */
   labelFor: (ticketId: number) => string;
   openFile: (absolutePath: string) => void;
-  discard: (repoPath: string, path: string, status: string) => Promise<{ ok: boolean; error?: string }>;
-  unstage: (repoPath: string, path: string) => Promise<{ ok: boolean; error?: string }>;
-  confirmDiscard: (path: string) => Promise<boolean>;
+  discard: (repoPath: string, path: string, status: FileChangeStatus) => Promise<GitActionResult>;
+  unstage: (repoPath: string, path: string) => Promise<GitActionResult>;
+  /**
+   * Ask before a discard. The status is part of the question: an `added` file
+   * is deleted, not restored, and the confirmation has to say so (DF-1/Q7).
+   */
+  confirmDiscard: (path: string, status: FileChangeStatus) => Promise<boolean>;
   /** The kind picker for 'Add to artifacts'; undefined when dismissed. */
   pickArtifactKind: () => Promise<OutputKind | undefined>;
   addArtifact: (
@@ -178,7 +183,7 @@ export class DiffTreeController {
   async discard(changeId: string): Promise<void> {
     const row = this.row(changeId);
     if (!row) return;
-    if (!(await this.deps.confirmDiscard(row.path))) {
+    if (!(await this.deps.confirmDiscard(row.path, row.status))) {
       this.deps.debug?.('[diffs] tree discard declined');
       return;
     }
