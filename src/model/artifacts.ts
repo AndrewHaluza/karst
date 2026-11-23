@@ -749,7 +749,7 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
     title: KINDS['uat-report'].title,
     scope: null,
     summary,
-    status: failedStage ? 'failed' : unknown ? 'unknown' : aggregatePassed(entries) ? 'passed' : 'info',
+    status: unknown ? 'unknown' : failedStage ? 'failed' : aggregatePassed(entries) ? 'passed' : 'info',
     freshness: freshnessFor(ticket.stages, 'uat', createdAt),
     origin: originFor('uat', processRuns, ticket),
     versionCount: attemptCount || 1,
@@ -816,10 +816,10 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
         : unknown
           ? OUTPUT_UNREADABLE
           : gateSummary(entries),
-    status: failedStage
-      ? 'failed'
-      : unknown
-        ? 'unknown'
+    status: unknown
+      ? 'unknown'
+      : failedStage
+        ? 'failed'
         : blocking > 0
           ? 'attention'
           : aggregatePassed(entries)

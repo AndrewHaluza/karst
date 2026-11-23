@@ -236,6 +236,28 @@ describe('buildTicketArtifacts', () => {
     expect(a).toMatchObject({ status: 'unknown', summary: 'output unreadable' });
   });
 
+  it('reads an unreadable Review run as unknown even when the stage itself is failed', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'failed', '2026-08-01T09:00:00.000Z', '2026-08-01T09:30:00.000Z');
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 0, repo: '/wt/web' }],
+    });
+    const run = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(store, run.id, 'failed', '2026-08-01T09:20:00.000Z', 'unreadable-output', null, 'unreadable output from /wt/web — no findings could be read');
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a).toMatchObject({ status: 'unknown', summary: 'output unreadable' });
+  });
+
   it('keeps a red gate visible as failed beside an unreadable Review run', () => {
     const t = ticket({ stageCurrent: 'review' });
     stage(t.id, 'review', 'failed', '2026-08-01T09:00:00.000Z', '2026-08-01T09:30:00.000Z');
