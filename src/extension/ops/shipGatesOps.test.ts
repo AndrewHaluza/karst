@@ -87,6 +87,18 @@ describe('runShipGates', () => {
     expect(report.failed).toEqual([]);
     expect(await runShipGates([{ repo: 'sb', number: 1, branch: 'b', cwd }], { uat, runProcess: refuse, hostProcess: refuse })).toBe(report.reason);
   });
+  it('a refused gate blocks with no re-run candidate even when an earlier gate failed (T1315)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ship-gates-'));
+    const uat = { gates: [
+      { name: 'lint', kind: 'command', command: 'lint', args: [] },
+      { name: 'docs', kind: 'command', command: 'x', args: [], sandbox: 'host' },
+    ], repositories: {} } as never;
+    const fail: GateProcessRunner = async () => ({ kind: 'completed', exitCode: 1, output: 'base check skipped: some vitest failures are not parseable' });
+    const refuse: GateProcessRunner = async () => ({ kind: 'spawnFailed', message: 'no exec', output: 'refused' }) as never;
+    const report = await runShipGatesReport([{ repo: 'sb', number: 1, branch: 'b', cwd }], { uat, runProcess: fail, hostProcess: refuse });
+    expect(report.reason).toBe('sb: gate "docs" could not run (refused by the host boundary), so the merge is not verified');
+    expect(report.failed).toEqual([]);
+  });
   it('runs every gate with the ticket citations as PR_BODY and its base branch', async () => {
     const argsSeen: Array<readonly string[]> = [];
     const runProcess: GateProcessRunner = async (_c, args) => { argsSeen.push(args); return { kind: 'completed', exitCode: 0, output: '' }; };

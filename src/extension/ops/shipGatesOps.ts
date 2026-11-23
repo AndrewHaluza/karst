@@ -233,9 +233,11 @@ async function runRepo(p: PlannedRepo, d: ShipGatesDeps, runId: number | null): 
     },
   }).finally(clearLive);
   if (ran.kind === 'stopped') return { reason: `${pr.repo}: gate run was stopped`, failed: [] };
+  // A refused gate never ran (no exit code, `@arch:GATE-CAPABILITY`): no verdict, and nothing a re-run could ask for.
+  // It is checked before any failure, so an earlier failed gate never hides it from the environment re-run (T1315).
+  const refused = ran.results.find((r) => r.hostRefused);
+  if (refused) return { reason: `${pr.repo}: gate "${refused.name}" could not run (refused by the host boundary), so the merge is not verified`, failed: [] };
   for (const r of ran.results) {
-    // A refused gate never ran (no exit code, `@arch:GATE-CAPABILITY`): no verdict, and nothing a re-run could ask for.
-    if (r.hostRefused) return { reason: `${pr.repo}: gate "${r.name}" could not run (refused by the host boundary), so the merge is not verified`, failed: [] };
     if (r.exitCode === null || r.exitCode === 0) continue;
     // The list runs no short-circuit (a gate list runs to the end), so every failed gate is known here: the environment
     // re-run needs all of them, and the first one in run order is the reason the deliver path shows (T1315).
