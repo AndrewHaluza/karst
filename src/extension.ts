@@ -6265,6 +6265,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     shouldApplyHookState,
     sessionProviderFor,
     hookChannelRecorder,
+    // A graph node/planner session's conversation is keyed by its own
+    // workspace, not the ticket worktree; the terminal's launch cwd closes the
+    // gap so those sessions park on a provider error too.
+    terminalWorkspacePath: (terminal) => {
+      const cwd = graphTerminalCwd(terminal as vscode.Terminal);
+      return cwd === '' ? undefined : cwd;
+    },
+    onProviderError: (ticketId, conversationId, text, key) =>
+      interactiveUsageLimit.onAgyError(ticketId, conversationId, text, key),
     debug: (message) => logger.debug(message),
     logError,
   });

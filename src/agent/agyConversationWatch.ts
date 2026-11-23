@@ -4,6 +4,7 @@ import { basename, extname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { canonicalPath } from '../runtime/pathScope.js';
 import { aggregateConversationUsage, type AgyConversationUsage } from './agyUsageWatch.js';
+import { collectProtoStrings } from './protobuf.js';
 
 /**
  * The Antigravity CLI's conversation state, read as a lifecycle channel.
@@ -15,7 +16,10 @@ import { aggregateConversationUsage, type AgyConversationUsage } from './agyUsag
  * `<appdata>/conversations/<conv-id>.db`: while the user is being asked to
  * approve a tool, the conversation has a `steps` row with `status = 9`
  * (pending user decision), which becomes `status = 3` when the user answers.
- * The same DB's `trajectory_metadata_blob` (row `id='main'`) carries the
+ * A PROVIDER ERROR is a `steps` row with `step_type = 17` whose `step_payload`
+ * (protobuf) carries the provider's own error text — the usage-limit signal the
+ * interactive watch reports (@arch:AC-42); agent prose steps are never read for
+ * it. The same DB's `trajectory_metadata_blob` (row `id='main'`) carries the
  * workspace path as `file://<path>` bytes, which is how a ticket's worktree
  * finds its conversation.
  *
@@ -62,6 +66,21 @@ export const AGY_IDLE_STATUS = 'CASCADE_RUN_STATUS_IDLE';
 export const AGY_STEP_STATUS_RUNNING = 2;
 export const AGY_STEP_STATUS_DONE = 3;
 export const AGY_STEP_STATUS_AWAITING_APPROVAL = 9;
+
+/**
+ * The `steps.step_type` value of a PROVIDER ERROR step. Its `step_payload` is a
+ * protobuf blob whose string fields carry the provider's own error text (for
+ * example "RESOURCE_EXHAUSTED (code 429): Individual quota reached ... Resets in
+ * 1h57m43s."); `error_details` is NULL. ONLY this step type is read for quota
+ * detection — agent prose never parks (@arch:AC-42).
+ */
+export const AGY_STEP_TYPE_PROVIDER_ERROR = 17;
+
+/** The provider text extracted from the newest provider-error step. */
+export interface AgyProviderErrorStep {
+  idx: number;
+  text: string;
+}
 
 /** Read handle on the CLI's summary DB (foreign schema — strictly read-only). */
 export interface AgySummariesDb {
@@ -136,6 +155,11 @@ export interface AgyConversationDb {
   pendingApprovalCount(): number;
   /** How many `steps` rows are currently running (`status = 2`), or null when unknown. */
   runningStepCount(): number | null;
+  /**
+   * The newest provider-error step (`step_type = 17`) and its text, read from
+   * `step_payload`; null when there is none or the read failed.
+   */
+  providerErrorStep(): AgyProviderErrorStep | null;
   /** Cumulative per-call usage recorded in this conversation, or null when none yet. */
   usage(): AgyConversationUsage | null;
   close(): void;
@@ -175,6 +199,14 @@ export function openAgyConversationDb(dbPath: string): AgyConversationDb {
   } catch {
     // Foreign schema
   }
+  let providerErrorStmt: Database.Statement | null = null;
+  try {
+    providerErrorStmt = db.prepare(
+      `SELECT idx, step_payload AS payload FROM steps WHERE step_type = ${AGY_STEP_TYPE_PROVIDER_ERROR} ORDER BY idx DESC LIMIT 1`,
+    );
+  } catch {
+    // Foreign schema (or no step_payload column): no provider-error signal
+  }
   return {
     workspaceBlob(): Buffer | null {
       try {
@@ -198,6 +230,18 @@ export function openAgyConversationDb(dbPath: string): AgyConversationDb {
         const row = runningStmt.get() as { n: number } | undefined;
         return row?.n ?? 0;
       } catch {
+        return null;
+      }
+    },
+    providerErrorStep(): AgyProviderErrorStep | null {
+      try {
+        if (!providerErrorStmt) return null;
+        const row = providerErrorStmt.get() as { idx: number; payload: Buffer | null } | undefined;
+        if (!row || row.payload === null) return null;
+        const text = collectProtoStrings(row.payload).join('\n').trim();
+        return text === '' ? null : { idx: row.idx, text };
+      } catch {
+        // A locked/foreign row is "no signal", never a throw out of the sweep.
         return null;
       }
     },
