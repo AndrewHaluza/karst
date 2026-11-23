@@ -9,7 +9,8 @@ import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
-import { conflictRoundEnded, createConflictRounds } from './autoDeliverOps.js';
+import { conflictRounds, conflictRoundEnded, createConflictRounds } from './autoDeliverOps.js';
+import { UNFINISHED_BODY } from './autopilotRefusal.js';
 import { makePlacementCheck } from '../autopilotBinding.js';
 import { getPlacement, recordPlacementIfAbsent, GRAPH_RUN_PLACEMENT } from '../../store/placement.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
@@ -1028,6 +1029,94 @@ describe('conflicts', () => {
     const r = rig({ conflictRoundStalled: () => true, conflictRoundActive: () => true, dropConflictRound: drop });
     expect((await autopilotTick(r.deps)).kind).toBe('busy');
     expect(drop).not.toHaveBeenCalled();
+  });
+
+  // T1315: the merge is finished and correct; only a gate (or the base check) stopped the push. The agent is already idle,
+  // so no Stop ever retries it, and the stall rule would drop a merge that is ready to deliver.
+  describe('a refused auto-deliver of a verified merge (T1315)', () => {
+    const SHA = '2cc2990' + 'a'.repeat(33);
+    const REFUSED = 'auto-fix stopped: resolved merge not delivered: gate "unit" failed';
+
+    function refused(sha: string | null = SHA) {
+      return rig({
+        conflictRoundActive: () => true,
+        conflictRoundStalled: () => false,
+        conflictRoundRefused: () => ({ repo: 'r', tail: 'gate "unit" failed', sha }),
+        dropConflictRound: vi.fn(),
+      });
+    }
+
+    it('parks at once with the gate named and the merge commit in the body', async () => {
+      seedPr(failing('build'));
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const r = refused();
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: REFUSED });
+      expect(r.deps.dropConflictRound).toHaveBeenCalledTimes(1);
+      expect(store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id)).toEqual({ at: null });
+      const [title, body] = r.notes[r.notes.length - 1]!;
+      expect(title).toBe(`Autopilot: ${REFUSED}`);
+      expect(body).toMatch(/^AP-1 \(conflicts\): /);
+      expect(body).toContain('the merge commit 2cc2990');
+      expect(body).toContain('is ready in the worktree of r');
+      expect(body).toContain('the manual Deliver pushes it');
+      expect(stageBlock(store, id, 'ship')?.reason).toBe(REFUSED);
+      // A park, not a pause: the person may still approve one more attempt.
+      expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
+      expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: the resolved merge was not delivered (gate "unit" failed); the round is dropped');
+      expect(r.sendCi).not.toHaveBeenCalled();
+      // The park holds on the next ticks: nothing retries a delivery the agent is already idle for.
+      const next = rig({ conflictRoundActive: () => false });
+      expect((await autopilotTick(next.deps)).kind).toBe('idle');
+      expect(next.sendCi).not.toHaveBeenCalled();
+    });
+
+    it('names no sha when git could not read the merge commit', async () => {
+      seedPr(failing('build'));
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const r = refused(null);
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: REFUSED });
+      expect(r.notes[r.notes.length - 1]![1]).toContain('the resolved merge is ready in the worktree of r');
+    });
+
+    it('reads the refusal the delivery recorded on the process rounds when no seam is given', async () => {
+      seedPr(failing('build'));
+      conflict();
+      markConflictRound(store, id, Date.now());
+      conflictRounds.arm(id, { repo: 'r', baseSha: 'base1', files: ['a.ts'] });
+      conflictRounds.refuse(id, { repo: 'r', tail: 'gate "unit" failed', sha: SHA });
+      try {
+        expect(await autopilotTick(rig().deps)).toEqual({ kind: 'parked', reason: REFUSED });
+      } finally {
+        conflictRounds.disarm(id);
+      }
+    });
+
+    it('keeps the stall path and UNFINISHED_BODY for an unfinished merge', async () => {
+      seedPr(failing('build'));
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const drop = vi.fn();
+      const r = rig({ conflictRoundActive: () => true, conflictRoundStalled: () => true, conflictRoundRefused: () => null, dropConflictRound: drop });
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: conflict round did not deliver' });
+      expect(drop).toHaveBeenCalledTimes(1);
+      expect(r.notes[r.notes.length - 1]![1]).toBe(`AP-1 (conflicts): ${UNFINISHED_BODY}`);
+    });
+
+    it('does not park the round of a manual Resolve conflicts click on a refusal', async () => {
+      seedPr(PASSING);
+      conflict();
+      const drop = vi.fn();
+      const r = rig({
+        conflictRoundActive: () => true,
+        conflictRoundRefused: () => ({ repo: 'r', tail: 'gate "unit" failed', sha: null }),
+        dropConflictRound: drop,
+      });
+      expect((await autopilotTick(r.deps)).kind).toBe('busy');
+      expect(drop).not.toHaveBeenCalled();
+      expect(r.notes).toEqual([]);
+    });
   });
 
   // T1287: a manual round armed by the Resolve conflicts click has no store slot, so no engine stall could ever end it.

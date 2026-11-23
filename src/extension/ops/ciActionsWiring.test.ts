@@ -325,7 +325,7 @@ describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('r: gate run was stopped'); else signal.addEventListener('abort', () => resolve('r: gate run was stopped')); }),
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'r: gate run was stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'r: gate run was stopped', failed: [] })); }),
       blocked: async () => {}, runShip: autoShip, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
@@ -376,7 +376,7 @@ describe('deliverToPrAction re-runs the skipped gates after a take-over push (D5
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
       blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
@@ -413,7 +413,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
       blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
@@ -563,7 +563,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
       blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
@@ -651,7 +651,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: async () => null, blocked: async () => {}, runShip: () => hold, reprobe: async () => {}, status: () => {}, log: () => {},
+      runGates: async () => ({ reason: null, failed: [] }), blocked: async () => {}, runShip: () => hold, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await vi.waitFor(() => expect(autoDeliverPhase(id)).toBe('pushing'));
@@ -741,7 +741,7 @@ describe('takeover note limits (T1018)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: async () => null,
+      runGates: async () => ({ reason: null, failed: [] }),
       blocked: async () => {}, runShip: async () => { started(); await pushing; }, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
@@ -764,7 +764,7 @@ describe('takeover note limits (T1018)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
       blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
@@ -784,7 +784,7 @@ describe('takeover note limits (T1018)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
       blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
@@ -804,7 +804,7 @@ describe('takeover note limits (T1018)', () => {
       ticketId: id, key: 'x', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve('stopped'); else signal.addEventListener('abort', () => resolve('stopped')); }),
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
       blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
