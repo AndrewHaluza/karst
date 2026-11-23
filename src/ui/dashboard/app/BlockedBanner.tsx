@@ -36,6 +36,7 @@ import type { AutofixBannerView } from '../../../model/inside/autofix.js';
 import { sameIgnoringLive } from './insideLive.js';
 import { DrainBanner } from './DrainBanner.js';
 import { selectDrainBanner } from './drainSlices.js';
+import { FixParkBanner, selectFixPark } from './FixParkBanner.js';
 import { StallPanel } from './StallPanel.js';
 import { RegionPortal } from './RegionPortal.js';
 import { usePendingAction } from './usePendingAction.js';
@@ -315,7 +316,9 @@ function Body({ slice }: { readonly slice: BannerSlice }) {
 export const BlockedBanner = memo(function BlockedBanner() {
   const slice = useSlice(selectBanner, sameIgnoringLive);
   const drain = useSlice(selectDrainBanner);
-  const shown = slice !== null || drain !== null;
+  const fixPark = useSlice(selectFixPark);
+  const park = slice === null ? fixPark : null;
+  const shown = slice !== null || drain !== null || park !== null;
   useLayoutEffect(() => {
     document.getElementById('blocked')?.classList.toggle('hidden', !shown);
   }, [shown]);
@@ -323,6 +326,7 @@ export const BlockedBanner = memo(function BlockedBanner() {
     <RegionPortal id="blocked">
       {drain ? <DrainBanner drain={drain} /> : null}
       {slice ? <Body slice={slice} /> : null}
+      {park ? <FixParkBanner view={park} /> : null}
     </RegionPortal>
   );
 });

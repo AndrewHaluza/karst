@@ -272,6 +272,10 @@ export type WebviewMessage =
   | { type: 'tester-skipped-rerun' }
   /** Accept a skipped Tester: UAT finishes as passed. */
   | { type: 'tester-skipped-accept' }
+  /** Retry the source gate of a fix round the no-change rule parked. */
+  | { type: 'fix-parked-retry' }
+  /** Accept a parked fix round and continue; the note is optional (blank allowed). */
+  | { type: 'fix-parked-accept'; note: string }
   /** Overwrite origin after a `push-diverged` ship block (lease over the probed SHA). */
   | { type: 'push-diverged-overwrite' }
   /** Send the ticket back to Implement to merge origin into the branch. */

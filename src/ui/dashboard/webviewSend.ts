@@ -211,6 +211,8 @@ export function createSender(api: WebviewApi) {
       send({ type: 'baseline-approve-all', blockId }, requestId),
     testerSkippedRerun: (requestId?: string) => send({ type: 'tester-skipped-rerun' }, requestId),
     testerSkippedAccept: (requestId?: string) => send({ type: 'tester-skipped-accept' }, requestId),
+    fixParkedRetry: (requestId?: string) => send({ type: 'fix-parked-retry' }, requestId),
+    fixParkedAccept: (note: Msg<'fix-parked-accept'>['note'], requestId?: string) => send({ type: 'fix-parked-accept', note }, requestId),
     pushDivergedOverwrite: (requestId?: string) => send({ type: 'push-diverged-overwrite' }, requestId),
     pushDivergedIntegrate: (requestId?: string) => send({ type: 'push-diverged-integrate' }, requestId),
     baselineReject: (

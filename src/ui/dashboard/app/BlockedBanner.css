@@ -31,3 +31,14 @@
 .blbanner{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4)}
 .blbanner .ftitle{color:var(--k-attention)}
 .blbanner .k-btn{display:inline-flex;align-items:center;gap:var(--k-space-2)}
+
+/* The parked fix round (FixParkBanner.tsx): a needs-you block, so amber. Buttons and the note form wrap, never overflow. */
+#blocked:has(> .fixpark){border-top-color:color-mix(in srgb,var(--k-attention) 35%,transparent);
+  background:color-mix(in srgb,var(--k-attention) 7%,transparent)}
+.fixpark{display:flex;flex-direction:column;gap:var(--k-space-3);min-width:0}
+.fixpark-head{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
+.fixpark .fdot{background:var(--k-attention)}
+.fixpark .ftitle{color:var(--k-attention)}
+.fixpark-items{margin:0;padding-left:var(--k-space-6);font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);overflow-wrap:anywhere}
+.fixpark-actions{display:flex;gap:var(--k-space-3);flex-wrap:wrap}
+.fixpark-form textarea{width:100%;box-sizing:border-box}
