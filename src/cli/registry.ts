@@ -434,12 +434,21 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   {
     name: 'doctor',
     summary: 'Check tools, manifest, karst state and agent wiring; --fix repairs karst-owned state only.',
-    input: obj({ fix: bool, json: bool, area: { type: 'string', enum: ['tools', 'manifest', 'state', 'wiring'] } }),
+    input: obj({
+      fix: bool,
+      json: bool,
+      area: { type: 'string', enum: ['tools', 'manifest', 'state', 'wiring'] },
+      /** `--fix --only <checkId>` repeated; ids hold repo names, so never a CSV. */
+      only: strArray,
+    }),
     globals: { db: true, manifest: true },
     writes: true,
     toArgv: (input) => {
       const argv = ['doctor'];
       pushFlag(argv, '--fix', input.fix);
+      if (Array.isArray(input.only)) {
+        for (const id of input.only) argv.push('--only', String(id));
+      }
       pushFlag(argv, '--json', input.json);
       pushFlag(argv, '--area', input.area);
       return argv;

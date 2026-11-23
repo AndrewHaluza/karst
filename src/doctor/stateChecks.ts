@@ -7,6 +7,8 @@
  * that could touch live work (dirty trees, reused pids) is a report fix.
  */
 
+import { plural } from '../model/notifyText.js';
+import { formatDoctorBytes } from './formatBytes.js';
 import type { DoctorCheck, DoctorFix } from './types.js';
 
 export interface WorktreeProbe {
@@ -59,16 +61,21 @@ const PID_REUSE_SLACK_MS = 5000;
 
 const SQLITE_UTC = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/;
 
-function ok(id: string, detail: string): DoctorCheck {
-  return { id, area: 'state', status: 'ok', detail };
+function ok(id: string, title: string, detail: string): DoctorCheck {
+  return { id, area: 'state', status: 'ok', title, detail };
 }
 
-function warn(id: string, detail: string, fix: DoctorFix): DoctorCheck {
-  return { id, area: 'state', status: 'warn', detail, fix };
+function warn(id: string, title: string, detail: string, fix: DoctorFix): DoctorCheck {
+  return { id, area: 'state', status: 'warn', title, detail, fix };
 }
 
-function fail(id: string, detail: string, fix: DoctorFix): DoctorCheck {
-  return { id, area: 'state', status: 'fail', detail, fix };
+function fail(id: string, title: string, detail: string, fix: DoctorFix): DoctorCheck {
+  return { id, area: 'state', status: 'fail', title, detail, fix };
+}
+
+/** "Not checked": the probe could not answer, so this is not a finding. */
+function skipped(id: string, title: string, detail: string, fix: DoctorFix): DoctorCheck {
+  return { id, area: 'state', status: 'skipped', title, detail, fix };
 }
 
 /** Parse a recorded start time as UTC. Undefined when it is not a valid date. */
@@ -80,9 +87,10 @@ export function parseRecordedUtc(value: string): number | undefined {
 
 function worktreePruneCheck(p: StateProbes, w: WorktreeProbe): DoctorCheck {
   const id = `state.worktree-prune.${w.ticketKey}.${w.repo}`;
+  const title = 'Worktree prune';
   const verdict = p.worktreeState(w.path);
   if (verdict === 'clean') {
-    return warn(id, `Ticket ${w.ticketKey} is done and the ${w.repo} worktree is clean; it can be pruned.`, {
+    return warn(id, title, `Ticket ${w.ticketKey} is done and the ${w.repo} worktree is clean; it can be pruned.`, {
       tier: 'auto',
       summary: `Prune clean worktree ${w.path}`,
       action: {
@@ -94,18 +102,21 @@ function worktreePruneCheck(p: StateProbes, w: WorktreeProbe): DoctorCheck {
       },
     });
   }
-  return warn(id, `Ticket ${w.ticketKey} is done but the ${w.repo} worktree is ${verdict}; not pruned automatically.`, {
+  const detail = `Ticket ${w.ticketKey} is done but the ${w.repo} worktree is ${verdict}; not pruned automatically.`;
+  const fix: DoctorFix = {
     tier: 'report',
     summary: `Worktree ${w.path} is ${verdict}`,
     nextStep: `Commit, push, or discard the changes in ${w.path}, then archive or remove it from the dashboard.`,
-  });
+  };
+  // An unreadable verdict is "Not checked", not a warning about the worktree.
+  return verdict === 'unknown' ? skipped(id, title, detail, fix) : warn(id, title, detail, fix);
 }
 
 function worktreeChecks(p: StateProbes, w: WorktreeProbe): DoctorCheck[] {
   const key = `${w.ticketKey}.${w.repo}`;
   if (!p.pathExists(w.path)) {
     return [
-      warn(`state.worktree-missing.${key}`, `Worktree for ${w.ticketKey} (${w.repo}) is recorded at ${w.path} but the folder is gone.`, {
+      warn(`state.worktree-missing.${key}`, 'Missing worktree', `Worktree for ${w.ticketKey} (${w.repo}) is recorded at ${w.path} but the folder is gone.`, {
         tier: 'report',
         summary: `Worktree folder ${w.path} is missing`,
         nextStep: `Re-cut ${w.ticketKey} for ${w.repo} from the dashboard, or archive the ticket there.`,
@@ -115,7 +126,7 @@ function worktreeChecks(p: StateProbes, w: WorktreeProbe): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
   if (w.branch !== null && !p.branchExists(w.repo, w.branch)) {
     checks.push(
-      warn(`state.worktree-branch-missing.${key}`, `Branch ${w.branch} recorded for ${w.ticketKey} (${w.repo}) does not exist.`, {
+      warn(`state.worktree-branch-missing.${key}`, 'Missing worktree branch', `Branch ${w.branch} recorded for ${w.ticketKey} (${w.repo}) does not exist.`, {
         tier: 'report',
         summary: `Branch ${w.branch} is missing`,
         nextStep: `Re-cut ${w.ticketKey} for ${w.repo} from the dashboard, or archive the ticket there.`,
@@ -129,7 +140,7 @@ function worktreeChecks(p: StateProbes, w: WorktreeProbe): DoctorCheck[] {
 }
 
 function unrecordedCheck(dir: string, index: number): DoctorCheck {
-  return warn(`state.worktree-unrecorded.${index}`, `Worktree folder ${dir} exists on disk but is not recorded in karst.`, {
+  return warn(`state.worktree-unrecorded.${index}`, 'Unrecorded worktree', `Worktree folder ${dir} exists on disk but is not recorded in karst.`, {
     tier: 'report',
     summary: `Unrecorded worktree ${dir}`,
     nextStep: `If ${dir} is not needed, remove it with \`git worktree remove\`; otherwise leave it.`,
@@ -137,7 +148,7 @@ function unrecordedCheck(dir: string, index: number): DoctorCheck {
 }
 
 function deadServerCheck(s: ServerProbe): DoctorCheck {
-  return warn(`state.server-dead.${s.id}`, `Server ${s.id} (${s.repo}) is marked running but its process is gone.`, {
+  return warn(`state.server-dead.${s.id}`, 'Dead server', `Server ${s.id} (${s.repo}) is marked running but its process is gone.`, {
     tier: 'auto',
     summary: `Mark server ${s.id} stopped`,
     action: { kind: 'mark-server-stopped', serverId: s.id, pid: s.pid },
@@ -146,16 +157,17 @@ function deadServerCheck(s: ServerProbe): DoctorCheck {
 
 function leakedServerCheck(p: StateProbes, s: ServerProbe, pid: number): DoctorCheck {
   const id = `state.server-leaked.${s.id}`;
+  const title = 'Leaked server';
   const startedMs = p.pidStartedAtMs(pid);
   const recordedMs = parseRecordedUtc(s.startedAt);
   if (startedMs !== undefined && recordedMs !== undefined && startedMs <= recordedMs + PID_REUSE_SLACK_MS) {
-    return warn(id, `Server ${s.id} (${s.repo}) belongs to done ticket ${s.ticketId}; its process ${pid} is still running.`, {
+    return warn(id, title, `Server ${s.id} (${s.repo}) belongs to done ticket ${s.ticketId}; its process ${pid} is still running.`, {
       tier: 'auto',
       summary: `Kill leaked server process ${pid}`,
       action: { kind: 'kill-process', serverId: s.id, pid, startedAt: s.startedAt },
     });
   }
-  return warn(id, `Process ${pid} for server ${s.id} started after the server was recorded, or its start time is unknown; the pid may be reused.`, {
+  return warn(id, title, `Process ${pid} for server ${s.id} started after the server was recorded, or its start time is unknown; the pid may be reused.`, {
     tier: 'report',
     summary: `Pid ${pid} is not verifiably server ${s.id}`,
     nextStep: `Check \`ps -p ${pid} -o command=\`; if it is the karst server, stop it manually.`,
@@ -171,10 +183,11 @@ function serverChecks(p: StateProbes, s: ServerProbe): DoctorCheck[] {
 
 function schemaCheck(p: StateProbes): DoctorCheck {
   if (p.dbSchemaVersion === p.extensionSchemaVersion) {
-    return ok('state.schema', `Database schema v${p.dbSchemaVersion} matches the extension.`);
+    return ok('state.schema', 'Database schema', `Database schema v${p.dbSchemaVersion} matches the extension.`);
   }
   return fail(
     'state.schema',
+    'Database schema',
     `Database schema v${p.dbSchemaVersion} does not match extension schema v${p.extensionSchemaVersion}.`,
     {
       tier: 'report',
@@ -186,17 +199,26 @@ function schemaCheck(p: StateProbes): DoctorCheck {
 
 function walCheck(p: StateProbes): DoctorCheck {
   if (p.walBytes <= p.walLimitBytes) {
-    return ok('state.wal', `SQLite WAL is ${p.walBytes} bytes, within the ${p.walLimitBytes} byte limit.`);
+    return ok(
+      'state.wal',
+      'SQLite WAL',
+      `SQLite WAL is ${formatDoctorBytes(p.walBytes)}, within the ${formatDoctorBytes(p.walLimitBytes)} limit.`,
+    );
   }
-  return warn('state.wal', `SQLite WAL is ${p.walBytes} bytes, over the ${p.walLimitBytes} byte limit.`, {
-    tier: 'report',
-    summary: 'SQLite WAL is oversized',
-    nextStep: 'Run a checkpoint by closing all karst windows.',
-  });
+  return warn(
+    'state.wal',
+    'SQLite WAL',
+    `SQLite WAL is ${formatDoctorBytes(p.walBytes)}, over the ${formatDoctorBytes(p.walLimitBytes)} limit.`,
+    {
+      tier: 'report',
+      summary: 'SQLite WAL is oversized',
+      nextStep: 'Run a checkpoint by closing all karst windows.',
+    },
+  );
 }
 
 function outboxCheck(path: string, index: number): DoctorCheck {
-  return warn(`state.outbox.${index}`, `Outbox file ${path} was never ingested and is stale.`, {
+  return warn(`state.outbox.${index}`, 'Stale outbox file', `Outbox file ${path} was never ingested and is stale.`, {
     tier: 'auto',
     summary: `Quarantine stale outbox file ${path}`,
     action: { kind: 'quarantine-outbox', path },
@@ -204,8 +226,8 @@ function outboxCheck(path: string, index: number): DoctorCheck {
 }
 
 /** An ok summary, emitted only when the section has no findings. */
-function summarize(id: string, findings: DoctorCheck[], detail: string): DoctorCheck[] {
-  return findings.length === 0 ? [ok(id, detail)] : [];
+function summarize(id: string, title: string, findings: DoctorCheck[], detail: string): DoctorCheck[] {
+  return findings.length === 0 ? [ok(id, title, detail)] : [];
 }
 
 export function checkState(p: StateProbes): DoctorCheck[] {
@@ -215,9 +237,19 @@ export function checkState(p: StateProbes): DoctorCheck[] {
   ];
   const serverFindings = p.servers.flatMap((s) => serverChecks(p, s));
   return [
-    ...summarize('state.worktrees', worktreeFindings, `${p.worktrees.length} recorded worktree(s) checked; none need attention.`),
+    ...summarize(
+      'state.worktrees',
+      'Recorded worktrees',
+      worktreeFindings,
+      `Checked ${plural(p.worktrees.length, 'recorded worktree', 'recorded worktrees')}; none need attention.`,
+    ),
     ...worktreeFindings,
-    ...summarize('state.servers', serverFindings, `${p.servers.length} server row(s) checked; none dead or leaked.`),
+    ...summarize(
+      'state.servers',
+      'Recorded servers',
+      serverFindings,
+      `Checked ${plural(p.servers.length, 'server row', 'server rows')}; none dead or leaked.`,
+    ),
     ...serverFindings,
     schemaCheck(p),
     walCheck(p),

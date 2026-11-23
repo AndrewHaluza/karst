@@ -182,6 +182,29 @@ describe('toArgv encoders', () => {
   });
 });
 
+describe('doctor --only schema and encoder', () => {
+  it('accepts a repeated --only string array, keeping dots and commas intact', () => {
+    expect(
+      validateCommandInput('doctor', { fix: true, only: ['state.server-dead.7', 'a,b'] }),
+    ).toEqual({ fix: true, only: ['state.server-dead.7', 'a,b'] });
+    expect(() => validateCommandInput('doctor', { fix: true, only: 'a' })).toThrow(/only/);
+  });
+
+  it('emits one --only pair per id, after --fix, never comma-joined', () => {
+    const spec = getCommandSpec('doctor')!;
+    expect(spec.toArgv!({ fix: true, only: ['state.server-dead.7', 'a,b'] })).toEqual([
+      'doctor',
+      '--fix',
+      '--only',
+      'state.server-dead.7',
+      '--only',
+      'a,b',
+    ]);
+    expect(spec.toArgv!({ json: true, area: 'state' })).toEqual(['doctor', '--json', '--area', 'state']);
+    expect(spec.toArgv!({ fix: true, only: [] })).toEqual(['doctor', '--fix']);
+  });
+});
+
 describe('setup checklist format schema and encoder', () => {
   it('accepts format text and json on the checklist subcommand', () => {
     expect(() => validateCommandInput('setup', { subcommand: 'checklist', format: 'text' })).not.toThrow();

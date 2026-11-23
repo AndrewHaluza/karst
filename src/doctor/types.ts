@@ -7,7 +7,11 @@
  */
 
 export type DoctorArea = 'tools' | 'manifest' | 'state' | 'wiring';
-export type DoctorStatus = 'ok' | 'warn' | 'fail';
+/**
+ * `skipped` is "Not checked": a probe could not answer (e.g. `git status`
+ * failed), so the check is neither a pass nor a finding, and never fails the run.
+ */
+export type DoctorStatus = 'ok' | 'warn' | 'fail' | 'skipped';
 
 export const DOCTOR_AREAS: readonly DoctorArea[] = ['tools', 'manifest', 'state', 'wiring'];
 
@@ -44,6 +48,8 @@ export interface DoctorCheck {
   id: string;
   area: DoctorArea;
   status: DoctorStatus;
+  /** Short human-readable label for the page, e.g. `Antigravity permissions`. */
+  title?: string;
   detail: string;
   fix?: DoctorFix;
 }
@@ -65,7 +71,7 @@ export interface DoctorReport {
   /** Checks as they stand AFTER fixes (re-run when anything was applied). */
   checks: DoctorCheck[];
   applied: AppliedFix[];
-  summary: { ok: number; warn: number; fail: number };
-  /** 1 when any check is `fail` after fixes, else 0. */
+  summary: { ok: number; warn: number; fail: number; skipped: number };
+  /** 1 when any check is `fail` after fixes, else 0. `skipped` never fails the run. */
   exitCode: 0 | 1;
 }

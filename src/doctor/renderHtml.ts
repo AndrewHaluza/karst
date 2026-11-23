@@ -5,7 +5,7 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-const LABEL = { ok: 'OK', warn: 'Warning', fail: 'Failed' } as const;
+const LABEL = { ok: 'OK', warn: 'Warning', fail: 'Failed', skipped: 'Not checked' } as const;
 
 /**
  * Static results page for the "Karst: Run Doctor" panel. Every dynamic string is

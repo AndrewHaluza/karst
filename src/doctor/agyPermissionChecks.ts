@@ -109,7 +109,7 @@ export function checkAgySandboxGlobs(p: AgyPermissionProbe): DoctorCheck[] {
   const plainPaths = offending.map((o) => `"${o.plainPath}"`).join(', ');
 
   const detail =
-    `agy terminal sandbox rejects globs with ${errorExplanations}. ` +
+    `Antigravity terminal sandbox rejects globs with ${errorExplanations}. ` +
     `Replace ${offendingRules} with plain directory paths ${plainPaths} (${replacements}) in ${p.settingsPath}.`;
 
   const command = `In ${p.settingsPath}, replace ${offending.map((o) => `"${o.rule}" with "${o.replacement}"`).join(', ')}.`;
@@ -119,6 +119,7 @@ export function checkAgySandboxGlobs(p: AgyPermissionProbe): DoctorCheck[] {
       id: AGY_SANDBOX_GLOBS_CHECK_ID,
       area: 'tools',
       status: 'warn',
+      title: 'Antigravity sandbox glob rules',
       detail,
       fix: {
         tier: 'consented',
@@ -131,28 +132,30 @@ export function checkAgySandboxGlobs(p: AgyPermissionProbe): DoctorCheck[] {
 
 export function checkAgyPermissions(p: AgyPermissionProbe): DoctorCheck[] {
   const id = 'tools.agy-permissions';
+  const title = 'Antigravity permissions';
   const out: DoctorCheck[] = [];
   const missing =
     p.allow === undefined
       ? AGY_REQUIRED_COMMANDS
       : AGY_REQUIRED_COMMANDS.filter((c) => !allows(p.allow ?? [], c));
   if (p.allow !== undefined && missing.length === 0) {
-    out.push({ id, area: 'tools', status: 'ok', detail: 'agy allows the read-only review/UAT commands' });
+    out.push({ id, area: 'tools', status: 'ok', title, detail: 'Antigravity allows the read-only review/UAT commands' });
   } else {
     const lines = missing.map((c) => `"command(${c})"`).join(', ');
     const detail =
       p.allow === undefined
-        ? `agy settings not readable at ${p.settingsPath}; headless review/UAT cannot run shell commands`
-        : `agy headless review/UAT will auto-deny: ${missing.join(', ')}`;
+        ? `Antigravity settings not readable at ${p.settingsPath}; headless review/UAT cannot run shell commands`
+        : `Antigravity headless review/UAT will auto-deny: ${missing.join(', ')}`;
     out.push({
       id,
       area: 'tools',
       status: 'warn',
+      title,
       detail,
       fix: {
-        tier: 'consented',
+        tier: 'report',
         summary: 'Allow the read-only commands review/UAT need on agy',
-        command: `Add ${lines} to permissions.allow in ${p.settingsPath}, or run review/UAT on another agent core.`,
+        nextStep: `Add ${lines} to permissions.allow in ${p.settingsPath}, or run review/UAT on another agent core.`,
       },
     });
   }

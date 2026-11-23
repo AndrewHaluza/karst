@@ -49,8 +49,19 @@ function formatSemver(v: Semver): string {
   return v.join('.');
 }
 
+/** The page label: registry labels are prose (`the GitHub CLI`), titles are names. */
+const TITLE_BY_BINARY: Readonly<Record<string, string>> = { gh: 'GitHub CLI' };
+
+function titleFor(dep: RequiredDependency): string {
+  const special = TITLE_BY_BINARY[dep.binary];
+  if (special !== undefined) return special;
+  const label = dep.label.replace(/^the /u, '');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 function checkInstalled(dep: RequiredDependency, probes: ToolsProbes): DoctorCheck {
   const id = `tools.${dep.binary}`;
+  const title = titleFor(dep);
   const found = parseSemver(probes.version(dep.binary) ?? '');
   const min = MIN_VERSIONS[dep.binary];
   const minParsed = min === undefined ? null : parseSemver(min);
@@ -60,11 +71,12 @@ function checkInstalled(dep: RequiredDependency, probes: ToolsProbes): DoctorChe
       id,
       area: 'tools',
       status: 'warn',
-      detail: `${dep.label} ${formatSemver(found)} is older than ${min}, the oldest karst is tested with.`,
+      title,
+      detail: `${title} ${formatSemver(found)} is older than ${min}, the oldest karst is tested with.`,
       fix: {
-        tier: 'consented',
+        tier: 'report',
         summary: `Upgrade ${dep.label}`,
-        command: `Upgrade ${dep.label} to ${min} or newer, then reload the window.`,
+        nextStep: `Upgrade ${dep.label} to ${min} or newer, then reload the window.`,
       },
     };
   }
@@ -73,12 +85,14 @@ function checkInstalled(dep: RequiredDependency, probes: ToolsProbes): DoctorChe
     id,
     area: 'tools',
     status: 'ok',
-    detail: found ? `${dep.binary} ${formatSemver(found)}` : `${dep.binary} is installed`,
+    title,
+    detail: found ? `${title} ${formatSemver(found)}` : `${title} is installed`,
   };
 }
 
 function checkDependency(dep: RequiredDependency, probes: ToolsProbes): DoctorCheck {
   const id = `tools.${dep.binary}`;
+  const title = titleFor(dep);
   const state = dependencyState(dep, probes.probe, probes.ready, probes.readOutput);
 
   if (state === 'missing') {
@@ -86,6 +100,7 @@ function checkDependency(dep: RequiredDependency, probes: ToolsProbes): DoctorCh
       id,
       area: 'tools',
       status: 'fail',
+      title,
       detail: renderMissingDependency(dep),
       fix: { tier: 'consented', summary: `Install ${dep.label}`, command: dep.install },
     };
@@ -95,6 +110,7 @@ function checkDependency(dep: RequiredDependency, probes: ToolsProbes): DoctorCh
       id,
       area: 'tools',
       status: 'fail',
+      title,
       detail: renderDependencyFault(dep, state) ?? dep.install,
       fix: {
         tier: 'report',

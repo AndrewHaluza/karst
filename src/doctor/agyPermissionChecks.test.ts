@@ -65,17 +65,22 @@ describe('checkAgyPermissions', () => {
       allow: ['command(git diff)', 'command(ls)', 'unsandboxed(rg)'],
     });
     expect(c?.status).toBe('warn');
+    expect(c?.title).toBe('Antigravity permissions');
     expect(c?.detail).toContain('rg');
+    expect(c?.detail).toMatch(/^Antigravity /);
     expect(c?.detail).not.toContain('git diff,');
-    expect(c?.fix).toMatchObject({ tier: 'consented' });
+    expect(c?.fix).toMatchObject({ tier: 'report' });
     const fix = c?.fix;
-    expect(fix?.tier === 'consented' && fix.command).toContain('"command(rg)"');
-    expect(fix?.tier === 'consented' && fix.command).toContain('/s.json');
+    expect(fix?.tier === 'report' && fix.nextStep).toContain('"command(rg)"');
+    expect(fix?.tier === 'report' && fix.nextStep).toContain('Add ');
+    expect(fix?.tier === 'report' && fix.nextStep).toContain('permissions.allow in /s.json');
+    expect(fix?.tier === 'report' && fix.nextStep).toContain('another agent core');
   });
 
   it('warns when the settings file is missing or unreadable', () => {
     const [c] = checkAgyPermissions({ settingsPath: '/s.json', allow: undefined });
     expect(c?.status).toBe('warn');
+    expect(c?.detail).toMatch(/^Antigravity /);
     expect(c?.detail).toContain('/s.json');
   });
 
@@ -93,6 +98,7 @@ describe('checkAgyPermissions', () => {
     expect(globCheck).toBeDefined();
     expect(globCheck?.area).toBe('tools');
     expect(globCheck?.status).toBe('warn');
+    expect(globCheck?.title).toBe('Antigravity sandbox glob rules');
     expect(globCheck?.detail).toContain('sandbox configuration error:');
     expect(globCheck?.detail).toContain('globs not supported');
     expect(globCheck?.detail).toContain('read_file(/Users/nd/Work/projects/karst/**)');
