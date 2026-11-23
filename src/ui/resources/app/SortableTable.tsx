@@ -10,6 +10,11 @@ export interface Column<T> {
   readonly key: string;
   readonly label: string;
   readonly num: boolean;
+  /**
+   * Tier priority (@ui:RD-TIERS, RS-11): 1 always shows, 2 shows except in a
+   * card, 3 hides at the narrow tier. Default 1.
+   */
+  readonly priority?: 1 | 2 | 3;
   /** Extra header/cell class (width hints). */
   readonly cls?: string;
   /** Sort value; `-1` means "unmeasured" and always sorts last. */
@@ -19,9 +24,23 @@ export interface Column<T> {
   readonly cellCls?: string;
 }
 
-interface SortState {
+export interface SortState {
   readonly key: string | null;
   readonly dir: 'asc' | 'desc' | null;
+}
+
+/**
+ * The next sort state for one column: a fresh column starts with the most
+ * useful end — descending for a number (the biggest first, RS-21), ascending
+ * for text — then flips once and clears.
+ */
+export function nextSort(cur: SortState, key: string, num: boolean): SortState {
+  const first = num ? 'desc' : 'asc';
+  const second = num ? 'asc' : 'desc';
+  if (cur.key !== key) return { key, dir: first };
+  if (cur.dir === first) return { key, dir: second };
+  if (cur.dir === second) return { key: null, dir: null };
+  return { key, dir: first };
 }
 
 function sorted<T>(rows: readonly T[], cols: readonly Column<T>[], sort: SortState): readonly T[] {
@@ -56,11 +75,7 @@ export function SortableTable<T>({
 }) {
   const [sort, setSort] = useState<SortState>({ key: null, dir: null });
   const cycle = (key: string): void =>
-    setSort((cur) => {
-      if (cur.key !== key) return { key, dir: 'asc' };
-      if (cur.dir === null) return { key, dir: 'asc' };
-      return cur.dir === 'asc' ? { key, dir: 'desc' } : { key: null, dir: null };
-    });
+    setSort((cur) => nextSort(cur, key, columns.find((c) => c.key === key)?.num ?? false));
   return (
     <div className="tscroll">
       <table className={tableCls}>
@@ -73,9 +88,10 @@ export function SortableTable<T>({
                 <th
                   key={c.key}
                   className={cls || undefined}
+                  data-priority={c.priority ?? 1}
                   aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
                 >
-                  <Button variant="text" onClick={() => cycle(c.key)}>
+                  <Button variant="text" className="thsort" onClick={() => cycle(c.key)}>
                     {c.label}
                     {active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
                   </Button>
@@ -90,7 +106,7 @@ export function SortableTable<T>({
               {columns.map((c) => {
                 const cls = [c.cellCls ?? c.cls, c.num ? 'num' : null].filter(Boolean).join(' ');
                 return (
-                  <td key={c.key} className={cls || undefined}>
+                  <td key={c.key} className={cls || undefined} data-priority={c.priority ?? 1} data-label={c.label}>
                     {c.cell(row)}
                   </td>
                 );

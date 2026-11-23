@@ -12,6 +12,7 @@ import {
   pruneDeadServers,
   tailLog,
   abandonVerdict,
+  lastExitCode,
 } from './supervisor.js';
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
 import { shiftBand } from './portSlots.js';
@@ -54,6 +55,14 @@ createServer((req, res) => {
 /**
  * A server that binds but never returns healthy — to exercise the timeout path.
  */
+/** Serves its health URL, then exits with code 3 after EXIT_AFTER_MS (a crash after start). */
+const SERVE_THEN_EXIT_SRC = `
+import { createServer } from 'node:http';
+const port = Number(process.env.PORT);
+createServer((_req, res) => { res.writeHead(200); res.end('ok'); }).listen(port);
+setTimeout(() => process.exit(3), Number(process.env.EXIT_AFTER_MS || '300'));
+`;
+
 const NEVER_HEALTHY_SRC = `
 import { createServer } from 'node:http';
 const port = Number(process.env.PORT);
@@ -269,6 +278,7 @@ describe('server supervisor', () => {
     writeFileSync(join(dir, 'custom.mjs'), CUSTOM_HEALTH_SRC);
     writeFileSync(join(dir, 'launcher.mjs'), LAUNCHER_SRC);
     writeFileSync(join(dir, 'exit.mjs'), EXIT_BOOT_SRC);
+    writeFileSync(join(dir, 'serve-exit.mjs'), SERVE_THEN_EXIT_SRC);
     writeFileSync(join(dir, 'huge-exit.mjs'), HUGE_EXIT_SRC);
     writeFileSync(join(dir, 'stuck.mjs'), STUCK_WITH_OUTPUT_SRC);
     writeFileSync(join(dir, 'exit-zero.mjs'), EXIT_ZERO_SRC);
@@ -747,6 +757,59 @@ createServer((_req, res) => {
         logPath: join(dir, 'svc.log'),
       }),
     ).rejects.toThrow(/Cannot find module server\.mjs/);
+    const row = store.db.prepare('SELECT status, last_error AS lastError FROM servers').get() as {
+      status: string;
+      lastError: string | null;
+    };
+    expect(row).toEqual({ status: 'failed', lastError: 'Exited with code 1 before it was ready' });
+  });
+
+  it('records "Command not found" on the failed row when the command is not installed', async () => {
+    const port = nextPort();
+    await expect(
+      startHot(store, {
+        ticketId: 1,
+        service: 'backend',
+        command: 'karst-no-such-binary',
+        args: [],
+        cwd: dir,
+        repoPath: dir,
+        env: {},
+        host: '127.0.0.1',
+        port,
+        healthUrl: `http://127.0.0.1:${port}/health`,
+        logPath: join(dir, 'svc.log'),
+      }),
+    ).rejects.toThrow(/karst-no-such-binary/);
+    const row = store.db.prepare('SELECT last_error AS lastError FROM servers').get() as { lastError: string | null };
+    expect(row.lastError).toBe('Command not found');
+  });
+
+  it('records the non-zero exit code of a server that exits after its start, without writing the row', async () => {
+    const port = nextPort();
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'serve-exit.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port), EXIT_AFTER_MS: '300' },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'svc.log'),
+    });
+    const lastError = store.db.prepare('SELECT last_error AS e FROM servers WHERE id = ?').get(rec.id) as { e: string | null };
+    expect(lastError.e).toBeNull();
+    try {
+      await vi.waitFor(() => expect(lastExitCode.get(rec.id)).toBe(3), { timeout: 5_000, interval: 50 });
+      const row = store.db.prepare('SELECT status FROM servers WHERE id = ?').get(rec.id) as { status: string };
+      // The handler only notes the code: the sweep decides the crash.
+      expect(row.status).toBe('running');
+    } finally {
+      lastExitCode.delete(rec.id);
+    }
   });
 
   it('bounds the surfaced log tail so a runaway service cannot blow up the error', async () => {
@@ -835,8 +898,10 @@ createServer((_req, res) => {
         }),
       ).rejects.toThrow(/backend/);
 
-      const rows = store.db.prepare('SELECT COUNT(*) AS n FROM servers').get() as { n: number };
+      const rows = store.db.prepare("SELECT COUNT(*) AS n FROM servers WHERE status = 'running'").get() as { n: number };
       expect(rows.n).toBe(0); // nothing recorded as running
+      const failed = store.db.prepare("SELECT last_error AS e FROM servers WHERE status = 'failed'").get() as { e: string };
+      expect(failed.e).toBe(`Port ${port} in use by pid ${foreign.pid}`);
     } finally {
       foreign.kill('SIGKILL');
       removeTempDir(outside);
@@ -950,8 +1015,14 @@ createServer((_req, res) => {
 
       await new Promise((r) => setTimeout(r, 200));
       expect(alive(squatter.pid!)).toBe(true); // untouched
-      const rows = store.db.prepare('SELECT COUNT(*) AS n FROM servers').get() as { n: number };
-      expect(rows.n).toBe(0); // nothing recorded, nothing killed
+      // The refusal is recorded as a failed row with a short reason, so the
+      // panel shows "Failed · Port N in use by pid M" in every window.
+      const rows = store.db
+        .prepare('SELECT status, pid, last_error AS lastError FROM servers')
+        .all() as { status: string; pid: number | null; lastError: string | null }[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'failed', pid: null });
+      expect(rows[0]!.lastError).toBe(`Port ${port} in use by pid ${squatter.pid}`);
     } finally {
       squatter.kill('SIGKILL');
     }

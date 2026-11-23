@@ -29,8 +29,11 @@ export const INSTANCE_HEADER = 'x-karst-instance';
  */
 export const INSTANCE_ENV = 'KARST_INSTANCE_TOKEN';
 
+/** How long a start waits for its health check when the service sets no timeout. */
+export const HEALTH_TIMEOUT_DEFAULT_MS = 30_000;
+
 const DEFAULTS: Required<Omit<HealthOptions, 'signal' | 'requireInstance'>> = {
-  timeoutMs: 30_000,
+  timeoutMs: HEALTH_TIMEOUT_DEFAULT_MS,
   intervalMs: 150,
   maxIntervalMs: 1_000,
 };

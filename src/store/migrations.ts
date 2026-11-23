@@ -3133,10 +3133,16 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 137) {
-    // v137: `recovery_rounds.no_change_reason`, `no_change_at`, `no_change_rerun_requested_at`, `no_change_rerun_at` and the `fix_round_acceptances` table (@arch:AC-66). Additive; NULL = no no-change verdict (no backfill).
-    const roundCols137 = tableColumns(db, 'recovery_rounds');
+    // v137: `servers.last_error` — the short reason a row is `failed` ("Port 3000 in use by pid 4123", "Exited unexpectedly"). `recordFailedStart` and the liveness sweep's `markServerCrashed` write it; a successful start writes NULL (@arch:SERVERS-PANEL). Additive; NULL for every pre-v136 row (no backfill: the old reason was never stored).
+    const serverCols137 = tableColumns(db, 'servers');
+    if (serverCols137.size > 0 && !serverCols137.has('last_error')) db.exec('ALTER TABLE servers ADD COLUMN last_error TEXT');
+  }
+
+  if (current < 138) {
+    // v138: `recovery_rounds.no_change_reason`, `no_change_at`, `no_change_rerun_requested_at`, `no_change_rerun_at` and the `fix_round_acceptances` table (@arch:AC-66). Additive; NULL = no no-change verdict (no backfill).
+    const roundCols138 = tableColumns(db, 'recovery_rounds');
     for (const col of ['no_change_reason', 'no_change_at', 'no_change_rerun_requested_at', 'no_change_rerun_at']) {
-      if (roundCols137.size > 0 && !roundCols137.has(col)) db.exec(`ALTER TABLE recovery_rounds ADD COLUMN ${col} TEXT`);
+      if (roundCols138.size > 0 && !roundCols138.has(col)) db.exec(`ALTER TABLE recovery_rounds ADD COLUMN ${col} TEXT`);
     }
     db.exec(FIX_ROUND_ACCEPTANCES_DDL);
   }

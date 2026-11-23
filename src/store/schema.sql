@@ -388,10 +388,10 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   manifest_sha TEXT,      -- v108: sha256 of that file's bytes at that time; NULL = none or unreadable
   host_rerun_requested_at TEXT, -- v112: stamp of a refused host CLI fix marker that asked the extension for the host re-run
   host_rerun_pid INTEGER, -- v122: the pid of the host that claimed the re-run; NULL = none recorded (a pre-v122 claim)
-  no_change_reason TEXT,   -- v137: the agent's reason that no code change is correct (@arch:AC-66); NULL = none
-  no_change_at TEXT,       -- v137: stamp of that reason
-  no_change_rerun_requested_at TEXT, -- v137: stamp of the host CLI request for that re-run (the bridge path never sets it)
-  no_change_rerun_at TEXT, -- v137: stamp of the one host re-run a no-change verdict buys (separate from host_rerun_at)
+  no_change_reason TEXT,   -- v138: the agent's reason that no code change is correct (@arch:AC-66); NULL = none
+  no_change_at TEXT,       -- v138: stamp of that reason
+  no_change_rerun_requested_at TEXT, -- v138: stamp of the host CLI request for that re-run (the bridge path never sets it)
+  no_change_rerun_at TEXT, -- v138: stamp of the one host re-run a no-change verdict buys (separate from host_rerun_at)
   CHECK (round <= max_rounds)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recovery_round
@@ -691,7 +691,7 @@ CREATE TABLE IF NOT EXISTS servers (
   host          TEXT,
   port          INTEGER,
   pid           INTEGER,
-  status        TEXT NOT NULL,        -- running | stopped
+  status        TEXT NOT NULL,        -- running | stopped | failed
   log_path      TEXT,
   started_at    TEXT NOT NULL DEFAULT (datetime('now')),
   -- The directory the process was spawned in (v21) — normally a ticket's
@@ -725,7 +725,12 @@ CREATE TABLE IF NOT EXISTS servers (
   -- sandbox, reached through a published 127.0.0.1 port), so this handle is what
   -- the stop and re-verify paths use to unpublish and stop it there (arch:AC-32).
   -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
-  sandbox       TEXT
+  sandbox       TEXT,
+  -- The short reason a row is `failed` (v137): the start refusal ("Port 3000 in
+  -- use by pid 4123") or the crash that the liveness sweep saw ("Exited with
+  -- code 1"). NULL on a running row and on a pre-v137 row. Placed LAST, as the
+  -- ALTER appends.
+  last_error    TEXT
 );
 
 -- One PR per (ticket, repo). `status` and every v16 metadata column below are
@@ -1663,7 +1668,7 @@ CREATE TABLE IF NOT EXISTS karst_events (
 CREATE INDEX IF NOT EXISTS idx_karst_events_project ON karst_events(project_id, id);
 CREATE INDEX IF NOT EXISTS idx_karst_events_unread ON karst_events(project_id, read_at);
 
--- v137 fix_round_acceptances (kept in sync with FIX_ROUND_ACCEPTANCES_DDL in store/fixRoundAcceptances.ts, @arch:AC-66).
+-- v138 fix_round_acceptances (kept in sync with FIX_ROUND_ACCEPTANCES_DDL in store/fixRoundAcceptances.ts, @arch:AC-66).
 -- One row per user decision to accept the open items of a parked fix round and continue. Append-only.
 CREATE TABLE IF NOT EXISTS fix_round_acceptances (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

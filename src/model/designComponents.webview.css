@@ -84,6 +84,16 @@ body.vscode-light{--k-action-2-bg:var(--vscode-editorWidget-background);--k-acti
   content:"\2713";visibility:visible;border:0;animation:none;
   display:inline-flex;align-items:center;justify-content:center;
   font-size:var(--k-spinner-size);line-height:1}
+/* A button with a leading glyph (`.k-btn--icon`): the glyph is the spinner slot. No empty slot is reserved;
+   while spinning the glyph hides and the spinner draws over it, so the width does not change (UI-R18). */
+.k-btn-icon{position:relative;display:inline-flex;align-items:center;justify-content:center}
+.k-btn--icon.is-spinning::before{content:none}
+.k-btn--icon.is-spinning .k-btn-icon > *{visibility:hidden}
+.k-btn--icon.is-spinning .k-btn-icon::after{
+  content:"";position:absolute;box-sizing:border-box;
+  width:var(--k-spinner-size);height:var(--k-spinner-size);border-radius:var(--k-radius-circle);
+  border:var(--k-spinner-w) solid currentColor;border-top-color:transparent;
+  animation:k-spin var(--k-dur-spin) linear infinite}
 /* Tier 1 (view): a thin progress line at the top of the data region + dimmed data. */
 [data-region].is-loading{position:relative}
 [data-region].is-loading::before{

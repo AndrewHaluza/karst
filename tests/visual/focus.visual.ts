@@ -150,12 +150,18 @@ const FOCUS_CAP = 12;
  * control the ticket introduced (US-1..US-35: refresh on open, tab switching,
  * sorting, a ticket link, and one way forward per state); none folds into
  * another, so the count grows with the page's interactive surface.
+ *
+ * Updated a seventeenth time by the Server logs panel (T1317, LG-4/LG-11/LG-12):
+ * `serverLogs` 11 → 14 — Follow (a toggle), Wrap (a check box) and Copy. Each is a
+ * net-new verb the ticket introduced (follow the newest output, turn wrapping off
+ * for one long line, copy the lines shown); none folds into the existing Prev/Next,
+ * filter and current-run controls or into "Clear view".
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 49, // fourteenth note: #closeTicket / #reopenTicket
   usage: 37, // sixteenth note: page header, tabs, sort headers, ticket links and the state actions
   resources: 19, // thirteenth note: the Servers / Resources tab buttons
-  serverLogs: 11,
+  serverLogs: 14, // seventeenth note: Follow, Wrap and Copy
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)
   diffs: 35,
   settings: 195,

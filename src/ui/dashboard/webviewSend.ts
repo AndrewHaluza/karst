@@ -254,8 +254,22 @@ export function createSender(api: WebviewApi) {
     serverLogsMatchCount: (
       count: Msg<'server-logs-match-count'>['count'],
       seq: Msg<'server-logs-match-count'>['seq'],
+      current?: Msg<'server-logs-match-count'>['current'],
       requestId?: string,
-    ) => send({ type: 'server-logs-match-count', count, seq }, requestId),
+    ) =>
+      send(
+        current === undefined
+          ? { type: 'server-logs-match-count', count, seq }
+          : { type: 'server-logs-match-count', count, seq, current },
+        requestId,
+      ),
+    serverLogsNewCount: (
+      count: Msg<'server-logs-new-count'>['count'],
+      seq: Msg<'server-logs-new-count'>['seq'],
+      requestId?: string,
+    ) => send({ type: 'server-logs-new-count', count, seq }, requestId),
+    serverLogsCopy: (text: Msg<'server-logs-copy'>['text'], requestId?: string) =>
+      send({ type: 'server-logs-copy', text }, requestId),
     envOverridesSave: (
       scope: Msg<'env-overrides-save'>['scope'],
       text: Msg<'env-overrides-save'>['text'],

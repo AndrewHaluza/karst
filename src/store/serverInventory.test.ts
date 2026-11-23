@@ -139,3 +139,40 @@ describe('listProjectServers', () => {
     expect(listProjectServers(store, M, 1).tickets[0]).toMatchObject({ dependencyDown: false, downServices: [] });
   });
 });
+
+describe('listProjectServers: lastError and httpHealth', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('carries last_error of a failed row and null for a running row', () => {
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    const failed = addServer(store, t.id, 'api', 'failed');
+    store.db.prepare("UPDATE servers SET last_error = 'Port 3000 in use by pid 4123' WHERE id = ?").run(failed);
+    addServer(store, t.id, 'web', 'running');
+    const rows = listProjectServers(store, M, 1).tickets[0]!.servers;
+    expect(rows.map((s) => [s.repo, s.lastError])).toEqual([
+      ['web', null],
+      ['api', 'Port 3000 in use by pid 4123'],
+    ]);
+  });
+
+  it('sets httpHealth from the declared health: http, default http, tcp, docker default, undeclared', () => {
+    const m = manifest({
+      api: runnableRepo({ health: 'http://${host}:${port}/ready' }),
+      web: runnableRepo(),
+      db: runnableRepo({ health: 'tcp://${host}:${port}' }),
+      cache: runnableRepo({ docker: { image: 'redis', containerPort: 6379, env: {}, volumes: [], args: [] } }),
+    });
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    for (const name of ['api', 'web', 'db', 'cache', 'gone']) addServer(store, t.id, name, 'running');
+    const rows = listProjectServers(store, m, 1).tickets[0]!.servers;
+    expect(Object.fromEntries(rows.map((s) => [s.repo, s.httpHealth]))).toEqual({
+      api: true,
+      web: true,
+      db: false,
+      cache: false,
+      gone: false,
+    });
+  });
+});

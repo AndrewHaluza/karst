@@ -1,9 +1,12 @@
 /*
   Styles for the "Servers & resources" page that are not the Resources tab's:
   the tab strip and the Servers tab. Tokens only — no colour or size literals —
-  except the @media widths, which cannot read a custom property. They are the
+  except the @container widths, which cannot read a custom property. They are the
   three layout tiers of src/ui/layout/layoutBreakpoints.ts (>=1000 / 700-999 /
   <=699) and are pinned to them by layoutBreakpoints.test.ts.
+
+  Each tab panel is its own query container, so a split editor group narrows the
+  page by the PANEL's width, not the window's (@ui:RD-TIERS, RS-11).
 */
 
 /* ---- Resources tab additions ------------------------------------------ */
@@ -13,18 +16,16 @@
 .wgroup > .rownote{padding-bottom:var(--k-space-3)}
 
 /* ---- header + tabs ---------------------------------------------------- */
-.rhead .tabs{flex-basis:100%;display:flex;gap:var(--k-space-1);
-  border-bottom:var(--k-border-w) solid var(--k-border)}
-.tab{background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-md);
-  font-weight:var(--k-weight-medium);cursor:pointer;min-height:var(--k-control-h-md);
-  padding:var(--k-space-2) var(--k-space-6);border:0;border-radius:var(--k-radius-sm) var(--k-radius-sm) 0 0;
-  border-bottom:calc(var(--k-border-w) * 2) solid transparent}
-.tab:hover{color:var(--k-text);background:var(--k-surface-hover)}
-.tab[aria-selected="true"]{color:var(--k-text);border-bottom-color:var(--k-link)}
-.tab:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+/* The page header and the tab strip are the shared primitives (.k-pagehead and
+   .k-tabs / .k-tab from designComponents.webview.css, D743/D751); this page adds
+   nothing of its own to either. */
+.rpanel{container-type:inline-size}
 
 /* ---- Servers tab ------------------------------------------------------ */
-.stats-servers{margin-bottom:var(--k-space-6)}
+/* `.stats` (webview.html) sets its own 8 px bottom margin and comes later in the
+   document, so the section gap needs both classes: the between-section gap must be
+   larger than any gap inside a section (the `.smain` 12 px grid gap, @ui:UI-R42). */
+.stats.stats-servers{margin-bottom:var(--k-space-7)}
 .smain{display:grid;gap:var(--k-space-6);margin-bottom:var(--k-space-6)}
 
 .group{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
@@ -41,7 +42,7 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 .ghead-ticket .count{margin-left:var(--k-space-0)}
 .gtitle{margin:0;font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);min-width:0;flex:1 1 auto;
   display:flex;align-items:baseline;gap:var(--k-space-4);flex-wrap:wrap}
-.gtitle .tkey{font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+.gtitle .tkey{font-family:var(--k-font-mono);font-size:var(--k-text-xs);overflow-wrap:anywhere;min-width:0}
 .gtitle .gname{font-weight:var(--k-weight-normal);overflow-wrap:anywhere;min-width:0}
 .gmeta{display:flex;align-items:center;gap:var(--k-space-4);color:var(--k-text-dim);font-size:var(--k-text-xs)}
 .gmeta .stage{text-transform:uppercase;letter-spacing:.04em;font-size:var(--k-text-2xs)}
@@ -51,7 +52,8 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 .flag{overflow-wrap:anywhere;min-width:0;max-width:100%;font-size:var(--k-text-2xs);color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);
   border-radius:var(--k-radius-pill);padding:var(--k-space-1) var(--k-space-4)}
 .flag-down{color:var(--k-warning);border-color:var(--k-warning)}
-.gempty{margin:var(--k-space-0);padding:var(--k-space-5) var(--k-space-6);color:var(--k-text-dim);font-size:var(--k-text-sm)}
+/* The one empty state of this tab ("No servers run in this project", RS-19). */
+.group > .k-empty{margin:var(--k-space-5) var(--k-space-6)}
 
 /* rows: identity | facts | actions */
 .srows{list-style:none;margin:var(--k-space-0);padding:var(--k-space-0)}
@@ -64,25 +66,58 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 .srow-facts{display:flex;align-items:baseline;gap:var(--k-space-5);flex-wrap:wrap;min-width:0;
   font-size:var(--k-text-sm);color:var(--k-text-dim)}
 .saddr{font-family:var(--k-font-mono);color:var(--k-text)}
+/* A failed row still names its port, dimmed: the address is not reachable (RS-2). */
+.saddr-dim{color:var(--k-text-dim)}
+/* On a ticket row the address itself opens the server (RS-15, @ui:SG-25). */
+/* A link-styled verb is still a control: its box keeps the small control height
+   so the hit area does not collapse to the glyphs (@ui:UI-R53). */
+.saddr-link{display:block;min-height:var(--k-control-h-sm);background:transparent;border:0;padding:var(--k-space-0);margin:var(--k-space-0);
+  font:inherit;font-family:var(--k-font-mono);color:var(--k-link);cursor:pointer;text-align:left;
+  overflow-wrap:anywhere;min-width:0;border-radius:var(--k-radius-xs)}
+.saddr-link:hover{color:var(--k-link-active);text-decoration:underline}
+.saddr-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.saddr-link:disabled{color:var(--k-text-dim);cursor:default;text-decoration:none}
 .deps{overflow-wrap:anywhere}
 .deps-none{color:var(--k-text-faint)}
 .dep-done{color:var(--k-text-faint)}
 .srow-actions{display:flex;gap:var(--k-space-2);flex-wrap:wrap;justify-content:flex-end}
+/* "Copy URL" and "Copied" keep the same width, so the row does not shift (UI-R18). */
 .rownote{grid-column:1 / -1;color:var(--k-danger);font-size:var(--k-text-sm);overflow-wrap:anywhere}
 .group > .rownote{padding:var(--k-space-3) var(--k-space-6)}
+/* Why a row is failed: the host's reason, beside the danger mark (RS-2). */
+.srow-reason{grid-column:1 / -1;margin:var(--k-space-0);display:flex;align-items:baseline;
+  gap:var(--k-space-2);color:var(--k-danger);font-size:var(--k-text-sm);overflow-wrap:anywhere;min-width:0}
+.srow-reason-mark{color:var(--k-danger)}
 
 /* status mark: shape AND word (UI-R28) */
 .smark{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);white-space:nowrap}
+/* The in-flight mark turns, and a rotated box needs room for its diagonal: without
+   the padding the spinner's visual box escapes its inline parent by ~2 px (@ui:UI-R45). */
+.smark:has(.smark-busy){padding:var(--k-space-2)}
 .smark-running{color:var(--k-success)}
+.smark-starting,.smark-stopping{color:var(--k-text-dim)}
 .smark-stopped{color:var(--k-text-dim)}
 .smark-failed{color:var(--k-danger)}
 .smark-word{color:var(--k-text)}
+/* A verb in flight: the neutral pending mark turns, and stops turning when the
+   theme asks for reduced motion. */
+.smark-busy{display:inline-block;animation:k-smark-turn var(--k-dur-spin) linear infinite}
+@keyframes k-smark-turn{to{transform:rotate(360deg)}}
 
-.chip-branch,.chip-kept{font-size:var(--k-text-2xs);border-radius:var(--k-radius-pill);
+/* Inline-blocks so the pill's vertical padding stays inside its line box, and they
+   break a long branch name instead of escaping the row (hostile labels). */
+.chip-branch,.chip-kept{display:inline-block;max-width:100%;overflow-wrap:anywhere;
+  font-size:var(--k-text-2xs);border-radius:var(--k-radius-pill);
   padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);color:var(--k-text-dim)}
 .chip-branch{font-family:var(--k-font-mono)}
 .chip-kept{color:var(--k-success);border-color:var(--k-success)}
-.srow-actions .k-btn[aria-pressed="true"]{border-color:var(--k-link);color:var(--k-link)}
+.srow-actions [aria-pressed="true"]{border-color:var(--k-link);color:var(--k-link)}
+/* Verb glyphs carry the meaning colour used elsewhere: start green, restart link blue, stop red (danger variant). */
+.k-iconbtn.sv-start{color:var(--k-success)}
+.k-iconbtn.sv-restart{color:var(--k-link)}
+.sv-stopbtn .k-btn-icon{color:var(--k-danger)}
+/* A glyph island is a line box otherwise: it would be 1px taller than its wrapper (containment). */
+.k-iconbtn .icon-island,.k-btn-icon .icon-island{display:inline-flex;line-height:0}
 
 /* footer: legend + project-wide actions */
 .sfooter{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-6);flex-wrap:wrap;
@@ -92,17 +127,23 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 .sfooter-actions{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
 .sfooter .why{color:var(--k-text-faint);font-size:var(--k-text-2xs);overflow-wrap:anywhere}
 
-/* ---- tiers ------------------------------------------------------------ */
-@media (max-width: 999px) {
+/* ---- tiers (@ui:RD-TIERS): the PANEL's width, no horizontal scroll (UI-R43) ---- */
+@container (max-width: 999px) {
   .srow{grid-template-columns:minmax(0,1fr) auto}
   .srow-facts{grid-column:1 / 2}
   .srow-actions{grid-column:2 / 3;grid-row:1 / 3}
 }
-@media (max-width: 699px) {
+@container (max-width: 699px) {
   .srow{grid-template-columns:minmax(0,1fr)}
   .srow-facts,.srow-actions{grid-column:1 / -1;grid-row:auto}
   .srow-actions{justify-content:flex-start}
   .gactions{margin-left:var(--k-space-0);flex-basis:100%}
   .sfooter{align-items:flex-start}
-  .rhead .tabs{overflow-x:visible}
+}
+@container (max-width: 399px) {
+  .srow{padding:var(--k-space-4)}
+  .ghead-ticket,.tickets > h2.ghead{padding:var(--k-space-4)}
+}
+@media (prefers-reduced-motion: reduce) {
+  .smark-busy{animation:none}
 }

@@ -1,6 +1,6 @@
 import type { Store } from './db.js';
 
-/** Kept in sync with the `fix_round_acceptances` block of schema.sql (v137, @arch:AC-66). */
+/** Kept in sync with the `fix_round_acceptances` block of schema.sql (v138, @arch:AC-66). */
 export const FIX_ROUND_ACCEPTANCES_DDL = `
 CREATE TABLE IF NOT EXISTS fix_round_acceptances (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

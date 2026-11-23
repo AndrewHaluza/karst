@@ -364,6 +364,7 @@ import { resumeBlockedStage } from './workflow/stageResume.js';
 import { buildConflictBrief } from './workflow/conflictSession.js';
 import { stopTicketServers } from './runtime/supervisor.js';
 import { createServersBinding } from './extension/serversBinding.js';
+import { makeServerLogsBinding } from './extension/serverLogsBinding.js';
 import { describeReap } from './runtime/worktreeServers.js';
 import { reapOrphanedPorts, describeOrphanReap } from './runtime/orphanPorts.js';
 import { bindGateRuns, type GateRunsBinding } from './extension/ops/gateRunsOps.js';
@@ -2862,6 +2863,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const resourcesDisk = new WorktreeDiskCache();
   // The Servers tab (project-wide control plane): ops + host bindings live in
   // `extension/serversBinding.ts`; the panel re-reads on `serversChanged`.
+  // The liveness sweep turns a crashed `running` row into `failed`. It runs while
+  // a dashboard or the Resources panel is open, on the Resources poll, and on
+  // each monitor reading (`always`), so the status bar shows a crash too.
+  const liveness = createLivenessLoop({
+    store: localStore, openPanelCount: () => dashboard.openCount(), openResourcesCount: () => resourcesPanel.openCount(),
+    refresh: () => serversChanged(), logError,
+    info: (m) => logger.info(m), debug: (m) => logger.debug(m),
+  });
   const serversBinding = createServersBinding({
     context, store: localStore, notify: vscodeNotify, debug: (m) => logger.debug(m),
     projectId: () => currentProject()?.id, manifest: currentManifest,
@@ -2869,7 +2878,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     afterServerChange: () => serversChanged(),
     ...(sandboxB ? { sandbox: sandboxB.deps, userUatWithheld: sandboxB.userUatWithheld } : {}), // AC-32
     stopTicketServers: (id) => (sandboxB ? sandboxB.stopTicket(localStore, id) : stopTicketServers(localStore, id)),
-    openTicketLogs: (id) => serverLogsManager.open(id), openLogs: () => channel.show(),
+    sweepNow: () => liveness.sweepNow(),
+    openTicketLogs: (id) => serverLogsManager.open(id), openSharedLogs: () => serverLogsManager.openShared(),
+    openLogs: () => channel.show(),
   });
   const serversChanged = (): void => { provider.refresh(); dashboard.pushAll(); resourcesPanel.refreshServers(); serversBinding.updateStatus(); };
   const resourcesPanel = new ResourcesPanelManager(restoreHosts.track('resourcesHost', makeResourcesPanelHost(context, brandIcon)), {
@@ -2909,7 +2920,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   resourcesStatus.command = 'karst.openResources';
   context.subscriptions.push(resourcesStatus);
   resourceMonitorInstance.onReading((reading) => {
-    serversBinding.updateStatus();
+    // Sweep first, so a crash reaches the status bar with no panel open. The
+    // sweep repaints through `serversChanged` when a row turned `failed`.
+    void liveness.sweepNow({ always: true }).then(() => serversBinding.updateStatus());
     const indicator = buildResourceIndicator(reading);
     if (!indicator) {
       resourcesStatus.hide();
@@ -3058,6 +3071,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   let restartGraphRun: ((ticketId: number, graphRunId: number) => Promise<void>) | undefined;
 
+  const serverLogsSeams = makeServerLogsBinding({ store: localStore, ticketKeyOf: (id) => getTicket(localStore, id).key ?? null,
+    inventory: () => serversBinding.host.inventory(), writeClipboard: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)) });
   const serverLogsManager = new ServerLogsManager(
     makeServerLogsPanelHost(context, brandIcon),
     new ServerLogsReader((m) => logger.debug(m)),
@@ -3065,7 +3080,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const t = getTicket(localStore, ticketId);
       return `Server Logs — ${tabTitle(compactTicketLabel(t, ticketLabel(t)))}`;
     },
-    (ticketId) => listServersByTicket(localStore, ticketId).map((s) => ({ service: s.service, logPath: s.logPath })),
+    serverLogsSeams.logServers,
+    logError, serverLogsSeams.options,
   );
   context.subscriptions.push(serverLogsManager);
 
@@ -3434,6 +3450,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ship = gateLive.snapshot(id, 'ship');
       return { ...(uat ? { uat } : {}), ...(review ? { review } : {}), ...(ship ? { ship } : {}) };
     },
+    (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
   );
   serverLifecycleDeps = {
     store: localStore, manifest: currentManifest,
@@ -3441,11 +3458,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     notify: vscodeNotify, writeManifest, manifestPath: () => manifestPathOrThrow(), logError,
     afterServerChange: () => serversChanged(),
   };
-  const liveness = createLivenessLoop({
-    store: localStore, openPanelCount: () => dashboard.openCount(),
-    refresh: () => { provider.refresh(); dashboard.pushAll(); }, logError,
-    info: (m) => logger.info(m), debug: (m) => logger.debug(m),
-  }); liveness.start();
+  liveness.start();
   context.subscriptions.push(liveness, vscode.window.onDidChangeWindowState((s) => { if (s.focused) void liveness.sweepNow(); }));
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's

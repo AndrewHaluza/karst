@@ -217,6 +217,14 @@ describe('sharedServerOps', () => {
       addBaseline(store, 'api');
       await stopIdle(deps);
       expect(notify.info).toHaveBeenCalledWith('Stopped 1 idle shared service: api.');
+      expect(confirm.mock.calls[0]![0]).toMatch(/^Stop 1 idle shared service: api\? /);
+    });
+
+    it('words the confirm for two services in the plural', async () => {
+      addBaseline(store, 'api');
+      addBaseline(store, 'db');
+      await stopIdle(deps);
+      expect(confirm.mock.calls[0]![0]).toMatch(/^Stop 2 idle shared services: api, db\? /);
     });
 
     it('names every failure and still stops the rest', async () => {

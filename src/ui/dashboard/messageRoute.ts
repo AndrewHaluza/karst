@@ -216,7 +216,11 @@ export function routeAction(
     case 'server-logs-tab':
       return;
     case 'server-logs-match-count':
-      return actions.serverLogsMatchCount?.(msg.count, msg.seq);
+      return actions.serverLogsMatchCount?.(msg.count, msg.seq, msg.current);
+    case 'server-logs-new-count':
+      return actions.serverLogsNewCount?.(msg.count, msg.seq);
+    case 'server-logs-copy':
+      return actions.copyServerLogs?.(msg.text);
     // Answered by the panel host itself (it owns the vendored bundle).
     case 'xterm-request':
       return;

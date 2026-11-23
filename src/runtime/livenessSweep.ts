@@ -1,78 +1,86 @@
 import type { Store } from '../store/db.js';
-import { markServerStopped } from './supervisor.js';
+import { groupLiveness, lastExitCode, type GroupLiveness } from './supervisor.js';
+import { markServerCrashed } from '../store/serverCrash.js';
 import { pidAlive } from './pidAlive.js';
 import { connect } from 'node:net';
 import { isContainerRunning } from './orphanContainers.js';
 import { formatId } from '../model/entityId.js';
 
 /**
- * Retire `running` server rows whose process is actually gone.
+ * Mark `running` server rows whose process is actually gone as `failed`.
  *
- * The dashboard renders each row's `status` column verbatim, so a row that
- * claims `running` keeps claiming it until something re-derives the truth.
- * `reconcileOnStart` does that once, at activation — a VM suspend/resume that
- * kills the processes without restarting the extension host never runs it, and
- * the panel lies until the window is reloaded. This sweep is that same
- * attribution, run while the window is open.
+ * The panels render each row's `status` column verbatim, so a row that claims
+ * `running` keeps claiming it until something re-derives the truth.
+ * `reconcileOnStart` does that once, at activation, and writes `stopped`: a
+ * server that ended with the closed window is not a crash seen live. This sweep
+ * runs while the window is open, and what it sees IS a crash, so it writes the
+ * existing `failed` state with a reason (`markServerCrashed`). It never writes
+ * `stopped`: a stop is a user action (@arch:SERVERS-PANEL).
  *
- * ALIVE means `pidAlive(pid)` OR the recorded `host:port` is not definitively
- * refused — a connection is accepted, or the probe could not answer in time.
- * The port check is required, not decorative: a launcher that
- * daemonises (`docker compose up -d`, `spawn(..., { detached: true }).unref()`)
- * exits and records its OWN pid while the process it left behind — in a group of
- * its own — keeps serving. Treating a dead pid alone as death would report a
- * live service offline on every pass. A bound port is evidence of life; absence
- * of a pid is not evidence of death. (This mirrors `bootSweeps.pidsStillServing`.)
+ * A row with a pid is crashed only when ALL three answers agree: the pid is
+ * dead, its process group is not `'alive'`, and the recorded `host:port`
+ * definitively refuses (`probeReachable` → `false`). The port check is
+ * required, not decorative: a launcher that daemonises (`docker compose up -d`,
+ * `spawn(..., { detached: true }).unref()`) exits 0 with its own group empty
+ * while the daemon it left behind keeps serving. That is the `abandonVerdict`
+ * rule without the grace. On Windows the group answer is `'unknown'`, so the
+ * rule is pid + port. A row with no host or port is never flipped: nothing can
+ * prove it dead.
  *
- * A retired row is MARKED, never deleted: `markServerStopped` flips it to
- * `stopped` and nulls the pid. A deleted row would vanish from the panel; a
- * retained `stopped` row comes back as offline and restartable, exactly as
- * `reconcileOnStart` leaves it. The row's `container` name is deliberately left
- * alone: this sweep NEVER tears a container down. A refused port is no proof a
- * container is dead — it may be running while its mapped port is not listening
- * — and `docker rm -f` would destroy a live workload irreversibly. Only the
- * explicit stop/reap paths remove containers; this module only observes and
- * records. Nothing here signals a process, so a false "alive" costs a stale row
- * until the next pass, whereas a false "dead" would flip a live service offline.
+ * A row with a `container` is judged by `docker ps` only, with or without a
+ * client pid: a dead `docker run` client with a live container is a live
+ * service, and a port check would be fooled by another ticket on the same port.
+ * A pid-NULL row with no container (a sandbox row) is crashed when its port
+ * refuses. The sweep NEVER tears a container down: only the explicit stop and
+ * reap paths remove containers.
  *
  * A probe that throws or never answers leaves the row ALONE. Absence of evidence
- * is not evidence of death: a transient TCP error must not retire a row whose
- * process may still be running, so the per-row decision is isolated and an
- * unanswered probe is skipped rather than read as `false`.
+ * is not evidence of death, so a timeout (`undefined`) is alive. Nothing here
+ * signals a process: a false "alive" costs a stale row until the next pass,
+ * whereas a false "dead" would show a live service as Failed.
  */
 
-export interface RetiredServer {
+export interface CrashedServer {
   id: number;
   ticketId: number | null;
   service: string;
   pid: number | null;
+  /** The short reason written to `servers.last_error`. */
+  reason: string;
 }
+
+/** The reason when no exit code is known (another window started it, or a signal). */
+export const CRASH_REASON_UNKNOWN = 'Exited unexpectedly';
 
 export interface SweepLivenessOpts {
   /** Limit the sweep to one ticket's rows. Omit to sweep every running row. */
   ticketId?: number;
   /** Injected for tests. Defaults to the real probes. */
   isPidAlive?: (pid: number) => boolean;
+  /** The process group of a recorded pid. Defaults to `groupLiveness`. */
+  isGroupAlive?: (pid: number) => GroupLiveness;
   /**
    * Reachability of a recorded address, in three states: `true` (something
    * accepts connections), `false` (definitively refused), or `undefined` (no
    * answer in time — timeout / no route). `undefined` is NOT death, so the row
-   * is left running. Defaults to the bounded tri-state probe below.
+   * is left running. Defaults to `probeReachable`.
    */
   portOpen?: (host: string, port: number) => Promise<boolean | undefined>;
   /** Injected for tests. Defaults to `docker ps`. `undefined` = docker did not answer. */
   containerRunning?: (name: string) => Promise<boolean | undefined>;
+  /** Non-zero exit codes by row id. Defaults to the supervisor's `lastExitCode`. */
+  exitCodes?: Map<number, number>;
   debug?: (message: string) => void;
 }
 
 /**
  * A bounded TCP probe with three outcomes. `isPortOpen` deliberately folds
  * every failure into `false`: a port-conflict PREFLIGHT may read an unanswered
- * port as one it can try. A liveness sweep must not — a filtered port or an
- * overloaded host would then retire a healthy service. Only a definitive
+ * port as one it can try. A liveness check must not — a filtered port or an
+ * overloaded host would then fail a healthy service. Only a definitive
  * `ECONNREFUSED` is evidence the listener is gone; a timeout is `undefined`.
  */
-function probeReachable(
+export function probeReachable(
   host: string,
   port: number,
   timeoutMs = 1_000,
@@ -102,17 +110,40 @@ interface RunningServerRow {
   host: string | null;
   port: number | null;
   container: string | null;
+  sandbox: string | null;
+}
+
+interface Probes {
+  isPidAlive: (pid: number) => boolean;
+  isGroupAlive: (pid: number) => GroupLiveness;
+  portOpen: (host: string, port: number) => Promise<boolean | undefined>;
+  containerRunning: (name: string) => Promise<boolean | undefined>;
+}
+
+/** True only when the evidence proves the row's service is gone. */
+async function isCrashed(row: RunningServerRow, p: Probes): Promise<boolean> {
+  if (row.container !== null) return (await p.containerRunning(row.container)) === false;
+  if (row.pid !== null) {
+    if (p.isPidAlive(row.pid)) return false;
+    if (p.isGroupAlive(row.pid) === 'alive') return false;
+  }
+  if (row.host === null || row.port === null) return false;
+  return (await p.portOpen(row.host, row.port)) === false;
 }
 
 export async function sweepServerLiveness(
   store: Store,
   opts: SweepLivenessOpts = {},
-): Promise<RetiredServer[]> {
-  const isPidAlive = opts.isPidAlive ?? pidAlive;
-  const portOpen = opts.portOpen ?? probeReachable;
-  const containerRunning = opts.containerRunning ?? ((name) => isContainerRunning(name));
+): Promise<CrashedServer[]> {
+  const probes: Probes = {
+    isPidAlive: opts.isPidAlive ?? pidAlive,
+    isGroupAlive: opts.isGroupAlive ?? groupLiveness,
+    portOpen: opts.portOpen ?? probeReachable,
+    containerRunning: opts.containerRunning ?? ((name) => isContainerRunning(name)),
+  };
+  const exitCodes = opts.exitCodes ?? lastExitCode;
 
-  let sql = "SELECT id, ticket_id AS ticketId, repo, pid, host, port, container FROM servers WHERE status = 'running' AND kind = 'service'";
+  let sql = "SELECT id, ticket_id AS ticketId, repo, pid, host, port, container, sandbox FROM servers WHERE status = 'running' AND kind = 'service'";
   const params: number[] = [];
   if (opts.ticketId !== undefined) {
     sql += ' AND ticket_id = ?';
@@ -120,32 +151,21 @@ export async function sweepServerLiveness(
   }
 
   const rows = store.db.prepare(sql).all(...params) as RunningServerRow[];
-  const retired: RetiredServer[] = [];
+  const crashed: CrashedServer[] = [];
 
   for (const row of rows) {
     try {
-      if (row.pid != null && isPidAlive(row.pid)) continue;
-      // pid=NULL + container: the container is the handle. A port check would
-      // be fooled by another ticket's process bound to the same port.
-      if (row.pid == null && row.container !== null) {
-        if ((await containerRunning(row.container)) !== false) continue;
-        opts.debug?.(`[runtime] retiring server ${row.id} (${row.repo}) — container ${row.container} is not running`);
-        markServerStopped(store, row.id);
-        retired.push({ id: row.id, ticketId: row.ticketId, service: row.repo, pid: null });
-        continue;
-      }
-      if (row.host !== null && row.port !== null) {
-        // Only a DEFINITIVE refusal is death. `true` and `undefined` (a probe
-        // that timed out) both keep the row: a filtered port must not retire a
-        // live service.
-        if ((await portOpen(row.host, row.port)) !== false) continue;
-      }
-
+      if (!(await isCrashed(row, probes))) continue;
+      const code = exitCodes.get(row.id);
+      const reason = code === undefined ? CRASH_REASON_UNKNOWN : `Exited with code ${code}`;
+      // The guard in `markServerCrashed` drops the write when a user Stop or a
+      // restart changed the row while the probes ran.
+      if (!markServerCrashed(store, row.id, row.pid, reason)) continue;
+      exitCodes.delete(row.id);
       opts.debug?.(
-        `[runtime] retiring server ${row.id} (${row.repo}, pid ${row.pid ?? 'unknown'}) — no live pid and nothing bound on ${row.host ?? '?'}:${row.port ?? '?'}`,
+        `[runtime] server ${row.id} (${row.repo}, pid ${row.pid ?? 'unknown'}) failed — ${reason}; nothing bound on ${row.host ?? '?'}:${row.port ?? '?'}${row.container === null ? '' : ` (container ${row.container} is not running)`}`,
       );
-      markServerStopped(store, row.id);
-      retired.push({ id: row.id, ticketId: row.ticketId, service: row.repo, pid: row.pid });
+      crashed.push({ id: row.id, ticketId: row.ticketId, service: row.repo, pid: row.pid, reason });
     } catch (err) {
       opts.debug?.(
         `[runtime] liveness probe for server ${row.id} failed; leaving it running (${String(err)})`,
@@ -154,10 +174,10 @@ export async function sweepServerLiveness(
     }
   }
 
-  return retired;
+  return crashed;
 }
 
-export function describeRetired(s: RetiredServer): string {
-  return `karst: '${s.service}' is no longer running (pid ${s.pid ?? 'unknown'})` +
-    `${s.ticketId === null ? '' : ` on ticket ${formatId('ticket', s.ticketId)}`} — marked offline.`;
+export function describeCrashed(s: CrashedServer): string {
+  return `karst: '${s.service}' exited unexpectedly (pid ${s.pid ?? 'unknown'})` +
+    `${s.ticketId === null ? '' : ` on ticket ${formatId('ticket', s.ticketId)}`} — marked failed.`;
 }

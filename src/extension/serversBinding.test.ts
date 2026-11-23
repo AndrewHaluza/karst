@@ -6,7 +6,10 @@ const m = vi.hoisted(() => ({
   openExternal: vi.fn(),
   writeText: vi.fn(),
   parse: vi.fn((u: string) => ({ parsed: u })),
-  status: { command: '', text: '', tooltip: '', show: vi.fn(), hide: vi.fn() },
+  status: {
+    command: '', text: '', tooltip: '', show: vi.fn(), hide: vi.fn(),
+    accessibilityInformation: undefined as unknown, backgroundColor: undefined as unknown,
+  },
   createStatusBarItem: vi.fn(),
   makeServersHost: vi.fn(),
   inventory: vi.fn(),
@@ -18,6 +21,7 @@ vi.mock('vscode', () => ({
   env: { openExternal: m.openExternal, clipboard: { writeText: m.writeText } },
   Uri: { parse: m.parse },
   StatusBarAlignment: { Left: 1 },
+  ThemeColor: class { constructor(readonly id: string) {} },
 }));
 vi.mock('./ops/serversHostOps.js', () => ({ makeServersHost: m.makeServersHost }));
 vi.mock('../runtime/baseline.js', () => ({ ensureBaseline: m.ensureBaseline }));
@@ -50,7 +54,9 @@ describe('createServersBinding', () => {
       loadManifest: async () => null,
       afterServerChange: vi.fn(),
       stopTicketServers: async () => undefined,
+      sweepNow: async () => undefined,
       openTicketLogs: vi.fn(),
+      openSharedLogs: vi.fn(),
       openLogs: vi.fn(),
     };
   });
@@ -110,7 +116,26 @@ describe('createServersBinding', () => {
     b.updateStatus();
     expect(m.status.text).toBe('$(server) Karst: 2 servers');
     expect(m.status.tooltip).toContain('2 shared');
+    expect(m.status.accessibilityInformation).toEqual({ label: expect.stringContaining('2 servers running') });
+    expect(m.status.backgroundColor).toBeUndefined();
     expect(m.status.show).toHaveBeenCalled();
+  });
+
+  it('shows a failed server in the warning background', () => {
+    const b = createServersBinding(deps);
+    m.inventory.mockReturnValue({
+      shared: [],
+      tickets: [{ servers: [{ repo: 'api', status: 'failed', lastError: 'Exited with code 1' }] }],
+    });
+    b.updateStatus();
+    expect(m.status.text).toBe('$(error) Karst: 1 server failed');
+    expect(m.status.backgroundColor).toEqual({ id: 'statusBarItem.warningBackground' });
+    expect(m.status.show).toHaveBeenCalled();
+  });
+
+  it('passes the liveness sweep through to the host ops', () => {
+    createServersBinding(deps);
+    expect((m.makeServersHost.mock.calls[0]![0] as { sweepNow: unknown }).sweepNow).toBe(deps.sweepNow);
   });
 
   it('hides the item when nothing runs or the inventory throws', () => {

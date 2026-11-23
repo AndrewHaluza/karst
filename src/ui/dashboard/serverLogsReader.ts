@@ -3,15 +3,34 @@ import { open, stat } from 'node:fs/promises';
 
 export const SERVER_LOG_READ_CAP_BYTES = 2 * 1024 * 1024;
 
-const TRUNCATION_MARKER = '\n[server log truncated]\n';
+/**
+ * Why an entry has no content. `ok` carries the newest output; the other three
+ * say which of the three pre-content situations this is, so the panel never
+ * shows the same blank box for "no service", "not written yet" and "cannot read"
+ * (LG-8).
+ */
+export type ServerLogState = 'ok' | 'empty' | 'no-path' | 'unreadable';
+
+export const TRUNCATION_PREFIX = '[Earlier output not shown: ';
+
+export interface ServerLogEntryResult {
+  service: string;
+  logPath: string | null;
+  content: string;
+  truncated: boolean;
+  state: ServerLogState;
+  /** The finished explanation for a non-`ok` state; empty for `ok`. */
+  message: string;
+}
 
 export interface ServerLogsResult {
-  servers: Array<{
-    service: string;
-    logPath: string | null;
-    content: string;
-    truncated: boolean;
-  }>;
+  servers: ServerLogEntryResult[];
+}
+
+/** `14.2 MB` — the skipped part of a truncated log, one decimal. */
+export function formatBytesLabel(bytes: number): string {
+  const mib = bytes / (1024 * 1024);
+  return `${mib.toFixed(1)} MB`;
 }
 
 /**
@@ -42,14 +61,32 @@ function utf8CompleteLength(buf: Buffer): number {
   return buf.length - lead < need ? lead : buf.length;
 }
 
-/** Synchronously read at most `cap` bytes from the start — bounded, never the whole file. */
-function readHeadSync(path: string, cap: number): { bytes: Buffer; size: number } {
+/**
+ * Synchronously read at most `cap` bytes from the END — bounded, never the whole
+ * file. The head of a large log is the least useful part: the newest output is
+ * what a user opens the panel for (LG-1).
+ *
+ * The read starts at `size - cap`, which can land inside a line (and inside a
+ * multi-byte character). The caller drops the partial leading line, and the
+ * `+4` bytes absorb a character split by the safe-offset step-back. `skipped`
+ * is the number of bytes before the first kept byte, so the marker can name it.
+ */
+function readTailSync(path: string, cap: number): { bytes: Buffer; size: number; skipped: number } {
   const fd = openSync(path, 'r');
   try {
     const size = fstatSync(fd).size;
-    const bytes = Buffer.alloc(Math.min(size, cap + 4));
-    const n = readSync(fd, bytes, 0, bytes.length, 0);
-    return { bytes: bytes.subarray(0, n), size };
+    const start = Math.max(0, size - cap);
+    const bytes = Buffer.alloc(Math.min(size - start, cap + 4));
+    const n = readSync(fd, bytes, 0, bytes.length, start);
+    const buf = bytes.subarray(0, n);
+    if (start === 0) return { bytes: buf, size, skipped: 0 };
+    // Skip the partial first line: everything up to and including its newline.
+    // A log with no newline at all keeps its bytes; only a split leading
+    // character is dropped, so the tail decodes without U+FFFD.
+    const newline = buf.indexOf(0x0a);
+    let kept = newline === -1 ? 0 : utf8SafeOffset(buf, newline + 1);
+    while (kept < buf.length && (buf[kept]! & 0xc0) === 0x80) kept++;
+    return { bytes: buf.subarray(kept), size, skipped: start + kept };
   } finally {
     closeSync(fd);
   }
@@ -84,28 +121,60 @@ export class ServerLogsReader {
       servers: servers.map((s) => {
         if (!s.logPath) {
           this.debug?.(`[server-logs] ${s.service} has no logPath`);
-          return { service: s.service, logPath: s.logPath, content: '', truncated: false };
-        }
-        try {
-          const { bytes, size } = readHeadSync(s.logPath, SERVER_LOG_READ_CAP_BYTES);
-          if (size <= SERVER_LOG_READ_CAP_BYTES) {
-            return {
-              service: s.service,
-              logPath: s.logPath,
-              content: bytes.toString('utf8'),
-              truncated: false,
-            };
-          }
-          const end = utf8SafeOffset(bytes, SERVER_LOG_READ_CAP_BYTES);
           return {
             service: s.service,
             logPath: s.logPath,
-            content: `${bytes.subarray(0, end).toString('utf8')}${TRUNCATION_MARKER}`,
-            truncated: true,
+            content: '',
+            truncated: false,
+            state: 'no-path' as const,
+            message: `${s.service} has no log file.`,
           };
-        } catch {
-          this.debug?.(`[server-logs] ${s.service} log unreadable: ${s.logPath}`);
-          return { service: s.service, logPath: s.logPath, content: '', truncated: false };
+        }
+        try {
+          const { bytes, size, skipped } = readTailSync(s.logPath, SERVER_LOG_READ_CAP_BYTES);
+          if (size === 0) {
+            return {
+              service: s.service,
+              logPath: s.logPath,
+              content: '',
+              truncated: false,
+              state: 'empty' as const,
+              message: `${s.service} has not written to its log yet.`,
+            };
+          }
+          const tail = bytes.toString('utf8');
+          if (skipped === 0) {
+            return {
+              service: s.service,
+              logPath: s.logPath,
+              content: tail,
+              truncated: false,
+              state: 'ok' as const,
+              message: '',
+            };
+          }
+          return {
+            service: s.service,
+            logPath: s.logPath,
+            content: `${TRUNCATION_PREFIX}${formatBytesLabel(skipped)}]\n${tail}`,
+            truncated: true,
+            state: 'ok' as const,
+            message: '',
+          };
+        } catch (err) {
+          // ENOENT is the ordinary "no output yet"; anything else is unreadable.
+          const missing = (err as NodeJS.ErrnoException).code === 'ENOENT';
+          this.debug?.(`[server-logs] ${s.service} log ${missing ? 'missing' : 'unreadable'}: ${s.logPath}`);
+          return {
+            service: s.service,
+            logPath: s.logPath,
+            content: '',
+            truncated: false,
+            state: missing ? ('empty' as const) : ('unreadable' as const),
+            message: missing
+              ? `${s.service} has not written to its log yet.`
+              : `Karst cannot read ${s.logPath}.`,
+          };
         }
       }),
     };

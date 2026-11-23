@@ -142,6 +142,32 @@ describe('parseFixtureFile fakeCore', () => {
   });
 });
 
+describe('servers', () => {
+  const withServers = (servers: unknown) => ({ tickets: [ticket], servers });
+  const api = { ticket: 'T-1', service: 'api', status: 'running', port: 4000, logBytes: 2048 };
+  const web = { ticket: 'T-1', service: 'web', status: 'failed', port: 3000, lastError: 'Port 3000 in use by pid 4123' };
+
+  it('parses a running and a failed server', () => {
+    const spec = parseFixtureFile(withServers([api, web]));
+    expect(spec.servers).toEqual([api, web]);
+    expect(spec.tickets[0]!.stages).toEqual([]);
+  });
+  it('defaults logBytes to 0 and lastError to absent', () => {
+    const [s] = parseFixtureFile(withServers([{ ticket: 'T-1', service: 'db', status: 'running', port: 5432 }])).servers!;
+    expect(s).toEqual({ ticket: 'T-1', service: 'db', status: 'running', port: 5432 });
+  });
+  it('refuses a server of a ticket the file does not seed', () => {
+    expect(() => parseFixtureFile(withServers([{ ...api, ticket: 'T-404' }]))).toThrow(/does not seed/);
+  });
+  it('refuses a duplicate service on one ticket, an unknown key, a bad status and a bad port', () => {
+    expect(() => parseFixtureFile(withServers([api, api]))).toThrow(/twice/);
+    expect(() => parseFixtureFile(withServers([{ ...api, sql: 'x' }]))).toThrow('unknown key "sql"');
+    expect(() => parseFixtureFile(withServers([{ ...api, status: 'crashed' }]))).toThrow(/status must be one of/);
+    expect(() => parseFixtureFile(withServers([{ ...api, port: 70000 }]))).toThrow(/port/);
+    expect(() => parseFixtureFile(withServers([{ ...web, lastError: undefined }]))).toThrow(/lastError/);
+  });
+});
+
 describe('shipped samples', () => {
   const sample = (f: string): unknown => JSON.parse(readFileSync(join(process.cwd(), 'scripts', 'uat-host', 'samples', f), 'utf8'));
   it('stranded-uat fixture is a valid fixture file: uat running, no run rows', () => {
@@ -174,6 +200,12 @@ describe('shipped samples', () => {
   it('fake-core steps samples parse', () => {
     expect(parseSteps(sample('fake-core-review.steps.json')).map((s) => s.type)).toContain('read');
     expect(parseSteps(sample('fake-core-reformat.steps.json')).map((s) => s.type)).toContain('snapshot');
+  });
+  it('servers fixture seeds a running, a failed and a large-log service', () => {
+    const spec = parseFixtureFile(sample('servers.fixture.json'));
+    expect(spec.servers?.map((s) => [s.service, s.status])).toEqual([['api', 'running'], ['web', 'failed'], ['worker', 'running']]);
+    expect(spec.servers?.find((s) => s.service === 'web')?.lastError).toBe('Port 3000 in use by pid 4123');
+    expect(spec.servers?.find((s) => s.service === 'worker')?.logBytes).toBeGreaterThan(2 * 1024 * 1024);
   });
 });
 

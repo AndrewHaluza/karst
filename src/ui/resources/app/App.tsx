@@ -29,23 +29,27 @@ function Shell() {
 
   return (
     <>
-      <header className="rhead" data-region="header">
-        <div className="titles">
-          <h1>Servers &amp; resources</h1>
-          <div className="sub">{scope}</div>
+      <header className="k-pagehead" data-region="header">
+        <div className="k-pagehead-main">
+          <div>
+            <h1 className="k-pagehead-title">Servers &amp; resources</h1>
+            <p className="k-pagehead-sub">{scope}</p>
+          </div>
         </div>
-        <div className="actions">
-          <Button variant="secondary" busy={refresh.busy} spinning={refresh.spinning} disabled={refresh.disabled} onClick={() => refresh.trigger()}>
+        <div className="k-pagehead-actions">
+          <Button variant="secondary" icon="refresh" busy={refresh.busy} spinning={refresh.spinning} disabled={refresh.disabled} onClick={() => refresh.trigger()}>
             Refresh
           </Button>
         </div>
-        <Tabs selected={tab} onSelect={selectTab} />
       </header>
+
+      <Tabs selected={tab} onSelect={selectTab} />
 
       <div
         role="tabpanel"
         id={panelDomId('servers')}
         aria-labelledby={tabDomId('servers')}
+        className="rpanel"
         data-region="servers"
         hidden={tab !== 'servers'}
       >
@@ -56,9 +60,11 @@ function Shell() {
         role="tabpanel"
         id={panelDomId('resources')}
         aria-labelledby={tabDomId('resources')}
+        className="rpanel"
         data-region="resources"
         hidden={tab !== 'resources'}
       >
+        {!resources && <div className="note plain" role="status">Reading resources…</div>}
         {resources && !resources.supported && (
           <div className="note plain">
             Resource monitoring is not supported on this platform. The status-bar meter is hidden; nothing here is measured.

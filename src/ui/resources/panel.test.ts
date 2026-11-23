@@ -340,7 +340,7 @@ describe('ResourcesPanelManager', () => {
     p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const [message] = confirm.mock.calls[0]!;
-    expect(message).toContain('2 ticket(s)');
+    expect(message).toContain('2 tickets');
     expect(message).toContain('PROJ-7');
     expect(message).toContain('PROJ-12');
     expect(message).not.toContain('#7');
@@ -453,5 +453,63 @@ describe('ResourcesPanelManager.adopt', () => {
     expect(log).toEqual(['dispose']);
     manager.dispose();
     void p;
+  });
+
+  describe('the waste Stop confirm names the process (RS-6)', () => {
+    const wasteReading = (): ResourceReading => ({
+      ...baseReading,
+      inventory: {
+        takenMs: 0,
+        attributed: [{
+          pid: 4123, kind: 'server', ticketId: 12, label: 'api', serverId: 1, attribution: 'pid',
+          cost: { pid: 4123, rssBytes: 512 * 1024 ** 2, cpuPct: null }, cwd: null, comm: 'node',
+        }],
+        unattributed: [],
+        totals: { rssBytes: 0, cpuPct: null },
+        cwdProbes: 0,
+      } as unknown as NonNullable<ResourceReading['inventory']>,
+      waste: [{
+        kind: 'ticket-finished', pid: 4123, serverId: 1, ticketId: 12,
+        reason: 'api server still running for a completed ticket FEAT-12', rssBytes: 512 * 1024 ** 2, killable: true,
+      }],
+    });
+
+    async function confirmFor(dependents: BaselineDependent[]): Promise<string> {
+      const m = fakeMonitor();
+      m.reading.mockReturnValue(wasteReading());
+      const p = fakePanel();
+      const confirm = vi.fn(async (_message: string) => true);
+      const manager = new ResourcesPanelManager(hostFor(p.panel), {
+        monitor: m.monitor,
+        disk: fakeDisk().disk,
+        worktreePaths: () => [],
+        confirm,
+        ticketIdentity: (ids) => new Map(ids.map((id) => [id, { key: `FEAT-${id}`, title: null }])),
+        baselineDependents: () => dependents,
+      });
+      manager.open();
+      p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return confirm.mock.calls[0]![0];
+    }
+
+    it('names the service, the ticket, the pid and the memory with no dependent', async () => {
+      expect(await confirmFor([])).toBe('Stop api of FEAT-12 (pid 4123, 512.0 MB)? It still runs after its ticket finished.');
+    });
+
+    it('adds one dependent in the singular', async () => {
+      const message = await confirmFor([dependent(7)]);
+      expect(message).toBe(
+        'Stop api of FEAT-12 (pid 4123, 512.0 MB)? It still runs after its ticket finished. ' +
+          'It is a shared server for 1 ticket: PROJ-7. Stopping it takes the dependency out from under it.',
+      );
+    });
+
+    it('adds two dependents in the plural', async () => {
+      const message = await confirmFor([dependent(7), dependent(8)]);
+      expect(message).toContain('It is a shared server for 2 tickets: PROJ-7, PROJ-8.');
+      expect(message).toContain('out from under all of them.');
+      expect(message).not.toContain('baseline');
+    });
   });
 });

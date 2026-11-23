@@ -25,7 +25,11 @@ export interface PanelOpenDeps {
   labelTemplate?: () => string | undefined;
   onServerLogsDetach?: (ticketId: number) => void;
   /** Answer a `server-logs-match-count` with the one shared match text. */
-  serverLogsMatchCount?: (ticketId: number, count: number, seq: number) => void;
+  serverLogsMatchCount?: (ticketId: number, count: number, seq: number, current?: number) => void;
+  /** Answer a `server-logs-new-count` with the one shared new-line text. */
+  serverLogsNewCount?: (ticketId: number, count: number, seq: number) => void;
+  /** Write the logs view's shown text to the clipboard. */
+  copyServerLogs?: (ticketId: number, text: string) => void;
   binding?: DashboardBinding;
   onViewActivated?: (ticketId: number, active: boolean) => void;
   panels: Map<number, DashboardPanel>;
@@ -66,7 +70,10 @@ export function attachPanel(o: PanelOpenDeps, ticketId: number, panel: Dashboard
     ...baseActions,
     onServerLogsDetach: () => o.onServerLogsDetach?.(ticketId),
     serverLogsMatchCount:
-      baseActions.serverLogsMatchCount ?? ((count, seq) => o.serverLogsMatchCount?.(ticketId, count, seq)),
+      baseActions.serverLogsMatchCount ?? ((count, seq, current) => o.serverLogsMatchCount?.(ticketId, count, seq, current)),
+    serverLogsNewCount:
+      baseActions.serverLogsNewCount ?? ((count, seq) => o.serverLogsNewCount?.(ticketId, count, seq)),
+    copyServerLogs: baseActions.copyServerLogs ?? ((text) => o.copyServerLogs?.(ticketId, text)),
   };
   // Message pump must never die on one bad message — routeAction validates,
   // and any downstream throw is contained so subsequent messages still flow.

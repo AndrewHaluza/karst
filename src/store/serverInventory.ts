@@ -1,7 +1,7 @@
 import { isFinishedStage } from '../model/types.js';
 import type { Store } from './db.js';
 import type { Manifest } from '../manifest/types.js';
-import { serviceUnits } from '../manifest/runnable.js';
+import { serviceUnits, type ServiceUnit } from '../manifest/runnable.js';
 import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
 import { listPinnedBaselines } from './baselinePins.js';
 import { isLiveBaselineDependent, listBaselineDependentsDetailed } from './baselineRefs.js';
@@ -25,6 +25,13 @@ export interface InventoryServer {
   container: string | null;
   cwd: string | null;
   sandbox: string | null;
+  /** The short reason a `failed` row failed (`servers.last_error`), else null. */
+  lastError: string | null;
+  /**
+   * The declared health check speaks HTTP, so the address opens in a browser.
+   * False for a `tcp://` check, a container default (tcp) and an undeclared unit.
+   */
+  httpHealth: boolean;
 }
 
 /** A live ticket that consumes a shared service; `done` = finished but its stack still runs. */
@@ -74,13 +81,24 @@ interface ServerDbRow {
   container: string | null;
   cwd: string | null;
   sandbox: string | null;
+  lastError: string | null;
 }
 
 const SERVER_COLUMNS =
   's.id, s.ticket_id AS ticketId, s.repo, s.host, s.port, s.status, s.started_at AS startedAt, ' +
-  's.log_path AS logPath, s.container, s.cwd, s.sandbox';
+  's.log_path AS logPath, s.container, s.cwd, s.sandbox, s.last_error AS lastError';
 
-function toServer(row: ServerDbRow): InventoryServer {
+const TCP_SCHEME = 'tcp://';
+
+/** Whether a declared unit's health check is HTTP (the same default as `serviceLaunch`). */
+function httpHealthOf(unit: ServiceUnit | undefined): boolean {
+  if (unit === undefined) return false;
+  const health = unit.def.health;
+  if (health !== undefined && health !== '') return !health.startsWith(TCP_SCHEME);
+  return unit.def.docker === undefined;
+}
+
+function toServer(row: ServerDbRow, declared: ReadonlyMap<string, ServiceUnit>): InventoryServer {
   return {
     id: row.id,
     repo: row.repo,
@@ -92,6 +110,8 @@ function toServer(row: ServerDbRow): InventoryServer {
     container: row.container,
     cwd: row.cwd,
     sandbox: row.sandbox,
+    lastError: row.lastError,
+    httpHealth: httpHealthOf(declared.get(row.repo)),
   };
 }
 
@@ -123,7 +143,7 @@ export function listSharedServers(store: Store, manifest: Manifest): SharedServe
   const pins = listPinnedBaselines(store);
   return [...best.values()]
     .map((row): SharedServer => ({
-      ...toServer(row),
+      ...toServer(row, declared),
       pinned: pins.has(row.repo),
       baseBranch: resolveBaselineBranch(manifest, declared.get(row.repo)!.repoDef),
       dependents: listBaselineDependentsDetailed(store, row.repo)
@@ -138,7 +158,11 @@ export function listSharedServers(store: Store, manifest: Manifest): SharedServe
     .sort(byRunningThenRepo);
 }
 
-function ticketGroups(store: Store, projectId: number): TicketServerGroup[] {
+function ticketGroups(
+  store: Store,
+  projectId: number,
+  declared: ReadonlyMap<string, ServiceUnit>,
+): TicketServerGroup[] {
   const rows = store.db
     .prepare(
       `SELECT ${SERVER_COLUMNS}, t.key AS tkey, t.title AS ttitle,
@@ -172,7 +196,7 @@ function ticketGroups(store: Store, projectId: number): TicketServerGroup[] {
       };
       groups.set(ticketId, group);
     }
-    group.servers.push(toServer(row));
+    group.servers.push(toServer(row, declared));
   }
   const out = [...groups.values()];
   for (const g of out) g.servers.sort(byRunningThenRepo);
@@ -203,5 +227,6 @@ export function listProjectServers(
   manifest: Manifest,
   projectId: number,
 ): ServerInventory {
-  return { shared: listSharedServers(store, manifest), tickets: ticketGroups(store, projectId) };
+  const declared = new Map(serviceUnits(manifest).map((u) => [u.key, u]));
+  return { shared: listSharedServers(store, manifest), tickets: ticketGroups(store, projectId, declared) };
 }

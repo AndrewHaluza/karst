@@ -18,10 +18,25 @@ interface Series {
   readonly rss: boolean;
 }
 
+/** The one-sentence text alternative for the drawn trend (RS-8), from host-formatted values. */
+export function trendSummary(state: ResourcesState): string {
+  return `CPU ${state.cpuPctDisplay}, ${state.cpuTrend}. RSS ${state.rssDisplay}.`;
+}
+
+/** The empty-trend sentence: how many samples exist out of the ring (RS-9). */
+export function trendEmptyText(state: ResourcesState): string {
+  return `Measuring… (${state.history.length} of ${state.historyMax} samples)`;
+}
+
 function plot(state: ResourcesState, muted: Series) {
   const history = state.history;
-  if (history.length === 0) {
-    return <text x="4" y="45" className="spark-empty">measuring…</text>;
+  // One sample is not a line: the chart says it is still measuring (RS-9).
+  if (history.length < 2) {
+    return (
+      <text x="50%" y="50%" textAnchor="middle" className="spark-empty">
+        {trendEmptyText(state)}
+      </text>
+    );
   }
   const rss = history.map((s) => s.totals.rssBytes);
   const cpu = history.map((s) => s.totals.cpuPct);
@@ -60,6 +75,7 @@ export function TrendChart({ state }: { state: ResourcesState }) {
   const [muted, setMuted] = useState<Series>({ cpu: false, rss: false });
   const toggle = (series: keyof Series): void => setMuted((m) => ({ ...m, [series]: !m[series] }));
   const ticks = state.trend.timeTicks;
+  const empty = state.history.length < 2;
   return (
     <div className="panel">
       <div className="phead">
@@ -89,27 +105,27 @@ export function TrendChart({ state }: { state: ResourcesState }) {
           </div>
           <span className="scaleNote" id="scaleNote">derived CPU · resident memory</span>
         </div>
+        <p className="sr-only" id="trendSummary">{trendSummary(state)}</p>
         <div className="chartWrap">
           <svg className="plot" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
             {plot(state, muted)}
           </svg>
-          <svg className="chartY" aria-hidden="true">
-            {state.trend.yTicks.map((t) => {
-              // The gridline is drawn in viewBox space; the label sits on the same
-              // line, so its y% uses the SAME mapping as the gridline.
-              const ySvg = H - PAD - t.fraction * (H - 2 * PAD);
-              return (
-                <text key={`${t.fraction}:${t.rss}`} className="yTick" x="100%" y={`${Math.round((ySvg / H) * 100)}%`}>
-                  <tspan className={`cpu${muted.cpu ? ' muted' : ''}`}>{t.cpu}</tspan>
-                  <tspan className={`rss${muted.rss ? ' muted' : ''}`} dx="8">{t.rss}</tspan>
-                </text>
-              );
-            })}
-          </svg>
-          <div className="chartScale">
-            <span className="cpu">CPU {state.trend.cpuMaxDisplay}</span>
-            <span className="rss">RSS {state.trend.rssMaxDisplay}</span>
-          </div>
+          {!empty && (
+            <svg className="chartY" aria-hidden="true">
+              {state.trend.yTicks.map((t) => {
+                // The gridline is drawn in viewBox space; the label sits on the same
+                // line, so its y% uses the SAME mapping as the gridline. `x=0` puts
+                // the label inside the plot band, at its left edge (RS-8).
+                const ySvg = H - PAD - t.fraction * (H - 2 * PAD);
+                return (
+                  <text key={`${t.fraction}:${t.rss}`} className="yTick" x="0" y={`${Math.round((ySvg / H) * 100)}%`}>
+                    <tspan className={`cpu${muted.cpu ? ' muted' : ''}`}>{t.cpu}</tspan>
+                    <tspan className={`rss${muted.rss ? ' muted' : ''}`} dx="8">{t.rss}</tspan>
+                  </text>
+                );
+              })}
+            </svg>
+          )}
           <svg className="chartTicks" aria-hidden="true">
             {ticks.map((t, i) => (
               <text

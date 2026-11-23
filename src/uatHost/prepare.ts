@@ -46,10 +46,12 @@ if (!isKnownProvider(provider)) {
 }
 const dbPath = flag('db');
 const ws = buildWorkspace(flag('root'), provider, spec.taskRepo, spec.autopilot);
+// A default worktree row needs a real checkout, or a stage that reads the diff has nothing to read.
+// The checkout comes FIRST: a seeded server writes its log under the ticket's worktree, and
+// `git worktree add` refuses a directory that already holds files (UATHOST-09).
+for (const t of spec.tickets) if (t.worktree && !t.repo) addTicketWorktree(ws.repoDir, t.key, t.worktreeConflict === true);
 mkdirSync(dirname(dbPath), { recursive: true });
 const store = openStore(dbPath);
 const ids = seedStore(store, spec, { repoPath: ws.repoDir });
-// A default worktree row needs a real checkout, or a stage that reads the diff has nothing to read.
-for (const t of spec.tickets) if (t.worktree && !t.repo) addTicketWorktree(ws.repoDir, t.key, t.worktreeConflict === true);
 store.db.close();
 console.log(JSON.stringify({ workspaceDir: ws.workspaceDir, tickets: ids.length }));

@@ -4,7 +4,7 @@ import { KNOWN_AGENT_PROVIDERS } from '../model/agentProviders.js';
 import type { FakeAnswer, FakeCoreScript, FakeHeadlessRule } from '../agent/fakeCore.js';
 import type { TokenUsage } from '../agent/tokenUsage.js';
 import type {
-  AutopilotSeed, FixtureSpec, GateRunSeed, MergeCheckSeed, PrSeed, ReviewFindingSeed, RepoBinding, TaskGate, TaskRepo, ProcessRunSeed, RecoveryRoundSeed, RowSeeds, StageRunSeed, StageSeed, TicketSeed,
+  AutopilotSeed, FixtureSpec, GateRunSeed, MergeCheckSeed, PrSeed, ReviewFindingSeed, RepoBinding, ServerSeed, TaskGate, TaskRepo, ProcessRunSeed, RecoveryRoundSeed, RowSeeds, StageRunSeed, StageSeed, TicketSeed,
 } from './fixtures.js';
 
 type Obj = Record<string, unknown>;
@@ -26,6 +26,7 @@ const MERGE_STATES = ['clean', 'conflicted', 'unknown'] as const;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
 const FINDING_SOURCES = ['agent', 'human'] as const;
 const POLICIES = ['auto', 'ask'] as const;
+const SERVER_STATUSES = ['running', 'failed'] as const;
 const STARTED = '2026-01-01T00:00:00.000Z';
 
 /** Refuses unknown keys, so a typo or an attempt at raw SQL fails loud instead of being ignored. */
@@ -295,6 +296,30 @@ function parseTicket(raw: unknown, at: string): TicketSeed {
   };
 }
 
+/**
+ * One seeded `servers` row (T1317 real-host step 1). The ticket key must name a
+ * ticket the same file seeds, and a failed row must say why: the plate has to
+ * show a reason, not a bare "Failed" (RS-2).
+ */
+function parseServer(raw: unknown, at: string): ServerSeed {
+  const o = obj(raw, at);
+  checkKeys(o, ['ticket', 'service', 'status', 'port', 'lastError', 'logBytes'], at);
+  const status = oneOf(o, 'status', SERVER_STATUSES, at);
+  const port = int(o, 'port', at);
+  if (port > 65535) throw new Error(`${at}: port must be 1..65535`);
+  const logBytes = count(o, 'logBytes', at);
+  const lastError = optStr(o, 'lastError', at);
+  if (status === 'failed' && !lastError) throw new Error(`${at}: a failed server needs lastError`);
+  return {
+    ticket: str(o, 'ticket', at),
+    service: str(o, 'service', at),
+    status,
+    port,
+    ...(status === 'failed' && lastError ? { lastError } : {}),
+    ...(logBytes > 0 ? { logBytes } : {}),
+  };
+}
+
 function count(o: Obj, k: string, at: string): number {
   const v = o[k] ?? 0;
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) throw new Error(`${at}: ${k} must be a non-negative integer`);
@@ -343,13 +368,23 @@ function parseFakeCore(raw: unknown, at: string): FakeCoreScript {
 /** A fixture file is data, never code: every field is validated and unknown keys are refused. */
 export function parseFixtureFile(json: unknown, name = 'fixture-file'): FixtureSpec {
   const o = obj(json, 'fixture file');
-  checkKeys(o, ['tickets', 'provider', 'taskRepo', 'fakeCore', 'autopilot'], 'fixture file');
+  checkKeys(o, ['tickets', 'servers', 'provider', 'taskRepo', 'fakeCore', 'autopilot'], 'fixture file');
   const tickets = list(o, 'tickets', 'fixture file').map((t, i) => parseTicket(t, `ticket ${i}`));
   const keys = tickets.map((t) => t.key);
   if (new Set(keys).size !== keys.length) throw new Error('fixture file: ticket keys must be unique');
+  const servers = o['servers'] === undefined ? [] : list(o, 'servers', 'fixture file').map((s, i) => parseServer(s, `server ${i}`));
+  for (const s of servers) {
+    if (!keys.includes(s.ticket)) throw new Error(`fixture file: server "${s.service}" names ticket "${s.ticket}", which the file does not seed`);
+  }
+  const serverKeys = servers.map((s) => `${s.ticket}\u0000${s.service}`);
+  const twice = serverKeys.find((k, i) => serverKeys.indexOf(k) !== i);
+  if (twice !== undefined) throw new Error(`fixture file: service "${twice.split('\u0000')[1]}" is seeded twice for ticket "${twice.split('\u0000')[0]}"`);
   const provider = o['provider'] === undefined ? undefined : oneOf(o, 'provider', KNOWN_AGENT_PROVIDERS, 'fixture file');
   const taskRepo = o['taskRepo'] === undefined ? undefined : parseTaskRepo(o['taskRepo'], 'taskRepo');
   const autopilot = o['autopilot'] === undefined ? undefined : parseAutopilot(o['autopilot'], 'autopilot');
   const fakeCore = o['fakeCore'] === undefined ? undefined : parseFakeCore(o['fakeCore'], 'fakeCore');
-  return { name, tickets, ...(provider ? { provider } : {}), ...(taskRepo ? { taskRepo } : {}), ...(autopilot ? { autopilot } : {}), ...(fakeCore ? { fakeCore } : {}) };
+  return {
+    name, tickets, ...(servers.length ? { servers } : {}), ...(provider ? { provider } : {}),
+    ...(taskRepo ? { taskRepo } : {}), ...(autopilot ? { autopilot } : {}), ...(fakeCore ? { fakeCore } : {}),
+  };
 }

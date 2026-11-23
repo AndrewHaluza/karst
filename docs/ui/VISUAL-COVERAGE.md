@@ -150,6 +150,13 @@ layout target. `buildFixture.ts` writes `<theme>/<view>--<variant>.html` for eac
 - **Adding a variant**: add it to the registry, run `npm run -s test:visual:docker:update`, review the new PNGs only, run `npm run -s test:layout:docker` and ledger new failures with the owner's approval. `variants.test.ts` names what is missing, and `sweepBudget.test.ts` names the budget to update (`@ui:SWEEP-BUDGET`).
 END_DOC_BLOCK: [@ui:VISUAL-VARIANTS]
 
+## [@ui:VISUAL-VARIANTS-SERVERS] Servers and server logs variants (T1317)
+
+- **Servers tab (T1317, RS-10)**: `resources/servers-{mixed,none,done,unavailable,hostile,failed,crashed,starting}` record the Servers pane through the fixtures' three messages (`state`, `servers`, `show-tab`). `mixed` is dark/light/hc plus `dark-grayscale` for the status marks (UI-R28) and `starting` adds `dark-reduced-motion` (UI-R30); `failed` is dark/light/hc (the reason line, RS-2); the rest are dark. These replace the two stale `resources.png` copies an older sweep left in the grayscale and reduced-motion projects.
+- **Server logs tail and states (T1317, LG-1/LG-8/LG-11)**: `serverLogs/truncated` (the newest output with the skipped part named first), `serverLogs/no-services` (no service at all; it shares the `empty` page, since the message is the same), `serverLogs/unreadable` (karst cannot read the log), and `serverLogs/long-content-nowrap` (the same hostile line with Wrap off, scrolling inside the log host only).
+
+END_DOC_BLOCK: [@ui:VISUAL-VARIANTS-SERVERS]
+
 ## [@ui:SWEEP-BUDGET] Sweep budget ratchet
 
 `tests/visual/sweepBudget.ts` pins, for each view, the number of screenshots (variant x declared theme project) and layout tests (distinct page x width, plus the settings routes) that the view adds to the visual gate. `sweepBudget.test.ts` (unit gate) fails when a count moves. Above the budget: share a layout run, drop a theme, or raise the number with a reason (ticket and why) in a comment on that line. Below the budget: lower the number.
@@ -168,7 +175,7 @@ END_DOC_BLOCK: [@ui:LIMITATIONS]
 
 ## [@ui:OPEN-RATCHETS] Open ratchets
 
-1. **CONTRAST_RATCHET** (`a11y.visual.ts`): Known contrast failures across dark/light/hc themes. Includes G3 danger buttons and gettingStarted headings, plus **G6** — the server-logs surface colours log text with VS Code's terminal ANSI palette (`--vscode-terminal-ansi*`), whose hues are below WCAG AA against the editor background by design (VS Code's built-in terminal shares the property). Also holds the three sub-task-instance entries NDL-217 added (the panel's faint `.count` and the two `--k-attention` status texts) — justifications in the constant's comment. NDL-219 removed two more: `light:span.stage.stg-impl` and the `stg-done` badge were the harness dropping the theme body class, and both clear AA once the fixture carries it. Shrink-only.
+1. **CONTRAST_RATCHET** (`a11y.visual.ts`): Known contrast failures across dark/light/hc themes. Includes G3 danger buttons and gettingStarted headings, plus **G6** — the server-logs surface colours log text with VS Code's terminal ANSI palette (`--vscode-terminal-ansi*`), whose hues are below WCAG AA against the editor background by design (VS Code's built-in terminal shares the property). G6 is now **dark only** (T1317 LG-7): the light and high-contrast foregrounds map to the design system's meaning tokens and clear AA, so `light:span.k-ansi-fg-green`, `light:span.k-ansi-fg-yellow` and `hc:span.k-ansi-fg-red` are gone and `dark:span.k-ansi-fg-red` remains. Also holds the three sub-task-instance entries NDL-217 added (the panel's faint `.count` and the two `--k-attention` status texts) — justifications in the constant's comment. NDL-219 removed two more: `light:span.stage.stg-impl` and the `stg-done` badge were the harness dropping the theme body class, and both clear AA once the fixture carries it. Shrink-only.
 2. **TITLE_RATCHET** (`a11y.visual.ts`): Settings `span#dirtyDot` tooltip-only hint. Shrink-only.
 3. **FOCUS_COUNT_RATCHET** (`focus.visual.ts`): Focusable-element counts per view. Shrink-only, save the justified raises recorded in the constant's comment (agent-presets, ticket 508: `ticketForm` +1, `settings` +7 — seven net-new controls with no existing element to fold into; preset editor, NDL-106: `settings` +6 for the General tab's name/core/model/effort/Add/Cancel form; sub-task UI, NDL-217: `dashboard` +2 for `#addSubtask` and `#detachSubtask`).
 4. **MINIMAL_RATCHET** (`corpora.ts`): Views still on MINIMAL state seed. Shrink-only.
@@ -228,5 +235,5 @@ The following were discovered during Task 8's baseline review and are reported, 
 2. **G3**: `--k-success-fg` / `--k-danger-fg` resolve to `var(--vscode-editor-background)`, causing contrast failures on filled surfaces in at least one theme.
 3. **gettingStarted contrast**: Headings and lede use foreground on sidebar background, falling below WCAG AA 4.5:1 in dark and hc themes.
 4. **settings contrast**: Nav captions and help text fall below WCAG AA in light theme.
-5. **G6**: The server-logs surface renders SGR-coloured log lines with VS Code's terminal ANSI palette; some hues (red on dark/hc, green and yellow on light) fall below WCAG AA against the editor background. Reported, not fixed — the palette belongs to the user's terminal theme.
+5. **G6** (dark only): The server-logs surface renders SGR-coloured log lines with VS Code's terminal ANSI palette; some hues (red on dark) fall below WCAG AA against the editor background. Reported, not fixed for dark — the palette belongs to the user's terminal theme. T1317 LG-7 fixed the light and high-contrast foregrounds (design-system meaning tokens), so those themes no longer carry the gap.
 END_DOC_BLOCK: [@ui:VISUAL-DEFECTS]

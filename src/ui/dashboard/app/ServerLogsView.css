@@ -6,11 +6,12 @@ body.log-nav .stepper,body.log-nav .grid{display:none}
 .logsview.hidden{display:none}
 .logsview .thead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
 .logsview .ttitle{font-weight:var(--k-weight-semibold)}
+/* Body text only: an empty status strip takes no room (LG-9). */
 .logsview .tstatus{font-size:var(--k-text-xs);color:var(--k-text-dim);padding:var(--k-space-2) var(--k-space-4)}
-.logsview .tabs{display:flex;gap:var(--k-space-2);padding:var(--k-space-2) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border);overflow-x:auto}
-.logsview .tab{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);font-family:var(--k-font-mono);color:var(--k-text-dim);background:transparent;border:none;border-radius:var(--k-radius-sm);cursor:pointer;white-space:nowrap}
-.logsview .tab:hover{color:var(--k-text);background:var(--k-bg-muted)}
-.logsview .tab.active{color:var(--k-text);background:var(--k-bg-muted);font-weight:var(--k-weight-semibold)}
+.logsview .tstatus:empty{display:none}
+/* Tab strip geometry only: `.k-tabs`/`.k-tab` (D751) own colour, the selected
+   underline and focus; the strip is what may scroll sideways at the tight tier. */
+.logsview .tabs{padding:var(--k-space-2) var(--k-space-4);overflow-x:auto}
 .logsview .loghost{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;font-size:var(--k-text-xs);line-height:1.5;
   scrollbar-width:thin;scrollbar-color:var(--k-border-strong) transparent}
 .logsview .loghost::-webkit-scrollbar{width:var(--k-space-5)}
