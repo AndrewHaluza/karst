@@ -29,6 +29,33 @@ describe('gettingStarted render fixtures', () => {
     expect(fresh.state.checklist.every((it) => it.done)).toBe(false);
   });
 
+  // GS-14: the fresh corpus used to carry no manifest row at all, so the
+  // manifest button and its row layout had no baseline.
+  it('fresh carries the manifest item as a not-done row', () => {
+    const fresh = fixtures.find((f) => f.scenario === 'fresh')!;
+    expect(fresh.state.checklist.find((it) => it.id === 'manifest')).toMatchObject({ done: false });
+  });
+
+  // GS-14/GS-15: the real-data shape — a complete setup on a workspace that
+  // already holds 16 tickets.
+  it('returning is a complete setup with 16 tickets', () => {
+    const returning = fixtures.find((f) => f.scenario === 'returning')!;
+    const total = returning.state.checklist.length;
+    expect(returning.state.checklist.every((it) => it.done)).toBe(true);
+    expect(returning.state.progressText).toBe(`${total} of ${total} done`);
+    expect(returning.state.lede).toBe('Setup is complete.');
+    const create = returning.state.tutorial.find((s) => s.id.endsWith(':create'))!;
+    expect(create.label).toBe('Create a ticket');
+    expect(create.done).toBe(true);
+  });
+
+  // GS-6: the disabled "Set up with agent" state, so the reason text has a baseline.
+  it('agent-missing leaves the agent CLI open and puts the starter file first', () => {
+    const missing = fixtures.find((f) => f.scenario === 'agent-missing')!;
+    expect(missing.state.checklist.some((it) => it.enables === 'sessions' && !it.done)).toBe(true);
+    expect(missing.state.manifestActions).toEqual({ primary: 'create-manifest', secondary: 'setup-agent' });
+  });
+
   it('complete has all items done', () => {
     const complete = fixtures.find((f) => f.scenario === 'complete')!;
     expect(complete.state.checklist.every((it) => it.done)).toBe(true);
@@ -51,10 +78,10 @@ describe('gettingStarted render fixtures', () => {
     }
   });
 
-  it('every id-like string field starts with fixture:', () => {
+  it('every id-like string field starts with fixture: (the one reserved host id is manifest)', () => {
     for (const f of fixtures) {
       for (const item of f.state.checklist) {
-        expect(item.id, `${f.scenario} checklist item id`).toMatch(/^fixture:/);
+        expect(item.id, `${f.scenario} checklist item id`).toMatch(/^(fixture:|manifest$)/);
       }
       for (const step of f.state.tutorial) {
         expect(step.id, `${f.scenario} tutorial step id`).toMatch(/^fixture:/);

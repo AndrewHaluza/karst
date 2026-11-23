@@ -14,6 +14,8 @@ import { readRequestId, reportAction } from '../../model/actionResult.js';
 /** The subset of a `vscode.WebviewPanel` the Getting Started manager touches. */
 export interface GettingStartedPanel {
   reveal(): void;
+  /** Dispose the panel (the dismiss action closes the page this way). */
+  close(): void;
   postMessage(message: GettingStartedHostMessage): void;
   onDidReceiveMessage(handler: (message: unknown) => void): void;
   onDidDispose(handler: () => void): void;
@@ -32,7 +34,7 @@ export interface GettingStartedPanelHost {
  */
 export class GettingStartedManager {
   private panel: GettingStartedPanel | undefined;
-  private push: ((recheck: boolean) => void) | undefined;
+  private push: ((recheck: boolean) => Promise<void>) | undefined;
 
   constructor(
     private readonly loadState: (options: { recheck: boolean }) => GettingStartedState | Promise<GettingStartedState>,
@@ -55,7 +57,7 @@ export class GettingStartedManager {
 
   /** Rebuild and push the state to the open panel; a closed panel ignores it. */
   refresh(): void {
-    this.push?.(false);
+    void this.push?.(false);
   }
 
   /** Adopt the tab VS Code restored after a reload; a duplicate is closed. Never reveals. */
@@ -73,8 +75,14 @@ export class GettingStartedManager {
     this.panel = panel;
 
     let latest = 0;
-    const pushState = (recheck: boolean): void => {
+    const pushState = (recheck: boolean): Promise<void> => {
       const seq = ++latest;
+      const fail = (e: unknown): void => {
+        this.logError('karst: getting started state failed', e);
+        // A failed check must not leave a blank page (GS-4). A stale request's
+        // failure is logged only: a newer one already owns the page.
+        if (seq === latest) panel.postMessage({ type: 'state-error', message: errorMessage(e) });
+      };
       // The probe behind the state is async, so a slow tool never blocks the host.
       // An older, slower load must not overwrite a newer one.
       const post = (state: GettingStartedState): void => {
@@ -82,16 +90,18 @@ export class GettingStartedManager {
       };
       try {
         const loaded = this.loadState({ recheck });
-        if (loaded instanceof Promise) {
-          loaded.then(post).catch((e: unknown) => this.logError('karst: getting started state failed', e));
-        } else {
-          post(loaded);
-        }
+        if (loaded instanceof Promise) return loaded.then(post).catch(fail);
+        post(loaded);
+        return Promise.resolve();
       } catch (e) {
-        this.logError('karst: getting started state failed', e);
+        fail(e);
+        return Promise.resolve();
       }
     };
-    const ctx: GettingStartedActionsCtx = { pushState: (options) => pushState(options?.recheck === true) };
+    const ctx: GettingStartedActionsCtx = {
+      pushState: (options) => pushState(options?.recheck === true),
+      close: () => panel.close(),
+    };
     const actions: GettingStartedActions = this.actionsFactory(ctx);
 
     panel.onDidReceiveMessage((raw) => {
@@ -110,7 +120,7 @@ export class GettingStartedManager {
       this.push = undefined;
     });
 
-    pushState(false);
+    void pushState(false);
   }
 
   isOpen(): boolean {
@@ -133,4 +143,10 @@ export class GettingStartedManager {
       throw err;
     }
   }
+}
+
+/** One line for the page's error notice: the reason, never an empty string. */
+function errorMessage(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error ?? '');
+  return text.trim() || 'unknown error';
 }

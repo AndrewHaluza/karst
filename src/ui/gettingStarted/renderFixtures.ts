@@ -1,5 +1,5 @@
 import type { GettingStartedState, TutorialStep } from './state.js';
-import { TUTORIAL_STEPS } from './state.js';
+import { buildGettingStartedState } from './state.js';
 import type { SetupItem } from '../../init/status.js';
 import { NO_MANIFEST_DETAIL } from '../../setup/checklist/compute.js';
 import { buildAgentSetupView, type AgentSetupView } from '../../setup/checklist/panelView.js';
@@ -17,9 +17,15 @@ import type { ChecklistItem, ChecklistStatus } from '../../setup/checklist/types
  *
  * The corpus covers five lifecycle scenarios: fresh (nothing done), partial
  * (some items complete), complete (all items done), empty (degenerate
- * zero-item state), and hostile (untrusted labels/paths per Key Decision 6).
- * Five more cover the host-computed 'Agent setup' list: open (a mixed run),
- * no-manifest (state a), checking (b), error (c) and done (d).
+ * zero-item state), and hostile (untrusted labels/paths per Key Decision 6),
+ * plus `returning` (a complete setup on a workspace with 16 tickets).
+ * Six more cover the host-computed 'Agent setup' list: open (a mixed run),
+ * no-manifest (state a), checking (b), error (c), done (d) and agent-missing
+ * (the CLI is not installed, so "Set up with agent" is disabled).
+ *
+ * Each state is built through `buildGettingStartedState`, so the lede, the
+ * progress line, the manifest action order and the tutorial done marks in a
+ * fixture are the production ones — only the ids are fixture-scoped.
  */
 
 /** The five lifecycle scenarios the corpus covers. */
@@ -29,11 +35,13 @@ export type GettingStartedScenario =
   | 'complete'
   | 'empty'
   | 'hostile'
+  | 'returning'
   | 'agent-open'
   | 'agent-no-manifest'
   | 'agent-checking'
   | 'agent-error'
-  | 'agent-done';
+  | 'agent-done'
+  | 'agent-missing';
 
 /** Ordered vocabulary — deterministic iteration is part of the contract. */
 export const GETTING_STARTED_SCENARIOS: readonly GettingStartedScenario[] = [
@@ -42,11 +50,13 @@ export const GETTING_STARTED_SCENARIOS: readonly GettingStartedScenario[] = [
   'complete',
   'empty',
   'hostile',
+  'returning',
   'agent-open',
   'agent-no-manifest',
   'agent-checking',
   'agent-error',
   'agent-done',
+  'agent-missing',
 ];
 
 /** One checked-in fixture: a scenario identity plus its full state. */
@@ -111,71 +121,74 @@ function agentView(over: Partial<Parameters<typeof buildAgentSetupView>[0]> & { 
   return buildAgentSetupView({ error: null, checking: false, updatedLabel: FIXTURE_TIME, ...over });
 }
 
-/** Build a tutorial step set — the production steps with fixture ids. */
-function tutorialSteps(hostile = false): readonly TutorialStep[] {
-  if (!hostile) {
-    return TUTORIAL_STEPS.map((s) => ({
-      ...s,
-      id: `fixture:tutorial:${s.id}`,
-    }));
-  }
-  return TUTORIAL_STEPS.map((s, i) => ({
+/** Fixture ids for the production tutorial steps, keeping their real labels and done marks. */
+function fixtureTutorial(steps: readonly TutorialStep[]): readonly TutorialStep[] {
+  return steps.map((s) => ({ ...s, id: `fixture:tutorial:${s.id}` }));
+}
+
+/** The same steps with untrusted labels and paths (Key Decision 6). */
+function hostileTutorial(steps: readonly TutorialStep[]): readonly TutorialStep[] {
+  return steps.map((s, i) => ({
+    ...s,
     id: `fixture:tutorial:hostile:${s.id}`,
     label: HOSTILE_LABELS[i % HOSTILE_LABELS.length]!,
     description: i === 0 ? HOSTILE_PATH : s.description,
-    action: s.action,
   }));
 }
 
-/** Fresh: nothing done — every checklist item incomplete. */
+/**
+ * Build a fixture through the production state builder, so the lede, the
+ * progress line and the manifest action order are the real ones — a fixture
+ * can never drift from the contract the page renders.
+ */
+function fixtureState(
+  checklist: SetupItem[],
+  over: {
+    ticketCount?: number;
+    agentSetup?: AgentSetupView;
+    tutorial?: (steps: readonly TutorialStep[]) => readonly TutorialStep[];
+  } = {},
+): GettingStartedState {
+  const state = buildGettingStartedState(checklist, { ticketCount: over.ticketCount ?? 0 }, over.agentSetup);
+  return { ...state, tutorial: (over.tutorial ?? fixtureTutorial)(state.tutorial) };
+}
+
+/** Fresh: nothing done — every checklist item incomplete, manifest included. */
 function freshState(): GettingStartedState {
-  return {
-    checklist: [
-      fixtureItem(0, false),
-      fixtureItem(1, false),
-      fixtureItem(2, false),
-    ],
-    tutorial: tutorialSteps(),
-  };
+  return fixtureState([
+    { ...fixtureItem(0, false), id: 'manifest' },
+    fixtureItem(1, false),
+    fixtureItem(2, false),
+  ]);
 }
 
 /** Partial: some items complete, some not. */
 function partialState(): GettingStartedState {
-  return {
-    checklist: [
-      fixtureItem(0, true),
-      fixtureItem(1, false),
-      fixtureItem(2, true),
-      fixtureItem(3, false),
-    ],
-    tutorial: tutorialSteps(),
-  };
+  return fixtureState([
+    fixtureItem(0, true),
+    fixtureItem(1, false),
+    fixtureItem(2, true),
+    { ...fixtureItem(3, false), enables: 'sessions' },
+  ]);
 }
 
 /** Complete: every checklist item done. */
 function completeState(): GettingStartedState {
-  return {
-    checklist: [
-      fixtureItem(0, true),
-      fixtureItem(1, true),
-      fixtureItem(2, true),
-    ],
-    tutorial: tutorialSteps(),
-  };
+  return fixtureState([
+    fixtureItem(0, true),
+    fixtureItem(1, true),
+    { ...fixtureItem(2, true), enables: 'sessions' },
+  ]);
 }
 
 /** Empty: zero checklist items (degenerate host state). */
 function emptyState(): GettingStartedState {
-  return {
-    checklist: [],
-    tutorial: tutorialSteps(),
-  };
+  return fixtureState([]);
 }
 
 /** Hostile: untrusted labels and paths per Key Decision 6. */
 function hostileState(): GettingStartedState {
-  return {
-    checklist: [hostileItem(0), hostileItem(1), hostileItem(2)],
+  return fixtureState([hostileItem(0), hostileItem(1), hostileItem(2)], {
     agentSetup: agentView({
       items: agentItems(['todo', 'todo', 'done'], (i) => HOSTILE_LABELS[i % HOSTILE_LABELS.length]!).map((it, i) => ({
         ...it,
@@ -183,41 +196,61 @@ function hostileState(): GettingStartedState {
       })),
       error: HOSTILE_LABELS[0],
     }),
-    tutorial: tutorialSteps(true),
-  };
+    tutorial: hostileTutorial,
+  });
+}
+
+/** Returning: a complete setup on a workspace that already holds 16 tickets (GS-14/GS-15). */
+function returningState(): GettingStartedState {
+  return fixtureState(
+    [
+      { ...fixtureItem(0, true), id: 'manifest' },
+      fixtureItem(1, true),
+      { ...fixtureItem(2, true), enables: 'sessions' },
+    ],
+    { ticketCount: 16 },
+  );
 }
 
 /** A mixed run: done, open (required and optional) and skipped rows. */
 function agentOpenState(): GettingStartedState {
   const statuses: ChecklistStatus[] = ['done', 'done', 'todo', 'todo', 'skipped', 'done', 'todo', 'todo', 'done'];
-  return { ...partialState(), agentSetup: agentView({ items: agentItems(statuses) }) };
+  return fixtureState(partialState().checklist, { agentSetup: agentView({ items: agentItems(statuses) }) });
 }
 
 /** State (a): no karst.yml. Nine open rows and ONE detail line. */
 function agentNoManifestState(): GettingStartedState {
   const items = agentItems(NINE_TODO, () => `${NO_MANIFEST_DETAIL} (ENOENT: no such file)`);
-  return { ...freshState(), agentSetup: agentView({ items }) };
+  return fixtureState(freshState().checklist, { agentSetup: agentView({ items }) });
 }
 
 /** State (b): a run is in flight; the old rows stay. */
 function agentCheckingState(): GettingStartedState {
   const statuses: ChecklistStatus[] = ['done', 'todo', 'todo', 'todo', 'todo', 'todo', 'todo', 'todo', 'todo'];
-  return { ...partialState(), agentSetup: agentView({ items: agentItems(statuses), checking: true }) };
+  return fixtureState(partialState().checklist, { agentSetup: agentView({ items: agentItems(statuses), checking: true }) });
 }
 
 /** State (c): the child failed or timed out. The old rows stay. */
 function agentErrorState(): GettingStartedState {
   const statuses: ChecklistStatus[] = ['done', 'done', 'todo', 'todo', 'todo', 'todo', 'todo', 'todo', 'todo'];
-  return {
-    ...partialState(),
+  return fixtureState(partialState().checklist, {
     agentSetup: agentView({ items: agentItems(statuses), error: 'setup checklist timed out after 120 s.' }),
-  };
+  });
 }
 
 /** State (d): every required item is done; an optional one stays open. */
 function agentDoneState(): GettingStartedState {
   const statuses: ChecklistStatus[] = ['done', 'done', 'done', 'done', 'done', 'done', 'todo', 'skipped', 'done'];
-  return { ...completeState(), agentSetup: agentView({ items: agentItems(statuses) }) };
+  return fixtureState(completeState().checklist, { agentSetup: agentView({ items: agentItems(statuses) }) });
+}
+
+/** The agent CLI is missing: "Use a starter file" is primary, "Set up with agent" is disabled (GS-6). */
+function agentMissingState(): GettingStartedState {
+  return fixtureState([
+    { ...fixtureItem(0, true), id: 'manifest' },
+    fixtureItem(1, true),
+    { ...fixtureItem(2, false), enables: 'sessions' },
+  ]);
 }
 
 const STATE_BUILDERS: Readonly<Record<GettingStartedScenario, () => GettingStartedState>> = {
@@ -226,11 +259,13 @@ const STATE_BUILDERS: Readonly<Record<GettingStartedScenario, () => GettingStart
   complete: completeState,
   empty: emptyState,
   hostile: hostileState,
+  returning: returningState,
   'agent-open': agentOpenState,
   'agent-no-manifest': agentNoManifestState,
   'agent-checking': agentCheckingState,
   'agent-error': agentErrorState,
   'agent-done': agentDoneState,
+  'agent-missing': agentMissingState,
 };
 
 /**

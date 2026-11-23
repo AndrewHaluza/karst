@@ -1636,8 +1636,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // the panel shows 'Checking…' over the old rows and gets a push when the run ends.
     if (recheck) void setupFeature.agentChecklist.refresh();
     const faults = await refreshDepsStatus({ recheck });
+    const projectId = currentProject()?.id;
+    // The tutorial and the lede follow real progress: a workspace that already
+    // holds a ticket (archived included) must not be told to create its first.
+    const ticketCount = projectId === undefined ? 0 : listTickets(localStore, { projectId, includeArchived: true }).length;
     return buildGettingStartedState(
       buildSetupStatusFromFaults({ manifestExists, provider, faults }),
+      { ticketCount },
       setupFeature.agentChecklist.view(),
     );
   };
@@ -1648,6 +1653,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     buildGettingStartedActions({
       scaffoldManifest,
       setDismissed: () => void context.workspaceState.update(GETTING_STARTED_DISMISSED_KEY, true),
+      notify: (message) => void toast.info(message),
       runCommand: (command) => void vscode.commands.executeCommand(command),
     }),
     logError,

@@ -39,7 +39,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21
   //   opens the 400/399/320 tier probes for all 8 diffs pages (5 x 3 existing pages = +15).
   diffs: { screenshots: 13, layout: 64 },
-  gettingStarted: { screenshots: 8, layout: 30 },
+  // T1328 GS-14 (@ui:RD-TIERS): Getting Started opens the 400/399/320 tight probes for its six layout
+  // pages (+18 layout runs, 6 x 3). The new `fresh`/`returning`/`agent-missing` render fixtures do not add
+  // layout pages in this node; the webview node records their variants.
+  gettingStarted: { screenshots: 8, layout: 48 },
   // T1317 RS-10 (@ui:UI-R57): the eight `resources--servers-*` variants of the Servers tab, which had
   // no baseline at all. Screenshots: servers-mixed in dark/light/hc/grayscale (+4), servers-failed in
   // dark/light/hc (+3), servers-starting in dark and reduced-motion (+2), and none/done/unavailable/

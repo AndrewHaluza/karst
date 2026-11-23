@@ -33,6 +33,8 @@ export function makeGettingStartedPanelHost(
       panel.webview.html = injectCsp(html, newNonce());
       return {
         reveal: () => panel.reveal(),
+        // The dismiss action closes the page it was pressed in.
+        close: () => panel.dispose(),
         postMessage: (message) => void panel.webview.postMessage(message),
         onDidReceiveMessage: (handler) =>
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),

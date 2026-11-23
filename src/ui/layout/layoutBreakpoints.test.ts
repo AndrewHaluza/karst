@@ -81,6 +81,17 @@ describe('layoutWidthsFor', () => {
     expect(new Set(widths).size).toBe(widths.length);
   });
 
+  // GS-14: Getting Started proves the tight tier too, and diffs keeps its probe.
+  it('adds the tight probes on Getting Started and keeps them on diffs', () => {
+    for (const view of ['gettingStarted', 'diffs']) {
+      const widths = layoutWidthsFor(view, 'populated');
+      expect(widths, view).toEqual([...LAYOUT_WIDTHS, ...INSIDE_EXTRA_WIDTHS]);
+      expect(widths, view).toEqual(expect.arrayContaining([400, 399, 320]));
+      expect(new Set(widths.map(tierFor)), view).toEqual(new Set(['wide', 'mid', 'narrow', 'tight']));
+      expect(new Set(widths).size, view).toBe(widths.length);
+    }
+  });
+
   it('adds the Settings tight probes on top of the shared widths (Q12)', () => {
     expect(SETTINGS_LAYOUT_WIDTHS).toEqual([...LAYOUT_WIDTHS, 399, 320]);
     expect(new Set(SETTINGS_LAYOUT_WIDTHS.map(tierFor))).toEqual(new Set(['wide', 'mid', 'narrow', 'tight']));

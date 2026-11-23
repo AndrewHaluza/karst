@@ -51,6 +51,9 @@ describe('Tabler icon catalog (src/model/tablerIcons.ts)', () => {
     // what keep a future hand-edit from silently replacing a glyph with a
     // local approximation — the vendored data must stay the upstream bytes.
     expect(TABLER_ICONS['check']).toBe('<path d="M5 12l5 5l10 -10"/>');
+    // The Getting Started to-do mark (GS-2): an outline circle, distinct in shape
+    // from the done check and the missing-tool alert.
+    expect(TABLER_ICONS['circle']).toBe('<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/>');
     expect(TABLER_ICONS['folder']).toBe(
       '<path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2"/>',
     );
