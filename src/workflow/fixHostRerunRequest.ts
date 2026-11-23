@@ -1,6 +1,7 @@
 import type { Store } from '../store/db.js';
 import { activeFixRound } from '../store/recoveryRounds.js';
 import { listGateRuns } from '../store/gateRuns.js';
+import { ticketsWithRequestedNoChangeRerun } from '../store/fixNoChangeRounds.js';
 import { claimHostRerunRequest, ticketsWithRequestedHostRerun } from '../store/hostRerunRound.js';
 import { NO_NEW_COMMIT_REASON, assertFixHasNewCommit } from './fixRoundGuard.js';
 import type { GitRunner } from '../integrations/git.js';
@@ -36,7 +37,8 @@ export function requestHostRerun(store: Store, ticketId: number, at: string): Ho
 /** The extension sweep: run the one host re-run of every requested round of this project. */
 export async function runRequestedHostReruns(store: Store, projectId: number, deps: HostRerunDeps): Promise<HostRerunOutcome[]> {
   const outcomes: HostRerunOutcome[] = [];
-  for (const ticketId of ticketsWithRequestedHostRerun(store, projectId)) outcomes.push(await hostRerunFailedGates(store, ticketId, deps));
+  const requested = new Set([...ticketsWithRequestedHostRerun(store, projectId), ...ticketsWithRequestedNoChangeRerun(store, projectId)]);
+  for (const ticketId of requested) outcomes.push(await hostRerunFailedGates(store, ticketId, deps));
   return outcomes;
 }
 

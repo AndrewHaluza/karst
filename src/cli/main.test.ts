@@ -31,6 +31,11 @@ describe('parseGlobalFlags', () => {
     expect(g.rest).toEqual(['stage', 'impl', 'pass']);
   });
 
+  it('keeps --no-change <reason> in the rest argv', () => {
+    const g = parseGlobalFlags(['stage', 'fix', 'pass', '--no-change', 'r', '--db', 'x']);
+    expect(g.rest).toEqual(['stage', 'fix', 'pass', '--no-change', 'r']);
+  });
+
   it('extracts --verbose', () => {
     const g = parseGlobalFlags(['context', 'PROJ-9', '--verbose']);
     expect(g.verbose).toBe(true);

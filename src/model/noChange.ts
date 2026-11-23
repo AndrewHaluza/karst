@@ -16,3 +16,10 @@ export function noChangeEndReason(reason: string): string {
   const first = (reason.split('\n')[0] ?? '').slice(0, END_REASON_MAX_CHARS);
   return `no change: ${first}`;
 }
+
+/** The refusal the bridge CLI gives after it stored a no-change verdict. The bridge then re-runs the gates. */
+export const NO_CHANGE_RERUN_PENDING = 'no-change verdict recorded — the host re-runs the failed gates';
+
+/** The host CLI reply after it stored a no-change verdict. The extension sweep re-runs the gates. */
+export const NO_CHANGE_RERUN_REQUESTED_REPLY =
+  'no-change verdict recorded. The host re-runs the failed gates now and reports the result in the fix Inside panel. Stop now: do not make an empty commit and do not fire the marker again.';

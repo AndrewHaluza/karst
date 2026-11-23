@@ -8,6 +8,8 @@ import { hasFixingRound } from '../store/recoveryRoundsRead.js';
 import { resetStageState } from './resetStage.js';
 import { getStage, setStage } from '../store/stages.js';
 import { setStageCurrent, getTicket } from '../store/tickets.js';
+import { recordNoChangeReason } from '../store/fixNoChangeRounds.js';
+import { claimHostRerun } from '../store/hostRerunRound.js';
 import {
   hostRerunFailedGates,
   describeHostRerun,
@@ -122,7 +124,7 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(fix?.verdict).toContain('e2e (api)');
     expect(fix?.verdict).toContain('port 3000 busy');
     expect(roundById(store, roundId)?.status).toBe('pending');
-    expect(fix?.verdict).toContain('Reset stage');
+    expect(fix?.verdict).toContain('Retry gate');
   });
 
   it('moves a fixing round out of the in-flight set: reset available, no pending marker', async () => {
@@ -130,7 +132,7 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     await hostRerunFailedGates(store, ticketId, deps(() => ({ exitCode: 1, summary: 'x' })));
     const row = store.db.prepare('SELECT status, end_reason FROM recovery_rounds WHERE id = ?').get(roundId) as Record<string, string>;
     expect(row.status).not.toBe('fixing');
-    expect(row.end_reason).toContain('Reset stage');
+    expect(row.end_reason).toContain('Retry gate');
     expect(hasFixingRound(store, ticketId)).toBe(false);
     expect(resetStageState(store, ticketId)).toEqual({ available: true, stage: 'uat' });
   });
@@ -141,7 +143,7 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(out).toEqual({ kind: 'already-used' });
     expect(hasFixingRound(store, ticketId)).toBe(false);
     expect(resetStageState(store, ticketId)).toEqual({ available: true, stage: 'uat' });
-    expect(describeHostRerun(out)?.message).toContain('Reset stage');
+    expect(describeHostRerun(out)?.message).toContain('Retry gate');
   });
 
   it('never re-runs a second time in the same round', async () => {
@@ -227,5 +229,45 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(failed?.ok).toBe(false);
     expect(failed?.message).toContain('refusal stands');
     expect(failed?.message).toContain('unit (web): flaky');
+  });
+});
+
+describe('no-change re-run of failed gates', () => {
+  let store: Store;
+  let ticketId: number;
+  let roundId: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    setStage(store, ticketId, 'uat', { status: 'failed', verdict: 'gates failed', startedAt: AT, endedAt: AT, attempt: 1 });
+    setStage(store, ticketId, 'fix', { status: 'running', startedAt: AT });
+    setStageCurrent(store, ticketId, 'fix');
+    recordGateRun(store, { ticketId, stageKey: 'uat', attempt: 1, runAt: AT, gates: [{ gateName: 'unit (web)', exitCode: 1, repo: 'web', command: 'npm', args: ['run', 'test:unit'], summary: 'x' }] });
+    roundId = openRecoveryRound(store, { ticketId, sourceStage: 'uat', sourceProcessId: 'gates', triggerKind: 'gate-failure', triggerDetail: 'x', maxRounds: 3, startedAt: AT } as never).id;
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(roundId);
+  });
+
+  it('re-runs even when the D403 claim is spent, and closes with the agent reason on pass', async () => {
+    claimHostRerun(store, roundId, AT);
+    recordNoChangeReason(store, roundId, 'flaky port', AT);
+    const out = await hostRerunFailedGates(store, ticketId, { runGates: async (_t, g) => g.map(() => ({ exitCode: 0, summary: null })), now: () => AT });
+    expect(out).toEqual({ kind: 'passed', stage: 'uat' });
+    expect(store.db.prepare('SELECT status, end_reason FROM recovery_rounds WHERE id = ?').get(roundId)).toEqual({ status: 'passed', end_reason: 'no change: flaky port' });
+  });
+
+  it('parks with the way out that names Retry gate and Accept and continue when the re-run fails', async () => {
+    recordNoChangeReason(store, roundId, 'flaky port', AT);
+    await hostRerunFailedGates(store, ticketId, { runGates: async (_t, g) => g.map(() => ({ exitCode: 1, summary: 'boom' })), now: () => AT });
+    const verdict = getStage(store, ticketId, 'fix')?.verdict ?? '';
+    expect(verdict).toContain('Retry gate');
+    expect(verdict).toContain('Accept and continue');
+    expect(verdict).not.toContain('Reset stage');
+  });
+
+  it('reports already-used when the no-change re-run is claimed', async () => {
+    recordNoChangeReason(store, roundId, 'r', AT);
+    const deps = { runGates: async (_t: number, g: readonly FailedGate[]) => g.map(() => ({ exitCode: 1, summary: 'b' })), now: () => AT };
+    await hostRerunFailedGates(store, ticketId, deps, { parkOnFailure: false });
+    expect(await hostRerunFailedGates(store, ticketId, deps, { parkOnFailure: false })).toEqual({ kind: 'already-used' });
   });
 });
