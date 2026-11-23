@@ -11,8 +11,10 @@ import type { ServerStatus } from '../serversState.js';
 import { useHostAction } from './useHostAction.js';
 import type { HostMutation } from '../../settings/app/useHostMutation.js';
 
-const MARK: Record<ServerStatus, string> = { running: '●', stopped: '○', failed: '✕' };
-const LABEL: Record<ServerStatus, string> = { running: 'Running', stopped: 'Stopped', failed: 'Failed' };
+import { SERVER_STATUS_MARK, SERVER_STATUS_WORD } from '../../../model/serverStatusText.js';
+
+const MARK: Record<ServerStatus, string> = SERVER_STATUS_MARK;
+const LABEL: Record<ServerStatus, string> = SERVER_STATUS_WORD;
 
 export function StatusMark({ status }: { status: ServerStatus }) {
   return (

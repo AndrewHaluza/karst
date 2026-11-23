@@ -12,6 +12,7 @@ import {
   type ResourcesPanelHost,
   type ServersHost,
 } from './panel.js';
+import type { ServersViewHints } from './serversState.js';
 
 const reading: ResourceReading = {
   supported: true, degraded: false, inventory: null, waste: [], history: [], skipped: 0, fastLane: false,
@@ -49,7 +50,7 @@ function fakePanel() {
 
 const sv = (id: number, repo: string, status = 'running') => ({
   id, repo, host: 'localhost', port: 3000 + id, status, startedAt: null,
-  logPath: null, container: null, cwd: null, sandbox: null,
+  logPath: null, container: null, cwd: null, sandbox: null, lastError: null, httpHealth: true,
 });
 
 function inventory(): ServerInventory {
@@ -65,6 +66,8 @@ function inventory(): ServerInventory {
 function fakeServers(over: Partial<ServersHost> = {}) {
   const calls = {
     inventory: vi.fn((): ServerInventory | undefined => inventory()),
+    viewHints: vi.fn((): ServersViewHints => ({})),
+    sweep: vi.fn(async () => {}),
     startShared: vi.fn(async () => {}), restartShared: vi.fn(async () => {}), stopShared: vi.fn(async () => {}),
     setPinned: vi.fn(), stopIdle: vi.fn(async () => {}), startRow: vi.fn(async () => {}),
     restartRow: vi.fn(async () => {}), stopRow: vi.fn(async () => {}), openRow: vi.fn(), copyRow: vi.fn(),
@@ -135,19 +138,54 @@ describe('Servers tab — panel lifecycle', () => {
     expect(p.ofType('show-tab')).toEqual([{ type: 'show-tab', tab: 'servers' }]);
   });
 
-  it('posts a Servers state on open and re-reads on the interval, skipping unchanged reads', () => {
+  it('posts a Servers state on open and re-reads on the interval, skipping unchanged reads', async () => {
     vi.useFakeTimers();
     const fs = fakeServers();
     const { p, manager } = setup(fs.host, { serversPollMs: 1000 });
     manager.open('servers');
     expect(p.ofType('servers')).toHaveLength(1);
-    vi.advanceTimersByTime(3000);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(p.ofType('servers')).toHaveLength(1);
     expect(fs.calls.inventory.mock.calls.length).toBeGreaterThanOrEqual(4);
     fs.calls.inventory.mockReturnValue({ ...inventory(), shared: [] });
-    vi.advanceTimersByTime(1000);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(p.ofType('servers')).toHaveLength(2);
     expect(p.ofType('servers')[1]!.state.shared).toEqual([]);
+  });
+
+  it('sweeps liveness on each poll before it re-reads, so a crash shows within one poll', async () => {
+    vi.useFakeTimers();
+    const fs = fakeServers();
+    const { p, manager } = setup(fs.host, { serversPollMs: 1000 });
+    manager.open('servers');
+    fs.calls.sweep.mockImplementationOnce(async () => {
+      fs.calls.inventory.mockReturnValue({ ...inventory(), tickets: [{ ...inventory().tickets[0]!, servers: [{ ...sv(2, 'web', 'failed'), lastError: 'Exited with code 1' }] }] });
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fs.calls.sweep).toHaveBeenCalledOnce();
+    expect(p.ofType('servers').at(-1)!.state.groups[0]!.servers[0]).toMatchObject({ status: 'failed', reason: 'Exited with code 1' });
+  });
+
+  it('still re-reads on the poll when the sweep rejects', async () => {
+    vi.useFakeTimers();
+    const fs = fakeServers();
+    const logError = vi.fn();
+    const { p, manager } = setup(fs.host, { serversPollMs: 1000, logError });
+    manager.open('servers');
+    fs.calls.sweep.mockRejectedValueOnce(new Error('db'));
+    fs.calls.inventory.mockReturnValue({ ...inventory(), shared: [] });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(logError).toHaveBeenCalledWith('karst: servers liveness sweep failed', expect.any(Error));
+    expect(p.ofType('servers').at(-1)!.state.shared).toEqual([]);
+  });
+
+  it('counts its open panel for the liveness loop: 0 closed, 1 open', () => {
+    const { p, manager } = setup(fakeServers().host);
+    expect(manager.openCount()).toBe(0);
+    manager.open('servers');
+    expect(manager.openCount()).toBe(1);
+    p.dispose();
+    expect(manager.openCount()).toBe(0);
   });
 
   it('stops polling on dispose', () => {
@@ -242,6 +280,22 @@ describe('Servers tab — action dispatch', () => {
     expect(p.results()).toEqual([
       { type: 'action-result', requestId: 'r3', ok: false, message: 'api was not stopped — its process is still running.' },
     ]);
+  });
+
+  it('repaints the transient status as soon as the verb starts', async () => {
+    let release!: () => void;
+    const verbs = new Map<number, 'starting' | 'stopping'>();
+    fs.calls.viewHints.mockImplementation(() => ({ rowVerbs: verbs }));
+    fs.calls.stopRow.mockImplementationOnce(() => {
+      verbs.set(2, 'stopping');
+      return new Promise<void>((r) => void (release = () => { verbs.delete(2); r(); }));
+    });
+    p.send({ type: 'server-stop', serverId: 2, requestId: 'rs' });
+    await flush();
+    expect(p.ofType('servers').at(-1)!.state.groups[0]!.servers[0]!.status).toBe('stopping');
+    release();
+    await flush();
+    expect(p.ofType('servers').at(-1)!.state.groups[0]!.servers[0]!.status).toBe('running');
   });
 
   it('keeps a pending verb pending until its promise settles', async () => {

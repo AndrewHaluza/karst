@@ -7,6 +7,7 @@ import {
   waitForHealth,
   HealthAbortedError,
   HealthTimeoutError,
+  HEALTH_TIMEOUT_DEFAULT_MS,
   INSTANCE_ENV,
 } from './health.js';
 import { killTree } from './processTree.js';
@@ -49,21 +50,76 @@ export interface ServerRecord {
  * learn it happened. Same single-row-per-(ticket,service) replace as the
  * success path, so a retry's failed row doesn't accumulate duplicates either.
  */
-function recordFailedStart(
+export function recordFailedStart(
   store: Store,
   opts: Pick<StartHotOpts, 'ticketId' | 'service' | 'host' | 'port' | 'logPath' | 'cwd' | 'container'>,
+  reason: string,
 ): void {
   const spawnedAt = new Date().toISOString();
+  // CAUTION: the port holder can be this service's OWN `running` row, after a
+  // refused kill (@arch:WT-REMOVE). That row is the only handle to a live
+  // process, so it is never deleted here, and no failed row is added beside it.
   store.db
-    .prepare('DELETE FROM servers WHERE repo = ? AND ticket_id IS ?')
+    .prepare("DELETE FROM servers WHERE repo = ? AND ticket_id IS ? AND status != 'running'")
     .run(opts.service, opts.ticketId);
+  const stillRunning = store.db
+    .prepare("SELECT 1 FROM servers WHERE repo = ? AND ticket_id IS ? AND status = 'running'")
+    .get(opts.service, opts.ticketId);
+  if (stillRunning !== undefined) return;
   store.db
     .prepare(
-      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, container, started_at)
-       VALUES (?, ?, ?, ?, NULL, 'failed', ?, ?, ?, ?)`,
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, container, started_at, last_error)
+       VALUES (?, ?, ?, ?, NULL, 'failed', ?, ?, ?, ?, ?)`,
     )
-    .run(opts.ticketId, opts.service, opts.host, opts.port, opts.logPath, opts.cwd, opts.container ?? null, spawnedAt);
+    .run(opts.ticketId, opts.service, opts.host, opts.port, opts.logPath, opts.cwd, opts.container ?? null, spawnedAt, reason);
 }
+
+/**
+ * A start failure that carries the short reason for `servers.last_error`. The
+ * message stays the long text for the toast; the reason is the row text
+ * ("Exited with code 1 before it was ready").
+ */
+class StartFailedError extends Error {
+  readonly reason: string;
+  constructor(message: string, reason: string) {
+    super(message);
+    this.name = 'StartFailedError';
+    this.reason = reason;
+  }
+}
+
+/** The short row text for a port that `reclaimPort` could not free. */
+export function portRefusalReason(
+  port: number,
+  survivors: readonly { pid: number | null; baseline?: boolean }[],
+  stillBlockedPids: readonly number[],
+): string {
+  const first = survivors[0];
+  if (first?.baseline === true) return `Port ${port} in use by a shared service`;
+  if (first !== undefined && first.pid !== null) return `Port ${port} in use by pid ${first.pid}`;
+  if (first !== undefined) return `Port ${port} in use by another process`;
+  const killed = stillBlockedPids[0];
+  return killed === undefined ? `Port ${port} in use` : `Port ${port} in use by pid ${killed}`;
+}
+
+/** The short row text for a failed health-gated start. */
+function failureReason(opts: StartHotOpts, err: unknown): string {
+  if (err instanceof StartFailedError) return err.reason;
+  if (err instanceof HealthTimeoutError) {
+    const seconds = Math.round((opts.healthTimeoutMs ?? HEALTH_TIMEOUT_DEFAULT_MS) / 1000);
+    return `No answer on port ${opts.port} after ${seconds} s`;
+  }
+  return 'Could not start';
+}
+
+/**
+ * Non-zero exit codes of servers that exited AFTER their start, keyed by row
+ * id. Only the window that started a server has its `exit` handler, so other
+ * windows show "Exited unexpectedly". The handler never writes the row: a
+ * launcher can exit non-zero while its group still serves. The liveness sweep
+ * reads the code when it marks the row failed, then deletes the entry.
+ */
+export const lastExitCode: Map<number, number> = new Map();
 
 export interface StartHotOpts {
   ticketId: number | null;
@@ -145,13 +201,14 @@ export interface StartHotOpts {
  */
 function startError(opts: StartHotOpts, err: Error & { code?: string }): Error {
   if (err.code === 'ENOENT') {
-    return new Error(
+    return new StartFailedError(
       `could not start '${opts.service}': '${opts.command}' is not installed, or not on the ` +
         `PATH this editor was launched with. It comes from the start command for '${opts.service}' ` +
         `in karst.yml.`,
+      'Command not found',
     );
   }
-  return new Error(`could not start '${opts.service}': ${err.message}`);
+  return new StartFailedError(`could not start '${opts.service}': ${err.message}`, 'Could not start the command');
 }
 
 /** Rejects with `err` after `ms`, without holding the process open. */
@@ -223,9 +280,9 @@ const ABANDON_POLL_MS = 250;
  * period stopped applying there — a daemonising launcher was failed one poll
  * after it exited, on a platform where karst has no evidence either way.
  */
-type GroupLiveness = 'alive' | 'empty' | 'unknown';
+export type GroupLiveness = 'alive' | 'empty' | 'unknown';
 
-function groupLiveness(pid: number): GroupLiveness {
+export function groupLiveness(pid: number): GroupLiveness {
   if (process.platform === 'win32') return 'unknown'; // no process groups to ask about
   try {
     process.kill(-pid, 0);
@@ -297,9 +354,10 @@ function abandonedStart(opts: StartHotOpts, pid: number, exited: Promise<void>):
             `${opts.host}:${opts.port} — abandoning the start`,
         );
         reject(
-          new Error(
+          new StartFailedError(
             `could not start '${opts.service}': the process exited and left nothing listening on ` +
               `${opts.host}:${opts.port}.`,
+            `Exited and left nothing on port ${opts.port}`,
           ),
         );
         return;
@@ -387,6 +445,12 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
             `or give '${opts.service}' a different port in karst.yml.`
           : `karst will not stop that process automatically. Stop the process on that port, ` +
             `or give '${opts.service}' a different port in karst.yml.`;
+      // Record the refusal so every window shows "Failed" with the holder.
+      recordFailedStart(
+        store,
+        opts,
+        portRefusalReason(opts.port, reclaimed.survivors, reclaimed.killedPids),
+      );
       throw new Error(`could not start '${opts.service}': ${holder}${advice}`);
     }
   }
@@ -468,9 +532,10 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       if (code === 0) return; // daemonised launcher — keep waiting for health
       const how = code === null ? `on ${signal}` : `with code ${code}`;
       reject(
-        new Error(
+        new StartFailedError(
           `could not start '${opts.service}': the process exited ${how} before it became ` +
             `healthy.`,
+          `Exited ${how} before it was ready`,
         ),
       );
     });
@@ -501,7 +566,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       // all, so this is the ONLY path that can name it. Record it the same as
       // any other failed start, or a bad command in karst.yml renders as no
       // server anywhere rather than a red row explaining why.
-      recordFailedStart(store, opts);
+      recordFailedStart(store, opts, failureReason(opts, err));
       opts.debug?.(`[runtime] ${opts.service}: spawned without a pid — reporting the spawn error`);
       throw err;
     }
@@ -551,7 +616,7 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
     // Record the failure so the dashboard shows it (red, not just missing) and
     // its logs button can find `logPath` — the log the service just wrote is
     // exactly the evidence that explains what went wrong.
-    recordFailedStart(store, opts);
+    recordFailedStart(store, opts, failureReason(opts, err));
     // Surface the service's own output so the failure explains itself: a missing
     // module, a wrong port in config, a compile error. Without this the user sees
     // only "exited with code 1" / "health did not pass" and must open the log.
@@ -568,8 +633,8 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
 
   const info = store.db
     .prepare(
-      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at, container)
-       VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)`,
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at, container, last_error)
+       VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, NULL)`,
     )
     // `cwd` is recorded because the child is spawned `detached` — its own session
     // with no controlling tty — so nothing can ever reach it by hanging up a
@@ -591,8 +656,18 @@ export async function startHot(store: Store, opts: StartHotOpts): Promise<Server
       opts.container ?? null,
     );
 
+  const rowId = Number(info.lastInsertRowid);
+  // Note a non-zero exit AFTER the start for the liveness sweep's reason. A
+  // user Stop uses SIGKILL (`killTree`), so `code` is null and nothing is kept.
+  // `exitCode` covers an exit between the health pass and this line.
+  const noteExitCode = (code: number | null): void => {
+    if (typeof code === 'number' && code !== 0) lastExitCode.set(rowId, code);
+  };
+  if (child.exitCode !== null) noteExitCode(child.exitCode);
+  else child.once('exit', noteExitCode);
+
   return {
-    id: Number(info.lastInsertRowid),
+    id: rowId,
     ticketId: opts.ticketId,
     service: opts.service,
     host: opts.host,

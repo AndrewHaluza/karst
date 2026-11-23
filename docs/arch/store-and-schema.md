@@ -384,6 +384,8 @@ END_DOC_BLOCK: [@arch:V121]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
+**v136:** `servers.last_error` (TEXT, the short reason a `failed` row failed: a start failure from `recordFailedStart`, or a crash from `markServerCrashed`; `@arch:SERVERS-PANEL`). Additive, NULL = no failure or a pre-v136 row, no backfill. A crash keeps the `failed` status; it is never written as `stopped`.
+
 **v135:** `planning_proposals.revision_count` (INTEGER NOT NULL DEFAULT 0, the in-place revisions of a draft; only `updateProposalPayload` increments it; `@arch:PLANNING`). Additive, 0 for a pre-v135 row, no backfill from `updated_at`: accept, discard, `setProposalWarnings` and `setProposalBaseShas` also bump `updated_at`, so a backfill would invent revisions.
 
 **v134:** `gate_runs.skip_reason` (`ticket` | `config` | `no-ui-change` | `added-later`, why a skipped row did not run; `@arch:RESULTS`). Additive, NULL = not skipped or a pre-v134 row, no backfill. The renderer reads the key, never the summary prose.

@@ -687,7 +687,7 @@ CREATE TABLE IF NOT EXISTS servers (
   host          TEXT,
   port          INTEGER,
   pid           INTEGER,
-  status        TEXT NOT NULL,        -- running | stopped
+  status        TEXT NOT NULL,        -- running | stopped | failed
   log_path      TEXT,
   started_at    TEXT NOT NULL DEFAULT (datetime('now')),
   -- The directory the process was spawned in (v21) — normally a ticket's
@@ -721,7 +721,12 @@ CREATE TABLE IF NOT EXISTS servers (
   -- sandbox, reached through a published 127.0.0.1 port), so this handle is what
   -- the stop and re-verify paths use to unpublish and stop it there (arch:AC-32).
   -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
-  sandbox       TEXT
+  sandbox       TEXT,
+  -- The short reason a row is `failed` (v136): the start refusal ("Port 3000 in
+  -- use by pid 4123") or the crash that the liveness sweep saw ("Exited with
+  -- code 1"). NULL on a running row and on a pre-v136 row. Placed LAST, as the
+  -- ALTER appends.
+  last_error    TEXT
 );
 
 -- One PR per (ticket, repo). `status` and every v16 metadata column below are

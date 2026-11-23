@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { InventoryServer, ServerInventory, SharedServer, TicketServerGroup } from '../../store/serverInventory.js';
-import { buildServersState, unavailableServersState } from './serversState.js';
+import { buildServersState, unavailableServersState, DEFAULT_START_BUDGET_MS } from './serversState.js';
 
 function server(id: number, repo: string, status = 'running', over: Partial<InventoryServer> = {}): InventoryServer {
   return {
     id, repo, host: 'localhost', port: 3000 + id, status, startedAt: null,
-    logPath: null, container: null, cwd: null, sandbox: null, ...over,
+    logPath: null, container: null, cwd: null, sandbox: null, lastError: null, httpHealth: true, ...over,
   };
 }
 function shared(id: number, repo: string, over: Partial<SharedServer> = {}): SharedServer {
@@ -106,5 +106,52 @@ describe('buildServersState', () => {
   it('is explicit when unavailable', () => {
     const s = unavailableServersState('No project is open.');
     expect(s).toMatchObject({ available: false, empty: null, stopIdle: { disabledReason: 'No project is open.' } });
+  });
+
+  it('carries the failed reason and the port label of a failed row; no address', () => {
+    const s = build({ shared: [], tickets: [group(1, [
+      server(2, 'web', 'failed', { lastError: 'Port 3002 in use by pid 4123' }),
+      server(3, 'api', 'stopped', { lastError: 'old' }),
+    ])] });
+    expect(s.groups[0]!.servers.map((r) => [r.status, r.reason, r.portLabel, r.address])).toEqual([
+      ['failed', 'Port 3002 in use by pid 4123', 'localhost:3002', ''],
+      ['stopped', '', 'localhost:3003', ''],
+    ]);
+  });
+
+  it('opens a row only when it runs, has an address and an HTTP health check', () => {
+    const s = build({ shared: [], tickets: [group(1, [
+      server(2, 'web'),
+      server(3, 'db', 'running', { httpHealth: false }),
+      server(4, 'api', 'failed'),
+    ])] });
+    expect(s.groups[0]!.servers.map((r) => [r.service, r.reachable, r.openable])).toEqual([
+      ['web', true, true],
+      ['db', true, false],
+      ['api', false, false],
+    ]);
+  });
+
+  it('shows starting / stopping while the host runs a verb on the row', () => {
+    const s = buildServersState(
+      { shared: [shared(1, 'api')], tickets: [group(1, [server(2, 'web', 'stopped'), server(3, 'db')])] },
+      'p',
+      { rowVerbs: new Map([[2, 'starting'], [3, 'stopping']]), sharedVerbs: new Map([['api', 'stopping']]) },
+    );
+    expect(s.groups[0]!.servers.map((r) => [r.status, r.statusLabel])).toEqual([
+      ['starting', 'Starting…'],
+      ['stopping', 'Stopping…'],
+    ]);
+    expect(s.shared[0]).toMatchObject({ status: 'stopping', statusLabel: 'Stopping…', idle: false });
+  });
+
+  it('gives each row its start budget, with the health default when none is declared', () => {
+    const s = buildServersState(
+      { shared: [], tickets: [group(1, [server(2, 'web'), server(3, 'db')])] },
+      'p',
+      { startBudgetMs: (svc) => (svc === 'web' ? 90_000 : undefined) },
+    );
+    expect(s.groups[0]!.servers.map((r) => r.startBudgetMs)).toEqual([90_000, DEFAULT_START_BUDGET_MS]);
+    expect(DEFAULT_START_BUDGET_MS).toBe(30_000);
   });
 });

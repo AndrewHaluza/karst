@@ -1,5 +1,7 @@
 import type { InventoryServer, ServerInventory, SharedServer } from '../../store/serverInventory.js';
 import { formatId } from '../../model/entityId.js';
+import { SERVER_STATUS_WORD } from '../../model/serverStatusText.js';
+import { HEALTH_TIMEOUT_DEFAULT_MS } from '../../runtime/health.js';
 
 /**
  * The Servers tab's read model.
@@ -11,14 +13,36 @@ import { formatId } from '../../model/entityId.js';
  * facts of this model.
  */
 
-export type ServerStatus = 'running' | 'stopped' | 'failed';
+/**
+ * `starting` and `stopping` are transient: the host holds them while a verb runs
+ * on the row (`ServersViewHints`). A crash is `failed` with a `reason`.
+ */
+export type ServerStatus = 'running' | 'starting' | 'stopping' | 'stopped' | 'failed';
+
+/** The transient states a host verb puts on a row while it runs. */
+export type TransientStatus = 'starting' | 'stopping';
 
 /** Word shown next to the status shape (UI-R28: never shape or colour alone). */
-export const STATUS_LABEL: Record<ServerStatus, string> = {
-  running: 'Running',
-  stopped: 'Stopped',
-  failed: 'Failed',
+export const STATUS_LABEL: Readonly<Record<ServerStatus, string>> = {
+  running: SERVER_STATUS_WORD.running,
+  starting: SERVER_STATUS_WORD.starting,
+  stopping: SERVER_STATUS_WORD.stopping,
+  stopped: SERVER_STATUS_WORD.stopped,
+  failed: SERVER_STATUS_WORD.failed,
 };
+
+/** The start budget of a row with no declared `healthTimeoutSeconds`. */
+export const DEFAULT_START_BUDGET_MS = HEALTH_TIMEOUT_DEFAULT_MS;
+
+/** Host facts that are not in the inventory: the verbs in flight and the start budgets. */
+export interface ServersViewHints {
+  /** Ticket rows with a verb in flight, by `servers.id`. */
+  rowVerbs?: ReadonlyMap<number, TransientStatus>;
+  /** Shared rows with a verb in flight, by unit key. */
+  sharedVerbs?: ReadonlyMap<string, TransientStatus>;
+  /** The declared health budget of a unit in ms; undefined → the default. */
+  startBudgetMs?: (service: string) => number | undefined;
+}
 
 export interface ServerRowView {
   serverId: number;
@@ -28,8 +52,16 @@ export interface ServerRowView {
   statusLabel: string;
   /** `localhost:3000` while running, else `''`. */
   address: string;
-  /** Whether Open / Copy apply (running with a known address). */
+  /** Whether Copy applies (running with a known address). */
   reachable: boolean;
+  /** Whether Open applies: reachable AND the health check speaks HTTP. */
+  openable: boolean;
+  /** Why a `failed` row failed (`servers.last_error`), else `''`. */
+  reason: string;
+  /** `localhost:3000` whenever the port is known, in any status, else `''`. */
+  portLabel: string;
+  /** How long a start may take before the health gate gives up, in ms. */
+  startBudgetMs: number;
 }
 
 export interface DependentView {
@@ -114,12 +146,15 @@ export function unavailableServersState(reason: string, scopeLabel = ''): Server
   };
 }
 
-function statusOf(row: InventoryServer): ServerStatus {
+const LOCAL_HOST = 'localhost';
+
+function statusOf(row: InventoryServer, transient: TransientStatus | undefined): ServerStatus {
+  if (transient !== undefined) return transient;
   return row.status === 'running' ? 'running' : row.status === 'failed' ? 'failed' : 'stopped';
 }
 
-function rowView(row: InventoryServer): ServerRowView {
-  const status = statusOf(row);
+function rowView(row: InventoryServer, hints: ServersViewHints, transient: TransientStatus | undefined): ServerRowView {
+  const status = statusOf(row, transient);
   const reachable = status === 'running' && row.host !== null && row.port !== null;
   return {
     serverId: row.id,
@@ -128,11 +163,15 @@ function rowView(row: InventoryServer): ServerRowView {
     statusLabel: STATUS_LABEL[status],
     address: reachable ? `${row.host}:${row.port}` : '',
     reachable,
+    openable: reachable && row.httpHealth,
+    reason: status === 'failed' ? (row.lastError ?? '') : '',
+    portLabel: row.port === null ? '' : `${row.host ?? LOCAL_HOST}:${row.port}`,
+    startBudgetMs: hints.startBudgetMs?.(row.repo) ?? DEFAULT_START_BUDGET_MS,
   };
 }
 
-function sharedView(row: SharedServer): SharedRowView {
-  const base = rowView(row);
+function sharedView(row: SharedServer, hints: ServersViewHints): SharedRowView {
+  const base = rowView(row, hints, hints.sharedVerbs?.get(row.repo));
   const running = base.status === 'running';
   return {
     ...base,
@@ -147,10 +186,14 @@ function sharedView(row: SharedServer): SharedRowView {
   };
 }
 
-export function buildServersState(inventory: ServerInventory, scopeLabel: string): ServersState {
-  const shared = inventory.shared.map(sharedView);
+export function buildServersState(
+  inventory: ServerInventory,
+  scopeLabel: string,
+  hints: ServersViewHints = {},
+): ServersState {
+  const shared = inventory.shared.map((row) => sharedView(row, hints));
   const groups = inventory.tickets.map((g): TicketGroupView => {
-    const servers = g.servers.map(rowView);
+    const servers = g.servers.map((row) => rowView(row, hints, hints.rowVerbs?.get(row.id)));
     const running = servers.filter((s) => s.status === 'running').length;
     return {
       ticketId: g.ticketId,

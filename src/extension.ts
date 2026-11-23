@@ -2885,6 +2885,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const resourcesDisk = new WorktreeDiskCache();
   // The Servers tab (project-wide control plane): ops + host bindings live in
   // `extension/serversBinding.ts`; the panel re-reads on `serversChanged`.
+  // The liveness sweep turns a crashed `running` row into `failed`. It runs while
+  // a dashboard or the Resources panel is open, on the Resources poll, and on
+  // each monitor reading (`always`), so the status bar shows a crash too.
+  const liveness = createLivenessLoop({
+    store: localStore, openPanelCount: () => dashboard.openCount(), openResourcesCount: () => resourcesPanel.openCount(),
+    refresh: () => serversChanged(), logError,
+    info: (m) => logger.info(m), debug: (m) => logger.debug(m),
+  });
   const serversBinding = createServersBinding({
     context, store: localStore, notify: vscodeNotify, debug: (m) => logger.debug(m),
     projectId: () => currentProject()?.id, manifest: currentManifest,
@@ -2892,6 +2900,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     afterServerChange: () => serversChanged(),
     ...(sandboxB ? { sandbox: sandboxB.deps, userUatWithheld: sandboxB.userUatWithheld } : {}), // AC-32
     stopTicketServers: (id) => (sandboxB ? sandboxB.stopTicket(localStore, id) : stopTicketServers(localStore, id)),
+    sweepNow: () => liveness.sweepNow(),
     openTicketLogs: (id) => serverLogsManager.open(id), openLogs: () => channel.show(),
   });
   const serversChanged = (): void => { provider.refresh(); dashboard.pushAll(); resourcesPanel.refreshServers(); serversBinding.updateStatus(); };
@@ -2932,7 +2941,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   resourcesStatus.command = 'karst.openResources';
   context.subscriptions.push(resourcesStatus);
   resourceMonitorInstance.onReading((reading) => {
-    serversBinding.updateStatus();
+    // Sweep first, so a crash reaches the status bar with no panel open. The
+    // sweep repaints through `serversChanged` when a row turned `failed`.
+    void liveness.sweepNow({ always: true }).then(() => serversBinding.updateStatus());
     const indicator = buildResourceIndicator(reading);
     if (!indicator) {
       resourcesStatus.hide();
@@ -3463,11 +3474,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     notify: vscodeNotify, writeManifest, manifestPath: () => manifestPathOrThrow(), logError,
     afterServerChange: () => serversChanged(),
   };
-  const liveness = createLivenessLoop({
-    store: localStore, openPanelCount: () => dashboard.openCount(),
-    refresh: () => { provider.refresh(); dashboard.pushAll(); }, logError,
-    info: (m) => logger.info(m), debug: (m) => logger.debug(m),
-  }); liveness.start();
+  liveness.start();
   context.subscriptions.push(liveness, vscode.window.onDidChangeWindowState((s) => { if (s.focused) void liveness.sweepNow(); }));
 
   // A karst.yml edit made OUTSIDE karst (hand edit in the editor, a teammate's

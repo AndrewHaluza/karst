@@ -200,7 +200,8 @@ const SCOPE = 'Project test · this window';
 function invServer(index: number, repo: string, status = 'running', over: Partial<InventoryServer> = {}): InventoryServer {
   return {
     id: 900100 + index, repo, host: 'localhost', port: 4000 + index, status,
-    startedAt: '2026-01-01T00:00:00.000Z', logPath: null, container: null, cwd: null, sandbox: null, ...over,
+    startedAt: '2026-01-01T00:00:00.000Z', logPath: null, container: null, cwd: null, sandbox: null,
+    lastError: null, httpHealth: true, ...over,
   };
 }
 

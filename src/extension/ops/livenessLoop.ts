@@ -1,13 +1,21 @@
 import type { Store } from '../../store/db.js';
-import { sweepServerLiveness, describeRetired } from '../../runtime/livenessSweep.js';
+import {
+  sweepServerLiveness,
+  describeCrashed,
+  type SweepLivenessOpts,
+} from '../../runtime/livenessSweep.js';
 
-/** How often an open dashboard re-probes server liveness. */
+/** How often an open dashboard or Resources panel re-probes server liveness. */
 export const LIVENESS_SWEEP_MS = 15_000;
 
 export interface LivenessLoopDeps {
   store: Store;
-  /** How many dashboard panels are currently open. The loop idles at 0. */
+  /** How many dashboard panels are currently open. */
   openPanelCount: () => number;
+  /** How many Resources panels are open (0 or 1). The loop idles when both counts are 0. */
+  openResourcesCount?: () => number;
+  /** Probe overrides for tests; production uses the real probes. */
+  sweepOpts?: Omit<SweepLivenessOpts, 'debug' | 'ticketId'>;
   /** Repaint everything that renders server status. */
   refresh: () => void;
   info: (message: string) => void;
@@ -18,9 +26,17 @@ export interface LivenessLoopDeps {
   clearTimer?: (handle: unknown) => void;
 }
 
+export interface SweepNowOptions {
+  /** Sweep even when no panel is open (the monitor reading feeds the status bar). */
+  always?: boolean;
+}
+
 export interface LivenessLoop {
-  /** Run one sweep now (focus, or the timer). Never throws. */
-  sweepNow(): Promise<void>;
+  /**
+   * Run one sweep now (focus, the timer, the Resources poll, the monitor
+   * reading). Single-flight: a call during a sweep waits for that sweep. Never throws.
+   */
+  sweepNow(opts?: SweepNowOptions): Promise<void>;
   /** Begin the periodic loop. Idempotent. */
   start(): void;
   /** Stop the periodic loop. Idempotent. */
@@ -28,41 +44,49 @@ export interface LivenessLoop {
 }
 
 /**
- * Drive the liveness sweep while the dashboard is open.
+ * Drive the liveness sweep while a dashboard or the Resources panel is open.
  *
  * The dashboard renders each server row's `status` column verbatim, so a row
  * that claims `running` keeps claiming it until something re-derives the truth.
  * `runBootSweeps` does that once, at activation; a GCP VM suspend/resume that
  * kills the processes without restarting the extension host never runs it. This
  * loop re-probes every 15 s while at least one panel is open, and on every
- * window-focus event, then repaints. It never throws: a failed sweep must not
- * take the extension host down, and it must not stop the loop.
+ * window-focus event, then repaints. The Resources poll (5 s) and the monitor
+ * reading call `sweepNow` too; the single flight keeps the calls from racing.
+ * It never throws: a failed sweep must not take the extension host down, and
+ * it must not stop the loop.
  */
 export function createLivenessLoop(deps: LivenessLoopDeps): LivenessLoop {
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
-  let inFlight = false;
+  const openResourcesCount = deps.openResourcesCount ?? (() => 0);
+  let inFlight: Promise<void> | undefined;
   let stopped = false;
   let started = false;
   let timer: unknown;
 
-  const sweepNow = async (): Promise<void> => {
-    if (inFlight) return;
-    inFlight = true;
+  const runSweep = async (opts: SweepNowOptions): Promise<void> => {
     try {
       // Inside the try: a throwing UI query must be reported, not reject the
       // promise. A rejection would skip the timer's `.then` re-arm and stop the
       // periodic loop for good.
-      if (deps.openPanelCount() === 0) return;
-      const retired = await sweepServerLiveness(deps.store, { debug: deps.debug });
-      if (retired.length === 0) return;
-      for (const s of retired) deps.info(describeRetired(s));
+      if (opts.always !== true && deps.openPanelCount() + openResourcesCount() === 0) return;
+      const crashed = await sweepServerLiveness(deps.store, { ...deps.sweepOpts, debug: deps.debug });
+      if (crashed.length === 0) return;
+      for (const s of crashed) deps.info(describeCrashed(s));
       deps.refresh();
     } catch (err) {
       deps.logError('karst: server liveness sweep failed', err);
-    } finally {
-      inFlight = false;
     }
+  };
+
+  const sweepNow = (opts: SweepNowOptions = {}): Promise<void> => {
+    if (inFlight !== undefined) return inFlight;
+    const run = runSweep(opts).finally(() => {
+      inFlight = undefined;
+    });
+    inFlight = run;
+    return run;
   };
 
   const arm = (): void => {

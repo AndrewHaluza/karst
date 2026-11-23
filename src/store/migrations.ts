@@ -3123,5 +3123,11 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 136) {
+    // v136: `servers.last_error` — the short reason a row is `failed` ("Port 3000 in use by pid 4123", "Exited unexpectedly"). `recordFailedStart` and the liveness sweep's `markServerCrashed` write it; a successful start writes NULL (@arch:SERVERS-PANEL). Additive; NULL for every pre-v136 row (no backfill: the old reason was never stored).
+    const serverCols136 = tableColumns(db, 'servers');
+    if (serverCols136.size > 0 && !serverCols136.has('last_error')) db.exec('ALTER TABLE servers ADD COLUMN last_error TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

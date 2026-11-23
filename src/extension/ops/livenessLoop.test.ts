@@ -44,13 +44,13 @@ function deps(store: Store, overrides: Record<string, unknown> = {}) {
   return { loop, info, debug, logError, refresh, openPanelCount, timers, setTimer, clearTimer };
 }
 
-function seedRunningServer(store: Store, pid: number | null): number {
+function seedRunningServer(store: Store, pid: number | null, sandbox: string | null = null): number {
   const info = store.db
     .prepare(
-      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, kind, log_path, container)
-       VALUES (7, 'api', NULL, NULL, ?, 'running', 'service', '/l', NULL)`,
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, kind, log_path, container, sandbox)
+       VALUES (7, 'api', '127.0.0.1', 8000, ?, 'running', 'service', '/l', NULL, ?)`,
     )
-    .run(pid);
+    .run(pid, sandbox);
   return Number(info.lastInsertRowid);
 }
 
@@ -68,22 +68,52 @@ describe('createLivenessLoop', () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it('reports each retired row and refreshes once', async () => {
+  it('reports each crashed row and refreshes once', async () => {
     const store = openStore(':memory:');
-    const id = seedRunningServer(store, null);
-    const { loop, info, refresh } = deps(store);
+    const id = seedRunningServer(store, null, 'sbx:box:8000');
+    const { loop, info, refresh } = deps(store, { sweepOpts: { portOpen: async () => false } });
 
     await loop.sweepNow();
 
     expect(info).toHaveBeenCalledTimes(1);
     expect(info).toHaveBeenCalledWith(
-      "karst: 'api' is no longer running (pid unknown) on ticket T7 \u2014 marked offline.",
+      "karst: 'api' exited unexpectedly (pid unknown) on ticket T7 \u2014 marked failed.",
     );
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(
       (store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id) as { status: string })
         .status,
-    ).toBe('stopped');
+    ).toBe('failed');
+  });
+
+  it('runs when only the Resources panel is open', async () => {
+    const store = openStore(':memory:');
+    const id = seedRunningServer(store, null, 'sbx:box:8000');
+    const { loop } = deps(store, {
+      openPanelCount: () => 0,
+      openResourcesCount: () => 1,
+      sweepOpts: { portOpen: async () => false },
+    });
+
+    await loop.sweepNow();
+
+    expect(
+      (store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id) as { status: string })
+        .status,
+    ).toBe('failed');
+  });
+
+  it('runs with no panel open when the caller asks for it (the monitor reading)', async () => {
+    const store = openStore(':memory:');
+    const id = seedRunningServer(store, null, 'sbx:box:8000');
+    const { loop } = deps(store, { openPanelCount: () => 0, sweepOpts: { portOpen: async () => false } });
+
+    await loop.sweepNow({ always: true });
+
+    expect(
+      (store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id) as { status: string })
+        .status,
+    ).toBe('failed');
   });
 
   it('does not refresh when nothing is retired', async () => {
@@ -113,16 +143,27 @@ describe('createLivenessLoop', () => {
     expect(logError).toHaveBeenCalledWith('karst: server liveness sweep failed', expect.any(Error));
   });
 
-  it('returns immediately when a sweep is already in flight', async () => {
-    const prepare = vi.fn(() => ({ all: () => [] as unknown[] }));
-    const store = { db: { prepare } } as unknown as Store;
-    const { loop } = deps(store);
+  it('runs concurrent calls once, and each caller waits for that one sweep', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const store = openStore(':memory:');
+    seedRunningServer(store, null, 'sbx:box:8000');
+    const portOpen = vi.fn(async () => {
+      await gate;
+      return true;
+    });
+    const { loop } = deps(store, { sweepOpts: { portOpen } });
+    const order: string[] = [];
 
-    const first = loop.sweepNow();
-    const second = loop.sweepNow();
+    const first = loop.sweepNow().then(() => order.push('first'));
+    const second = loop.sweepNow().then(() => order.push('second'));
+    await flush();
+    expect(order).toEqual([]);
+    release();
     await Promise.all([first, second]);
 
-    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(portOpen).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['first', 'second']);
   });
 
   it('arms one timer, ignores a second start, and does not re-arm after dispose', async () => {

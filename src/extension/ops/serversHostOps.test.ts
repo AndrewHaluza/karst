@@ -38,6 +38,7 @@ describe('makeServersHost', () => {
         openExternal, copyText, debug: () => {},
       },
       stopTicketServers,
+      sweepNow: vi.fn(async () => {}),
       openTicketLogs: vi.fn(),
       openLogs: vi.fn(),
     };
@@ -66,10 +67,91 @@ describe('makeServersHost', () => {
     expect(copyText).toHaveBeenCalledWith('http://localhost:3001');
   });
 
-  it('stops a ticket through the injected stopper and repaints', async () => {
-    await makeServersHost(deps).stopTicket(5);
-    expect(stopTicketServers).toHaveBeenCalledWith(5);
+  const seedTicketRows = (key: string, repos: string[]): number => {
+    const t = createTicket(store, { key, title: key, projectId: 1 });
+    for (const repo of repos) {
+      store.db
+        .prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (?, ?, 'localhost', 3001, 1, 'running')")
+        .run(t.id, repo);
+    }
+    return t.id;
+  };
+
+  it('stops a ticket through the injected stopper after the confirm, and repaints', async () => {
+    const id = seedTicketRows('FEAT-12', ['api']);
+    await makeServersHost(deps).stopTicket(id);
+    expect(deps.shared.confirm).toHaveBeenCalledWith('Stop the 1 server of FEAT-12 (api)?', 'Stop servers');
+    expect(stopTicketServers).toHaveBeenCalledWith(id);
     expect(after).toHaveBeenCalledOnce();
+  });
+
+  it('names the count and the services of a 3-server ticket in the confirm', async () => {
+    const id = seedTicketRows('FEAT-12', ['api', 'web', 'worker']);
+    await makeServersHost(deps).stopTicket(id);
+    expect(deps.shared.confirm).toHaveBeenCalledWith('Stop the 3 servers of FEAT-12 (api, web, worker)?', 'Stop servers');
+  });
+
+  it('says the agent UAT stops too only when it is withheld for that ticket', async () => {
+    const id = seedTicketRows('FEAT-12', ['api']);
+    deps = { ...deps, rows: { ...deps.rows, userUatWithheld: (t) => t === id } };
+    await makeServersHost(deps).stopTicket(id);
+    expect(deps.shared.confirm).toHaveBeenCalledWith(
+      'Stop the 1 server of FEAT-12 (api)? The agent UAT on this ticket stops too.',
+      'Stop servers',
+    );
+  });
+
+  it('stops nothing when the user cancels the confirm', async () => {
+    const id = seedTicketRows('FEAT-12', ['api']);
+    vi.mocked(deps.shared.confirm).mockResolvedValueOnce(false);
+    await makeServersHost(deps).stopTicket(id);
+    expect(stopTicketServers).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
+  });
+
+  it('holds "stopping" on the ticket rows while Stop all runs, then clears it', async () => {
+    const id = seedTicketRows('FEAT-12', ['api']);
+    const host = makeServersHost(deps);
+    let during: unknown;
+    stopTicketServers.mockImplementationOnce(async () => {
+      during = [...(host.viewHints().rowVerbs ?? new Map()).values()];
+    });
+    await host.stopTicket(id);
+    expect(during).toEqual(['stopping']);
+    expect(host.viewHints().rowVerbs?.size).toBe(0);
+  });
+
+  it('holds "starting" on a row while Start runs and clears it when the start fails', async () => {
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    const id = Number(
+      store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (?, 'api', 'localhost', 3001, 1, 'stopped')").run(t.id).lastInsertRowid,
+    );
+    const host = makeServersHost(deps);
+    const run = host.startRow(id);
+    expect(host.viewHints().rowVerbs?.get(id)).toBe('starting');
+    await expect(run).rejects.toThrow();
+    expect(host.viewHints().rowVerbs?.has(id)).toBe(false);
+  });
+
+  it('holds "stopping" on a shared row while its Stop runs', async () => {
+    const host = makeServersHost(deps);
+    const run = host.stopShared('api');
+    expect(host.viewHints().sharedVerbs?.get('api')).toBe('stopping');
+    await run.catch(() => {});
+    expect(host.viewHints().sharedVerbs?.has('api')).toBe(false);
+  });
+
+  it('gives each unit its declared health budget, else undefined', () => {
+    current = manifest({ api: runnableRepo({ healthTimeoutSeconds: 90 }), web: runnableRepo() });
+    const hints = makeServersHost(deps).viewHints();
+    expect(hints.startBudgetMs?.('api')).toBe(90_000);
+    expect(hints.startBudgetMs?.('web')).toBeUndefined();
+    expect(hints.startBudgetMs?.('gone')).toBeUndefined();
+  });
+
+  it('sweeps through the injected liveness sweep', async () => {
+    await makeServersHost(deps).sweep();
+    expect(deps.sweepNow).toHaveBeenCalledOnce();
   });
 
   it('pins through the shared ops and delegates logs', () => {

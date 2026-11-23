@@ -505,6 +505,38 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'revision_count')).toHaveLength(1);
   });
 
+  it('migrates a pre-v136 database by adding servers.last_error as NULL, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec("CREATE TABLE servers (id INTEGER PRIMARY KEY, ticket_id INTEGER, repo TEXT NOT NULL, status TEXT NOT NULL)");
+    legacy.exec("INSERT INTO servers (id, ticket_id, repo, status) VALUES (1, 7, 'api', 'failed')");
+    legacy.pragma('user_version = 135');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('servers')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('last_error');
+    expect(migrated.db.prepare('SELECT last_error AS e FROM servers WHERE id = 1').get()).toEqual({ e: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'last_error')).toHaveLength(1);
+  });
+
+  it('a fresh database has a nullable servers.last_error', () => {
+    const fresh = openStore(':memory:');
+    cleanups.push(() => fresh.close());
+    const col = (fresh.db.prepare("PRAGMA table_info('servers')").all() as { name: string; notnull: number }[])
+      .find((c) => c.name === 'last_error');
+    expect(col).toMatchObject({ notnull: 0 });
+  });
+
   it('a fresh database defaults planning_proposals.revision_count to 0', () => {
     const fresh = openStore(':memory:');
     cleanups.push(() => fresh.close());

@@ -170,7 +170,7 @@ export async function stopIdle(deps: SharedServerOpsDeps): Promise<StopIdleResul
   }
   const names = idle.map((s) => s.repo);
   const ok = await deps.confirm(
-    `Stop ${names.length} idle shared service(s): ${names.join(', ')}? ` +
+    `Stop ${plural(names.length, 'idle shared service', 'idle shared services')}: ${names.join(', ')}? ` +
       `No live ticket depends on them and none is kept running.`,
     'Stop idle',
   );
