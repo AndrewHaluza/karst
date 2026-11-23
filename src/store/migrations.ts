@@ -3133,9 +3133,9 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 137) {
-    // v137: `recovery_rounds.no_change_reason`, `no_change_at`, `no_change_rerun_at` and the `fix_round_acceptances` table (@arch:AC-66). Additive; NULL = no no-change verdict (no backfill).
+    // v137: `recovery_rounds.no_change_reason`, `no_change_at`, `no_change_rerun_requested_at`, `no_change_rerun_at` and the `fix_round_acceptances` table (@arch:AC-66). Additive; NULL = no no-change verdict (no backfill).
     const roundCols137 = tableColumns(db, 'recovery_rounds');
-    for (const col of ['no_change_reason', 'no_change_at', 'no_change_rerun_at']) {
+    for (const col of ['no_change_reason', 'no_change_at', 'no_change_rerun_requested_at', 'no_change_rerun_at']) {
       if (roundCols137.size > 0 && !roundCols137.has(col)) db.exec(`ALTER TABLE recovery_rounds ADD COLUMN ${col} TEXT`);
     }
     db.exec(FIX_ROUND_ACCEPTANCES_DDL);

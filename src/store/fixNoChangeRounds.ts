@@ -12,22 +12,34 @@ export function recordNoChangeReason(store: Store, roundId: number, reason: stri
   ) === 1;
 }
 
-/** The one host re-run a no-change verdict buys. It is separate from the D403 claim. */
-export function claimNoChangeRerun(store: Store, roundId: number, at: string): boolean {
+/**
+ * The one host re-run a no-change verdict buys. It is separate from the D403 claim. The owner pid
+ * goes in `host_rerun_pid`: one re-run is in flight per round, so the D403 claim does not share it.
+ */
+export function claimNoChangeRerun(store: Store, roundId: number, at: string, ownerPid: number = process.pid): boolean {
   return Number(
     store.db
-      .prepare('UPDATE recovery_rounds SET no_change_rerun_at = ? WHERE id = ? AND no_change_reason IS NOT NULL AND no_change_rerun_at IS NULL')
+      .prepare('UPDATE recovery_rounds SET no_change_rerun_at = ?, host_rerun_pid = ? WHERE id = ? AND no_change_reason IS NOT NULL AND no_change_rerun_at IS NULL')
+      .run(at, ownerPid, roundId).changes,
+  ) === 1;
+}
+
+/** Stamp the host CLI request for the sweep re-run. The bridge path never writes it. */
+export function requestNoChangeRerun(store: Store, roundId: number, at: string): boolean {
+  return Number(
+    store.db
+      .prepare('UPDATE recovery_rounds SET no_change_rerun_requested_at = ? WHERE id = ? AND no_change_rerun_requested_at IS NULL')
       .run(at, roundId).changes,
   ) === 1;
 }
 
-/** Tickets of one project with a fixing gate-failure round that has a reason and no re-run claim. */
+/** Tickets of one project with a fixing gate-failure round that the host CLI asked to re-run and that has no claim. */
 export function ticketsWithRequestedNoChangeRerun(store: Store, projectId: number): number[] {
   const rows = store.db
     .prepare(
       `SELECT DISTINCT r.ticket_id AS id FROM recovery_rounds r JOIN tickets t ON t.id = r.ticket_id
         WHERE t.project_id = ? AND r.status = 'fixing' AND r.trigger_kind = 'gate-failure'
-          AND r.no_change_reason IS NOT NULL AND r.no_change_rerun_at IS NULL`,
+          AND r.no_change_rerun_requested_at IS NOT NULL AND r.no_change_rerun_at IS NULL`,
     )
     .all(projectId) as { id: number }[];
   return rows.map((r) => r.id);

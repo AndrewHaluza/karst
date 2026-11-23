@@ -390,6 +390,7 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   host_rerun_pid INTEGER, -- v122: the pid of the host that claimed the re-run; NULL = none recorded (a pre-v122 claim)
   no_change_reason TEXT,   -- v137: the agent's reason that no code change is correct (@arch:AC-66); NULL = none
   no_change_at TEXT,       -- v137: stamp of that reason
+  no_change_rerun_requested_at TEXT, -- v137: stamp of the host CLI request for that re-run (the bridge path never sets it)
   no_change_rerun_at TEXT, -- v137: stamp of the one host re-run a no-change verdict buys (separate from host_rerun_at)
   CHECK (round <= max_rounds)
 );

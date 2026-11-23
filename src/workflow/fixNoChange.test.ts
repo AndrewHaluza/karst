@@ -53,9 +53,17 @@ describe('applyNoChangeMarker', () => {
     expect(ticketsWithRequestedNoChangeRerun(store, projectId)).toEqual([ticketId]);
   });
 
-  it('gate-failure round via the bridge hands the re-run to recoverRefusal', async () => {
+  it('gate-failure round via the bridge hands the re-run to recoverRefusal, and the sweep does not list it', async () => {
     openFixing('gate-failure', 'uat');
     expect((await applyNoChangeMarker(store, ticketId, 'r', gitAt('aaa'), { viaBridge: true })).kind).toBe('rerun-via-bridge');
+    expect(ticketsWithRequestedNoChangeRerun(store, projectId)).toEqual([]);
+  });
+
+  it('gate-failure round with no failed gate rows: not applicable and no reason recorded', async () => {
+    store.db.prepare('DELETE FROM gate_runs WHERE ticket_id = ?').run(ticketId);
+    const roundId = openFixing('gate-failure', 'uat');
+    expect((await applyNoChangeMarker(store, ticketId, 'r', gitAt('aaa'), { viaBridge: false })).kind).toBe('not-applicable');
+    expect(roundById(store, roundId)?.noChangeReason).toBeNull();
   });
 
   it('review round: records the reason and lets the normal marker pass', async () => {

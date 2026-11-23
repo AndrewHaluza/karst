@@ -8,7 +8,7 @@ import { setStageCurrent } from './tickets.js';
 import { upsertProject } from './projects.js';
 import { parkRoundOutOfFixing } from './hostRerunRound.js';
 import {
-  claimNoChangeRerun, ticketsWithRequestedNoChangeRerun, previousNoChangeRound, parkedFixRound, recordNoChangeReason,
+  claimNoChangeRerun, requestNoChangeRerun, ticketsWithRequestedNoChangeRerun, previousNoChangeRound, parkedFixRound, recordNoChangeReason,
 } from './fixNoChangeRounds.js';
 
 const AT = '2026-01-01T00:00:00Z';
@@ -50,13 +50,27 @@ describe('no-change round store helpers', () => {
     expect(claimNoChangeRerun(store, roundId, AT)).toBe(false);
   });
 
-  it('lists a ticket whose fixing gate-failure round has a reason and no claim', () => {
+  it('lists a ticket whose fixing gate-failure round has a host request and no claim', () => {
     const roundId = openFixing('gate-failure', 'uat');
     expect(ticketsWithRequestedNoChangeRerun(store, projectId)).toEqual([]);
     recordNoChangeReason(store, roundId, 'r', AT);
+    requestNoChangeRerun(store, roundId, AT);
     expect(ticketsWithRequestedNoChangeRerun(store, projectId)).toEqual([ticketId]);
     claimNoChangeRerun(store, roundId, AT);
     expect(ticketsWithRequestedNoChangeRerun(store, projectId)).toEqual([]);
+  });
+
+  it('does not list a bridge-path round: it has a reason but no host request', () => {
+    const roundId = openFixing('gate-failure', 'uat');
+    recordNoChangeReason(store, roundId, 'r', AT);
+    expect(ticketsWithRequestedNoChangeRerun(store, projectId)).toEqual([]);
+  });
+
+  it('records the no-change claim owner pid in the shared pid column', () => {
+    const roundId = openFixing('gate-failure', 'uat');
+    recordNoChangeReason(store, roundId, 'r', AT);
+    claimNoChangeRerun(store, roundId, AT, 555);
+    expect(store.db.prepare('SELECT host_rerun_pid AS p FROM recovery_rounds WHERE id = ?').get(roundId)).toEqual({ p: 555 });
   });
 
   it('finds the earlier round with a reason for the same source stage', () => {

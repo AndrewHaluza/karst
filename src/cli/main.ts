@@ -838,17 +838,17 @@ async function assertMarkerHasWork(
   stage: 'impl' | 'fix',
   viaBridge: boolean,
   noChange: string | undefined,
-): Promise<string | undefined> {
+): Promise<void> {
   let manifest: Manifest;
   try {
     manifest = loadManifestWithDiagnostics(manifestPath).manifest;
   } catch {
-    return undefined; // a marker must still fire without a loadable manifest
+    return; // a marker must still fire without a loadable manifest
   }
   const store = openWritableStore(db);
   try {
     const found = resolveTicketByKey(store, ticket, manifest.id);
-    if (!found) return undefined; // runCli reports the unknown ticket
+    if (!found) return; // runCli reports the unknown ticket
     await assertTicketHasChanges(
       store,
       found.id,
@@ -861,7 +861,7 @@ async function assertMarkerHasWork(
         noChange === undefined ? { kind: 'not-applicable' } : await applyNoChangeMarker(store, found.id, noChange, defaultGitRunner, { viaBridge });
       if (outcome.kind === 'refused') throw new Error(`cannot mark this stage done: ${outcome.message}`);
       if (outcome.kind === 'rerun-via-bridge') throw new Error(`cannot mark this stage done: ${NO_CHANGE_RERUN_PENDING}`);
-      if (outcome.kind === 'rerun-requested') return outcome.message;
+      if (outcome.kind === 'rerun-requested') throw new Error(`cannot mark this stage done: ${outcome.message}`);
       if (outcome.kind === 'not-applicable') await assertFixHasNewCommitOrRequestRerun(store, found.id, defaultGitRunner, undefined, { viaBridge });
       // 'proceed': the reason is stored and the normal marker runs (fix → uat, round revalidating).
     }
@@ -882,7 +882,6 @@ async function assertMarkerHasWork(
   } finally {
     store.close();
   }
-  return undefined;
 }
 
 /**
@@ -1016,8 +1015,7 @@ export async function runCliAsync(
   // the unchanged argv to the synchronous path.
   if (rest[0] === 'stage' && (rest[1] === 'impl' || rest[1] === 'fix') && db && ticket && manifestPath) {
     const noChange = rest[1] === 'fix' ? safeParseNoChange(rest) : undefined;
-    const handled = await assertMarkerHasWork(db, manifestPath, ticket, verbose === true, rest[1], env[MARKER_VIA_BRIDGE_ENV] === '1', noChange);
-    if (handled !== undefined) return handled; // the host re-runs the gates; the marker does not transition
+    await assertMarkerHasWork(db, manifestPath, ticket, verbose === true, rest[1], env[MARKER_VIA_BRIDGE_ENV] === '1', noChange);
   }
   if (rest[0] === 'base') {
     if (!db) throw new Error('missing --db <path>');

@@ -386,7 +386,7 @@ END_DOC_BLOCK: [@arch:V121]
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
 **v136:** `usage_limit_parks.reset_at` (the parsed reset instant of the failure text, NULL = unknown) and `carry_provider`, `carry_model`, `carry_until` (the opt-in carried pick, written by the claim; NULL = no carry; `@arch:AC-65`). Additive, no backfill: a pre-v135 park reads as one-shot with no known reset.
-**v137:** `recovery_rounds.no_change_reason`, `no_change_at` and `no_change_rerun_at` (the agent's no-change verdict, its time and the host's own re-run claim; NULL = no verdict), and the `fix_round_acceptances` table (round, source stage, trigger, accepted items as JSON, optional note, time; `@arch:AC-66`). Additive, no backfill.
+**v137:** `recovery_rounds.no_change_reason`, `no_change_at`, `no_change_rerun_requested_at` and `no_change_rerun_at` (the agent's no-change verdict, its time and the host's own re-run claim; NULL = no verdict), and the `fix_round_acceptances` table (round, source stage, trigger, accepted items as JSON, optional note, time; `@arch:AC-66`). Additive, no backfill.
 
 **v135:** `planning_proposals.revision_count` (INTEGER NOT NULL DEFAULT 0, the in-place revisions of a draft; only `updateProposalPayload` increments it; `@arch:PLANNING`). Additive, 0 for a pre-v135 row, no backfill from `updated_at`: accept, discard, `setProposalWarnings` and `setProposalBaseShas` also bump `updated_at`, so a backfill would invent revisions.
 

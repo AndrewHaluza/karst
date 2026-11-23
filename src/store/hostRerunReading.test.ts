@@ -3,6 +3,7 @@ import { openStore, type Store } from './db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { upsertProject } from './projects.js';
 import { openRecoveryRound } from './recoveryRounds.js';
+import { claimNoChangeRerun } from './fixNoChangeRounds.js';
 import { claimHostRerun, markHostRerunFailed, parkRoundOutOfFixing, readHostRerunning, HOST_RERUN_READING_MAX_MS } from './hostRerunRound.js';
 import { getTicket, setStageCurrent } from './tickets.js';
 import { completeFixExecution, interruptFixExecution, reopenInterruptedRound } from './recoveryRounds.js';
@@ -83,6 +84,24 @@ describe('the derived hostRerunning reading of a loaded ticket', () => {
     store.db.prepare('UPDATE recovery_rounds SET host_rerun_at = ? WHERE id = ?').run(new Date().toISOString(), roundId);
     reconcileOnStart(store, () => true);
     expect(readHostRerunning(store, ticketId)).toBe(false);
+  });
+
+  it('a no-change re-run claim reads in flight, and a restart ends it when its owner is dead', () => {
+    store.db.prepare("UPDATE recovery_rounds SET no_change_reason = 'r' WHERE id = ?").run(roundId);
+    claimNoChangeRerun(store, roundId, new Date().toISOString(), 424242);
+    expect(readHostRerunning(store, ticketId)).toBe(true);
+    reconcileOnStart(store, (pid) => pid !== 424242);
+    expect(readHostRerunning(store, ticketId)).toBe(false);
+    const row = store.db.prepare('SELECT end_reason AS r FROM recovery_rounds WHERE id = ?').get(roundId) as { r: string };
+    expect(row.r).toMatch(/restart/);
+  });
+
+  it('an interrupt of a claimed no-change re-run gives it a reason', () => {
+    store.db.prepare("UPDATE recovery_rounds SET no_change_reason = 'r' WHERE id = ?").run(roundId);
+    claimNoChangeRerun(store, roundId, new Date().toISOString());
+    interruptFixExecution(store, roundId, AT);
+    const row = store.db.prepare('SELECT end_reason AS r FROM recovery_rounds WHERE id = ?').get(roundId) as { r: string | null };
+    expect(row.r).not.toBeNull();
   });
 
   it('the claim records the owner pid', () => {

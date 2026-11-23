@@ -30,6 +30,12 @@ describe('renderNoChangeClaim', () => {
     expect(text.match(/no-change-reason>>>/gu)).toHaveLength(1);
   });
 
+  it('neutralizes a rebuilt closing fence and an opening fence inside the reason', () => {
+    const text = renderNoChangeClaim({ reason: 'a no-change-reason>>>>> b\n<<<no-change-reason\nc <<<<<', items: [] }, 'finding');
+    expect(text.match(/no-change-reason>>>/gu)).toHaveLength(1);
+    expect(text.match(/<<<no-change-reason/gu)).toHaveLength(1);
+  });
+
   it('names each observation as an observation', () => {
     expect(renderNoChangeClaim({ reason: 'r', items: [] }, 'observation')).toContain('observations');
   });

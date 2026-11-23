@@ -103,9 +103,9 @@ export function readHostRerunning(store: Store, ticketId: number, nowMs: number 
   const cutoff = new Date(nowMs - HOST_RERUN_READING_MAX_MS).toISOString();
   const row = store.db
     .prepare(
-      "SELECT 1 AS hit FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' AND host_rerun_at IS NOT NULL AND host_rerun_at > ? AND end_reason IS NULL LIMIT 1",
+      "SELECT 1 AS hit FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' AND ((host_rerun_at IS NOT NULL AND host_rerun_at > ?) OR (no_change_rerun_at IS NOT NULL AND no_change_rerun_at > ?)) AND end_reason IS NULL LIMIT 1",
     )
-    .get(ticketId, cutoff);
+    .get(ticketId, cutoff, cutoff);
   return row !== undefined;
 }
 
@@ -121,7 +121,7 @@ export const HOST_RERUN_ORPHANED_REASON = 'the host restarted during the re-run'
 export function endOrphanedHostReruns(store: Store, isAlive: (pid: number) => boolean): number {
   const claimed = store.db
     .prepare(
-      "SELECT id, host_rerun_pid AS pid FROM recovery_rounds WHERE status IN ('pending','fixing') AND host_rerun_at IS NOT NULL AND end_reason IS NULL",
+      "SELECT id, host_rerun_pid AS pid FROM recovery_rounds WHERE status IN ('pending','fixing') AND (host_rerun_at IS NOT NULL OR no_change_rerun_at IS NOT NULL) AND end_reason IS NULL",
     )
     .all() as { id: number; pid: number | null }[];
   let ended = 0;
@@ -140,4 +140,4 @@ export const HOST_RERUN_INTERRUPTED_REASON = 'the round was interrupted during t
  * keeps a reason, so the round does not read as a re-run in flight when the driver reopens it
  * (`host_rerun_at` stays set: the one re-run per round stays used). An existing reason stays.
  */
-export const INTERRUPT_KEEPS_RERUN_ENDED_SQL = `end_reason = COALESCE(end_reason, CASE WHEN host_rerun_at IS NOT NULL THEN '${HOST_RERUN_INTERRUPTED_REASON}' END)`;
+export const INTERRUPT_KEEPS_RERUN_ENDED_SQL = `end_reason = COALESCE(end_reason, CASE WHEN host_rerun_at IS NOT NULL OR no_change_rerun_at IS NOT NULL THEN '${HOST_RERUN_INTERRUPTED_REASON}' END)`;

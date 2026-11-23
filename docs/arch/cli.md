@@ -86,7 +86,7 @@ END_DOC_BLOCK: [@arch:CLI-00]
 covers: src/cli/stage.ts#parseStageArgs, src/cli/phase.ts#parsePhaseArgs, src/approaches/phaseName.ts#isSafePhaseName
 
 The invoking agent reads ticket content it did not author, so prompt injection reaches argv. `parseStageArgs` narrows to `MARKER_STAGES × {pass}` — widening it would put other handling inside the one function whose job is refusing a forged `stage ship pass`. So `phase` parses elsewhere (`cli/phase.ts`), produces no `Verdict`, and never imports the machine: the worst a fully-injected call does is append a row. Phase names are a shell token interpolated into that command, so one charset (`approaches/phaseName.ts`) is enforced at install, at compose, and again on receipt — argv is never trusted because install-time validation ran. `attempt` and `markedAt` are server-side; trailing argv is rejected, not ignored.
-`stage fix pass --no-change "<reason>"` is the one flag the marker takes. `runCli` pre-checks it in an async step (`cli/main.ts`) and `parseStageArgs` parses it. The flag is for the fix marker only, and a blank reason is refused (@arch:AC-66).
+`stage fix pass --no-change "<reason>"` is the one flag the marker takes. `runCli` pre-checks it in an async step (`cli/main.ts`) and `parseStageArgs` parses it. A host no-change verdict that asks for the gate re-run refuses the marker like every other refusal (exit 1, no transition). The flag is for the fix marker only, and a blank reason is refused (@arch:AC-66).
 
 END_DOC_BLOCK: [@arch:CLI-02]
 
