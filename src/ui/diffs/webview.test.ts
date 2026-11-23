@@ -1626,7 +1626,7 @@ describe('diffs keyboard (DF-9)', () => {
     ]);
   });
 
-  it('sends open-file on O, discard on Delete and unstage on U', () => {
+  it('sends open-file on O and discard on Delete, and U sends nothing on an unstaged row', () => {
     const sent = (key: string): unknown => {
       const harness = boot();
       harness.render(twoFiles(), false);
@@ -1636,7 +1636,8 @@ describe('diffs keyboard (DF-9)', () => {
     };
     expect(sent('o')).toMatchObject({ type: 'open-file', changeId: 'ch-1' });
     expect(sent('Delete')).toMatchObject({ type: 'discard', changeId: 'ch-1' });
-    expect(sent('u')).toMatchObject({ type: 'unstage', changeId: 'ch-1' });
+    // The shortcut mirrors the row button: an unstaged row has no Unstage (DF-4).
+    expect(sent('u')).toBeUndefined();
   });
 
   it('declares the keys and keeps the row action buttons out of the tab order', () => {

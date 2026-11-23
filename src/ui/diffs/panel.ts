@@ -13,7 +13,7 @@ import {
   type ChangesHostMessage,
   type ChangesWebviewMessage,
 } from './messages.js';
-import type { SnapshotFileEntry, TicketChangesSnapshot } from './snapshot.js';
+import type { SnapshotFileEntry, SnapshotFileGroup, TicketChangesSnapshot } from './snapshot.js';
 import { findChangedFile } from './snapshot.js';
 
 /** The subset of a webview panel used by the ticket changes manager. */
@@ -60,6 +60,9 @@ function abortError(): Error {
  * One changes panel per ticket. A new load replaces the current snapshot only
  * if it is still the newest request for the live panel session.
  */
+/** The groups whose rows offer Discard: pending worktree changes only (DF-4). */
+const DISCARD_GROUPS: ReadonlySet<SnapshotFileGroup> = new Set(['unstaged', 'untracked']);
+
 export class TicketChangesManager {
   private readonly sessions = new Map<number, PanelSession>();
 
@@ -328,6 +331,10 @@ export class TicketChangesManager {
   ): Promise<void> {
     const entry = this.fileEntry(ticketId, session, changeId);
     if (!entry) return;
+    // Discard only exists for a pending worktree change (DF-4). The webview
+    // hides the button, but a keyboard shortcut or a forged message can still
+    // name a commit or staged row, so the host enforces the group itself.
+    if (!DISCARD_GROUPS.has(entry.group)) return;
     if (!(await this.confirmDiscard(entry.path, entry.status))) return;
     // The modal can outlive the panel it was opened from.
     if (!this.isLive(ticketId, session)) return;
@@ -346,6 +353,8 @@ export class TicketChangesManager {
   ): Promise<void> {
     const entry = this.fileEntry(ticketId, session, changeId);
     if (!entry) return;
+    // Only a staged row can be unstaged (DF-4); see discardFile.
+    if (entry.group !== 'staged') return;
     const result = await this.unstage(entry.repoPath, entry.path);
     if (!result.ok) {
       throw new Error(`Could not unstage the file (${reasonText(result.error)}).`);

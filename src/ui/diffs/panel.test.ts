@@ -7,6 +7,7 @@ import {
   diffsSummaryText,
   worktreeCountText,
   type SnapshotFileEntry,
+  type SnapshotFileGroup,
   type TicketChangesSnapshot,
   type TicketChangesState,
 } from './snapshot.js';
@@ -61,7 +62,9 @@ function snapshot(
   changeId: string,
   diffTarget: DiffTarget,
   repoPath = '/worktrees/repository',
+  group: SnapshotFileGroup = 'staged',
 ): TicketChangesSnapshot {
+  const row = { changeId, status: 'modified' as const, path: diffTarget.displayPath, oldPath: null, absolutePath: `${repoPath}/${diffTarget.displayPath}` };
   const state: TicketChangesState = {
     ticketId,
     ticketLabel: `T${ticketId}`,
@@ -74,16 +77,16 @@ function snapshot(
       branch: 'ticket/changes',
       baseRef: 'main',
       commits: [],
-      staged: [{ changeId, status: 'modified', path: diffTarget.displayPath, oldPath: null, absolutePath: `${repoPath}/${diffTarget.displayPath}` }],
-      unstaged: [],
-      untracked: [],
+      staged: group === 'staged' ? [row] : [],
+      unstaged: group === 'unstaged' ? [row] : [],
+      untracked: group === 'untracked' ? [row] : [],
       error: null,
       countText: worktreeCountText(0, 1),
     }],
   };
   const files: Map<string, SnapshotFileEntry> = new Map([[
     changeId,
-    { repoPath, path: diffTarget.displayPath, status: 'modified', group: 'staged' },
+    { repoPath, path: diffTarget.displayPath, status: 'modified', group },
   ]]);
   return { state, targets: new Map([[changeId, diffTarget]]), files };
 }
@@ -1009,7 +1012,7 @@ describe('TicketChangesManager', () => {
      * refresh, no toast — while still taking the row out of pending.
      */
     it('a declined Discard runs no git call and no refresh, and acks the row', async () => {
-      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, 'unstaged');
       const { host, panels } = makeHost();
       const confirmDiscard = vi.fn(async () => false);
       const discard = vi.fn(async () => ({ ok: true }));
@@ -1029,7 +1032,7 @@ describe('TicketChangesManager', () => {
     });
 
     it('a confirmed Discard runs git on the snapshot path, then refreshes the panel', async () => {
-      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, 'unstaged');
       const { host, panels } = makeHost();
       const discard = vi.fn(async () => ({ ok: true }));
       const load = vi.fn(async () => loaded);
@@ -1051,7 +1054,7 @@ describe('TicketChangesManager', () => {
     });
 
     it('a failed Discard reports the git reason and keeps the state it had', async () => {
-      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, 'unstaged');
       const { host, panels } = makeHost();
       const discard = vi.fn(async () => ({ ok: false, error: 'index.lock exists' }));
       const load = vi.fn(async () => loaded);
@@ -1078,8 +1081,8 @@ describe('TicketChangesManager', () => {
      */
     it('a Discard in one panel uses that panel own snapshot after another panel loaded', async () => {
       const load = vi.fn(async (id: number) => (id === 41
-        ? snapshot(41, 'a:1', target('src/a.ts'), '/wt/a')
-        : snapshot(42, 'b:1', target('src/b.ts'), '/wt/b')));
+        ? snapshot(41, 'a:1', target('src/a.ts'), '/wt/a', 'unstaged')
+        : snapshot(42, 'b:1', target('src/b.ts'), '/wt/b', 'unstaged')));
       const { host, panels } = makeHost();
       const discard = vi.fn(async () => ({ ok: true }));
       const manager = makeManager(host, load, { discard });
@@ -1095,7 +1098,7 @@ describe('TicketChangesManager', () => {
     });
 
     it('a crafted Discard for an id the session never loaded refreshes instead of reaching git', async () => {
-      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, 'unstaged');
       const { host, panels } = makeHost();
       const warn = vi.fn();
       const discard = vi.fn(async () => ({ ok: true }));
@@ -1110,6 +1113,40 @@ describe('TicketChangesManager', () => {
       expect(warn).toHaveBeenCalledWith('That file is stale. Refreshing ticket changes…');
       expect(discard).not.toHaveBeenCalled();
       expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it('Discard on a commit or staged row never reaches git or the confirmation', async () => {
+      for (const group of ['commit', 'staged'] as const) {
+        const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, group);
+        const { host, panels } = makeHost();
+        const confirmDiscard = vi.fn(async () => true);
+        const discard = vi.fn(async () => ({ ok: true }));
+        const manager = makeManager(host, async () => loaded, { confirmDiscard, discard });
+
+        manager.open(41);
+        await settle();
+        panels[0]!.emit({ type: 'discard', changeId: 'current:1', requestId: `req-${group}` });
+        await settle();
+
+        expect(confirmDiscard).not.toHaveBeenCalled();
+        expect(discard).not.toHaveBeenCalled();
+      }
+    });
+
+    it('Unstage on an unstaged, untracked or commit row never reaches git', async () => {
+      for (const group of ['commit', 'unstaged', 'untracked'] as const) {
+        const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, group);
+        const { host, panels } = makeHost();
+        const unstage = vi.fn(async () => ({ ok: true }));
+        const manager = makeManager(host, async () => loaded, { unstage });
+
+        manager.open(41);
+        await settle();
+        panels[0]!.emit({ type: 'unstage', changeId: 'current:1', requestId: `req-${group}` });
+        await settle();
+
+        expect(unstage).not.toHaveBeenCalled();
+      }
     });
 
     it('a successful Unstage runs git on the snapshot path, then refreshes', async () => {

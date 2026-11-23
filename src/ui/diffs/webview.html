@@ -959,10 +959,11 @@
         sendRowAction(row, 'open-file');
       } else if (event.key === 'Delete') {
         event.preventDefault();
-        sendRowAction(row, 'discard');
+        // The shortcut mirrors the row button: no button, no action (DF-4).
+        if (row.closest('.file-row')?.querySelector('[data-discard]')) sendRowAction(row, 'discard');
       } else if (event.key === 'u' || event.key === 'U') {
         event.preventDefault();
-        sendRowAction(row, 'unstage');
+        if (row.closest('.file-row')?.querySelector('[data-unstage]')) sendRowAction(row, 'unstage');
       }
     });
     // Optimistic (UI-R15): the host owns the clipboard write, and this is the
