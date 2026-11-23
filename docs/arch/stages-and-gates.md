@@ -28,6 +28,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - UAT Tester observations are advisory BY DEFAULT
 - Review findings decide review: R6 fails, R6b blocks on an unreadable answer
 - Nothing in the extension host may block its event loop
+- A timeout and a stall window count awake time only
 - The stage driver's host seam
 - Pause: a ticket that starts nothing
 - Sub-task autostart: queuing, claiming, and orphan requeue
@@ -387,6 +388,20 @@ END_DOC_BLOCK: [@arch:REVIEW-SNAPSHOT]
 
 The hook endpoint, every webview, and the whole UI share it. Gates shell out to arbitrary repo scripts (`npm run test:unit` — minutes), and the session-close sweep fires them from an ordinary terminal close, so a sync spawn froze every other session's hook channel. All gate commands go through `workflow/gates/run.ts` (`runCommand`, async `spawn`); `spawnSync` is banned on this path. Guard: `gates/run.integration.test.ts` "leaves the event loop free while the child runs".
 END_DOC_BLOCK: [@arch:EVENTLOOP]
+
+## [@arch:SLEEP-CLOCK] A timeout and a stall window count awake time only, because a Node timer counts host sleep
+covers: src/runtime/awakeDeadline.ts#startAwakeDeadline, src/runtime/sleepLedger.ts#createSleepLedger, src/runtime/sleepLedger.ts#startSleepLedger, src/runtime/sleepLedger.ts#defaultSleepLedger
+
+A Node `setTimeout` counts the time the host sleeps. On macOS `Date.now()`, `process.hrtime` and `performance.now` count that time too, so no wall measurement can show a sleep. A 60 s timeout armed before a 15 minute DarkWake thus fires at wake, before the child makes progress. T1318: a `git clone` reported `git timed out after 60000ms` at wake and spent automatic recovery 2 of 3.
+
+`startAwakeDeadline` (`runtime/awakeDeadline.ts`) counts awake time only. It chains `setTimeout` chunks of at most `AWAKE_CHUNK_MS` (1000) and credits each chunk that fired with its nominal length only. It reads no clock. A sleep adds at most one chunk of overshoot. Cancel it where the code cleared the timer before. Three child-process timeouts use it: `integrations/git.ts`, `workflow/gates/run.ts` and `integrations/github.ts`. The termination grace timers stay plain `setTimeout`. Do not change a timeout value.
+
+A stall window compares timestamps, so it cannot tell a sleep from work. Use the sleep ledger (`runtime/sleepLedger.ts`). `awakeElapsedMs(sinceMs, nowMs)` is the wall time minus the recorded sleeps, never below zero. `awakeWindowMs(windowMs, nowMs)` is the wall length that holds `windowMs` of awake time. Apply it to the coordinator sweep `waited`, `isConflictRoundStalled`, the fix delivery sweep `ageMs`, the fix watchdog windows and `reapStaleGateSlots`. Store modules do not import the ledger: the caller passes a longer window.
+
+The ledger ticks every 15 s. A gap of more than 45 s between two ticks is a sleep. A read also counts the open gap, because at wake a sweep timer can fire before the tick timer. A backward clock step records no sleep. The list is bounded and the oldest entries drop. The ledger is in memory for one window: a reload loses it, and code without a started ledger (the CLI, tests) reads zero sleep. `startSleepLedger` is bound once in `src/extension.ts`. One info event records a wake run of 5 minutes or more after 2 minutes of awake time, with the start, the end and the slept minutes. A run of DarkWakes is one event, and there is no toast (@arch:NTF-05).
+
+A blocked event loop of more than 45 s reads as a sleep. A stall then shows later, never earlier. A hung child on a busy event loop can live some seconds longer than its timeout.
+END_DOC_BLOCK: [@arch:SLEEP-CLOCK]
 
 ## [@arch:DRIVER-SEAM] The stage driver's host seam is `workflow/driveTicket.ts`, and `extension.ts` holds nothing but the vscode bindings
 
