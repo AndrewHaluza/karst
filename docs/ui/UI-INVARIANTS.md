@@ -262,6 +262,11 @@ level only, and the host validates both. The urgent and high chips share one tin
 is dim text. The
 approved layout is `docs/ui/prototypes/queue-pane.html` (section 2). The menu list
 opens inline, not as a flyout, because the menu window scrolls and would clip it.
+The Queue pane, its row layout and its filters are in `@ui:SIDEBAR-QUEUE`.
+END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
+
+## [@ui:SIDEBAR-QUEUE] Sidebar Queue pane and filters
+
 A third pane, **Queue** (`QueuePane.tsx` on `Pane.tsx`), sits between Planning and
 Tickets and shows the one computed order of `@arch:QUEUE-ORDER`. It is collapsed
 by default (pure view state, never posted) and has no actions. Open, it takes at
@@ -299,7 +304,7 @@ filter (the row and all it waits on or that wait on it, transitively) as the chi
 of hidden rows. When no row matches the pane says `No queue items match.` with a
 Clear filters link. The filters are `queueFilters` in the webview `view` state: they
 survive a reload and are never posted.
-END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
+END_DOC_BLOCK: [@ui:SIDEBAR-QUEUE]
 
 ## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926, T972, T1021, T1301)
 
