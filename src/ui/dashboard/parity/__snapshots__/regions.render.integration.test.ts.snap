@@ -1783,19 +1783,24 @@ exports[`dashboard region parity (DOM contract) > logsView #logsView · open > l
   <div.thead>
     <span.logcontrols>
       <input#logsSearch.k-input aria-label="Search logs" placeholder="Search logs" type="search">
-      <span#logsMatches>
+      <span#logsMatches role="status">
       <button.k-btn.k-btn--ghost.k-btn--sm aria-label="Previous match" data-log-prev title="Previous match" type="button"> "Prev"
       <button.k-btn.k-btn--ghost.k-btn--sm aria-label="Next match" data-log-next title="Next match" type="button"> "Next"
-      <label.logcheck> "Filter"
+      <button.k-btn.k-btn--ghost.k-btn--sm aria-pressed="true" data-log-follow title="Follow new output" type="button"> "Follow"
+      <button.k-btn.k-btn--ghost.k-btn--sm data-log-latest hidden type="button"> "Jump to latest ↓"
+      <label.logcheck> "Only matching lines"
         <input data-log-filter type="checkbox">
       <label.logcheck> "Current run only"
         <input data-log-current-run type="checkbox">
-      <button.k-btn.k-btn--ghost.k-btn--sm data-log-clear type="button"> "Clear"
+      <label.logcheck> "Wrap"
+        <input data-log-wrap type="checkbox">
+      <button.k-btn.k-btn--ghost.k-btn--sm data-log-copy title="Copy the lines shown" type="button"> "Copy"
+      <button.k-btn.k-btn--ghost.k-btn--sm data-log-clear title="Clear the view; tailing continues" type="button"> "Clear view"
       <button.k-btn.k-btn--ghost.k-btn--sm data-log-detach type="button"> "Open in Window"
-  <div#logsStatus.tstatus role="status"> "Loading server logs…"
-  <div#logsTabs.tabs>
-  <div#logsHost.loghost tabindex="0">
-    <div.blurb> "Loading…""
+  <div#logsStatus.tstatus role="status">
+  <div#logsTabs.k-tabs.tabs aria-label="Server log tabs" role="tablist">
+  <div#logsHost.loghost role="tabpanel" tabindex="0">
+    <div.blurb> "Loading server logs…""
 `;
 
 exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge, conflict, dismissed > prs · multi-repo: merge, conflict, dismissed 1`] = `
