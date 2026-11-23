@@ -35,15 +35,13 @@ export function makeFixParkActions(deps: FixParkDeps): {
     }
     deps.refresh();
   };
-  const clock = deps.now === undefined ? {} : { now: deps.now };
+  const opts = { now: deps.now, blockingSeverityOf: deps.blockingSeverityOf };
   return {
-    fixParkedRetry: () => finish(retryParkedFixRound(store, ticketId, clock), (s) => `the ${s} gate runs again.`),
-    fixParkedAccept: (note) => {
-      const trimmed = note.trim();
-      return finish(
-        acceptParkedFixRound(store, ticketId, trimmed === '' ? null : trimmed, { ...clock, ...(deps.blockingSeverityOf === undefined ? {} : { blockingSeverityOf: deps.blockingSeverityOf }) }),
-        (s) => `accepted and moved past the ${s} gate.`,
-      );
-    },
+    fixParkedRetry: () => finish(retryParkedFixRound(store, ticketId, opts), (s) => `the ${s} gate runs again.`),
+    // The store trims the note and keeps an empty one as null.
+    fixParkedAccept: (note) => finish(
+      acceptParkedFixRound(store, ticketId, note, opts),
+      (s) => `accepted and moved past the ${s} gate.`,
+    ),
   };
 }

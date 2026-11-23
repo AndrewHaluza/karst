@@ -86,7 +86,7 @@ function leaveFix(store: Store, ticketId: number, source: SourceStage, at: strin
  * Retry the source gate of a parked round. The round stays `interrupted`, so the next failure opens
  * the next round of the same episode and the budget does not reset.
  */
-export function retryParkedFixRound(store: Store, ticketId: number, opts?: { now?: () => string }): FixParkExitResult {
+export function retryParkedFixRound(store: Store, ticketId: number, opts?: { now?: (() => string) | undefined }): FixParkExitResult {
   const at = (opts?.now ?? nowIso)();
   return store.db.transaction((): FixParkExitResult => {
     const round = parkedGateRound(store, ticketId);
@@ -102,7 +102,7 @@ export function retryParkedFixRound(store: Store, ticketId: number, opts?: { now
  * Accept the parked round: record the user decision, close the round `passed` and commit a PASSED
  * verdict on the source stage, so the machine moves on (uat to review, review to ship).
  */
-export function acceptParkedFixRound(store: Store, ticketId: number, note: string | null, opts?: { now?: () => string; blockingSeverityOf?: BlockingSeverityOf }): FixParkExitResult {
+export function acceptParkedFixRound(store: Store, ticketId: number, note: string | null, opts?: { now?: (() => string) | undefined; blockingSeverityOf?: BlockingSeverityOf | undefined }): FixParkExitResult {
   const at = (opts?.now ?? nowIso)();
   return store.db.transaction((): FixParkExitResult => {
     const round = parkedGateRound(store, ticketId);
