@@ -176,6 +176,8 @@ export interface RecoveryDeps {
   readPrompt?: (path: string) => Uint8Array | undefined;
   plannerPromptPath?: string;
   ticketContext?: string;
+  /** The preserved patches of a graph run, for the replan reasons (T1323). */
+  preservedWorkOf?: ReplanLaunchDeps['preservedWorkOf'];
   /**
    * The graph run's content-addressed artifact root — the SAME root the
    * integration pipeline validated the node's required outputs against. The
@@ -609,6 +611,7 @@ function replanRecovery(
       readPrompt: deps.readPrompt,
       promptPath: deps.plannerPromptPath,
       ticketContext: deps.ticketContext,
+      preservedWorkOf: deps.preservedWorkOf,
     };
     const begun = beginReplanPlannerRun(launchDeps, { graphRunId: input.graphRunId });
     if (begun.ok) {

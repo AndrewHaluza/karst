@@ -54,6 +54,9 @@ integration conflict. If your difficulty is not backed by that kind of
 observable evidence, report `blocked` with a clear reason instead. A replan
 with no supporting evidence is recorded and treated as `blocked`.
 
+The host checks your workspace against your declared write claims. If you need
+an out-of-claim path, commit your work and report `replan --reason "<path>"`.
+
 A `blocked` node is a deliberate stop: the graph will not advance past you
 until a human or a replan resolves the block.
 

@@ -295,6 +295,31 @@ describe('runCompletionPipeline — claim validation', () => {
     expect(leaseRow(h, 11)).toEqual({ status: 'held' });
   });
 
+  it('preserves the work of the node before it parks the node (T1323)', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 15, 'completing');
+    lease(h, 15, 'dom-preserve');
+    writeFileSync(join(h.worktree, 'b.ts'), 'b2\n');
+    const seen: unknown[] = [];
+    const logs: string[] = [];
+    const result = await runCompletionPipeline(
+      makeDeps(h, {
+        debug: (message) => logs.push(message),
+        preserveWork: async (nodeRunId) => {
+          seen.push({ nodeRunId, status: nodeRow(h, nodeRunId).status });
+          return { kind: 'failed', reason: 'disk full' };
+        },
+      }),
+      { graphRunId: h.graphRunId, nodeRunId: 15 },
+    );
+    expect(seen).toEqual([{ nodeRunId: 15, status: 'integrating' }]);
+    // The preserve failure is logged and does not stop the block.
+    expect(result.kind).toBe('claim-violated');
+    expect(nodeRow(h, 15)).toMatchObject({ status: 'blocked', failure_category: 'resource-claim-violated' });
+    expect(logs.some((line) => line.includes('disk full'))).toBe(true);
+  });
+
   it('drops a path a ship.regenerate command owns: restored, logged, not a violation', async () => {
     const h = harness();
     cleanups.push(h.close);

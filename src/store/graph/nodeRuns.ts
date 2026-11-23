@@ -643,6 +643,25 @@ export function claimViolationNodeRuns(
     .all(graphRunId, limit) as Array<{ node_id: string; reason: string }>;
 }
 
+/** A node run that reported `blocked` and that the host has not classified. */
+export type UnclassifiedBlockedNodeRun = Pick<NodeRunRow, 'id' | 'process_run_id'>;
+
+/** The node runs that reported `blocked` and have no failure category, in id
+ *  order — the claim-evidence step's read (T1323). */
+export function blockedNodeRunsWithoutCategory(
+  db: GraphDb,
+  graphRunId: number,
+): UnclassifiedBlockedNodeRun[] {
+  return db
+    .prepare(
+      `SELECT id, process_run_id FROM approach_node_runs
+       WHERE graph_run_id = ? AND status = 'blocked' AND outcome = 'blocked'
+         AND failure_category IS NULL
+       ORDER BY id`,
+    )
+    .all(graphRunId) as UnclassifiedBlockedNodeRun[];
+}
+
 /** The failure lines of a graph run's node runs (replan failure summary),
  *  bounded to `limit` rows. */
 export function nodeRunFailuresForGraphRun(

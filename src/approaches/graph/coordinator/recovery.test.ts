@@ -956,6 +956,7 @@ describe('recoverGraphRun', () => {
         }) as RecoveryDeps['writeSnapshot'],
         plannerPromptPath: '/pkg/graph-planner/SKILL.md',
         ticketContext: 'ticket context',
+        preservedWorkOf: () => [{ nodeRunId: 5, patchPath: 'preserved/5/api.patch', paths: ['b.ts'] }],
       }),
       { ticketId, graphRunId, mode: 'replan' },
     );
@@ -966,8 +967,10 @@ describe('recoverGraphRun', () => {
     const reasonsWrite = writes.find((w) => w.relativePath.startsWith('reasons/'));
     const reasons = JSON.parse(new TextDecoder().decode(reasonsWrite!.bytes)) as {
       claimViolations: Array<{ node: string; evidence: string }>;
+      preservedWork: unknown[];
     };
     expect(reasons.claimViolations).toEqual([{ node: 'n', evidence }]);
+    expect(reasons.preservedWork).toEqual([{ node: 'n', patchPath: 'preserved/5/api.patch', paths: ['b.ts'] }]);
   });
 
   it('a command-definition-changed reason routes to the compile-new-revision (replan) tier', () => {

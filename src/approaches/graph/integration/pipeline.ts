@@ -78,26 +78,27 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
-import { casStatus, NODE_RUN_TRANSITIONS, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
-import type { GitRunner } from '../../../integrations/git.js';
-import type { AgentTransport, SupervisedAgentSession } from '../transport/supervisedCliTransport.js';
+import { casStatus, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { resolvePhysicalDomains, type DomainEntry, type PhysicalDomain } from './domains.js';
 import { normalizePatchFragment } from './patchFragment.js';
+import { captureUntrackedPaths, isPathWithinClaim, validateChangeSet } from './changeSet.js';
 import {
-  captureChangeSet,
-  captureUntrackedPaths,
-  isPathWithinClaim,
-  splitRegenerated,
-  validateChangeSet,
-  type ChangeSetEntry,
-} from './changeSet.js';
+  blockGraphRun,
+  captureDomainChangeSet,
+  CLAIM_VIOLATION_CATEGORY,
+  claimViolationReasons,
+  drainsForReplan,
+  terminationProven,
+  type DomainCapture,
+  type DomainCaptureDeps,
+  type TerminationProofDeps,
+} from './changeSetCapture.js';
 import { completeActivation } from '../coordinator/completion.js';
 import { acquireDomainLeases, releaseLeaseForNodeRun, type ActivationDomain } from '../coordinator/leases.js';
 import {
   claimNodeRunIntegrating,
   completeNodeRunIntegration,
   formatIntegrationNonce,
-  nodeRunBaseHeads,
   nodeRunIntegrationRef,
   nodeRunStatus,
   parseIntegrationPid,
@@ -106,45 +107,33 @@ import {
   setNodeRunTerminalFields,
 } from '../../../store/graph/nodeRuns.js';
 import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
-import { graphRunIdStatus, markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
+import { graphRunIdStatus } from '../../../store/graph/graphRuns.js';
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
-import { attributeOf, processOf } from '../coordinator/reconcile.js';
-import { inReplanDrain } from '../coordinator/replanDrain.js';
-import type { ProcessFactsSource } from '../../../runtime/serverIdentity.js';
+import { preserveBestEffort, type PreserveNodeWork } from '../workspace/preserveBestEffort.js';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-/** The most declared write claims one claim-violation reason lists. */
-const MAX_DECLARED_CLAIMS_IN_REASON = 10;
-
 export const INTEGRATION_COMMIT_PREFIX = 'karst: integrate graph';
 
-export interface CompletionPipelineDeps {
+export interface CompletionPipelineDeps extends DomainCaptureDeps, TerminationProofDeps {
   db: GraphDb;
   /** BEGIN IMMEDIATE-wrapped, all-or-nothing; a throw rolls back. */
   transaction: <T>(fn: () => T) => T;
   now: () => string;
   debug?: (message: string) => void;
-  facts: ProcessFactsSource;
-  git: GitRunner;
   /** `git rev-parse --git-common-dir` for the domain key. */
   gitCommonDirOf: (cwd: string) => string | null;
-  transport: AgentTransport;
-  /** The transport's session for a node run; undefined after a reload. */
-  getSession: (nodeRunId: number) => SupervisedAgentSession | undefined;
   /** The ticket's manifest repository entries (name + worktree path). */
   domainsFor: () => DomainEntry[];
   /** The node's DECLARED writes, per physical domain key. */
   declaredWritesOf: (nodeRunId: number) => { domainKey: string; paths: string[] }[];
   /** The graph run's artifact root (global storage; staging + snapshots). */
   artifactRoot: () => string;
-  /** The node's isolated workspace clone for a repo (Slice 5 T1); undefined
-   *  when the node has none — the V1 canonical-worktree model. The change set
-   *  is captured from the clone and landed into the CANONICAL worktree. */
-  workspaceCwdOf: (nodeRunId: number, repoName: string) => string | undefined;
+  /** Write the node's work to a patch before a claim violation parks it (T1323). */
+  preserveWork?: PreserveNodeWork;
   /** Best-effort terminal cleanup, injected by the host so this module stays
    *  filesystem/store agnostic. It must preserve recoverable workspaces. */
   cleanupNodeWorkspace: (input: { graphRunId: number; nodeRunId: number }) => void;
@@ -184,33 +173,6 @@ function parkNode(
       setNodeRunTerminalFields(deps.db, nodeRunId, fields);
     }
   });
-}
-
-function blockGraphRun(
-  deps: CompletionPipelineDeps,
-  graphRunId: number,
-  reason: string,
-): void {
-  deps.transaction(() => {
-    if (
-      casStatus(
-        deps.db,
-        'approach_graph_runs',
-        GRAPH_RUN_TRANSITIONS,
-        graphRunId,
-        'running',
-        'blocked',
-      )
-    ) {
-      markGraphRunBlocked(deps.db, graphRunId, reason, deps.now());
-    }
-  });
-}
-
-/** The run drains for a replan NOW: a node that is live in this drain completes
- *  and integrates, and it makes no successor. A Stop drain is not one. */
-function drainsForReplan(db: GraphDb, graphRunId: number): boolean {
-  return graphRunIdStatus(db, graphRunId)?.status === 'draining' && inReplanDrain(db, graphRunId);
 }
 
 /** Bounded single-line reason from git stderr (the rest is for the log). */
@@ -322,108 +284,6 @@ function ensureIntegrationLeases(
   });
 }
 
-/** One domain's captured change set plus the workspace clones it came from. */
-interface DomainCapture {
-  entries: ChangeSetEntry[];
-  workspaceCwds: string[];
-  /** The base the workspace diff was taken against; `null` for the canonical
-   *  fallback, which diffs `HEAD`. */
-  workspaceBaseRef: string | null;
-}
-
-/**
- * The node's claim-time base commit for one physical domain — the commit the
- * workspace provider checked the clone out at (`--detach`), read from the
- * `base_heads` the claim transaction recorded. Empty string when the node has
- * no recorded head for this domain.
- *
- * This is the diff base for a workspace clone. `HEAD` is NOT: an agent that
- * commits its work inside the clone moves `HEAD` onto its own commit, so
- * `git diff HEAD` reports an empty change set and the work is integrated
- * nowhere and then deleted with the clone.
- */
-function workspaceBaseCommit(
-  deps: CompletionPipelineDeps,
-  nodeRunId: number,
-  domainKey: string,
-): string {
-  return nodeRunBaseHeads(deps.db, nodeRunId).find((head) => head.domainKey === domainKey)?.commit ?? '';
-}
-
-/**
- * Capture a domain's change set. Under Slice 5 Task 1 the node works in ITS
- * isolated workspace clone(s) — the diff is read from each clone (a domain
- * aliases one or more repos) and merged; only a domain for which the node has
- * NO workspace falls back to the canonical worktree (the V1 canonical model).
- */
-async function captureDomainChangeSet(
-  deps: CompletionPipelineDeps,
-  nodeRunId: number,
-  domain: PhysicalDomain,
-): Promise<DomainCapture> {
-  const workspaceCwds = domain.repoNames
-    .map((repoName) => deps.workspaceCwdOf(nodeRunId, repoName))
-    .filter((cwd): cwd is string => cwd !== undefined);
-  const sources = workspaceCwds.length > 0 ? workspaceCwds : [domain.canonicalWorktree];
-  // A workspace clone is checked out DETACHED at the node's recorded base
-  // commit, so that commit — never `HEAD` — is the only diff base that sees
-  // work the agent committed inside the clone. Without one there is no
-  // trustworthy base: refuse rather than report an empty change set, which is
-  // how a node's committed work was silently discarded.
-  let workspaceBaseRef: string | null = null;
-  if (workspaceCwds.length > 0) {
-    const baseCommit = workspaceBaseCommit(deps, nodeRunId, domain.key);
-    if (!baseCommit) {
-      throw new Error(
-        `node run ${nodeRunId} has no recorded base head for domain ${domain.key} — refusing to diff its workspace clone against HEAD`,
-      );
-    }
-    workspaceBaseRef = baseCommit;
-  }
-  const baseRef = workspaceBaseRef ?? 'HEAD';
-  const merged = new Map<string, ChangeSetEntry>();
-  for (const cwd of sources) {
-    const entries = await captureChangeSet(deps.git, { cwd, baseRef });
-    for (const entry of entries) {
-      if (!merged.has(entry.path)) merged.set(entry.path, entry);
-    }
-    // A file a node created but never `git add`-ed is invisible to `git diff
-    // --name-status` — it must still enter claim validation as an `added`
-    // entry, or an out-of-claim untracked file is silently dropped rather
-    // than parking the node (the defect this closes). `--exclude-standard`
-    // keeps karst's own excluded scaffolding (`.karst/`, `.karst-plugin/`,
-    // ...) out of both validation and reporting.
-    const untracked = await captureUntrackedPaths(deps.git, cwd);
-    for (const path of untracked) {
-      if (!merged.has(path)) merged.set(path, { path, kind: 'added' });
-    }
-  }
-  const { kept, dropped } = splitRegenerated([...merged.values()], domain.regeneratedPaths);
-  for (const entry of dropped) {
-    // A workspace clone is discarded after integration, so only a node that
-    // wrote straight into the canonical tree leaves the path to restore.
-    if (workspaceCwds.length === 0) await restoreFromBase(deps, domain.canonicalWorktree, baseRef, entry);
-    deps.debug?.(`[graph] node ${nodeRunId}: dropped regenerated path ${entry.path}`);
-  }
-  return { entries: kept, workspaceCwds, workspaceBaseRef };
-}
-
-/** Put a path back to its state at `baseRef`; a path absent there is removed. */
-async function restoreFromBase(
-  deps: CompletionPipelineDeps,
-  cwd: string,
-  baseRef: string,
-  entry: ChangeSetEntry,
-): Promise<void> {
-  const restored =
-    entry.kind === 'added'
-      ? { exitCode: 1, stderr: '' }
-      : await deps.git(['restore', `--source=${baseRef}`, '--staged', '--worktree', '--', entry.path], cwd);
-  if (restored.exitCode === 0) return;
-  await deps.git(['rm', '-f', '--cached', '--ignore-unmatch', '--', entry.path], cwd);
-  rmSync(join(cwd, entry.path), { recursive: true, force: true });
-}
-
 type LandResult = { ok: true } | { ok: false; stderr: string; reason: string };
 
 /**
@@ -509,39 +369,6 @@ async function landWorkspaceChanges(
   } finally {
     rmSync(patchDir, { recursive: true, force: true });
   }
-}
-
-async function terminationProven(
-  deps: CompletionPipelineDeps,
-  node: Pick<NodeRunRow, 'id' | 'process_run_id'>,
-): Promise<boolean> {
-  const session = deps.getSession(node.id);
-  if (!session) {
-    const proc = processOf(deps.db, node);
-    if (!proc) {
-      deps.debug?.(
-        `[graph] completing node ${node.id}: no session in the registry and no durable process identity — cannot prove termination`,
-      );
-      return false;
-    }
-    const attribution = await attributeOf(deps.facts, proc);
-    const proven = attribution === 'dead' || attribution === 'foreign';
-    if (!proven) {
-      deps.debug?.(
-        `[graph] completing node ${node.id}: termination not proven from durable OS facts (${attribution})`,
-      );
-    }
-    return proven;
-  }
-  const proof = await deps.transport.terminate(session);
-  const proven =
-    (proof.kind === 'attributable' && proof.kill === 'killed') || proof.kind === 'dead';
-  if (!proven) {
-    deps.debug?.(
-      `[graph] completing node ${node.id}: termination not proven (${proof.kind}${proof.kind === 'attributable' ? `:${proof.kill}` : ''})`,
-    );
-  }
-  return proven;
 }
 
 const inFlightPipelines = new Set<number>();
@@ -711,17 +538,15 @@ export async function runCompletionPipeline(
     if (!validation.ok) violations.push(...validation.violations);
   }
   if (violations.length > 0) {
-    const reason = `resource-claim-violated: ${violations.slice(0, 5).join(', ')}`;
-    graphDiag('completion-rejection', reason);
-    // The node run's reason also names the declared write claims: the replan
-    // planner reads it as evidence (the block reason keeps the bare form).
-    const claims = [...new Set([...declared.values()].flat())].sort().slice(0, MAX_DECLARED_CLAIMS_IN_REASON);
+    const { runReason, nodeReason } = claimViolationReasons(violations, [...declared.values()].flat());
+    graphDiag('completion-rejection', runReason);
+    await preserveBestEffort(deps, input.nodeRunId, 'claim violation');
     parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
       outcome: 'failed',
-      failureCategory: 'resource-claim-violated',
-      reason: `${reason} (declared writes: ${claims.length === 0 ? 'none' : claims.join(', ')})`,
+      failureCategory: CLAIM_VIOLATION_CATEGORY,
+      reason: nodeReason,
     });
-    blockGraphRun(deps, input.graphRunId, reason);
+    blockGraphRun(deps, input.graphRunId, runReason);
     return { kind: 'claim-violated', violations };
   }
 

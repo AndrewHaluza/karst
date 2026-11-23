@@ -38,7 +38,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { isPathUnder } from '../../../runtime/pathScope.js';
 import { describeGitFailure, type GitRunner } from '../../../integrations/git.js';
 import {
@@ -76,6 +76,14 @@ export interface PreservedWorkEntry {
   paths: string[];
 }
 
+/** One preserved patch of a graph run. `patchPath` is relative to the artifact
+ *  root, with `/` separators. */
+export interface PreservedNodeWork {
+  nodeRunId: number;
+  patchPath: string;
+  paths: string[];
+}
+
 export interface RestoreWorkInput {
   graphRunId: number;
   nodeRunId: number;
@@ -102,9 +110,12 @@ export interface RestoreDeps {
   debug?: (message: string) => void;
 }
 
+/** The directory of the preserved patches beneath the artifact root. */
+const PRESERVED_DIR = 'preserved';
+
 /** `<artifactRoot>/preserved/<nodeRunId>/`. */
 export function preservedDir(artifactRoot: string, nodeRunId: number): string {
-  return join(artifactRoot, 'preserved', String(nodeRunId));
+  return join(artifactRoot, PRESERVED_DIR, String(nodeRunId));
 }
 
 let tempSeq = 0;
@@ -315,6 +326,28 @@ export function readPreservedWork(
     });
   }
   return entries;
+}
+
+/** Every preserved patch of one graph run, in node-run and then repository order. */
+export function readPreservedWorkForRun(
+  deps: Pick<PreserveDeps, 'artifactRoot'>,
+  graphRunId: number,
+): PreservedNodeWork[] {
+  const root = deps.artifactRoot(graphRunId);
+  if (root === '') return [];
+  const dir = join(root, PRESERVED_DIR);
+  if (!existsSync(dir)) return [];
+  const nodeRunIds = readdirSync(dir)
+    .filter((name) => /^[1-9]\d*$/.test(name))
+    .map(Number)
+    .sort((a, b) => a - b);
+  return nodeRunIds.flatMap((nodeRunId) =>
+    readPreservedWork(deps, { graphRunId, nodeRunId }).map((entry) => ({
+      nodeRunId,
+      patchPath: [PRESERVED_DIR, nodeRunId, basename(entry.patchPath)].join('/'),
+      paths: entry.paths,
+    })),
+  );
 }
 
 /**
