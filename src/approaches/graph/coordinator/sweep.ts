@@ -27,10 +27,15 @@ import {
   runningGraphRunIdsForProject,
 } from '../../../store/graph/graphRuns.js';
 import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/graph/tokens.js';
-import { heldLeasesForScheduler, type SchedulerLeaseRow } from '../../../store/graph/leases.js';
+import {
+  heldLeasesForScheduler,
+  LIVE_NODE_RUN_STATUSES,
+  type SchedulerLeaseRow,
+} from '../../../store/graph/leases.js';
 import {
   activeProcessesOf,
   clearDeferral,
+  countNodeRunsInStatusesForGraphRun,
   recordDeferral,
   type BaseHead,
 } from '../../../store/graph/nodeRuns.js';
@@ -62,15 +67,37 @@ export const MAX_SWEEP_TRANSITIONS = 100;
  * and looked healthy: no block, no diagnostic after the first, and nothing in
  * the panel saying the node had waited an hour.
  *
- * 30 minutes: far longer than any legitimate serialization behind a real node
- * (an agent node that runs that long is still making progress and its lease
- * releases when it finishes), and short enough that an unattended graph does
- * not sit dead for a working day. On expiry the run parks `blocked` with the
- * refusal that would not clear, which is recoverable — the reason maps to the
- * `replan` recovery category, and a plan whose resource claims cannot be
- * satisfied is exactly what a new revision is for.
+ * This is the SHORT ceiling (T1333). A refusal whose every holder is parked,
+ * dead, ambiguous, or missing — and a `parallel-slot-busy` with no live node
+ * behind the occupied slots — times out after 30 minutes: nothing will release
+ * that holder, so the run is sitting dead. A refusal behind a LIVE holder uses
+ * `MAX_LIVE_HOLDER_WAIT_MS` instead: an agent node that runs 40 minutes is
+ * making progress, and parking the run under it is the false block T1317 hit.
+ *
+ * On expiry the run parks `blocked` with the refusal that would not clear,
+ * which is recoverable — the reason maps to the `replan` recovery category,
+ * and a plan whose resource claims cannot be satisfied is exactly what a new
+ * revision is for.
  */
 export const MAX_DEFERRAL_WAIT_MS = 30 * 60_000;
+
+/**
+ * H4, the LONG ceiling: a deferral behind a live holder (T1333). The holder's
+ * node run is `launching`, `running`, `completing` or `integrating`, so it is
+ * still working and its lease/slot releases when it finishes — waiting is the
+ * correct behaviour, and 30 minutes is shorter than a legitimate long agent
+ * run (T1317's holder ran ~40 minutes).
+ *
+ * It is still a CEILING, not an exemption: issue H4 requires every deferral to
+ * have an upper bound, so a hung agent cannot hold the run for ever. Four
+ * hours is a planner default (the user did not choose it) — well past any
+ * plausible legitimate run, and finite. Liveness is the owner's durable
+ * node-run status (reconcile moves a dead process to `stale` or
+ * `termination-unknown`), so the sweep never probes a process. `wait_since`
+ * never moves: a holder that leaves the live set after the waiter's 30th
+ * minute times out on the very next tick.
+ */
+export const MAX_LIVE_HOLDER_WAIT_MS = 4 * 60 * 60_000;
 
 export interface SweepDeps {
   db: GraphDb;
@@ -249,10 +276,15 @@ export function runCoordinatorTick(
   const workingState: {
     heldLeases: SchedulerLeaseRow[];
     activeProcesses: number;
+    liveNodeRuns: number;
     ceiling: number;
   } = {
     heldLeases: heldLeasesForScheduler(db),
     activeProcesses: activeProcessesOf(db, opts.graphRunId),
+    // T1333: how many node runs of THIS run are live right now — the
+    // `parallel-slot-busy` holder-liveness input. Durable status only, no
+    // process probe.
+    liveNodeRuns: countNodeRunsInStatusesForGraphRun(db, opts.graphRunId, LIVE_NODE_RUN_STATUSES),
     ceiling: maxParallel ?? Number.MAX_SAFE_INTEGER,
   };
   const waitSinceByNode = new Map(
@@ -361,8 +393,12 @@ export function runCoordinatorTick(
     // a resource — its wait ends when its branches do, and timing it out would
     // block a run that is progressing normally.
     if (refusal.reason === 'dependency-waiting') return false;
+    // T1333: the ceiling depends on the HOLDER, not only on elapsed time. A
+    // live holder keeps the long bound; `wait_since` is untouched either way,
+    // so a holder that dies after 30 minutes times out on the next tick.
+    const limit = refusal.holderLive ? MAX_LIVE_HOLDER_WAIT_MS : MAX_DEFERRAL_WAIT_MS;
     const waited = Date.parse(now) - Date.parse(recorded.waitSince);
-    if (!Number.isFinite(waited) || waited < MAX_DEFERRAL_WAIT_MS) return false;
+    if (!Number.isFinite(waited) || waited < limit) return false;
     return blockOnDeferralTimeout(nodeId, reason, waited);
   };
 
@@ -416,6 +452,7 @@ export function runCoordinatorTick(
       heldLeases: workingState.heldLeases,
       activeProcesses: workingState.activeProcesses,
       maxParallel: workingState.ceiling,
+      liveNodeRuns: workingState.liveNodeRuns,
     };
     const decision = schedulerReady([scheduler], schedulerState)[0]!;
     // Per-node scheduler verdict. A run that "looks healthy but runs nothing"
@@ -550,8 +587,13 @@ export function runCoordinatorTick(
             accessMode: domain.accessMode,
             ambiguous: false,
             paths: [...(domain.paths ?? [])],
+            // Just claimed in this tick: its node run is live by construction.
+            ownerLive: true,
           });
         }
+        // A later group in this tick that meets the process ceiling is waiting
+        // behind a LIVE process — the claim reserved the slot for one.
+        if (node.kind === 'agent' || node.kind === 'command') workingState.liveNodeRuns += 1;
         workingState.activeProcesses += 1;
         result.claimed += 1;
         result.transitions += 1;

@@ -198,13 +198,15 @@ export function activationDomainKeys(
 }
 
 /** A held lease observed by the scheduler: the domain, its access, whether
- *  the owner's process death is unprovable (then it blocks EVERYTHING), and
- *  the claimed paths (`[]` = repository-wide). */
+ *  the owner's process death is unprovable (then it blocks EVERYTHING), the
+ *  claimed paths (`[]` = repository-wide), and whether the owner is still live
+ *  (the deferral ceiling's input, `@issue:H4`). */
 export interface SchedulerLease {
   physicalDomain: string;
   accessMode: AccessMode;
   ambiguous: boolean;
   paths: readonly string[];
+  ownerLive: boolean;
 }
 
 /** One pending activation group the sweep asks the scheduler about. */
@@ -232,6 +234,12 @@ export interface SchedulerState {
   activeProcesses: number;
   /** The manifest's `graph.limits.maxParallel` (the external-process ceiling). */
   maxParallel: number;
+  /**
+   * How many node runs of THIS graph run are in a live status (T1333). A
+   * `parallel-slot-busy` refusal is only "live" when a process is behind the
+   * occupied slots: the durable count, or a process this very call admitted.
+   */
+  liveNodeRuns: number;
 }
 
 export type SchedulerRefusalReason = 'dependency-waiting' | 'resource-conflict' | 'parallel-slot-busy';
@@ -239,6 +247,13 @@ export type SchedulerRefusalReason = 'dependency-waiting' | 'resource-conflict' 
 export interface SchedulerRefusal {
   reason: SchedulerRefusalReason;
   detail: string;
+  /**
+   * Whether EVERY holder behind this refusal is live (T1333, `@issue:H4`). The
+   * sweep's deferral ceiling reads it: a live holder keeps a bounded 4-hour
+   * wait, a parked/dead/ambiguous/missing holder keeps 30 minutes. Absent for
+   * `dependency-waiting` — a join waits on its own branches, not on a holder.
+   */
+  holderLive?: boolean;
 }
 
 export interface SchedulerDecision {
@@ -250,25 +265,32 @@ export interface SchedulerDecision {
 
 const PROCESS_KINDS: readonly SchedulerGroup['nodeKind'][] = ['agent', 'command'];
 
-/** The conflicting held lease for a group's domains, or null. */
+/** The conflicting held lease(s) for a group's domains, or null. Every
+ *  CONFLICTING lease is inspected (T1333): the refusal's `holderLive` is true
+ *  only when each one has a live, unambiguous owner, so a single parked holder
+ *  in a multi-lease contention keeps the short deferral ceiling. The `detail`
+ *  describes the first conflicting lease, in store order. */
 function heldLeaseConflict(
   domains: readonly ActivationDomain[],
   leases: readonly SchedulerLease[],
-): string | null {
+): { detail: string; holderLive: boolean } | null {
+  let detail: string | null = null;
+  let allLive = true;
   for (const lease of leases) {
     for (const domain of domains) {
       if (domain.physicalDomain !== lease.physicalDomain) continue;
-      if (lease.ambiguous) {
-        return `physical domain ${domainWorktreePathOf(lease.physicalDomain)} has an ambiguous-process lease (process death unproven)`;
+      const readRead = domain.accessMode === 'read' && lease.accessMode === 'read';
+      if (!lease.ambiguous && (readRead || !pathSetsOverlap(domain.paths ?? [], lease.paths))) continue;
+      if (detail === null) {
+        detail = lease.ambiguous
+          ? `physical domain ${domainWorktreePathOf(lease.physicalDomain)} has an ambiguous-process lease (process death unproven)`
+          : `physical domain ${domainWorktreePathOf(lease.physicalDomain)} is held ${lease.accessMode} (${lease.paths.length === 0 ? 'repo-wide' : lease.paths.join(',')}) by another node run`;
       }
-      if (domain.accessMode === 'read' && lease.accessMode === 'read') continue;
-      if (pathSetsOverlap(domain.paths ?? [], lease.paths)) {
-        const breadth = lease.paths.length === 0 ? 'repo-wide' : lease.paths.join(',');
-        return `physical domain ${domainWorktreePathOf(lease.physicalDomain)} is held ${lease.accessMode} (${breadth}) by another node run`;
-      }
+      if (lease.ambiguous || !lease.ownerLive) allLive = false;
+      break; // this lease is classified; the remaining leases still matter
     }
   }
-  return null;
+  return detail === null ? null : { detail, holderLive: allLive };
 }
 
 /**
@@ -303,12 +325,16 @@ export function schedulerReady(
   let admittedProcesses = 0;
   const decisions: SchedulerDecision[] = [];
   for (const group of groups) {
-    const refuse = (reason: SchedulerRefusalReason, detail: string): void => {
+    const refuse = (
+      reason: SchedulerRefusalReason,
+      detail: string,
+      holderLive?: boolean,
+    ): void => {
       decisions.push({
         destination: group.destination,
         nodeKind: group.nodeKind,
         admitted: false,
-        refused: { reason, detail },
+        refused: { reason, detail, ...(holderLive === undefined ? {} : { holderLive }) },
       });
     };
     if (group.dependencyWaiting) {
@@ -317,12 +343,14 @@ export function schedulerReady(
     }
     const held = heldLeaseConflict(group.domains, state.heldLeases);
     if (held !== null) {
-      refuse('resource-conflict', held);
+      refuse('resource-conflict', held.detail, held.holderLive);
       continue;
     }
     const peer = admitted.find((a) => groupsConflict(a, group));
     if (peer) {
-      refuse('resource-conflict', `conflicts with already-scheduled ${peer.destination}`);
+      // The peer was admitted in this very call — a live process, by
+      // construction (T1333).
+      refuse('resource-conflict', `conflicts with already-scheduled ${peer.destination}`, true);
       continue;
     }
     if (
@@ -332,6 +360,7 @@ export function schedulerReady(
       refuse(
         'parallel-slot-busy',
         `active process ceiling reached (maxParallel ${state.maxParallel})`,
+        state.liveNodeRuns + admittedProcesses > 0,
       );
       continue;
     }
