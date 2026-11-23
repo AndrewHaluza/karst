@@ -44,6 +44,14 @@ export interface MenuState {
 
 export interface SidebarContextValue {
   readonly state: SidebarState;
+  /**
+   * False until the first host `state` arrives (or a saved snapshot restored at
+   * boot): the panes paint skeleton bars instead of a false empty state (SB-2,
+   * @ui:UI-R46).
+   */
+  readonly loaded: boolean;
+  /** The host could not build the snapshot; a later `state` clears it (SB-2). */
+  readonly error: string | null;
   readonly post: (message: OutboundMessage) => void;
   readonly fire: (spec: ActionSpec, el: HTMLElement, e?: MouseEvent) => void;
   /** Apply a Tickets preset through the existing `toggle-facet` messages. */
@@ -101,8 +109,12 @@ function toggled<T>(set: ReadonlySet<T>, value: T): ReadonlySet<T> {
 }
 
 export function SidebarProvider({ bridge, children }: { readonly bridge: SidebarHostBridge; readonly children: ReactNode }) {
-  const [state, setState] = useState<SidebarState>(() => withStateDefaults(bridge.getState()));
-  const [view, setView] = useState<ViewState>(() => restoreView(bridge.getState()?.view));
+  // A restored snapshot IS data: only a cold start (no saved state) is loading.
+  const [saved] = useState(() => bridge.getState());
+  const [state, setState] = useState<SidebarState>(() => withStateDefaults(saved));
+  const [loaded, setLoaded] = useState(saved !== undefined);
+  const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<ViewState>(() => restoreView(saved?.view));
   const viewRef = useRef(view);
   viewRef.current = view;
   const [acceptedOpen, setAcceptedOpen] = useState<ReadonlySet<number>>(new Set());
@@ -148,6 +160,8 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
           stateRef.current = next;
           bridge.setState({ ...next, view: viewRef.current });
           setState(next);
+          setLoaded(true);
+          setError(null);
           // Prune expanded ids that no longer exist so the set can't grow unbounded.
           const ids = new Set(allRows(next).map((r) => r.ticketId));
           setOpenIds((prev) => {
@@ -164,6 +178,10 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
           setActivityReveal((n) => n + 1);
         } else if (msg.type === 'action-result') {
           notes.current.settle(msg.requestId, msg.ok, msg.message);
+        } else if (msg.type === 'error') {
+          // The host names the failure (`reasonText` of the thrown error); the
+          // view states its own fixed line and keeps this as the tooltip.
+          setError(msg.message);
         }
       }),
     [bridge, closeMenu],
@@ -265,12 +283,12 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
 
   const value = useMemo<SidebarContextValue>(
     () => ({
-      state, post, fire, applyPreset, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted,
+      state, loaded, error, post, fire, applyPreset, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted,
       openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist,
       planOpen, setPlanOpen, collapseAllPlans, planFocus, setPlanFocus,
       menu, openMenu, closeMenu,
     }),
-    [state, post, fire, applyPreset, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted, openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
+    [state, loaded, error, post, fire, applyPreset, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted, openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

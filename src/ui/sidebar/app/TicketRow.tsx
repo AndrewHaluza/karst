@@ -12,7 +12,8 @@ import { ActButton } from './action.js';
 import { CloudLinks } from './CloudSessions.js';
 import { Icon } from './Icon.js';
 import { IconAct } from './IconAct.js';
-import { TicketTools } from './TicketTools.js';
+import { HoverTools } from './TicketTools.js';
+import { MenuTrigger } from './MenuTrigger.js';
 import { PriorityChip } from './PriorityChip.js';
 import { AUTOSTART_WORD, GLYPH_STATUS, MAX_SUBTASK_INDENT, relTime } from './format.js';
 import { GLYPH_WORD } from '../../../model/glyph.js';
@@ -68,19 +69,25 @@ function SubtreeToggle({ row }: { readonly row: Row }) {
   );
 }
 
-/** The collapsed hover strip: Session / Pause-Resume / "⋯" (archived rows: Restore / Delete). */
-function HoverStrip({ row, sessVerb }: { readonly row: Row; readonly sessVerb: string }) {
+/** Archived rows keep their two labeled actions in flow: they have no More menu. */
+function ArchivedStrip({ row }: { readonly row: Row }) {
   const id = row.ticketId;
   return (
+    <span className="rowacts rowacts--static">
+      <IconAct spec={{ act: 'unarchive', id }} label="Restore ticket to the active list"><Icon name="history" /></IconAct>
+      <IconAct spec={{ act: 'delete', id }} label="Delete ticket permanently" danger><Icon name="trash" /></IconAct>
+    </span>
+  );
+}
+
+/**
+ * The hover strip: Session / Pause-Resume only. It appears in the narrow tier and
+ * above (SB-8); the More menu is always in flow at the row end.
+ */
+function HoverStrip({ row, sessVerb }: { readonly row: Row; readonly sessVerb: string }) {
+  return (
     <span className="rowacts">
-      {row.archived ? (
-        <>
-          <IconAct spec={{ act: 'unarchive', id }} label="Restore ticket to the active list"><Icon name="history" /></IconAct>
-          <IconAct spec={{ act: 'delete', id }} label="Delete ticket permanently" danger><Icon name="trash" /></IconAct>
-        </>
-      ) : (
-        <TicketTools row={row} sessVerb={sessVerb} />
-      )}
+      <HoverTools row={row} sessVerb={sessVerb} />
     </span>
   );
 }
@@ -118,7 +125,7 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
       )}
       <span className="k-id" title={`Ticket ${row.idLabel}`}>{row.idLabel}</span>
       {row.priorityEditable ? <PriorityChip level={row.priority} source={row.prioritySource} provider={{ label: row.providerLabel, level: row.providerPriority }} /> : null}
-      <span className="name">{row.label}</span>
+      <span className="name" title={row.label}>{row.label}</span>
       {row.subtaskParentKey && !row.subtaskDepth ? (
         <span className="parentref subtaskref" title={`Sub-task of ${row.subtaskParentKey}`}>⊂ {row.subtaskParentKey}</span>
       ) : row.parentKey ? (
@@ -165,8 +172,17 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
         )}
         <SubtreeToggle row={row} />
         {row.cloudSessions?.length ? <CloudLinks sessions={row.cloudSessions} ticketId={row.ticketId} /> : null}
-        {/* Only rendered while COLLAPSED — expanding moves the same quick actions into the body's tools. */}
-        {isOpen ? null : <HoverStrip row={row} sessVerb={sessVerb} />}
+        {/* The always-visible More menu sits in flow at the row end (SB-8); the
+            other quick tools are an overlay that only the narrow tier shows.
+            Expanding moves the same quick actions into the body's tools. */}
+        {isOpen ? null : row.archived ? (
+          <ArchivedStrip row={row} />
+        ) : (
+          <>
+            <HoverStrip row={row} sessVerb={sessVerb} />
+            <span className="rowmore"><MenuTrigger row={row} /></span>
+          </>
+        )}
       </div>
       {blockedBy.length ? <TicketRefs refs={blockedBy} /> : null}
       <TicketBody row={row} sessVerb={sessVerb} />

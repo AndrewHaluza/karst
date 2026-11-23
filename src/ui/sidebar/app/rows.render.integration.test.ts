@@ -77,6 +77,27 @@ describe('ticket row', () => {
     expect(h.queryAll('.rail')).toHaveLength(0);
   });
 
+  it('gives the truncated row title its full text: a tooltip on the name and the whole title in the body (SB-5)', async () => {
+    const long = 'FIX-GRAPH-2-A-REALLY-LONG-TICKET-TITLE-THAT-THE-STAGE-PILL-CUTS';
+    const h = await mount(stateWith({ current: [row(1, { label: long })] }));
+    expect(h.query('.ticket .name')!.getAttribute('title')).toBe(long);
+    await h.click('[data-toggle="910001"]');
+    expect(text(h.query('.peek-fullname'))).toBe(long);
+  });
+
+  it('keeps the More menu in flow and moves the other tools to the hover strip (SB-8)', async () => {
+    const h = await mount(stateWith({ current: [row(1)] }));
+    const more = h.query('.ticket > .row > .rowmore [data-menu="910001"]')!;
+    expect(more.getAttribute('aria-label')).toBe('More ticket actions');
+    // One More trigger in the row itself: the strip holds Session/Pause only (the
+    // hidden expanded body has its own tools, as it always has).
+    expect(h.queryAll('.ticket > .row [data-menu="910001"]')).toHaveLength(1);
+    expect(h.queryAll('.ticket > .row > .rowacts [data-act]').map((b) => b.getAttribute('data-act'))).toEqual(['open-session', 'pause-ticket']);
+    await h.click('[data-toggle="910001"]');
+    expect(h.query('.ticket .rowmore')).toBeNull();
+    expect(h.query('.peek-tools [data-menu="910001"]')).not.toBeNull();
+  });
+
   it('paints the shared status marker for the glyph and names the state for assistive tech (UI-R28, SB-1)', async () => {
     const h = await mount(stateWith({ current: [row(1, { glyph: 'amber' })] }));
     const glyph = h.query('.ticket .k-status')!;
@@ -402,30 +423,24 @@ describe('posting controls', () => {
     expect(text(h.query('[aria-live="polite"]'))).toContain('could not open');
   });
 
-  it('post every toolbar handoff', async () => {
-    const h = await mount(base);
-    for (const act of ['open-resources', 'open-token-usage', 'open-settings']) {
-      await h.click(`.toolbar [data-act="${act}"]`);
-    }
-    expect(h.posted.filter((m) => m.type !== 'request-state').map((m) => m.type)).toEqual([
-      'open-resources', 'open-token-usage', 'open-settings',
-    ]);
-    expect(h.queryAll('.toolbar [aria-label]').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Open resource monitor', 'Open token usage', 'Open settings',
-    ]);
-  });
-
   it('offer Create ticket from the empty list', async () => {
     const h = await mount(fixture('empty'));
+    // An empty pane folds to its header by default (SB-7): open Tickets first.
+    await h.click('[data-pane="tickets"] .pane-toggle');
     expect(text(h.query('.k-empty-title'))).toBe('No tickets yet');
     await h.click('.k-empty [data-act="create"]');
     expect(h.posted.at(-1)).toMatchObject({ type: 'create' });
   });
 
   it('say why the list is empty for a search, the Done facet and the Archived facet', async () => {
-    expect(text((await mount({ ...fixture('empty'), filter: 'zzz' })).query('.k-empty-title'))).toBe('No tickets match');
-    expect(text((await mount({ ...fixture('empty'), facets: ['done'] })).query('.k-empty-title'))).toBe('No done tickets');
-    expect(text((await mount({ ...fixture('empty'), facets: ['archived'] })).query('.k-empty-title'))).toBe('No archived tickets');
+    const emptyTitle = async (state: SidebarState): Promise<string> => {
+      const h = await mount(state);
+      await h.click('[data-pane="tickets"] .pane-toggle');
+      return text(h.query('.k-empty-title'));
+    };
+    expect(await emptyTitle({ ...fixture('empty'), filter: 'zzz' })).toBe('No tickets match');
+    expect(await emptyTitle({ ...fixture('empty'), facets: ['done'] })).toBe('No done tickets');
+    expect(await emptyTitle({ ...fixture('empty'), facets: ['archived'] })).toBe('No archived tickets');
   });
 });
 
@@ -489,7 +504,7 @@ describe('context window', () => {
     expect(h.query('#ctxMenu.open')).toBeNull();
     expect(h.document.activeElement).toBe(trigger);
     await h.click(trigger);
-    await h.click('.toolbar');
+    await h.click('.search-input');
     expect(h.query('#ctxMenu.open')).toBeNull();
   });
 

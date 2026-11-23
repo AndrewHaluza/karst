@@ -23,12 +23,46 @@ const sent = (h: RenderedSidebar) => h.posted.filter((m) => m.type !== 'request-
 const withCounts = (state: SidebarState, counts: Partial<SidebarState['counts']>): SidebarState => ({ ...state, counts: { ...state.counts, ...counts } });
 
 describe('toolbar', () => {
-  it('keeps resources, token usage and settings only', async () => {
+  it('is gone: the resource monitor, token usage and settings handoffs live in the view title menu (SB-7)', async () => {
     const h = await mount(fixture('all-sections'));
-    expect(h.queryAll('.toolbar [aria-label]').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Open resource monitor', 'Open token usage', 'Open settings',
-    ]);
-    expect(h.query('.toolbar [data-act="create"],.toolbar [data-act="plan-create"]')).toBeNull();
+    expect(h.query('.toolbar')).toBeNull();
+    expect(h.queryAll('[data-act="open-resources"],[data-act="open-token-usage"],[data-act="open-settings"]')).toHaveLength(0);
+  });
+});
+
+describe('cold start and host failure (SB-2)', () => {
+  it('paints skeleton bars, never the empty text, before the first host state', async () => {
+    const h = await renderSidebarApp();
+    // Planning and Tickets are the open panes by default.
+    expect(h.queryAll('.pane-skel')).toHaveLength(2);
+    expect(h.queryAll('.pane-skel-bar')).toHaveLength(6);
+    expect(h.query('.k-empty-title')).toBeNull();
+    expect(h.query('.pane-empty')).toBeNull();
+    expect(h.query('[data-pane="planning"]')!.getAttribute('data-loading')).toBe('true');
+  });
+
+  it('replaces the skeletons on the first state', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'state', state: fixture('empty') });
+    expect(h.queryAll('.pane-skel')).toHaveLength(0);
+    expect(h.query('[data-pane="planning"]')!.getAttribute('data-loading')).toBe('false');
+  });
+
+  it('states one fixed line with a Retry that asks the host again, and keeps the reason as its tooltip', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'error', message: 'database is locked' });
+    expect(text(h.query('[data-sidebar-error]'))).toContain('Karst cannot read the tickets.');
+    expect(h.query('[data-sidebar-error]')!.getAttribute('title')).toBe('database is locked');
+    await h.click('.sidebar-error-retry');
+    expect(h.posted.at(-1)).toEqual({ type: 'refresh' });
+  });
+
+  it('clears the error line on the next state', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'error', message: 'boom' });
+    expect(h.query('[data-sidebar-error]')).not.toBeNull();
+    await h.receive({ type: 'state', state: fixture('empty') });
+    expect(h.query('[data-sidebar-error]')).toBeNull();
   });
 });
 
@@ -41,7 +75,16 @@ describe('pane headers', () => {
     expect(text(planning.querySelector('.pane-count'))).toBe('0');
     expect(text(tickets.querySelector('.pane-title'))).toBe('Tickets');
     expect(text(tickets.querySelector('.pane-count'))).toBe('0');
-    expect(planning.querySelector('.pane-toggle')!.getAttribute('aria-expanded')).toBe('true');
+    // An empty pane folds to its header by default (SB-7).
+    expect(planning.querySelector('.pane-toggle')!.getAttribute('aria-expanded')).toBe('false');
+    expect(tickets.querySelector('.pane-toggle')!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('shows an empty pane\'s empty text only after the user opens it (SB-7)', async () => {
+    const h = await mount(fixture('empty'));
+    expect(h.query('[data-pane="planning"] .pane-empty')).toBeNull();
+    await h.click('[data-pane="planning"] .pane-toggle');
+    expect(text(h.query('[data-pane="planning"] .pane-empty'))).toBe('No planning sessions');
   });
 
   it('the + buttons reuse the plan-create and create actions', async () => {

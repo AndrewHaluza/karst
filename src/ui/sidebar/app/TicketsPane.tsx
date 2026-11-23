@@ -42,8 +42,11 @@ export function TicketsPane() {
       </ActButton>
     </>
   );
+  // Unlinked cloud sessions have their own section under the rows, so the pane is
+  // not empty while they exist even though the count (`allRows`) counts tickets.
+  const showsCloud = (state.unlinkedCloudSessions?.length ?? 0) > 0;
   return (
-    <Pane pane="tickets" title="Tickets" count={allRows(state).length} actions={actions} sub={<AttentionLine />}>
+    <Pane pane="tickets" title="Tickets" count={allRows(state).length} actions={actions} empty={allRows(state).length === 0 && !showsCloud} sub={<AttentionLine />}>
       <TicketList />
     </Pane>
   );

@@ -219,9 +219,15 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
 .k-ticket-ref-word::before{content:"· " attr(data-full)}
 .k-ticket-ref-word::before,.stage[data-full]::before{
   text-transform:uppercase;letter-spacing:var(--k-chip-tracking);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold)}
+/* The base stage word sits BEFORE the container block on purpose (SB-5): the
+   @container rule below overrides `content` with the short key, and only source
+   order decides between two same-specificity selectors (a @container adds none).
+   With the base rule after the block the full word always won and the pill cut
+   the title at the tight tier. */
+.stage[data-full]::before{content:attr(data-full)}
 @container (max-width: 400px){
   /* Queue row relation (T1104): the verb and chip take a second line under the position (@ui:UI-R44). */
-  [data-region="queue"] .q-row{grid-template-columns:minmax(0,1fr) auto var(--k-space-8);grid-template-areas:"main chain menu" "rel rel rel"}
+  [data-region="queue"] .q-row{grid-template-columns:minmax(0,1fr) auto var(--k-hit-min);grid-template-areas:"main chain menu" "rel rel rel"}
   [data-region="queue"] .q-row .q-rel{padding-bottom:var(--k-space-1)}
   [data-region="queue"] .q-rel .refs-line{min-height:calc(var(--k-space-8) - var(--k-space-2))}
   .k-ticket-ref-word::before{content:"· " attr(data-short)}
@@ -269,8 +275,8 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
   flex:0 0 auto;white-space:nowrap;font-weight:var(--k-weight-semibold);text-transform:uppercase;letter-spacing:var(--k-chip-tracking);
   color:var(--stg-fg,var(--stage-unknown-fg));
   border:var(--k-border-w) solid var(--c);background:var(--stg-bg,color-mix(in srgb,var(--c) var(--k-chip-wash),transparent))}
-/* One span, two words (data-full / data-short): the host width picks one, as in the chip. */
-.stage[data-full]::before{content:attr(data-full)}
+/* One span, two words (data-full / data-short): the host width picks one, as in the chip.
+   The base word lives above the @container block (SB-5), so the tier's short key wins. */
 /* An unclassified stage reads as a dashed outline so "unknown" never masquerades as a real stage. */
 .stage.stg-unknown{border-style:dashed}
 @keyframes k-spin{to{transform:rotate(360deg)}}

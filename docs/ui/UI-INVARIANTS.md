@@ -225,9 +225,19 @@ Under the search box sit two panes, **Planning** and **Tickets**
 rendered, even when empty: a chevron toggle button (`aria-expanded`), title,
 count and the pane's actions (`+` reuses the `plan-create` / `create` messages;
 Planning also has Collapse all and a "show archived" toggle). Each body scrolls on
-its own; Planning is capped at about 40% while open, Tickets takes the rest, and
-a collapsed pane hands its height to the other. The toolbar keeps only resources,
-token usage and settings. The facet chip row is gone: a funnel menu
+its own; every open pane sizes to its content, Tickets is the one pane that takes
+the remaining height, Planning is capped at about 40% while open, and a collapsed
+pane hands its height to the other. An open Activity pane keeps at least three rows
+(`min-height:calc(3 * var(--k-hit-min))`) and never shrinks. A pane whose count is
+0 folds to its header by default; its empty text shows only after the user opens
+it. On a cold start (no restored snapshot, before the first host `state`) every
+open pane paints three skeleton bars instead of the empty text, and a host build
+failure shows one fixed line, "Karst cannot read the tickets.", with a Retry that
+posts `refresh`. The webview has no toolbar row: the resource monitor, token usage
+and settings handoffs are `view/title` menu entries of `karst.tickets`. A collapsed
+ticket row keeps its More menu in flow at the row end; Session and Pause/Resume
+appear on hover only from the narrow tier (400 px) up, and the stage pill is never
+hidden for them. The facet chip row is gone: a funnel menu
 (`FilterMenu.tsx`, `menuitemradio`, a dot when a preset other than All is active)
 in the Tickets header offers single-select presets (All, Needs you or failed =
 `input`+`failed`, Running, Done, Archived). A preset is a facet selection, so

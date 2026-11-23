@@ -21,8 +21,8 @@
   *{box-sizing:border-box}
   /* The view is an app shell, not a scrolling document: html/body fill the
      view, body is a non-scrolling column, and the ONLY thing that scrolls is
-     the two pane bodies (UI-R38). The toolbar/search stay pinned — on a
-     long list they used to scroll away with the rows, leaving the filters
+     a pane body (UI-R38). The search box and the pane headers stay pinned — on
+     a long list they used to scroll away with the rows, leaving the filters
      and controls unreachable at the bottom. */
   body{
     margin:0;padding:0;
@@ -33,8 +33,8 @@
     font-size:var(--k-text-base);
   }
   html,body{height:100%}
-  /* The React mount point adds no box: the toolbar, search and panes stay
-     direct flex children of body, exactly as the page laid them out before. */
+  /* The React mount point adds no box: the search line, the error line and the
+     panes stay direct flex children of body, as the page laid them out before. */
   #root{display:contents}
 
   /* The resize edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO). VS Code owns the
@@ -49,21 +49,24 @@
   html[data-edge="right"] body{box-shadow:inset calc(-1 * var(--k-border-w)) 0 0 0 var(--k-border)}
   html[data-edge="left"] body{box-shadow:inset var(--k-border-w) 0 0 0 var(--k-border)}
 
-  /* toolbar */
-  .toolbar{display:flex;align-items:center;gap:var(--k-space-1);padding:var(--k-space-3) var(--k-space-4);
-    border-bottom:var(--k-border-w) solid var(--k-border);flex:0 0 auto}
-  .toolbar .sp{flex:1}
-
   /* search */
   .search{position:relative;margin:var(--k-space-4) var(--k-space-4) var(--k-space-3);flex:0 0 auto}
   .search-icon{position:absolute;left:var(--k-space-3);top:50%;transform:translateY(-50%);
     color:var(--k-text-faint)}
   .search-input{width:100%;padding-left:var(--k-space-9)}
 
-  /* panes: Planning and Tickets share the height under the search box. Each
-     header is always visible; each body scrolls on its own. Planning is capped
-     at ~40% while open with content, Tickets takes the rest, and a collapsed
-     pane gives its height to the other. */
+  /* One fixed line above the panes when the host cannot build the snapshot (SB-2).
+     The reason is the tooltip; the line and the Retry are always the same. */
+  .sidebar-error{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3);
+    margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-2) var(--k-space-3);flex:0 0 auto;
+    border:var(--k-border-w) solid var(--k-danger);border-radius:var(--k-radius-md);font-size:var(--k-text-xs)}
+  .sidebar-error-text{min-width:0;overflow-wrap:anywhere}
+  .sidebar-error-retry{flex:none}
+
+  /* panes: every open pane sizes to its content; Tickets is the one pane that
+     takes the remaining height (Q1, SB-7). Each header is always visible; each
+     body scrolls on its own. Planning is capped at ~40%, Queue at ~30%, Activity
+     at ~40%. A pane whose count is 0 folds to its header (Pane.tsx). */
   .panes{flex:1;min-height:0;display:flex;flex-direction:column}
   .pane{display:flex;flex-direction:column;min-height:0;flex:0 0 auto}
   .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:40%}
@@ -71,7 +74,10 @@
   .panes:has(.pane[data-pane="tickets"][data-collapsed="true"]) .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:1 1 0;max-height:none}
   /* Queue pane: open it takes about 30% of the height and scrolls on its own; a collapsed pane hands its height to the others. */
   .pane[data-pane="queue"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:30%}
-  .pane[data-pane="activity"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:40%}
+  /* Activity keeps at least three rows while open (SB-7): the pane does not shrink
+     and the body floor is three row heights; only its own body scrolls. */
+  .pane[data-pane="activity"]:not([data-collapsed="true"]){flex:0 0 auto;max-height:40%}
+  .pane[data-pane="activity"]:not([data-collapsed="true"]) .pane-body{min-height:calc(3 * var(--k-hit-min))}
   .pane + .pane{border-top:var(--k-border-w) solid var(--k-border);margin-top:var(--k-space-4)}
   .pane-head{display:flex;align-items:center;gap:var(--k-space-1);padding:0 var(--k-space-2) 0 var(--k-space-2);flex:0 0 auto;
     min-height:calc(var(--k-space-8) + var(--k-space-2))}
@@ -88,6 +94,10 @@
   /* The pane body is the host region for the stage word tier: full when wide, the stage key when narrow (@ui:UI-R49). */
   .pane-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0;container-type:inline-size}
   .pane-empty{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
+  /* A cold start paints the loaded layout with three row-height bars, never the
+     empty text (@ui:UI-R46, SB-2). Static marks do not move under reduced motion. */
+  .pane-skel{display:flex;flex-direction:column;gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4)}
+  .pane-skel-bar{display:block;height:var(--k-hit-min);border-radius:var(--k-radius-sm);background:var(--k-surface-hover)}
   .pane-attention{min-height:var(--k-hit-min);display:block;width:calc(100% - 2 * var(--k-space-4));margin:0 var(--k-space-4) var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
     background:none;border:0;text-align:left;font:inherit;font-size:var(--k-text-xs);color:var(--k-text-dim);cursor:pointer;
     border-radius:var(--k-radius-md)}
@@ -249,41 +259,42 @@
      the two disclosures never look alike. Still a SEPARATE control (UI-R09:
      two independent disclosures are two buttons). */
   .subchev{margin-left:auto;flex:0 0 auto}
-  /* Actions overlay the row's right edge on hover so showing them never reflows
-      the row. The stage pill hides under them (same slot) to avoid overlap. The
-      cluster backs itself with the SOLID --k-surface (not the translucent
-      --k-surface-hover wash the row uses): the row's own text passes underneath
-      on narrow rows, and a translucent backdrop would let it show through the
-      icon buttons and read as a UI defect (UI-R05). The row's overflow:hidden
-      clips the name text at the row boundary so it never bleeds under the
-      actions overlay on narrow rows. */
-  .rowacts{display:none;gap:var(--k-space-1);position:absolute;right:var(--k-space-3);top:50%;
+  /* The row's always-visible More menu sits in flow at the row end (SB-8); the
+     other quick tools (Session, Pause/Resume) are an absolute overlay that only
+     the narrow tier shows. The overlay backs itself with the SOLID --k-surface
+     (not the translucent --k-surface-hover wash the row uses): the row's own text
+     passes underneath, and a translucent backdrop would let it show through the
+     icon buttons and read as a UI defect (UI-R05). The row's overflow:hidden
+     clips the name text at the row boundary so it never bleeds past it. */
+  .rowmore{display:inline-flex;flex:0 0 auto}
+  .rowacts{display:none;gap:var(--k-space-1);position:absolute;right:calc(var(--k-space-3) + var(--k-hit-min));top:50%;
     transform:translateY(-50%);background:var(--k-surface);border-radius:var(--k-radius-sm);
     padding-left:var(--k-space-2);opacity:0;pointer-events:none}
-  /* display:none until the row is hovered or holds focus: the overlay must not
-     sit over the row's open button in the resting layout (layout-sanity
-     sibling-overlap), and focus-within keeps it keyboard-reachable. */
-  .row:hover .rowacts,.row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
-  /* On a row that carries a sub-tree collapse control, the hover strip starts
-     one control-width further left. Both live in the row's right-edge slot —
-     the strip is absolute, `.subchev` is in flow — so without the shift the
-     strip's solid surface and hit area cover the chevron on hover, leaving the
-     collapse control unclickable with a pointer (NDL-86). */
-  .row:has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min))}
-  .row:hover .stage{opacity:0}
+  /* The quick tools need room: below the narrow tier's 400 px the row keeps only
+     More (SB-8); from 400 px up they appear on hover or focus. focus-within keeps
+     them keyboard-reachable, and the resting layout never carries them. */
+  @container (min-width: 400px){
+    .row:hover .rowacts,.row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
+  }
+  /* Archived rows have no More menu, so restore/delete stay in flow at every
+     width: they must never be reachable only by hover. */
+  .rowacts--static{display:flex;position:static;transform:none;opacity:1;pointer-events:auto;
+    padding-left:0;background:none}
+  /* The overlay starts left of the in-flow controls on the right (sub-tree
+     collapse, cloud links and the always-visible More), so it never covers one. */
+  .row:has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * 2)}
   /* Cloud-session icon links (arch:CLOUD-01): in flow at the row's right edge,
      always visible; the absolute hover strip starts that many controls further
      left (--cloud-n is the session count, stamped on the row) so it never covers them. */
   .cloudlinks{display:flex;flex:0 0 auto}
-  .row:has(.cloudlinks) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * var(--cloud-n,1))}
-  .row:has(.cloudlinks):has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 1))}
-  /* A session with no ticket has no expanded body to carry its actions, so its strip is also keyboard-reachable. */
-  .cloudrow .row:focus-within .rowacts{opacity:1;pointer-events:auto}
+  .row:has(.cloudlinks) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 1))}
+  .row:has(.cloudlinks):has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 2))}
+  /* A session with no ticket has no More menu (so no always-visible control), so
+     its strip keeps showing on hover/focus at every width: it is the row's action. */
+  .cloudrow .row:hover .rowacts,.cloudrow .row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
   /* An expanded row's actions live in the mini-dashboard toolbar below, so the
-     collapsed hover strip is suppressed and the stage stays the right anchor —
-     never two copies of the same quick actions visible at once. */
+     collapsed strip is suppressed — never two copies of the same quick actions. */
   .ticket.open .rowacts{display:none}
-  .ticket.open .row:hover .stage{opacity:1}
 
   /* An open ticket is ONE card: sunken surface, hairline border, a gap under it,
      and a hairline between the header row and the body. Two open rows next to
@@ -300,6 +311,10 @@
      its right, quiet fact lines with no label column, then at most one amber
      action strip. */
   .peek{margin:0}
+  /* The expanded body prints the row's full title, wrapped, before the peek card:
+     the row's own title cell ends in an ellipsis (UI-R44, SB-5). */
+  .peek-fullname{font-size:var(--k-text-sm);color:var(--k-text);font-weight:var(--k-weight-medium);
+    margin-bottom:var(--k-space-2);overflow-wrap:anywhere}
   .peek-head{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3)}
   .peek-copy{min-width:0;flex:1;display:flex;align-items:baseline;gap:var(--k-space-2);flex-wrap:wrap}
   .peek-copy>.k-status{align-self:center}
@@ -377,7 +392,7 @@
   .k-pri--low{color:var(--k-text-dim);background:var(--k-surface-hover)}
   /* Queue rows: one line each. The region is the container, so the reason and the session drop at a narrow sidebar, the title keeps the rest. */
   [data-region="queue"]{container-type:inline-size;container-name:queue}
-  .q-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto var(--k-space-8);grid-template-areas:"main rel chain menu";align-items:center;column-gap:var(--k-space-1);padding:0 var(--k-space-1) 0 var(--k-space-2);min-height:calc(var(--k-space-8) + var(--k-space-1));border-radius:var(--k-radius-sm)}
+  .q-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto var(--k-hit-min);grid-template-areas:"main rel chain menu";align-items:center;column-gap:var(--k-space-1);padding:0 var(--k-space-1) 0 var(--k-space-2);min-height:calc(var(--k-space-8) + var(--k-space-1));border-radius:var(--k-radius-sm)}
   .q-row:hover{background:var(--vscode-list-hoverBackground)}
   .q-main{grid-area:main;min-width:0;display:flex;align-self:stretch;align-items:center;gap:var(--k-space-2);height:100%;padding:0;background:none;border:0;color:var(--k-text);font:inherit;font-size:var(--k-text-sm);text-align:left;cursor:pointer}
   .q-main:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
@@ -391,7 +406,10 @@
   .q-rel--cycle .refs-verb,.q-rel-icon{color:var(--k-danger)}
   .q-rel--cycle .k-ticket-ref{border-color:var(--k-danger)}
   .k-pri-up{margin-left:var(--k-border-w);vertical-align:-0.1em}
-  .q-chain{grid-area:chain;width:var(--k-space-8);height:var(--k-space-8)}
+  /* The chain and menu tracks are one control wide, never a token shorter than
+     the button's --k-hit-min floor (RD-1): a short track made every row wider
+     than the pane and the body scrolled sideways. */
+  .q-chain{grid-area:chain;width:var(--k-hit-min);height:var(--k-hit-min)}
   .q-chain[aria-pressed="true"]{color:var(--k-action-fg);background:var(--k-action-bg)}
   .q-hit{background:color-mix(in srgb,var(--k-attention) 35%,transparent);color:inherit;border-radius:var(--k-radius-xs)}
   .q-gap{padding:0 var(--k-space-2);color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:var(--k-space-6);letter-spacing:.2em;text-align:center}
@@ -405,8 +423,9 @@
   .filter-pop [role="menuitemcheckbox"]{display:flex;justify-content:space-between;gap:var(--k-space-4);text-align:left;padding-left:var(--k-space-8);position:relative}
   .filter-pop [role="menuitemcheckbox"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
   .filter-count{color:var(--k-text-faint);font-variant-numeric:tabular-nums}
-  .q-menu{grid-area:menu;width:var(--k-space-8);height:var(--k-space-8);opacity:0}
-  .q-row:hover .q-menu,.q-row:focus-within .q-menu,.q-menu[aria-expanded="true"]{opacity:1}
+  /* The row menu is always visible at the shared dim ink (SB-8): no hover-only
+     control in a list that is read with the pointer moving. */
+  .q-menu{grid-area:menu;width:var(--k-hit-min);height:var(--k-hit-min);opacity:1;color:var(--k-text-dim)}
   @container queue (max-width: 20em){.q-sx{display:none}}
   /* Activity rows: one line each (glyph, ticket chip, title, time). The region is the container; the title takes the rest and ellipsizes, nothing wraps (UI-R43, UI-R45). */
   [data-region="activity"]{container-type:inline-size;container-name:activity}

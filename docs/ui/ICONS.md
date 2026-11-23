@@ -64,8 +64,8 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Show ticket changes (diff view) | `git-compare` | worktrees panel header |
 | Session / terminal | `terminal-2` | sidebar session row + open-session actions |
 | Open dashboard | `layout-dashboard` | sidebar body action |
-| Open resource monitor | `dashboard` | sidebar toolbar |
-| Open token usage stats | `chart-bar` | sidebar toolbar |
+| Open resource monitor | `dashboard` | `karst.tickets` view title menu |
+| Open token usage stats | `chart-bar` | `karst.tickets` view title menu |
 | Edit ticket | `pencil` | |
 | Ticket details (dashboard doc icon) | `file-text` | icon-only button, label "Ticket details" |
 | Open as Markdown in the editor | `markdown` | ticket details drawer header |
@@ -77,10 +77,10 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Delete / destructive remove | `trash` | danger variant on the control, never the glyph |
 | Attach file (ticket form) | `paperclip` | icon-only button, label "Attach file" |
 | Copy ticket id | `copy` | icon-only button, label "Copy ticket id"; flashes `check` on success |
-| New ticket | `plus` | toolbar |
-| Start planning session | `bulb` | sidebar toolbar |
+| New ticket | `plus` | Tickets pane header |
+| Start planning session | `bulb` | Planning pane header |
 | Search / filter | `search` | toolbar + facets |
-| Settings | `settings` | toolbar |
+| Settings | `settings` | `karst.tickets` view title menu |
 | Expand disclosure | `chevron-right` | rotates 90° when open |
 | Dropdown disclosure | `chevron-down` | an inline SVG element beside the select (`.k-select-chev`), §4 |
 | Done check (status glyph) | `circle-check` | sidebar compact row |

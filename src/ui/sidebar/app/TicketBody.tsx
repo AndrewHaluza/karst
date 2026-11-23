@@ -179,6 +179,9 @@ export function TicketBody({ row, sessVerb }: { readonly row: TicketRow; readonl
   const meta = metaLine(row);
   return (
     <div className="body">
+      {/* The row title lives in a fixed cell and ends in an ellipsis; the expanded
+          body prints it whole, wrapped, on its first line (UI-R44, SB-5). */}
+      {row.label ? <div className="peek-fullname">{row.label}</div> : null}
       {!row.archived && peek && (
         <div className="peek">
           <Headline peek={peek} row={row} sessVerb={sessVerb} />
