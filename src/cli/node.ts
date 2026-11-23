@@ -340,7 +340,7 @@ export function runNodeCommand(
     parsed.verb === 'replan' && hasQualifyingPrecondition(store, nodeRun.id);
   const reason =
     parsed.verb === 'replan' && !replanHonored
-      ? sanitizeEvidence(`replan requested without an observable precondition; treated as blocked${parsed.reason ? `: ${parsed.reason}` : ''}`)
+      ? sanitizeEvidence(`replan requested without an observable precondition; treated as blocked (the host checks the workspace of the node against its declared write claims)${parsed.reason ? `: ${parsed.reason}` : ''}`)
       : parsed.reason;
   if (parsed.verb === 'replan' && !replanHonored) outcome = 'blocked';
 

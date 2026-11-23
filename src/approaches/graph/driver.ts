@@ -918,6 +918,20 @@ async function launchClaimedAgentNode(
     );
     return 'blocked';
   }
+  if (workspace.kind === 'preserve-failed') {
+    // The old clone holds work that could not be written to a patch. It is
+    // kept, and this is never retried automatically: the cause is corrected
+    // out of band, then a human resumes (config-then-resume).
+    const why = collapseDiagnostic(workspace.reason, WORKSPACE_REASON_MAX);
+    parkLaunchFailure(
+      deps, graphRunId, row.id,
+      `workspace preservation: ${why}`,
+      false,
+      `graph-preserve-failed: node run ${row.id} (${why})`,
+    );
+    deps.debug?.(`[graph] run ${graphRunId}: agent node ${row.node_id} parked — workspace preservation: ${why}`);
+    return 'blocked';
+  }
   if (workspace.kind !== 'created') {
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
@@ -984,6 +998,7 @@ async function launchClaimedAgentNode(
       node,
       generation: nodeGeneration,
       ownerNonce: nodeOwnerNonce,
+      restored: workspace.restored,
       instructionsSnapshot: instructionsSnapshotOf(
         deps,
         graphRunId,

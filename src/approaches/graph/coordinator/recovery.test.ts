@@ -956,6 +956,7 @@ describe('recoverGraphRun', () => {
         }) as RecoveryDeps['writeSnapshot'],
         plannerPromptPath: '/pkg/graph-planner/SKILL.md',
         ticketContext: 'ticket context',
+        preservedWorkOf: () => [{ nodeRunId: 5, patchPath: 'preserved/5/api.patch', paths: ['b.ts'] }],
       }),
       { ticketId, graphRunId, mode: 'replan' },
     );
@@ -966,8 +967,10 @@ describe('recoverGraphRun', () => {
     const reasonsWrite = writes.find((w) => w.relativePath.startsWith('reasons/'));
     const reasons = JSON.parse(new TextDecoder().decode(reasonsWrite!.bytes)) as {
       claimViolations: Array<{ node: string; evidence: string }>;
+      preservedWork: unknown[];
     };
     expect(reasons.claimViolations).toEqual([{ node: 'n', evidence }]);
+    expect(reasons.preservedWork).toEqual([{ node: 'n', patchPath: 'preserved/5/api.patch', paths: ['b.ts'] }]);
   });
 
   it('a command-definition-changed reason routes to the compile-new-revision (replan) tier', () => {
@@ -1085,6 +1088,9 @@ describe('recoveryCategoryFor — the total function over the closed category se
       ['command-definition-changed: pinned fingerprint moved', 'compile-new-revision'],
       ['prompt-config-changed: node base prompt edited', 'prompt-resnapshot'],
       ['graph-workspace-deps: node run 30 (web: package-lock.json mismatch)', 'config-then-resume'],
+      // T1323: work that could not be written to a patch blocks and never
+      // deletes; the cause is corrected out of band, then a human resumes.
+      ['graph-preserve-failed: node run 31 (disk full)', 'config-then-resume'],
       ['graph-budget-exhausted: node run 3 (1 bytes over the 1 workspace ceiling)', 'config-then-resume'],
       [null, 'explicit-resolution'],
       ['completely-unrecognized', 'explicit-resolution'],

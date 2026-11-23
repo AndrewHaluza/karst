@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { PROCESS_KILL_RULE } from './promptText.js';
-import { FIX_NO_CHANGE_RULE, REVIEW_SWEEP_RULE, VISUAL_RERECORD_RULE } from './fixBrief.js';
+import { FIX_NO_CHANGE_RULE, REVIEW_SWEEP_RULE, VISUAL_RERECORD_OVER_CAP_RULE, VISUAL_RERECORD_RULE } from './fixBrief.js';
+import {
+  ENVIRONMENT_SIGNATURE_PREFIX,
+  summarizeWithSignature,
+} from '../workflow/gates/environmentSignature.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
@@ -156,6 +160,70 @@ describe('renderFixBrief', () => {
         gate({ stageKey: 'uat', gateName: 'test:visual:docker', exitCode: 1, summary: 'timeout' }),
       ]);
       expect(brief).not.toContain(VISUAL_RERECORD_RULE);
+    });
+
+    describe('a stored summary whose tail cut dropped the header (T1327)', () => {
+      // The sweeps of T1294 (37 breaks) and T1312 (19 breaks) stored the items but not the header.
+      const sweep = [
+        'visual sweep: 3 views, 3 projects',
+        'base check: re-ran 10 failing screenshots at the base',
+        'ticket breaks (pass at the base, fail here) — 37:',
+        ...Array.from(
+          { length: 10 },
+          (_, k) => `  - settings: settings-a-mode-${k} 'mode ${k}' 1440x900 12 px (ratio 0.01)`,
+        ),
+        '  and 27 more (37 total)',
+        'visual timing: 104.2 s',
+      ].join('\n');
+
+      const briefFor = (output: string): string =>
+        renderFixBrief('PROJ-9', [...stages], [], [
+          gate({
+            stageKey: 'uat',
+            gateName: 'test:visual:docker',
+            exitCode: 1,
+            summary: summarizeWithSignature('test:visual:docker', output),
+          }),
+        ]) ?? '';
+
+      it('adds the re-record rule once from a long sweep summary', () => {
+        expect(briefFor(sweep).split(VISUAL_RERECORD_RULE).length - 1).toBe(1);
+      });
+
+      it('adds the re-record rule once when the summary also carries a timeout signature', () => {
+        const brief = briefFor(`${sweep}\nexceeded the test timeout after 120000 ms`);
+        expect(brief).toContain(ENVIRONMENT_SIGNATURE_PREFIX);
+        expect(brief.split(VISUAL_RERECORD_RULE).length - 1).toBe(1);
+      });
+    });
+
+    describe('over the base-check cap (T1325)', () => {
+      const overCap = '92 screenshots fail (cap 40): too many for a per-screenshot base check; the base was not checked';
+
+      it('adds the over-cap re-record rule once and labels the gate a ticket failure', () => {
+        const brief = renderFixBrief('PROJ-9', [...stages], [], [
+          gate({ stageKey: 'uat', gateName: 'test:visual:docker', exitCode: 1, summary: overCap }),
+        ]) ?? '';
+        expect(brief.split(VISUAL_RERECORD_OVER_CAP_RULE).length - 1).toBe(1);
+        expect(brief).not.toContain(VISUAL_RERECORD_RULE);
+        expect(brief).toContain('test:visual:docker (exit 1) — ticket failure');
+      });
+
+      it('omits the rule for a non-visual gate with the same text', () => {
+        const brief = renderFixBrief('PROJ-9', [...stages], [], [
+          gate({ stageKey: 'uat', gateName: 'lint', exitCode: 1, summary: overCap }),
+        ]);
+        expect(brief).not.toContain(VISUAL_RERECORD_OVER_CAP_RULE);
+      });
+
+      it('adds only the ticket-break rule when both cues match', () => {
+        const both = `${breaks}\n${overCap}`;
+        const brief = renderFixBrief('PROJ-9', [...stages], [], [
+          gate({ stageKey: 'uat', gateName: 'test:visual:docker', exitCode: 1, summary: both }),
+        ]) ?? '';
+        expect(brief.split(VISUAL_RERECORD_RULE).length - 1).toBe(1);
+        expect(brief).not.toContain(VISUAL_RERECORD_OVER_CAP_RULE);
+      });
     });
   });
 

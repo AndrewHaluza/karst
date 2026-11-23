@@ -271,3 +271,57 @@ describe('no-change re-run of failed gates', () => {
     expect(await hostRerunFailedGates(store, ticketId, deps, { parkOnFailure: false })).toEqual({ kind: 'already-used' });
   });
 });
+
+describe('the stored host park verdict text', () => {
+  let store: Store;
+  let ticketId: number;
+  let roundId: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    setStage(store, ticketId, 'uat', { status: 'failed', verdict: 'gates failed', startedAt: AT, endedAt: AT, attempt: 1 });
+    setStage(store, ticketId, 'fix', { status: 'running', startedAt: AT });
+    setStageCurrent(store, ticketId, 'fix');
+    recordGateRun(store, {
+      ticketId,
+      stageKey: 'uat',
+      attempt: 1,
+      runAt: AT,
+      gates: [{ gateName: 'e2e (api)', exitCode: 1, repo: 'api', command: 'npm', args: ['run', 'e2e'], summary: 'port 3000 busy' }],
+    });
+    roundId = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      triggerKind: 'gate-failure',
+      triggerDetail: 'x',
+      maxRounds: 3,
+      startedAt: AT,
+    } as never).id;
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(roundId);
+  });
+
+  it('parks a spent no-new-commit re-run with the already-reran lead', async () => {
+    store.db.prepare('UPDATE recovery_rounds SET host_rerun_at = ? WHERE id = ?').run(AT, roundId);
+    await hostRerunFailedGates(store, ticketId, { runGates: async () => [], now: () => AT });
+    const reason = `no new commit, and the host already re-ran the failed gates — ${HOST_RERUN_WAY_OUT}`;
+    expect(store.db.prepare('SELECT end_reason FROM recovery_rounds WHERE id = ?').get(roundId)).toEqual({ end_reason: reason });
+    expect(getStage(store, ticketId, 'fix')?.verdict).toBe(reason);
+  });
+
+  it('parks a failed no-new-commit re-run with the re-run lead', async () => {
+    await hostRerunFailedGates(store, ticketId, { runGates: async (_t, g) => g.map(() => ({ exitCode: 1, summary: 'port 3000 busy' })), now: () => AT });
+    const reason = `no new commit, and the host re-run did not close the round — still fails — e2e (api): port 3000 busy. ${HOST_RERUN_WAY_OUT}`;
+    expect(store.db.prepare('SELECT end_reason FROM recovery_rounds WHERE id = ?').get(roundId)).toEqual({ end_reason: reason });
+    expect(getStage(store, ticketId, 'fix')?.verdict).toBe(reason);
+  });
+
+  it('parks a failed no-change re-run with the no-change lead', async () => {
+    recordNoChangeReason(store, roundId, 'flaky port', AT);
+    await hostRerunFailedGates(store, ticketId, { runGates: async (_t, g) => g.map(() => ({ exitCode: 1, summary: 'port 3000 busy' })), now: () => AT });
+    const reason = `the agent found no change to make, and the re-run of the failed gates did not close the round — still fails — e2e (api): port 3000 busy. ${HOST_RERUN_WAY_OUT}`;
+    expect(store.db.prepare('SELECT end_reason FROM recovery_rounds WHERE id = ?').get(roundId)).toEqual({ end_reason: reason });
+    expect(getStage(store, ticketId, 'fix')?.verdict).toBe(reason);
+  });
+});

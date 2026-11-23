@@ -24,6 +24,11 @@ describe('karst guide — content', () => {
     expect(AGENT_GUIDE).not.toContain('Re-recording a\nbaseline never makes a visual change pass');
   });
 
+  it('names both cues for an intended re-record: the ticket break and the over-cap line (T1325)', () => {
+    expect(AGENT_GUIDE).toContain("'ticket breaks (pass at the base, fail here)'");
+    expect(AGENT_GUIDE).toContain("'screenshots fail (cap 40)'");
+  });
+
   it('documents every verb runCli accepts', () => {
     // runCli accepts exactly: context, stats, stage, phase, graph, node, test, guide,
     // compact, subtask, fix-brief, conflict-brief (main.ts unknown-verb message); servers

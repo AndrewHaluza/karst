@@ -34,17 +34,49 @@ describe('interactive quota detector', () => {
     expect(isInteractiveQuota('claude', 'I should add a rate limit to this endpoint')).toBe(false);
   });
 
-  describe('claudeTrailingQuotaText', () => {
-    const err = JSON.stringify({ isApiErrorMessage: true, message: { content: [{ type: 'text', text: 'Claude usage limit reached' }] } });
-    const ok = JSON.stringify({ message: { content: [{ type: 'text', text: 'done' }] } });
-    it('returns the text only when the LAST line is the API error', () => {
-      expect(claudeTrailingQuotaText(`${ok}\n${err}\n`)).toBe('Claude usage limit reached');
-      expect(claudeTrailingQuotaText(`${err}\n${ok}\n`)).toBeNull();
+  describe('claudeTrailingQuota', () => {
+    const line = (entry: Record<string, unknown>): string => JSON.stringify(entry);
+    const errLine = (text: string, uuid = 'err-1'): string =>
+      line({ type: 'assistant', uuid, isApiErrorMessage: true, message: { content: [{ type: 'text', text }] } });
+    const assistantLine = (text: string, uuid = 'ok-1'): string =>
+      line({ type: 'assistant', uuid, message: { content: [{ type: 'text', text }] } });
+    const humanLine = (): string =>
+      line({ type: 'user', uuid: 'u-human', origin: { kind: 'human' }, message: { content: [{ type: 'text', text: 'continue' }] } });
+    const notificationLine = (): string =>
+      line({ type: 'user', uuid: 'u-task', origin: { kind: 'task-notification' }, message: { content: [{ type: 'text', text: 'task done' }] } });
+    const systemLine = (): string => line({ type: 'system', subtype: 'turn_duration', uuid: 'sys-1' });
+    const lastPromptLine = (): string => line({ type: 'last-prompt', uuid: 'lp-1' });
+    const fileHistoryLine = (): string => line({ type: 'file-history-snapshot', uuid: 'fh-1' });
+
+    const err = errLine('Claude usage limit reached');
+    const ok = assistantLine('done');
+
+    it('reads the last assistant entry, past the trailing metadata Claude appends', () => {
+      // T1319 shape: the API error is never the last line.
+      const tail = [err, systemLine(), notificationLine(), lastPromptLine(), fileHistoryLine()].join('\n');
+      expect(claudeTrailingQuota(`${tail}\n`)).toEqual({ text: 'Claude usage limit reached', key: err });
+      expect(claudeTrailingQuotaText(`${tail}\n`)).toBe('Claude usage limit reached');
     });
-    it('keys the trailing error by its raw line', () => {
+
+    it('clears the error once a human prompt follows it', () => {
+      const tail = [err, systemLine(), notificationLine(), lastPromptLine(), humanLine()].join('\n');
+      expect(claudeTrailingQuota(tail)).toBeNull();
+    });
+
+    it('clears the error once a later assistant turn answers', () => {
+      const tail = [err, systemLine(), notificationLine(), assistantLine('all good')].join('\n');
+      expect(claudeTrailingQuota(tail)).toBeNull();
+    });
+
+    it('ignores an older error when the last assistant entry is a normal reply', () => {
+      expect(claudeTrailingQuota([err, assistantLine('back on track'), systemLine()].join('\n'))).toBeNull();
+    });
+
+    it('keys the error by its own raw line', () => {
       expect(claudeTrailingQuota(`${ok}\n${err}\n`)).toEqual({ text: 'Claude usage limit reached', key: err });
       expect(claudeTrailingQuota(ok)).toBeNull();
     });
+
     it('tolerates empty and malformed tails', () => {
       expect(claudeTrailingQuotaText('')).toBeNull();
       expect(claudeTrailingQuotaText(`${err}\n{broken`)).toBeNull();

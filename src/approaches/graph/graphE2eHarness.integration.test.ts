@@ -39,6 +39,7 @@ import {
   sha256Hex,
 } from './driver.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './integration/pipeline.js';
+import { recordClaimEvidence } from './integration/claimEvidence.js';
 import { beginReplanPlannerRun, electReplan } from './coordinator/replan.js';
 import { flipOnEndQuiescence } from './coordinator/completion.js';
 import { reconcileGraphRun, type ReconcileGraphRunDeps, type ReconcileGraphRunResult } from './coordinator/reconcile.js';
@@ -243,7 +244,7 @@ export class TestTransport {
       pid: 9000 + request.nodeRunId,
       cwd: request.cwd,
       generation: request.generation,
-      ownerNonce: 'nonce',
+      ownerNonce: request.ownerNonce,
       startedAt: this.h.startedAt(),
       processRunId: null,
       providerSessionId: null,
@@ -468,7 +469,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
         gitOk(cwd, ['config', 'user.name', 'E2E']);
         nodeWorkspaces.set(nodeRunId, cwd);
       }
-      return { kind: 'created', paths: [{ repoName: 'api', cwd, domainKey: 'd' }] };
+      return { kind: 'created', paths: [{ repoName: 'api', cwd, domainKey: 'd' }], restored: false };
     },
     sessionNamingOf: (_graphRunId, runId, kind) => ({ name: `Karst ${kind} ${runId}` }),
     cliNodeCompletionCommand: () => 'node "/dist/cli/main.js" node complete',
@@ -822,6 +823,7 @@ async function driveCompletingNodes(h: Harness, graphRunId: number): Promise<voi
   for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(h.store.db, graphRunId, ['completing'])) {
     await runCompletionPipeline(h.pipelineDeps, { graphRunId, nodeRunId });
   }
+  await recordClaimEvidence(h.pipelineDeps, graphRunId);
   await settleRun(h, graphRunId);
 }
 
@@ -904,15 +906,18 @@ export async function tickGraphRun(h: Harness, graphRunId: number): Promise<stri
     }
     if (accepted.kind === 'accepted') await claimAndDrive(h, graphRunId);
   } else if (status === 'running') {
-    // Host order (`runGraphCoordinatorTick`): settle FIRST (a `replan` request
+    // Host order (`runGraphCoordinatorTick`): the claim evidence of a `blocked`
+    // node, then settle before the sweep (a `replan` request
     // elects before the sweep can read its blocked node run as a fault), then
     // the sweep, then the continuation drives completing nodes and settles again.
+    await recordClaimEvidence(h.pipelineDeps, graphRunId);
     await settleRun(h, graphRunId);
     if (graphRunStatus(db, graphRunId) === 'running') {
       await claimAndDrive(h, graphRunId);
       for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(db, graphRunId, ['completing'])) {
         await runCompletionPipeline(h.pipelineDeps, { graphRunId, nodeRunId });
       }
+      await recordClaimEvidence(h.pipelineDeps, graphRunId);
       await settleRun(h, graphRunId);
     }
   }

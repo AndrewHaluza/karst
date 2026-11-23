@@ -126,6 +126,18 @@ export const VISUAL_RERECORD_RULE =
   'commit the baselines, and call the done marker. Do not ask the user in chat: the user approves the baselines once, in the baseline review. ' +
   'If the change is not intended, repair the UI and do not re-record.';
 
+/**
+ * The visual sweep's over-cap line (scripts/baseDrift.mjs): more views differ than the base
+ * check re-runs, so the base was not checked (T1325). Same ask as the ticket-break rule, but
+ * the brief must read the full output for the failing views.
+ */
+export const VISUAL_OVER_CAP = /\d+ screenshots fail \(cap \d+\)/u;
+export const VISUAL_RERECORD_OVER_CAP_RULE =
+  'More views differ than the base check can re-run, so the base was not checked. Read the full output for the failing views. ' +
+  'If this brief intends that UI change, re-record only the failing views with `KARST_UI_GREP=<view> npm run -s test:visual:docker:update`, ' +
+  'commit the baselines, and call the done marker. Do not ask the user in chat: the user approves the baselines once, in the baseline review. ' +
+  'If a view differs that this ticket does not intend to change, repair the UI and do not re-record it.';
+
 /** The docs gate's BLOCK line (scripts/docsGate.mjs) — the cue that a cite is a way out. */
 const DOCS_GATE_BLOCK = /BLOCK diff changes /u;
 const DOCS_GATE_CITE_RULE =
@@ -217,8 +229,15 @@ export function renderFixBrief(
       }
     }
   }
-  if (failures.some((f) => f.summary && /visual|layout/iu.test(f.gateName) && VISUAL_TICKET_BREAK.test(f.summary))) {
+  const visualFailures = failures.filter(
+    (f): f is GateRun & { summary: string } =>
+      f.summary !== null && /visual|layout/iu.test(f.gateName),
+  );
+  if (visualFailures.some((f) => VISUAL_TICKET_BREAK.test(f.summary))) {
     lines.push('', VISUAL_RERECORD_RULE);
+  } else if (visualFailures.some((f) => VISUAL_OVER_CAP.test(f.summary))) {
+    // Only when the base check could name the views: the ticket-break line is the stronger cue.
+    lines.push('', VISUAL_RERECORD_OVER_CAP_RULE);
   }
   if (failures.some((f) => f.summary && DOCS_GATE_BLOCK.test(f.summary)) || (gate.verdict && DOCS_GATE_BLOCK.test(gate.verdict))) {
     lines.push('', DOCS_GATE_CITE_RULE);

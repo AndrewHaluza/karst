@@ -27,6 +27,8 @@ import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions
 import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
 import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
+import { graphPreserveSeams } from './extension/graphPreserveBinding.js';
+import { createGraphClaimEvidence } from './extension/graphClaimEvidenceBinding.js';
 import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, rmSync, watch as fsWatch } from 'node:fs';
@@ -68,6 +70,8 @@ import { registerSbxOauth } from './extension/sbxOauthBinding.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
 import { hostRerunFor, makeRequestedRerunSweep, preBriefRerunFor } from './extension/ops/fixRerunOps.js';
+import { makeFixParkNotifier } from './extension/ops/fixParkNotify.js';
+import { ticketToastLabel } from './extension/ticketToastLabel.js';
 import { bindGateRerunDeps } from './extension/gateRerunBinding.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
@@ -2135,8 +2139,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     deliverLive: fixDelivery.deliverConflict, recordSeed: fixDelivery.recordConflictSeed,
     key: (id) => formatId('ticket', id), debug: (m) => logger.debug(m),
   });
+  // A host park writes no event of its own: one warn for each new parked round (@arch:AC-66).
+  const fixParkNotifier = makeFixParkNotifier({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    notify: vscodeNotify,
+    labelOf: (id) => ticketToastLabel(localStore, id),
+  });
   // Host CLI fix markers (@arch:AC-45): a refused `stage fix pass` stored a re-run request; the one host gate re-run runs here.
-  const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, drain, projectId: () => currentProject()?.id });
+  const requestedRerunSweep = makeRequestedRerunSweep({ ...gateRerunDeps, drain, projectId: () => currentProject()?.id, onTick: fixParkNotifier });
   const requestedRerunTimer = setInterval(() => void requestedRerunSweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(requestedRerunTimer) });
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
@@ -4205,6 +4216,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Ensure the run's wake-up route exists before any of its sessions can
     // launch; the launcher reuses the same route when composing the env.
     graphRouteFor(graphRunId);
+    await graphClaimEvidence(graphRunId); // T1323: before the settle, and it never throws
     // Settle BEFORE the tick: a node that reported `replan` is `blocked` with
     // outcome `replan`, and the sweep's first-fault block would park the run
     // `blocked` before `electReplan` ran. `settleGraphRun` is idempotent.
@@ -4293,6 +4305,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logError(`karst: completion pipeline failed for graph node ${nodeRunId}`, err);
       }
     }
+    await graphClaimEvidence(graphRunId);
     settleGraphRun(gs.db, graphRunId);
   };
 
@@ -4463,6 +4476,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return artifactRootDir(context.globalStorageUri.fsPath, proj.slug, ticketId, graphRunId);
   };
 
+  const graphPreserve = graphPreserveSeams(() => graphCoordinatorStore?.db, graphArtifactRoot, defaultGitRunner, (message) => logger.debug(message));
+
   /** A ticket's context with drift precomputed async; the render itself does no git. */
   const ticketContextWithDrift = async (ticketId: number): Promise<string> => {
     const ctx = buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath);
@@ -4512,6 +4527,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // an explicit Resume re-asks the question that faulted rather than
       // assuming a human's correction. Absent, the recheck fails closed.
       artifactRoot: (runId) => graphArtifactRoot(runId),
+      preservedWorkOf: graphPreserve.preservedWorkOf,
       // The bootstrap relaunch's prompt seams: the effective planner prompt
       // bytes (packaged overlaid with the project override), its artifact
       // path, and the ticket's rendered context — resolved for THIS run so
@@ -4700,17 +4716,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // pipeline captures the actual diff from the clone and lands it into the
       // CANONICAL worktree; a repo with no ledger row falls back to the
       // canonical model.
-      workspaceCwdOf: (nodeRunId, repoName) => {
-        const gs = graphCoordinatorStore;
-        if (!gs) return undefined;
-        const row = gs.db
-          .prepare(
-            `SELECT cwd FROM approach_graph_workspaces
-             WHERE node_run_id = ? AND repo_name = ? ORDER BY id LIMIT 1`,
-          )
-          .get(nodeRunId, repoName) as { cwd: string } | undefined;
-        return row?.cwd;
-      },
+      workspaceCwdOf: graphPreserve.workspaceCwdOf,
+      preserveWork: graphPreserve.preserveNode,
       cleanupNodeWorkspace: (input) =>
         cleanupTerminalNodeWorkspace(
           {
@@ -4722,6 +4729,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
     };
   };
+  const graphClaimEvidence = createGraphClaimEvidence(graphCompletionPipelineDeps, logError);
 
   // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are
   // REAL vscode terminals, remembered in the identity registry so a reload
@@ -4976,6 +4984,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             facts: systemAsyncProcessFacts,
             // @arch:GRAPHRUN: a clone gets the dependencies of its ticket worktree.
             provisionDeps: createDepsProvisioner({ manifest: currentManifest, run: runProcess, debug: (message) => logger.debug(message) }),
+            ...graphPreserve,
             debug: (message) => logger.debug(message),
           },
           {
@@ -5447,6 +5456,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // failure, exactly where guessing an id costs another cycle.
       plannerVocabularyFor(() => graphCompileContext(launch.graphRunId), graphArtifactRoot(launch.graphRunId), (m) => logger.debug(m)),
       `Replan the graph (superseding revision ${launch.priorRevisionNumber}). The replan reasons and prior plan evidence are under the artifact root: ${launch.reasonsSnapshotPath}. Its claimViolations list names each node that wrote outside its declared write claims, the path and the declared claims: claim the path or move the work.`,
+      'Its preservedWork list names work that was cut off before it was integrated: the node, the patch (a path under the artifact root) and the changed paths. Plan the remaining work, and use the patch as a start.',
       ...(diagnostics ? [diagnostics] : []),
       PLANNER_SUBMIT_INSTRUCTION,
     ].filter(Boolean).join('\n\n');
@@ -5558,6 +5568,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       facts: systemAsyncProcessFacts,
       killTree: systemKillTree,
       sessionFor: (nodeRunId) => graphSessionFor(nodeRunId),
+      preserveWork: graphPreserve.preserveNode,
       resumePipeline: (nodeRunId) => {
         const graphRunId = nodeRunGraphRunId(gs.db, nodeRunId);
         if (graphRunId === undefined) return;
@@ -5597,6 +5608,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!rd.readPrompt || !rd.writeSnapshot || !rd.plannerPromptPath || rd.ticketContext === undefined) {
         return; // the planner launch seams are unwired — nothing to launch
       }
+      await graphPreserve.preserveReplanRequesters(graphRunId);
       const begun = beginReplanPlannerRun(
         {
           db: gs.db,
@@ -5607,6 +5619,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           readPrompt: rd.readPrompt,
           promptPath: rd.plannerPromptPath,
           ticketContext: rd.ticketContext,
+          preservedWorkOf: rd.preservedWorkOf,
         },
         { graphRunId },
       );
@@ -6269,6 +6282,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     shouldApplyHookState,
     sessionProviderFor,
     hookChannelRecorder,
+    // A graph node/planner session's conversation is keyed by its own
+    // workspace, not the ticket worktree; the terminal's launch cwd closes the
+    // gap so those sessions park on a provider error too.
+    terminalWorkspacePath: (terminal) => {
+      const cwd = graphTerminalCwd(terminal as vscode.Terminal);
+      return cwd === '' ? undefined : cwd;
+    },
+    onProviderError: (ticketId, conversationId, text, key) =>
+      interactiveUsageLimit.onAgyError(ticketId, conversationId, text, key),
     debug: (message) => logger.debug(message),
     logError,
   });

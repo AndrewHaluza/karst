@@ -13,8 +13,6 @@ describe('environmentSignature', () => {
     ['an unparseable base check', 'test:unit', 'base check skipped: some vitest failures are not parseable test ids', 'the base check could not parse the vitest failures'],
     ['a non-screenshot failure', 'visual', '1 failure is not a screenshot mismatch: [layout] layout.teardown', 'a failure that is not a screenshot mismatch'],
     ['plural non-screenshot failures', 'visual', '3 failures are not screenshot mismatches: x', 'a failure that is not a screenshot mismatch'],
-    ['the 40-failure skip', 'visual', 'flake re-run skipped: 41 screenshots fail (cap 40), a real break', 'more than 40 failing screenshots (the host environment is suspect)'],
-    ['the wholesale skip', 'visual', '41 screenshots fail (cap 40): base likely drifted wholesale', 'more than 40 failing screenshots (the host environment is suspect)'],
     ['the port window', 'test:integration', 'no free window of 4 ports in [4100, 4200]', 'no free port window'],
     ['a fixture spawn timeout', 'visual', '[WebServer] Failed to generate fixtures: Command failed: spawnSync /bin/sh ETIMEDOUT', 'a gate or test timeout'],
     ['a fixture spawn timeout with ANSI codes', 'visual', '\u001b[2m[WebServer]\u001b[22m Failed to generate fixtures: spawnSync /bin/sh ETIMEDOUT', 'a gate or test timeout'],
@@ -22,6 +20,17 @@ describe('environmentSignature', () => {
     ['a web server that cannot start with ANSI codes', 'visual', '\u001b[31mError: Process from config.webServer was not able to start.\u001b[0m', 'the gate web server could not start'],
   ])('%s gives a reason', (_label, gate, output, reason) => {
     expect(environmentSignature(gate, output)).toBe(reason);
+  });
+
+  it('returns null for a visual run with more screenshot failures than the base-check cap', () => {
+    // T1325: the cap line is a ticket failure, not an environment fault. The brief carries
+    // the re-record rule and the host spends no re-run on the same head.
+    expect(environmentSignature('visual', '92 screenshots fail (cap 40): too many for a per-screenshot base check; the base was not checked')).toBeNull();
+    expect(environmentSignature('visual', 'flake re-run skipped: 41 screenshots fail (cap 40), a real break')).toBeNull();
+  });
+
+  it('returns null for a visual ticket break line', () => {
+    expect(environmentSignature('visual', 'ticket breaks (pass at the base, fail here) — 1:\n  - settings-a')).toBeNull();
   });
 
   it('returns null for an assertion failure', () => {

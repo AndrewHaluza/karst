@@ -68,6 +68,11 @@ export function markerFailedText(label: string, reason: string): string {
   return `${label}: Karst could not mark the implementation as done (${reason}).`;
 }
 
+/** The warning when a host park stops a fix round: the gate failed again with no change (@arch:AC-66). */
+export function fixParkStoppedText(label: string): string {
+  return `${label}: the fix round stopped. The gate failed again with no change; open the ticket and choose Retry gate or Accept and continue.`;
+}
+
 /** A stage as a toast names it (`UAT`, `Review`), never the lower-case slug (@arch:NTF-04). */
 export function stageTitle(stage: string): string {
   return (STAGE_TITLES as Readonly<Record<string, string>>)[stage] ?? stage;

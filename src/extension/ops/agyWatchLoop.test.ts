@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
+import { configureAccounts, resetAccounts, seedSessionLedger } from '../../agent/accounts/registry.js';
 
 import { openStore, type Store } from '../../store/db.js';
 import { createHookChannelRecorder } from '../../diagnostics/hookChannel.js';
@@ -65,7 +66,7 @@ function fixtureDb(dir: string, name: string, workspacePath: string, pending: bo
   const db = new Database(dbPath);
   db.exec(
     'CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);' +
-      'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, metadata BLOB);',
+      'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, metadata BLOB, step_payload BLOB);',
   );
   db.prepare('INSERT INTO trajectory_metadata_blob (id, data) VALUES (?, ?)').run(
     'main',
@@ -112,6 +113,38 @@ function setStepStatus(dbPath: string, idx: number, status: number): void {
   db.close();
 }
 
+/** Encode one protobuf varint (the test-side counterpart of the reader). */
+function pbVarint(value: number): Buffer {
+  const bytes: number[] = [];
+  let rest = value;
+  do {
+    let byte = rest & 0x7f;
+    rest >>>= 7;
+    if (rest > 0) byte |= 0x80;
+    bytes.push(byte);
+  } while (rest > 0);
+  return Buffer.from(bytes);
+}
+
+/** One length-delimited protobuf field carrying a UTF-8 string. */
+function pbString(field: number, text: string): Buffer {
+  const payload = Buffer.from(text, 'utf8');
+  return Buffer.concat([pbVarint((field << 3) | 2), pbVarint(payload.length), payload]);
+}
+
+/** Append a provider-error step (`step_type = 17`) carrying its text in the payload. */
+function insertProviderErrorStep(dbPath: string, idx: number, text: string): void {
+  const db = new Database(dbPath);
+  db.prepare('INSERT INTO steps (idx, step_type, status, step_payload) VALUES (?, 17, 3, ?)').run(
+    idx,
+    pbString(1, text),
+  );
+  db.close();
+}
+
+const QUOTA_STEP_TEXT =
+  'RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h57m43s.';
+
 /** The app-data dir the mocked homedir resolves to. */
 function agyAppDataDir(home: string): string {
   return join(home, '.gemini', 'antigravity-cli');
@@ -151,12 +184,15 @@ function baseDeps(store: Store, overrides: Record<string, unknown> = {}) {
     shouldApplyHookState: () => true,
     sessionProviderFor: () => null,
     hookChannelRecorder: createHookChannelRecorder(),
+    onProviderError: vi.fn(),
+    terminalWorkspacePath: () => undefined,
     debug: vi.fn(),
     logError: vi.fn(),
     ...overrides,
   };
   return deps as AgyWatchLoopDeps & {
     notifyHook: ReturnType<typeof vi.fn>;
+    onProviderError: ReturnType<typeof vi.fn>;
     debug: ReturnType<typeof vi.fn>;
     logError: ReturnType<typeof vi.fn>;
   };
@@ -270,6 +306,179 @@ describe('createAgyWatchLoop', () => {
       // No summary DB in the fixture → the run status is UNKNOWN, not running.
       idle: null,
     });
+  });
+
+  it('reports the newest provider-error step with the conversation id and its idx key, on every sweep', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    const conversationId = '11111111-1111-4111-8111-111111111111';
+    const dbPath = fixtureDb(dir, conversationId, worktreePath, false);
+    insertProviderErrorStep(dbPath, 2, 'quota exceeded (older)');
+    insertProviderErrorStep(dbPath, 7, QUOTA_STEP_TEXT);
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key) VALUES ('T-1')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+    });
+
+    const loop = createAgyWatchLoop(deps);
+    withHome(dir, () => loop.run());
+    withHome(dir, () => loop.run());
+
+    // The loop reports the step every sweep it exists; the binding's once-key
+    // (conversation id + step idx) is what turns it into one offer.
+    expect(deps.onProviderError).toHaveBeenCalledTimes(2);
+    expect(deps.onProviderError).toHaveBeenCalledWith(
+      ticketId,
+      conversationId,
+      expect.stringContaining('RESOURCE_EXHAUSTED (code 429)'),
+      `${conversationId}:7`,
+    );
+  });
+
+  it('does not report a provider error when the conversation has no step_type 17 row', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    fixtureDb(dir, '11111111-1111-4111-8111-111111111111', worktreePath, false);
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key) VALUES ('T-1')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+    });
+
+    const loop = createAgyWatchLoop(deps);
+    withHome(dir, () => loop.run());
+
+    expect(deps.onProviderError).not.toHaveBeenCalled();
+  });
+
+  it('finds a graph session conversation by the terminal workspace, not only the ticket worktree', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    // The ticket worktree and the graph node workspace are DIFFERENT trees: a
+    // graph node session writes its conversation with the node workspace as cwd.
+    const worktreePath = join(dir, 'wt');
+    const nodeWorkspace = join(dir, 'graph-node-workspace');
+    mkdirSync(worktreePath, { recursive: true });
+    mkdirSync(nodeWorkspace, { recursive: true });
+    const conversationId = '22222222-2222-4222-8222-222222222222';
+    const dbPath = fixtureDb(dir, conversationId, nodeWorkspace, false);
+    insertProviderErrorStep(dbPath, 3, QUOTA_STEP_TEXT);
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key) VALUES ('T-1')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+    const terminal = { cwd: nodeWorkspace };
+    const deps = baseDeps(store, {
+      listTerminals: () => [terminal],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      terminalWorkspacePath: (t: unknown) => (t as { cwd?: string }).cwd,
+    });
+
+    const loop = createAgyWatchLoop(deps);
+    withHome(dir, () => loop.run());
+
+    expect(deps.onProviderError).toHaveBeenCalledWith(
+      ticketId,
+      conversationId,
+      expect.stringContaining('Individual quota reached'),
+      `${conversationId}:3`,
+    );
+  });
+
+  function providerErrorSetup(workspace: (dir: string, wt: string) => string, home: (dir: string) => string = (d) => d) {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    const dbPath = fixtureDb(home(dir), '33333333-3333-4333-8333-333333333333', workspace(dir, worktreePath), false);
+    insertProviderErrorStep(dbPath, 4, QUOTA_STEP_TEXT);
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key, session_id) VALUES ('T-1', 'sess-1')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+    return { store, ticketId };
+  }
+
+  it('falls back to the host app-data dir when the sandbox app-data dir does not exist', () => {
+    const { store, ticketId } = providerErrorSetup((_d, wt) => wt);
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      sandboxAppDataDir: () => join(dir, 'missing-sandbox'),
+    });
+    withHome(dir, () => createAgyWatchLoop(deps).run());
+    expect(deps.onProviderError).toHaveBeenCalledTimes(1);
+  });
+
+  it('works without a terminalWorkspacePath dep and ignores a foreign workspace', () => {
+    const { store, ticketId } = providerErrorSetup(() => 'Stryker was here');
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      terminalWorkspacePath: undefined,
+    });
+    withHome(dir, () => createAgyWatchLoop(deps).run());
+    expect(deps.onProviderError).not.toHaveBeenCalled();
+    expect(deps.logError).not.toHaveBeenCalled();
+  });
+
+  it('reads the app-data dir of the account that started the session', () => {
+    const { store, ticketId } = providerErrorSetup(
+      (_d, wt) => wt,
+      (d) => join(d, 'work-home'),
+    );
+    configureAccounts({
+      antigravity: {
+        active: 'other',
+        list: {
+          work: { kind: 'subscription', source: 'folder', dir: join(dir, 'work-home', '.gemini', 'antigravity-cli') },
+          other: { kind: 'subscription', source: 'folder', dir: join(dir, 'other-home') },
+        },
+      },
+    });
+    seedSessionLedger({ 'antigravity:sess-1': 'work' });
+    try {
+      const deps = baseDeps(store, {
+        listTerminals: () => [{}],
+        identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      });
+      withHome(dir, () => createAgyWatchLoop(deps).run());
+      expect(deps.onProviderError).toHaveBeenCalledTimes(1);
+    } finally {
+      resetAccounts();
+      seedSessionLedger({});
+    }
+  });
+
+  it('logs a failing provider-error report and keeps sweeping', () => {
+    const { store, ticketId } = providerErrorSetup((_d, wt) => wt);
+    const failure = new Error('boom');
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      onProviderError: vi.fn(() => {
+        throw failure;
+      }),
+    });
+    withHome(dir, () => createAgyWatchLoop(deps).run());
+    expect(deps.logError).toHaveBeenCalledWith(
+      `karst: agy provider-error report failed for ticket ${ticketId}`,
+      failure,
+    );
   });
 
   it('does not persist per-ticket lifecycle state when no conversation DB is found yet', () => {

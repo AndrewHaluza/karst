@@ -50,6 +50,50 @@ describe('summarizeGateFailure', () => {
   });
 });
 
+describe('ticket-break header', () => {
+  const HEADER = 'ticket breaks (pass at the base, fail here) — 37:';
+  const sweep = [
+    'visual sweep: 3 views, 3 projects',
+    'base check: re-ran 10 failing screenshots at the base',
+    HEADER,
+    ...Array.from({ length: 10 }, (_, k) => `  - settings: settings-a-mode-${k} 'mode ${k}' 1440x900 12 px (ratio 0.01)`),
+    '  and 27 more (37 total)',
+    'visual timing: 104.2 s',
+  ].join('\n');
+
+  it('leads with the header when the tail cut would drop it', () => {
+    const summary = summarizeGateFailure(sweep)!;
+    expect(summary.length).toBeLessThanOrEqual(MAX_GATE_SUMMARY_CHARS);
+    expect(summary.split('\n')[0]).toBe(HEADER);
+    expect(summary).toContain('visual timing: 104.2 s');
+  });
+
+  it('keeps the summary unchanged when the header is already in the tail', () => {
+    const out = [HEADER, '  - settings: settings-a', '  - settings: settings-b'].join('\n');
+    expect(summarizeGateFailure(out)).toBe(
+      [HEADER, '- settings: settings-a', '- settings: settings-b'].join('\n'),
+    );
+  });
+
+  it('keeps the summary unchanged when the output has no header', () => {
+    const out = ['Checking formatting...', 'src/a.vue:1:1 Replace `x` with `y`'].join('\n');
+    expect(summarizeGateFailure(out)).toBe(out);
+  });
+
+  it('does not add a ticket-breaks line for a base-drift-only header', () => {
+    const out = [
+      'base drift (develop drift, not this ticket) — 12:',
+      ...Array.from({ length: 12 }, (_, k) => `  - settings: settings-a-mode-${k} 'mode ${k}' 1440x900 12 px (ratio 0.01)`),
+      'NOTICE: develop has 12 drifted screenshots; see D311-style cleanup',
+    ].join('\n');
+    const summary = summarizeGateFailure(out)!;
+    expect(summary).not.toContain('ticket breaks');
+    expect(summary.startsWith('base drift')).toBe(false);
+    expect(summary.startsWith('…')).toBe(true);
+    expect(summary).toContain('NOTICE: develop has 12 drifted screenshots');
+  });
+});
+
 describe('vitest output', () => {
   const E = '\u001b';
   const out = [

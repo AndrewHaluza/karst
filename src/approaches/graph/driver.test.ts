@@ -1680,6 +1680,7 @@ describe('driveReadyNodeRuns', () => {
         outcome ?? {
           kind: 'created' as const,
           paths: [{ repoName: 'api', cwd: join(h.root, 'ws'), domainKey: 'd-api' }],
+          restored: false,
         }
       );
     });
@@ -1847,6 +1848,23 @@ describe('driveReadyNodeRuns', () => {
       .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
       .get(graphRunId) as { blocked_reason: string };
     expect(run.blocked_reason).toBe(`graph-live-process: node run ${nodeRunId}`);
+  });
+
+  it('parks a failed preserve as graph-preserve-failed, never automatically retried', async () => {
+    const { h, graphRunId, nodeRunId } = await launchTwoRepoNode({
+      kind: 'preserve-failed',
+      reason: 'disk full',
+    });
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toBe(`graph-preserve-failed: node run ${nodeRunId} (disk full)`);
+    expect(recoveryCategoryFor(run.blocked_reason)).toBe('config-then-resume');
+    const node = h.db
+      .prepare('SELECT failure_category FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { failure_category: string };
+    expect(node.failure_category).toBe('failed-to-launch');
   });
   describe('claim before workspace', () => {
     function gate(): { promise: Promise<void>; open: () => void } {

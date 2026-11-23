@@ -1224,6 +1224,24 @@ describe('dynamic graph e2e — autonomous coordinator topologies', () => {
     }
   });
 
+  it('a node that reports `blocked` with only in-claim work settles as node-blocked (T1323)', async () => {
+    const h = makeHarness();
+    try {
+      const { graphRunId } = await bootAndSubmit(h);
+      await tickGraphRun(h, graphRunId);
+      const impl = runOf(h, graphRunId, 'impl');
+      writeInWorkspace(h, impl, 'src/inside.ts', 'ok\n');
+      expect(reportNode(h, graphRunId, impl, 'blocked', 'missing credentials').ok).toBe(true);
+      expect(await tickGraphRun(h, graphRunId)).toBe('blocked');
+      const run = h.store.db
+        .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
+        .get(graphRunId) as { blocked_reason: string };
+      expect(run.blocked_reason).toMatch(/^node-blocked: node \d+ \(missing credentials\)$/);
+    } finally {
+      h.close();
+    }
+  });
+
   it('repairs an invalid graph.json: the re-prompt carries the planner vocabulary, attempt 2 completes', async () => {
     const h = makeHarness();
     try {
@@ -1425,6 +1443,34 @@ describe('dynamic graph e2e — automatic recovery of a blocked run (no human ac
       expect(await tickUntil(h, graphRunId, (s) => s === 'completed-awaiting-impl-marker')).toBe(
         'completed-awaiting-impl-marker',
       );
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a node that reports `blocked` with an out-of-claim path parks the run on the claim violation and the sweep replans (T1323)', async () => {
+    const h = makeHarness();
+    try {
+      const { graphRunId } = await bootAndSubmit(h);
+      await tickGraphRun(h, graphRunId);
+      const impl = runOf(h, graphRunId, 'impl');
+      writeInWorkspace(h, impl, 'outside.ts', 'changed\n');
+      expect(reportNode(h, graphRunId, impl, 'blocked', 'needs outside.ts').ok).toBe(true);
+      expect(await tickGraphRun(h, graphRunId)).toBe('blocked');
+      const run = h.store.db
+        .prepare('SELECT blocked_reason FROM approach_graph_runs WHERE id = ?')
+        .get(graphRunId) as { blocked_reason: string };
+      expect(run.blocked_reason).toBe('resource-claim-violated: outside.ts');
+
+      // The violation is the evidence: the sweep replans and the reasons name it.
+      const { results } = await autoRecoverSweep(h);
+      expect(results.map((r) => r.kind)).toEqual(['replanned']);
+      expect(graphRunStatus(h.store.db, graphRunId)).toBe('draining');
+      const reasonsPath = (results[0] as Extract<RecoveryResult, { kind: 'replanned' }>).launch!.reasonsSnapshotPath;
+      const reasons = JSON.parse(readFileSync(join(h.artifactRoot, reasonsPath), 'utf8')) as {
+        claimViolations: { node: string; evidence: string }[];
+      };
+      expect(reasons.claimViolations.map((v) => v.node)).toEqual(['impl']);
     } finally {
       h.close();
     }

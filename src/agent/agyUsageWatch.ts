@@ -1,3 +1,5 @@
+import { readTag, readVarint, skipField, type ProtoReader } from './protobuf.js';
+
 /**
  * Per-call usage extracted from one model-generate step's metadata.
  */
@@ -39,59 +41,6 @@ export type AgyUsageEvent = {
     total: number;
   };
 };
-
-// ---------------------------------------------------------------------------
-// Minimal protobuf reader — just enough to walk field tags and read varints
-// inside nested submessages. No imports, no dependencies.
-// ---------------------------------------------------------------------------
-
-interface ProtoReader {
-  buf: Buffer;
-  pos: number;
-}
-
-function readVarint(r: ProtoReader): number | null {
-  let result = 0;
-  let shift = 0;
-  while (r.pos < r.buf.length) {
-    const byte = r.buf[r.pos]!;
-    r.pos++;
-    result |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) return result;
-    shift += 7;
-    if (shift > 35) return null; // varint too long
-  }
-  return null; // unterminated
-}
-
-function readTag(r: ProtoReader): { field: number; wire: number } | null {
-  if (r.pos >= r.buf.length) return null;
-  const v = readVarint(r);
-  if (v === null) return null;
-  return { field: v >>> 3, wire: v & 7 };
-}
-
-function skipField(r: ProtoReader, wire: number): boolean {
-  switch (wire) {
-    case 0: // varint
-      return readVarint(r) !== null;
-    case 1: // 64-bit
-      r.pos += 8;
-      return r.pos <= r.buf.length;
-    case 2: {
-      // length-delimited
-      const len = readVarint(r);
-      if (len === null) return false;
-      r.pos += len;
-      return r.pos <= r.buf.length;
-    }
-    case 5: // 32-bit
-      r.pos += 4;
-      return r.pos <= r.buf.length;
-    default:
-      return false; // unknown wire type — stop walking
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Protobuf walking — top-level scan for field 9, then inner walk of the
