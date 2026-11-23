@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
+import { configureAccounts, resetAccounts, seedSessionLedger } from '../../agent/accounts/registry.js';
 
 import { openStore, type Store } from '../../store/db.js';
 import { createHookChannelRecorder } from '../../diagnostics/hookChannel.js';
@@ -395,6 +396,88 @@ describe('createAgyWatchLoop', () => {
       conversationId,
       expect.stringContaining('Individual quota reached'),
       `${conversationId}:3`,
+    );
+  });
+
+  function providerErrorSetup(workspace: (dir: string, wt: string) => string, home: (dir: string) => string = (d) => d) {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    const dbPath = fixtureDb(home(dir), '33333333-3333-4333-8333-333333333333', workspace(dir, worktreePath), false);
+    insertProviderErrorStep(dbPath, 4, QUOTA_STEP_TEXT);
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key, session_id) VALUES ('T-1', 'sess-1')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+    return { store, ticketId };
+  }
+
+  it('falls back to the host app-data dir when the sandbox app-data dir does not exist', () => {
+    const { store, ticketId } = providerErrorSetup((_d, wt) => wt);
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      sandboxAppDataDir: () => join(dir, 'missing-sandbox'),
+    });
+    withHome(dir, () => createAgyWatchLoop(deps).run());
+    expect(deps.onProviderError).toHaveBeenCalledTimes(1);
+  });
+
+  it('works without a terminalWorkspacePath dep and ignores a foreign workspace', () => {
+    const { store, ticketId } = providerErrorSetup(() => 'Stryker was here');
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      terminalWorkspacePath: undefined,
+    });
+    withHome(dir, () => createAgyWatchLoop(deps).run());
+    expect(deps.onProviderError).not.toHaveBeenCalled();
+    expect(deps.logError).not.toHaveBeenCalled();
+  });
+
+  it('reads the app-data dir of the account that started the session', () => {
+    const { store, ticketId } = providerErrorSetup(
+      (_d, wt) => wt,
+      (d) => join(d, 'work-home'),
+    );
+    configureAccounts({
+      antigravity: {
+        active: 'other',
+        list: {
+          work: { kind: 'subscription', source: 'folder', dir: join(dir, 'work-home', '.gemini', 'antigravity-cli') },
+          other: { kind: 'subscription', source: 'folder', dir: join(dir, 'other-home') },
+        },
+      },
+    });
+    seedSessionLedger({ 'antigravity:sess-1': 'work' });
+    try {
+      const deps = baseDeps(store, {
+        listTerminals: () => [{}],
+        identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      });
+      withHome(dir, () => createAgyWatchLoop(deps).run());
+      expect(deps.onProviderError).toHaveBeenCalledTimes(1);
+    } finally {
+      resetAccounts();
+      seedSessionLedger({});
+    }
+  });
+
+  it('logs a failing provider-error report and keeps sweeping', () => {
+    const { store, ticketId } = providerErrorSetup((_d, wt) => wt);
+    const failure = new Error('boom');
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => ({ ticketId, identity: { provider: 'antigravity' } }),
+      onProviderError: vi.fn(() => {
+        throw failure;
+      }),
+    });
+    withHome(dir, () => createAgyWatchLoop(deps).run());
+    expect(deps.logError).toHaveBeenCalledWith(
+      `karst: agy provider-error report failed for ticket ${ticketId}`,
+      failure,
     );
   });
 
