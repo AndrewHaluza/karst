@@ -332,6 +332,61 @@ describe('runNodeCommand — capability-authenticated one-shot completion', () =
   });
 });
 
+describe('runNodeCommand — a node that is live in a replan drain', () => {
+  function drainHarness(revisionStatus: string): Ctx {
+    const ctx = harness();
+    ctx.db
+      .prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?")
+      .run(ctx.graphRunId);
+    ctx.db
+      .prepare('UPDATE approach_graph_revisions SET status = ? WHERE id = ?')
+      .run(revisionStatus, ctx.revisionId);
+    insertNodeRun(ctx.db, ctx);
+    return ctx;
+  }
+
+  function run(ctx: Ctx, argv: string[], env = ctx.env): Record<string, unknown> {
+    return JSON.parse(runNodeCommand(ctx.store, env, argv)) as Record<string, unknown>;
+  }
+
+  function nodeState(ctx: Ctx): unknown {
+    return ctx.db.prepare('SELECT status, outcome, reason FROM approach_node_runs WHERE id = 1').get();
+  }
+
+  it('complete is accepted and moves the node to completing', () => {
+    const ctx = drainHarness('draining');
+    expect(run(ctx, ['node', 'complete'])).toMatchObject({ ok: true, outcome: 'complete' });
+    expect(nodeState(ctx)).toEqual({ status: 'completing', outcome: 'complete', reason: null });
+  });
+
+  it('block is accepted and records the reason', () => {
+    const ctx = drainHarness('draining');
+    expect(run(ctx, ['node', 'block', '--reason', 'stuck'])).toMatchObject({
+      ok: true,
+      outcome: 'blocked',
+    });
+    expect(nodeState(ctx)).toEqual({ status: 'blocked', outcome: 'blocked', reason: 'stuck' });
+  });
+
+  it('a wrong capability is still refused', () => {
+    const ctx = drainHarness('draining');
+    expect(
+      run(ctx, ['node', 'complete'], envOf(ctx, { KARST_GRAPH_CAPABILITY: 'wrong' })),
+    ).toMatchObject({ ok: false, rejected: 'wrong-capability' });
+    expect(nodeState(ctx)).toMatchObject({ status: 'running', outcome: null });
+  });
+
+  it.each(['superseded', 'completed'])('a node of a %s revision is refused', (revisionStatus) => {
+    const ctx = drainHarness(revisionStatus);
+    expect(run(ctx, ['node', 'complete'])).toEqual({
+      ok: false,
+      rejected: 'unknown-outcome',
+      reason: 'node "worker-a" has no pinned definition in the active revision',
+    });
+    expect(nodeState(ctx)).toMatchObject({ status: 'running', outcome: null });
+  });
+});
+
 describe('replan precondition (Decision 27)', () => {
   function lineageHarness(): { ctx: Ctx } {
     const ctx = harness();

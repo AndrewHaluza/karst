@@ -69,6 +69,12 @@
  * The graph run blocks with `resource-claim-violated` / `integration-conflict`
  * (its `blocked_reason` carries the category); recovery/replan is the
  * graph-aware Resume of Slice-3 Task 9/10.
+ *
+ * A REPLAN DRAIN (T1322) runs the same pipeline: a node that was live at the
+ * election integrates its work, and `completeActivation` makes no successor.
+ * The run block is CAS `running → blocked`, so it changes nothing in a drain
+ * (the drain is already the recovery); each node park keeps its category and
+ * reason for the replan planner. A Stop drain is a no-op.
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
@@ -105,6 +111,7 @@ import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/re
 import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
 import { attributeOf, processOf } from '../coordinator/reconcile.js';
+import { inReplanDrain } from '../coordinator/replanDrain.js';
 import type { ProcessFactsSource } from '../../../runtime/serverIdentity.js';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -198,6 +205,12 @@ function blockGraphRun(
       markGraphRunBlocked(deps.db, graphRunId, reason, deps.now());
     }
   });
+}
+
+/** The run drains for a replan NOW: a node that is live in this drain completes
+ *  and integrates, and it makes no successor. A Stop drain is not one. */
+function drainsForReplan(db: GraphDb, graphRunId: number): boolean {
+  return graphRunIdStatus(db, graphRunId)?.status === 'draining' && inReplanDrain(db, graphRunId);
 }
 
 /** Bounded single-line reason from git stderr (the rest is for the log). */
@@ -542,7 +555,8 @@ export async function runCompletionPipeline(
   deps: CompletionPipelineDeps,
   input: { graphRunId: number; nodeRunId: number },
 ): Promise<CompletionPipelineResult> {
-  if (graphRunIdStatus(deps.db, input.graphRunId)?.status !== 'running') return { kind: 'no-op' };
+  const runStatus = graphRunIdStatus(deps.db, input.graphRunId)?.status;
+  if (runStatus !== 'running' && !drainsForReplan(deps.db, input.graphRunId)) return { kind: 'no-op' };
   const node = nodeRunIntegrationRef(deps.db, input.nodeRunId);
   if (!node || (node.status !== 'completing' && node.status !== 'integrating')) return { kind: 'no-op' };
 
@@ -678,11 +692,18 @@ export async function runCompletionPipeline(
       capture = await captureDomainChangeSet(deps, input.nodeRunId, domain);
     } catch (err) {
       graphDiag('integration', `change-set capture failed for ${domain.repoNames.join('/')}: ${String(err)}`);
-      blockGraphRun(
-        deps,
-        input.graphRunId,
-        `integration-conflict: change-set capture failed for ${domain.repoNames.join('/')}`,
-      );
+      const reason = `integration-conflict: change-set capture failed for ${domain.repoNames.join('/')}`;
+      blockGraphRun(deps, input.graphRunId, reason);
+      // The block changes nothing in a drain, and a node that stays
+      // `integrating` holds a replan drain open. Read the run again: the
+      // election can land during this pipeline.
+      if (drainsForReplan(deps.db, input.graphRunId)) {
+        parkNode(deps, input.nodeRunId, 'integrating', 'blocked', {
+          outcome: 'failed',
+          failureCategory: 'integration-conflict',
+          reason,
+        });
+      }
       return { kind: 'integration-conflict', reason: 'change-set capture failed' };
     }
     captured.set(domain.key, capture);

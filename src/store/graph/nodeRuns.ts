@@ -461,10 +461,10 @@ export function nodeRunIntegrationRef(
 export function nodeRunClaimedWritesRef(
   db: GraphDb,
   id: number,
-): Pick<NodeRunRow, 'node_id' | 'node_kind' | 'graph_run_id'> | undefined {
+): Pick<NodeRunRow, 'node_id' | 'node_kind' | 'graph_run_id' | 'revision_id'> | undefined {
   return db
-    .prepare('SELECT node_id, node_kind, graph_run_id FROM approach_node_runs WHERE id = ?')
-    .get(id) as Pick<NodeRunRow, 'node_id' | 'node_kind' | 'graph_run_id'> | undefined;
+    .prepare('SELECT node_id, node_kind, graph_run_id, revision_id FROM approach_node_runs WHERE id = ?')
+    .get(id) as Pick<NodeRunRow, 'node_id' | 'node_kind' | 'graph_run_id' | 'revision_id'> | undefined;
 }
 
 /** The (node run id, pid) pairs of a graph run's processes, in id order. A

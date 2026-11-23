@@ -765,6 +765,81 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.transitions).toBe(1); // the node cancellation
   });
 
+  describe('a replan drain whose node has a session in this window', () => {
+    const PID = 4801;
+    const withSession = (nodeRunId: number): Partial<ReconcileGraphRunDeps> => ({
+      sessionFor: (id) => (id === nodeRunId ? { pid: PID } : undefined),
+    });
+    const aliveFacts = makeFacts({ alive: { [PID]: true }, startMs: { [PID]: Date.parse(NOW) } });
+    const deadFacts = makeFacts({ alive: { [PID]: false } });
+    const foreignFacts = makeFacts({ alive: { [PID]: true }, startMs: { [PID]: 1 } });
+    const unknownFacts = makeFacts({ alive: { [PID]: true } });
+
+    /** Reconcile a replan drain that holds one node run. */
+    async function reconcileDrain(
+      id: number,
+      status: string,
+      overrides: Partial<ReconcileGraphRunDeps>,
+      pid: number | null = PID,
+    ): Promise<string> {
+      toDraining(ctx);
+      if (pid !== null) linkProcess(ctx, id, pid, NOW);
+      insertNodeRun(ctx, id, status, { processRunId: pid === null ? null : id });
+      await reconcileGraphRun(ctx.makeDeps(overrides), { graphRunId: ctx.graphRunId });
+      expect(runRow(ctx).status).toBe('draining');
+      return nodeRow(ctx, id).status;
+    }
+
+    // The registry keeps a session until its tab closes, so a `blocked` row is
+    // judged by its recorded process and never by the session.
+    it.each([
+      { name: 'dead', facts: deadFacts, expected: 'cancelled' },
+      { name: 'foreign', facts: foreignFacts, expected: 'cancelled' },
+      { name: 'attributable', facts: aliveFacts, expected: 'blocked' },
+      { name: 'unknown', facts: unknownFacts, expected: 'blocked' },
+    ])('a blocked row whose process is $name ends $expected', async ({ facts, expected }) => {
+      expect(await reconcileDrain(160, 'blocked', { ...withSession(160), facts })).toBe(expected);
+    });
+
+    it('a blocked row with a session and no pid is left alone', async () => {
+      expect(await reconcileDrain(161, 'blocked', withSession(161), null)).toBe('blocked');
+    });
+
+    it('a blocked row with no session and no pid is cancelled', async () => {
+      expect(await reconcileDrain(162, 'blocked', {}, null)).toBe('cancelled');
+    });
+
+    it.each(['running', 'launching', 'failed-to-launch'])(
+      'a %s row with a dead process keeps the session skip',
+      async (status) => {
+        expect(await reconcileDrain(163, status, { ...withSession(163), facts: deadFacts })).toBe(status);
+      },
+    );
+
+    it('a completing row keeps the session skip: it is not handed to the pipeline', async () => {
+      const resumed: number[] = [];
+      const status = await reconcileDrain(164, 'completing', {
+        ...withSession(164),
+        facts: deadFacts,
+        resumePipeline: (id) => resumed.push(id),
+      });
+      expect(status).toBe('completing');
+      expect(resumed).toEqual([]);
+    });
+
+    it('a blocked replan requester is never cancelled, even with a dead process', async () => {
+      toDraining(ctx);
+      linkProcess(ctx, 165, PID, NOW);
+      insertNodeRun(ctx, 165, 'blocked', { processRunId: 165 });
+      ctx.db.prepare("UPDATE approach_node_runs SET outcome = 'replan' WHERE id = 165").run();
+      await reconcileGraphRun(
+        ctx.makeDeps({ ...withSession(165), facts: deadFacts }),
+        { graphRunId: ctx.graphRunId },
+      );
+      expect(nodeRow(ctx, 165).status).toBe('blocked');
+    });
+  });
+
   it('refunds the cancelled node’s node-run budget when self-healing', async () => {
     // A cancelled visit produced no outcome, so its reservation must be released
     // — otherwise a near-ceiling graph refuses the replacement work.
