@@ -19,8 +19,22 @@
   display:inline-flex;align-items:center;gap:var(--k-space-2);
   font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap}
 
-/* One row per decoded line; the segments inside are the ANSI runs. */
-.logsview .logline{white-space:pre-wrap;word-break:break-all;padding:0 var(--k-space-4)}
+/* One row per decoded line; the segments inside are the ANSI runs. Wrapping
+   breaks anywhere inside an unbroken token (a URL, a hash) rather than pushing
+   the page wide (UI-R45); Wrap off pins the lines and scrolls the log host.
+   Each run is its own inline box: an inline run that wraps reports the union of
+   its line boxes, which reads as an overlap with the run beside it (the gate's
+   `sibling-overlap`). A box that wraps internally reports one rectangle. */
+.logsview .logline{white-space:pre-wrap;overflow-wrap:anywhere;padding:0 var(--k-space-4)}
+.logsview .logline > span{display:inline-block;max-width:100%}
+.logsview.nowrap .logline{white-space:pre;overflow-wrap:normal}
+.logsview.nowrap .loghost{overflow-x:auto}
+
+/* The one-line note above a tail-read or line-capped log (LG-1, LG-5). */
+.logsview .logtrunc{
+  padding:var(--k-space-2) var(--k-space-4);margin-bottom:var(--k-space-2);
+  font-size:var(--k-text-xs);color:var(--k-text-dim);
+  border-bottom:var(--k-border-w) solid var(--k-border)}
 .logsview .logline:first-child{padding-top:var(--k-space-3)}
 .logsview .logline:last-child{padding-bottom:var(--k-space-3)}
 .logsview .logline .service-prefix{font-weight:var(--k-weight-semibold);color:var(--k-accent)}
@@ -58,6 +72,66 @@
 .logsview .k-ansi-fg-bright-cyan{color:var(--vscode-terminal-ansiBrightCyan)}
 .logsview .k-ansi-fg-bright-white{color:var(--vscode-terminal-ansiBrightWhite)}
 
+/* Light and high contrast: the terminal palette falls below AA on those
+   backgrounds (G6), so the foregrounds come from the design system's meaning
+   tokens instead. Dark keeps the terminal palette (Q8). */
+body.vscode-light .logsview .k-ansi-fg-black,
+body.vscode-light .logsview .k-ansi-fg-bright-black{color:var(--k-text-dim)}
+body.vscode-light .logsview .k-ansi-fg-red,
+body.vscode-light .logsview .k-ansi-fg-bright-red{color:var(--k-danger)}
+body.vscode-light .logsview .k-ansi-fg-green,
+body.vscode-light .logsview .k-ansi-fg-bright-green{color:var(--k-success)}
+body.vscode-light .logsview .k-ansi-fg-yellow,
+body.vscode-light .logsview .k-ansi-fg-bright-yellow{color:var(--k-warning)}
+body.vscode-light .logsview .k-ansi-fg-blue,
+body.vscode-light .logsview .k-ansi-fg-bright-blue{color:var(--k-link)}
+body.vscode-light .logsview .k-ansi-fg-magenta,
+body.vscode-light .logsview .k-ansi-fg-cyan,
+body.vscode-light .logsview .k-ansi-fg-white,
+body.vscode-light .logsview .k-ansi-fg-bright-magenta,
+body.vscode-light .logsview .k-ansi-fg-bright-cyan,
+body.vscode-light .logsview .k-ansi-fg-bright-white{color:var(--k-text)}
+
+body.vscode-high-contrast .logsview .k-ansi-fg-black,
+body.vscode-high-contrast .logsview .k-ansi-fg-bright-black{color:var(--k-text-dim)}
+body.vscode-high-contrast .logsview .k-ansi-fg-red,
+body.vscode-high-contrast .logsview .k-ansi-fg-bright-red{color:var(--k-danger)}
+body.vscode-high-contrast .logsview .k-ansi-fg-green,
+body.vscode-high-contrast .logsview .k-ansi-fg-bright-green{color:var(--k-success)}
+body.vscode-high-contrast .logsview .k-ansi-fg-yellow,
+body.vscode-high-contrast .logsview .k-ansi-fg-bright-yellow{color:var(--k-warning)}
+body.vscode-high-contrast .logsview .k-ansi-fg-blue,
+body.vscode-high-contrast .logsview .k-ansi-fg-bright-blue{color:var(--k-link)}
+body.vscode-high-contrast .logsview .k-ansi-fg-magenta,
+body.vscode-high-contrast .logsview .k-ansi-fg-cyan,
+body.vscode-high-contrast .logsview .k-ansi-fg-white,
+body.vscode-high-contrast .logsview .k-ansi-fg-bright-magenta,
+body.vscode-high-contrast .logsview .k-ansi-fg-bright-cyan,
+body.vscode-high-contrast .logsview .k-ansi-fg-bright-white{color:var(--k-text)}
+
+body.vscode-high-contrast-light .logsview .k-ansi-fg-black,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-bright-black{color:var(--k-text-dim)}
+body.vscode-high-contrast-light .logsview .k-ansi-fg-red,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-bright-red{color:var(--k-danger)}
+body.vscode-high-contrast-light .logsview .k-ansi-fg-green,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-bright-green{color:var(--k-success)}
+body.vscode-high-contrast-light .logsview .k-ansi-fg-yellow,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-bright-yellow{color:var(--k-warning)}
+body.vscode-high-contrast-light .logsview .k-ansi-fg-blue,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-bright-blue{color:var(--k-link)}
+body.vscode-high-contrast-light .logsview .k-ansi-fg-magenta,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-cyan,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-white,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-bright-magenta,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-bright-cyan,
+body.vscode-high-contrast-light .logsview .k-ansi-fg-bright-white{color:var(--k-text)}
+
+/* Dim means "secondary text" in those themes, not an opacity that drops the
+   terminal colour below AA. */
+body.vscode-light .logsview .k-ansi-dim,
+body.vscode-high-contrast .logsview .k-ansi-dim,
+body.vscode-high-contrast-light .logsview .k-ansi-dim{opacity:1;color:var(--k-text-dim)}
+
 /* Backgrounds, same order. */
 .logsview .k-ansi-bg-black{background:var(--vscode-terminal-ansiBlack)}
 .logsview .k-ansi-bg-red{background:var(--vscode-terminal-ansiRed)}
@@ -75,3 +149,8 @@
 .logsview .k-ansi-bg-bright-magenta{background:var(--vscode-terminal-ansiBrightMagenta)}
 .logsview .k-ansi-bg-bright-cyan{background:var(--vscode-terminal-ansiBrightCyan)}
 .logsview .k-ansi-bg-bright-white{background:var(--vscode-terminal-ansiBrightWhite)}
+
+/* The service tab's status echo (LG-14): the shape carries the state, the word
+   says it, and the word is secondary text — never colour alone (UI-R28). */
+.logsview .k-tab-mark{color:inherit;margin-right:var(--k-space-1)}
+.logsview .k-tab-status{color:var(--k-text-dim);font-weight:var(--k-weight-normal)}

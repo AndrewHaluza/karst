@@ -56,6 +56,20 @@ export interface ReviewFindingSeed {
   detail: string;
   source: 'agent' | 'human';
 }
+/** A seeded `servers` row: the Servers tab and Server logs fixtures (T1317, real-host step 1). */
+export interface ServerSeed {
+  /** The key of a ticket the same file seeds; the row belongs to it. */
+  ticket: string;
+  /** The service name, which is `servers.repo` and the log file's name. */
+  service: string;
+  /** `running` spawns a process that holds `port`; `failed` writes the reason with no process. */
+  status: 'running' | 'failed';
+  port: number;
+  /** The short reason a `failed` row shows (`servers.last_error`). Required for `failed`. */
+  lastError?: string;
+  /** Bytes of log to write at `serverLogPath`; absent or 0 writes no log. */
+  logBytes?: number;
+}
 /** The small allow-list of tables a fixture file may fill to model stranded/recovery/engine states. */
 export interface RowSeeds {
   stageRuns: StageRunSeed[];
@@ -105,6 +119,8 @@ export interface FixtureSpec {
   /** When set, the workspace manifest declares this repo and its gates instead of the stock `app`. */
   taskRepo?: TaskRepo;
   tickets: TicketSeed[];
+  /** Seeded `servers` rows, so the Servers tab and Server logs have something to read. */
+  servers?: ServerSeed[];
   /** Manifest `agentProvider`; defaults to claude. */
   provider?: string;
   /** Written into the scratch manifest as `autopilot:` (JSON is YAML flow). */

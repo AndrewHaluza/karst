@@ -8,12 +8,26 @@ import type { WorktreeStats } from './worktreeStats.js';
 import type { GateOptions } from './gateOptions.js';
 import type { StageLogResult, AgentProcessId } from './messages.js';
 
+/** Why an entry has no content (`ok` carries the newest output). */
+export type ServerLogEntryState = 'ok' | 'empty' | 'no-path' | 'unreadable';
+
 /**
  * One server's log content as the logs surface receives it. The standalone
  * server-logs panel imports this rather than redeclaring the shape, so the two
  * hosts can never drift.
+ *
+ * `state`/`message` distinguish "not written yet" and "cannot read" from an
+ * empty log (LG-8); `status` is the RS-17 status word the tab label carries
+ * (LG-14, filled by the Servers page host).
  */
-export type ServerLogEntry = { service: string; content: string; truncated: boolean };
+export type ServerLogEntry = {
+  service: string;
+  content: string;
+  truncated: boolean;
+  state?: ServerLogEntryState;
+  message?: string;
+  status?: string;
+};
 
 /**
  * Host → webview messages. `state` pushes drive the stepper + panels;
@@ -82,8 +96,9 @@ export type HostMessage =
    * The answer to `server-logs-request`: all server log contents for this ticket.
    * `servers` is the ordered list matching the dashboard's server rows. The
    * webview renders the initial content immediately and starts the merged view.
+   * `key` is the ticket key the title names ("Server logs · FEAT-12", LG-13).
    */
-  | { type: 'server-logs'; servers: ServerLogEntry[] }
+  | { type: 'server-logs'; servers: ServerLogEntry[]; key?: string }
   /**
    * A live chunk of one server's log output, pushed while polling. The webview
    * appends it to that server's log buffer and, if the merged view is active,
@@ -92,4 +107,6 @@ export type HostMessage =
   | { type: 'server-log-output'; service: string; text: string }
   /** The finished search match text, from `logMatchText` (@arch:NTF-07). */
   | { type: 'server-logs-match-text'; seq: number; text: string }
+  /** The finished Follow-off new-line text, from `logNewLinesText` (@arch:NTF-07). */
+  | { type: 'server-logs-new-text'; seq: number; text: string }
   | ActionResultMessage;

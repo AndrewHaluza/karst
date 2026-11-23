@@ -56,6 +56,8 @@ function makeReader(): FakeReader {
         logPath: s.logPath,
         content: `log:${s.service}`,
         truncated: false,
+        state: 'ok' as const,
+        message: '',
       })),
     }),
   );
@@ -93,7 +95,9 @@ describe('ServerLogsManager', () => {
     expect(readLogs).toHaveBeenCalledWith([WEB]);
     expect(panels[0]!.posted).toContainEqual({
       type: 'server-logs',
-      servers: [{ service: 'web', logPath: '/tmp/web.log', content: 'log:web', truncated: false }],
+      servers: [
+        { service: 'web', logPath: '/tmp/web.log', content: 'log:web', truncated: false, state: 'ok', message: '' },
+      ],
     });
     expect(startPolling).toHaveBeenCalledWith([WEB], 41, expect.any(Function));
   });
@@ -201,6 +205,67 @@ describe('ServerLogsManager', () => {
     expect(manager.isOpen(42)).toBe(true);
   });
 
+  it('names the current match after Prev/Next and the new-line count, both from the host', () => {
+    const { host, panels } = makeHost();
+    const { reader } = makeReader();
+    const manager = new ServerLogsManager(host, reader, (id) => `Logs ${id}`, () => [WEB]);
+
+    manager.open(41);
+    panels[0]!.emit({ type: 'server-logs-match-count', count: 12, seq: 3, current: 3 });
+    panels[0]!.emit({ type: 'server-logs-new-count', count: 1, seq: 4 });
+    panels[0]!.emit({ type: 'server-logs-new-count', count: 12, seq: 5 });
+
+    expect(panels[0]!.posted).toContainEqual({ type: 'server-logs-match-text', seq: 3, text: '3 of 12' });
+    expect(panels[0]!.posted).toContainEqual({ type: 'server-logs-new-text', seq: 4, text: '1 new line' });
+    expect(panels[0]!.posted).toContainEqual({ type: 'server-logs-new-text', seq: 5, text: '12 new lines' });
+  });
+
+  it('writes the shown lines to the clipboard through the injected seam', () => {
+    const { host, panels } = makeHost();
+    const { reader } = makeReader();
+    const writeClipboard = vi.fn(() => Promise.resolve());
+    const manager = new ServerLogsManager(
+      host,
+      reader,
+      (id) => `Logs ${id}`,
+      () => [WEB],
+      undefined,
+      { writeClipboard },
+    );
+
+    manager.open(41);
+    panels[0]!.emit({ type: 'server-logs-copy', text: 'a\nb' });
+
+    expect(writeClipboard).toHaveBeenCalledWith('a\nb');
+  });
+
+  it('accepts Copy with no clipboard seam and nothing to write to', () => {
+    const { host, panels } = makeHost();
+    const { reader } = makeReader();
+    const manager = new ServerLogsManager(host, reader, (id) => `Logs ${id}`, () => [WEB]);
+
+    manager.open(41);
+    expect(() => panels[0]!.emit({ type: 'server-logs-copy', text: 'a' })).not.toThrow();
+  });
+
+  it('titles the view with the ticket key from the host', () => {
+    const { host, panels } = makeHost();
+    const { reader } = makeReader();
+    const manager = new ServerLogsManager(
+      host,
+      reader,
+      (id) => `Logs ${id}`,
+      () => [WEB],
+      undefined,
+      { ticketKeyFor: () => 'FEAT-12' },
+    );
+
+    manager.open(41);
+    panels[0]!.emit({ type: 'server-logs-request' });
+
+    expect(panels[0]!.posted).toContainEqual(expect.objectContaining({ type: 'server-logs', key: 'FEAT-12' }));
+  });
+
   it('dispose stops every ticket and clears the sessions', () => {
     const { host, panels } = makeHost();
     const { reader, stopPolling } = makeReader();
@@ -216,5 +281,71 @@ describe('ServerLogsManager', () => {
     expect(manager.isOpen(42)).toBe(false);
     // The panels themselves were not disposed by the manager (the host owns them).
     expect(panels).toHaveLength(2);
+  });
+
+  it('carries each row’s status word into the snapshot for the tab label (LG-14)', () => {
+    const { host, panels } = makeHost();
+    const { reader } = makeReader();
+    const manager = new ServerLogsManager(host, reader, (id) => `Logs ${id}`, () => [
+      { ...WEB, status: 'Running' },
+      { service: 'api', logPath: null, status: 'Failed' },
+    ]);
+
+    manager.open(41);
+    panels[0]!.emit({ type: 'server-logs-request' });
+
+    const posted = panels[0]!.posted.find((m) => m.type === 'server-logs');
+    expect(posted).toMatchObject({
+      servers: [
+        { service: 'web', status: 'Running' },
+        { service: 'api', status: 'Failed' },
+      ],
+    });
+  });
+
+  it('opens the shared scope with no ticket id and tails it under the shared reader key (RS-13)', () => {
+    const { host, panels } = makeHost();
+    const { reader, readLogs, startPolling, stopPolling } = makeReader();
+    const shared = [{ service: 'api', logPath: '/tmp/api.log', status: 'Running' }];
+    const manager = new ServerLogsManager(
+      host,
+      reader,
+      (id) => `Logs ${id}`,
+      () => [WEB],
+      undefined,
+      { sharedLogServers: () => shared },
+    );
+
+    manager.openShared();
+    manager.openShared();
+    expect(panels).toHaveLength(1);
+    expect(panels[0]!.title).toBe('Server Logs — Shared services');
+    expect(panels[0]!.ticketId).toBe(0);
+
+    panels[0]!.emit({ type: 'server-logs-request' });
+    expect(readLogs).toHaveBeenCalledWith(shared);
+    expect(startPolling).toHaveBeenCalledWith(shared, 0, expect.any(Function));
+    expect(panels[0]!.posted).toContainEqual(
+      expect.objectContaining({ type: 'server-logs', servers: [expect.objectContaining({ service: 'api', status: 'Running' })] }),
+    );
+    // No ticket key: the shared view is not one ticket's.
+    expect(panels[0]!.posted.some((m) => m.type === 'server-logs' && 'key' in m)).toBe(false);
+
+    panels[0]!.emit({ type: 'server-logs-close' });
+    expect(stopPolling).toHaveBeenCalledWith(0);
+  });
+
+  it('opens the shared scope with no host lister on its empty state', () => {
+    const { host, panels } = makeHost();
+    const { reader, readLogs } = makeReader();
+    const manager = new ServerLogsManager(host, reader, (id) => `Logs ${id}`, () => [WEB], undefined, {
+      sharedTitle: 'Shared logs',
+    });
+
+    manager.openShared();
+    expect(panels[0]!.title).toBe('Shared logs');
+    panels[0]!.emit({ type: 'server-logs-request' });
+    expect(readLogs).toHaveBeenCalledWith([]);
+    expect(panels[0]!.posted).toContainEqual({ type: 'server-logs', servers: [] });
   });
 });

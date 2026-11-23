@@ -39,9 +39,17 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   //   opens the 400/399/320 tier probes for all 8 diffs pages (5 x 3 existing pages = +15).
   diffs: { screenshots: 13, layout: 64 },
   gettingStarted: { screenshots: 8, layout: 30 },
-  resources: { screenshots: 10, layout: 40 },
+  // T1317 RS-10 (@ui:UI-R57): the eight `resources--servers-*` variants of the Servers tab, which had
+  // no baseline at all. Screenshots: servers-mixed in dark/light/hc/grayscale (+4), servers-failed in
+  // dark/light/hc (+3), servers-starting in dark and reduced-motion (+2), and none/done/unavailable/
+  // hostile/crashed in dark (+5) = +14. Layout: eight new pages x 5 widths (+40).
+  resources: { screenshots: 24, layout: 80 },
   // T1298 search-one-match (the single-match text from the new host reply pair), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the page adds no layout.
-  serverLogs: { screenshots: 9, layout: 30 },
+  // T1317 LG-1/LG-8/LG-11, @ui:UI-R57: serverLogs--truncated, --no-services and --unreadable (1 theme each,
+  // +3 screenshots; +2 distinct pages x 5 widths = +10 layout runs, because --no-services sends the same
+  // zero-service `server-logs` message as `empty` and so shares its page), and --long-content-nowrap (+1
+  // screenshot; it shares the long-content layout run, since Wrap off is a click, not a different page).
+  serverLogs: { screenshots: 13, layout: 40 },
   // T1228 accounts-sbx-token (the sbx token cell, set and not set), @ui:UI-R57: 3 themes (+3 screenshots); skipLayout, because accounts-several already runs the same route.
   // T1237 the Sandbox tab route (#agents/sandbox), @ui:UI-R57: 3 themes (+3 screenshots) and 6 layout widths (+6); agents-sandbox-error: 1 theme (dark) (+1 screenshot); skipLayout.
   // T1236 nav-narrow variants (the nav chip row on general, agents roles and autopilot at 630 and 320 px), @ui:UI-R57: 6 variants x 1 theme (+6 screenshots); skipLayout, because the route layout runs already cover these routes.

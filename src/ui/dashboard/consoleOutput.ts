@@ -10,7 +10,7 @@ import type {
   StageLogReader,
 } from './panelTypes.js';
 import type { ServerLogsReader } from './serverLogsReader.js';
-import { logMatchText } from '../../model/notifyText.js';
+import { logMatchText, logNewLinesText } from '../../model/notifyText.js';
 
 /**
  * The dashboard's console/log forwarding surface: transient inside-progress
@@ -33,6 +33,13 @@ export class DashboardConsole {
     private readonly sharedLogServers: (
       ticketId: number,
     ) => Array<{ service: string; logPath: string | null }> = () => [],
+    /**
+     * Write the logs view's Copy text to the clipboard. Absent → Copy is a
+     * no-op (a host without a clipboard seam), never an error in the view.
+     */
+    private readonly writeClipboard?: (text: string) => Promise<void>,
+    /** The ticket key the logs title names ("Server logs · FEAT-12"). */
+    private readonly ticketKeyOf: (ticketId: number) => string | null = () => null,
   ) {}
 
   /**
@@ -128,7 +135,8 @@ export class DashboardConsole {
       logServers.push(shared);
     }
     const result = this.serverLogsReader.readLogs(logServers);
-    panel.postMessage({ type: 'server-logs', servers: result.servers });
+    const key = this.ticketKeyOf(ticketId);
+    panel.postMessage({ type: 'server-logs', servers: result.servers, ...(key ? { key } : {}) });
     this.serverLogsReader.startPolling(logServers, ticketId, (tid, service, text) =>
       this.postServerLogOutput(tid, service, text),
     );
@@ -138,10 +146,33 @@ export class DashboardConsole {
    * Answer a `server-logs-match-count`: format the one match text host-side and
    * post it back to the panel that asked. No-op if the panel is not open.
    */
-  serverLogsMatchCount(ticketId: number, count: number, seq: number): void {
+  serverLogsMatchCount(ticketId: number, count: number, seq: number, current?: number): void {
     const panel = this.panelFor(ticketId);
     if (!panel) return;
-    panel.postMessage({ type: 'server-logs-match-text', seq, text: logMatchText(count) });
+    panel.postMessage({ type: 'server-logs-match-text', seq, text: logMatchText(count, current) });
+  }
+
+  /**
+   * Answer a `server-logs-new-count`: format the one new-line text host-side
+   * and post it back. No-op if the panel is not open.
+   */
+  serverLogsNewCount(ticketId: number, count: number, seq: number): void {
+    const panel = this.panelFor(ticketId);
+    if (!panel) return;
+    panel.postMessage({ type: 'server-logs-new-text', seq, text: logNewLinesText(count) });
+  }
+
+  /**
+   * Answer a `server-logs-copy`: write the shown text to the clipboard. The
+   * webview supplies only text it rendered; a host without a clipboard seam
+   * accepts the message and does nothing.
+   */
+  copyServerLogs(text: string): void {
+    try {
+      void this.writeClipboard?.(text)?.catch(() => undefined);
+    } catch {
+      // Clipboard access denied: the view's own Copy button is harmless.
+    }
   }
 
   /**

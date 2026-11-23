@@ -27,7 +27,7 @@ import { stallFixtureState, type StallFixtureKind } from '../../src/ui/dashboard
 import { PEEK_STATE_IDS, sidebarRenderFixtures } from '../../src/ui/sidebar/renderFixtures.js';
 import type { SidebarState, TicketRow } from '../../src/ui/sidebar/state.js';
 import { usageRenderFixtures } from '../../src/ui/usage/renderFixtures.js';
-import { resourcesRenderFixtures } from '../../src/ui/resources/renderFixtures.js';
+import { fixtureMessages, resourcesRenderFixtures, type ResourcesScenario } from '../../src/ui/resources/renderFixtures.js';
 import { gettingStartedRenderFixtures } from '../../src/ui/gettingStarted/renderFixtures.js';
 import { diffsRenderFixtures } from '../../src/ui/diffs/renderFixtures.js';
 import { logMatchText } from '../../src/model/notifyText.js';
@@ -964,7 +964,9 @@ const settingsVariants = (): Variant[] => [
 // ----------------------------------------------------------------- others
 
 const serverLogsVariants = (): Variant[] => {
-  const entry = (service: string, content: string) => ({ service, logPath: `/tmp/${service}.log`, truncated: false, content });
+  const entry = (service: string, content: string, extra: { truncated?: boolean; state?: 'ok' | 'empty' | 'no-path' | 'unreadable'; message?: string } = {}) => ({
+    service, logPath: `/tmp/${service}.log`, truncated: false, content, ...extra,
+  });
   const logs = (...servers: ReturnType<typeof entry>[]): ViewCorpus => ({ messages: [{ type: 'server-logs', servers }] });
   const line = (n: number) => `2026-01-01T00:00:${String(n % 60).padStart(2, '0')}.000Z GET /health ${'x'.repeat(n % 7)} 200 3ms\n`;
   return [
@@ -983,6 +985,23 @@ const serverLogsVariants = (): Variant[] => {
         entry('web-frontend-with-a-very-long-service-name-over-forty-chars', `2026-01-01T00:00:00.000Z ${'GET /very/long/path/segment/'.repeat(30)} 200\n`),
         entry('api', Array.from({ length: 400 }, (_, i) => line(i)).join('')),
       ),
+    ),
+    // T1317 LG-11: the same hostile line with Wrap off, so it scrolls inside the log host only (@ui:UI-R45).
+    variant('serverLogs', 'long-content-nowrap', () =>
+      logs(
+        entry('web-frontend-with-a-very-long-service-name-over-forty-chars', `2026-01-01T00:00:00.000Z ${'GET /very/long/path/segment/'.repeat(30)} 200\n`),
+        entry('api', Array.from({ length: 400 }, (_, i) => line(i)).join('')),
+      ),
+      { click: '[data-log-wrap]' },
+    ),
+    // T1317 LG-1: a log over the read cap opens at its newest output, with the skipped part named first.
+    variant('serverLogs', 'truncated', () =>
+      logs(entry('api', '[Earlier output not shown: 14.2 MB]\n' + Array.from({ length: 40 }, (_, i) => line(i)).join(''), { truncated: true })),
+    ),
+    // T1317 LG-8: no service at all, and a service whose log karst cannot read.
+    variant('serverLogs', 'no-services', () => ({ messages: [{ type: 'server-logs', servers: [] }] })),
+    variant('serverLogs', 'unreadable', () =>
+      logs(entry('api', '', { state: 'unreadable', message: 'Karst cannot read /tmp/api.log.' })),
     ),
     variant('serverLogs', 'streaming', () => ({
       messages: [
@@ -1142,6 +1161,16 @@ const usageVariants = (): Variant[] => {
 
 const resourcesVariants = (): Variant[] => {
   const r = fixtureCorpus.bind(null, 'resources', resourcesRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
+  /**
+   * The Servers-tab fixtures carry three host messages (`state`, `servers`,
+   * `show-tab`); `fixtureCorpus` sends only `state`, which renders the Resources
+   * tab. T1317 RS-10: the Servers tab had no baseline at all.
+   */
+  const s = (scenario: ResourcesScenario): (() => ViewCorpus) => () => {
+    const hit = resourcesRenderFixtures().find((f) => f.scenario === scenario);
+    if (!hit) throw new Error(`resources: no '${scenario}' render fixture`);
+    return { messages: fixtureMessages(hit) };
+  };
   return [
     variant('resources', 'populated', () => getCorpus('resources'), { baseline: 'resources', themes: ALL_THEMES }),
     variant('resources', 'empty', r('idle')),
@@ -1151,6 +1180,18 @@ const resourcesVariants = (): Variant[] => {
     variant('resources', 'unsupported', r('unsupported')),
     variant('resources', 'waste', r('waste')),
     variant('resources', 'unattributed', r('unattributed')),
+    // T1317 RS-10: the Servers tab, which had no baseline at all. Mixed is the full page in every
+    // theme, plus grayscale for the status marks (@ui:UI-R28); a failed start shows its reason in
+    // all three themes (RS-2). `dark-grayscale` and `dark-reduced-motion` re-make the two stale
+    // resources baselines an older sweep left behind.
+    variant('resources', 'servers-mixed', s('servers-mixed'), { themes: [...ALL_THEMES, 'dark-grayscale'] }),
+    variant('resources', 'servers-none', s('servers-none')),
+    variant('resources', 'servers-done', s('servers-done')),
+    variant('resources', 'servers-unavailable', s('servers-unavailable')),
+    variant('resources', 'servers-hostile', s('servers-hostile')),
+    variant('resources', 'servers-failed', s('servers-failed'), { themes: ALL_THEMES }),
+    variant('resources', 'servers-crashed', s('servers-crashed')),
+    variant('resources', 'servers-starting', s('servers-starting'), { themes: ['dark', 'dark-reduced-motion'] }),
   ];
 };
 

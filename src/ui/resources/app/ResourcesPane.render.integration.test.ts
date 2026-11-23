@@ -42,7 +42,7 @@ describe('Resources tab — the cost view, unchanged under a tab', () => {
     expect(page.text()).toContain(state.cpuPctDisplay);
     expect(page.text()).toContain(state.rssDisplay);
     expect(page.text()).toContain(state.sampleAgeDisplay);
-    expect(page.text()).toContain('Attributed to karst');
+    expect(page.text()).toContain('Attributed to Karst');
     expect(page.text()).toContain('Unattributed (top 5)');
   });
 
@@ -53,9 +53,9 @@ describe('Resources tab — the cost view, unchanged under a tab', () => {
     expect(rows(page, '.chartTicks text').length).toBe(fixture('busy').state.trend.timeTicks.length);
   });
 
-  it('says "measuring" before the first sample', async () => {
+  it('says it is measuring before the first sample', async () => {
     const page = await mount('idle');
-    expect(page.text()).toContain('measuring…');
+    expect(page.text()).toContain('Measuring… (0 of 150 samples)');
   });
 
   it('legend toggles mute a series locally and post nothing', async () => {
@@ -71,14 +71,14 @@ describe('Resources tab — the cost view, unchanged under a tab', () => {
     expect(page.posted.length).toBe(before);
   });
 
-  it('sorts by a header button: asc → desc → default, with aria-sort', async () => {
+  it('sorts by a header button: desc → asc → default for a numeric column, with aria-sort', async () => {
     const page = await mount('unattributed');
     const th = rows(page, '.utable th')[0]!;
     const btn = th.querySelector('button')!;
     await page.click(btn);
-    expect(th.getAttribute('aria-sort')).toBe('ascending');
-    await page.click(btn);
     expect(th.getAttribute('aria-sort')).toBe('descending');
+    await page.click(btn);
+    expect(th.getAttribute('aria-sort')).toBe('ascending');
     await page.click(btn);
     expect(th.getAttribute('aria-sort')).toBeNull();
   });
@@ -102,7 +102,7 @@ describe('Resources tab — the cost view, unchanged under a tab', () => {
     const state = { ...fixture('waste').state, waste: [{ ...fixture('waste').state.waste[0]!, killable: false, serverId: null }] };
     const page = await renderResourcesApp({ hash: '#resources' });
     await page.receive({ type: 'state', state });
-    expect(page.text()).toContain('report-only — karst cannot prove this process is safe to stop');
+    expect(page.text()).toContain('report-only — Karst cannot prove this process is safe to stop');
   });
 
   it('Measure posts measure-disk and a disk push renders the rows', async () => {
@@ -121,6 +121,124 @@ describe('Resources tab — the cost view, unchanged under a tab', () => {
     expect(page.handle.queryAll('script').filter((s) => (s.textContent ?? '').includes('alert(1)') && !s.textContent!.includes('acquireVsCodeApi')).length).toBe(0);
     expect(page.text()).toContain('<script>alert(1)</script>');
     expect(page.text()).toContain('A & B "quoted" <b>');
+  });
+});
+
+describe('Resources tab — production polish (RS-5, RS-8, RS-9, RS-11, RS-20..RS-26)', () => {
+  it('keeps a waste row failure note when a new sample arrives (RS-5)', async () => {
+    const page = await mount('waste');
+    const stop = buttonLabelled(page, 'Stop');
+    await page.click(stop);
+    const sent = page.last('kill-server')!;
+    await page.answer(sent.requestId!, false, 'Refused — the process is still running');
+    const state = fixture('waste').state;
+    await page.receive({
+      type: 'state',
+      state: { ...state, waste: state.waste.map((w) => ({ ...w, rssBytes: w.rssBytes + 1, rssDisplay: '6 MB' })) },
+    });
+    expect(page.handle.query('#panel-resources [role=alert]')?.textContent).toBe('Refused — the process is still running');
+  });
+
+  it('draws the y labels without a scale legend and states the trend as text (RS-8)', async () => {
+    const page = await mount('busy');
+    expect(rows(page, '.chartScale')).toHaveLength(0);
+    expect(rows(page, '.chartY .yTick').length).toBeGreaterThan(0);
+    expect(page.text()).toContain('CPU 35%, rising. RSS 80 MB.');
+  });
+
+  it('treats one sample as empty and says so, with no y ticks (RS-9)', async () => {
+    const page = await renderResourcesApp({ hash: '#resources' });
+    const base = fixture('busy').state;
+    await page.receive({ type: 'state', state: { ...base, history: base.history.slice(0, 1) } });
+    expect(page.text()).toContain('Measuring… (1 of 150 samples)');
+    expect(rows(page, '.chartY .yTick')).toHaveLength(0);
+    expect(rows(page, 'svg polyline')).toHaveLength(0);
+  });
+
+  it('shows a .k-empty instead of an empty attributed table (RS-20)', async () => {
+    const page = await mount('idle');
+    expect(rows(page, '.k-empty-title')[0]?.textContent).toBe('No Karst process runs now');
+    expect(rows(page, '.k-empty-hint')[0]?.textContent).toBe('Start a ticket session to see its processes.');
+  });
+
+  it('shows the host-built attribution text and the sentence-case name (RS-22, RS-26)', async () => {
+    const page = await mount('busy');
+    const base = fixture('busy').state;
+    await page.receive({
+      type: 'state',
+      state: {
+        ...base,
+        rows: [{ ...base.rows[0]!, attribution: 'attributable', attributionText: 'Proven Karst process' }],
+        waste: [{ ...fixture('waste').state.waste[0]!, killable: false, serverId: null, reason: 'leaked Karst server' }],
+        wasteCount: 1,
+      },
+    });
+    expect(page.text()).toContain('Attributed to Karst');
+    expect(page.text()).toContain('Proven Karst process');
+    expect(page.text()).toContain('report-only — Karst cannot prove this process is safe to stop');
+  });
+
+  it('opens only the sample cadence and the recent trend, the rest in a closed details (RS-24)', async () => {
+    const page = await renderResourcesApp({ hash: '#resources' });
+    const base = fixture('busy').state;
+    await page.receive({
+      type: 'state',
+      state: {
+        ...base,
+        facts: [
+          { label: 'Samples', value: 'every 2 s', primary: true },
+          { label: 'Recent CPU', value: 'steady', primary: true },
+          { label: 'Snapshot cost', value: '1 × ps' },
+          { label: 'Disk lane', value: 'panel open' },
+        ],
+      },
+    });
+    expect(rows(page, '#facts > .factRow')).toHaveLength(2);
+    const details = rows(page, '#facts details')[0] as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary')?.textContent).toBe('Monitor details');
+    expect(details.textContent).toContain('Snapshot cost');
+  });
+
+  it('marks Measure as a secondary control (RS-25)', async () => {
+    const page = await mount('busy');
+    expect(buttonLabelled(page, 'Measure').className).toContain('k-btn--secondary');
+  });
+
+  it('carries column priority and cell labels for the tier rules (RS-11)', async () => {
+    const page = await mount('busy');
+    const procs = rows(page, '#attrHead th').find((th) => th.textContent?.trim().startsWith('Procs'))!;
+    expect(procs.getAttribute('data-priority')).toBe('3');
+    expect(rows(page, '#attrBody tr:first-child td[data-label="Ticket"]')).toHaveLength(1);
+    expect(rows(page, '#unkHead th').find((th) => th.textContent?.trim().startsWith('Procs'))!.getAttribute('data-priority')).toBe('3');
+  });
+
+  it('stamps the measured tier on the Resources view for the tier rules (RS-11)', async () => {
+    const page = await mount('busy');
+    expect(rows(page, '.rview')[0]?.getAttribute('data-tier')).toBe('wide');
+  });
+
+  it('follows the container width into the narrow and tight tiers (RS-11)', async () => {
+    const page = await mount('busy');
+    const callbacks: ResizeObserverCallback[] = [];
+    (page.handle.window as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      constructor(cb: ResizeObserverCallback) { callbacks.push(cb); }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    };
+    const grown = await renderResourcesApp({ hash: '#resources' });
+    for (const m of fixtureMessages(fixture('busy'))) await grown.receive(m);
+    const fire = async (width: number): Promise<void> => {
+      for (const cb of callbacks) cb([{ contentRect: { width } }] as unknown as ResizeObserverEntry[], {} as ResizeObserver);
+      await grown.settle();
+    };
+    await fire(650);
+    expect(rows(grown, '.rview')[0]?.getAttribute('data-tier')).toBe('narrow');
+    await fire(360);
+    expect(rows(grown, '.rview')[0]?.getAttribute('data-tier')).toBe('tight');
+    await fire(1200);
+    expect(rows(grown, '.rview')[0]?.getAttribute('data-tier')).toBe('wide');
   });
 });
 

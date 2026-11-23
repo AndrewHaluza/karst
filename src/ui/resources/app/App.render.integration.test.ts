@@ -34,6 +34,33 @@ describe('shell', () => {
     expect(page.handle.query('[role=tablist]')?.getAttribute('aria-label')).toBeTruthy();
   });
 
+  it('uses the shared page header and tabs primitives, never a local copy (RS-30)', () => {
+    const head = page.handle.query<HTMLElement>('[data-region=header]')!;
+    expect(head.className).toBe('k-pagehead');
+    expect(head.querySelectorAll('.k-pagehead-title')).toHaveLength(1);
+    expect(head.querySelector('.k-pagehead-title')!.textContent).toBe('Servers & resources');
+    expect(head.querySelector('.k-pagehead-sub')).not.toBeNull();
+    expect(head.querySelector('.k-pagehead-actions')).not.toBeNull();
+    expect(head.querySelector('.rhead')).toBeNull();
+    // The tab strip sits BELOW the header, not inside it (D743).
+    expect(head.querySelector('[role=tablist]')).toBeNull();
+    const tabs = page.handle.query<HTMLElement>('[role=tablist]')!;
+    expect(tabs.className).toContain('k-tabs');
+    for (const tab of page.handle.queryAll<HTMLElement>('[role=tab]')) {
+      expect(tab.className).toContain('k-tab');
+    }
+    // Each tab panel is its own container for the tier queries (RS-11).
+    for (const id of ['servers', 'resources'] as const) {
+      expect(panel(page, id).className).toContain('rpanel');
+    }
+  });
+
+  it('says it is reading before the first Resources push (RS-7)', async () => {
+    const fresh = await renderResourcesApp();
+    const body = panel(fresh, 'resources').textContent ?? '';
+    expect(body).toContain('Reading resources…');
+  });
+
   it('opens on Resources when nothing asked for a tab (the historical default)', () => {
     expect(selected(page)).toBe('tab-resources');
     expect(panel(page, 'resources').hidden).toBe(false);

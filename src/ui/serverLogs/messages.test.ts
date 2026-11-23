@@ -38,6 +38,32 @@ describe('parseServerLogsMessage', () => {
     expect(parseServerLogsMessage({ type: 'server-logs-match-count', count: 1 })).toBeNull();
   });
 
+  it('carries the 1-based current match after Prev/Next, and drops 0 or a fraction', () => {
+    expect(
+      parseServerLogsMessage({ type: 'server-logs-match-count', count: 12, seq: 4, current: 3 }),
+    ).toEqual({ type: 'server-logs-match-count', count: 12, seq: 4, current: 3 });
+    for (const current of [0, -1, 1.5, '3']) {
+      expect(
+        parseServerLogsMessage({ type: 'server-logs-match-count', count: 12, seq: 4, current }),
+      ).toBeNull();
+    }
+  });
+
+  it('accepts the new-line count and the copy text', () => {
+    expect(parseServerLogsMessage({ type: 'server-logs-new-count', count: 12, seq: 1 })).toEqual({
+      type: 'server-logs-new-count',
+      count: 12,
+      seq: 1,
+    });
+    expect(parseServerLogsMessage({ type: 'server-logs-copy', text: 'a\nb' })).toEqual({
+      type: 'server-logs-copy',
+      text: 'a\nb',
+    });
+    expect(parseServerLogsMessage({ type: 'server-logs-copy' })).toBeNull();
+    expect(parseServerLogsMessage({ type: 'server-logs-copy', text: 3 })).toBeNull();
+    expect(parseServerLogsMessage({ type: 'server-logs-new-count', count: -1, seq: 1 })).toBeNull();
+  });
+
   it('returns null for anything unrecognised or non-object', () => {
     expect(parseServerLogsMessage(null)).toBeNull();
     expect(parseServerLogsMessage('server-logs-request')).toBeNull();
@@ -61,18 +87,34 @@ describe('parseServerLogsMessage', () => {
 
 describe('routeServerLogsAction', () => {
   it('dispatches each already-parsed message to its action', () => {
-    const actions: ServerLogsActions = { request: vi.fn(), close: vi.fn(), matchCount: vi.fn() };
+    const actions: ServerLogsActions = {
+      request: vi.fn(),
+      close: vi.fn(),
+      matchCount: vi.fn(),
+      newCount: vi.fn(),
+      copy: vi.fn(),
+    };
     routeServerLogsAction({ type: 'server-logs-request' }, actions);
     routeServerLogsAction({ type: 'server-logs-close' }, actions);
-    routeServerLogsAction({ type: 'server-logs-match-count', count: 3, seq: 2 }, actions);
+    routeServerLogsAction({ type: 'server-logs-match-count', count: 3, seq: 2, current: 1 }, actions);
+    routeServerLogsAction({ type: 'server-logs-new-count', count: 4, seq: 5 }, actions);
+    routeServerLogsAction({ type: 'server-logs-copy', text: 'shown' }, actions);
     expect(actions.request).toHaveBeenCalledOnce();
     expect(actions.close).toHaveBeenCalledOnce();
-    expect(actions.matchCount).toHaveBeenCalledWith(3, 2);
+    expect(actions.matchCount).toHaveBeenCalledWith(3, 2, 1);
+    expect(actions.newCount).toHaveBeenCalledWith(4, 5);
+    expect(actions.copy).toHaveBeenCalledWith('shown');
   });
 
   it('returns whatever the action returns, so the dispatch seam can await it', async () => {
     const pending = Promise.resolve();
-    const actions: ServerLogsActions = { request: vi.fn(() => pending), close: vi.fn(), matchCount: vi.fn() };
+    const actions: ServerLogsActions = {
+      request: vi.fn(() => pending),
+      close: vi.fn(),
+      matchCount: vi.fn(),
+      newCount: vi.fn(),
+      copy: vi.fn(),
+    };
     expect(routeServerLogsAction({ type: 'server-logs-request' }, actions)).toBe(pending);
     await pending;
   });

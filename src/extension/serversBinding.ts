@@ -28,7 +28,10 @@ export interface ServersBindingDeps {
   sandbox?: ServerOpsDeps['sandbox'];
   userUatWithheld?: ServerOpsDeps['userUatWithheld'];
   stopTicketServers: (ticketId: number) => Promise<void>;
+  /** One liveness sweep (`livenessLoop.sweepNow`). */
+  sweepNow: () => Promise<void>;
   openTicketLogs: (ticketId: number) => void;
+  openSharedLogs: () => void;
   openLogs: () => void;
 }
 
@@ -60,7 +63,9 @@ export function createServersBinding(deps: ServersBindingDeps): { host: ServersH
       ...(deps.userUatWithheld ? { userUatWithheld: deps.userUatWithheld } : {}),
     },
     stopTicketServers: deps.stopTicketServers,
+    sweepNow: deps.sweepNow,
     openTicketLogs: deps.openTicketLogs,
+    openSharedLogs: deps.openSharedLogs,
     openLogs: deps.openLogs,
   });
 
@@ -81,6 +86,8 @@ export function createServersBinding(deps: ServersBindingDeps): { host: ServersH
     }
     status.text = indicator.text;
     status.tooltip = indicator.tooltip;
+    status.accessibilityInformation = { label: indicator.accessibilityLabel };
+    status.backgroundColor = indicator.warning ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
     status.show();
   };
   return { host, updateStatus };

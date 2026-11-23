@@ -16,6 +16,7 @@ interface Api {
   handleInitial: ReturnType<typeof vi.fn>;
   handleOutput: ReturnType<typeof vi.fn>;
   handleMatchText: ReturnType<typeof vi.fn>;
+  handleNewText: ReturnType<typeof vi.fn>;
 }
 let created: Array<{ opts: Opts; api: Api }> = [];
 let factory: ReturnType<typeof vi.fn>;
@@ -23,7 +24,7 @@ let factory: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   created = [];
   factory = vi.fn((opts: Opts) => {
-    const api: Api = { open: vi.fn(), close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn(), handleMatchText: vi.fn() };
+    const api: Api = { open: vi.fn(), close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn(), handleMatchText: vi.fn(), handleNewText: vi.fn() };
     created.push({ opts, api });
     return api;
   });
@@ -52,7 +53,7 @@ describe('ServerLogsView — the thin wrapper over the shared runtime', () => {
     open(h);
     h.emit({ type: 'server-logs', servers: [{ service: 'web', content: 'a' }] } as never);
     h.emit({ type: 'server-log-output', service: 'web', text: 'b\n' } as never);
-    expect(created[0]!.api.handleInitial).toHaveBeenCalledWith([{ service: 'web', content: 'a' }]);
+    expect(created[0]!.api.handleInitial).toHaveBeenCalledWith([{ service: 'web', content: 'a' }], undefined);
     expect(created[0]!.api.handleOutput.mock.calls).toEqual([['web', 'b\n']]);
   });
 
@@ -62,16 +63,36 @@ describe('ServerLogsView — the thin wrapper over the shared runtime', () => {
     created[0]!.opts.post({ type: 'server-logs-match-count', count: 3, seq: 1 });
     created[0]!.opts.post({ type: 'server-logs-match-count', count: '3', seq: 1 });
     created[0]!.opts.post({ type: 'server-logs-match-count', count: 3 });
-    expect(h.send.serverLogsMatchCount.mock.calls).toEqual([[3, 1]]);
+    expect(h.send.serverLogsMatchCount.mock.calls).toEqual([[3, 1, undefined]]);
     h.emit({ type: 'server-logs-match-text', seq: 1, text: '3 matches' } as never);
     expect(created[0]!.api.handleMatchText).toHaveBeenCalledWith(1, '3 matches');
+  });
+
+  it('forwards the current match and the new-line text, and copies through the host', () => {
+    const h = mountOverlays(state);
+    open(h);
+    created[0]!.opts.post({ type: 'server-logs-match-count', count: 12, seq: 2, current: 3 });
+    expect(h.send.serverLogsMatchCount.mock.calls).toEqual([[12, 2, 3]]);
+    created[0]!.opts.post({ type: 'server-logs-new-count', count: 4, seq: 5 });
+    expect(h.send.serverLogsNewCount.mock.calls).toEqual([[4, 5]]);
+    created[0]!.opts.post({ type: 'server-logs-copy', text: 'a\nb' });
+    expect(h.send.serverLogsCopy.mock.calls).toEqual([['a\nb']]);
+    h.emit({ type: 'server-logs-new-text', seq: 5, text: '4 new lines' } as never);
+    expect(created[0]!.api.handleNewText).toHaveBeenCalledWith(5, '4 new lines');
   });
 
   it('tolerates an answer with no servers', () => {
     const h = mountOverlays(state);
     open(h);
     h.emit({ type: 'server-logs' } as never);
-    expect(created[0]!.api.handleInitial).toHaveBeenCalledWith([]);
+    expect(created[0]!.api.handleInitial).toHaveBeenCalledWith([], undefined);
+  });
+
+  it('names the ticket key in the title', () => {
+    const h = mountOverlays(state);
+    open(h);
+    h.emit({ type: 'server-logs', servers: [], key: 'FEAT-7' } as never);
+    expect(created[0]!.api.handleInitial).toHaveBeenCalledWith([], 'FEAT-7');
   });
 
   it('routes the surface’s detach to the typed sender', () => {
@@ -147,7 +168,7 @@ describe('ServerLogsView — shared DrillHeader', () => {
       expect(opts).toMatchObject({ drillHead: true });
       const api: Api = {
         open: vi.fn(() => { must('#logsView').innerHTML = '<div id="logsDrillHead"></div>'; }),
-        close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn(), handleMatchText: vi.fn(),
+        close: vi.fn(() => opts.onClose()), handleInitial: vi.fn(), handleOutput: vi.fn(), handleMatchText: vi.fn(), handleNewText: vi.fn(),
       };
       return api;
     });

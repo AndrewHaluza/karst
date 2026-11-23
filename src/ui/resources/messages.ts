@@ -32,6 +32,8 @@ export type ResourcesWebviewMessage =
   | { type: 'server-copy'; serverId: number }
   | { type: 'ticket-stop-all'; ticketId: number }
   | { type: 'ticket-logs'; ticketId: number }
+  /** The shared (project-wide) services' log: no ticket id to name (RS-13). */
+  | { type: 'shared-logs' }
   | { type: 'open-logs' };
 
 export type ResourcesHostMessage =
@@ -58,6 +60,7 @@ export interface ResourcesActions {
   serverCopy(serverId: number): void | Promise<void>;
   ticketStopAll(ticketId: number): void | Promise<void>;
   ticketLogs(ticketId: number): void | Promise<void>;
+  sharedLogs(): void | Promise<void>;
   openLogs(): void | Promise<void>;
 }
 
@@ -83,7 +86,7 @@ const SERVER_ID_VERBS = [
 const REPO_VERBS = ['shared-start', 'shared-restart', 'shared-stop'] as const;
 
 /** Verbs that carry nothing. */
-const BARE_VERBS = ['request-state', 'refresh', 'measure-disk', 'stop-idle', 'open-logs'] as const;
+const BARE_VERBS = ['request-state', 'refresh', 'measure-disk', 'stop-idle', 'shared-logs', 'open-logs'] as const;
 
 /** Narrow an untrusted webview message; null for anything malformed. */
 export function parseResourcesMessage(raw: unknown): ResourcesWebviewMessage | null {
@@ -154,6 +157,8 @@ export function routeResourcesAction(
       return actions.ticketStopAll(msg.ticketId);
     case 'ticket-logs':
       return actions.ticketLogs(msg.ticketId);
+    case 'shared-logs':
+      return actions.sharedLogs();
     case 'open-logs':
       return actions.openLogs();
   }

@@ -238,9 +238,15 @@ export interface DashboardActions {
   closeServerLogs: () => void | Promise<void>;
   /**
    * Answer the shared logs view's search count: the host formats the one match
-   * text and posts it back. Optional for a host with no logs surface.
+   * text and posts it back. `current` is the 1-based match after Prev/Next
+   * ("3 of 12"); absent, the text names the total. Optional for a host with no
+   * logs surface.
    */
-  serverLogsMatchCount?: (count: number, seq: number) => void | Promise<void>;
+  serverLogsMatchCount?: (count: number, seq: number, current?: number) => void | Promise<void>;
+  /** Answer the Follow-off new-line count: the host formats the one text and posts it back. */
+  serverLogsNewCount?: (count: number, seq: number) => void | Promise<void>;
+  /** Write the shared logs view's shown text to the clipboard. */
+  copyServerLogs?: (text: string) => void | Promise<void>;
   /**
    * Open this ticket's logs in the standalone panel. Optional: absent, the
    * "Open in Window" control is a no-op (the pre-feature panel). The panel

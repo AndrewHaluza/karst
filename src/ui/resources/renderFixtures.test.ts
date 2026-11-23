@@ -66,10 +66,11 @@ describe('resources render fixtures', () => {
     const servers = fixtures.filter((f) => f.scenario.startsWith('servers-'));
     const byName = (name: string) => fixtures.find((f) => f.scenario === name)!.servers!;
 
-    it('covers shared / tickets / done / archived / idle / empty / unavailable / hostile', () => {
+    it('covers shared / tickets / done / archived / idle / empty / unavailable / hostile / failed / crashed / starting', () => {
       expect(servers.map((f) => f.scenario)).toEqual([
         'servers-mixed', 'servers-shared-only', 'servers-tickets-only', 'servers-done',
         'servers-archived', 'servers-idle', 'servers-none', 'servers-unavailable', 'servers-hostile',
+        'servers-failed', 'servers-crashed', 'servers-starting',
       ]);
     });
 
@@ -119,6 +120,42 @@ describe('resources render fixtures', () => {
       const text = JSON.stringify(byName('servers-hostile'));
       expect(text).toContain('<script>alert(1)</script>');
       expect(text).toContain('Z'.repeat(100));
+    });
+
+    it('failed carries the port-in-use reason and a dim-drawable port label', () => {
+      const s = byName('servers-failed');
+      const web = s.groups[0]!.servers.find((r) => r.service === 'web')!;
+      expect(web).toMatchObject({
+        status: 'failed',
+        reason: 'Port 3000 in use by pid 4123',
+        portLabel: '127.0.0.1:3000',
+        address: '',
+      });
+      expect(s.groups[0]!.servers.find((r) => r.service === 'api')!.status).toBe('running');
+      expect(s.groups[0]!.key).toBe('FEAT-12');
+    });
+
+    it('crashed carries the sweep words on a shared row and a ticket row', () => {
+      const s = byName('servers-crashed');
+      expect(s.shared[0]).toMatchObject({ service: 'db', status: 'failed', reason: 'Exited unexpectedly', portLabel: 'localhost:5432' });
+      expect(s.groups[0]!.servers[0]).toMatchObject({ service: 'worker', status: 'failed', reason: 'Exited with code 1', portLabel: 'localhost:4100' });
+    });
+
+    it('starting carries the transient verb states, never a crash', () => {
+      const s = byName('servers-starting');
+      expect(s.groups[0]!.servers.map((r) => r.statusLabel)).toEqual(['Starting…', 'Stopping…']);
+      expect(s.shared[0]!.statusLabel).toBe('Starting…');
+      expect(s.groups[0]!.servers.every((r) => r.reason === '')).toBe(true);
+    });
+  });
+
+  describe('the one-sample trend', () => {
+    it('has exactly one history sample with its totals set', () => {
+      const f = fixtures.find((x) => x.scenario === 'idle-one-sample')!;
+      expect(f.state.history).toHaveLength(1);
+      expect(f.state.historyMax).toBe(150);
+      expect(f.state.cpuPctDisplay).toBe('35%');
+      expect(f.servers).toBeUndefined();
     });
   });
 });

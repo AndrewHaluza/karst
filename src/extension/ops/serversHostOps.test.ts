@@ -38,7 +38,9 @@ describe('makeServersHost', () => {
         openExternal, copyText, debug: () => {},
       },
       stopTicketServers,
+      sweepNow: vi.fn(async () => {}),
       openTicketLogs: vi.fn(),
+      openSharedLogs: vi.fn(),
       openLogs: vi.fn(),
     };
   });
@@ -66,10 +68,101 @@ describe('makeServersHost', () => {
     expect(copyText).toHaveBeenCalledWith('http://localhost:3001');
   });
 
-  it('stops a ticket through the injected stopper and repaints', async () => {
-    await makeServersHost(deps).stopTicket(5);
-    expect(stopTicketServers).toHaveBeenCalledWith(5);
+  it('copies the bare address of a TCP row instead of inventing an http URL (RS-14)', () => {
+    current = manifest({ api: runnableRepo({ health: 'tcp://localhost:3001' }) });
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    const id = Number(
+      store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (?, 'api', 'localhost', 3001, 1, 'running')").run(t.id).lastInsertRowid,
+    );
+    makeServersHost(deps).copyRow(id);
+    expect(copyText).toHaveBeenCalledWith('localhost:3001');
+  });
+
+  const seedTicketRows = (key: string, repos: string[]): number => {
+    const t = createTicket(store, { key, title: key, projectId: 1 });
+    for (const repo of repos) {
+      store.db
+        .prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (?, ?, 'localhost', 3001, 1, 'running')")
+        .run(t.id, repo);
+    }
+    return t.id;
+  };
+
+  it('stops a ticket through the injected stopper after the confirm, and repaints', async () => {
+    const id = seedTicketRows('FEAT-12', ['api']);
+    await makeServersHost(deps).stopTicket(id);
+    expect(deps.shared.confirm).toHaveBeenCalledWith('Stop the 1 server of FEAT-12 (api)?', 'Stop servers');
+    expect(stopTicketServers).toHaveBeenCalledWith(id);
     expect(after).toHaveBeenCalledOnce();
+  });
+
+  it('names the count and the services of a 3-server ticket in the confirm', async () => {
+    const id = seedTicketRows('FEAT-12', ['api', 'web', 'worker']);
+    await makeServersHost(deps).stopTicket(id);
+    expect(deps.shared.confirm).toHaveBeenCalledWith('Stop the 3 servers of FEAT-12 (api, web, worker)?', 'Stop servers');
+  });
+
+  it('says the agent UAT stops too only when it is withheld for that ticket', async () => {
+    const id = seedTicketRows('FEAT-12', ['api']);
+    deps = { ...deps, rows: { ...deps.rows, userUatWithheld: (t) => t === id } };
+    await makeServersHost(deps).stopTicket(id);
+    expect(deps.shared.confirm).toHaveBeenCalledWith(
+      'Stop the 1 server of FEAT-12 (api)? The agent UAT on this ticket stops too.',
+      'Stop servers',
+    );
+  });
+
+  it('stops nothing when the user cancels the confirm', async () => {
+    const id = seedTicketRows('FEAT-12', ['api']);
+    vi.mocked(deps.shared.confirm).mockResolvedValueOnce(false);
+    await makeServersHost(deps).stopTicket(id);
+    expect(stopTicketServers).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
+  });
+
+  it('holds "stopping" on the ticket rows while Stop all runs, then clears it', async () => {
+    const id = seedTicketRows('FEAT-12', ['api']);
+    const host = makeServersHost(deps);
+    let during: unknown;
+    stopTicketServers.mockImplementationOnce(async () => {
+      during = [...(host.viewHints().rowVerbs ?? new Map()).values()];
+    });
+    await host.stopTicket(id);
+    expect(during).toEqual(['stopping']);
+    expect(host.viewHints().rowVerbs?.size).toBe(0);
+  });
+
+  it('holds "starting" on a row while Start runs and clears it when the start fails', async () => {
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    const id = Number(
+      store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (?, 'api', 'localhost', 3001, 1, 'stopped')").run(t.id).lastInsertRowid,
+    );
+    const host = makeServersHost(deps);
+    const run = host.startRow(id);
+    expect(host.viewHints().rowVerbs?.get(id)).toBe('starting');
+    await expect(run).rejects.toThrow();
+    expect(host.viewHints().rowVerbs?.has(id)).toBe(false);
+  });
+
+  it('holds "stopping" on a shared row while its Stop runs', async () => {
+    const host = makeServersHost(deps);
+    const run = host.stopShared('api');
+    expect(host.viewHints().sharedVerbs?.get('api')).toBe('stopping');
+    await run.catch(() => {});
+    expect(host.viewHints().sharedVerbs?.has('api')).toBe(false);
+  });
+
+  it('gives each unit its declared health budget, else undefined', () => {
+    current = manifest({ api: runnableRepo({ healthTimeoutSeconds: 90 }), web: runnableRepo() });
+    const hints = makeServersHost(deps).viewHints();
+    expect(hints.startBudgetMs?.('api')).toBe(90_000);
+    expect(hints.startBudgetMs?.('web')).toBeUndefined();
+    expect(hints.startBudgetMs?.('gone')).toBeUndefined();
+  });
+
+  it('sweeps through the injected liveness sweep', async () => {
+    await makeServersHost(deps).sweep();
+    expect(deps.sweepNow).toHaveBeenCalledOnce();
   });
 
   it('pins through the shared ops and delegates logs', () => {
@@ -77,8 +170,10 @@ describe('makeServersHost', () => {
     host.setPinned('api', true);
     expect(store.db.prepare('SELECT repo FROM baseline_pins').all()).toEqual([{ repo: 'api' }]);
     host.openTicketLogs(3);
+    host.openSharedLogs();
     host.openLogs();
     expect(deps.openTicketLogs).toHaveBeenCalledWith(3);
+    expect(deps.openSharedLogs).toHaveBeenCalledOnce();
     expect(deps.openLogs).toHaveBeenCalled();
   });
 
@@ -115,5 +210,115 @@ describe('makeServersHost', () => {
 
   it('a stale Start on a ticket row rejects instead of silently doing nothing', async () => {
     await expect(makeServersHost(deps).startRow(404)).rejects.toThrow('no longer exists');
+  });
+  const insertRow = (ticketId: number | null, repo: string, status: string): number =>
+    Number(
+      store.db
+        .prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (?, ?, 'localhost', 3001, 1, ?)")
+        .run(ticketId, repo, status).lastInsertRowid,
+    );
+
+  it('copies a shared row and reads its health kind from the shared rows', () => {
+    current = manifest({ api: runnableRepo({ health: 'tcp://localhost:3001' }) });
+    const id = insertRow(null, 'api', 'running');
+    makeServersHost(deps).copyRow(id);
+    expect(copyText).toHaveBeenCalledWith('localhost:3001');
+  });
+
+  it('copies an http URL when the inventory is unavailable and copies nothing for an unknown row', () => {
+    current = manifest({ api: runnableRepo({ health: 'tcp://localhost:3001' }) });
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    const id = insertRow(t.id, 'api', 'running');
+    const host = makeServersHost(deps);
+    host.copyRow(404);
+    expect(copyText).not.toHaveBeenCalled();
+    projectId = undefined;
+    host.copyRow(id);
+    expect(copyText).toHaveBeenCalledWith('http://localhost:3001');
+  });
+
+  it('names an unknown ticket by its id and holds no row for it', async () => {
+    await makeServersHost(deps).stopTicket(404);
+    expect(deps.shared.confirm).toHaveBeenCalledWith('Stop the 0 servers of T404 ()?', 'Stop servers');
+    expect(stopTicketServers).toHaveBeenCalledWith(404);
+  });
+
+  it('names and holds only the running rows of a ticket', async () => {
+    const t = createTicket(store, { key: 'FEAT-9', title: 'a', projectId: 1 });
+    const runningId = insertRow(t.id, 'api', 'running');
+    insertRow(t.id, 'web', 'stopped');
+    const host = makeServersHost(deps);
+    let during: Map<number, string> | undefined;
+    stopTicketServers.mockImplementationOnce(async () => {
+      during = new Map(host.viewHints().rowVerbs);
+    });
+    await host.stopTicket(t.id);
+    expect(deps.shared.confirm).toHaveBeenCalledWith('Stop the 1 server of FEAT-9 (api)?', 'Stop servers');
+    expect(during).toEqual(new Map([[runningId, 'stopping']]));
+  });
+
+  it('holds the exact verb on a shared row for start, restart and stop', async () => {
+    const host = makeServersHost(deps);
+    const held = () => new Map(host.viewHints().sharedVerbs);
+    const start = host.startShared('api');
+    expect(held()).toEqual(new Map([['api', 'starting']]));
+    await start.catch(() => {});
+    const restart = host.restartShared('api');
+    expect(held()).toEqual(new Map([['api', 'starting']]));
+    await restart.catch(() => {});
+    const stop = host.stopShared('api');
+    expect(held()).toEqual(new Map([['api', 'stopping']]));
+    await stop.catch(() => {});
+    expect(held().size).toBe(0);
+  });
+
+  it('holds the exact verb on a ticket row for start, restart and stop', async () => {
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    const id = insertRow(t.id, 'api', 'stopped');
+    const host = makeServersHost(deps);
+    const held = () => new Map(host.viewHints().rowVerbs);
+    const start = host.startRow(id);
+    expect(held()).toEqual(new Map([[id, 'starting']]));
+    await start.catch(() => {});
+    const restart = host.restartRow(id);
+    expect(held()).toEqual(new Map([[id, 'starting']]));
+    await restart.catch(() => {});
+    const stop = host.stopRow(id);
+    expect(held()).toEqual(new Map([[id, 'stopping']]));
+    await stop.catch(() => {});
+    expect(held().size).toBe(0);
+  });
+  it('copies the health kind of the row it names, not of the first shared or ticket row', () => {
+    current = manifest({ api: runnableRepo(), web: runnableRepo({ health: 'tcp://localhost:3001' }) });
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    insertRow(null, 'api', 'running');
+    insertRow(t.id, 'api', 'running');
+    const web = insertRow(t.id, 'web', 'running');
+    makeServersHost(deps).copyRow(web);
+    expect(copyText).toHaveBeenCalledWith('localhost:3001');
+  });
+
+  it('names the ticket it stops, not the first ticket, and survives a missing inventory', async () => {
+    const first = createTicket(store, { key: 'FEAT-1', title: 'a', projectId: 1 });
+    const second = createTicket(store, { key: 'FEAT-2', title: 'b', projectId: 1 });
+    insertRow(first.id, 'api', 'running');
+    insertRow(second.id, 'web', 'running');
+    const host = makeServersHost(deps);
+    await host.stopTicket(second.id);
+    expect(deps.shared.confirm).toHaveBeenLastCalledWith('Stop the 1 server of FEAT-2 (web)?', 'Stop servers');
+    projectId = undefined;
+    await host.stopTicket(second.id);
+    expect(deps.shared.confirm).toHaveBeenLastCalledWith(`Stop the 0 servers of T${second.id} ()?`, 'Stop servers');
+  });
+
+  it('clears the held rows when the stop op throws synchronously', async () => {
+    const t = createTicket(store, { key: 'FEAT-9', title: 'a', projectId: 1 });
+    insertRow(t.id, 'api', 'running');
+    stopTicketServers.mockImplementationOnce(() => {
+      throw new Error('sync boom');
+    });
+    const host = makeServersHost(deps);
+    await expect(host.stopTicket(t.id)).rejects.toThrow('sync boom');
+    expect(host.viewHints().rowVerbs?.size).toBe(0);
   });
 });

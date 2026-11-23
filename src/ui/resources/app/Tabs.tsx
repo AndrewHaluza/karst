@@ -2,6 +2,7 @@
  * The two panel tabs, WAI-ARIA tabs pattern: `role=tablist`, roving tabindex,
  * Left/Right (wrapping) and Home/End move focus AND selection (automatic
  * activation — switching is instant and local, so there is nothing to confirm).
+ * It uses the shared `.k-tabs` / `.k-tab` primitives (D751), never a local copy.
  */
 import { useRef, type KeyboardEvent } from 'react';
 import type { PanelTab } from '../messages.js';
@@ -40,7 +41,7 @@ export function Tabs({ selected, onSelect }: { selected: PanelTab; onSelect: (ta
   };
 
   return (
-    <div className="tabs" role="tablist" aria-label="Servers and resources">
+    <div className="k-tabs" role="tablist" aria-label="Servers and resources">
       {TABS.map((tab) => {
         const active = tab.id === selected;
         return (
@@ -52,7 +53,7 @@ export function Tabs({ selected, onSelect }: { selected: PanelTab; onSelect: (ta
             type="button"
             role="tab"
             id={tabDomId(tab.id)}
-            className="tab"
+            className="k-tab"
             aria-selected={active}
             aria-controls={panelDomId(tab.id)}
             tabIndex={active ? 0 : -1}

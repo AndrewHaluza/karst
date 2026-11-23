@@ -1162,7 +1162,11 @@
     "arch:UATHOST-00"
   ],
   "src/uatHost/fixtureFile.ts#parseFixtureFile": [
-    "arch:UATHOST-07"
+    "arch:UATHOST-07",
+    "arch:UATHOST-09"
+  ],
+  "src/uatHost/fixtures.ts#ServerSeed": [
+    "arch:UATHOST-09"
   ],
   "src/uatHost/fixtures.ts#taskManifestText": [
     "arch:UATHOST-03",
@@ -1191,7 +1195,8 @@
   "src/uatHost/seed.ts#seedStore": [
     "arch:UATHOST-00",
     "arch:UATHOST-01",
-    "arch:UATHOST-03"
+    "arch:UATHOST-03",
+    "arch:UATHOST-09"
   ],
   "src/ui/dashboard/app/AutofixParts.tsx": [
     "arch:AP-02"

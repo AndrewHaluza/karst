@@ -12,9 +12,11 @@ import { useResourcesApp } from './ResourcesAppContext.js';
 export function useHostAction<TArgs extends readonly unknown[]>(
   kind: string,
   post: (requestId: string, ...args: TArgs) => void,
+  /** Pending lifetime before "unknown"; a start passes the row's health budget (RS-3). */
+  timeoutMs?: number,
 ): HostMutation<TArgs> {
   const { state } = useResourcesApp();
-  const mutation = useHostMutation<TArgs>({ kind, send: post });
+  const mutation = useHostMutation<TArgs>({ kind, send: post, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
   const { requestId, status, settle, reset } = mutation;
   const receipts = state.receipts;
   useEffect(() => {

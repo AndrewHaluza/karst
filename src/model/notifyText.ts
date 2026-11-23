@@ -43,9 +43,19 @@ export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** The match-count label for the shared server-logs search box (@arch:NTF-07). */
-export function logMatchText(count: number): string {
+/**
+ * The match-count label for the shared server-logs search box (@arch:NTF-07).
+ * `current` is the 1-based position after Prev/Next; absent, the label names the
+ * total only ("1 match", "12 matches").
+ */
+export function logMatchText(count: number, current?: number): string {
+  if (current !== undefined) return `${current} of ${count}`;
   return count === 0 ? 'No matches' : plural(count, 'match', 'matches');
+}
+
+/** The "jump to latest" label of the shared server-logs view (Follow off). */
+export function logNewLinesText(count: number): string {
+  return plural(count, 'new line', 'new lines');
 }
 
 /** The toast for an implementation that finished and moved the ticket to UAT (rule 7: one text). */

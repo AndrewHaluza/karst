@@ -19,11 +19,16 @@ import {
   type ResourcesHostMessage,
   type ResourcesWebviewMessage,
 } from './messages.js';
-import { buildServersState, unavailableServersState, type ServersState } from './serversState.js';
+import {
+  buildServersState,
+  unavailableServersState,
+  type ServersState,
+  type ServersViewHints,
+} from './serversState.js';
 import type { ServerInventory } from '../../store/serverInventory.js';
 import { tabTitle } from '../../model/tabTitle.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
-import { formatId } from '../../model/entityId.js';
+import { killConfirmText } from './killConfirm.js';
 
 /**
  * The "Servers & resources" panel — ONE per window, like the token-usage panel.
@@ -70,6 +75,10 @@ const SERVERS_POLL_MS = 5_000;
 export interface ServersHost {
   /** A fresh project-scoped read; undefined when there is no project or manifest to read. */
   inventory(): ServerInventory | undefined;
+  /** The verbs in flight and the start budgets, read with each inventory. */
+  viewHints(): ServersViewHints;
+  /** One liveness sweep, so a crashed row turns `failed` before the next read. */
+  sweep(): Promise<void>;
   startShared(repo: string): Promise<void>;
   restartShared(repo: string): Promise<void>;
   stopShared(repo: string): Promise<void>;
@@ -82,6 +91,8 @@ export interface ServersHost {
   copyRow(serverId: number): void;
   stopTicket(ticketId: number): Promise<void>;
   openTicketLogs(ticketId: number): void;
+  /** The shared services' combined log — one view for the project (RS-13). */
+  openSharedLogs(): void;
   openLogs(): void;
 }
 
@@ -182,9 +193,30 @@ export class ResourcesPanelManager {
       );
     });
     this.push();
-    this.poll = setInterval(() => this.postServers(), this.deps.serversPollMs ?? SERVERS_POLL_MS);
+    this.poll = setInterval(() => this.pollServers(), this.deps.serversPollMs ?? SERVERS_POLL_MS);
     // Populate the panel without waiting up to 30 s for the next slow tick.
     void this.deps.monitor.refreshNow();
+  }
+
+  /** How many panels are open (0 or 1): the liveness loop sweeps while it is above 0. */
+  openCount(): number {
+    return this.panel ? 1 : 0;
+  }
+
+  /**
+   * One poll: sweep liveness first, so a crashed row turns `failed` within one
+   * poll, then re-read. A failed sweep is logged and the read still runs.
+   */
+  private pollServers(): void {
+    const host = this.deps.servers;
+    if (!host) {
+      this.postServers();
+      return;
+    }
+    void host
+      .sweep()
+      .catch((err: unknown) => this.log('karst: servers liveness sweep failed', err))
+      .then(() => this.postServers());
   }
 
   /** The Servers tab re-reads and repaints now (called after any server change). */
@@ -225,10 +257,14 @@ export class ResourcesPanelManager {
       if (!servers) throw new Error('Servers are not available in this window.');
       return servers;
     };
-    // Every verb ends with a fresh read, win or lose, so the row repaints.
+    // Every verb ends with a fresh read, win or lose, so the row repaints. The
+    // host sets the transient status synchronously when the verb starts, so a
+    // repaint right after the call shows "Starting…" / "Stopping…".
     const refreshed = async (run: () => void | Promise<void>): Promise<void> => {
       try {
-        await run();
+        const pending = run();
+        if (pending !== undefined) this.postServers(true);
+        await pending;
       } finally {
         this.postServers(true);
       }
@@ -260,6 +296,7 @@ export class ResourcesPanelManager {
           return needServers().stopTicket(ticketId);
         }),
       ticketLogs: (ticketId) => needServers().openTicketLogs(ticketId),
+      sharedLogs: () => needServers().openSharedLogs(),
       openLogs: () => needServers().openLogs(),
       refresh: async () => {
         await this.deps.monitor.refreshNow();
@@ -269,23 +306,12 @@ export class ResourcesPanelManager {
       measureDisk: () => this.measureDisk(),
       killServer: async (serverId) => {
         if (this.deps.confirm) {
-          const dependents = this.deps.baselineDependents?.(serverId) ?? [];
-          // Name the KEYS the user can match against their board, never the raw
-          // `tickets.id`. A done ticket is named with the reason it still counts:
-          // its own running stack is what the shared copy is wired to, so a bare
-          // key next to unfinished tickets would read as a stale ref.
-          const labels = dependents.map((d) => {
-            const key = d.key ?? formatId('ticket', d.ticketId);
-            return d.stageCurrent === 'done' && d.hasRunningService
-              ? `${key} (done, still running)`
-              : key;
+          const message = killConfirmText({
+            serverId,
+            reading: this.deps.monitor.reading(),
+            dependents: this.deps.baselineDependents?.(serverId) ?? [],
+            ...(this.deps.ticketIdentity ? { ticketIdentity: this.deps.ticketIdentity } : {}),
           });
-          const message =
-            labels.length === 0
-              ? 'Stop this server process?'
-              : `This is a baseline server shared by ${labels.length} ticket(s): ` +
-                `${labels.join(', ')}. Stopping it takes the ` +
-                `dependency out from under all of them. Stop it anyway?`;
           const ok = await this.deps.confirm(message);
           if (!ok) return;
         }
@@ -399,7 +425,13 @@ export class ResourcesPanelManager {
       return unavailableServersState('The server list could not be read.', scopeLabel);
     }
     if (!inventory) return unavailableServersState('Open a project with a karst.yml to see its servers.', scopeLabel);
-    return buildServersState(inventory, scopeLabel);
+    let hints: ServersViewHints = {};
+    try {
+      hints = host.viewHints();
+    } catch (err) {
+      this.log('karst: servers view hints read failed', err);
+    }
+    return buildServersState(inventory, scopeLabel, hints);
   }
 
   /** Post the Servers state; the interval path skips an unchanged read (`force` always posts). */

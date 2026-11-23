@@ -4,9 +4,14 @@
  * and reinserted on every start, so a row id from the last render may be gone.
  */
 import type { SharedRowView } from '../serversState.js';
-import { Button } from '../../settings/app/primitives/Button.js';
+import { IconButton } from '../../settings/app/primitives/IconButton.js';
+import { TablerIcon } from '../../settings/app/primitives/TablerIcon.js';
+import { KEPT_RUNNING_CHIP, SERVER_VERB_LABEL } from '../../../model/serverStatusText.js';
 import { useResourcesApp } from './ResourcesAppContext.js';
-import { StatusMark, useVerb, VerbNote } from './serverBits.js';
+import { isTransient, StatusMark, useCopied, useVerb, VerbNote } from './serverBits.js';
+import { ServersEmpty } from './ServersEmpty.js';
+
+const VERB_ICON = { start: 'player-play', restart: 'refresh', stop: 'player-stop', open: 'external-link' } as const;
 
 type SharedVerb = 'start' | 'restart' | 'stop' | 'pin' | 'open' | 'copy';
 
@@ -27,7 +32,7 @@ function Dependents({ row }: { row: SharedRowView }) {
   );
 }
 
-function SharedRow({ row }: { row: SharedRowView }) {
+function SharedRow({ row, onLogs }: { row: SharedRowView; onLogs: () => void }) {
   const { send } = useResourcesApp().bridge;
   const verb = useVerb<SharedVerb>(`${row.service} action`, (requestId, v) => {
     switch (v) {
@@ -38,19 +43,24 @@ function SharedRow({ row }: { row: SharedRowView }) {
       case 'open': return send.serverOpen(row.serverId, requestId);
       case 'copy': return send.serverCopy(row.serverId, requestId);
     }
-  });
+  }, row.startBudgetMs);
+  const copy = useCopied(verb.lastVerb === 'copy' && verb.mutation.status === 'success', verb.mutation.requestId);
   const running = row.status === 'running';
-  const btn = (v: SharedVerb, label: string, variant: 'secondary' | 'ghost' = 'secondary') => (
-    <Button
-      variant={variant}
-      size="sm"
+  const failed = row.status === 'failed';
+  const locked = verb.locked || isTransient(row.status);
+  const copyLabel = row.openable ? SERVER_VERB_LABEL.copyUrl : SERVER_VERB_LABEL.copyAddress;
+  const btn = (v: 'start' | 'restart' | 'stop' | 'open', aria: string) => (
+    <IconButton
+      label={aria}
+      danger={v === 'stop'}
+      className={`sv-${v}`}
       busy={verb.busyOn(v)}
       spinning={verb.spinningOn(v)}
-      disabled={verb.locked}
+      disabled={locked}
       onClick={() => verb.run(v)}
     >
-      {label}
-    </Button>
+      <TablerIcon name={VERB_ICON[v]} />
+    </IconButton>
   );
   return (
     <li className="srow" data-service={row.service}>
@@ -58,51 +68,71 @@ function SharedRow({ row }: { row: SharedRowView }) {
         <StatusMark status={row.status} />
         <span className="sname">{row.service}</span>
         {row.baseBranch && <span className="chip-branch" title="Base branch this shared copy serves">{row.baseBranch}</span>}
-        {row.keptRunning && <span className="chip-kept">kept running</span>}
+        {row.keptRunning && <span className="chip-kept">{KEPT_RUNNING_CHIP}</span>}
       </div>
       <div className="srow-facts">
-        <span className="saddr">{row.address || '—'}</span>
+        <span className={`saddr${failed ? ' saddr-dim' : ''}`}>
+          {failed ? (row.portLabel || '—') : (row.address || '—')}
+        </span>
         <Dependents row={row} />
       </div>
       <div className="srow-actions">
-        <Button
-          variant="ghost"
-          size="sm"
+        <IconButton
+          label={`Keep ${row.service} running`}
           aria-pressed={row.pinned}
           busy={verb.busyOn('pin')}
           spinning={verb.spinningOn('pin')}
-          disabled={verb.locked}
+          disabled={locked}
           onClick={() => verb.run('pin')}
         >
-          Keep running
-        </Button>
+          <TablerIcon name={'pin'} />
+        </IconButton>
         {running ? (
           <>
-            {btn('restart', 'Restart')}
-            {btn('stop', 'Stop')}
-            {row.reachable && btn('open', 'Open', 'ghost')}
-            {row.reachable && btn('copy', 'Copy URL', 'ghost')}
+            {btn('restart', `Restart ${row.service}`)}
+            {btn('stop', `Stop ${row.service}`)}
+            {row.openable && btn('open', `Open ${row.service} at ${row.address}`)}
+            {row.reachable && (
+              <IconButton
+                label={`${copyLabel} ${row.service}`}
+                data-copied={copy.copied ? "true" : undefined}
+                busy={verb.busyOn('copy')}
+                spinning={verb.spinningOn('copy')}
+                disabled={locked}
+                onClick={() => verb.run('copy')}
+              >
+                <TablerIcon name={copy.copied ? 'check' : 'copy'} />
+              </IconButton>
+            )}
           </>
         ) : (
-          btn('start', 'Start')
+          <>{btn('start', `Start ${row.service}`)}</>
         )}
+        <IconButton label={`Logs for ${row.service}`} disabled={locked} onClick={onLogs}>
+          <TablerIcon name="terminal-2" />
+        </IconButton>
       </div>
+      {(failed ? row.reason : '') !== '' ? (
+        <p className="srow-reason" role="status">
+          <span className="srow-reason-mark" aria-hidden="true">✕</span> {row.reason}
+        </p>
+      ) : null}
       <VerbNote mutation={verb.mutation} />
     </li>
   );
 }
 
-export function SharedGroup({ rows }: { rows: readonly SharedRowView[] }) {
+export function SharedGroup({ rows, onLogs }: { rows: readonly SharedRowView[]; onLogs: () => void }) {
   return (
     <section className="group" aria-labelledby="shared-heading">
       <h2 className="ghead" id="shared-heading">
         Shared services<span className="count">{rows.length}</span>
       </h2>
       {rows.length === 0 ? (
-        <p className="gempty">No shared service has run yet. One starts when a ticket that needs it is spun.</p>
+        <ServersEmpty />
       ) : (
         <ul className="srows">
-          {rows.map((r) => <SharedRow key={r.service} row={r} />)}
+          {rows.map((r) => <SharedRow key={r.service} row={r} onLogs={onLogs} />)}
         </ul>
       )}
     </section>

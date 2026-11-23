@@ -87,10 +87,12 @@ export function openServerRow(deps: ServerOpsDeps, serverId: number): void {
   deps.openExternal(`http://${addr.host}:${addr.port}`);
 }
 
-export function copyServerUrlRow(deps: ServerOpsDeps, serverId: number): void {
+export function copyServerUrlRow(deps: ServerOpsDeps, serverId: number, httpHealth = true): void {
   const addr = reachableAddress(deps, serverId);
   if (!addr) return;
-  deps.copyText(`http://${addr.host}:${addr.port}`);
+  // A TCP health check has no browser URL: copy the address the service answers
+  // on instead of inventing an http one (RS-14).
+  deps.copyText(httpHealth ? `http://${addr.host}:${addr.port}` : `${addr.host}:${addr.port}`);
 }
 
 export async function startServerRow(deps: ServerOpsDeps, serverId: number): Promise<void> {
