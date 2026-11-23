@@ -117,6 +117,9 @@ export interface RunAgentNodeInput {
   /** The launch's ownership proof, persisted by the claim transaction that
    *  moved the node run out of `ready` — carried, never minted here. */
   ownerNonce: string;
+  /** True when the fresh workspace received the preserved work of an earlier
+   *  attempt of this node (T1323). Absent/false → the prompt is unchanged. */
+  restored?: boolean;
   /** Path of the instructions artifact snapshot. */
   instructionsSnapshot: string;
   /** Paths of the declared input artifact snapshots. */
@@ -134,10 +137,16 @@ export function composeNodePrompt(
   ticketContext: string,
   instructions: string | undefined,
   inputs: readonly string[],
+  restored = false,
 ): string {
   const parts = [nodePrompt, ticketContext];
   if (instructions !== undefined) parts.push(instructions);
   parts.push(...inputs);
+  if (restored) {
+    parts.push(
+      'The workspace holds uncommitted work of an earlier attempt of this node; check it and continue.',
+    );
+  }
   return parts.filter((p) => p.length > 0).join('\n\n');
 }
 
@@ -164,7 +173,13 @@ export async function runAgentNode(
   const { resolved } = input;
   const instructions = deps.readInstructions(input.instructionsSnapshot);
   const inputs = boundInputs(deps.readInputs(input.inputSnapshots));
-  const prompt = composeNodePrompt(deps.nodePrompt, deps.ticketContext, instructions, inputs);
+  const prompt = composeNodePrompt(
+    deps.nodePrompt,
+    deps.ticketContext,
+    instructions,
+    inputs,
+    input.restored === true,
+  );
   const identity: FrozenIdentity = {
     provider: resolved.provider,
     model: resolved.model,

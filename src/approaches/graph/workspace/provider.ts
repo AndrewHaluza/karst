@@ -49,6 +49,12 @@ import { workspaceRootDir } from '../artifacts/snapshot.js';
 import { domainKeyOf } from '../integration/domains.js';
 import { describeGitFailure, type GitRunner } from '../../../integrations/git.js';
 import type { WorkspaceDepsResult } from './workspaceDeps.js';
+import type {
+  PreserveWorkInput,
+  PreserveWorkResult,
+  RestoreWorkInput,
+  RestoreWorkResult,
+} from './preserve.js';
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import {
   addWorkspaceBytes,
@@ -104,11 +110,24 @@ export interface NodeWorkspaceDeps {
    * its bytes count in the ledger. Absent → the clone gets none.
    */
   provisionDeps?: (domain: WorkspaceDomain, clone: string) => Promise<WorkspaceDepsResult>;
+  /**
+   * Write the work of the superseded clone(s) to a patch BEFORE the directory
+   * is removed (T1323, `preserve.ts`). A `failed` result keeps the clone: work
+   * without a patch must never be deleted.
+   */
+  preserveWork?: (input: PreserveWorkInput) => Promise<PreserveWorkResult>;
+  /**
+   * Apply a preserved patch of an earlier attempt to the fresh clone. Runs
+   * after checkout and dependency provisioning, before the clone is measured.
+   */
+  restoreWork?: (input: RestoreWorkInput) => Promise<RestoreWorkResult>;
   debug?: (message: string) => void;
 }
 
 export type CreateNodeWorkspaceResult =
-  | { kind: 'created'; paths: WorkspacePath[] }
+  | { kind: 'created'; paths: WorkspacePath[]; restored: boolean }
+  /** The superseded clone holds work that could not be written to a patch. */
+  | { kind: 'preserve-failed'; reason: string }
   | {
       kind: 'budget-exhausted';
       currentBytes: number;
@@ -257,6 +276,21 @@ export async function createNodeWorkspace(
         reason: `node run ${input.nodeRunId} already has a workspace with a live process — it will not be removed`,
       };
     }
+    // Preserve BEFORE removal: a node's work lives only in this clone, so a
+    // relaunch that cannot write its patch must not delete it.
+    if (deps.preserveWork) {
+      const preserved = await deps.preserveWork({
+        graphRunId: input.graphRunId,
+        nodeRunId: input.nodeRunId,
+        domains: input.domains.map((d) => ({ repoName: d.repoName, baseCommit: d.baseCommit })),
+      });
+      if (preserved.kind === 'failed') {
+        deps.debug?.(
+          `[graph] workspace: node ${input.nodeRunId} blocked — its work could not be preserved: ${preserved.reason}`,
+        );
+        return { kind: 'preserve-failed', reason: preserved.reason };
+      }
+    }
     deps.debug?.(
       `[graph] workspace: removing superseded workspace of node run ${input.nodeRunId} (no live process)`,
     );
@@ -291,6 +325,7 @@ export async function createNodeWorkspace(
   mkdirSync(nodeDir, { recursive: true });
   const created: { domain: WorkspaceDomain; cwd: string; bytes: number }[] = [];
   const paths: WorkspacePath[] = [];
+  let restored = false;
   try {
     for (const domain of input.domains) {
       const dest = join(nodeDir, domain.repoName);
@@ -319,6 +354,17 @@ export async function createNodeWorkspace(
           rmSync(nodeDir, { recursive: true, force: true });
           return { kind: 'deps-failed', reason: provisioned.reason };
         }
+      }
+      // A fresh clone of this node run receives the preserved work of an
+      // earlier attempt, uncommitted, before its bytes are measured.
+      if (deps.restoreWork) {
+        const applied = await deps.restoreWork({
+          graphRunId: input.graphRunId,
+          nodeRunId: input.nodeRunId,
+          repoName: domain.repoName,
+          cwd: dest,
+        });
+        if (applied.kind === 'restored') restored = true;
       }
       const bytes = measureBytes(dest);
       created.push({ domain, cwd: dest, bytes });
@@ -371,5 +417,5 @@ export async function createNodeWorkspace(
       estimatedBytes: ledgerBytes,
     };
   }
-  return { kind: 'created', paths };
+  return { kind: 'created', paths, restored };
 }

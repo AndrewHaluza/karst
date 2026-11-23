@@ -244,6 +244,9 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   // A node clone that could not get its dependencies: a human installs them (or sets
   // `graphWorkspace` in the manifest) first. A retry would repeat the same install.
   if (reason.startsWith('graph-workspace-deps')) return 'config-then-resume';
+  // T1323: the superseded clone holds work that could not be written to a
+  // patch. The clone is kept, so a retry would repeat the same failure.
+  if (reason.startsWith('graph-preserve-failed')) return 'config-then-resume';
   if (reason.startsWith('node-blocked')) return 'launch-retry';
   if (reason.startsWith('failed-to-launch')) return 'launch-retry';
   // A live process still serves the node workspace: it ends, then a retry works.
@@ -850,6 +853,9 @@ export function recoverGraphRun(
         detail: run.blocked_reason?.startsWith('graph-workspace-deps')
           ? `refused (config-then-resume): ${run.blocked_reason} — install the dependencies in the ` +
             `ticket worktree or set repositories.<name>.graphWorkspace in the manifest, then Replan`
+          : run.blocked_reason?.startsWith('graph-preserve-failed')
+            ? `refused (config-then-resume): ${run.blocked_reason} — the node workspace holds work ` +
+              `that could not be written to a patch; correct the cause, then Replan`
           : run.blocked_reason?.startsWith('graph-budget-exhausted') && run.blocked_reason.includes('workspace ceiling')
             ? `refused (config-then-resume): ${run.blocked_reason} — raise limits.maxAggregateWorkspaceBytes ` +
               `in the manifest, or free workspace space, then Replan`

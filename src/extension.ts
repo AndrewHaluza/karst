@@ -26,6 +26,7 @@ import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions
 import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
 import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
+import { graphPreserveSeams } from './extension/graphPreserveBinding.js';
 import * as vscode from 'vscode'; import { RestoreGate, hostTracker, makeRestorers, registerRestoreSerializers } from './extension/panelRestoreBinding.js';
 import { registerDoctorCommand } from './ui/doctor/host.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, rmSync, watch as fsWatch } from 'node:fs';
@@ -4972,6 +4973,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             facts: systemAsyncProcessFacts,
             // @arch:GRAPHRUN: a clone gets the dependencies of its ticket worktree.
             provisionDeps: createDepsProvisioner({ manifest: currentManifest, run: runProcess, debug: (message) => logger.debug(message) }),
+            ...graphPreserveSeams(() => gs!.db, graphArtifactRoot, defaultGitRunner, (message) => logger.debug(message)),
             debug: (message) => logger.debug(message),
           },
           {

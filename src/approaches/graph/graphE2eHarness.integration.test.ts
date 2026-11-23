@@ -468,7 +468,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
         gitOk(cwd, ['config', 'user.name', 'E2E']);
         nodeWorkspaces.set(nodeRunId, cwd);
       }
-      return { kind: 'created', paths: [{ repoName: 'api', cwd, domainKey: 'd' }] };
+      return { kind: 'created', paths: [{ repoName: 'api', cwd, domainKey: 'd' }], restored: false };
     },
     sessionNamingOf: (_graphRunId, runId, kind) => ({ name: `Karst ${kind} ${runId}` }),
     cliNodeCompletionCommand: () => 'node "/dist/cli/main.js" node complete',
