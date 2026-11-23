@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import { runDoctorViaCli } from '../../extension/ops/doctorOps.js';
+import { ask } from '../../extension/toastSeam.js';
+import { injectDesignSystem } from '../../model/designSystem.js';
+import { injectPalette } from '../../model/palette.js';
 import { brandIconUri } from '../panelIcon.js';
 import type { BrandIconPaths } from '../brandIcon.js';
-import { renderDoctorHtml } from '../../doctor/renderHtml.js';
-import { toast } from '../../extension/toastSeam.js';
-import { reasonText } from '../../model/notifyText.js';
+import { createDoctorFlow, createDoctorPanelController } from './doctorFlow.js';
 
 export interface DoctorWiringDeps {
   brandIcon?: BrandIconPaths;
@@ -23,48 +23,61 @@ export interface DoctorWiring {
   restore(raw: vscode.WebviewPanel): Promise<void>;
 }
 
-/** 'Karst: Run Doctor' — on demand only; shows the report in a panel. */
+/** 'Karst: Run Doctor' — on demand only; one panel, hydrated by the design system. */
 export function registerDoctorCommand(deps: DoctorWiringDeps): DoctorWiring {
-  let current: vscode.WebviewPanel | undefined;
-  /** Configure a raw panel (new or restored), run the report into it. */
-  const adopt = async (panel: vscode.WebviewPanel): Promise<void> => {
-    current = panel;
-    panel.onDidDispose(() => {
-      if (current === panel) current = undefined;
-    });
-    const { cliEntry, dbPath, manifestPath } = deps.cli();
-    const runCli = (args: readonly string[]) =>
-      new Promise<{ stdout: string; stderr: string }>((resolve) => {
-        execFile(process.execPath, [cliEntry, ...args], { maxBuffer: 4 * 1024 * 1024 }, (_e, stdout, stderr) =>
-          resolve({ stdout, stderr }),
-        );
-      });
-    const opts = { runCli, db: dbPath, ...(manifestPath ? { manifest: manifestPath } : {}) };
-    // A restored panel arrives with default options.
-    panel.webview.options = { enableScripts: true };
+  const config = (): { cliEntry: string; dbPath: string; manifestPath?: string } => deps.cli();
+
+  /**
+   * Everything a panel needs before its flow runs: the karst tab icon, scripts
+   * on, and no local resource roots (the page is self-contained, DR-11).
+   */
+  const adopt = (panel: vscode.WebviewPanel): vscode.WebviewPanel => {
     panel.iconPath = brandIconUri(deps.brandIcon);
-    const show = async (fix: boolean): Promise<void> => {
-      try {
-        panel.webview.html = renderDoctorHtml(await runDoctorViaCli(opts, fix), randomBytes(16).toString('hex'));
-      } catch (e) {
-        void toast.error(`Could not run the doctor checks (${reasonText(e)}).`);
-      }
-    };
-    panel.webview.onDidReceiveMessage((m: unknown) => {
-      if (typeof m === 'object' && m !== null && (m as { type?: unknown }).type === 'fix') void show(true);
-    });
-    await show(false);
+    panel.webview.options = { enableScripts: true, localResourceRoots: [] };
+    return panel;
   };
-  return {
-    command: vscode.commands.registerCommand('karst.runDoctor', async () => {
-      await adopt(vscode.window.createWebviewPanel(DOCTOR_VIEW_TYPE, 'Karst Doctor', vscode.ViewColumn.Active, { enableScripts: true }));
-    }),
-    restore: async (raw) => {
-      if (current) {
-        raw.dispose();
-        return;
-      }
-      await adopt(raw);
+
+  const controller = createDoctorPanelController<vscode.WebviewPanel>({
+    createPanel: () =>
+      adopt(
+        vscode.window.createWebviewPanel(DOCTOR_VIEW_TYPE, 'Karst Doctor', vscode.ViewColumn.Active, {
+          enableScripts: true,
+          localResourceRoots: [],
+        }),
+      ),
+    createFlow: (panel) => {
+      const { cliEntry, dbPath, manifestPath } = config();
+      // The CLI spawns git/gh synchronously; the extension host never blocks. The
+      // spawn error rides along so a missing binary is not a blank reason (DR-4).
+      const runCli = (args: readonly string[]) =>
+        new Promise<{ stdout: string; stderr: string; error?: unknown }>((resolve) => {
+          execFile(process.execPath, [cliEntry, ...args], { maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) =>
+            resolve({ stdout, stderr, ...(error ? { error } : {}) }),
+          );
+        });
+      const opts = { runCli, db: dbPath, ...(manifestPath ? { manifest: manifestPath } : {}) };
+      return createDoctorFlow({
+        run: (fix, only) => runDoctorViaCli(opts, fix, only),
+        // The modal is the host's: a crafted webview message cannot skip it (UI-R33).
+        // VS Code appends Cancel; Cancel resolves to undefined, never the action.
+        confirm: async (title, items, actionLabel) =>
+          (await ask.warn(title, { modal: true, detail: items.join('\n') }, actionLabel)) === actionLabel,
+        // The page carries both markers; the host swaps them for the real CSS.
+        render: (html) => {
+          panel.webview.html = injectPalette(injectDesignSystem(html));
+        },
+        post: (message) => {
+          void panel.webview.postMessage(message);
+        },
+        copy: async (text) => {
+          await vscode.env.clipboard.writeText(text);
+        },
+      });
     },
+  });
+
+  return {
+    command: vscode.commands.registerCommand('karst.runDoctor', () => controller.open()),
+    restore: (raw) => controller.restore(raw),
   };
 }
