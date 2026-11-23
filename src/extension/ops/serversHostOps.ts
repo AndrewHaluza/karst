@@ -98,7 +98,7 @@ export function makeServersHost(deps: ServersHostDeps): ServersHost {
   };
   const stopTicket = async (ticketId: number): Promise<void> => {
     const group = inventory()?.tickets.find((g) => g.ticketId === ticketId);
-    const running = (group?.servers ?? []).filter((r) => r.status === 'running');
+    const running = group ? group.servers.filter((r) => r.status === 'running') : [];
     const key = group?.key ?? formatId('ticket', ticketId);
     const names = running.map((r) => r.repo).join(', ');
     const withheld = deps.rows.userUatWithheld?.(ticketId) === true;
@@ -122,7 +122,7 @@ export function makeServersHost(deps: ServersHostDeps): ServersHost {
     restartRow: (id) => holding(rowVerbs, [id], 'starting', () => restartServerRow(deps.rows, id)),
     stopRow: (id) => holding(rowVerbs, [id], 'stopping', () => stopServerRow(deps.rows, id)),
     openRow: (id) => openServerRow(deps.rows, id),
-    copyRow: (id) => copyServerUrlRow(deps.rows, id, rowOf(id)?.httpHealth ?? true),
+    copyRow: (id) => copyServerUrlRow(deps.rows, id, rowOf(id)?.httpHealth),
     stopTicket,
     openTicketLogs: deps.openTicketLogs,
     openSharedLogs: deps.openSharedLogs,

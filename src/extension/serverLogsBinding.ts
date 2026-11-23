@@ -42,6 +42,7 @@ export function makeServerLogsBinding(deps: ServerLogsBindingDeps): {
       // A shared row's Logs verb opens the project's shared services (RS-13).
       sharedLogServers: () => {
         try {
+          // Stryker disable next-line OptionalChaining: a throw on an undefined inventory lands in the catch below, with the same [] result
           return (deps.inventory()?.shared ?? []).map((s) => ({
             service: s.repo,
             logPath: s.logPath,

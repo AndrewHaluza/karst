@@ -288,4 +288,37 @@ describe('makeServersHost', () => {
     await stop.catch(() => {});
     expect(held().size).toBe(0);
   });
+  it('copies the health kind of the row it names, not of the first shared or ticket row', () => {
+    current = manifest({ api: runnableRepo(), web: runnableRepo({ health: 'tcp://localhost:3001' }) });
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    insertRow(null, 'api', 'running');
+    insertRow(t.id, 'api', 'running');
+    const web = insertRow(t.id, 'web', 'running');
+    makeServersHost(deps).copyRow(web);
+    expect(copyText).toHaveBeenCalledWith('localhost:3001');
+  });
+
+  it('names the ticket it stops, not the first ticket, and survives a missing inventory', async () => {
+    const first = createTicket(store, { key: 'FEAT-1', title: 'a', projectId: 1 });
+    const second = createTicket(store, { key: 'FEAT-2', title: 'b', projectId: 1 });
+    insertRow(first.id, 'api', 'running');
+    insertRow(second.id, 'web', 'running');
+    const host = makeServersHost(deps);
+    await host.stopTicket(second.id);
+    expect(deps.shared.confirm).toHaveBeenLastCalledWith('Stop the 1 server of FEAT-2 (web)?', 'Stop servers');
+    projectId = undefined;
+    await host.stopTicket(second.id);
+    expect(deps.shared.confirm).toHaveBeenLastCalledWith(`Stop the 0 servers of T${second.id} ()?`, 'Stop servers');
+  });
+
+  it('clears the held rows when the stop op throws synchronously', async () => {
+    const t = createTicket(store, { key: 'FEAT-9', title: 'a', projectId: 1 });
+    insertRow(t.id, 'api', 'running');
+    stopTicketServers.mockImplementationOnce(() => {
+      throw new Error('sync boom');
+    });
+    const host = makeServersHost(deps);
+    await expect(host.stopTicket(t.id)).rejects.toThrow('sync boom');
+    expect(host.viewHints().rowVerbs?.size).toBe(0);
+  });
 });
