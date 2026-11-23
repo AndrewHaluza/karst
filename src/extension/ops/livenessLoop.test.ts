@@ -103,6 +103,35 @@ describe('createLivenessLoop', () => {
     ).toBe('failed');
   });
 
+  it('runs when a panel and the Resources panel are both open', async () => {
+    const store = openStore(':memory:');
+    const id = seedRunningServer(store, null, 'sbx:box:8000');
+    const { loop } = deps(store, {
+      openPanelCount: () => 1,
+      openResourcesCount: () => 1,
+      sweepOpts: { portOpen: async () => false },
+    });
+
+    await loop.sweepNow();
+
+    expect(
+      (store.db.prepare('SELECT status FROM servers WHERE id = ?').get(id) as { status: string })
+        .status,
+    ).toBe('failed');
+  });
+
+  it('runs a new sweep after the previous one settled', async () => {
+    const store = openStore(':memory:');
+    seedRunningServer(store, null, 'sbx:box:8000');
+    const { loop, info } = deps(store, { sweepOpts: { portOpen: async () => false } });
+
+    await loop.sweepNow();
+    seedRunningServer(store, null, 'sbx:box:8001');
+    await loop.sweepNow();
+
+    expect(info).toHaveBeenCalledTimes(2);
+  });
+
   it('runs with no panel open when the caller asks for it (the monitor reading)', async () => {
     const store = openStore(':memory:');
     const id = seedRunningServer(store, null, 'sbx:box:8000');

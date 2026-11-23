@@ -4,7 +4,6 @@
  * and reinserted on every start, so a row id from the last render may be gone.
  */
 import type { SharedRowView } from '../serversState.js';
-import { Button } from '../../settings/app/primitives/Button.js';
 import { IconButton } from '../../settings/app/primitives/IconButton.js';
 import { TablerIcon } from '../../settings/app/primitives/TablerIcon.js';
 import { KEPT_RUNNING_CHIP, SERVER_VERB_LABEL } from '../../../model/serverStatusText.js';
