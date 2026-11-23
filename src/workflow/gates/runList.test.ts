@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { runGateList } from './runList.js';
 import type { GateWait } from '../../model/inside/gateWait.js';
 import { UI_GATE_TIMEOUT_MS } from './run.js';
@@ -598,49 +598,67 @@ describe('runGateList gate concurrency lease', () => {
 
   it('writes one waiting line, then runs once the other run releases', async () => {
     const dir = mkDir();
+    const ac = new AbortController();
+    let pending: ReturnType<typeof runGateList> | undefined;
     try {
       mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
       writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
       const lines: string[] = [];
       let ran = false;
-      const pending = runGateList([limited], process.cwd(), {
+      pending = runGateList([limited], process.cwd(), {
         now,
         gateSlotsDir: dir,
         gateSlotPollMs: 5,
+        signal: ac.signal,
         onGateOutput: (name, chunk) => lines.push(`${name}|${chunk.stream}|${chunk.text}`),
         runProcess: async () => ((ran = true), done),
       });
-      await new Promise((r) => setTimeout(r, 40));
+      await vi.waitFor(
+        () => {
+          expect(lines).toEqual(['sast|stderr|sast: waiting for a free slot (1 of 1 in use by other tickets)\n']);
+        },
+        { timeout: 5_000, interval: 10 },
+      );
       expect(ran).toBe(false);
-      expect(lines).toEqual(['sast|stderr|sast: waiting for a free slot (1 of 1 in use by other tickets)\n']);
       rmSync(join(dir, 'sast', 'slot-0'), { recursive: true });
       const out = await pending;
       expect(out.kind).toBe('ran');
       expect(ran).toBe(true);
+      expect(lines).toEqual(['sast|stderr|sast: waiting for a free slot (1 of 1 in use by other tickets)\n']);
     } finally {
+      ac.abort();
+      await pending?.catch(() => {});
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it('returns stopped when Stop lands during the wait, and never spawns', async () => {
     const dir = mkDir();
+    const ac = new AbortController();
+    let pending: ReturnType<typeof runGateList> | undefined;
     try {
       mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
       writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
-      const ac = new AbortController();
+      let waited = false;
       let ran = false;
-      const pending = runGateList([limited], process.cwd(), {
+      pending = runGateList([limited], process.cwd(), {
         now,
         gateSlotsDir: dir,
         gateSlotPollMs: 5,
         signal: ac.signal,
+        onGateWait: () => {
+          waited = true;
+        },
         runProcess: async () => ((ran = true), done),
       });
-      setTimeout(() => ac.abort(), 20);
+      await vi.waitFor(() => expect(waited).toBe(true), { timeout: 5_000, interval: 10 });
+      ac.abort();
       const out = await pending;
       expect(out.kind).toBe('stopped');
       expect(ran).toBe(false);
     } finally {
+      ac.abort();
+      await pending?.catch(() => {});
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -687,38 +705,48 @@ describe('runGateList onGateWait', () => {
 
   it('fires once for a held lease, then announces the start again when the slot is taken', async () => {
     const dir = mkDir();
+    const ac = new AbortController();
+    let pending: ReturnType<typeof runGateList> | undefined;
     try {
       mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
       writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
       const events: string[] = [];
       const waits: GateWait[] = [];
-      const pending = runGateList([limited], process.cwd(), {
+      pending = runGateList([limited], process.cwd(), {
         now,
         gateSlotsDir: dir,
         gateSlotPollMs: 5,
+        signal: ac.signal,
         onGateStart: (n) => events.push(`start:${n}`),
         onGateWait: (n, w) => (events.push(`wait:${n}`), waits.push(w)),
         runProcess: async () => (events.push('spawn'), done),
       });
-      await new Promise((r) => setTimeout(r, 40));
-      expect(events).toEqual(['start:sast', 'wait:sast']);
+      await vi.waitFor(
+        () => {
+          expect(events).toEqual(['start:sast', 'wait:sast']);
+        },
+        { timeout: 5_000, interval: 10 },
+      );
       rmSync(join(dir, 'sast', 'slot-0'), { recursive: true });
       await pending;
       expect(events).toEqual(['start:sast', 'wait:sast', 'start:sast', 'spawn']);
       expect(waits).toEqual([{ kind: 'gate', held: 1, limit: 1 }]);
     } finally {
+      ac.abort();
+      await pending?.catch(() => {});
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
   it('does not announce a taken slot after an abort', async () => {
     const dir = mkDir();
+    const ac = new AbortController();
+    let pending: ReturnType<typeof runGateList> | undefined;
     try {
       mkdirSync(join(dir, 'sast', 'slot-0'), { recursive: true });
       writeFileSync(join(dir, 'sast', 'slot-0', 'owner'), String(process.pid));
-      const ac = new AbortController();
       const events: string[] = [];
-      const pending = runGateList([limited], process.cwd(), {
+      pending = runGateList([limited], process.cwd(), {
         now,
         gateSlotsDir: dir,
         gateSlotPollMs: 5,
@@ -727,10 +755,18 @@ describe('runGateList onGateWait', () => {
         onGateWait: (n) => events.push(`wait:${n}`),
         runProcess: async () => done,
       });
-      setTimeout(() => ac.abort(), 20);
+      await vi.waitFor(
+        () => {
+          expect(events).toEqual(['start:sast', 'wait:sast']);
+        },
+        { timeout: 5_000, interval: 10 },
+      );
+      ac.abort();
       await pending;
       expect(events).toEqual(['start:sast', 'wait:sast']);
     } finally {
+      ac.abort();
+      await pending?.catch(() => {});
       rmSync(dir, { recursive: true, force: true });
     }
   });
