@@ -31,6 +31,8 @@ describe('dashboard app source guards', () => {
       'autopilot-stop-after', 'autopilot-stop-confirm', 'autopilot-stop-now', 'autopilot-stop-cancel',
       // The Auto-fix chip only opens its menu; a choice posts the `autopilot-override` message.
       'autopilot-menu',
+      // Accept and continue opens a note step first; only its confirm posts the `fix-parked-accept` message.
+      'fix-parked-accept-confirm', 'fix-parked-accept-cancel',
     ]);
     const emitted = appComponents()
       .flatMap((text) => [...text.matchAll(/data-act="([a-z][a-z-]*)"/g)].map((m) => m[1]!))

@@ -91,7 +91,7 @@ describe('sandbox evidence bridge e2e', () => {
     // A fresh attachment (host restart) resumes from the persisted offset.
     await attach().pollOnce();
     expect(runMarker).toHaveBeenCalledTimes(1);
-    expect(runMarker).toHaveBeenCalledWith('impl');
+    expect(runMarker).toHaveBeenCalledWith('impl', undefined);
   });
 
   it('a hook line carrying a foreign cwd still lands on the OWNING ticket (cwd is rebuilt)', async () => {
