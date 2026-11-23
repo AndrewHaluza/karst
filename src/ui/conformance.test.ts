@@ -71,7 +71,10 @@ const LITERAL_BUDGET: Record<string, number> = {
   // to prevent) — commented in webview.html and pinned by the dashboard's own
   // px allowlist test.
   dashboard: 24,
-  diffs: 1,
+  // 2, not 1: the two tier conditions `@media (max-width: 699px)` (narrow) and
+  // `(max-width: 399px)` (tight, @ui:RD-TIERS). A media condition cannot read a
+  // custom property, so the canonical edges are the only literal form.
+  diffs: 2,
   // 4, not 0: the layout B′ tier breakpoints (@container 999/699/399 + the
   // 700px label-left query) — a container condition cannot read a custom property.
   ticketForm: 4,
