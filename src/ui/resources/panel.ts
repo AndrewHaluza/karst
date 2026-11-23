@@ -91,6 +91,8 @@ export interface ServersHost {
   copyRow(serverId: number): void;
   stopTicket(ticketId: number): Promise<void>;
   openTicketLogs(ticketId: number): void;
+  /** The shared services' combined log — one view for the project (RS-13). */
+  openSharedLogs(): void;
   openLogs(): void;
 }
 
@@ -294,6 +296,7 @@ export class ResourcesPanelManager {
           return needServers().stopTicket(ticketId);
         }),
       ticketLogs: (ticketId) => needServers().openTicketLogs(ticketId),
+      sharedLogs: () => needServers().openSharedLogs(),
       openLogs: () => needServers().openLogs(),
       refresh: async () => {
         await this.deps.monitor.refreshNow();

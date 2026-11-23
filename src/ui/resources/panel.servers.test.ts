@@ -71,7 +71,7 @@ function fakeServers(over: Partial<ServersHost> = {}) {
     startShared: vi.fn(async () => {}), restartShared: vi.fn(async () => {}), stopShared: vi.fn(async () => {}),
     setPinned: vi.fn(), stopIdle: vi.fn(async () => {}), startRow: vi.fn(async () => {}),
     restartRow: vi.fn(async () => {}), stopRow: vi.fn(async () => {}), openRow: vi.fn(), copyRow: vi.fn(),
-    stopTicket: vi.fn(async () => {}), openTicketLogs: vi.fn(), openLogs: vi.fn(),
+    stopTicket: vi.fn(async () => {}), openTicketLogs: vi.fn(), openSharedLogs: vi.fn(), openLogs: vi.fn(),
   };
   return { host: { ...calls, ...over } as unknown as ServersHost, calls };
 }
@@ -247,6 +247,7 @@ describe('Servers tab — action dispatch', () => {
     ['server-copy', { serverId: 2 }, 'copyRow', [2]],
     ['ticket-stop-all', { ticketId: 7 }, 'stopTicket', [7]],
     ['ticket-logs', { ticketId: 7 }, 'openTicketLogs', [7]],
+    ['shared-logs', {}, 'openSharedLogs', []],
     ['open-logs', {}, 'openLogs', []],
   ] as const)('%s → %s', async (type, args, method, expected) => {
     p.send({ type, ...args, requestId: 'r1' });

@@ -31,6 +31,7 @@ export interface ServersBindingDeps {
   /** One liveness sweep (`livenessLoop.sweepNow`). */
   sweepNow: () => Promise<void>;
   openTicketLogs: (ticketId: number) => void;
+  openSharedLogs: () => void;
   openLogs: () => void;
 }
 
@@ -64,6 +65,7 @@ export function createServersBinding(deps: ServersBindingDeps): { host: ServersH
     stopTicketServers: deps.stopTicketServers,
     sweepNow: deps.sweepNow,
     openTicketLogs: deps.openTicketLogs,
+    openSharedLogs: deps.openSharedLogs,
     openLogs: deps.openLogs,
   });
 

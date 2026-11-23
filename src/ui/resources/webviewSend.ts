@@ -50,6 +50,7 @@ export function createSender(api: WebviewApi) {
       send({ type: 'ticket-stop-all', ticketId }, requestId),
     ticketLogs: (ticketId: Msg<'ticket-logs'>['ticketId'], requestId?: string) =>
       send({ type: 'ticket-logs', ticketId }, requestId),
+    sharedLogs: (requestId?: string) => send({ type: 'shared-logs' }, requestId),
     openLogs: (requestId?: string) => send({ type: 'open-logs' }, requestId),
   };
 }

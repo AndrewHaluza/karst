@@ -56,6 +56,7 @@ describe('createServersBinding', () => {
       stopTicketServers: async () => undefined,
       sweepNow: async () => undefined,
       openTicketLogs: vi.fn(),
+      openSharedLogs: vi.fn(),
       openLogs: vi.fn(),
     };
   });

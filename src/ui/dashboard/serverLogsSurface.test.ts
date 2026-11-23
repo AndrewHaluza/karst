@@ -10,6 +10,7 @@ import { injectAgentIdentity } from '../../model/agentIdentity.js';
 import { injectServerLogsView } from '../../model/serverLogsView.js';
 import { injectWebviewSend } from '../../model/webviewSendInjector.js';
 import { decodeAnsi, formatLineTime, toLogLines } from './logLine.js';
+import { SERVER_STATUS_MARK, SERVER_STATUS_WORD } from '../../model/serverStatusText.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HTML = readFileSync(join(HERE, 'webview.html'), 'utf8');
@@ -62,7 +63,7 @@ class FakeElement {
 
 type LogsView = {
   open(): void;
-  handleInitial(servers: Array<{ service: string; content: string; truncated?: boolean; state?: string; message?: string }>, key?: string): void;
+  handleInitial(servers: Array<{ service: string; content: string; truncated?: boolean; state?: string; message?: string; status?: string }>, key?: string): void;
   handleOutput(service: string, text: string): void;
   handleMatchText(seq: number, text: string): void;
   handleNewText(seq: number, text: string): void;
@@ -149,6 +150,31 @@ describe('shared server logs surface', () => {
     // The standalone panel has no second window to open, so the control is
     // conditional on the factory option rather than always rendered.
     expect(SERVER_LOGS_JS).toMatch(/detached \? ''[\s\S]*?data-log-detach/);
+  });
+
+  it('gives each service tab the status shape and word the host sent (LG-14)', () => {
+    const { view, els } = bootRuntime();
+    view.handleInitial([
+      { service: 'api', content: 'up\n', status: 'Running' },
+      { service: 'web', content: '', status: 'Failed' },
+      { service: 'db', content: '' },
+    ]);
+    const tabs = els.get('logsTabs')!.innerHTML;
+    expect(tabs).toContain('<span class="k-tab-mark" aria-hidden="true">●</span> api');
+    expect(tabs).toContain('<span class="k-tab-status">· Running</span>');
+    expect(tabs).toContain('<span class="k-tab-mark" aria-hidden="true">✕</span> web');
+    expect(tabs).toContain('· Failed');
+    // A host that sends no status keeps the bare service name, never an invented one.
+    expect(tabs).toContain('data-log-tab="db"');
+    expect(tabs).not.toContain('db <span class="k-tab-status">');
+  });
+
+  it('mirrors the one status mark table, so a shape changes in one place (RS-17)', () => {
+    for (const status of Object.keys(SERVER_STATUS_WORD) as Array<keyof typeof SERVER_STATUS_WORD>) {
+      const word = SERVER_STATUS_WORD[status];
+      const mark = SERVER_STATUS_MARK[status];
+      expect(SERVER_LOGS_JS, `runtime is missing the mark for ${word}`).toContain(`'${word}': '${mark}'`);
+    }
   });
 
   it('wires the dashboard to the shared factory, not a private surface', () => {

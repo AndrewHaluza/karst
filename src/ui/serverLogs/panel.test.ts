@@ -282,4 +282,70 @@ describe('ServerLogsManager', () => {
     // The panels themselves were not disposed by the manager (the host owns them).
     expect(panels).toHaveLength(2);
   });
+
+  it('carries each row’s status word into the snapshot for the tab label (LG-14)', () => {
+    const { host, panels } = makeHost();
+    const { reader } = makeReader();
+    const manager = new ServerLogsManager(host, reader, (id) => `Logs ${id}`, () => [
+      { ...WEB, status: 'Running' },
+      { service: 'api', logPath: null, status: 'Failed' },
+    ]);
+
+    manager.open(41);
+    panels[0]!.emit({ type: 'server-logs-request' });
+
+    const posted = panels[0]!.posted.find((m) => m.type === 'server-logs');
+    expect(posted).toMatchObject({
+      servers: [
+        { service: 'web', status: 'Running' },
+        { service: 'api', status: 'Failed' },
+      ],
+    });
+  });
+
+  it('opens the shared scope with no ticket id and tails it under the shared reader key (RS-13)', () => {
+    const { host, panels } = makeHost();
+    const { reader, readLogs, startPolling, stopPolling } = makeReader();
+    const shared = [{ service: 'api', logPath: '/tmp/api.log', status: 'Running' }];
+    const manager = new ServerLogsManager(
+      host,
+      reader,
+      (id) => `Logs ${id}`,
+      () => [WEB],
+      undefined,
+      { sharedLogServers: () => shared },
+    );
+
+    manager.openShared();
+    manager.openShared();
+    expect(panels).toHaveLength(1);
+    expect(panels[0]!.title).toBe('Server Logs — Shared services');
+    expect(panels[0]!.ticketId).toBe(0);
+
+    panels[0]!.emit({ type: 'server-logs-request' });
+    expect(readLogs).toHaveBeenCalledWith(shared);
+    expect(startPolling).toHaveBeenCalledWith(shared, 0, expect.any(Function));
+    expect(panels[0]!.posted).toContainEqual(
+      expect.objectContaining({ type: 'server-logs', servers: [expect.objectContaining({ service: 'api', status: 'Running' })] }),
+    );
+    // No ticket key: the shared view is not one ticket's.
+    expect(panels[0]!.posted.some((m) => m.type === 'server-logs' && 'key' in m)).toBe(false);
+
+    panels[0]!.emit({ type: 'server-logs-close' });
+    expect(stopPolling).toHaveBeenCalledWith(0);
+  });
+
+  it('opens the shared scope with no host lister on its empty state', () => {
+    const { host, panels } = makeHost();
+    const { reader, readLogs } = makeReader();
+    const manager = new ServerLogsManager(host, reader, (id) => `Logs ${id}`, () => [WEB], undefined, {
+      sharedTitle: 'Shared logs',
+    });
+
+    manager.openShared();
+    expect(panels[0]!.title).toBe('Shared logs');
+    panels[0]!.emit({ type: 'server-logs-request' });
+    expect(readLogs).toHaveBeenCalledWith([]);
+    expect(panels[0]!.posted).toContainEqual({ type: 'server-logs', servers: [] });
+  });
 });

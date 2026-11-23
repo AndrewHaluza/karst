@@ -27,6 +27,7 @@ export type ResourcesScenario =
   | 'unsupported'
   | 'degraded'
   | 'idle'
+  | 'idle-one-sample'
   | 'busy'
   | 'waste'
   | 'unattributed'
@@ -39,12 +40,16 @@ export type ResourcesScenario =
   | 'servers-idle'
   | 'servers-none'
   | 'servers-unavailable'
-  | 'servers-hostile';
+  | 'servers-hostile'
+  | 'servers-failed'
+  | 'servers-crashed'
+  | 'servers-starting';
 
 export const RESOURCES_SCENARIOS: readonly ResourcesScenario[] = [
-  'unsupported', 'degraded', 'idle', 'busy', 'waste', 'unattributed', 'hostile',
+  'unsupported', 'degraded', 'idle', 'idle-one-sample', 'busy', 'waste', 'unattributed', 'hostile',
   'servers-mixed', 'servers-shared-only', 'servers-tickets-only', 'servers-done',
   'servers-archived', 'servers-idle', 'servers-none', 'servers-unavailable', 'servers-hostile',
+  'servers-failed', 'servers-crashed', 'servers-starting',
 ];
 
 export interface ResourcesRenderFixture {
@@ -140,6 +145,17 @@ function idleState(): ResourcesState {
     wasteCount: 0, attributedRoots: 0, unattributedShown: 0,
     trend: { cpuMaxDisplay: '—', rssMaxDisplay: '—', timeTicks: [], yTicks: [] },
     historyMax: 150, cpuTrend: 'steady', recentCpu: [], facts: [],
+  };
+}
+
+/** One sample only: the trend needs a second one before it can draw a line (RS-9). */
+function idleOneSampleState(): ResourcesState {
+  return {
+    ...idleState(),
+    totals: { rssBytes: 50_000_000, cpuPct: 35 },
+    rssDisplay: '50 MB', cpuPctDisplay: '35%',
+    history: [fixtureSample(0, 35)],
+    sampleAgeDisplay: 'sampled 2s ago',
   };
 }
 
@@ -286,10 +302,47 @@ function serversHostile(): ServersState {
   });
 }
 
+/** A start refused because the port was taken: the row says why (RS-2). */
+function serversFailed(): ServersState {
+  return serversFixture({
+    shared: [],
+    tickets: [invGroup(0, [
+      invServer(20, 'api', 'running', { port: 4000 }),
+      invServer(21, 'web', 'failed', { host: '127.0.0.1', port: 3000, lastError: 'Port 3000 in use by pid 4123' }),
+    ], { key: 'FEAT-12', title: 'Failed start' })],
+  });
+}
+
+/** A shared row and a ticket row the liveness sweep marked `failed` (RS-1). */
+function serversCrashed(): ServersState {
+  return serversFixture({
+    shared: [invShared(30, 'db', 'failed', { port: 5432, lastError: 'Exited unexpectedly' })],
+    tickets: [invGroup(0, [
+      invServer(31, 'worker', 'failed', { port: 4100, lastError: 'Exited with code 1' }),
+    ], { key: 'FEAT-12', title: 'Crashed worker' })],
+  });
+}
+
+/** A host verb in flight: transient states, not a crash (RS-3). */
+function serversStarting(): ServersState {
+  return buildServersState(
+    {
+      shared: [invShared(0, 'db', 'stopped')],
+      tickets: [invGroup(0, [invServer(10, 'api', 'stopped'), invServer(11, 'web', 'stopped')], { key: 'FEAT-12', title: 'Starting stack' })],
+    },
+    SCOPE,
+    {
+      rowVerbs: new Map([[900110, 'starting'], [900111, 'stopping']]),
+      sharedVerbs: new Map([['db', 'starting']]),
+    },
+  );
+}
+
 const BUILDERS: Readonly<Record<ResourcesScenario, () => ResourcesState>> = {
   unsupported: unsupportedState,
   degraded: degradedState,
   idle: idleState,
+  'idle-one-sample': idleOneSampleState,
   busy: busyState,
   waste: wasteState,
   unattributed: unattributedState,
@@ -303,6 +356,9 @@ const BUILDERS: Readonly<Record<ResourcesScenario, () => ResourcesState>> = {
   'servers-none': idleState,
   'servers-unavailable': idleState,
   'servers-hostile': busyState,
+  'servers-failed': busyState,
+  'servers-crashed': idleState,
+  'servers-starting': idleState,
 };
 
 const SERVERS: Readonly<Partial<Record<ResourcesScenario, () => ServersState>>> = {
@@ -315,6 +371,9 @@ const SERVERS: Readonly<Partial<Record<ResourcesScenario, () => ServersState>>> 
   'servers-none': serversNone,
   'servers-unavailable': serversUnavailable,
   'servers-hostile': serversHostile,
+  'servers-failed': serversFailed,
+  'servers-crashed': serversCrashed,
+  'servers-starting': serversStarting,
 };
 
 export function resourcesRenderFixtures(): ResourcesRenderFixture[] {

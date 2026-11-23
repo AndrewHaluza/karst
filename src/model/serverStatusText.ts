@@ -49,3 +49,21 @@ export const SERVER_VERB_LABEL = {
 
 /** The chip on a pinned shared service that runs ("Keep running" is the button). */
 export const KEPT_RUNNING_CHIP = 'Kept running';
+
+/**
+ * The word for a stored `servers.status`. The `servers` table only ever holds
+ * `running`, `failed` or a retired `stopped`; anything else reads Stopped, never
+ * an invented state (RS-17).
+ */
+export function serverStatusWordOf(status: string): string {
+  return status === 'running'
+    ? SERVER_STATUS_WORD.running
+    : status === 'failed'
+      ? SERVER_STATUS_WORD.failed
+      : SERVER_STATUS_WORD.stopped;
+}
+
+/** The Servers tab's one empty state: no server runs in the project (RS-19). */
+export const EMPTY_SERVERS_TITLE = 'No servers run in this project';
+export const EMPTY_SERVERS_HINT =
+  'Start a ticket session to start its servers. Shared services show here when a ticket needs one.';

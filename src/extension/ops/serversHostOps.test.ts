@@ -40,6 +40,7 @@ describe('makeServersHost', () => {
       stopTicketServers,
       sweepNow: vi.fn(async () => {}),
       openTicketLogs: vi.fn(),
+      openSharedLogs: vi.fn(),
       openLogs: vi.fn(),
     };
   });
@@ -65,6 +66,16 @@ describe('makeServersHost', () => {
     host.copyRow(id);
     expect(openExternal).toHaveBeenCalledWith('http://localhost:3001');
     expect(copyText).toHaveBeenCalledWith('http://localhost:3001');
+  });
+
+  it('copies the bare address of a TCP row instead of inventing an http URL (RS-14)', () => {
+    current = manifest({ api: runnableRepo({ health: 'tcp://localhost:3001' }) });
+    const t = createTicket(store, { key: 'A', title: 'a', projectId: 1 });
+    const id = Number(
+      store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, pid, status) VALUES (?, 'api', 'localhost', 3001, 1, 'running')").run(t.id).lastInsertRowid,
+    );
+    makeServersHost(deps).copyRow(id);
+    expect(copyText).toHaveBeenCalledWith('localhost:3001');
   });
 
   const seedTicketRows = (key: string, repos: string[]): number => {
@@ -159,8 +170,10 @@ describe('makeServersHost', () => {
     host.setPinned('api', true);
     expect(store.db.prepare('SELECT repo FROM baseline_pins').all()).toEqual([{ repo: 'api' }]);
     host.openTicketLogs(3);
+    host.openSharedLogs();
     host.openLogs();
     expect(deps.openTicketLogs).toHaveBeenCalledWith(3);
+    expect(deps.openSharedLogs).toHaveBeenCalledOnce();
     expect(deps.openLogs).toHaveBeenCalled();
   });
 

@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import { listProjectServers } from '../../store/serverInventory.js';
+import type { InventoryServer } from '../../store/serverInventory.js';
 import type { ServersHost } from '../../ui/resources/panel.js';
 import type { ServersViewHints, TransientStatus } from '../../ui/resources/serversState.js';
 import { serviceUnits } from '../../manifest/runnable.js';
@@ -44,6 +45,8 @@ export interface ServersHostDeps {
   /** One liveness sweep (`livenessLoop.sweepNow`), single-flight. */
   sweepNow: () => Promise<void>;
   openTicketLogs: (ticketId: number) => void;
+  /** Open the shared services' combined log (no ticket scope). */
+  openSharedLogs: () => void;
   openLogs: () => void;
 }
 
@@ -84,6 +87,15 @@ export function makeServersHost(deps: ServersHostDeps): ServersHost {
     const unit = manifest ? serviceUnits(manifest).find((u) => u.key === service) : undefined;
     return unit ? healthTimeoutMsOf(unit.def) : undefined;
   };
+  /** The row the verb names, read fresh: the copy verb needs the row's health kind. */
+  const rowOf = (serverId: number): InventoryServer | undefined => {
+    const inv = inventory();
+    if (!inv) return undefined;
+    return (
+      inv.shared.find((r) => r.id === serverId) ??
+      inv.tickets.flatMap((g) => g.servers).find((r) => r.id === serverId)
+    );
+  };
   const stopTicket = async (ticketId: number): Promise<void> => {
     const group = inventory()?.tickets.find((g) => g.ticketId === ticketId);
     const running = (group?.servers ?? []).filter((r) => r.status === 'running');
@@ -110,9 +122,10 @@ export function makeServersHost(deps: ServersHostDeps): ServersHost {
     restartRow: (id) => holding(rowVerbs, [id], 'starting', () => restartServerRow(deps.rows, id)),
     stopRow: (id) => holding(rowVerbs, [id], 'stopping', () => stopServerRow(deps.rows, id)),
     openRow: (id) => openServerRow(deps.rows, id),
-    copyRow: (id) => copyServerUrlRow(deps.rows, id),
+    copyRow: (id) => copyServerUrlRow(deps.rows, id, rowOf(id)?.httpHealth ?? true),
     stopTicket,
     openTicketLogs: deps.openTicketLogs,
+    openSharedLogs: deps.openSharedLogs,
     openLogs: deps.openLogs,
   };
 }

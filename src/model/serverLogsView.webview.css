@@ -145,3 +145,8 @@ body.vscode-high-contrast-light .logsview .k-ansi-dim{opacity:1;color:var(--k-te
 .logsview .k-ansi-bg-bright-magenta{background:var(--vscode-terminal-ansiBrightMagenta)}
 .logsview .k-ansi-bg-bright-cyan{background:var(--vscode-terminal-ansiBrightCyan)}
 .logsview .k-ansi-bg-bright-white{background:var(--vscode-terminal-ansiBrightWhite)}
+
+/* The service tab's status echo (LG-14): the shape carries the state, the word
+   says it, and the word is secondary text — never colour alone (UI-R28). */
+.logsview .k-tab-mark{color:inherit;margin-right:var(--k-space-1)}
+.logsview .k-tab-status{color:var(--k-text-dim);font-weight:var(--k-weight-normal)}

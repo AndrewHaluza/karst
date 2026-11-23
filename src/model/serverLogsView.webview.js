@@ -283,6 +283,13 @@ window.createServerLogsView = function (opts) {
   /** The render cap: older lines are dropped from the front (LG-5). */
   var MAX_LINES = 20000;
   var TRUNCATED_NOTE = 'Showing the newest output.';
+  /**
+   * The status shapes, MIRRORED from `SERVER_STATUS_MARK` in
+   * `src/model/serverStatusText.ts` (this file cannot import TS; the dashboard's
+   * `serverLogsSurface.test.ts` pins the two tables together). The WORD comes
+   * from the host with each snapshot (LG-14), so no surface spells its own.
+   */
+  var STATUS_MARK = { 'Running': '●', 'Starting…': '◌', 'Stopping…': '◌', 'Stopped': '○', 'Failed': '✕', 'Missing': '?' };
 
   // ── state ────────────────────────────────────────────────────────────────
   // `lines` is a flat LogLine[] across every service; `services` is the tab
@@ -299,6 +306,8 @@ window.createServerLogsView = function (opts) {
   var titleKey = '';
   var truncatedServices = {};
   var stateMessage = {};
+  // Each service's RS-17 status word, sent with the initial snapshot (LG-14).
+  var statusWord = {};
   var droppedOldest = false;
   var pendingNew = 0;
   var newSeq = 0;
@@ -395,12 +404,17 @@ window.createServerLogsView = function (opts) {
     applyWrap();
   }
 
-  function tabButton(tab, label) {
+  function tabButton(tab, label, word) {
     var selected = activeTab === tab;
+    var mark = word ? STATUS_MARK[word] : '';
     return '<button type="button" class="k-tab' + (selected ? ' active' : '') + '"'
       + ' role="tab" aria-selected="' + (selected ? 'true' : 'false') + '"'
       + ' tabindex="' + (selected ? '0' : '-1') + '"'
-      + ' data-log-tab="' + esc(tab) + '">' + esc(label) + '</button>';
+      + ' data-log-tab="' + esc(tab) + '">'
+      + (mark ? '<span class="k-tab-mark" aria-hidden="true">' + esc(mark) + '</span> ' : '')
+      + esc(label)
+      + (word ? ' <span class="k-tab-status">· ' + esc(word) + '</span>' : '')
+      + '</button>';
   }
 
   function selectTab(tab) {
@@ -645,7 +659,7 @@ window.createServerLogsView = function (opts) {
     if (!tabsEl) return;
     if (!services.length) { tabsEl.innerHTML = ''; return; }
     var html = tabButton('merged', 'Merged');
-    for (var i = 0; i < services.length; i++) html += tabButton(services[i], services[i]);
+    for (var i = 0; i < services.length; i++) html += tabButton(services[i], services[i], statusWord[services[i]] || '');
     tabsEl.innerHTML = html;
   }
 
@@ -893,6 +907,7 @@ window.createServerLogsView = function (opts) {
     services = [];
     truncatedServices = {};
     stateMessage = {};
+    statusWord = {};
     droppedOldest = false;
     nextSeq = 0;
     titleKey = typeof key === 'string' ? key : '';
@@ -905,6 +920,7 @@ window.createServerLogsView = function (opts) {
       if (service) {
         truncatedServices[service] = server.truncated === true;
         stateMessage[service] = server.state && server.state !== 'ok' ? (server.message || '') : '';
+        if (typeof server.status === 'string' && server.status) statusWord[service] = server.status;
       }
       var parsed = KARST_SERVER_LOGLINE.toLogLines(service, server.content || '', nextSeq);
       nextSeq += parsed.length;

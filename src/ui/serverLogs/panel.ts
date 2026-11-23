@@ -38,6 +38,32 @@ export interface ServerLogsSource {
 }
 
 /**
+ * One log source row. `status` is the row's RS-17 word, carried to the surface
+ * so a tab label names the server's state (LG-14).
+ */
+export interface ServerLogsSourceRow {
+  service: string;
+  logPath: string | null;
+  status?: string;
+}
+
+/**
+ * A log panel's scope: one ticket, or the project's shared services (RS-13). The
+ * shared scope has no ticket id — the view opens from a shared row's Logs verb.
+ */
+export type ServerLogsScope = number | 'shared';
+
+/**
+ * `tickets.id` are positive, so 0 is free as the reader's key for the shared
+ * scope. The reader keys its timers and offsets by a number; this constant is
+ * the one place the shared scope is spelled as one.
+ */
+export const SHARED_LOGS_SCOPE_ID = 0;
+
+/** The shared panel's title when the host injects none. */
+export const SHARED_LOGS_TITLE = 'Server Logs — Shared services';
+
+/**
  * One server-logs panel per ticket, so the dashboard and that ticket's logs are
  * visible side by side. A second `open` reveals the existing panel and creates
  * nothing; closing it stops that ticket's polling. A ticket with no services
@@ -52,38 +78,66 @@ export interface ServerLogsManagerOptions {
   writeClipboard?: (text: string) => Promise<void>;
   /** The ticket key the view title names ("Server logs · FEAT-12"). */
   ticketKeyFor?: (ticketId: number) => string | null;
+  /** The shared services' log rows; absent → the shared scope opens on its empty state. */
+  sharedLogServers?: () => ServerLogsSourceRow[];
+  /** The shared panel's title; absent → `SHARED_LOGS_TITLE`. */
+  sharedTitle?: string;
 }
 
 export class ServerLogsManager {
-  private readonly sessions = new Map<number, ServerLogsPanel>();
+  private readonly sessions = new Map<ServerLogsScope, ServerLogsPanel>();
 
   constructor(
     private readonly host: ServerLogsPanelHost,
     private readonly reader: ServerLogsSource,
     private readonly titleFor: (ticketId: number) => string,
-    private readonly logServers: (
-      ticketId: number,
-    ) => Array<{ service: string; logPath: string | null }>,
+    private readonly logServers: (ticketId: number) => ServerLogsSourceRow[],
     private readonly logError: LogError = (message, error) => console.error(message, error),
     private readonly options: ServerLogsManagerOptions = {},
   ) {}
 
-  open(ticketId: number): void {
-    const existing = this.sessions.get(ticketId);
+  /**
+   * Open (or reveal) the panel for a scope: one ticket, or the project's shared
+   * services (no ticket id, RS-13).
+   */
+  open(scope: ServerLogsScope): void {
+    this.openScope(scope);
+  }
+
+  /** The shared services' combined log: no ticket id, one panel per window (RS-13). */
+  openShared(): void {
+    this.openScope('shared');
+  }
+
+  isOpen(ticketId: number): boolean {
+    return this.sessions.has(ticketId);
+  }
+
+  /** Extension shutdown: stop every scope's timer and drop the sessions. */
+  dispose(): void {
+    for (const scope of [...this.sessions.keys()]) {
+      this.reader.stopPolling(this.readerId(scope));
+    }
+    this.sessions.clear();
+  }
+
+  private openScope(scope: ServerLogsScope): void {
+    const existing = this.sessions.get(scope);
     if (existing) {
       existing.reveal();
       return;
     }
 
-    const panel = this.host.createPanel(this.titleFor(ticketId), ticketId);
-    this.sessions.set(ticketId, panel);
+    const readerId = this.readerId(scope);
+    const panel = this.host.createPanel(this.titleOf(scope), readerId);
+    this.sessions.set(scope, panel);
 
     panel.onDidReceiveMessage((raw) => {
       const msg = parseServerLogsMessage(raw);
       if (!msg) return;
       const actions: ServerLogsActions = {
-        request: () => this.requestLogs(ticketId, panel),
-        close: () => this.closeLogs(ticketId),
+        request: () => this.requestLogs(scope, panel),
+        close: () => this.closeLogs(scope),
         matchCount: (count, seq, current) =>
           panel.postMessage({ type: 'server-logs-match-text', seq, text: logMatchText(count, current) }),
         newCount: (count, seq) =>
@@ -102,43 +156,52 @@ export class ServerLogsManager {
       }
     });
     panel.onDidDispose(() => {
-      this.reader.stopPolling(ticketId);
-      if (this.sessions.get(ticketId) === panel) this.sessions.delete(ticketId);
+      this.reader.stopPolling(readerId);
+      if (this.sessions.get(scope) === panel) this.sessions.delete(scope);
     });
   }
 
-  isOpen(ticketId: number): boolean {
-    return this.sessions.has(ticketId);
+  private readerId(scope: ServerLogsScope): number {
+    return scope === 'shared' ? SHARED_LOGS_SCOPE_ID : scope;
   }
 
-  /** Extension shutdown: stop every ticket's timer and drop the sessions. */
-  dispose(): void {
-    for (const ticketId of [...this.sessions.keys()]) {
-      this.reader.stopPolling(ticketId);
-    }
-    this.sessions.clear();
+  private titleOf(scope: ServerLogsScope): string {
+    return scope === 'shared' ? (this.options.sharedTitle ?? SHARED_LOGS_TITLE) : this.titleFor(scope);
+  }
+
+  private rowsOf(scope: ServerLogsScope): ServerLogsSourceRow[] {
+    if (scope === 'shared') return this.options.sharedLogServers?.() ?? [];
+    return this.logServers(scope);
   }
 
   /**
    * Answer a `server-logs-request`: read every server log file through this
    * panel's own reader, post the initial snapshot, then poll for live chunks.
    * Always answers — with no services it posts an empty list, so the panel
-   * opens on its empty state instead of refusing to open.
+   * opens on its empty state instead of refusing to open. Each entry carries
+   * its row's RS-17 word for the tab label (LG-14).
    */
-  private requestLogs(ticketId: number, panel: ServerLogsPanel): void {
-    const servers = this.logServers(ticketId);
+  private requestLogs(scope: ServerLogsScope, panel: ServerLogsPanel): void {
+    const servers = this.rowsOf(scope);
     const result = this.reader.readLogs(servers);
-    const key = this.options.ticketKeyFor?.(ticketId) ?? null;
-    panel.postMessage({ type: 'server-logs', servers: result.servers, ...(key ? { key } : {}) });
-    this.reader.startPolling(servers, ticketId, (id, service, text) => {
-      const live = this.sessions.get(id);
-      if (live) live.postMessage({ type: 'server-log-output', service, text });
+    const words = new Map(
+      servers.flatMap((row) => (row.status ? ([[row.service, row.status]] as const) : [])),
+    );
+    const entries = result.servers.map((entry) => {
+      const status = words.get(entry.service);
+      return status ? { ...entry, status } : entry;
+    });
+    const key = scope === 'shared' ? null : (this.options.ticketKeyFor?.(scope) ?? null);
+    panel.postMessage({ type: 'server-logs', servers: entries, ...(key ? { key } : {}) });
+    this.reader.startPolling(servers, this.readerId(scope), (id, service, text) => {
+      const live = this.sessions.get(scope);
+      if (live && id === this.readerId(scope)) live.postMessage({ type: 'server-log-output', service, text });
     });
   }
 
-  /** Answer a `server-logs-close`: stop this ticket's polling. */
-  private closeLogs(ticketId: number): void {
-    this.reader.stopPolling(ticketId);
+  /** Answer a `server-logs-close`: stop this scope's polling. */
+  private closeLogs(scope: ServerLogsScope): void {
+    this.reader.stopPolling(this.readerId(scope));
   }
 
   /** Write the view's shown text to the clipboard; a host without a seam is a no-op. */

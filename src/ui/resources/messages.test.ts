@@ -84,8 +84,9 @@ describe('parseResourcesMessage — servers verbs', () => {
     expect(parseResourcesMessage({ type, ticketId: -2 })).toBeNull();
   });
 
-  it('stop-idle and open-logs are bare', () => {
+  it('stop-idle, shared-logs and open-logs are bare', () => {
     expect(parseResourcesMessage({ type: 'stop-idle', repo: 'api' })).toEqual({ type: 'stop-idle' });
+    expect(parseResourcesMessage({ type: 'shared-logs', repo: 'api' })).toEqual({ type: 'shared-logs' });
     expect(parseResourcesMessage({ type: 'open-logs', path: '/x' })).toEqual({ type: 'open-logs' });
   });
 });
@@ -96,7 +97,7 @@ describe('routeResourcesAction', () => {
     sharedStart: vi.fn(), sharedRestart: vi.fn(), sharedStop: vi.fn(), sharedPin: vi.fn(),
     stopIdle: vi.fn(), serverStart: vi.fn(), serverRestart: vi.fn(), serverStop: vi.fn(),
     serverOpen: vi.fn(), serverCopy: vi.fn(), ticketStopAll: vi.fn(), ticketLogs: vi.fn(),
-    openLogs: vi.fn(),
+    sharedLogs: vi.fn(), openLogs: vi.fn(),
   });
 
   it('dispatches each parsed message to its action with its arguments', () => {
@@ -117,6 +118,7 @@ describe('routeResourcesAction', () => {
     routeResourcesAction({ type: 'server-copy', serverId: 9 }, actions);
     routeResourcesAction({ type: 'ticket-stop-all', ticketId: 2 }, actions);
     routeResourcesAction({ type: 'ticket-logs', ticketId: 4 }, actions);
+    routeResourcesAction({ type: 'shared-logs' }, actions);
     routeResourcesAction({ type: 'open-logs' }, actions);
     expect(actions.requestState).toHaveBeenCalledTimes(1);
     expect(actions.refresh).toHaveBeenCalledTimes(1);
@@ -134,6 +136,7 @@ describe('routeResourcesAction', () => {
     expect(actions.serverCopy).toHaveBeenCalledWith(9);
     expect(actions.ticketStopAll).toHaveBeenCalledWith(2);
     expect(actions.ticketLogs).toHaveBeenCalledWith(4);
+    expect(actions.sharedLogs).toHaveBeenCalledTimes(1);
     expect(actions.openLogs).toHaveBeenCalledTimes(1);
   });
 });
