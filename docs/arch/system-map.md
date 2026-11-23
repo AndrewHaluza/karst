@@ -498,6 +498,7 @@ erDiagram
   deliver_gate_results
   deliver_runs
   fix_deliveries
+  fix_round_acceptances
   fix_round_heads
   gate_runs
   gate_slots
@@ -573,6 +574,8 @@ erDiagram
   projects ||--o{ fix_deliveries : project_id
   recovery_rounds ||--o{ fix_deliveries : recovery_round_id
   tickets ||--o{ fix_deliveries : ticket_id
+  recovery_rounds ||--o{ fix_round_acceptances : round_id
+  tickets ||--o{ fix_round_acceptances : ticket_id
   recovery_rounds ||--o{ fix_round_heads : recovery_round_id
   process_runs ||--o{ implementation_runs : process_run_id
   tickets ||--o{ implementation_runs : ticket_id
