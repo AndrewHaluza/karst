@@ -121,7 +121,7 @@ Two raw literals survive, both with no token form available:
 
 | Where | Literal | Why it stands |
 |---|---|---|
-| `diffs` | `@media (max-width: 440px)` | a CSS media condition cannot read a custom property |
+| `diffs` | `@media (max-width: 699px)` and `(max-width: 399px)` | a CSS media condition cannot read a custom property |
 | `settings` | `%238a8a8a` in the `--chevron` data URI | a data URI cannot resolve a CSS variable |
 
 `dashboard` additionally carries 10 one-off component dimensions with no step on

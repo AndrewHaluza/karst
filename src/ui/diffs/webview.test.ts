@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { injectDesignSystem } from '../../model/designSystem.js';
+import { diffsRenderFixtures } from './renderFixtures.js';
 import { diffsSummaryText, worktreeCountText, type ChangedFileView, type CommitView, type TicketChangesState, type WorktreeChangesView } from './snapshot.js';
 
 const HTML = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'webview.html'), 'utf8');
@@ -116,12 +117,25 @@ interface Harness {
   viewFlat: { attrs: Record<string, string>; classes: string[] } & Listeners;
   repos: { innerHTML: string };
   notice: { textContent: string; hidden: boolean };
+  filterCount: { textContent: string };
   posted: unknown[];
   saved: unknown[];
   filterBy: (value: string) => void;
   clickRefresh: () => void;
   clickView: (mode: 'tree' | 'flat') => void;
   toggleDir: (key: string, open: boolean) => void;
+  /** A `toggle` event on a disclosure keyed by its `data-key` (DF-8). */
+  toggleKey: (key: string, open: boolean) => void;
+  /** Focuses the `details` whose `data-key` matches, through its summary. */
+  focusKey: (key: string) => void;
+  /** Focuses the file row whose `data-change-id` matches. */
+  focusChange: (changeId: string) => void;
+  activeKey: () => string | null;
+  activeChangeId: () => string | null;
+  /** Fires a keydown on the currently focused row. */
+  press: (key: string) => void;
+  /** Clicks any generated `data-*` button (show-all, open-ticket, refresh). */
+  clickData: (attr: string, value?: string) => FileRowButtonDouble;
   clickRow: (changeId: string | null) => FileRowButtonDouble | null;
   /** Re-fires the delegated click handler on an EXISTING row double — for a repeat click on the same row. */
   clickButton: (button: FileRowButtonDouble) => void;
@@ -277,13 +291,139 @@ function chipDouble(id: string): {
   });
 }
 
-function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknown; karstPanel?: { ticketId: number } }): Harness {
+/**
+ * The focusable rows of the tree, exactly as the page's roving tabindex sees
+ * them: every disclosure summary plus every file row button.
+ */
+const FOCUS_SELECTOR = '#repos summary, #repos .file';
+
+/**
+ * A parsed node from the generated innerHTML. Only the parts the executed
+ * script touches exist: attributes/dataset, classes, the open flag, focus and
+ * the closest/querySelector walks used for focus return and key handling.
+ */
+interface FakeNode {
+  tagName: string;
+  attrs: Record<string, string>;
+  dataset: Record<string, string>;
+  classes: string[];
+  open: boolean;
+  parent: FakeNode | null;
+  children: FakeNode[];
+  tabIndex?: string;
+  setAttribute: (name: string, value: string) => void;
+  getAttribute: (name: string) => string | undefined;
+  focus: () => void;
+  closest: (selector: string) => FakeNode | null;
+  querySelector: (selector: string) => FakeNode | null;
+  querySelectorAll: (selector: string) => FakeNode[];
+}
+
+const CAMEL_ATTR = /-([a-z])/g;
+const camelAttr = (name: string): string => name.replace(CAMEL_ATTR, (_all, letter: string) => letter.toUpperCase());
+
+/** Supports the subset of selectors the webview uses: tag, .class, [data-*], and comma lists. */
+function matchesSelector(node: FakeNode, selector: string): boolean {
+  return selector.split(',').some((raw) => {
+    const part = raw.trim().replace(/^#repos\s+/, '');
+    if (!part) return false;
+    const tag = /^([a-z][a-z0-9]*)/i.exec(part)?.[1]?.toUpperCase();
+    if (tag && node.tagName !== tag) return false;
+    for (const attr of part.matchAll(/\[data-([a-z0-9-]+)(?:="[^"]*")?\]/g)) {
+      if (!(camelAttr(attr[1]!) in node.dataset)) return false;
+    }
+    for (const cls of part.matchAll(/\.([a-z0-9-]+)/gi)) {
+      if (!node.classes.includes(cls[1]!)) return false;
+    }
+    return true;
+  });
+}
+
+const VOID_TAGS = new Set(['INPUT', 'BR', 'IMG', 'META', 'HR', 'LINK']);
+const HTML_TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+
+function makeNode(
+  tagName: string,
+  attrs: Record<string, string>,
+  parent: FakeNode | null,
+  onFocus: (node: FakeNode) => void,
+): FakeNode {
+  const node: FakeNode = {
+    tagName,
+    attrs,
+    dataset: {},
+    classes: (attrs.class ?? '').split(/\s+/).filter(Boolean),
+    open: 'open' in attrs,
+    parent,
+    children: [],
+    setAttribute: (name: string, value: string) => {
+      attrs[name] = value;
+      if (name === 'tabindex') node.tabIndex = value;
+      if (name === 'open') node.open = true;
+    },
+    getAttribute: (name: string) => attrs[name],
+    focus: () => onFocus(node),
+    closest: (selector: string) => {
+      let current: FakeNode | null = node;
+      while (current) {
+        if (matchesSelector(current, selector)) return current;
+        current = current.parent;
+      }
+      return null;
+    },
+    querySelector: (selector: string) => node.querySelectorAll(selector)[0] ?? null,
+    querySelectorAll: (selector: string) =>
+      node.children.flatMap((child) => [child, ...child.querySelectorAll(selector)]).filter((child) => matchesSelector(child, selector)),
+  };
+  for (const [name, value] of Object.entries(attrs)) {
+    const data = /^data-([a-z0-9-]+)$/.exec(name);
+    if (data) node.dataset[camelAttr(data[1]!)] = value;
+  }
+  return node;
+}
+
+/** Parses the generated innerHTML into nodes in document order. */
+function parseNodes(html: string, onFocus: (node: FakeNode) => void): FakeNode[] {
+  const root = makeNode('ROOT', {}, null, onFocus);
+  const stack: FakeNode[] = [root];
+  const all: FakeNode[] = [];
+  for (const match of html.matchAll(HTML_TAG)) {
+    const tagName = match[2]!.toUpperCase();
+    if (match[1] === '/') {
+      for (let i = stack.length - 1; i > 0; i -= 1) {
+        if (stack[i]!.tagName === tagName) {
+          stack.length = i;
+          break;
+        }
+      }
+      continue;
+    }
+    const attrs: Record<string, string> = {};
+    for (const attr of match[3]!.matchAll(/([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:="([^"]*)")?/g)) {
+      attrs[attr[1]!] = attr[2] ?? '';
+    }
+    const parent = stack[stack.length - 1]!;
+    const node = makeNode(tagName, attrs, parent, onFocus);
+    parent.children.push(node);
+    all.push(node);
+    if (!VOID_TAGS.has(tagName) && !attrs['/']) stack.push(node);
+  }
+  return all;
+}
+
+function boot(restored?: {
+  state?: unknown;
+  loading?: boolean;
+  viewMode?: unknown;
+  karstPanel?: { ticketId: number };
+  openState?: Record<string, boolean>;
+}): Harness {
   const posted: unknown[] = [];
   const saved: unknown[] = [];
   const summary = { textContent: '' };
   const ticketLabel = { textContent: '' };
-  const repos = { innerHTML: '' };
   const notice = { textContent: '', hidden: false };
+  const filterCount = { textContent: '' };
   const refreshAttrs: Record<string, string> = {};
   const refresh = listenable({
     disabled: false,
@@ -295,17 +435,66 @@ function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknow
   const filterBox = listenable({ value: '' });
   const viewTree = chipDouble('viewTree');
   const viewFlat = chipDouble('viewFlat');
+
+  // Timers are FIFO, not immediate: the 150 ms filter debounce must not run on
+  // the keystroke itself, and the copy flash (1200 ms) must not settle early.
+  // `flush` runs the short timers, which is what a settled keystroke does.
+  const timers = new Map<number, { fn: () => void; ms: number }>();
+  let timerId = 0;
+  const flush = (maxMs = 200): void => {
+    for (const [id, timer] of [...timers]) {
+      if (timer.ms <= maxMs) {
+        timers.delete(id);
+        timer.fn();
+      }
+    }
+  };
+
+  const activeElement: { current: FakeNode | { tagName: string } } = { current: { tagName: 'BODY' } };
+  let repos: {
+    readonly innerHTML: string;
+    querySelectorAll: (selector: string) => FakeNode[];
+    querySelector: (selector: string) => FakeNode | null;
+  };
+  interface DocumentDouble extends Listeners {
+    activeElement: FakeNode | { tagName: string };
+    getElementById: (id: string) => unknown;
+    createElement: () => unknown;
+    body: { appendChild: () => void };
+  }
+  let documentDouble: DocumentDouble;
+  const focusNode = (node: FakeNode): void => {
+    activeElement.current = node;
+    documentDouble.fire('focusin', { target: node });
+  };
+  let nodes: FakeNode[] = [];
+  const reposDouble = {
+    get innerHTML() {
+      return reposHtml;
+    },
+    set innerHTML(value: string) {
+      reposHtml = value;
+      nodes = parseNodes(value, focusNode);
+      activeElement.current = { tagName: 'BODY' };
+    },
+    querySelectorAll: (selector: string) => nodes.filter((node) => matchesSelector(node, selector)),
+    querySelector: (selector: string) => nodes.find((node) => matchesSelector(node, selector)) ?? null,
+  };
+  let reposHtml = '';
+  repos = reposDouble;
+
   const elements: Record<string, unknown> = {
-    summary, ticketLabel, repos, notice, refresh, filter: filterBox, viewTree, viewFlat,
+    summary, ticketLabel, repos, notice, refresh, filter: filterBox, viewTree, viewFlat, filterCount,
   };
   // `karstToastRoot` (the REAL runtime) looks up 'k-toast-root' then mints it
   // via `createElement`/`body.appendChild` on a miss — both are needed for the
   // executed script not to throw when a request settles with `ok:false`.
-  const documentDouble = listenable({
+  documentDouble = listenable({
     getElementById: (id: string) => elements[id] ?? null,
     createElement: () => elementDouble(),
     body: { appendChild: () => {} },
-  });
+  }) as unknown as DocumentDouble;
+  Object.defineProperty(documentDouble, 'activeElement', { get: () => activeElement.current });
   const windowDouble = listenable({});
 
   const sandbox: Record<string, unknown> = {
@@ -316,8 +505,12 @@ function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknow
     }),
     document: documentDouble,
     window: windowDouble,
-    setTimeout: () => 1,
-    clearTimeout: () => {},
+    setTimeout: (fn: () => void, ms: number) => {
+      timerId += 1;
+      timers.set(timerId, { fn, ms });
+      return timerId;
+    },
+    clearTimeout: (id: number) => { timers.delete(id); },
   };
   runInNewContext(
     `${scriptSource()}\n;globalThis.__karst = { ${EXPORTS.join(', ')} };`,
@@ -345,11 +538,14 @@ function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknow
     viewFlat: viewFlat as Harness['viewFlat'],
     repos,
     notice,
+    filterCount,
     posted,
     saved,
     filterBy: (value: string) => {
       filterBox.value = value;
       filterBox.fire('input');
+      // A settled keystroke: the 150 ms debounce fires, the 1200 ms flash does not.
+      flush();
     },
     clickRefresh: () => refresh.fire('click'),
     clickView: (mode: 'tree' | 'flat') => {
@@ -357,6 +553,40 @@ function boot(restored?: { state?: unknown; loading?: boolean; viewMode?: unknow
     },
     toggleDir: (key: string, open: boolean) => {
       documentDouble.fire('toggle', { target: { dataset: { dir: key }, open } });
+    },
+    toggleKey: (key: string, open: boolean) => {
+      documentDouble.fire('toggle', { target: { dataset: { key }, open } });
+    },
+    focusKey: (key: string) => {
+      const details = repos.querySelectorAll('[data-key]').find((node) => node.dataset.key === key);
+      if (!details) throw new Error(`no [data-key="${key}"] in the rendered tree`);
+      const target = details.tagName === 'DETAILS' ? details.querySelector('summary') : details;
+      if (!target) throw new Error(`[data-key="${key}"] has no summary`);
+      target.focus();
+    },
+    focusChange: (changeId: string) => {
+      const target = repos.querySelectorAll(FOCUS_SELECTOR).find((node) => node.dataset.changeId === changeId);
+      if (!target) throw new Error(`no file row for "${changeId}"`);
+      target.focus();
+    },
+    activeKey: () => {
+      const el = activeElement.current as FakeNode;
+      return el.closest?.('[data-key]')?.dataset.key ?? null;
+    },
+    activeChangeId: () => {
+      const el = activeElement.current as FakeNode;
+      return el.closest?.('[data-change-id]')?.dataset.changeId ?? null;
+    },
+    press: (key: string) => {
+      documentDouble.fire('keydown', { key, target: activeElement.current, preventDefault: () => {} });
+    },
+    clickData: (attr: string, value = '') => {
+      const selector = `[data-${attr}]`;
+      const button = fileRowButton(value);
+      button.dataset = { [camelAttr(attr)]: value };
+      button.closest = (candidate: string) => (candidate === selector ? button : null);
+      documentDouble.fire('click', { target: button, preventDefault: () => {} });
+      return button;
     },
     clickRow: (changeId: string | null) => {
       const button = changeId === null ? null : fileRowButton(changeId);
@@ -510,8 +740,9 @@ describe('ticket changes webview escaping', () => {
       }),
     );
     expect(html).not.toContain('<script>');
-    expect(html).toContain('<h2>web &amp; api</h2>');
+    expect(html).toContain('web &amp; api');
     expect(html).toContain('fatal: bad revision &#39;&lt;script&gt;alert(1)&lt;/script&gt;&#39;');
+    expect(html).not.toContain('<h2>');
   });
 
   it('entity-encodes a group label and renders nothing for an empty group', () => {
@@ -587,11 +818,13 @@ describe('ticket changes webview filtering', () => {
 });
 
 describe('ticket changes webview rows', () => {
+  const HASH = '9f1c2ab7d5e04416b3ca9f8e77d0a1c5b6e34210';
+
   it('opens only the first commit and counts its files', () => {
     const { commitRow } = boot();
     const commit = commitView({ files: [fileView(), fileView({ changeId: 'ch-2' })] });
-    expect(commitRow(commit, 0)).toContain('<details class="commit" open>');
-    expect(commitRow(commit, 1)).toContain('<details class="commit">');
+    expect(commitRow(commit, 0)).toContain(`<details class="commit" data-key="commit:${HASH}" open>`);
+    expect(commitRow(commit, 1)).toContain(`<details class="commit" data-key="commit:${HASH}">`);
     expect(commitRow(commit, 0)).toContain('<span title="Files: 2" aria-label="Files: 2">2</span></summary>');
   });
 
@@ -616,10 +849,10 @@ describe('ticket changes webview rows', () => {
 
   it('opens a repository only when it has commits or pending files', () => {
     const { worktreeRow } = boot();
-    expect(worktreeRow(worktreeView())).toContain('<details class="repo">');
+    expect(worktreeRow(worktreeView())).toContain('<details class="repo" data-key="repo:api">');
     expect(worktreeRow(worktreeView())).toContain('0 commits · clean');
-    expect(worktreeRow(worktreeView({ untracked: [fileView()] }))).toContain('<details class="repo" open>');
-    expect(worktreeRow(worktreeView({ commits: [commitView()] }))).toContain('<details class="repo" open>');
+    expect(worktreeRow(worktreeView({ untracked: [fileView()] }))).toContain('<details class="repo" data-key="repo:api" open>');
+    expect(worktreeRow(worktreeView({ commits: [commitView()] }))).toContain('<details class="repo" data-key="repo:api" open>');
   });
 
   it('summarises commit and pending counts across all three pending groups', () => {
@@ -649,7 +882,8 @@ describe('ticket changes webview rows', () => {
       }),
     );
     expect(html).toContain('<section class="repo error">');
-    expect(html).toContain('Refresh to try this repository again.');
+    expect(html).toContain('Could not read this worktree.');
+    expect(html).toContain('data-refresh');
     expect(html).not.toContain('Commits<span');
     expect(html).not.toContain('Staged changes<span');
     expect(html).not.toContain('data-change-id');
@@ -804,10 +1038,26 @@ describe('ticket changes webview rows', () => {
 });
 
 describe('ticket changes webview empty states', () => {
-  it('shows the no-worktrees state when nothing has loaded', () => {
+  it('starts loading, not empty, before the first host message (DF-12)', () => {
     const harness = boot();
-    expect(harness.repos.innerHTML).toContain('No ticket worktrees. Create or attach worktrees, then refresh.');
-    expect(harness.summary.textContent).toBe('No worktrees');
+    expect(harness.repos.innerHTML).toContain('Loading ticket worktrees…');
+    expect(harness.summary.textContent).toBe('Loading…');
+  });
+
+  it('shows the no-worktrees state with a way to open the ticket once a state arrives (DF-14)', () => {
+    const harness = boot();
+    harness.render(stateOf([], { commitCount: 0, pendingCount: 0 }), false);
+    expect(harness.repos.innerHTML).toContain('<div class="k-empty">');
+    expect(harness.repos.innerHTML).toContain('This ticket has no worktrees yet.');
+    expect(harness.repos.innerHTML).toContain('Karst creates them when the ticket session starts.');
+    expect(harness.summary.textContent).toBe('0 worktrees · 0 commits · 0 pending');
+  });
+
+  it('posts open-ticket from the empty state action, and nothing else', () => {
+    const harness = boot();
+    harness.render(stateOf([], { commitCount: 0, pendingCount: 0 }), false);
+    harness.clickData('open-ticket');
+    expect(harness.posted).toEqual([{ type: 'open-ticket' }]);
   });
 
   it('shows the loading state while a first refresh is in flight without changing the label (UI-R18)', () => {
@@ -818,10 +1068,11 @@ describe('ticket changes webview empty states', () => {
     expect(harness.refresh.attrs['aria-busy']).toBe('true');
   });
 
-  it('shows the all-clean banner above the repository rows', () => {
+  it('shows the all-clean banner above the repository rows (DF-14)', () => {
     const harness = boot();
     harness.render(stateOf([worktreeView(), worktreeView({ label: 'web' })], { commitCount: 0, pendingCount: 0 }), false);
-    expect(harness.repos.innerHTML).toContain('All ticket worktrees are clean.');
+    expect(harness.repos.innerHTML).toContain('No changes yet.');
+    expect(harness.repos.innerHTML).toContain('The worktrees have no commits and no pending files.');
     expect(harness.repos.innerHTML).toContain('<strong>api</strong>');
     expect(harness.summary.textContent).toBe('2 worktrees · 0 commits · 0 pending');
   });
@@ -829,7 +1080,7 @@ describe('ticket changes webview empty states', () => {
   it('never calls a repository with an error clean', () => {
     const harness = boot();
     harness.render(stateOf([worktreeView({ error: 'boom' })], { commitCount: 0, pendingCount: 0 }), false);
-    expect(harness.repos.innerHTML).not.toContain('All ticket worktrees are clean.');
+    expect(harness.repos.innerHTML).not.toContain('No changes yet.');
     expect(harness.repos.innerHTML).toContain('<section class="repo error">');
   });
 
@@ -1024,17 +1275,17 @@ describe('ticket changes webview protocol', () => {
     expect(() => harness.receive(null)).not.toThrow();
     expect(() => harness.receive('state')).not.toThrow();
     expect(() => harness.receive({ type: 'unknown' })).not.toThrow();
-    expect(harness.repos.innerHTML).toContain('No ticket worktrees.');
+    expect(harness.repos.innerHTML).toContain('Loading ticket worktrees…');
   });
 
-  it('persists snapshot, loading flag, and view mode, and restores them on reload', () => {
+  it('persists snapshot, loading flag, view mode and open state, and restores them on reload', () => {
     const harness = boot();
     const state = stateOf([worktreeView()], { commitCount: 0, pendingCount: 0 });
     harness.receive({ type: 'loading', state });
-    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'tree', karstPanel: { ticketId: state.ticketId } });
+    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'tree', openState: {}, karstPanel: { ticketId: state.ticketId } });
 
     harness.clickView('flat');
-    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'flat', karstPanel: { ticketId: state.ticketId } });
+    expect(harness.saved.at(-1)).toEqual({ state, loading: true, viewMode: 'flat', openState: {}, karstPanel: { ticketId: state.ticketId } });
 
     const reloaded = boot({ state, loading: true, viewMode: 'flat' });
     expect(reloaded.refresh.disabled).toBe(true);
@@ -1224,6 +1475,253 @@ describe('ticket changes webview tree view', () => {
   });
 });
 
+describe('diffs live regions and filter count (DF-7)', () => {
+  it('keeps #repos out of the live regions and leaves only #summary and the filter count live', () => {
+    expect(HTML).not.toMatch(/<main[^>]*id="repos"[^>]*aria-live/);
+    expect(HTML).toMatch(/<main id="repos">/);
+    const live = [...HTML.matchAll(/aria-live="([^"]*)"/g)].map((m) => m[1]);
+    expect(live).toHaveLength(2);
+    expect(HTML).toContain('<span id="summary" aria-live="polite">');
+    expect(HTML).toContain('id="filterCount"');
+  });
+
+  it('announces how many files a filter leaves visible, and nothing when no filter is active', () => {
+    const harness = boot();
+    harness.render(
+      stateOf(
+        [worktreeView({ unstaged: [fileView(), fileView({ changeId: 'ch-2', path: 'src/b.ts' })] })],
+        { commitCount: 0, pendingCount: 2 },
+      ),
+      false,
+    );
+    expect(harness.filterCount.textContent).toBe('');
+    harness.filterBy('app.ts');
+    expect(harness.filterCount.textContent).toBe('Files: 2');
+    harness.filterBy('');
+    expect(harness.filterCount.textContent).toBe('');
+  });
+});
+
+describe('diffs open state and focus return (DF-8)', () => {
+  const HASH = commitView().hash;
+
+  it('keys every repository, group and commit disclosure', () => {
+    const html = boot().worktreeRow(
+      worktreeView({
+        commits: [commitView({ files: [fileView()] })],
+        staged: [fileView({ changeId: 's1', path: 'src/s.ts' })],
+      }),
+    );
+    expect(html).toContain('data-key="repo:api"');
+    expect(html).toContain('data-key="group:api:commits"');
+    expect(html).toContain('data-key="group:api:staged"');
+    expect(html).toContain(`data-key="commit:${HASH}"`);
+  });
+
+  it('keeps a collapsed commit collapsed across a new host state', () => {
+    const harness = boot();
+    const state = (): TicketChangesState =>
+      stateOf([worktreeView({ commits: [commitView({ files: [fileView()] })] })], { commitCount: 1, pendingCount: 0 });
+    harness.render(state(), false);
+    expect(harness.repos.innerHTML).toContain(`data-key="commit:${HASH}" open>`);
+    harness.toggleKey(`commit:${HASH}`, false);
+    harness.receive({ type: 'state', state: state() });
+    expect(harness.repos.innerHTML).toContain(`data-key="commit:${HASH}">`);
+    expect(harness.repos.innerHTML).not.toContain(`data-key="commit:${HASH}" open>`);
+  });
+
+  it('saves the open state in vscode.setState', () => {
+    const harness = boot();
+    harness.render(stateOf([worktreeView({ commits: [commitView()] })], { commitCount: 1, pendingCount: 0 }), false);
+    harness.toggleKey(`commit:${HASH}`, false);
+    expect(harness.saved.at(-1)).toMatchObject({ openState: { [`commit:${HASH}`]: false } });
+  });
+
+  it('returns focus to the same row after a refresh', () => {
+    const harness = boot();
+    const state = (): TicketChangesState =>
+      stateOf([worktreeView({ commits: [commitView({ files: [fileView()] })] })], { commitCount: 1, pendingCount: 0 });
+    harness.render(state(), false);
+    harness.focusKey(`commit:${HASH}`);
+    expect(harness.activeKey()).toBe(`commit:${HASH}`);
+    harness.receive({ type: 'state', state: state() });
+    expect(harness.activeKey()).toBe(`commit:${HASH}`);
+  });
+
+  it('focuses the same file row by data-change-id after a refresh', () => {
+    const harness = boot();
+    const state = (): TicketChangesState =>
+      stateOf([worktreeView({ unstaged: [fileView({ path: 'app.ts' })] })], { commitCount: 0, pendingCount: 1 });
+    harness.render(state(), false);
+    harness.focusChange('ch-1');
+    expect(harness.activeChangeId()).toBe('ch-1');
+    harness.receive({ type: 'state', state: state() });
+    expect(harness.activeChangeId()).toBe('ch-1');
+  });
+
+  it('focuses the next row when the focused file is gone', () => {
+    const harness = boot();
+    const first = fileView({ changeId: 'ch-1', path: 'app.ts' });
+    const second = fileView({ changeId: 'ch-2', path: 'b.ts' });
+    harness.render(
+      stateOf([worktreeView({ unstaged: [first, second] })], { commitCount: 0, pendingCount: 2 }),
+      false,
+    );
+    harness.focusChange('ch-1');
+    harness.receive({
+      type: 'state',
+      state: stateOf(
+        [worktreeView({ unstaged: [second, fileView({ changeId: 'ch-3', path: 'c.ts' })] })],
+        { commitCount: 0, pendingCount: 2 },
+      ),
+    });
+    expect(harness.activeChangeId()).toBe('ch-2');
+  });
+});
+
+describe('diffs keyboard (DF-9)', () => {
+  const twoFiles = (): TicketChangesState =>
+    stateOf(
+      [worktreeView({ unstaged: [fileView({ path: 'app.ts' }), fileView({ changeId: 'ch-2', path: 'b.ts' })] })],
+      { commitCount: 0, pendingCount: 2 },
+    );
+
+  it('moves the roving focus with Up, Down, Home and End', () => {
+    const harness = boot();
+    harness.render(twoFiles(), false);
+    harness.focusKey('repo:api');
+    harness.press('ArrowDown');
+    expect(harness.activeKey()).toBe('group:api:unstaged');
+    harness.press('ArrowDown');
+    expect(harness.activeChangeId()).toBe('ch-1');
+    harness.press('ArrowDown');
+    expect(harness.activeChangeId()).toBe('ch-2');
+    harness.press('ArrowDown');
+    expect(harness.activeChangeId()).toBe('ch-2');
+    harness.press('Home');
+    expect(harness.activeKey()).toBe('repo:api');
+    harness.press('End');
+    expect(harness.activeChangeId()).toBe('ch-2');
+    harness.press('ArrowUp');
+    expect(harness.activeChangeId()).toBe('ch-1');
+  });
+
+  it('closes a disclosure with Left and opens it with Right', () => {
+    const harness = boot();
+    harness.render(twoFiles(), false);
+    harness.focusKey('group:api:unstaged');
+    harness.press('ArrowLeft');
+    expect(harness.saved.at(-1)).toMatchObject({ openState: { 'group:api:unstaged': false } });
+    harness.press('ArrowRight');
+    expect(harness.saved.at(-1)).toMatchObject({ openState: { 'group:api:unstaged': true } });
+  });
+
+  it('sends open-diff on Enter from a focused file row', () => {
+    const harness = boot();
+    harness.render(twoFiles(), false);
+    harness.focusChange('ch-1');
+    harness.press('Enter');
+    expect(harness.posted).toEqual([
+      { type: 'open-diff', changeId: 'ch-1', requestId: expect.any(String) },
+    ]);
+  });
+
+  it('sends open-file on O, discard on Delete and unstage on U', () => {
+    const sent = (key: string): unknown => {
+      const harness = boot();
+      harness.render(twoFiles(), false);
+      harness.focusChange('ch-1');
+      harness.press(key);
+      return harness.posted[0];
+    };
+    expect(sent('o')).toMatchObject({ type: 'open-file', changeId: 'ch-1' });
+    expect(sent('Delete')).toMatchObject({ type: 'discard', changeId: 'ch-1' });
+    expect(sent('u')).toMatchObject({ type: 'unstage', changeId: 'ch-1' });
+  });
+
+  it('declares the keys and keeps the row action buttons out of the tab order', () => {
+    const row = boot().fileRow(fileView(), 'unstaged');
+    expect(row).toContain('aria-keyshortcuts="Enter"');
+    expect(row).toContain('tabindex="-1"');
+    expect(row).toContain('aria-keyshortcuts="O"');
+    expect(row).toContain('aria-keyshortcuts="Delete"');
+    expect(row).toContain('title="Discard changes to src/app.ts (Delete)"');
+  });
+
+  it('shows the row action buttons on focus within the row', () => {
+    const style = styleBlock();
+    expect(style).toContain('.file-row:focus-within .file-actions');
+  });
+});
+
+describe('diffs many files (DF-11)', () => {
+  it('renders at most 200 files of a group, then offers all of them', () => {
+    const harness = boot();
+    const many = diffsRenderFixtures().find((fixture) => fixture.scenario === 'many')!;
+    harness.render(many.state, false);
+    expect((harness.repos.innerHTML.match(/data-change-id="/g) ?? [])).toHaveLength(200);
+    expect(harness.repos.innerHTML).toContain('Show all files (1500)');
+    harness.clickData('show-all', 'group:fixture-web:untracked');
+    expect((harness.repos.innerHTML.match(/data-change-id="/g) ?? [])).toHaveLength(1500);
+  });
+
+  it('debounces the filter with a named 150 ms constant', () => {
+    expect(scriptBlock()).toContain('FILTER_DEBOUNCE_MS = 150');
+    expect(scriptBlock()).toContain('GROUP_ROW_LIMIT = 200');
+  });
+});
+
+describe('diffs worktree error row (DF-15)', () => {
+  it('names the failure in the row, not an h2, and refreshes inline', () => {
+    const harness = boot();
+    harness.render(
+      stateOf([worktreeView({ error: 'fatal: bad revision' })], { commitCount: 0, pendingCount: 0 }),
+      false,
+    );
+    expect(harness.repos.innerHTML).toContain('Could not read this worktree.');
+    expect(harness.repos.innerHTML).toContain('fatal: bad revision');
+    expect(harness.repos.innerHTML).not.toContain('<h2>');
+    harness.clickData('refresh');
+    expect(harness.posted).toEqual([{ type: 'refresh' }]);
+  });
+});
+
+describe('diffs commit time (DF-16)', () => {
+  it('renders a machine-readable time with a human label', () => {
+    const html = boot().commitRow(
+      commitView({ authoredAt: '2026-11-21T00:49:35+00:00', authoredLabel: 'Nov 21, 2026, 1:49 AM' }),
+      0,
+    );
+    expect(html).toContain(
+      '<time datetime="2026-11-21T00:49:35+00:00" title="2026-11-21T00:49:35+00:00">Nov 21, 2026, 1:49 AM</time>',
+    );
+    expect(html).not.toContain('>2026-11-21T00:49:35+00:00<');
+  });
+});
+
+describe('diffs width tiers (DF-21)', () => {
+  it('uses the 699 and 399 tier edges, never 440', () => {
+    const style = styleBlock();
+    expect(style).toContain('@media (max-width: 699px)');
+    expect(style).toContain('@media (max-width: 399px)');
+    expect(style).not.toContain('440px');
+  });
+
+  it('removes the body min-width so the page cannot scroll sideways at 320', () => {
+    const rule = /body\s*\{([^}]*)\}/.exec(styleBlock())?.[1] ?? '';
+    expect(rule).not.toContain('min-width');
+  });
+
+  it('stops the directory indent after three levels', () => {
+    expect(styleBlock()).toContain('.dir-body .dir-body .dir-body .dir-body { padding-left: 0; }');
+  });
+
+  it('keeps the wrapped summary off the ticket label box at the tight tier', () => {
+    const rule = /#summary\s*\{([^}]*)\}/.exec(styleBlock())?.[1] ?? '';
+    expect(rule).toContain('display: inline-block');
+  });
+});
+
 describe('diffs count text', () => {
   it('renders the host-built summaryText and countText, not its own plural code', () => {
     const harness = boot();
@@ -1263,10 +1761,10 @@ describe('diffs page header (DF-17)', () => {
     expect(harness.summary.textContent).toBe('1 worktree · 0 commits · 0 pending');
   });
 
-  it('leaves the ticket label empty before any ticket state arrives', () => {
+  it('leaves the ticket label empty and says it is loading before any ticket state arrives', () => {
     const harness = boot();
     expect(harness.ticketLabel.textContent).toBe('');
-    expect(harness.summary.textContent).toBe('No worktrees');
+    expect(harness.summary.textContent).toBe('Loading…');
   });
 
   it('writes the branch line as "{branch} · base {baseRef}"', () => {
@@ -1303,12 +1801,12 @@ describe('diffs tree layout (DF-5, DF-19, DF-25)', () => {
     expect(style).not.toMatch(/\.status\s*\{[^}]*grid-column/);
   });
 
-  it('keeps the commit summary to three columns and drops the 440px count overrides', () => {
+  it('keeps the commit summary to three columns and drops the narrow count overrides', () => {
     const rule = /\.commit > summary\s*\{([^}]*)\}/.exec(styleBlock())?.[1] ?? '';
     expect(rule).toContain('grid-template-columns: auto minmax(0, 1fr) auto');
     const style = styleBlock();
     expect(style).not.toContain('.commit > summary > span { grid-column: 2; grid-row: 2; }');
-    expect(style).not.toMatch(/@media \(max-width: 440px\) \{[\s\S]*\.commit > summary/);
+    expect(style).not.toMatch(/@media \(max-width: 699px\) \{[\s\S]*\.commit > summary/);
   });
 
   it('drops the local action padding rule and uses the icon button hit area (DF-20)', () => {
@@ -1340,8 +1838,8 @@ describe('diffs webview design-system conformance', () => {
     // Comments are prose (they quote the exact numbers being replaced, for
     // the next reader), not style values — strip them before scanning.
     const withoutComments = local.replace(/\/\*[\s\S]*?\*\//g, '');
-    // @media conditions cannot read a custom property at all — the 440px
-    // breakpoint therefore has no token-based alternative. Only the
+    // @media conditions cannot read a custom property at all — the 699px and
+    // 399px tier edges therefore have no token-based alternative. Only the
     // CONDITION is excluded from the scan, not the ruleset it guards.
     const withoutMediaConditions = withoutComments.replace(/@media\s*\([^)]*\)/g, '@media(...)');
     const offenders = withoutMediaConditions.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
@@ -1424,7 +1922,8 @@ describe('diffs webview design-system conformance', () => {
     const script = scriptBlock();
     expect(script).toContain('karstIsPending(row)');
     expect(script).toContain('karstBeginPending(row, requestId)');
-    expect(script).toMatch(/vscode\.postMessage\(\{\s*type:\s*'open-diff',\s*changeId:\s*row\.dataset\.changeId,\s*requestId\s*\}\)/);
+    expect(script).toContain("sendRowAction(row, 'open-diff')");
+    expect(script).toMatch(/vscode\.postMessage\(\{\s*type,\s*changeId:\s*row\.dataset\.changeId,\s*requestId\s*\}\)/);
   });
 
   it('documents the copy-hash flash as optimistic and why (UI-R15)', () => {
