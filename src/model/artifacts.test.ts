@@ -183,6 +183,29 @@ describe('buildTicketArtifacts', () => {
     expect(a.findings[0]).toMatchObject({ severity: 'high', file: 'src/a.ts' });
     expect(a.metrics.some((m) => m.label === 'high' && m.value === '1')).toBe(true);  });
 
+  it('does not read a stale unreadable Review run as unknown once the Review stage passed', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T10:00:00.000Z');
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 0, repo: '/wt/web' }],
+    });
+    const run = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(store, run.id, 'failed', '2026-08-01T09:20:00.000Z', 'unreadable-output', null, 'unreadable output from /wt/web — no findings could be read');
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a?.status).not.toBe('unknown');
+    expect(a?.summary).not.toBe('output unreadable');
+  });
+
   it('reads an unreadable latest Review run as unknown, with output unreadable as its summary', () => {
     const t = ticket({ stageCurrent: 'review' });
     stage(t.id, 'review', 'blocked', '2026-08-01T09:00:00.000Z', null);

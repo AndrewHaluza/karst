@@ -531,8 +531,13 @@ function gateFailed(entries: readonly GateRun[]): boolean {
  * deterministic gate failed: the readout is UNKNOWN, not passed and not failed
  * (UI-R14; arch:REVIEW R6b). A red gate still reads failed.
  */
-function unknownOutcome(run: ProcessRun | undefined, entries: readonly GateRun[]): boolean {
-  return run !== undefined && isUnreadableRun(run) && !gateFailed(entries);
+function unknownOutcome(
+  run: ProcessRun | undefined,
+  entries: readonly GateRun[],
+  stage: Stage | undefined,
+): boolean {
+  // A stage that later PASSED (a retry that left no newer AI run) is not unknown: the old unreadable run is stale.
+  return run !== undefined && isUnreadableRun(run) && !gateFailed(entries) && stage?.status !== 'passed';
 }
 
 /** The summary of a card whose AI answer was unreadable and left no finding. */
@@ -719,7 +724,7 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
   const createdAt = stage?.endedAt ?? stage?.startedAt ?? null;
   const attemptCount = versionAttempts(allEntries, processRuns, 'uat');
   const failedStage = stage?.status === 'failed';
-  const unknown = unknownOutcome(testerRun, entries);
+  const unknown = unknownOutcome(testerRun, entries, stage);
   const summary =
     unknown && findings.length === 0
       ? OUTPUT_UNREADABLE
@@ -797,7 +802,7 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
     if (p.stageKey === 'review') resourceFrom(p.artifactPath, resources);
   }
 
-  const unknown = unknownOutcome(reviewRun, entries);
+  const unknown = unknownOutcome(reviewRun, entries, stage);
   return {
     id: 'review',
     stage: 'review',
