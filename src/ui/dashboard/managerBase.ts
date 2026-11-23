@@ -72,8 +72,18 @@ export abstract class DashboardManagerBase {
   }
 
   /** Answer a `server-logs-match-count` with the one shared match text. */
-  serverLogsMatchCount(ticketId: number, count: number, seq: number): void {
-    this.console.serverLogsMatchCount(ticketId, count, seq);
+  serverLogsMatchCount(ticketId: number, count: number, seq: number, current?: number): void {
+    this.console.serverLogsMatchCount(ticketId, count, seq, current);
+  }
+
+  /** Answer a `server-logs-new-count` with the one shared new-line text. */
+  serverLogsNewCount(ticketId: number, count: number, seq: number): void {
+    this.console.serverLogsNewCount(ticketId, count, seq);
+  }
+
+  /** Write the logs view's shown text to the clipboard. */
+  copyServerLogs(text: string): void {
+    this.console.copyServerLogs(text);
   }
 
   /**

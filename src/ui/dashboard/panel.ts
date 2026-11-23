@@ -231,6 +231,11 @@ export class DashboardManager extends DashboardManagerBase {
     private readonly loadShipPreview?: ShipPreviewLoader,
     /** The gates in flight per gate stage (running, or waiting for a slot); absent → none is known. */
     private readonly liveGatesFor?: SnapshotPushDeps['liveGatesFor'],
+    /**
+     * Write the shared logs view's Copy text to the clipboard. Absent → Copy is
+     * a no-op; the host binds `vscode.env.clipboard.writeText` here.
+     */
+    private readonly serverLogsClipboard?: (text: string) => Promise<void>,
   ) {
     super();
     this.loaders = new SupplementalLoaders(
@@ -281,6 +286,8 @@ export class DashboardManager extends DashboardManagerBase {
       // Shared rows' Logs action opens this same combined view, so its data
       // arrives from the SAME provider the state uses (D203).
       (id) => this.sharedServersFor(id).map((s) => ({ service: s.service, logPath: s.logPath })),
+      this.serverLogsClipboard,
+      (id) => getTicket(this.store, id).key ?? null,
     );
   }
 
@@ -332,7 +339,11 @@ export class DashboardManager extends DashboardManagerBase {
       actionsFor: this.actionsFor,
       labelTemplate: this.labelTemplate,
       onServerLogsDetach: this.onServerLogsDetach,
-      serverLogsMatchCount: (ticketId, count, seq) => this.serverLogsMatchCount(ticketId, count, seq),
+      serverLogsMatchCount: (ticketId, count, seq, current) => this.serverLogsMatchCount(ticketId, count, seq, current),
+      serverLogsNewCount: (ticketId, count, seq) => this.serverLogsNewCount(ticketId, count, seq),
+      copyServerLogs: (_ticketId, text) => {
+        this.copyServerLogs(text);
+      },
       binding: this.binding,
       onViewActivated: this.onViewActivated,
       panels: this.panels,

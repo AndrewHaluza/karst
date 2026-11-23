@@ -106,6 +106,8 @@ function actions(): DashboardActions {
     requestServerLogs: vi.fn(),
     closeServerLogs: vi.fn(),
     serverLogsMatchCount: vi.fn(),
+    serverLogsNewCount: vi.fn(),
+    copyServerLogs: vi.fn(),
     openResources: vi.fn(),
   };
 }
@@ -138,7 +140,48 @@ describe('server-logs-match-count', () => {
   it('routes the count to the host action', () => {
     const a = actions();
     routeAction({ type: 'server-logs-match-count', count: 3, seq: 1 }, a);
-    expect(a.serverLogsMatchCount).toHaveBeenCalledWith(3, 1);
+    expect(a.serverLogsMatchCount).toHaveBeenCalledWith(3, 1, undefined);
+    routeAction({ type: 'server-logs-match-count', count: 3, seq: 1, current: 2 }, a);
+    expect(a.serverLogsMatchCount).toHaveBeenLastCalledWith(3, 1, 2);
+  });
+
+  it('carries the 1-based current match and drops 0, a fraction or a string', () => {
+    expect(
+      parseWebviewMessage({ type: 'server-logs-match-count', count: 12, seq: 4, current: 3 }),
+    ).toEqual({ type: 'server-logs-match-count', count: 12, seq: 4, current: 3 });
+    for (const current of [0, -1, 1.5, '3']) {
+      expect(
+        parseWebviewMessage({ type: 'server-logs-match-count', count: 12, seq: 4, current }),
+      ).toBeNull();
+    }
+  });
+});
+
+describe('server-logs-new-count and server-logs-copy', () => {
+  it('parses the new-line count and bounds the copy text', () => {
+    expect(parseWebviewMessage({ type: 'server-logs-new-count', count: 12, seq: 2 })).toEqual({
+      type: 'server-logs-new-count',
+      count: 12,
+      seq: 2,
+    });
+    for (const bad of [{ count: -1, seq: 1 }, { count: 1.5, seq: 1 }, { count: 1 }, { count: 1, seq: -1 }]) {
+      expect(parseWebviewMessage({ type: 'server-logs-new-count', ...bad })).toBeNull();
+    }
+    expect(parseWebviewMessage({ type: 'server-logs-copy', text: 'a\nb' })).toEqual({
+      type: 'server-logs-copy',
+      text: 'a\nb',
+    });
+    expect(parseWebviewMessage({ type: 'server-logs-copy' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'server-logs-copy', text: 7 })).toBeNull();
+    expect(parseWebviewMessage({ type: 'server-logs-copy', text: 'x'.repeat(8_000_001) })).toBeNull();
+  });
+
+  it('routes the new-line count and the copy text to the host', () => {
+    const a = actions();
+    routeAction({ type: 'server-logs-new-count', count: 4, seq: 2 }, a);
+    expect(a.serverLogsNewCount).toHaveBeenCalledWith(4, 2);
+    routeAction({ type: 'server-logs-copy', text: 'shown' }, a);
+    expect(a.copyServerLogs).toHaveBeenCalledWith('shown');
   });
 });
 

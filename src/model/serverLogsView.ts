@@ -8,11 +8,16 @@
  *
  *   const view = window.createServerLogsView({ post });
  *   view.open();
- *   view.handleInitial(servers);       // the `server-logs` answer
+ *   view.handleInitial(servers, key);  // the `server-logs` answer (+ ticket key)
  *   view.handleOutput(service, text);  // a `server-log-output` chunk
  *   view.handleMatchText(seq, text);   // a `server-logs-match-text` answer
+ *   view.handleNewText(seq, text);     // a `server-logs-new-text` answer
  *   view.clear();                      // drop the rendered lines, keep tailing
  *   view.close();                      // hide the surface
+ *
+ * The surface posts `server-logs-match-count` and `server-logs-new-count` for
+ * the host's finished count texts (@arch:NTF-07), `server-logs-copy` with the
+ * shown text, and `server-logs-detach`/`server-logs-close`.
  *
  * A host that needs to clear its own open flag when the surface closes (the
  * dashboard's `logsView`) passes `onClose`; the standalone panel, which has no

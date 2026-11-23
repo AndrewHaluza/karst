@@ -8,7 +8,7 @@ type Msg<K extends WebviewMessage['type']> = Extract<WebviewMessage, { type: K }
 
 import {
   isAgentProcessId, isFiniteNumber, isStageKey, isGateStage, isConsoleStage, storedPath, storedSha,
-  MAX_GATE_NAME_CHARS, MAX_ENV_TEXT_CHARS, MAX_ACTION_ID_CHARS, MAX_ARTIFACT_ID_CHARS, MAX_BASELINE_INDICES,
+  MAX_GATE_NAME_CHARS, MAX_ENV_TEXT_CHARS, MAX_ACTION_ID_CHARS, MAX_ARTIFACT_ID_CHARS, MAX_BASELINE_INDICES, MAX_SERVER_LOG_COPY_CHARS,
   BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_STALL_LABEL_CHARS, MAX_STALL_TEXT_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS, MAX_TICKET_MARKDOWN_CHARS,
 } from './messageValidate.js';
 /**
@@ -392,7 +392,22 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'server-logs-match-count': {
       if (typeof m.count !== 'number' || !Number.isSafeInteger(m.count) || m.count < 0) return null;
       if (typeof m.seq !== 'number' || !Number.isSafeInteger(m.seq) || m.seq < 0) return null;
-      return { type: 'server-logs-match-count', count: m.count, seq: m.seq };
+      if (m.current === undefined) return { type: 'server-logs-match-count', count: m.count, seq: m.seq };
+      // `current` is 1-based, so 0 is not a position and is dropped.
+      if (typeof m.current !== 'number' || !Number.isSafeInteger(m.current) || m.current < 1) return null;
+      return { type: 'server-logs-match-count', count: m.count, seq: m.seq, current: m.current };
+    }
+    case 'server-logs-new-count': {
+      if (typeof m.count !== 'number' || !Number.isSafeInteger(m.count) || m.count < 0) return null;
+      if (typeof m.seq !== 'number' || !Number.isSafeInteger(m.seq) || m.seq < 0) return null;
+      return { type: 'server-logs-new-count', count: m.count, seq: m.seq };
+    }
+    // Clipboard text is bounded here: the webview can only copy what it
+    // rendered, and the cap stops a crafted message from filling the clipboard.
+    case 'server-logs-copy': {
+      const text = typeof m.text === 'string' ? m.text : null;
+      if (text === null || text.length > MAX_SERVER_LOG_COPY_CHARS) return null;
+      return { type: 'server-logs-copy', text };
     }
     // The scope is a manifest repository name (or `*`) and the body is
     // `.env`-shaped text, both bounded here. Neither is trimmed into meaning:

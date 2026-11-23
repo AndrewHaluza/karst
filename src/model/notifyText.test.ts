@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { logMatchText, markerAdvancedText, markerFailedText, plural, reasonText, ticketLabel } from './notifyText.js';
+import { logMatchText, logNewLinesText, markerAdvancedText, markerFailedText, plural, reasonText, ticketLabel } from './notifyText.js';
 
 describe('ticketLabel', () => {
   it('joins the ref and the quoted title', () => {
@@ -67,6 +67,17 @@ describe('logMatchText', () => {
   });
   it('uses the many form for 2', () => {
     expect(logMatchText(2)).toBe('2 matches');
+  });
+  it('names the current match out of all when the search has stepped', () => {
+    expect(logMatchText(12, 3)).toBe('3 of 12');
+    expect(logMatchText(1, 1)).toBe('1 of 1');
+  });
+});
+
+describe('logNewLinesText', () => {
+  it('uses the one form for 1 and the many form otherwise', () => {
+    expect(logNewLinesText(1)).toBe('1 new line');
+    expect(logNewLinesText(12)).toBe('12 new lines');
   });
 });
 

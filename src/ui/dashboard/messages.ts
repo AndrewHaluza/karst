@@ -355,9 +355,21 @@ export type WebviewMessage =
   /**
    * The shared logs view's search hit count. The host formats the one match
    * text (`logMatchText`) and answers with `server-logs-match-text`; the seq
-   * lets a stale answer be dropped.
+   * lets a stale answer be dropped. `current` is the 1-based match after
+   * Prev/Next, so the text reads "3 of 12".
    */
-  | { type: 'server-logs-match-count'; count: number; seq: number }
+  | { type: 'server-logs-match-count'; count: number; seq: number; current?: number }
+  /**
+   * The shared logs view's Follow-off count of lines that arrived since the
+   * last paint. The host formats the one text (`logNewLinesText`) and answers
+   * with `server-logs-new-text`; the seq lets a stale answer be dropped.
+   */
+  | { type: 'server-logs-new-count'; count: number; seq: number }
+  /**
+   * Copy the lines the shared logs view shows. Carries the already-rendered
+   * plain text; the host writes it to the clipboard (never the DOM read).
+   */
+  | { type: 'server-logs-copy'; text: string }
   /**
    * Ask for the xterm bundle (first console open). Answered by the panel host
    * with an `xterm` message, never by a ticket action — see xtermAssets.ts.

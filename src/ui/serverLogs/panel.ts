@@ -1,5 +1,5 @@
 import type { LogError } from '../../logging/logger.js';
-import { logMatchText } from '../../model/notifyText.js';
+import { logMatchText, logNewLinesText } from '../../model/notifyText.js';
 import type { ServerLogsResult } from '../dashboard/serverLogsReader.js';
 import {
   parseServerLogsMessage,
@@ -43,6 +43,17 @@ export interface ServerLogsSource {
  * nothing; closing it stops that ticket's polling. A ticket with no services
  * still opens and shows the shared empty state.
  */
+/** Optional host seams the standalone panel needs beyond scheduling. */
+export interface ServerLogsManagerOptions {
+  /**
+   * Write the view's Copy text to the clipboard. Absent → Copy is a no-op;
+   * the extension host binds `vscode.env.clipboard.writeText` here.
+   */
+  writeClipboard?: (text: string) => Promise<void>;
+  /** The ticket key the view title names ("Server logs · FEAT-12"). */
+  ticketKeyFor?: (ticketId: number) => string | null;
+}
+
 export class ServerLogsManager {
   private readonly sessions = new Map<number, ServerLogsPanel>();
 
@@ -54,6 +65,7 @@ export class ServerLogsManager {
       ticketId: number,
     ) => Array<{ service: string; logPath: string | null }>,
     private readonly logError: LogError = (message, error) => console.error(message, error),
+    private readonly options: ServerLogsManagerOptions = {},
   ) {}
 
   open(ticketId: number): void {
@@ -72,8 +84,11 @@ export class ServerLogsManager {
       const actions: ServerLogsActions = {
         request: () => this.requestLogs(ticketId, panel),
         close: () => this.closeLogs(ticketId),
-        matchCount: (count, seq) =>
-          panel.postMessage({ type: 'server-logs-match-text', seq, text: logMatchText(count) }),
+        matchCount: (count, seq, current) =>
+          panel.postMessage({ type: 'server-logs-match-text', seq, text: logMatchText(count, current) }),
+        newCount: (count, seq) =>
+          panel.postMessage({ type: 'server-logs-new-text', seq, text: logNewLinesText(count) }),
+        copy: (text) => this.writeClipboard(text),
       };
       try {
         const result = routeServerLogsAction(msg, actions);
@@ -113,7 +128,8 @@ export class ServerLogsManager {
   private requestLogs(ticketId: number, panel: ServerLogsPanel): void {
     const servers = this.logServers(ticketId);
     const result = this.reader.readLogs(servers);
-    panel.postMessage({ type: 'server-logs', servers: result.servers });
+    const key = this.options.ticketKeyFor?.(ticketId) ?? null;
+    panel.postMessage({ type: 'server-logs', servers: result.servers, ...(key ? { key } : {}) });
     this.reader.startPolling(servers, ticketId, (id, service, text) => {
       const live = this.sessions.get(id);
       if (live) live.postMessage({ type: 'server-log-output', service, text });
@@ -123,6 +139,15 @@ export class ServerLogsManager {
   /** Answer a `server-logs-close`: stop this ticket's polling. */
   private closeLogs(ticketId: number): void {
     this.reader.stopPolling(ticketId);
+  }
+
+  /** Write the view's shown text to the clipboard; a host without a seam is a no-op. */
+  private writeClipboard(text: string): void {
+    try {
+      void this.options.writeClipboard?.(text)?.catch(() => undefined);
+    } catch {
+      // Clipboard access denied: the Copy control is harmless.
+    }
   }
 
   private log(message: string, error: unknown): void {

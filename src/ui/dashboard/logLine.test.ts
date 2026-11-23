@@ -7,6 +7,7 @@ import {
   currentRun,
   compareLines,
   matchesQuery,
+  formatLineTime,
 } from './logLine.js';
 import { runMarkerLine } from '../../runtime/serverLog.js';
 
@@ -64,6 +65,44 @@ describe('parseTimestamp', () => {
   it('still finds it when the line opens with an escape', () => {
     const line = stripAnsi('\u001b[32m2024-01-02T03:04:05.123Z rest');
     expect(parseTimestamp(line)).toBe('2024-01-02T03:04:05.123Z');
+  });
+});
+
+describe('timestamped lines', () => {
+  it('drops the leading timestamp from the rendered segments (the .ts span shows it once)', () => {
+    const [line] = toLogLines('web', '2024-01-02T03:04:05.123Z rest', 0);
+    expect(line!.ts).toBe('2024-01-02T03:04:05.123Z');
+    expect(line!.segments.map((s) => s.text).join('')).toBe(' rest');
+    // The stripped text still carries every ANSI run that followed the stamp.
+    const coloured = toLogLines('web', '2024-01-02T03:04:05.123Z \u001b[32mok\u001b[39m', 0)[0]!;
+    expect(coloured.segments.map((s) => s.text).join('')).toBe(' ok');
+    expect(coloured.segments.some((s) => s.classes.includes('k-ansi-fg-green'))).toBe(true);
+  });
+
+  it('strips across an ANSI run boundary that splits the timestamp', () => {
+    const [line] = toLogLines('web', '\u001b[2m2024-01-02T03:04:05Z\u001b[22m rest', 0);
+    expect(line!.ts).toBe('2024-01-02T03:04:05Z');
+    expect(line!.segments.map((s) => s.text).join('')).toBe(' rest');
+  });
+
+  it('leaves an unstamped line untouched', () => {
+    const [line] = toLogLines('web', 'just text', 0);
+    expect(line!.segments.map((s) => s.text).join('')).toBe('just text');
+  });
+});
+
+describe('formatLineTime', () => {
+  it('renders local HH:mm:ss.SSS from the ISO stamp', () => {
+    const iso = '2024-01-02T03:04:05.123Z';
+    const d = new Date(iso);
+    const pad = (n: number, w = 2): string => String(n).padStart(w, '0');
+    expect(formatLineTime(iso)).toBe(
+      `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`,
+    );
+  });
+
+  it('returns the input unchanged when it is not a timestamp', () => {
+    expect(formatLineTime('not-a-time')).toBe('not-a-time');
   });
 });
 

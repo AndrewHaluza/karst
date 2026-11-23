@@ -67,15 +67,72 @@ describe('DashboardConsole server logs', () => {
 
     console.serverLogsMatchCount(t.id, 0, 1);
     console.serverLogsMatchCount(t.id, 1, 2);
-    console.serverLogsMatchCount(t.id, 2, 3);
+    console.serverLogsMatchCount(t.id, 12, 3, 3);
     expect(posted).toEqual([
       { type: 'server-logs-match-text', seq: 1, text: 'No matches' },
       { type: 'server-logs-match-text', seq: 2, text: '1 match' },
-      { type: 'server-logs-match-text', seq: 3, text: '2 matches' },
+      { type: 'server-logs-match-text', seq: 3, text: '3 of 12' },
     ]);
 
     const closed = new DashboardConsole(store, () => undefined, undefined, undefined, fakeReader());
     expect(() => closed.serverLogsMatchCount(t.id, 2, 1)).not.toThrow();
+  });
+
+  it('answers a new-line count with the one shared text, and copies through the clipboard seam', () => {
+    const t = createTicket(store, { key: 'T-1', title: 't' });
+    const posted: unknown[] = [];
+    const panel = {
+      postMessage: (m: unknown) => posted.push(m),
+    } as unknown as DashboardPanel;
+    const written: string[] = [];
+    const console = new DashboardConsole(
+      store,
+      () => panel,
+      undefined,
+      undefined,
+      fakeReader(),
+      () => [],
+      (text) => {
+        written.push(text);
+        return Promise.resolve();
+      },
+    );
+
+    console.serverLogsNewCount(t.id, 1, 1);
+    console.serverLogsNewCount(t.id, 12, 2);
+    expect(posted).toEqual([
+      { type: 'server-logs-new-text', seq: 1, text: '1 new line' },
+      { type: 'server-logs-new-text', seq: 2, text: '12 new lines' },
+    ]);
+
+    console.copyServerLogs('a\nb');
+    expect(written).toEqual(['a\nb']);
+    // No seam: the message is accepted and nothing explodes.
+    const noSeam = new DashboardConsole(store, () => panel, undefined, undefined, fakeReader());
+    expect(() => noSeam.copyServerLogs('x')).not.toThrow();
+    expect(() => noSeam.serverLogsNewCount(t.id, 1, 1)).not.toThrow();
+  });
+
+  it('names the ticket key in the logs answer for the title', () => {
+    const t = createTicket(store, { key: 'FEAT-12', title: 't' });
+    const posted: Array<Record<string, unknown>> = [];
+    const panel = {
+      postMessage: (m: unknown) => posted.push(m as Record<string, unknown>),
+    } as unknown as DashboardPanel;
+    const console = new DashboardConsole(
+      store,
+      () => panel,
+      undefined,
+      undefined,
+      fakeReader(),
+      () => [],
+      undefined,
+      (id) => (id === t.id ? 'FEAT-12' : null),
+    );
+
+    console.requestServerLogs(t.id);
+    expect(posted[0]).toMatchObject({ type: 'server-logs', key: 'FEAT-12' });
+    console.closeServerLogs(t.id);
   });
 
   it('does not list a shared service twice when the ticket also runs that key', () => {

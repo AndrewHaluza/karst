@@ -150,6 +150,38 @@ export function parseTimestamp(plain: string): string | null {
   return match ? match[1]! : null;
 }
 
+/**
+ * Drop the first `chars` VISIBLE characters from decoded segments. The line's
+ * timestamp is rendered once by the `.ts` span, so the body must not repeat it;
+ * the cut can split a segment (or several, when an escape sits inside the
+ * stamp), and empty segments are removed.
+ */
+function stripLeadingText(segments: readonly AnsiSegment[], chars: number): AnsiSegment[] {
+  const out: AnsiSegment[] = [];
+  let left = chars;
+  for (const segment of segments) {
+    if (left <= 0) {
+      out.push(segment);
+      continue;
+    }
+    if (segment.text.length <= left) {
+      left -= segment.text.length;
+      continue;
+    }
+    out.push({ text: segment.text.slice(left), classes: segment.classes });
+    left = 0;
+  }
+  return out;
+}
+
+/** A stored ISO stamp as the panel shows it: local `HH:mm:ss.SSS`. */
+export function formatLineTime(iso: string): string {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return iso;
+  const pad = (value: number, width = 2): string => String(value).padStart(width, '0');
+  return `${pad(when.getHours())}:${pad(when.getMinutes())}:${pad(when.getSeconds())}.${pad(when.getMilliseconds(), 3)}`;
+}
+
 /** Split raw log text into render-ready records, `seq` counting from `startSeq`. */
 export function toLogLines(service: string, text: string, startSeq: number): LogLine[] {
   if (text === '') return [];
@@ -158,12 +190,13 @@ export function toLogLines(service: string, text: string, startSeq: number): Log
   return rawLines.map((raw, index) => {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     const plain = stripAnsi(line);
+    const ts = parseTimestamp(plain);
     return {
       service,
-      ts: parseTimestamp(plain),
+      ts,
       seq: startSeq + index,
       plain,
-      segments: decodeAnsi(line),
+      segments: ts ? stripLeadingText(decodeAnsi(line), ts.length) : decodeAnsi(line),
       marker: isRunMarker(plain),
     };
   });

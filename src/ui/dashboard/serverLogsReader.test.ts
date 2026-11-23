@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, appendFileSync, rmSync, chmodSync } from 'node:fs';
 
 /** Byte length of every positioned read a poll tick makes, so a test can prove the tail reads only the appended range. */
 const reads = vi.hoisted(() => [] as number[]);
@@ -68,6 +68,8 @@ describe('ServerLogsReader', () => {
     const result = reader.readLogs([{ service: 'web', logPath: null }]);
     expect(result.servers[0]!.content).toBe('');
     expect(result.servers[0]!.truncated).toBe(false);
+    expect(result.servers[0]!.state).toBe('no-path');
+    expect(result.servers[0]!.message).toBe('web has no log file.');
   });
 
   it('handles missing file on disk gracefully', () => {
@@ -75,17 +77,64 @@ describe('ServerLogsReader', () => {
     const result = reader.readLogs([{ service: 'web', logPath: '/tmp/no-such-file-abc123.log' }]);
     expect(result.servers[0]!.content).toBe('');
     expect(result.servers[0]!.truncated).toBe(false);
+    expect(result.servers[0]!.state).toBe('empty');
+    expect(result.servers[0]!.message).toBe('web has not written to its log yet.');
   });
 
-  it('caps oversized files at 2 MB', () => {
+  it('names an unreadable log file instead of showing it as empty', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
-    const logPath = join(dir, 'big.log');
-    writeFileSync(logPath, 'x'.repeat(SERVER_LOG_READ_CAP_BYTES + 500));
+    const logPath = join(dir, 'secret.log');
+    writeFileSync(logPath, 'hidden\n');
+    chmodSync(logPath, 0o000);
     reader = new ServerLogsReader();
 
     const result = reader.readLogs([{ service: 'web', logPath }]);
+    expect(result.servers[0]!.state).toBe('unreadable');
+    expect(result.servers[0]!.message).toBe(`Karst cannot read ${logPath}.`);
+    chmodSync(logPath, 0o600);
+  });
+
+  it('treats a zero-byte log as not written yet', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'empty.log');
+    writeFileSync(logPath, '');
+    reader = new ServerLogsReader();
+
+    const result = reader.readLogs([{ service: 'api', logPath }]);
+    expect(result.servers[0]!.state).toBe('empty');
+    expect(result.servers[0]!.message).toBe('api has not written to its log yet.');
+  });
+
+  /**
+   * LG-1: a log over the read cap must show its NEWEST output, not its oldest.
+   * The head read showed the first 2 MiB of a 3 MiB log, so the line the user
+   * needs (the crash, the last request) was never on screen.
+   */
+  it('reads the tail of an oversized log and puts the marker first', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'big.log');
+    writeFileSync(logPath, `${'x'.repeat(SERVER_LOG_READ_CAP_BYTES + 500)}\nLAST LINE\n`);
+    reader = new ServerLogsReader();
+
+    const result = reader.readLogs([{ service: 'web', logPath }]);
+    const content = result.servers[0]!.content;
     expect(result.servers[0]!.truncated).toBe(true);
-    expect(result.servers[0]!.content).toContain('[server log truncated]');
+    expect(result.servers[0]!.state).toBe('ok');
+    expect(content.startsWith('[Earlier output not shown: 2.0 MB]')).toBe(true);
+    expect(content.endsWith('LAST LINE\n')).toBe(true);
+    // The oldest bytes are gone, never the newest.
+    expect(content).not.toContain('x'.repeat(1000));
+  });
+
+  it('skips a partial first line so the tail opens on a whole line', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'cut.log');
+    writeFileSync(logPath, `${'x'.repeat(SERVER_LOG_READ_CAP_BYTES + 500)}\nA\nB\n`);
+    reader = new ServerLogsReader();
+
+    const content = reader.readLogs([{ service: 'web', logPath }]).servers[0]!.content;
+    expect(content.includes('x')).toBe(false);
+    expect(content).toBe('[Earlier output not shown: 2.0 MB]\nA\nB\n');
   });
 
   it('returns multiple servers', () => {
@@ -202,7 +251,7 @@ describe('ServerLogsReader', () => {
   it('enforces the read cap in bytes for multi-byte content', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
     const logPath = join(dir, 'utf8-big.log');
-    writeFileSync(logPath, '\u20ac'.repeat(SERVER_LOG_READ_CAP_BYTES)); // 3x the cap in bytes
+    writeFileSync(logPath, '\u20ac\n'.repeat(SERVER_LOG_READ_CAP_BYTES)); // > the cap in bytes
     reader = new ServerLogsReader();
 
     const result = reader.readLogs([{ service: 'web', logPath }]);
@@ -212,7 +261,7 @@ describe('ServerLogsReader', () => {
       SERVER_LOG_READ_CAP_BYTES + 64,
     );
     expect(content).not.toContain('\uFFFD');
-    expect(content).toContain('[server log truncated]');
+    expect(content.startsWith('[Earlier output not shown: ')).toBe(true);
   });
 
   it('a poll tick reads only the appended bytes, not the whole log', async () => {

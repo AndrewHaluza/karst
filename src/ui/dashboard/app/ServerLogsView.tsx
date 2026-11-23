@@ -22,9 +22,10 @@ import './ServerLogsView.css';
 interface LogsView {
   open(): void;
   close(): void;
-  handleInitial(servers: readonly ServerLogEntry[]): void;
+  handleInitial(servers: readonly ServerLogEntry[], key?: string): void;
   handleOutput(service: string, text: string): void;
   handleMatchText(seq: number, text: string): void;
+  handleNewText(seq: number, text: string): void;
 }
 type LogsFactory = (options: { post: (msg: { type?: string } | null) => void; onClose: () => void; drillHead?: boolean }) => LogsView;
 
@@ -71,7 +72,21 @@ export function ServerLogsView() {
         typeof (msg as { count?: unknown }).count === 'number' &&
         typeof (msg as { seq?: unknown }).seq === 'number'
       ) {
-        send.serverLogsMatchCount((msg as { count: number }).count, (msg as { seq: number }).seq);
+        const current = (msg as { current?: unknown }).current;
+        send.serverLogsMatchCount(
+          (msg as { count: number }).count,
+          (msg as { seq: number }).seq,
+          typeof current === 'number' ? current : undefined,
+        );
+      } else if (
+        msg &&
+        msg.type === 'server-logs-new-count' &&
+        typeof (msg as { count?: unknown }).count === 'number' &&
+        typeof (msg as { seq?: unknown }).seq === 'number'
+      ) {
+        send.serverLogsNewCount((msg as { count: number }).count, (msg as { seq: number }).seq);
+      } else if (msg && msg.type === 'server-logs-copy' && typeof (msg as { text?: unknown }).text === 'string') {
+        send.serverLogsCopy((msg as { text: string }).text);
       }
     };
     const acquired = acquire(post);
@@ -95,9 +110,10 @@ export function ServerLogsView() {
   }, [send, overlays]);
 
   useHostMessage((m) => {
-    if (m.type === 'server-logs') view.current?.handleInitial(m.servers || []);
+    if (m.type === 'server-logs') view.current?.handleInitial(m.servers || [], m.key);
     else if (m.type === 'server-log-output') view.current?.handleOutput(m.service, m.text);
     else if (m.type === 'server-logs-match-text') view.current?.handleMatchText(m.seq, m.text);
+    else if (m.type === 'server-logs-new-text') view.current?.handleNewText(m.seq, m.text);
   });
 
   useEffect(() => {
