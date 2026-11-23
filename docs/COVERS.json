@@ -504,6 +504,9 @@
   "src/extension/ops/autopilotOps.ts#runBaseMovedRound": [
     "arch:AP-06"
   ],
+  "src/extension/ops/autopilotRefusal.ts": [
+    "arch:AP-01"
+  ],
   "src/extension/ops/autopilotRerun.ts": [
     "arch:AP-03"
   ],
@@ -531,6 +534,9 @@
   ],
   "src/extension/ops/ciActionsWiring.ts": [
     "arch:AP-05"
+  ],
+  "src/extension/ops/ciActionsWiring.ts#autoDeliverAction": [
+    "arch:AP-01"
   ],
   "src/extension/ops/ciActionsWiring.ts#deliverToPrAction": [
     "arch:AP-01"
