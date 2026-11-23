@@ -9,7 +9,7 @@
  * fakes.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync, mkdirSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore, type Store } from '../../../store/db.js';
 import { runCompletionPipeline, INTEGRATION_COMMIT_PREFIX, type CompletionPipelineDeps } from './pipeline.js';
+import { declaredWritesFor } from './claims.js';
 import { domainKeyOf } from './domains.js';
 import { canonicalPath } from '../../../runtime/pathScope.js';
 import { acquireLease } from '../../../store/graph/leases.js';
@@ -24,7 +25,14 @@ import type { AgentTransport, SupervisedAgentSession } from '../transport/superv
 import { defaultGitRunner, GIT_MAX_OUTPUT_BYTES, type GitRunner } from '../../../integrations/git.js';
 import { cleanupTerminalNodeWorkspace } from '../workspace/cleanup.js';
 import { nodeWorkspaceDir } from '../workspace/provider.js';
-import { formatIntegrationNonce, reclaimNodeRunIntegrating, workspacesForNode } from '../../../store/graph/nodeRuns.js';
+import {
+  formatIntegrationNonce,
+  nodeRunIdsInStatusesForGraphRun,
+  reclaimNodeRunIntegrating,
+  workspacesForNode,
+} from '../../../store/graph/nodeRuns.js';
+import { beginReplanPlannerRun } from '../coordinator/replan.js';
+import { driveReplanDrain } from '../../../extension/ops/graphReplanDrain.js';
 import type { ProcessFacts, ProcessFactsSource, LiveCwd } from '../../../runtime/serverIdentity.js';
 
 interface Harness {
@@ -780,6 +788,15 @@ describe('runCompletionPipeline — guards', () => {
     expect(result.kind).toBe('no-op');
   });
 
+  it('no-op when the graph run does not exist', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    insertNodeRun(h, 73, 'completing');
+    const result = await runCompletionPipeline(makeDeps(h), { graphRunId: 999, nodeRunId: 73 });
+    expect(result).toEqual({ kind: 'no-op' });
+    expect(nodeRow(h, 73).status).toBe('completing');
+  });
+
   it('no-op when the graph run is not running', async () => {
     const h = harness();
     cleanups.push(h.close);
@@ -1283,6 +1300,353 @@ describe('runCompletionPipeline — Slice 5 Task 5: deterministic integration un
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(h.graphRunId) as { status: string };
     expect(graph.status).toBe('blocked');
+  });
+});
+
+describe('runCompletionPipeline — a run that drains (T1322)', () => {
+  /** Node `n` writes `a.ts` and has an edge to END: a completion of a running
+   *  run makes an END token, so "no successor" is a real assertion. */
+  const DRAIN_DOC = {
+    ...PIPELINE_DOC,
+    artifacts: [],
+    nodes: [
+      {
+        ...PIPELINE_DOC.nodes[0]!,
+        outputs: [],
+        resources: { reads: [], writes: [{ repo: 'api', paths: ['a.ts'] }] },
+      },
+    ],
+  };
+
+  /** What a replan election (`revision: draining`) or a Stop (`active`) leaves. */
+  function drain(h: Harness, revisionStatus: 'draining' | 'active'): void {
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(h.graphRunId);
+    h.db
+      .prepare('UPDATE approach_graph_revisions SET status = ? WHERE id = ?')
+      .run(revisionStatus, h.revisionId);
+  }
+
+  function runRow(h: Harness): { status: string; blocked_reason: string | null } {
+    return h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(h.graphRunId) as { status: string; blocked_reason: string | null };
+  }
+
+  function nodeEvidence(h: Harness, id: number): unknown {
+    return h.db
+      .prepare('SELECT status, outcome, failure_category, reason FROM approach_node_runs WHERE id = ?')
+      .get(id);
+  }
+
+  const domainOf = (worktreePath: string): string =>
+    domainKeyOf(canonicalPath(worktreePath), gitCommonDirOf2(worktreePath));
+
+  /** The host's real declared-writes resolution, not an injected answer. */
+  const realDeclaredWrites = (h: Harness): Partial<CompletionPipelineDeps> => ({
+    declaredWritesOf: (nodeRunId) =>
+      declaredWritesFor(
+        h.db,
+        nodeRunId,
+        [{ repoName: 'api', root: '', worktreePath: h.worktree }],
+        domainOf,
+      ),
+  });
+
+  /** A `completing` node with a claimed token, a held lease, a process slot and
+   *  a workspace clone in which the agent committed `change` to `file`. */
+  function completingNode(h: Harness, id: number, file: string, change: string): string {
+    installDocument(h, DRAIN_DOC);
+    insertNodeRun(h, id, 'completing');
+    claimNodeToken(h, id, 'root');
+    pathLease(h, id, domainOf(h.worktree), ['a.ts']);
+    recordBaseHead(h, id, domainOf(h.worktree), h.baseSha);
+    h.db.prepare('UPDATE approach_graph_runs SET active_processes = 1 WHERE id = ?').run(h.graphRunId);
+    const ws = makeWorkspaceClone(h.worktree, h.baseSha);
+    writeFileSync(join(ws, file), change);
+    git(ws, ['add', file]);
+    git(ws, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'agent commit']);
+    return ws;
+  }
+
+  function tokens(h: Harness): unknown[] {
+    return h.db.prepare('SELECT edge_id, status FROM approach_graph_tokens ORDER BY id').all();
+  }
+
+  function activeProcesses(h: Harness): unknown {
+    return h.db.prepare('SELECT active_processes FROM approach_graph_runs WHERE id = ?').get(h.graphRunId);
+  }
+
+  it('replan drain: the node integrates its commit, releases its resources and makes no successor', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const ws = completingNode(h, 91, 'a.ts', 'work in the drain\n');
+    drain(h, 'draining');
+
+    const result = await runCompletionPipeline(
+      makeDeps(h, { ...realDeclaredWrites(h), workspaceCwdOf: () => ws }),
+      { graphRunId: h.graphRunId, nodeRunId: 91 },
+    );
+
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(nodeRow(h, 91).status).toBe('completed');
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('work in the drain\n');
+    expect(git(h.worktree, ['log', '--format=%s', '-1'])).toBe(
+      `${INTEGRATION_COMMIT_PREFIX} ${h.graphRunId} node 91`,
+    );
+    expect(leaseRow(h, 91)).toEqual({ status: 'released' });
+    expect(activeProcesses(h)).toEqual({ active_processes: 0 });
+    // The claim is consumed, and the edge to END made no token.
+    expect(tokens(h)).toEqual([{ edge_id: 'e-entry', status: 'consumed' }]);
+    expect(runRow(h)).toEqual({ status: 'draining', blocked_reason: null });
+  });
+
+  it('the same node of a running run makes its successor (the drain is the cause)', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const ws = completingNode(h, 92, 'a.ts', 'work\n');
+    const result = await runCompletionPipeline(
+      makeDeps(h, { ...realDeclaredWrites(h), workspaceCwdOf: () => ws }),
+      { graphRunId: h.graphRunId, nodeRunId: 92 },
+    );
+    expect(result).toEqual({ kind: 'integrated', committed: true });
+    expect(tokens(h)).toEqual([
+      { edge_id: 'e-entry', status: 'consumed' },
+      { edge_id: 'e-end', status: 'pending' },
+    ]);
+  });
+
+  it('Stop drain (revision active): still a no-op', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const ws = completingNode(h, 93, 'a.ts', 'work\n');
+    drain(h, 'active');
+    const result = await runCompletionPipeline(
+      makeDeps(h, { ...realDeclaredWrites(h), workspaceCwdOf: () => ws }),
+      { graphRunId: h.graphRunId, nodeRunId: 93 },
+    );
+    expect(result).toEqual({ kind: 'no-op' });
+    expect(nodeRow(h, 93).status).toBe('completing');
+    expect(leaseRow(h, 93)).toEqual({ status: 'held' });
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('a\n');
+  });
+
+  it.each(['blocked', 'cancelled', 'stale'])(
+    'a %s run whose newest revision drains is still a no-op',
+    async (status) => {
+      const h = harness();
+      cleanups.push(h.close);
+      const ws = completingNode(h, 94, 'a.ts', 'work\n');
+      drain(h, 'draining');
+      h.db.prepare('UPDATE approach_graph_runs SET status = ? WHERE id = ?').run(status, h.graphRunId);
+      const result = await runCompletionPipeline(
+        makeDeps(h, { ...realDeclaredWrites(h), workspaceCwdOf: () => ws }),
+        { graphRunId: h.graphRunId, nodeRunId: 94 },
+      );
+      expect(result).toEqual({ kind: 'no-op' });
+      expect(nodeRow(h, 94).status).toBe('completing');
+    },
+  );
+
+  it('replan drain: a claim violation parks the node and leaves the run draining', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const ws = completingNode(h, 95, 'b.ts', 'out of claim\n');
+    drain(h, 'draining');
+    const result = await runCompletionPipeline(
+      makeDeps(h, { ...realDeclaredWrites(h), workspaceCwdOf: () => ws }),
+      { graphRunId: h.graphRunId, nodeRunId: 95 },
+    );
+    expect(result).toEqual({ kind: 'claim-violated', violations: ['b.ts'] });
+    expect(nodeEvidence(h, 95)).toEqual({
+      status: 'blocked',
+      outcome: 'failed',
+      failure_category: 'resource-claim-violated',
+      reason: 'resource-claim-violated: b.ts (declared writes: a.ts)',
+    });
+    expect(runRow(h)).toEqual({ status: 'draining', blocked_reason: null });
+    expect(readFileSync(join(h.worktree, 'b.ts'), 'utf8')).toBe('b\n');
+  });
+
+  it('replan drain: a missing required output parks the node and leaves the run draining', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    installDocument(h, PIPELINE_DOC);
+    insertNodeRun(h, 96, 'completing');
+    claimNodeToken(h, 96, 'root');
+    drain(h, 'draining');
+    const result = await runCompletionPipeline(makeDeps(h), { graphRunId: h.graphRunId, nodeRunId: 96 });
+    expect(result).toMatchObject({ kind: 'output-artifact-missing', artifactId: 'spec' });
+    expect(nodeEvidence(h, 96)).toMatchObject({
+      status: 'output-artifact-missing',
+      outcome: 'complete',
+      failure_category: 'output-artifact-missing',
+    });
+    expect(runRow(h)).toEqual({ status: 'draining', blocked_reason: null });
+  });
+
+  /** A workspace with no recorded base head makes the change-set capture fail. */
+  function nodeWithNoBaseHead(h: Harness, id: number): string {
+    const ws = completingNode(h, id, 'a.ts', 'kept in the clone\n');
+    h.db.prepare('UPDATE approach_node_runs SET base_heads = NULL WHERE id = ?').run(id);
+    return ws;
+  }
+
+  const CAPTURE_PARK = {
+    status: 'blocked',
+    outcome: 'failed',
+    failure_category: 'integration-conflict',
+    reason: 'integration-conflict: change-set capture failed for api',
+  };
+
+  it('replan drain: a capture failure parks the node and leaves the run draining', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    const ws = nodeWithNoBaseHead(h, 97);
+    drain(h, 'draining');
+    const result = await runCompletionPipeline(
+      makeDeps(h, { ...realDeclaredWrites(h), workspaceCwdOf: () => ws }),
+      { graphRunId: h.graphRunId, nodeRunId: 97 },
+    );
+    expect(result).toEqual({ kind: 'integration-conflict', reason: 'change-set capture failed' });
+    expect(nodeEvidence(h, 97)).toEqual(CAPTURE_PARK);
+    expect(runRow(h)).toEqual({ status: 'draining', blocked_reason: null });
+    expect(readFileSync(join(ws, 'a.ts'), 'utf8')).toBe('kept in the clone\n');
+  });
+
+  it.each([
+    { revision: 'draining' as const, parked: true },
+    { revision: 'active' as const, parked: false },
+  ])(
+    'a capture failure after the run moved to a drain (revision $revision) reads the run again: parked $parked',
+    async ({ revision, parked }) => {
+      const h = harness();
+      cleanups.push(h.close);
+      const ws = nodeWithNoBaseHead(h, 98);
+      const result = await runCompletionPipeline(
+        makeDeps(h, {
+          ...realDeclaredWrites(h),
+          workspaceCwdOf: () => {
+            drain(h, revision); // the election (or the Stop) lands during the pipeline
+            return ws;
+          },
+        }),
+        { graphRunId: h.graphRunId, nodeRunId: 98 },
+      );
+      expect(result.kind).toBe('integration-conflict');
+      expect(nodeRow(h, 98).status).toBe(parked ? 'blocked' : 'integrating');
+      if (parked) expect(nodeEvidence(h, 98)).toEqual(CAPTURE_PARK);
+      expect(runRow(h).status).toBe('draining');
+    },
+  );
+
+  /** The host's `relaunchReplanPlannerHost`: allocate the drain's planner for
+   *  real (against the same store) and record the allocator's answer. */
+  function relaunchRecorder(h: Harness): {
+    relaunch: (graphRunId: number) => Promise<void>;
+    results: Array<{ ok: boolean; reason?: string }>;
+  } {
+    const results: Array<{ ok: boolean; reason?: string }> = [];
+    return {
+      results,
+      relaunch: async (graphRunId) => {
+        const begun = beginReplanPlannerRun(
+          {
+            db: h.db,
+            transaction: <T>(fn: () => T): T =>
+              (
+                h.db.transaction as unknown as (
+                  f: () => T,
+                  o: { begin: 'immediate' },
+                ) => () => T
+              )(fn, { begin: 'immediate' })(),
+            now: () => '2026-08-12T00:00:00.000Z',
+            writeSnapshot: (_runId, rel, bytes) => {
+              const target = join(h.artifactRoot, rel);
+              mkdirSync(join(target, '..'), { recursive: true });
+              writeFileSync(target, bytes);
+            },
+            readPrompt: () => new TextEncoder().encode('# Planner'),
+            promptPath: 'karst-graph-planner',
+            ticketContext: '# Ticket context',
+          },
+          { graphRunId },
+        );
+        results.push(begun.ok ? { ok: true } : { ok: false, reason: begun.reason });
+      },
+    };
+  }
+
+  it('the last live node completes in a replan drain, then the drain allocates its planner', async () => {
+    // T1322 / T1317: a node was still live when the election drained the run.
+    // It integrates in the drain (no successor token on its END edge), the run
+    // stays `draining` — never `completed-awaiting-impl-marker`, never
+    // `blocked` — and only then is the N+1 planner allocated.
+    const h = harness();
+    cleanups.push(h.close);
+    const ws = completingNode(h, 99, 'a.ts', 'work in the drain\n');
+    drain(h, 'draining');
+    const { relaunch, results } = relaunchRecorder(h);
+
+    // The completing node still holds the drain: the planner is deferred.
+    await relaunch(h.graphRunId);
+    expect(results).toEqual([{ ok: false, reason: 'not-quiescent' }]);
+
+    await driveReplanDrain(
+      {
+        db: h.db,
+        driveCompletingNodes: async (graphRunId) => {
+          for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(h.db, graphRunId, ['completing'])) {
+            await runCompletionPipeline(
+              makeDeps(h, { ...realDeclaredWrites(h), workspaceCwdOf: () => ws }),
+              { graphRunId, nodeRunId },
+            );
+          }
+        },
+        relaunchReplanPlanner: relaunch,
+      },
+      h.graphRunId,
+    );
+
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('work in the drain\n');
+    expect(nodeRow(h, 99).status).toBe('completed');
+    // The END edge made no token: the claim is consumed and nothing follows.
+    expect(tokens(h)).toEqual([{ edge_id: 'e-entry', status: 'consumed' }]);
+    expect(leaseRow(h, 99)).toEqual({ status: 'released' });
+    expect(activeProcesses(h)).toEqual({ active_processes: 0 });
+    expect(runRow(h)).toEqual({ status: 'draining', blocked_reason: null });
+    // Quiescent at last: the planner for revision 2 is allocated.
+    expect(results).toEqual([{ ok: false, reason: 'not-quiescent' }, { ok: true }]);
+    expect(
+      h.db
+        .prepare(
+          'SELECT kind, status, target_revision_number FROM approach_planner_runs WHERE graph_run_id = ?',
+        )
+        .all(h.graphRunId),
+    ).toEqual([{ kind: 'replan', status: 'ready', target_revision_number: 2 }]);
+  });
+
+  it('a Stop drain allocates no planner and leaves the live node alone', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    completingNode(h, 100, 'a.ts', 'work\n');
+    drain(h, 'active');
+    const { relaunch, results } = relaunchRecorder(h);
+    const driveCompletingNodes = vi.fn(async () => undefined);
+
+    await driveReplanDrain(
+      { db: h.db, driveCompletingNodes, relaunchReplanPlanner: relaunch },
+      h.graphRunId,
+    );
+
+    expect(driveCompletingNodes).not.toHaveBeenCalled();
+    expect(results).toEqual([]);
+    expect(
+      h.db
+        .prepare('SELECT COUNT(*) AS n FROM approach_planner_runs WHERE graph_run_id = ?')
+        .get(h.graphRunId),
+    ).toEqual({ n: 0 });
+    expect(nodeRow(h, 100).status).toBe('completing');
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('a\n');
   });
 });
 

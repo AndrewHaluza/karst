@@ -15,6 +15,7 @@ import {
   clearGraphRunBlocked,
 } from '../../../store/graph/graphRuns.js';
 import type { RecoveryResult } from './recovery.js';
+import { forbiddenBodyChar } from '../../../model/messageText.js';
 import {
   AUTO_RECOVERY_LIMIT,
   autoRecoverBlockedRuns,
@@ -262,6 +263,37 @@ describe('autoRecoverBlockedRuns', () => {
     markGraphRunBlocked(f.store.db, f.graphRunId, 'failed-to-launch: n2', NOW);
     await sweep(f, deps, memory);
     expect(recover).toHaveBeenCalledTimes(2);
+  });
+
+  // T1322: a resource-conflict deferral carries the durable domain key, which
+  // joins its halves with NUL. The note body must hold no forbidden character
+  // (a mailbox writer refuses it), for the recovered note and the stop note.
+  const NUL_REASON =
+    'resource-claim-violated: physical domain /wt/t1\u0000/wt/.git is held write by another node run';
+
+  it('posts a recovered note with no forbidden character when the reason holds a NUL', async () => {
+    const f = fixture(NUL_REASON);
+    const deps = depsFor(f, async () => replanned);
+    await sweep(f, deps);
+    expect(deps.notes).toHaveLength(1);
+    expect(deps.notes[0]!.body).toContain('/wt/t1');
+    expect(forbiddenBodyChar(deps.notes[0]!.body)).toBeNull();
+  });
+
+  it('posts the stop note with no forbidden character when the reasons hold a NUL', async () => {
+    const f = fixture(NUL_REASON);
+    const deps = depsFor(f, async () => replanned);
+    const memory = createAutoRecoveryMemory();
+    for (let i = 0; i < AUTO_RECOVERY_LIMIT; i += 1) {
+      markGraphRunBlocked(f.store.db, f.graphRunId, NUL_REASON, NOW);
+      await sweep(f, deps, memory);
+    }
+    markGraphRunBlocked(f.store.db, f.graphRunId, NUL_REASON, NOW);
+    await sweep(f, deps, memory);
+    const stopped = deps.notes.filter((n) => n.title.includes('stopped'));
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]!.body).toContain('/wt/t1');
+    expect(forbiddenBodyChar(stopped[0]!.body)).toBeNull();
   });
 
   it('does not count a no-op', async () => {

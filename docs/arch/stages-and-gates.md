@@ -594,7 +594,7 @@ covers: src/workflow/stages/shipResume.ts, src/workflow/stages/ship.ts, src/exte
 END_DOC_BLOCK: [@arch:SHIP-RESUME]
 
 ## [@arch:GRAPH-AUTORECOVERY] The graph coordinator recovers a blocked run for the safe reasons, three times at most
-covers: src/approaches/graph/coordinator/autoRecovery.ts, src/approaches/graph/coordinator/recovery.ts, src/approaches/graph/coordinator/replan.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts
+covers: src/approaches/graph/coordinator/autoRecovery.ts, src/approaches/graph/coordinator/recovery.ts, src/approaches/graph/coordinator/replan.ts, src/approaches/graph/coordinator/replanDrain.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts, src/extension/ops/graphReplanDrain.ts
 
 The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` run when `recoveryCategoryFor(blocked_reason)` is an automatic category. The sweep uses the same entry and the same seams as the Resume and Replan buttons (`dispatchGraphRecovery`). The run claim (`blocked → running`) is a CAS, so two windows cannot both recover one block. The sweep shows no dialog. It writes one graph diagnostic and one bulletin note for each automatic recovery.
 
@@ -613,7 +613,24 @@ The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` r
 
 A `graph-workspace-deps` block means a node clone could not get the dependencies of its ticket worktree (`@arch:GRAPHDEPS`). A retry would repeat the same install, so a human installs the dependencies or sets `graphWorkspace`, then runs Replan.
 
-An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. When that budget is spent, the recovery refuses with `config-then-resume` before the run claim and changes no row. The run keeps its block reason and the node keeps its failure evidence. A human Replan bypasses the document budget. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file. A `blocked` node run with the failure category `resource-claim-violated`, `integration-conflict` or `graph-budget-exhausted` has no live process, so it does not hold the drain open. A node run with `failed-to-launch` or a NULL category still holds it open.
+An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. When that budget is spent, the recovery refuses with `config-then-resume` before the run claim and changes no row. The run keeps its block reason and the node keeps its failure evidence. A human Replan bypasses the document budget. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file.
+
+### Which rows hold a replan drain
+A **replan drain** is a `draining` run with no `active` revision whose newest revision is `draining`. A **Stop drain** is a `draining` run whose revision stays `active`.
+
+A node run holds a replan drain open in every `ACTIVE_NODE_STATUSES` status, except the two dead artifact statuses below. That set is `ready`, `waiting-resource`, `launching`, `running`, `completing`, `integrating`, `launch-unknown`, `termination-unknown`, `failed-to-launch`, and a `blocked` row (with a NULL failure category). Two shapes do not hold it:
+
+- A `blocked` node run with the failure category `resource-claim-violated`, `integration-conflict` or `graph-budget-exhausted`. The pipeline writes these categories only after it proves termination. The category is the evidence a replan needs.
+- A node run with the status `output-artifact-missing` or `artifact-unsafe`. The pipeline writes both only after it proves termination, and the replan submit cancels these rows.
+
+A held lease does not hold the drain. It is the deferral source for revision N+1.
+
+### A live node in a replan drain
+A node that is live at the election can end its work. The CLI accepts `node complete`, `node block` and `node replan` against the `draining` revision of its run. The completion pipeline integrates the node's change set in a replan drain, exactly as it does for a `running` run: claims, leases, land, commit. `completeActivation` reads `draining` and makes no successor token, so the work is part of the base that revision N+1 plans on top of. A failure in the drain parks the node and keeps the run `draining`; `blockGraphRun` is a `running → blocked` CAS, so it changes nothing there.
+
+The host (`driveReplanDrain`) acts only when a replan drain has no planner run for its target revision. It drives the completing nodes, reads the status again, and then allocates the planner. The planner is allocated only after quiescence. A drain that already has a planner row, of any status, is left to reconcile. A paused ticket starts nothing. A Stop drain is not a replan drain: it starts no planner and it waits for a deliberate Restart.
+
+A recovery note never carries a forbidden body character. A `resource-conflict` deferral names the canonical worktree path of the domain, not the durable domain key (which joins its halves with NUL), and the coordinator passes every reason through `sanitizeInline` before it posts the note.
 
 The count of automatic recoveries is `approach_graph_runs.auto_recovery_count`. The limit is `AUTO_RECOVERY_LIMIT` (3), a constant and not a manifest setting. At the limit the run stays `blocked` and the block reason says `automatic recovery stopped after 3 attempts` and lists the recovered reasons. A human Resume or Replan still works and does not reset the count.
 END_DOC_BLOCK: [@arch:GRAPH-AUTORECOVERY]

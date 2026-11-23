@@ -1,9 +1,9 @@
 /**
  * Declared-writes resolution tests (Slice 3 Task 8).
  *
- * The node's declared writes are re-derived from the ACTIVE revision's
- * canonical graph (the same document the claim machinery compiled): an agent
- * node's `resources.writes` per repository, a command node's repository-wide
+ * The node's declared writes are re-derived from the canonical graph of the
+ * node run's OWN revision, while that revision is `active` or `draining` (the
+ * same document the claim machinery compiled): an agent node's `resources.writes` per repository, a command node's repository-wide
  * writes. Paths are rooted at the repository root within the worktree, and
  * grouped per physical domain key so the pipeline can validate each domain's
  * change set against exactly its own declared writes.
@@ -101,6 +101,10 @@ function insertNodeRun(ctx: Ctx, id: number, nodeId: string): void {
     .run(id, ctx.graphRunId, ctx.revisionId, nodeId);
 }
 
+function setRevisionStatus(ctx: Ctx, revisionId: number, status: string): void {
+  ctx.db.prepare('UPDATE approach_graph_revisions SET status = ? WHERE id = ?').run(status, revisionId);
+}
+
 const REPOS: ResolvedRepoEntry[] = [
   { repoName: 'api', root: '', worktreePath: '/wt/api' },
   { repoName: 'web', root: 'web', worktreePath: '/wt/api' },
@@ -179,5 +183,56 @@ describe('declaredWritesFor', () => {
     insertNodeRun(ctx, 15, 'n');
     const result = declaredWritesFor(ctx.db, 15, REPOS, keyOf);
     expect(result).toEqual([{ domainKey: 'domain:/wt/api', paths: ['web/x.ts'] }]);
+  });
+
+  it('a node of a draining revision keeps its declared writes (replan drain)', () => {
+    const ctx = harness();
+    insertNodeRun(ctx, 16, 'a');
+    setRevisionStatus(ctx, ctx.revisionId, 'draining');
+    expect(declaredWritesFor(ctx.db, 16, REPOS, keyOf)).toEqual([
+      { domainKey: 'domain:/wt/api', paths: ['src/a.ts'] },
+    ]);
+  });
+
+  it.each(['superseded', 'completed'])('a node of a %s revision declares nothing', (status) => {
+    const ctx = harness();
+    insertNodeRun(ctx, 17, 'a');
+    setRevisionStatus(ctx, ctx.revisionId, status);
+    expect(declaredWritesFor(ctx.db, 17, REPOS, keyOf)).toEqual([]);
+  });
+
+  it('an unknown node run declares nothing', () => {
+    const ctx = harness();
+    expect(declaredWritesFor(ctx.db, 999, REPOS, keyOf)).toEqual([]);
+  });
+
+  it.each([
+    ['draining', 'draining'],
+    ['draining', 'active'],
+  ])('a node uses its own revision, not a sibling one (own %s, newer %s)', (own, newer) => {
+    const ctx = harness();
+    insertNodeRun(ctx, 18, 'a');
+    setRevisionStatus(ctx, ctx.revisionId, own);
+    const other = {
+      ...GRAPH,
+      nodes: [{ ...GRAPH.nodes[0]!, resources: { reads: [], writes: [{ repo: 'api', paths: ['src/new.ts'] }] } }],
+    };
+    const newRevisionId = Number(
+      ctx.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions
+             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 2, ?, 'fp2', ?, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ctx.graphRunId, JSON.stringify(other), newer)
+        .lastInsertRowid,
+    );
+    insertNodeRun({ ...ctx, revisionId: newRevisionId }, 19, 'a');
+    expect(declaredWritesFor(ctx.db, 18, REPOS, keyOf)).toEqual([
+      { domainKey: 'domain:/wt/api', paths: ['src/a.ts'] },
+    ]);
+    expect(declaredWritesFor(ctx.db, 19, REPOS, keyOf)).toEqual([
+      { domainKey: 'domain:/wt/api', paths: ['src/new.ts'] },
+    ]);
   });
 });

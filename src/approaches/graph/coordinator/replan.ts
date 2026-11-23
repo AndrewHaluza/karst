@@ -14,9 +14,11 @@
  *   3. a later replan request while draining is the requesting node's own
  *      bounded row (the CLI records `outcome:'replan'` plus a bounded reason)
  *      — existing evidence, no second planner.
- *   4. `completeActivation` still consumes the claimed token and records the
- *      node's evidence but suppresses ALL successor creation while the
- *      revision is draining (completion.ts).
+ *   4. a node that is live at the election completes in the drain: the CLI
+ *      accepts its report and the completion pipeline integrates its work.
+ *      `completeActivation` consumes the claimed token and records the node's
+ *      evidence but suppresses ALL successor creation while the run is
+ *      draining (completion.ts), so N+1 is planned on top of that work.
  *   5. `beginReplanPlannerRun` cancels the draining revision's pending (and
  *      stale claimed) activations once the drain quiesces — no active node
  *      run, no ambiguous lease. Held leases do NOT block quiescence: they are
@@ -276,8 +278,19 @@ const DEAD_BLOCKED_CATEGORIES: readonly string[] = [
   'integration-conflict',
 ];
 
-/** The drain's active-work quiescence: no non-terminal node run and no held
- *  ambiguous-process lease. Held (`held`) leases are deliberately NOT a block
+/** Active statuses that prove no live process remains: the completion pipeline
+ *  writes both only after termination is proven. They do not hold a replan
+ *  drain (the replan submit cancels these rows), but they do hold END
+ *  quiescence, so `ACTIVE_NODE_STATUSES` keeps them. */
+const DEAD_NODE_STATUSES: readonly string[] = ['output-artifact-missing', 'artifact-unsafe'];
+
+/** The node statuses that hold a replan drain open. */
+const DRAIN_HOLDING_STATUSES: readonly string[] = ACTIVE_NODE_STATUSES.filter(
+  (status) => !DEAD_NODE_STATUSES.includes(status),
+);
+
+/** The drain's active-work quiescence: no node run that can still have a live
+ *  process or unsettled work, and no held ambiguous-process lease. Held (`held`) leases are deliberately NOT a block
  *  — they are the deferral source: N+1 validates against them and schedules
  *  conflicting nodes later. A `termination-unknown` holder stays in
  *  `ACTIVE_NODE_STATUSES`, so its never-releasing lease keeps the drain
@@ -291,8 +304,9 @@ function replanQuiescenceBlockedBy(db: GraphDb, graphRunId: number): string | nu
   // or a human Replan defers `not-quiescent` until a background tick cancels
   // it. The replan submit cancels these rows with the superseded revision's
   // work. `failed-to-launch` is NOT dead: the `graph-live-process` park uses it.
+  // A node parked for its output artifacts is dead too (`DEAD_NODE_STATUSES`).
   if (
-    countNodeRunsInStatusesExcludingOutcome(db, graphRunId, ACTIVE_NODE_STATUSES, 'replan', {
+    countNodeRunsInStatusesExcludingOutcome(db, graphRunId, DRAIN_HOLDING_STATUSES, 'replan', {
       blockedCategories: DEAD_BLOCKED_CATEGORIES,
     }) > 0
   ) {

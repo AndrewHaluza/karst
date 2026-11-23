@@ -655,6 +655,22 @@ describe('extension activation', () => {
     );
   });
 
+  it('drives a live node in a replan drain before the planner is allocated', () => {
+    // T1322: a node can still be live when the election drains the run. The
+    // draining branch drives the completing nodes (whose pipeline now
+    // integrates in a replan drain) and only then allocates the N+1 planner.
+    // Pinned as source: extension.ts imports `vscode`.
+    const source = readExtensionSources();
+    const start = source.indexOf("if (status === 'draining') {");
+    const end = source.indexOf("if (status === 'blocked') {", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const draining = source.slice(start, end);
+    expect(draining).toContain('await driveReplanDrain(');
+    expect(draining).toContain('relaunchReplanPlanner: relaunchReplanPlannerHost');
+    expect(draining).toContain('const accepted = acceptSubmittedReplan(graphDriverDeps(), graphRunId);');
+  });
+
   it('refreshes and wakes recovered graph work, while describing blocked Stop accurately', () => {
     const source = readExtensionSources();
 

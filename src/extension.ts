@@ -48,6 +48,7 @@ import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { resolveConflictClick } from './extension/ops/conflictResolveOps.js';
 import { ticketHandOff } from './extension/ops/guardedHandOff.js';
 import { compileExpertSpend, compileSpentNodeRuns, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
+import { driveReplanDrain } from './extension/ops/graphReplanDrain.js';
 import { graphLaunchIdentity, processRunAttribution } from './extension/ops/graphLaunchIdentity.js';
 import { createGraphDepsPreflight, openWorkspaceDepsEditor } from './extension/graphDepsBinding.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
@@ -5165,6 +5166,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       if (status === 'draining') {
+        // T1322: a node that was live when the election drained the run
+        // completes and integrates here (no successor). With the drain then
+        // quiescent the N+1 planner is allocated at once; a drain that already
+        // has its planner is left alone.
+        await driveReplanDrain(
+          { db: gs.db, driveCompletingNodes, relaunchReplanPlanner: relaunchReplanPlannerHost },
+          graphRunId,
+        );
         // A submitted replan planner lands revision N+1 here.
         const accepted = acceptSubmittedReplan(graphDriverDeps(), graphRunId);
         if (accepted.kind === 'accepted') {

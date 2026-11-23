@@ -27,6 +27,7 @@ import {
   recordGraphRunAutoRecovery,
 } from '../../../store/graph/graphRuns.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
+import { sanitizeInline } from '../../../model/messageText.js';
 import { recoveryCategoryFor, type RecoveryCategory, type RecoveryResult } from './recovery.js';
 
 /** The most automatic recoveries one graph run gets before a human must act. */
@@ -120,7 +121,9 @@ async function recoverOne(
       deps.postNote({
         ticketId,
         title: `graph run ${graphRunId}: automatic recovery stopped`,
-        body: `${note}. The run stays blocked on: ${reason}`,
+        // A recorded block reason can carry a control character (the durable
+        // domain key joins its halves with NUL); a mailbox writer refuses one.
+        body: sanitizeInline(`${note}. The run stays blocked on: ${reason}`),
       });
     }
     return;
@@ -153,7 +156,11 @@ async function recoverOne(
   deps.postNote({
     ticketId,
     title: `graph run ${graphRunId}: recovered automatically (${attempt}/${AUTO_RECOVERY_LIMIT})`,
-    body: `The coordinator recovered a blocked graph run by itself (${result.kind}). Block reason: ${reason}`,
+    // Same hygiene as the stop note: a block reason can hold a control
+    // character, and the body is a mailbox body.
+    body: sanitizeInline(
+      `The coordinator recovered a blocked graph run by itself (${result.kind}). Block reason: ${reason}`,
+    ),
   });
 }
 

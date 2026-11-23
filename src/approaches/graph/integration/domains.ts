@@ -100,6 +100,17 @@ export function domainKeyOf(canonicalWorktree: string, gitCommonDir: string | nu
 }
 
 /**
+ * The canonical worktree path of a durable domain key — the readable half, for
+ * text a human or a mailbox body carries. The key itself joins its halves with
+ * NUL (a forbidden body character), so a message renders this path and never
+ * the key. A key with no separator is returned as it is.
+ */
+export function domainWorktreePathOf(domainKey: string): string {
+  const separator = domainKey.indexOf(DOMAIN_SEPARATOR);
+  return separator === -1 ? domainKey : domainKey.slice(0, separator);
+}
+
+/**
  * The Git common-directory identity of a worktree, read from its `.git`
  * file/directory — a tiny local file read, so the probe is synchronous (the
  * domain key is a synchronous identity the leases and serialization share;

@@ -613,6 +613,45 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
     expect(replanRuns.n).toBe(0);
   });
 
+  it('waits for a live node to complete, then allocates the planner', () => {
+    const ctx = electedCtx();
+    nodeRun(ctx, 52, 'a', 'running');
+    const begin = (): ReturnType<typeof beginReplanPlannerRun> =>
+      beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    for (const status of ['running', 'completing', 'integrating']) {
+      ctx.db.prepare('UPDATE approach_node_runs SET status = ? WHERE id = 52').run(status);
+      expect(begin(), status).toEqual({ ok: false, reason: 'not-quiescent' });
+    }
+    ctx.db
+      .prepare("UPDATE approach_node_runs SET status = 'completed', outcome = 'complete' WHERE id = 52")
+      .run();
+    expect(begin().ok).toBe(true);
+  });
+
+  it.each(['output-artifact-missing', 'artifact-unsafe'])(
+    'does not wait on a node parked %s (termination is proven before the park)',
+    (status) => {
+      const ctx = electedCtx();
+      nodeRun(ctx, 53, 'a', status);
+      ctx.db
+        .prepare("UPDATE approach_node_runs SET outcome = 'complete', failure_category = ? WHERE id = 53")
+        .run(status);
+      expect(beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId }).ok).toBe(true);
+    },
+  );
+
+  it.each(['termination-unknown', 'launch-unknown', 'failed-to-launch', 'stale'])(
+    'still waits on a node in status %s',
+    (status) => {
+      const ctx = electedCtx();
+      nodeRun(ctx, 54, 'a', status);
+      expect(beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId })).toEqual({
+        ok: false,
+        reason: 'not-quiescent',
+      });
+    },
+  );
+
   it('is a no-op once the run has left draining (a concurrent replan landed N+1)', () => {
     const ctx = electedCtx();
     setRunStatus(ctx, 'running');

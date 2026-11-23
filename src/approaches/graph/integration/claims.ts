@@ -2,12 +2,14 @@
  * Declared-writes resolution (Slice 3 Task 8).
  *
  * The completing pipeline validates the actual diff against the node's
- * DECLARED writes — re-derived here from the ACTIVE revision's canonical
- * graph, the same document the claim machinery compiled: an agent node's
- * `resources.writes` per repository, a command node's repository-wide writes
- * for each of its repositories. Paths are rooted at the repository root
- * within the worktree (`''` = the worktree root; a nested repoPath prefixes
- * its claims) and grouped per physical domain key.
+ * DECLARED writes — re-derived here from the canonical graph of the node run's
+ * OWN revision, the same document the claim machinery compiled. The revision is
+ * `active`, or `draining` when the node completes in a replan drain; any other
+ * status declares nothing. An agent node declares its `resources.writes` per
+ * repository, a command node repository-wide writes for each of its
+ * repositories. Paths are rooted at the repository root within the worktree
+ * (`''` = the worktree root; a nested repoPath prefixes its claims) and grouped
+ * per physical domain key.
  *
  * Host-agnostic: the repository entries (name, root, worktree path) and the
  * domain-key probe are injected; the extension resolves them from the
@@ -30,13 +32,14 @@ export interface DomainDeclaredWrites {
   paths: string[];
 }
 
-/** The active revision's canonical graph for the run, or null when broken. */
-function canonicalGraphOf(db: GraphDb, graphRunId: number): string | null {
+/** The canonical graph of a node run's own revision, or null when the revision
+ *  is neither `active` nor `draining`. */
+function canonicalGraphOf(db: GraphDb, revisionId: number): string | null {
   const row = db
     .prepare(
-      "SELECT canonical_graph FROM approach_graph_revisions WHERE graph_run_id = ? AND status = 'active'",
+      "SELECT canonical_graph FROM approach_graph_revisions WHERE id = ? AND status IN ('active', 'draining')",
     )
-    .get(graphRunId) as { canonical_graph: string } | undefined;
+    .get(revisionId) as { canonical_graph: string } | undefined;
   return row?.canonical_graph ?? null;
 }
 
@@ -52,7 +55,7 @@ export function declaredWritesFor(
 ): DomainDeclaredWrites[] {
   const run = nodeRunClaimedWritesRef(db, nodeRunId);
   if (!run) return [];
-  const canonical = canonicalGraphOf(db, run.graph_run_id);
+  const canonical = canonicalGraphOf(db, run.revision_id);
   if (canonical === null) return [];
   const parsed = parseGraphDocument(canonical);
   if (!parsed.ok) return [];

@@ -33,6 +33,7 @@
  */
 
 import type { ActivationDomain } from './leases.js';
+import { domainWorktreePathOf } from '../integration/domains.js';
 
 export type AccessMode = 'read' | 'write';
 
@@ -258,12 +259,12 @@ function heldLeaseConflict(
     for (const domain of domains) {
       if (domain.physicalDomain !== lease.physicalDomain) continue;
       if (lease.ambiguous) {
-        return `physical domain ${lease.physicalDomain} has an ambiguous-process lease (process death unproven)`;
+        return `physical domain ${domainWorktreePathOf(lease.physicalDomain)} has an ambiguous-process lease (process death unproven)`;
       }
       if (domain.accessMode === 'read' && lease.accessMode === 'read') continue;
       if (pathSetsOverlap(domain.paths ?? [], lease.paths)) {
         const breadth = lease.paths.length === 0 ? 'repo-wide' : lease.paths.join(',');
-        return `physical domain ${lease.physicalDomain} is held ${lease.accessMode} (${breadth}) by another node run`;
+        return `physical domain ${domainWorktreePathOf(lease.physicalDomain)} is held ${lease.accessMode} (${breadth}) by another node run`;
       }
     }
   }
