@@ -223,10 +223,10 @@ describe('ticket row', () => {
     const toggle = () => h.query('[data-collapse="900001"]')!;
     expect(glyph(toggle())).toBe(paths('list-tree'));
     expect(glyph(toggle())).not.toBe(glyph(h.query('.chev')!));
-    expect(toggle().getAttribute('aria-label')).toBe('Hide 1 nested sub-task');
+    expect(toggle().getAttribute('aria-label')).toBe('Hide subtasks');
     await h.click(toggle());
     expect(glyph(toggle())).toBe(paths('layout-list'));
-    expect(toggle().getAttribute('aria-label')).toBe('Show 1 nested sub-task');
+    expect(toggle().getAttribute('aria-label')).toBe('Show subtasks');
     expect(h.posted.filter((m) => m.type !== 'request-state')).toEqual([]);
   });
 
@@ -244,6 +244,42 @@ describe('ticket row', () => {
     await h.receive({ type: 'state', state: stateWith({ current: [r] }) });
     expect(chev().getAttribute('aria-expanded')).toBe('false');
     expect(h.posted.filter((m) => m.type !== 'request-state')).toEqual([]);
+  });
+});
+
+describe('ticket tree (SB-6)', () => {
+  it('is one roving tab stop: a tree with labelled groups, one tabIndex 0, and Down Arrow moves focus', async () => {
+    const h = await mount(stateWith({ current: [row(1), row(2), row(3)] }));
+    expect(h.query('.list')!.getAttribute('role')).toBe('tree');
+    const items = h.queryAll<HTMLElement>('.list [role="treeitem"]');
+    expect(items).toHaveLength(3);
+    expect(items.map((i) => i.getAttribute('aria-level'))).toEqual(['1', '1', '1']);
+    expect(h.queryAll('.list [role="treeitem"][tabindex="0"]')).toHaveLength(1);
+    expect(items[0]!.getAttribute('tabindex')).toBe('0');
+    items[0]!.focus();
+    await h.key(items[0]!, 'ArrowDown');
+    expect(h.document.activeElement).toBe(items[1]);
+    expect(items[1]!.getAttribute('tabindex')).toBe('0');
+    expect(h.queryAll('[role="group"]').map((g) => g.getAttribute('aria-label'))).toContain('Current, 3 tickets');
+  });
+
+  it('gives the row tools no tab stop of their own', async () => {
+    const h = await mount(stateWith({ current: [row(1)] }));
+    const rowEl = h.query('.ticket > .row')!;
+    expect(rowEl.getAttribute('tabindex')).toBe('0');
+    const buttons = [...rowEl.querySelectorAll('button')];
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.map((b) => b.getAttribute('tabindex'))).toEqual(buttons.map(() => '-1'));
+  });
+
+  it('marks the sub-tree toggle pressed and names it Show/Hide subtasks (SB-15)', async () => {
+    const h = await mount(fixture('subtasks'));
+    const toggle = () => h.query('[data-collapse="900001"]')!;
+    expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    expect(toggle().getAttribute('aria-label')).toBe('Hide subtasks');
+    await h.click(toggle());
+    expect(toggle().getAttribute('aria-pressed')).toBe('false');
+    expect(toggle().getAttribute('aria-label')).toBe('Show subtasks');
   });
 });
 
@@ -428,7 +464,7 @@ describe('posting controls', () => {
     // An empty pane folds to its header by default (SB-7): open Tickets first.
     await h.click('[data-pane="tickets"] .pane-toggle');
     expect(text(h.query('.k-empty-title'))).toBe('No tickets yet');
-    await h.click('.k-empty [data-act="create"]');
+    await h.click('[data-pane-empty] [data-act="create"]');
     expect(h.posted.at(-1)).toMatchObject({ type: 'create' });
   });
 
@@ -441,6 +477,14 @@ describe('posting controls', () => {
     expect(await emptyTitle({ ...fixture('empty'), filter: 'zzz' })).toBe('No tickets match');
     expect(await emptyTitle({ ...fixture('empty'), facets: ['done'] })).toBe('No done tickets');
     expect(await emptyTitle({ ...fixture('empty'), facets: ['archived'] })).toBe('No archived tickets');
+  });
+
+  it('offers Clear filters on a search with no match (SB-9)', async () => {
+    const h = await mount({ ...fixture('empty'), filter: 'zzz' });
+    await h.click('[data-pane="tickets"] .pane-toggle');
+    expect(text(h.query('[data-pane-empty]'))).toContain('No tickets match');
+    await h.click('[data-pane-empty] [data-clear-filters]');
+    expect(h.posted.at(-1)).toEqual({ type: 'set-filter', query: '' });
   });
 });
 
@@ -611,12 +655,25 @@ describe('search box', () => {
     await h.receive({ type: 'state', state: { ...base, filter: '' } });
     expect(h.query<HTMLInputElement>('#search')!.value).toBe('');
   });
+
+  it('clears from the clear button and on Escape, posting an empty filter (SB-9)', async () => {
+    const h = await mount({ ...base, filter: 'auth' });
+    expect(h.query<HTMLInputElement>('#search')!.value).toBe('auth');
+    expect(h.query('[data-search-clear]')).not.toBeNull();
+    await h.click('[data-search-clear]');
+    expect(h.posted.at(-1)).toEqual({ type: 'set-filter', query: '' });
+    expect(h.query('[data-search-clear]')).toBeNull();
+    const escaped = await mount({ ...base, filter: 'auth' });
+    await escaped.key('#search', 'Escape');
+    expect(escaped.posted.at(-1)).toEqual({ type: 'set-filter', query: '' });
+    expect(escaped.query<HTMLInputElement>('#search')!.value).toBe('');
+  });
 });
 
 describe('host feed', () => {
   it('remembers the last snapshot with setState so a re-resolved view repaints at once', async () => {
     const h = await mount(base);
-    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, queue: true, tickets: false, activity: true }, showArchivedPlans: false, queueFilters: { kinds: [], sessions: [], levels: [], blocked: [], chain: null } } });
+    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, queue: true, tickets: false, activity: true }, showArchivedPlans: false, queueFilters: { kinds: [], sessions: [], levels: [], blocked: [], chain: null }, activityLevel: 'all' } });
   });
 
   it('escapes hostile ticket text — it is text, never markup (UI-R32)', async () => {

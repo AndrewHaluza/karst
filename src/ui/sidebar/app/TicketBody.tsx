@@ -83,7 +83,7 @@ function Headline({ peek, row, sessVerb }: { readonly peek: TicketPeek; readonly
       <div className="peek-copy">
         <Status kind={GLYPH_STATUS[glyph]} label={GLYPH_WORD[glyph]} />
         <span className="peek-title">{peek.title}</span>
-        {age ? <span className="peek-age">{age}</span> : null}
+        {age ? <span className="peek-age" title={peek.since?.at}>{age}</span> : null}
         {peek.attempt && peek.attempt > 1 ? <span className="peek-attempt">attempt {peek.attempt}</span> : null}
       </div>
       <div className="peek-tools">

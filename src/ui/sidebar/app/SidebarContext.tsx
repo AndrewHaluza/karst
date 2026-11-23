@@ -17,6 +17,7 @@ import { PlanNotes } from './planNotes.js';
 import { activePreset, presetToggles, type PresetId, PRESETS } from './presets.js';
 import { ds } from './runtime.js';
 import type { QueueFilters } from './queueFilter.js';
+import type { ActivityLevelFilter } from './activityFormat.js';
 import { restoreView, type PaneKey, type ViewState } from './viewState.js';
 
 /** One entry of the shared context window. */
@@ -56,6 +57,8 @@ export interface SidebarContextValue {
   readonly fire: (spec: ActionSpec, el: HTMLElement, e?: MouseEvent) => void;
   /** Apply a Tickets preset through the existing `toggle-facet` messages. */
   readonly applyPreset: (id: PresetId) => void;
+  /** Drop every Tickets filter: the search text and any active preset (SB-9). */
+  readonly clearTicketFilters: () => void;
 
   /** Pure view state (collapsed panes, archived planning toggle): persisted in the webview state, never posted. */
   readonly view: ViewState;
@@ -65,6 +68,8 @@ export interface SidebarContextValue {
   readonly toggleShowArchivedPlans: () => void;
   /** Replace the Queue filters with the result of `update` (view state: never posted). */
   readonly updateQueueFilters: (update: (prev: QueueFilters) => QueueFilters) => void;
+  /** The Activity level (view state: never posted, SB-9). */
+  readonly setActivityLevel: (level: ActivityLevelFilter) => void;
   /** Sessions whose accepted drafts the user has revealed. */
   readonly acceptedOpen: ReadonlySet<number>;
   readonly toggleAccepted: (sessionId: number) => void;
@@ -120,6 +125,7 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
   const [acceptedOpen, setAcceptedOpen] = useState<ReadonlySet<number>>(new Set());
   const stateRef = useRef(state);
   const notes = useRef(new PlanNotes());
+  const sawState = useRef(false);
 
   const [openIds, setOpenIds] = useState<ReadonlySet<number>>(new Set());
   const [now, setNow] = useState<number>(() => Date.now());
@@ -157,6 +163,9 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
           else document.documentElement.removeAttribute('data-edge');
         } else if (msg.type === 'state') {
           const next = withStateDefaults(msg.state);
+          // A cold start is not a "rise": announce only after the first snapshot.
+          if (sawState.current) notes.current.announceNeedsYou(stateRef.current.counts?.input ?? 0, next.counts?.input ?? 0);
+          sawState.current = true;
           stateRef.current = next;
           bridge.setState({ ...next, view: viewRef.current });
           setState(next);
@@ -187,14 +196,15 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
     [bridge, closeMenu],
   );
 
-  // One interval, alive only while a row is open: the open rows' "6m ago" text re-renders from this.
-  const anyOpen = openIds.size > 0;
+  // One interval, alive only while a row is open or the Activity pane is open: the
+  // open rows' "6m ago" text and Activity's day labels re-render from this (SB-17).
+  const clockOn = openIds.size > 0 || !view.collapsed.activity;
   useEffect(() => {
-    if (!anyOpen) return undefined;
+    if (!clockOn) return undefined;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), CLOCK_MS);
     return () => clearInterval(timer);
-  }, [anyOpen]);
+  }, [clockOn]);
 
   const post = bridge.post;
 
@@ -233,6 +243,12 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
     [closeMenu, post],
   );
 
+  const clearTicketFilters = useCallback(() => {
+    closeMenu(false);
+    if ((stateRef.current.filter || '').trim() !== '') post({ type: 'set-filter', query: '' });
+    if (activePreset(stateRef.current.facets || ['all'])?.id !== 'all') post({ type: 'toggle-facet', facet: 'all' });
+  }, [closeMenu, post]);
+
   // View state is persisted with the last snapshot so a reloaded webview restores it.
   useEffect(() => {
     bridge.setState({ ...stateRef.current, view });
@@ -245,6 +261,9 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
   }, []);
   const updateQueueFilters = useCallback((update: (prev: QueueFilters) => QueueFilters) => {
     setView((v) => ({ ...v, queueFilters: update(v.queueFilters) }));
+  }, []);
+  const setActivityLevel = useCallback((level: ActivityLevelFilter) => {
+    setView((v) => ({ ...v, activityLevel: level }));
   }, []);
   const toggleAccepted = useCallback((sessionId: number) => {
     setAcceptedOpen((prev) => toggled(prev, sessionId));
@@ -283,12 +302,12 @@ export function SidebarProvider({ bridge, children }: { readonly bridge: Sidebar
 
   const value = useMemo<SidebarContextValue>(
     () => ({
-      state, loaded, error, post, fire, applyPreset, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted,
+      state, loaded, error, post, fire, applyPreset, clearTicketFilters, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, setActivityLevel, acceptedOpen, toggleAccepted,
       openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist,
       planOpen, setPlanOpen, collapseAllPlans, planFocus, setPlanFocus,
       menu, openMenu, closeMenu,
     }),
-    [state, loaded, error, post, fire, applyPreset, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, acceptedOpen, toggleAccepted, openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
+    [state, loaded, error, post, fire, applyPreset, clearTicketFilters, view, togglePane, activityReveal, toggleShowArchivedPlans, updateQueueFilters, setActivityLevel, acceptedOpen, toggleAccepted, openIds, now, toggleOpen, collapsedSubtrees, toggleSubtree, hist, toggleHist, planOpen, setPlanOpen, collapseAllPlans, planFocus, menu, openMenu, closeMenu],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

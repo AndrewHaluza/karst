@@ -84,7 +84,9 @@ describe('pane headers', () => {
     const h = await mount(fixture('empty'));
     expect(h.query('[data-pane="planning"] .pane-empty')).toBeNull();
     await h.click('[data-pane="planning"] .pane-toggle');
-    expect(text(h.query('[data-pane="planning"] .pane-empty'))).toBe('No planning sessions');
+    expect(text(h.query('[data-pane="planning"] .k-empty-title'))).toBe('No planning sessions');
+    expect(h.query('[data-pane="planning"] [data-pane-empty]')).not.toBeNull();
+    expect(text(h.query('[data-pane="planning"] [data-pane-empty] [data-act="plan-create"]'))).toBe('New planning session');
   });
 
   it('the + buttons reuse the plan-create and create actions', async () => {
@@ -236,6 +238,42 @@ describe('attention line', () => {
   const h0 = (h: RenderedSidebar) => h.query('[data-attention]');
 });
 
+describe('filter state (SB-9)', () => {
+  it('shows shown / total and the "Showing" line while a search narrows the list', async () => {
+    const h = await mount(fixture('filtered'));
+    expect(text(h.query('[data-pane="tickets"] .pane-count'))).toBe('1 / 3');
+    expect(text(h.query('[data-filter-line]'))).toBe('Showing: “auth”Clear');
+    expect(h.query('[data-filter-line] [data-clear-filters]')).not.toBeNull();
+  });
+
+  it('names a custom facet selection and clears both the search and the preset', async () => {
+    const state = { ...fixture('multi-facet'), filter: 'auth' };
+    const h = await mount(state);
+    expect(text(h.query('[data-filter-line]'))).toBe('Showing: Custom · “auth”Clear');
+    await h.click('[data-filter-line] [data-clear-filters]');
+    expect(sent(h)).toEqual([
+      { type: 'set-filter', query: '' },
+      { type: 'toggle-facet', facet: 'all' },
+    ]);
+  });
+});
+
+describe('pane announcements (SB-16)', () => {
+  it('names each header button with its count and announces a rise in needs-you once', async () => {
+    const h = await mount(withCounts(fixture('all-sections'), { input: 1, failed: 0 }));
+    expect(h.query('[data-pane="tickets"] .pane-toggle')!.getAttribute('aria-label')).toBe('Tickets, 6');
+    expect(h.query('[data-pane="planning"] .pane-toggle')!.getAttribute('aria-label')).toBe('Planning, 2');
+    const said = () => h.queryAll('.k-toast-text').map(text).filter((t) => t.includes('need'));
+    expect(said()).toEqual([]);
+    await h.receive({ type: 'state', state: withCounts(fixture('all-sections'), { input: 2, failed: 0 }) });
+    expect(said()).toEqual(['2 tickets need you']);
+    await h.receive({ type: 'state', state: withCounts(fixture('all-sections'), { input: 2, failed: 0 }) });
+    expect(said()).toHaveLength(1);
+    await h.receive({ type: 'state', state: withCounts(fixture('all-sections'), { input: 1, failed: 0 }) });
+    expect(said()).toHaveLength(1);
+  });
+});
+
 describe('archived planning sessions', () => {
   const archivedState = (): SidebarState => ({
     ...fixture('empty'),
@@ -277,11 +315,11 @@ describe('accepted drafts', () => {
     expect(h.query('[data-node="d11"]')).not.toBeNull();
     expect(h.query('[data-node="d12"]')).toBeNull();
     const toggle = h.query('[data-node="s3"] .pt-row [data-accepted-toggle]')!;
-    expect(text(toggle)).toBe('2 accepted ▸');
+    expect(text(toggle)).toBe('2 accepted');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     await h.click(toggle);
     const open = h.query('[data-node="s3"] [data-accepted-toggle]')!;
-    expect(text(open)).toBe('2 accepted ▾');
+    expect(text(open)).toBe('2 accepted');
     expect(open.getAttribute('aria-expanded')).toBe('true');
     expect(h.queryAll('[data-node^="d"]').map((n) => n.getAttribute('data-node'))).toEqual(['d11', 'd12', 'd13']);
   });
@@ -296,7 +334,7 @@ describe('accepted drafts', () => {
 
   it('a session with only accepted drafts shows the toggle and no pending rows', async () => {
     const h = await mount({ ...fixture('empty'), planning: [fixturePlanningRow(4, { proposals: [acc1] })] });
-    expect(text(h.query('[data-accepted-toggle]'))).toBe('1 accepted ▸');
+    expect(text(h.query('[data-accepted-toggle]'))).toBe('1 accepted');
     expect(h.query('[data-node="d12"]')).toBeNull();
   });
 

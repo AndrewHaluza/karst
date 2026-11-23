@@ -105,9 +105,23 @@ export function withStateDefaults(prev: SidebarState | undefined): SidebarState 
   };
 }
 
+const DAY_MS = 86_400_000;
+const MONTH_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+const MONTH_DAY_YEAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
 /**
- * Compact "4m ago" / "2h ago" from an ISO timestamp, against the viewer's clock
- * (the host stores UTC; formatting here keeps the model host-clock-free).
+ * A timestamp older than the day unit reads as a calendar day ("Jan 6"); a year
+ * or older adds the year ("Jan 6, 2025", SB-20). Short month names are stable.
+ */
+function calendarText(t: number, now: number): string {
+  return now - t >= 365 * DAY_MS ? MONTH_DAY_YEAR.format(t) : MONTH_DAY.format(t);
+}
+
+/**
+ * Compact "4m ago" / "2h ago" / "12d ago" from an ISO timestamp, against the
+ * viewer's clock (the host stores UTC; formatting here keeps the model
+ * host-clock-free). From 30 days on it reads as the date ("Jan 6"), with the
+ * year once the date is a year old (SB-20).
  */
 export function relTime(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return '';
@@ -119,11 +133,13 @@ export function relTime(iso: string | null | undefined, now: number = Date.now()
   if (m < 60) return `${m}m ago`;
   const h = Math.round(m / 60);
   if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
+  const d = Math.round(h / 24);
+  return d < 30 ? `${d}d ago` : calendarText(t, now);
 }
 
 /**
- * The headline age: `for 2h` for a running stage, `6m ago` for a finished one.
+ * The headline age: `for 2h` for a running stage, `6m ago` for a finished one,
+ * `since Jan 6` once the age passes the day unit (SB-20).
  * The host sends ISO times; this runs in the webview so a stale snapshot never freezes the text.
  */
 export function sinceText(since: { at: string; kind: 'for' | 'ago' } | null | undefined, now: number = Date.now()): string {
@@ -136,7 +152,8 @@ export function sinceText(since: { at: string; kind: 'for' | 'ago' } | null | un
   if (m < 60) return `for ${m}m`;
   const h = Math.floor(m / 60);
   if (h < 24) return `for ${h}h`;
-  return `for ${Math.floor(h / 24)}d`;
+  const d = Math.floor(h / 24);
+  return d < 30 ? `for ${d}d` : `since ${calendarText(t, now)}`;
 }
 
 /** The agent line's last-activity text: `active 4m ago`. Empty before the first hook. */

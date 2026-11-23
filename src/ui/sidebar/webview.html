@@ -52,8 +52,10 @@
   /* search */
   .search{position:relative;margin:var(--k-space-4) var(--k-space-4) var(--k-space-3);flex:0 0 auto}
   .search-icon{position:absolute;left:var(--k-space-3);top:50%;transform:translateY(-50%);
-    color:var(--k-text-faint)}
-  .search-input{width:100%;padding-left:var(--k-space-9)}
+    color:var(--k-text-dim)}
+  .search-input{width:100%;padding-left:var(--k-space-9);padding-right:calc(var(--k-space-9) + var(--k-space-2))}
+  .search-clear{position:absolute;right:0;top:50%;transform:translateY(-50%);
+    width:var(--k-space-8);height:var(--k-space-8);min-width:var(--k-space-8);min-height:var(--k-space-8)}
 
   /* One fixed line above the panes when the host cannot build the snapshot (SB-2).
      The reason is the tooltip; the line and the Retry are always the same. */
@@ -93,7 +95,10 @@
   .pane-acts .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
   /* The pane body is the host region for the stage word tier: full when wide, the stage key when narrow (@ui:UI-R49). */
   .pane-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0;container-type:inline-size}
-  .pane-empty{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
+  .pane-empty{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-dim);font-size:var(--k-text-xs)}
+  /* One empty shape for every pane (SB-11): a dim title, an optional hint and action. */
+  .pane-empty .k-empty-title{margin:0;color:var(--k-text-dim);font-size:var(--k-text-xs);font-weight:var(--k-weight-regular)}
+  .pane-empty .k-empty-hint,.pane-empty .k-empty-action{margin-top:var(--k-space-1);font-size:var(--k-text-xs)}
   /* A cold start paints the loaded layout with three row-height bars, never the
      empty text (@ui:UI-R46, SB-2). Static marks do not move under reduced motion. */
   .pane-skel{display:flex;flex-direction:column;gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4)}
@@ -102,6 +107,10 @@
     background:none;border:0;text-align:left;font:inherit;font-size:var(--k-text-xs);color:var(--k-text-dim);cursor:pointer;
     border-radius:var(--k-radius-md)}
   .pane-attention:hover{background:var(--vscode-list-hoverBackground)}
+  /* The active-filter line under the Tickets header (SB-9): "Showing: <preset> · Clear". */
+  .filter-line{display:flex;align-items:center;gap:var(--k-space-2);padding:0 var(--k-space-4) var(--k-space-2);
+    font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .filter-line-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .filter-menu{position:relative;display:inline-flex}
   .filter-menu .k-iconbtn{position:relative}
   .filter-dot{position:absolute;top:var(--k-space-1);right:var(--k-space-1);width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-pill);background:var(--k-attention)}
@@ -112,6 +121,8 @@
   .filter-pop [role="menuitemradio"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
   .pt-accepted-toggle{min-height:var(--k-hit-min);background:none;border:0;padding:0 var(--k-space-2);color:var(--k-text-dim);font:inherit;font-size:var(--k-text-2xs);cursor:pointer;white-space:nowrap}
   .pt-accepted-toggle:hover{color:var(--k-text)}
+  .pt-accepted-chev{display:inline-flex;vertical-align:middle;transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  .pt-accepted-toggle[aria-expanded="true"] .pt-accepted-chev{transform:rotate(90deg)}
 
   /* rows */
   /* flex:1 + min-height:0: the list is the one flex child allowed to shrink
@@ -124,6 +135,8 @@
     padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) 0;
     border-radius:var(--k-radius-md);position:relative;overflow:hidden}
   .row:hover{background:var(--k-surface-hover)}
+  /* The row is the treeitem (SB-6): one tab stop, a visible focus ring. */
+  .ticket [role="treeitem"]:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
   /* The row whose ticket view (dashboard/edit/diffs) is the window's ACTIVE
      view. "Currently active" is its own meaning, deliberately NOT the
      selection wash (STYLE-GUIDE §10): `--k-surface-selected` says "this item
@@ -398,7 +411,7 @@
   .q-main:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
   .q-pos{flex:none;min-width:2ch;text-align:right;font-family:var(--k-font-mono);font-variant-numeric:tabular-nums;color:var(--k-text-dim);font-size:var(--k-text-xs)}
   .q-id{flex:none;font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap}
-  .q-sx{color:var(--k-text-faint)}
+  .q-sx{color:var(--k-text-dim)}
   .q-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* The relation (D561 verb + D560 chip) is a sibling of .q-main: one line above the 400 tier, a second line under the position at the tier and less (the tier rule lives in the shared design CSS, UI-R04), so the title keeps the full width (UI-R44). */
   .q-row .q-rel{grid-area:rel;min-width:0;padding-left:0}
@@ -412,24 +425,24 @@
   .q-chain{grid-area:chain;width:var(--k-hit-min);height:var(--k-hit-min)}
   .q-chain[aria-pressed="true"]{color:var(--k-action-fg);background:var(--k-action-bg)}
   .q-hit{background:color-mix(in srgb,var(--k-attention) 35%,transparent);color:inherit;border-radius:var(--k-radius-xs)}
-  .q-gap{padding:0 var(--k-space-2);color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:var(--k-space-6);letter-spacing:.2em;text-align:center}
+  .q-gap{padding:0 var(--k-space-2);color:var(--k-text-dim);font-size:var(--k-text-xs);line-height:var(--k-space-6);letter-spacing:.2em;text-align:center}
   .q-filters{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);padding:var(--k-space-1) var(--k-space-4) var(--k-space-2)}
   .q-fchip{padding:0 var(--k-space-1) 0 var(--k-space-3);gap:var(--k-space-1);max-width:100%;min-width:0}
   .q-fchip-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .q-fchip-x{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--k-space-8);height:var(--k-space-8);padding:0;background:none;border:0;color:inherit;cursor:pointer;border-radius:var(--k-radius-pill)}
   .q-fchip-x:focus-visible,.q-fclear:focus-visible,.q-clear-all:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
   .q-fclear,.q-clear-all{background:none;border:0;padding:0;font:inherit;font-size:var(--k-text-xs);cursor:pointer}
-  .filter-group-label{padding:var(--k-space-2) var(--k-space-3) var(--k-space-1);color:var(--k-text-faint);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em}
+  .filter-group-label{padding:var(--k-space-2) var(--k-space-3) var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em}
   .filter-pop [role="menuitemcheckbox"]{display:flex;justify-content:space-between;gap:var(--k-space-4);text-align:left;padding-left:var(--k-space-8);position:relative}
   .filter-pop [role="menuitemcheckbox"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
-  .filter-count{color:var(--k-text-faint);font-variant-numeric:tabular-nums}
+  .filter-count{color:var(--k-text-dim);font-variant-numeric:tabular-nums}
   /* The row menu is always visible at the shared dim ink (SB-8): no hover-only
      control in a list that is read with the pointer moving. */
   .q-menu{grid-area:menu;width:var(--k-hit-min);height:var(--k-hit-min);opacity:1;color:var(--k-text-dim)}
   @container queue (max-width: 20em){.q-sx{display:none}}
   /* Activity rows: one line each (glyph, ticket chip, title, time). The region is the container; the title takes the rest and ellipsizes, nothing wraps (UI-R43, UI-R45). */
   [data-region="activity"]{container-type:inline-size;container-name:activity}
-  .a-day{padding:var(--k-space-2) var(--k-space-4) var(--k-space-1);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.08em;text-transform:uppercase}
+  .a-day{padding:var(--k-space-2) var(--k-space-4) var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold)}
   .a-row{display:grid;grid-template-columns:var(--k-space-8) auto minmax(0,1fr) auto;align-items:center;column-gap:var(--k-space-2);width:100%;min-height:var(--k-hit-min);padding:0 var(--k-space-4);background:none;border:0;border-radius:var(--k-radius-sm);color:var(--k-text);font:inherit;font-size:var(--k-text-sm);text-align:left}
   .a-row:not(:has(.a-ref)){grid-template-columns:var(--k-space-8) minmax(0,1fr) auto}
   .a-row--open{cursor:pointer}
@@ -442,7 +455,7 @@
   .a-lvl--warn{color:var(--k-warning)}
   .a-lvl--success{color:var(--k-passed)}
   .a-lvl--info{color:var(--k-text-dim)}
-  .a-ref{flex:none;white-space:nowrap}
+  .a-ref{flex:none;white-space:nowrap;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
   .a-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .a-time{flex:none;font-family:var(--k-font-mono);font-variant-numeric:tabular-nums;font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .a-more{margin:var(--k-space-2) var(--k-space-4);min-height:var(--k-hit-min)}
@@ -453,13 +466,13 @@
   .ctxitem.danger{color:var(--k-danger)}
   .ctxitem.danger .k-icon{color:var(--k-danger)}
 
-  /* Section headers (CURRENT · N / RECENTLY DONE · N): lightweight uppercase
-     labels, not cards — the list reads as one continuous scroll surface. */
+  /* Section headers (Current · N / Recently done · N): quiet sentence-case labels,
+     not cards — the list reads as one continuous scroll surface (SB-19). */
   .sec{display:flex;align-items:baseline;gap:var(--k-space-2);
     margin:var(--k-space-4) var(--k-space-4) var(--k-space-1);
-    font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.08em;
-    text-transform:uppercase;color:var(--k-text-faint)}
-  .sec-n{font-family:var(--k-font-mono);color:var(--k-text-faint);opacity:.8}
+    font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);
+    color:var(--k-text-dim)}
+  .sec-n{font-family:var(--k-font-mono);color:var(--k-text-dim)}
 
   /* Planning: a VS Code TreeView-style tree above the tickets, never mixed in.
      Compact rows; sessions (level 1) carry a twistie, a status dot, the title and
@@ -512,9 +525,9 @@
   .ticket.done .name{font-size:var(--k-text-sm);color:var(--k-text-dim)}
   /* Older Completed is the quietest level: even tighter row, fainter title. */
   .ticket.older .row{padding-top:0;padding-bottom:0}
-  .ticket.older .name{color:var(--k-text-faint)}
+  .ticket.older .name{color:var(--k-text-dim)}
   /* Relative completion time on Recently Done rows ("4m ago"). */
-  .time{flex:0 0 auto;font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .time{flex:0 0 auto;font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
   /* The completed-row marker: a check inside a ring, tinted by the shared
      status class (g-green). The CHECK SHAPE is the non-color carrier for
      Done (UI-R28) — decoration only, the section header carries the meaning,

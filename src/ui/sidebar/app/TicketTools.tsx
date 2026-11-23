@@ -15,17 +15,17 @@ export function canPause(row: TicketRow): boolean {
 }
 
 /** The Session tool. An `open-session` need has no button of its own, so it takes the amber ring. */
-export function SessionTool({ row, sessVerb }: { readonly row: TicketRow; readonly sessVerb: string }) {
+export function SessionTool({ row, sessVerb, tabIndex }: { readonly row: TicketRow; readonly sessVerb: string; readonly tabIndex?: number }) {
   const ring = row.peek?.needs?.cta.kind === 'open-session';
   return (
-    <IconAct spec={{ act: 'open-session', id: row.ticketId }} label={`${sessVerb} session`} className={ring ? 'needs-ring' : undefined}>
+    <IconAct spec={{ act: 'open-session', id: row.ticketId }} label={`${sessVerb} session`} tabIndex={tabIndex} className={ring ? 'needs-ring' : undefined}>
       <Icon name="terminal-2" />
     </IconAct>
   );
 }
 
 /** The Pause/Resume toggle. One button; `aria-pressed` carries the paused state (UI-R28). */
-export function PauseToggle({ row }: { readonly row: TicketRow }) {
+export function PauseToggle({ row, tabIndex }: { readonly row: TicketRow; readonly tabIndex?: number }) {
   const paused = Boolean(row.paused);
   const label = paused ? 'Resume execution' : 'Pause execution';
   return (
@@ -35,6 +35,7 @@ export function PauseToggle({ row }: { readonly row: TicketRow }) {
       aria-pressed={paused}
       aria-label={label}
       title={label}
+      tabIndex={tabIndex}
     >
       <Icon name={paused ? 'player-play' : 'player-pause'} />
     </ActButton>
@@ -43,13 +44,14 @@ export function PauseToggle({ row }: { readonly row: TicketRow }) {
 
 /**
  * The tools that appear on hover/focus in the narrow tier only (SB-8): Session and
- * Pause/Resume. The More menu is always visible in the row, in flow.
+ * Pause/Resume. The More menu is always visible in the row, in flow. In the tree
+ * the row owns the only tab stop, so the tools are `tabIndex={-1}` (SB-6).
  */
-export function HoverTools({ row, sessVerb }: { readonly row: TicketRow; readonly sessVerb: string }) {
+export function HoverTools({ row, sessVerb, tabIndex }: { readonly row: TicketRow; readonly sessVerb: string; readonly tabIndex?: number }) {
   return (
     <>
-      <SessionTool row={row} sessVerb={sessVerb} />
-      {canPause(row) ? <PauseToggle row={row} /> : null}
+      <SessionTool row={row} sessVerb={sessVerb} tabIndex={tabIndex} />
+      {canPause(row) ? <PauseToggle row={row} tabIndex={tabIndex} /> : null}
     </>
   );
 }

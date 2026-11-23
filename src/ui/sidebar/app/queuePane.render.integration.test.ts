@@ -134,6 +134,7 @@ describe('Queue pane', () => {
     const h = await mount(fixture('empty'));
     await open(h);
     expect(text(h.query('[data-pane="queue"] .pane-empty'))).toBe(QUEUE_EMPTY_TEXT);
+    expect(h.query('[data-pane="queue"] [data-pane-empty]')).not.toBeNull();
     expect(text(h.query('[data-pane="queue"] .pane-count'))).toBe('0');
   });
 

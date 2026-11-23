@@ -17,7 +17,7 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
   // Each conditional entry is host-gated (`paused` / `canDetach` / `canClose` / `canReopen`): the view only maps flags to items.
   return [
     { key: 'edit', spec: { act: 'edit', id }, label: 'Edit ticket', icon: 'pencil', title: 'Edit ticket' },
-    { key: 'spin', spec: { act: 'spin', id }, label: 'Start servers', icon: 'server-2', title: 'Spin up the worktree and dev servers' },
+    { key: 'spin', spec: { act: 'spin', id }, label: 'Start servers', icon: 'server-2', title: 'Start the worktree and the dev servers' },
     ...(row.priorityEditable ? [priorityMenuItem({ ticket: id }, row.priority)] : []),
     { key: 'follow', spec: { act: 'create-follow-up', id }, label: 'Create follow-up', icon: 'corner-down-right', title: 'Create a follow-up ticket' },
     ...(row.canDetach
@@ -43,7 +43,7 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
   ];
 }
 
-export function MenuTrigger({ row }: { readonly row: TicketRow }) {
+export function MenuTrigger({ row, tabIndex }: { readonly row: TicketRow; readonly tabIndex?: number }) {
   const { menu, openMenu, closeMenu } = useSidebar();
   const menuOpen = menu?.owner === row.ticketId;
   return (
@@ -51,6 +51,7 @@ export function MenuTrigger({ row }: { readonly row: TicketRow }) {
       type="button"
       className="k-iconbtn"
       data-menu={row.ticketId}
+      tabIndex={tabIndex}
       aria-expanded={menuOpen}
       aria-haspopup="menu"
       aria-label="More ticket actions"

@@ -22,7 +22,7 @@ describe('sidebar planning tree', () => {
     expect(h.query('[data-pane="planning"] [role="tree"]')).not.toBeNull();
     const tree = h.query('[role="tree"]')!;
     expect(tree.getAttribute('aria-label')).toBe('Planning sessions');
-    expect(h.queryAll('[role="treeitem"][aria-level="1"]')).toHaveLength(2);
+    expect(h.queryAll('.ptree [role="treeitem"][aria-level="1"]')).toHaveLength(2);
   });
 
   it('a session row has a twistie, a status marker, the title and a muted draft count — no text pills', async () => {
@@ -380,7 +380,7 @@ describe('sidebar planning tree keyboard', () => {
   it('uses a roving tabindex: only the first item is tabbable', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
-    const items = h.queryAll('[role="treeitem"]');
+    const items = h.queryAll('.ptree [role="treeitem"]');
     expect(items.filter((i) => i.getAttribute('tabindex') === '0')).toHaveLength(1);
     expect(items[0]!.getAttribute('tabindex')).toBe('0');
     expect(h.queryAll('.pt-actions button').every((b) => b.getAttribute('tabindex') === '-1')).toBe(true);

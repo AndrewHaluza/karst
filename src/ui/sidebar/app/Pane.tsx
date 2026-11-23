@@ -75,6 +75,7 @@ export function Pane({ pane, title, count, actions, sub, revealed, empty, childr
           className="pane-toggle"
           aria-expanded={!collapsed}
           aria-controls={collapsed ? undefined : bodyId}
+          aria-label={`${title}, ${count}`}
           onClick={toggle}
         >
           <span className="pane-chev"><Icon name="chevron-right" size={12} /></span>

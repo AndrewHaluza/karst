@@ -6,6 +6,7 @@
 import { ActButton } from './action.js';
 import { Icon } from './Icon.js';
 import { Pane } from './Pane.js';
+import { PaneEmpty } from './PaneEmpty.js';
 import { PlanningTree } from './PlanningTree.js';
 import { useSidebar } from './SidebarContext.js';
 
@@ -39,7 +40,12 @@ export function PlanningPane() {
   );
   return (
     <Pane pane="planning" title="Planning" count={plans.length} actions={actions}>
-      {plans.length ? <PlanningTree plans={plans} /> : <div className="pane-empty">No planning sessions</div>}
+      {plans.length ? <PlanningTree plans={plans} /> : (
+        <PaneEmpty
+          title="No planning sessions"
+          action={<ActButton spec={{ act: 'plan-create' }} className="k-btn k-btn--link">New planning session</ActButton>}
+        />
+      )}
     </Pane>
   );
 }
